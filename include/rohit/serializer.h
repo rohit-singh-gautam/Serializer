@@ -37,6 +37,18 @@ public:
     }
 };
 
+class BadType : std::exception {
+    const FullStream stream;
+
+public:
+    BadType(const FullStream &stream) : stream { stream } { }
+
+    const char* what() const noexcept override {
+        // TODO: Point where error is
+        return "BadType";
+    }
+};
+
 
 } // namespace exception
 
@@ -56,56 +68,7 @@ class json {
 public:
     template <typename T>
     static constexpr T serialize_in(const FullStream &stream) {
-        if constexpr (std::unsigned_integral<T>) {
-            if (stream.full()) throw exception::BadInputData { stream };
-            // TODO: Check out of range values
-            if (*stream < '0' || *stream > '9') throw exception::BadInputData { stream };
-            ++stream;
-            T value = *stream - '0';
-            while(!stream.full()) {
-                if (*stream < '0' || *stream > '9') break;
-                value = value * 10 + *stream - '0';
-                ++stream;
-            }
-            return value;
-        } else if constexpr (std::signed_integral<T>) {
-            if (stream.full()) throw exception::BadInputData { stream };
-            // TODO: Check out of range values
-            if ((*stream < '0' || *stream > '9') && *stream != '-' && *stream != '+') throw exception::BadInputData { stream };
-            T sign { 1 };
-            if (*stream == '-') {
-                sign = -1;
-                ++stream;
-            } else if (*stream == '+') ++stream;
-            T value = *stream - '0';
-            while(!stream.full()) {
-                if (*stream < '0' || *stream > '9') break;
-                value = value * 10 + *stream - '0';
-                ++stream;
-            }
-            return value * sign;
-        } else if constexpr (std::is_same_v<char, T>) {
-            if (stream.remaining_buffer() < 3) throw exception::BadInputData { stream };
-            if (*stream != '"') throw exception::BadInputData { stream };
-            ++stream;
-            T value = *stream;
-            ++stream;
-            if (*stream != '"') throw exception::BadInputData { stream };
-            ++stream;
-            return value;
-        } else if constexpr (std::is_same_v<std::string, T>) {
-            if (stream.remaining_buffer() < 2) throw exception::BadInputData { stream };
-            if (*stream != '"') throw exception::BadInputData { stream };
-            ++stream;
-            T value { };
-            while(*stream != '"') {
-                if (stream.full()) throw exception::BadInputData { stream };
-                value.push_back(*stream);
-                ++stream;
-            }
-            ++stream;
-            return value;
-        } else if constexpr (std::is_same_v<bool, T>) {
+        if constexpr (std::is_same_v<bool, T>) {
             if (stream.remaining_buffer() < 4) throw exception::BadInputData { stream };
             auto ch = std::tolower(*stream);
             if (ch == 't') {
@@ -128,8 +91,58 @@ public:
                 if (stream.full()) throw exception::BadInputData { stream };
                 if (std::tolower(*stream) != 'e') throw exception::BadInputData { stream };
                 ++stream;
-                return true;
+                return false;
             }
+        } else if constexpr (std::is_same_v<char, T>) {
+            if (stream.remaining_buffer() < 3) throw exception::BadInputData { stream };
+            if (*stream != '"') throw exception::BadInputData { stream };
+            ++stream;
+            T value = *stream;
+            ++stream;
+            if (*stream != '"') throw exception::BadInputData { stream };
+            ++stream;
+            return value;
+        } else if constexpr (std::unsigned_integral<T>) {
+            if (stream.full()) throw exception::BadInputData { stream };
+            // TODO: Check out of range values
+            if (*stream < '0' || *stream > '9') throw exception::BadInputData { stream };
+            T value = *stream - '0';
+            ++stream;
+            while(!stream.full()) {
+                if (*stream < '0' || *stream > '9') break;
+                value = value * 10 + *stream - '0';
+                ++stream;
+            }
+            return value;
+        } else if constexpr (std::signed_integral<T>) {
+            if (stream.full()) throw exception::BadInputData { stream };
+            // TODO: Check out of range values
+            if ((*stream < '0' || *stream > '9') && *stream != '-' && *stream != '+') throw exception::BadInputData { stream };
+            T sign { 1 };
+            if (*stream == '-') {
+                sign = -1;
+                ++stream;
+            } else if (*stream == '+') ++stream;
+            T value = *stream - '0';
+            ++stream;
+            while(!stream.full()) {
+                if (*stream < '0' || *stream > '9') break;
+                value = value * 10 + *stream - '0';
+                ++stream;
+            }
+            return value * sign;
+        } else if constexpr (std::is_same_v<std::string, T>) {
+            if (stream.remaining_buffer() < 2) throw exception::BadInputData { stream };
+            if (*stream != '"') throw exception::BadInputData { stream };
+            ++stream;
+            T value { };
+            while(*stream != '"') {
+                if (stream.full()) throw exception::BadInputData { stream };
+                value.push_back(*stream);
+                ++stream;
+            }
+            ++stream;
+            return value;
         } else if constexpr (std::is_same_v<float, T> || std::is_same_v<double, T>) {
             if (stream.full()) throw exception::BadInputData { stream };
             // TODO: Check out of range values
@@ -142,7 +155,7 @@ public:
             else return std::stod(number);
         }
 
-        return true;
+        throw exception::BadType { stream };
     }
 
     /*template <typename T>

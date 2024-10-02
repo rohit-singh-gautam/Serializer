@@ -1,8 +1,6 @@
 cmake_minimum_required(VERSION 3.28)
 
-project(SerializerTest)
-
-add_executable(CoreSerializerTest src/coreserializertest.cpp)
+add_executable(CoreSerializerTest coreserializertest.cpp)
 
 include_directories(${CMAKE_SOURCE_DIR}/include)
 
