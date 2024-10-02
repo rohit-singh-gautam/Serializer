@@ -158,96 +158,31 @@ public:
         throw exception::BadType { stream };
     }
 
-    /*template <typename T>
-    static constexpr void serialize_out(T ) {
-        if constexpr (std::unsigned_integral<T>) {
-            if (stream.full()) throw exception::BadInputData { stream };
-            // TODO: Check out of range values
-            if (*begin < '0' || *begin > '9') throw exception::BadInputData { stream };
-            ++stream;
-            T value = *begin - '0';
-            while(!stream.full()) {
-                if (*begin < '0' || *begin > '9') break;
-                value = value * 10 + *begin - '0';
-                ++stream;
-            }
-            return value;
-        } else if constexpr (std::signed_integral<T>) {
-            if (stream.full()) throw exception::BadInputData { stream };
-            // TODO: Check out of range values
-            if ((*begin < '0' || *begin > '9') && *begin != '-' && *begin != '+') throw exception::BadInputData { stream };
-            T sign { 1 };
-            if (*begin == '-') {
-                sign = -1;
-                ++stream;
-            } else if (*begin == '+') ++stream;;
-            T value = *begin - '0';
-            while(!stream.full()) {
-                if (*begin < '0' || *begin > '9') break;
-                value = value * 10 + *begin - '0';
-                ++stream;
-            }
-            return value * sign;
-        } else if constexpr (std::is_same_v<char, T>) {
-            if (begin + 2 >= end) throw exception::BadInputData { stream };
-            if (*begin != '"') throw exception::BadInputData { stream };
-            ++stream;
-            T value = *begin;
-            ++stream;
-            if (*begin != '"') throw exception::BadInputData { stream };
-            ++stream;
-            return value;
+    template <typename T>
+    static constexpr void serialize_out(T value, FullStream &stream) {
+        if constexpr (std::is_same_v<char, T>) {
+            stream.Reserve(3);
+            auto curr = stream.curr();
+            *curr = '"';
+            *(curr + 1) = value;
+            *(curr + 2) = '"';
+        } else if constexpr (std::integral<T>) {
+            stream.Copy(stream);
         } else if constexpr (std::is_same_v<std::string, T>) {
-            if (begin + 1 >= end) throw exception::BadInputData { stream };
-            if (*begin != '"') throw exception::BadInputData { stream };
-            ++stream;
-            T value { };
-            while(*begin != '"') {
-                if (stream.full()) throw exception::BadInputData { stream };
-                value.push_back(*begin);
-                ++stream;
-            }
-            ++stream;
-            return value;
+            *stream = '"';
+            stream.Copy(value);
+            *stream = '"';
         } else if constexpr (std::is_same_v<bool, T>) {
-            if (begin + 3 >= end) throw exception::BadInputData { stream };
-            auto ch = std::tolower(*begin);
-            if (ch == 't') {
-                ++stream;
-                if (std::tolower(*begin) != 'r') throw exception::BadInputData { stream };
-                ++stream;
-                if (std::tolower(*begin) != 'u') throw exception::BadInputData { stream };
-                ++stream;
-                if (std::tolower(*begin) != 'e') throw exception::BadInputData { stream };
-                ++stream;
-                return true;
-            } else if (ch == 'f') {
-                ++stream;
-                if (std::tolower(*begin) != 'a') throw exception::BadInputData { stream };
-                ++stream;
-                if (std::tolower(*begin) != 'l') throw exception::BadInputData { stream };
-                ++stream;
-                if (std::tolower(*begin) != 's') throw exception::BadInputData { stream };
-                ++stream;
-                if (stream.full()) throw exception::BadInputData { stream };
-                if (std::tolower(*begin) != 'e') throw exception::BadInputData { stream };
-                ++stream;
-                return true;
-            }
+            if (value) stream.Copy("TRUE");
+            else stream.Copy("FALSE");
         } else if constexpr (std::is_same_v<float, T> || std::is_same_v<double, T>) {
-            if (stream.full()) throw exception::BadInputData { stream };
-            // TODO: Check out of range values
-            if ((*begin < '0' || *begin > '9') && *begin != '-' && *begin != '+') throw exception::BadInputData { stream };
-            auto start = begin;
-            while (!stream.full() && *begin != ',' && *begin != '!' && *begin != ']' && *begin != '}' && *begin != ' ')
-                ++stream;
-            std::string number {start, begin};
-            if constexpr (std::is_same_v<float, T>) return std::stof(number);
-            else return std::stod(number);
+            char buffer[std::numeric_limits<T>::digits10 + 3] { 0 };
+            auto result = std::to_chars(std::begin(buffer), std::end(buffer), value);
+            Copy(buffer, result.ptr);
         }
 
-        return true;
-    } */
+        throw exception::BadType { stream };
+    }
 
 
 };
