@@ -19,7 +19,7 @@
 #include <rohit/serializer.h>
 #include <vector>
 
-TEST(Serializer, Char) {
+TEST(JSONSerializer, Char) {
     std::vector<std::pair<std::string, char>> test_list {
         {"\"0\"", '0'},
         {"\"1\"", '1'},
@@ -34,7 +34,7 @@ TEST(Serializer, Char) {
     }
 }
 
-TEST(Serializer, Integer8) {
+TEST(JSONSerializer, Integer8) {
     std::vector<std::pair<std::string, int8_t>> test_list {
         {"0", 0},
         {"1", 1},
@@ -56,7 +56,7 @@ TEST(Serializer, Integer8) {
     }
 }
 
-TEST(Serializer, Integer16) {
+TEST(JSONSerializer, Integer16) {
     std::vector<std::pair<std::string, int16_t>> test_list {
         {"0", 0},
         {"1", 1},
@@ -79,7 +79,7 @@ TEST(Serializer, Integer16) {
     }
 }
 
-TEST(Serializer, Integer32) {
+TEST(JSONSerializer, Integer32) {
     std::vector<std::pair<std::string, int32_t>> test_list {
         {"0", 0},
         {"1", 1},
@@ -103,7 +103,7 @@ TEST(Serializer, Integer32) {
     }
 }
 
-TEST(Serializer, Integer64) {
+TEST(JSONSerializer, Integer64) {
     std::vector<std::pair<std::string, int64_t>> test_list {
         {"0", 0},
         {"1", 1},
@@ -130,7 +130,7 @@ TEST(Serializer, Integer64) {
     }
 }
 
-TEST(Serializer, UnsignedInteger8) {
+TEST(JSONSerializer, UnsignedInteger8) {
     std::vector<std::pair<std::string, uint8_t>> test_list {
         {"0", 0},
         {"1", 1},
@@ -150,7 +150,7 @@ TEST(Serializer, UnsignedInteger8) {
     }
 }
 
-TEST(Serializer, UnsignedInteger16) {
+TEST(JSONSerializer, UnsignedInteger16) {
     std::vector<std::pair<std::string, uint16_t>> test_list {
         {"0", 0},
         {"1", 1},
@@ -172,7 +172,7 @@ TEST(Serializer, UnsignedInteger16) {
     }
 }
 
-TEST(Serializer, UnsignedInteger32) {
+TEST(JSONSerializer, UnsignedInteger32) {
     std::vector<std::pair<std::string, uint32_t>> test_list {
         {"0", 0},
         {"1", 1},
@@ -195,7 +195,7 @@ TEST(Serializer, UnsignedInteger32) {
     }
 }
 
-TEST(Serializer, UnsignedInteger64) {
+TEST(JSONSerializer, UnsignedInteger64) {
     std::vector<std::pair<std::string, uint64_t>> test_list {
         {"0", 0},
         {"1", 1},
@@ -220,7 +220,7 @@ TEST(Serializer, UnsignedInteger64) {
     }
 }
 
-TEST(Serializer, Float) {
+TEST(JSONSerializer, Float) {
     std::vector<std::pair<std::string, float>> test_list {
         {"0", 0},
         {"1", 1},
@@ -247,7 +247,7 @@ TEST(Serializer, Float) {
     }
 }
 
-TEST(Serializer, Double) {
+TEST(JSONSerializer, Double) {
     std::vector<std::pair<std::string, double>> test_list {
         {"0", 0},
         {"1", 1},
@@ -276,7 +276,7 @@ TEST(Serializer, Double) {
     }
 }
 
-TEST(Serializer, Bool) {
+TEST(JSONSerializer, Bool) {
     std::vector<std::pair<std::string, bool>> test_list {
         {"False", false},
         {"True", true},
@@ -297,7 +297,7 @@ TEST(Serializer, Bool) {
     }
 }
 
-TEST(Serializer, String) {
+TEST(JSONSerializer, String) {
     std::vector<std::pair<std::string, std::string>> test_list {
         {"\"0\"", "0"},
         {"\"1\"", "1"},
