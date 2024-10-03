@@ -98,6 +98,7 @@ public:
     virtual constexpr inline Stream &operator--() { --_curr; return *this;}
     virtual constexpr inline const Stream &operator++() const { ++_curr; return *this; }
     virtual constexpr inline const Stream &operator--() const { --_curr; return *this;}
+    constexpr inline void push(const auto ch) { operator*() = static_cast<uint8_t>(ch); operator++(); }
 
     virtual constexpr inline uint8_t *GetCurrAndIncrease(const size_t len) { auto temp = _curr; _curr += len; return temp; }
     virtual constexpr inline const uint8_t *GetCurrAndIncrease(const size_t len) const { auto temp = _curr; _curr += len; return temp; }
