@@ -23,7 +23,7 @@
 #include <functional>
 #include <memory>
 
-// Gramer
+// Gramar
 // STRUCTFILE: statementlist
 // namespace: "namespace" space hirerchical_identifier space '{' space statementlist space '}'
 // statementlist: statement | statement space statementlist
@@ -115,17 +115,20 @@ enum class ClassAtributes : uint8_t {
     Packed = 0x01
 };
 
-ClassAtributes operator|=(ClassAtributes lhs, ClassAtributes rhs) {
+ClassAtributes &operator|=(ClassAtributes &lhs, const ClassAtributes &rhs) {
     using T = std::underlying_type_t<ClassAtributes>;
     auto ulhs = static_cast<T>(lhs);
     auto urhs = static_cast<T>(rhs);
-    return static_cast<ClassAtributes>(ulhs | urhs);
+    lhs = static_cast<ClassAtributes>(ulhs | urhs);
+    return lhs;
 }
 
 struct Member {
     AccessType access;
     std::string typeName;
     std::string Name;
+
+    bool operator==(const Member &rhs) const { return access == rhs.access && typeName == rhs.typeName && Name == rhs.Name; }
 };
 
 struct Namespace;
@@ -159,7 +162,7 @@ struct Class : public Base {
     std::vector<Member> MemberList { };
     Class(ObjectType type, std::string &&Name, 
         Namespace *parentNamespace, ClassAtributes attributes,
-        std::vector<Parent> parentlist) : Base(type, std::move(Name), parentNamespace),
+        std::vector<Parent> &&parentlist) : Base(type, std::move(Name), parentNamespace),
             attributes { attributes }, parentlist { std::move(parentlist) } { }
     Class(Class &&rhs) : Base { std::move(rhs) },
         attributes { rhs.attributes }, parentlist { std::move(rhs.parentlist) },
@@ -171,8 +174,8 @@ struct Class : public Base {
 struct Namespace : public Base {
     std::vector<std::unique_ptr<Base>> statementlist { };
     Namespace(ObjectType type, std::string &&Name, 
-        Namespace *parentNamespace, std::vector<std::unique_ptr<Base>> &&statementlist) :
-            Base { type, std::move(Name), parentNamespace }, statementlist { std::move(statementlist) }
+        Namespace *parentNamespace) :
+            Base { type, std::move(Name), parentNamespace }
                 {}
 };
 
@@ -237,18 +240,6 @@ public:
         return identifier;
     }
 
-    std::vector<std::string> SpaceSeparatedIdentifier() {
-        std::vector<std::string> ret { };
-        if (!IsFirstIdentifier()) return ret;
-        while(true) {
-            ret.push_back(ParseIdentifier());
-            if (!IsWhiteSpace()) break;
-            SkipWhiteSpace();
-            if (!IsFirstIdentifier()) break;
-        }
-        return ret;
-    }
-
     void SpaceSeparatedIdentifier(std::function<void(std::string &&)> fn) {
         if (!IsFirstIdentifier()) return;
         while(true) {
@@ -305,11 +296,6 @@ public:
             obj.MemberList.push_back(std::move(member));
             SkipWhiteSpace();
         }
-        if (*inStream != '}' ) {
-            std::string errorstr { "Expecting '}' found: "};
-            errorstr += *inStream;
-            throw exception::BadClass { inStream, errorstr };
-        }
         ++inStream;
         if (*inStream == ';') throw exception::BadClass { inStream, {"Semicolon is not expected at the end of a class"} };
     }
@@ -350,6 +336,7 @@ public:
         if (*inStream == ':') {
             auto parentlisttemp = ParseParentList(CurrentNamespace);
             std::swap(parentlist, parentlisttemp);
+            ++inStream;
         }
 
         return {ObjectType::Class, std::move(name), CurrentNamespace, attributes, std::move(parentlist)};
@@ -368,7 +355,7 @@ public:
         std::vector<std::unique_ptr<Base>> statementlist { };
         while(true) {
             SkipWhiteSpace();
-            if (inStream.full()) break;
+            if (inStream.full() || *inStream == '}') break;
             auto objectType = ParseObjectType();
             if (objectType == ObjectType::Class) {
                 auto obj = new Class { ParseClass(parentNamespace) };
@@ -396,6 +383,7 @@ inline std::unique_ptr<Namespace> SerializerCreator::ParseNameSpace(Namespace *p
     // Object type is already parsed
     SkipWhiteSpace();
     auto name = ParseHierarchicalIdentifier();
+    SkipWhiteSpace();
     if (*inStream != '{' ) {
         std::string errorstr { "Expecting '{' found: "};
         errorstr += *inStream;
@@ -403,7 +391,9 @@ inline std::unique_ptr<Namespace> SerializerCreator::ParseNameSpace(Namespace *p
     }
     ++inStream;
 
-    auto ret = std::make_unique<Namespace>(ObjectType::Namespace, std::move(name), parentNamespace, ParseStatementList(parentNamespace));
+    auto ret = std::make_unique<Namespace>(ObjectType::Namespace, std::move(name), parentNamespace);
+    auto statementlist = ParseStatementList(ret.get());
+    std::swap(ret->statementlist, statementlist);
     
     if (*inStream != '}' ) {
         std::string errorstr { "Expecting '}' found: "};
