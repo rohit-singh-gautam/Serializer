@@ -180,7 +180,19 @@ struct Namespace : public Base {
 };
 
 class SerializerCreator {
+#ifdef ENABLE_GTEST
 public:
+    FRIEND_TEST(SerializeParser, Identifier);
+    FRIEND_TEST(SerializeParser, HierarchicalIdentifier);
+    FRIEND_TEST(SerializeParser, SpaceSeparatedIdentifier);
+    FRIEND_TEST(SerializeParser, AccessType);
+    FRIEND_TEST(SerializeParser, Member);
+    FRIEND_TEST(SerializeParser, ClassBody);
+    FRIEND_TEST(SerializeParser, CompleteStruct);
+#else
+private:
+#endif
+
     // For Optimization inStream must be null terminated
     const FullStream &inStream;
     FullStreamAutoAlloc &outStream;
@@ -371,12 +383,14 @@ public:
         return statementlist;
     }
 
-    std::vector<std::unique_ptr<Base>> Parse() { 
-        return ParseStatementList(nullptr);
-    }
 public:
     SerializerCreator(const FullStream &inStream, FullStreamAutoAlloc &outStream) : inStream { inStream }, outStream { outStream } { }
 
+    std::vector<std::unique_ptr<Base>> Parse() { 
+        return ParseStatementList(nullptr);
+    }
+
+    
 }; // class SerializerCreator
 
 inline std::unique_ptr<Namespace> SerializerCreator::ParseNameSpace(Namespace *parentNamespace) {

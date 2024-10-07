@@ -8,4 +8,6 @@ set_property(TARGET CoreSerializerTest PROPERTY CXX_STANDARD 23)
 
 target_link_libraries(CoreSerializerTest PRIVATE GTest::gtest_main)
 
+target_compile_definitions(CoreSerializerTest PUBLIC ENABLE_GTEST)
+
 add_test(CoreSerializerTest CoreSerializerTest)

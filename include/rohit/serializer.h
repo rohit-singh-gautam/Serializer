@@ -184,7 +184,21 @@ public:
         throw exception::BadType { stream };
     }
 
+    static constexpr void serialize_out_struct_start(Stream &stream, const std::string &name) {
+        stream.Write('"', name, "\":{");
+    }
+    
+    static constexpr void serialize_out_struct_end(Stream &stream) {
+        stream.Write('}');
+    }
 
+    static constexpr void serialize_out_array_start(Stream &stream) {
+        stream.Write('[');
+    }
+
+    static constexpr void serialize_out_array_end(Stream &stream) {
+        stream.Write('[');
+    }
 };
 
 } // namespace rohit::serializer
