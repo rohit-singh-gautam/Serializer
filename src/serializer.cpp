@@ -17,9 +17,94 @@
 
 #include <rohit/serializer.h>
 #include <rohit/serializercreator.h>
+#include <fstream>
+
+void DisplayHelp(const std::string &err) {
+    std::cout << "Usage: Serializer input <input filename> output <output filename>" << std::endl;
+    if (!err.empty()) {
+        std::cout << "Error: " << err << std::endl;
+    }
+}
+
+std::pair<char *, size_t> ReadBufferFromFile(const std::filesystem::path &path) {
+    if (!std::filesystem::is_regular_file(path)) {
+        throw std::invalid_argument { "Not a valid file" };
+    }
+    std::ifstream filestream { path };
+    filestream.seekg(0, std::ios::end);
+    auto size = filestream.tellg();
+    filestream.seekg(0, std::ios::beg);
+
+    auto buffer = new char[size];
+
+    filestream.read(buffer, size);
+
+    filestream.close();
+    return { buffer, size };
+}
+
+void WriteBufferToFile(const std::filesystem::path &path, const rohit::FullStream &stream) {
+    std::ofstream filestream { path };
+    filestream.write(reinterpret_cast<const char *>(stream.begin()), stream.index());
+    filestream.close();
+}
+
+std::ostream &operator<<(std::ostream &os, const std::vector<std::string> &strlist) {
+    os << "{ ";
+    for(auto &str: strlist) {
+        os << str << ' ';
+    }
+    os << '}';
+    return os;
+}
+
+int main(const int argc, const char *argv[]) {
+    const std::vector<std::string> args {argv, argv + argc};
+    std::filesystem::path input_file { };
+    std::filesystem::path output_file { };
+    for(int argi { 0 }; argi < argc; ++argi) {
+        if (args[argi] == "input") {
+            ++argi;
+            if (argi >= argc) {
+                DisplayHelp("Insufficient arguments");
+                return 0;
+            }
+            input_file = std::filesystem::path { args[argi] };
+            if (!std::filesystem::exists(input_file)) {
+                DisplayHelp("input file does not exists");
+                return 0;
+            }
+            std::cout << "Input File: " << input_file << std::endl;
+        } else if (args[argi] == "output") {
+            ++argi;
+            if (argi >= argc) {
+                DisplayHelp("Insufficient arguments");
+                return 0;
+            }
+            output_file = std::filesystem::path { args[argi] };
+            std::cout << "Output File: " << output_file << std::endl;
+        }
+    }
+
+    if (input_file.empty() || output_file.empty()) {
+        DisplayHelp("Input and output both parameters are required.");
+        std::cout << "Param: " << args << std::endl;
+        return 0;
+    }
+
+    auto [buffer, size] = ReadBufferFromFile(input_file);
+
+    const rohit::FullStream inStream {buffer, size};
+    rohit::FullStreamAutoAlloc outStream {256};
+    rohit::SerializerCreator creator {inStream, outStream};
 
 
-int main(int , char **) {
+    bool OutputIsHeader = output_file.extension() == ".h" || output_file.extension() == ".hpp" || output_file.extension() == ".hxx";
+    if (!OutputIsHeader) {
+        std::cout << "WARNING: Output file is designed for C++ header, output extension must be one of .h, .hpp or .hxx" << std::endl;
+    }
+    creator.Write();
+    WriteBufferToFile(output_file, outStream);
 
     return 0;
 }

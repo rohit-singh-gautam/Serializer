@@ -1,7 +1,8 @@
 namespace test {
-
+namespace test1 {
 class person packed {
     public string name;
     public uint64 ID;
+}
 }
 }

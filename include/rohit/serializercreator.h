@@ -22,13 +22,16 @@
 #include <vector>
 #include <functional>
 #include <memory>
+#include <filesystem>
+#include <iostream>
+#include <exception>
 
 // Gramar
 // STRUCTFILE: statementlist
 // namespace: "namespace" space hirerchical_identifier space '{' space statementlist space '}'
 // statementlist: statement | statement space statementlist
 // statement: namespace | class
-// class : classheader classbody | classextendedheader space classbody
+// class: classheader classbody | classextendedheader space classbody
 // classextendedheader: classheader space ':' space classparentlist
 // classheader: "class" space identifier space classattributelist
 // classparent: accesstypeidentifier space  hirerchical_identifier
@@ -121,6 +124,13 @@ ClassAtributes &operator|=(ClassAtributes &lhs, const ClassAtributes &rhs) {
     auto urhs = static_cast<T>(rhs);
     lhs = static_cast<ClassAtributes>(ulhs | urhs);
     return lhs;
+}
+
+ClassAtributes operator&(const ClassAtributes &lhs, const ClassAtributes &rhs) {
+    using T = std::underlying_type_t<ClassAtributes>;
+    auto ulhs = static_cast<T>(lhs);
+    auto urhs = static_cast<T>(rhs);
+    return static_cast<ClassAtributes>(ulhs & urhs);
 }
 
 struct Member {
@@ -383,13 +393,146 @@ private:
         return statementlist;
     }
 
-public:
-    SerializerCreator(const FullStream &inStream, FullStreamAutoAlloc &outStream) : inStream { inStream }, outStream { outStream } { }
+        void Write(const AccessType access) {
+        switch(access) {
+            case AccessType::Public:
+                outStream.Write("public:\n");
+                break;
+            
+            case AccessType::Protected:
+                outStream.Write("protected:\n");
+                break;
+            
+            case AccessType::Private:
+                outStream.Write("private:\n");
+                break;
+
+            default:
+                throw std::runtime_error("Bad access type");
+        }
+    }
+
+    const std::string &GetCPPType(const std::string &type) {
+        static std::unordered_map<std::string, std::string> CPPTypeMap {
+            {"int8", "int8_t"},
+            {"int16", "int16_t"},
+            {"int8", "int8_t"},
+            {"int32", "int32_t"},
+            {"int64", "int64_t"},
+            {"uint8", "uint8_t"},
+            {"uint16", "uint16_t"},
+            {"uint32", "uint32_t"},
+            {"uint64", "uint64_t"},
+            {"float", "float"},
+            {"double", "double"},
+            {"bool", "bool"},
+            {"string", "std::string"}
+        };
+        // TODO: Check and throw exception
+        return CPPTypeMap[type];
+    }
+
+    void Write(const std::vector<Parent> &parents) {
+        bool first { true };
+        for(auto &parent: parents) {
+            if (first) first = false;
+            else outStream.Write(", ");
+            Write(parent.access);
+            outStream.Write(' ', parent.Name);
+        }
+    }
+
+    void Write(const std::vector<Member> &members) {
+        std::vector<Member> private_members { };
+        std::vector<Member> protected_members { };
+        std::vector<Member> public_members { };
+
+        for(auto &member: members) {
+            switch(member.access) {
+                case AccessType::Public:
+                    public_members.push_back(member);
+                    break;
+                case AccessType::Protected:
+                    protected_members.push_back(member);
+                    break;
+                default:
+                    private_members.push_back(member);
+                    break;
+            }
+        }
+
+        bool prepend_newline { false };
+
+        if (!private_members.empty()) {
+            outStream.Write("private:\n");
+            for(auto &member: private_members) {
+                outStream.Write('\t', GetCPPType(member.typeName), ' ', member.Name, ";\n");
+            }
+            prepend_newline = true;
+        }
+        if (!protected_members.empty()) {
+            if (prepend_newline) outStream.Write('\n');
+            outStream.Write("protected:\n");
+            for(auto &member: protected_members) {
+                outStream.Write('\t', GetCPPType(member.typeName), ' ', member.Name, ";\n");
+            }
+            prepend_newline = true;
+        }
+        if (!public_members.empty()) {
+            if (prepend_newline) outStream.Write('\n');
+            outStream.Write("public:\n");
+            for(auto &member: public_members) {
+                outStream.Write('\t', GetCPPType(member.typeName), ' ', member.Name, ";\n");
+            }
+        }
+    }
+
+    void Write(const Class *obj) {
+        if ((obj->attributes & ClassAtributes::Packed) == ClassAtributes::Packed)
+            outStream.Write("class __attribute__ ((__packed__)) ", obj->Name);
+        else outStream.Write("class ", obj->Name);
+        if (!obj->parentlist.empty()) {
+            outStream.Write(" : ");
+            Write(obj->parentlist);
+        }
+        outStream.Write(" {\n");
+        Write(obj->MemberList);
+        outStream.Write("}; // class ", obj->Name, "\n\n");
+    }
+
+    void Write(const std::vector<std::unique_ptr<Base>> &statementlist);
+    void Write(const Namespace *namespaceptr) {
+        std::string completename = namespaceptr->Name;
+        while (namespaceptr->statementlist.size() == 1 && namespaceptr->statementlist.back()->type == ObjectType::Namespace) {
+            namespaceptr = dynamic_cast<Namespace *>(namespaceptr->statementlist.back().get());
+            completename += "::";
+            completename += namespaceptr->Name;
+        }
+        outStream.Write("namespace ", completename, " {\n");
+        Write(namespaceptr->statementlist);
+        outStream.Write("} // namespace ", completename,"\n\n");
+    }
 
     std::vector<std::unique_ptr<Base>> Parse() { 
         return ParseStatementList(nullptr);
     }
 
+public:
+    SerializerCreator(const FullStream &inStream, FullStreamAutoAlloc &outStream) : inStream { inStream }, outStream { outStream } { }
+
+    void Write() {
+        auto statementlist = Parse();
+        outStream.Write(
+            "/////////////////////////////////////////////////////////\n"
+            "// This is auto genarated file using serializer. Must  //\n"
+            "// be manually edited. For more information refer to   //\n"
+            "// https://github.com/rohit-singh-gautam/Serializer    //\n"
+            "/////////////////////////////////////////////////////////\n"
+            "#pragma once\n\n"
+            "#include <rohit/serializer.h>\n\n"
+        );
+        Write(statementlist);
+    }
     
 }; // class SerializerCreator
 
@@ -416,6 +559,15 @@ inline std::unique_ptr<Namespace> SerializerCreator::ParseNameSpace(Namespace *p
     }
     ++inStream;
     return ret;
+}
+
+void SerializerCreator::Write(const std::vector<std::unique_ptr<Base>> &statementlist) {
+    if (statementlist.empty()) return;
+
+    for(auto &statement: statementlist) {
+        if (statement->type == ObjectType::Namespace) Write(dynamic_cast<const Namespace *>(statement.get()));
+        else Write(dynamic_cast<const Class *>(statement.get()));
+    }
 }
 
 } // namespace rohit
