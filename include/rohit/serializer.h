@@ -21,6 +21,7 @@
 #include <type_traits>
 #include <cstdint>
 #include <iterator>
+#include <functional>
 
 namespace rohit::serializer {
 namespace exception {
@@ -52,20 +53,10 @@ public:
 
 } // namespace exception
 
-namespace typecheck {
-template<typename Stream>
-concept Reserve = requires(Stream stream) {
-    { stream.Reserve() } -> std::same_as<void>;
-};
-
-template<typename Stream>
-concept remaining_buffer = requires(Stream stream) {
-    { stream.remaining_buffer() } -> std::same_as<std::size_t>;
-};
-}
-
 class json {
 public:
+    static constexpr bool IsWhiteSpace(const char val) noexcept { return val == ' ' || val == '\t' || val == '\n' || val == '\r'; }
+    static void SkipWhiteSpace(const Stream &inStream) { while(IsWhiteSpace(*inStream)) ++inStream; }
     template <typename T>
     static constexpr T serialize_in(const FullStream &stream) {
         if constexpr (std::is_same_v<bool, T>) {
@@ -159,7 +150,7 @@ public:
     }
 
     template <typename T>
-    static constexpr void serialize_out(T value, FullStream &stream) {
+    static constexpr void serialize_out(T value, Stream &stream) {
         if constexpr (std::is_same_v<char, T>) {
             stream.Reserve(3);
             auto curr = stream.curr();
@@ -184,20 +175,78 @@ public:
         throw exception::BadType { stream };
     }
 
-    static constexpr void serialize_out_struct_start(Stream &stream, const std::string &name) {
-        stream.Write('"', name, "\":{");
+    static constexpr void struct_start_serialize_out(Stream &stream) {
+        stream.Write("{");
     }
     
-    static constexpr void serialize_out_struct_end(Stream &stream) {
+    static constexpr void struct_end_serialize_out(Stream &stream) {
         stream.Write('}');
     }
 
-    static constexpr void serialize_out_array_start(Stream &stream) {
+    static constexpr void array_start_serialize_out(Stream &stream) {
         stream.Write('[');
     }
 
-    static constexpr void serialize_out_array_end(Stream &stream) {
+    static constexpr void array_end_serialize_out(Stream &stream) {
         stream.Write('[');
+    }
+
+    static constexpr void member_serialize_out(Stream &stream, std::string &name, auto &value) {
+        stream.Write('"', name, "\":");
+        serialize_out(value, stream);
+    }
+
+    static constexpr void check_in(const FullStream &stream, char value) {
+        if (*stream != value) throw exception::BadInputData { stream };
+        ++stream;
+    }
+
+    static constexpr void serialize_in_struct_start(const FullStream &stream) {
+        check_in(stream, '{');
+    }
+    
+    static constexpr void serialize_in_struct_end(const FullStream &stream) {
+        check_in(stream, '}');
+    }
+
+    static constexpr void serialize_in_array_start(const FullStream &stream) {
+        check_in(stream, '[');
+    }
+
+    static constexpr void serialize_in_array_end(const FullStream &stream) {
+        check_in(stream, ']');
+    }
+
+    static constexpr const std::string_view serialize_in_get_key(const FullStream &stream) {
+        SkipWhiteSpace(stream);
+        check_in(stream, '"');
+        auto start = stream.curr();
+        // TODO:: Escape character
+        while(*stream != '"') ++stream;
+        auto end = stream.curr();
+        ++stream;
+        SkipWhiteSpace(stream);
+        check_in(stream, ':');
+        SkipWhiteSpace(stream);
+        return { reinterpret_cast<const char *>(start), reinterpret_cast<const char *>(end) };
+    }
+
+    template <typename ... Types>
+    static constexpr void struct_serialize_in(const FullStream &stream, Types& ... values) {
+        std::unordered_map<std::string_view, std::function<void(const rohit::FullStream &)>> membermap { values... };
+        serialize_in_struct_start(stream);
+        while(true) {
+            SkipWhiteSpace(stream);
+            auto key = serialize_in_get_key(stream);
+            auto itr = membermap.find(key);
+            if (itr == std::end(membermap)) throw std::runtime_error("Key not present");
+            itr->second(stream);
+            if (*stream == '}') {
+                break;
+            }
+            if (*stream != ',') throw exception::BadInputData { stream };
+        }
+        ++stream;
     }
 };
 

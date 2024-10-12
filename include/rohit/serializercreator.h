@@ -356,9 +356,10 @@ private:
         std::vector<Parent> parentlist;
         // At this point all whitespace is skipped
         if (*inStream == ':') {
+            ++inStream;
+            SkipWhiteSpace();
             auto parentlisttemp = ParseParentList(CurrentNamespace);
             std::swap(parentlist, parentlisttemp);
-            ++inStream;
         }
 
         return {ObjectType::Class, std::move(name), CurrentNamespace, attributes, std::move(parentlist)};
@@ -393,18 +394,18 @@ private:
         return statementlist;
     }
 
-        void Write(const AccessType access) {
+    void Write(const AccessType access) {
         switch(access) {
             case AccessType::Public:
-                outStream.Write("public:\n");
+                outStream.Write("public");
                 break;
             
             case AccessType::Protected:
-                outStream.Write("protected:\n");
+                outStream.Write("protected");
                 break;
             
             case AccessType::Private:
-                outStream.Write("private:\n");
+                outStream.Write("private");
                 break;
 
             default:
@@ -487,6 +488,33 @@ private:
         }
     }
 
+    void WriteSerializer(const Class *obj) {
+        // Serialize out
+        outStream.Write(
+            "\ttemplate <typename SerializerProtocol>\n"
+            "\tvoid serialize_out(rohit::Stream &stream) {\n"
+            "\t\tSerializerProtocol::serialize_out_struct_start(stream, \"", obj->Name ,"\");\n"
+        );
+        for(auto &parent: obj->parentlist) {
+            outStream.Write("\t\t", parent.Name, "::serialize_out(stream, true);\n");
+        }
+        for(auto &member: obj->MemberList) outStream.Write("\t\tSerializerProtocol::serialize_out_member(stream, \"", member.Name, "\", ", member.Name,");\n");
+        outStream.Write("\t\tSerializerProtocol::serialize_out_struct_end(stream);\n\t}\n\n");
+
+        // Serialize in
+        outStream.Write(
+            "\ttemplate <typename SerializerProtocol>\n"
+            "\tvoid serialize_in(const rohit::FullStream &stream) {\n"
+            "\t\tSerializerProtocol::struct_serialize_in(\n"
+			"\t\t\tstream,\n"
+        );
+        for(auto &parent: obj->parentlist)
+            outStream.Write("\t\t\tstd::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {\"", parent.Name, "\"}, [this] (const rohit::FullStream &stream) { this->", parent.Name, "::serialize_in(stream); }},\n");
+        for(auto &member: obj->MemberList)
+            outStream.Write("\t\t\tstd::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {\"", member.Name, "\"}, [&", member.Name, "] (const rohit::FullStream &stream) { ", member.Name, " = SerializerProtocol::serialize_in<", member.typeName,">(stream); }},\n");
+        outStream.Write("\t\t);\n\t}\n");
+    }
+
     void Write(const Class *obj) {
         if ((obj->attributes & ClassAtributes::Packed) == ClassAtributes::Packed)
             outStream.Write("class __attribute__ ((__packed__)) ", obj->Name);
@@ -497,6 +525,8 @@ private:
         }
         outStream.Write(" {\n");
         Write(obj->MemberList);
+        outStream.Write('\n');
+        WriteSerializer(obj);
         outStream.Write("}; // class ", obj->Name, "\n\n");
     }
 

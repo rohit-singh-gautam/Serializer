@@ -62,10 +62,10 @@ int main(const int argc, const char *argv[]) {
     const std::vector<std::string> args {argv, argv + argc};
     std::filesystem::path input_file { };
     std::filesystem::path output_file { };
-    for(int argi { 0 }; argi < argc; ++argi) {
+    for(size_t argi { 0 }; argi < args.size(); ++argi) {
         if (args[argi] == "input") {
             ++argi;
-            if (argi >= argc) {
+            if (argi >= args.size()) {
                 DisplayHelp("Insufficient arguments");
                 return 0;
             }
@@ -77,7 +77,7 @@ int main(const int argc, const char *argv[]) {
             std::cout << "Input File: " << input_file << std::endl;
         } else if (args[argi] == "output") {
             ++argi;
-            if (argi >= argc) {
+            if (argi >= args.size()) {
                 DisplayHelp("Insufficient arguments");
                 return 0;
             }
