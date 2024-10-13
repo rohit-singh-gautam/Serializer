@@ -136,6 +136,7 @@ public:
         const size_t len = reinterpret_cast<const char *>(_end) - reinterpret_cast<const char *>(_begin);
         CheckOverflow(len);
     }
+    constexpr inline void Copy(const std::string_view &source) { Reserve(source.size()); _curr = std::copy(std::begin(source), std::end(source), _curr); }
     constexpr inline void Copy(const std::string &source) { Reserve(source.size()); _curr = std::copy(std::begin(source), std::end(source), _curr); }
     constexpr inline void Copy(const Stream &source) { Reserve(source.remaining_buffer()); _curr = std::copy(source.curr(), source.end(), _curr); }
     constexpr inline void Copy(const auto *begin, const auto *end) { Reserve(begin, end); _curr = std::copy(reinterpret_cast<const uint8_t *>(begin), reinterpret_cast<const uint8_t *>(end), _curr); }
@@ -161,7 +162,9 @@ public:
             } else static_assert(false, "Unsupported type");
         } else if constexpr (std::is_same_v<ValueType, std::string>) {
             Copy(value);
-        } else static_assert(false, "Unsupported type");
+        } else if constexpr (std::is_same_v<ValueType, std::string_view>) {
+            Copy(value);
+        }else static_assert(false, "Unsupported type");
     }
 
     template<typename... ValueType> 

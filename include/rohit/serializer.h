@@ -54,9 +54,41 @@ public:
 } // namespace exception
 
 class json {
-public:
     static constexpr bool IsWhiteSpace(const char val) noexcept { return val == ' ' || val == '\t' || val == '\n' || val == '\r'; }
     static void SkipWhiteSpace(const Stream &inStream) { while(IsWhiteSpace(*inStream)) ++inStream; }
+
+    template <typename T>
+    static constexpr void serialize_out_first(auto &name, const T &value, Stream &stream) {
+        stream.Write('"', name, "\":");
+        serialize_out(value, stream);
+    }
+
+    template <typename T>
+    static constexpr void serialize_out_second(auto &name, const T &value, Stream &stream) {
+        stream.Write(",\"", name, "\":");
+        serialize_out(value, stream);
+    }
+
+    static constexpr void check_in(const FullStream &stream, char value) {
+        if (*stream != value) throw exception::BadInputData { stream };
+        ++stream;
+    }
+
+    static constexpr const std::string_view serialize_in_get_key(const FullStream &stream) {
+        SkipWhiteSpace(stream);
+        check_in(stream, '"');
+        auto start = stream.curr();
+        // TODO:: Escape character
+        while(*stream != '"') ++stream;
+        auto end = stream.curr();
+        ++stream;
+        SkipWhiteSpace(stream);
+        check_in(stream, ':');
+        SkipWhiteSpace(stream);
+        return { reinterpret_cast<const char *>(start), reinterpret_cast<const char *>(end) };
+    }
+
+public:
     template <typename T>
     static constexpr T serialize_in(const FullStream &stream) {
         if constexpr (std::is_same_v<bool, T>) {
@@ -149,92 +181,10 @@ public:
         throw exception::BadType { stream };
     }
 
-    template <typename T>
-    static constexpr void serialize_out(T value, Stream &stream) {
-        if constexpr (std::is_same_v<char, T>) {
-            stream.Reserve(3);
-            auto curr = stream.curr();
-            *curr = '"';
-            *(curr + 1) = value;
-            *(curr + 2) = '"';
-        } else if constexpr (std::integral<T>) {
-            stream.Copy(stream);
-        } else if constexpr (std::is_same_v<std::string, T>) {
-            *stream = '"';
-            stream.Copy(value);
-            *stream = '"';
-        } else if constexpr (std::is_same_v<bool, T>) {
-            if (value) stream.Copy("TRUE");
-            else stream.Copy("FALSE");
-        } else if constexpr (std::is_same_v<float, T> || std::is_same_v<double, T>) {
-            char buffer[std::numeric_limits<T>::digits10 + 3] { 0 };
-            auto result = std::to_chars(std::begin(buffer), std::end(buffer), value);
-            Copy(buffer, result.ptr);
-        }
-
-        throw exception::BadType { stream };
-    }
-
-    static constexpr void struct_start_serialize_out(Stream &stream) {
-        stream.Write("{");
-    }
-    
-    static constexpr void struct_end_serialize_out(Stream &stream) {
-        stream.Write('}');
-    }
-
-    static constexpr void array_start_serialize_out(Stream &stream) {
-        stream.Write('[');
-    }
-
-    static constexpr void array_end_serialize_out(Stream &stream) {
-        stream.Write('[');
-    }
-
-    static constexpr void member_serialize_out(Stream &stream, std::string &name, auto &value) {
-        stream.Write('"', name, "\":");
-        serialize_out(value, stream);
-    }
-
-    static constexpr void check_in(const FullStream &stream, char value) {
-        if (*stream != value) throw exception::BadInputData { stream };
-        ++stream;
-    }
-
-    static constexpr void serialize_in_struct_start(const FullStream &stream) {
-        check_in(stream, '{');
-    }
-    
-    static constexpr void serialize_in_struct_end(const FullStream &stream) {
-        check_in(stream, '}');
-    }
-
-    static constexpr void serialize_in_array_start(const FullStream &stream) {
-        check_in(stream, '[');
-    }
-
-    static constexpr void serialize_in_array_end(const FullStream &stream) {
-        check_in(stream, ']');
-    }
-
-    static constexpr const std::string_view serialize_in_get_key(const FullStream &stream) {
-        SkipWhiteSpace(stream);
-        check_in(stream, '"');
-        auto start = stream.curr();
-        // TODO:: Escape character
-        while(*stream != '"') ++stream;
-        auto end = stream.curr();
-        ++stream;
-        SkipWhiteSpace(stream);
-        check_in(stream, ':');
-        SkipWhiteSpace(stream);
-        return { reinterpret_cast<const char *>(start), reinterpret_cast<const char *>(end) };
-    }
-
     template <typename ... Types>
-    static constexpr void struct_serialize_in(const FullStream &stream, Types& ... values) {
+    static constexpr void struct_serialize_in(const FullStream &stream, Types ... values) {
         std::unordered_map<std::string_view, std::function<void(const rohit::FullStream &)>> membermap { values... };
-        serialize_in_struct_start(stream);
+        check_in(stream, '{');
         while(true) {
             SkipWhiteSpace(stream);
             auto key = serialize_in_get_key(stream);
@@ -245,8 +195,45 @@ public:
                 break;
             }
             if (*stream != ',') throw exception::BadInputData { stream };
+            ++stream;
         }
         ++stream;
+    }
+
+    template <typename T>
+    static constexpr void serialize_out(const T &value, Stream &stream) {
+        if constexpr (std::is_same_v<T, void(Stream &)> || std::is_function_v<T> || std::is_same_v<T, std::function<void(Stream &)>>) {
+            value(stream);
+        } else if constexpr (std::is_same_v<char, T>) {
+            stream.Reserve(3);
+            auto curr = stream.curr();
+            *curr = '"';
+            *(curr + 1) = value;
+            *(curr + 2) = '"';
+        } else if constexpr (std::integral<T>) {
+            stream.Copy(value);
+        } else if constexpr (std::is_same_v<std::string, T>) {
+            *stream++ = '"';
+            stream.Copy(value);
+            *stream++ = '"';
+        } else if constexpr (std::is_same_v<bool, T>) {
+            if (value) stream.Copy("TRUE");
+            else stream.Copy("FALSE");
+        } else if constexpr (std::is_same_v<float, T> || std::is_same_v<double, T>) {
+            char buffer[std::numeric_limits<T>::digits10 + 3] { 0 };
+            auto result = std::to_chars(std::begin(buffer), std::end(buffer), value);
+            Copy(buffer, result.ptr);
+        } else {
+            throw std::runtime_error {"Bad Type"};
+        }
+    }
+
+    template <typename ... Types>
+    static constexpr void struct_serialize_out(Stream &stream, const auto &value, Types ... values) {
+        stream.Write("{");
+        serialize_out_first(value.first, value.second, stream);
+        (serialize_out_second(values.first, values.second, stream), ...);
+        stream.Write('}');
     }
 };
 

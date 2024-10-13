@@ -1,0 +1,12 @@
+namespace test {
+namespace test1 {
+class person {
+    public string name;
+    public uint64 ID;
+}
+
+class personex : public person {
+    public uint64 account;
+}
+}
+}

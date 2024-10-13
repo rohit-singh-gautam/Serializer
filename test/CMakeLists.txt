@@ -1,13 +1,22 @@
 cmake_minimum_required(VERSION 3.28)
 
-add_executable(CoreSerializerTest coreserializertest.cpp serializeparsertest.cpp)
+add_custom_command(
+    OUTPUT ${CMAKE_BINARY_DIR}/test/person.h
+    COMMAND ${CMAKE_BINARY_DIR}/serializer input ${CMAKE_SOURCE_DIR}/test/resources/person.def output ${CMAKE_BINARY_DIR}/test/person.h
+    DEPENDS ${CMAKE_SOURCE_DIR}/test/resources/person.def ${CMAKE_SOURCE_DIR}/include/rohit/serializercreator.h
+    VERBATIM
+)
 
-include_directories(${CMAKE_SOURCE_DIR}/include)
+add_executable(CoreSerializerTest coreserializertest.cpp serializeparsertest.cpp ${CMAKE_BINARY_DIR}/test/person.h generatedtest.cpp)
+
+include_directories(${CMAKE_SOURCE_DIR}/include ${CMAKE_BINARY_DIR}/test)
 
 set_property(TARGET CoreSerializerTest PROPERTY CXX_STANDARD 23)
 
 target_link_libraries(CoreSerializerTest PRIVATE GTest::gtest_main)
 
 target_compile_definitions(CoreSerializerTest PUBLIC ENABLE_GTEST)
+
+add_dependencies(CoreSerializerTest serializer)
 
 add_test(CoreSerializerTest CoreSerializerTest)

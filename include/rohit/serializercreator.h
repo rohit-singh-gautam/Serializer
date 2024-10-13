@@ -493,13 +493,23 @@ private:
         outStream.Write(
             "\ttemplate <typename SerializerProtocol>\n"
             "\tvoid serialize_out(rohit::Stream &stream) {\n"
-            "\t\tSerializerProtocol::serialize_out_struct_start(stream, \"", obj->Name ,"\");\n"
+            "\t\tSerializerProtocol::struct_serialize_out(\n"
+            "\t\t\tstream,\n"
         );
+        bool first = true;
         for(auto &parent: obj->parentlist) {
-            outStream.Write("\t\t", parent.Name, "::serialize_out(stream, true);\n");
+            if (!first) outStream.Write(",\n");
+            else first = false;
+            outStream.Write("\t\t\tstd::make_pair(std::string_view { \"", parent.Name, "\" }, [this](rohit::Stream &stream) { this->", parent.Name ,"::template serialize_out<SerializerProtocol>(stream);} )");
         }
-        for(auto &member: obj->MemberList) outStream.Write("\t\tSerializerProtocol::serialize_out_member(stream, \"", member.Name, "\", ", member.Name,");\n");
-        outStream.Write("\t\tSerializerProtocol::serialize_out_struct_end(stream);\n\t}\n\n");
+        if (!first) outStream.Write(",\n");
+        first = true;
+        for(auto &member: obj->MemberList) {
+            if (!first) outStream.Write(",\n");
+            else first = false;
+            outStream.Write("\t\t\tstd::make_pair(std::string_view { \"", member.Name, "\" }, ", member.Name,")");
+        }
+        outStream.Write("\n\t\t);}\n\n");
 
         // Serialize in
         outStream.Write(
@@ -508,11 +518,20 @@ private:
             "\t\tSerializerProtocol::struct_serialize_in(\n"
 			"\t\t\tstream,\n"
         );
-        for(auto &parent: obj->parentlist)
-            outStream.Write("\t\t\tstd::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {\"", parent.Name, "\"}, [this] (const rohit::FullStream &stream) { this->", parent.Name, "::serialize_in(stream); }},\n");
-        for(auto &member: obj->MemberList)
-            outStream.Write("\t\t\tstd::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {\"", member.Name, "\"}, [&", member.Name, "] (const rohit::FullStream &stream) { ", member.Name, " = SerializerProtocol::serialize_in<", member.typeName,">(stream); }},\n");
-        outStream.Write("\t\t);\n\t}\n");
+        first = true;
+        for(auto &parent: obj->parentlist) {
+            if (!first) outStream.Write(",\n");
+            else first = false;
+            outStream.Write("\t\t\tstd::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {\"", parent.Name, "\"}, [this] (const rohit::FullStream &stream) { this->", parent.Name, "::template serialize_in<SerializerProtocol>(stream); }}");
+        }
+        if (!first) outStream.Write(",\n");
+        first = true;
+        for(auto &member: obj->MemberList) {
+            if (!first) outStream.Write(",\n");
+            else first = false;
+            outStream.Write("\t\t\tstd::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {\"", member.Name, "\"}, [this] (const rohit::FullStream &stream) { this->", member.Name, " = SerializerProtocol::template serialize_in<", GetCPPType(member.typeName),">(stream); }}");
+        }
+        outStream.Write("\n\t\t);\n\t}\n");
     }
 
     void Write(const Class *obj) {
