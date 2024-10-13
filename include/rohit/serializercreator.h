@@ -500,7 +500,7 @@ private:
         for(auto &parent: obj->parentlist) {
             if (!first) outStream.Write(",\n");
             else first = false;
-            outStream.Write("\t\t\tstd::make_pair(std::string_view { \"", parent.Name, "\" }, [this](rohit::Stream &stream) { this->", parent.Name ,"::template serialize_out<SerializerProtocol>(stream);} )");
+            outStream.Write("\t\t\tstd::pair<std::string_view, std::function<void(rohit::Stream &)>> { std::string_view { \"", parent.Name, "\" }, [this](rohit::Stream &stream) { this->", parent.Name ,"::template serialize_out<SerializerProtocol>(stream);} }");
         }
         if (!first) outStream.Write(",\n");
         first = true;
