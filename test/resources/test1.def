@@ -1,0 +1,8 @@
+namespace test {
+class values {
+    public char ch;
+    public float pi;
+    public double t1;
+    public bool t2;
+}
+}

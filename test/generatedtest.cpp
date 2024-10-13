@@ -17,28 +17,31 @@
 
 #include <gtest/gtest.h>
 #include <person.h>
+#include <test1.h>
 #include <string>
 
 TEST(GeneratedTest, SerializeIn) {
-    const std::string personstr {
-        "{\"name\":\"Rohit Jairaj Singh\",\"ID\":322}"
-    };
+    const std::string personstr {"{\"name\":\"Rohit Jairaj Singh\",\"ID\":322}"};
     auto fullstream = rohit::make_const_fullstream(personstr);
 
     test::test1::person person { };
     person.serialize_in<rohit::serializer::json>(fullstream);
     EXPECT_EQ(person.ID, 322);
+
+    std::string valuesstr { "{\"ch\":\"a\",\"pi\":3.14,\"t1\":3.884563,\"t2\":TRUE}" };
+    test::values values { };
+    auto fullstream1 = rohit::make_const_fullstream(valuesstr);
+    values.serialize_in<rohit::serializer::json>(fullstream1);
+    EXPECT_EQ(values.ch, 'a');
 }
 
 TEST(GeneratedTest, SerializeOut) {
     test::test1::person person { "Rohit Jairaj Singh", 322 };
-    std::string personstr {
-        "{\"name\":\"Rohit Jairaj Singh\",\"ID\":322}"
-    };
     rohit::FullStreamAutoAlloc fullstream { 256 };
     person.serialize_out<rohit::serializer::json>(fullstream);
 
     std::string result_person {reinterpret_cast<char *>(fullstream.begin()), fullstream.index()};
+    std::string personstr {"{\"name\":\"Rohit Jairaj Singh\",\"ID\":322}"};
     EXPECT_TRUE(result_person == personstr);
 
     test::test1::personex personex { "Rohit Jairaj Singh", 322, 122 };
@@ -49,4 +52,12 @@ TEST(GeneratedTest, SerializeOut) {
     std::string personexstr { "{\"person\":{\"name\":\"Rohit Jairaj Singh\",\"ID\":322},\"account\":122}" };
 
     EXPECT_TRUE(result_personex == personexstr);
+    
+    test::values values { 'a', 3.14, 3.884563, true};
+    fullstream.Reset();
+    values.serialize_out<rohit::serializer::json>(fullstream);
+    std::string valuesstr {reinterpret_cast<char *>(fullstream.begin()), fullstream.index()};
+    std::string result_valuesstr { "{\"ch\":\"a\",\"pi\":3.14,\"t1\":3.884563,\"t2\":TRUE}" };
+
+    EXPECT_TRUE(result_valuesstr == valuesstr);
 }

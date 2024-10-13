@@ -205,24 +205,22 @@ public:
         if constexpr (std::is_same_v<T, void(Stream &)> || std::is_function_v<T> || std::is_same_v<T, std::function<void(Stream &)>>) {
             value(stream);
         } else if constexpr (std::is_same_v<char, T>) {
-            stream.Reserve(3);
-            auto curr = stream.curr();
-            *curr = '"';
-            *(curr + 1) = value;
-            *(curr + 2) = '"';
+            *stream++ = '"';
+            *stream++ = value;
+            *stream++ = '"';
+        } else if constexpr (std::is_same_v<bool, T>) {
+            if (value) stream.Copy("TRUE");
+            else stream.Copy("FALSE");
         } else if constexpr (std::integral<T>) {
             stream.Copy(value);
         } else if constexpr (std::is_same_v<std::string, T>) {
             *stream++ = '"';
             stream.Copy(value);
             *stream++ = '"';
-        } else if constexpr (std::is_same_v<bool, T>) {
-            if (value) stream.Copy("TRUE");
-            else stream.Copy("FALSE");
         } else if constexpr (std::is_same_v<float, T> || std::is_same_v<double, T>) {
             char buffer[std::numeric_limits<T>::digits10 + 3] { 0 };
             auto result = std::to_chars(std::begin(buffer), std::end(buffer), value);
-            Copy(buffer, result.ptr);
+            stream.Copy(buffer, result.ptr);
         } else {
             throw std::runtime_error {"Bad Type"};
         }

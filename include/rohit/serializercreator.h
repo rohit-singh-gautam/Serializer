@@ -415,6 +415,7 @@ private:
 
     const std::string &GetCPPType(const std::string &type) {
         static std::unordered_map<std::string, std::string> CPPTypeMap {
+            {"char", "char"},
             {"int8", "int8_t"},
             {"int16", "int16_t"},
             {"int8", "int8_t"},
