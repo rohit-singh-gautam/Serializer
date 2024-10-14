@@ -39,3 +39,9 @@ struct <name> packed : <public|private|protected> <parent> {
 |double|double|8|Floating point|
 |bool|bool|1|Bool|
 |string|std::string|variable|String|
+
+
+## Collection types
+Following collecting types are supported
+1. Array
+1. Map

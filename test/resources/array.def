@@ -1,0 +1,11 @@
+namespace arraytest {
+class person {
+    public string name;
+    public uint64 ID;
+}
+
+class personlist {
+    public uint64 listid;
+    public array person list;
+}
+}

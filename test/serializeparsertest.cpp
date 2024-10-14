@@ -122,11 +122,13 @@ TEST(SerializeParser, AccessType) {
 }
 
 TEST(SerializeParser, Member) {
+    // tuple list are: source, Member, is negative test
     std::vector<std::tuple<std::string, rohit::Member, bool>> test_list {
-        {"public uint8 test;", {rohit::AccessType::Public, "uint8", "test"}, false},
-        {"protected \r\n uint8\ttest;", {rohit::AccessType::Protected, "uint8", "test"}, false},
-        {"private \r\n newtest\t_test\r\n;", {rohit::AccessType::Private, "newtest", "_test"}, false},
-        {" private \r\n 9newtest\t_test\r\n;", {rohit::AccessType::Private, "uint8", "_test"}, true},
+        {"private \r\n array \r\n\t uint8\t_test\r\n;", {rohit::AccessType::Private, rohit::Member::array, "uint8", "_test"}, false},
+        {"public uint8 test;", {rohit::AccessType::Public, rohit::Member::none, "uint8", "test"}, false},
+        {"protected \r\n uint8\ttest;", {rohit::AccessType::Protected, rohit::Member::none, "uint8", "test"}, false},
+        {"private \r\n newtest\t_test\r\n;", {rohit::AccessType::Private, rohit::Member::none, "newtest", "_test"}, false},
+        {"private \r\n 9newtest\t_test\r\n;", {rohit::AccessType::Private, rohit::Member::none, "uint8", "_test"}, true},
     };
 
     rohit::FullStreamAutoAlloc outStream {128};

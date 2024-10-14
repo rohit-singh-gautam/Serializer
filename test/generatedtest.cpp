@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 #include <person.h>
 #include <test1.h>
+#include <array.h>
 #include <string>
 
 TEST(GeneratedTest, SerializeIn) {
@@ -60,4 +61,22 @@ TEST(GeneratedTest, SerializeOut) {
     std::string result_valuesstr { "{\"ch\":\"a\",\"pi\":3.14,\"t1\":3.884563,\"t2\":TRUE}" };
 
     EXPECT_TRUE(result_valuesstr == valuesstr);
+}
+
+TEST(GeneratedTest, SerializeArray) {
+    arraytest::personlist personlist { 556, {{"Rohit Jairaj Singh", 1}, {"Ragini Rohit Singh", 2}}};
+    rohit::FullStreamAutoAlloc fullstream { 256 };
+    personlist.serialize_out<rohit::serializer::json>(fullstream);
+    std::string personliststr {reinterpret_cast<char *>(fullstream.begin()), fullstream.index()};
+    std::string result_personliststr { "{\"listid\":556,\"list\":[{\"name\":\"Rohit Jairaj Singh\",\"ID\":1},{\"name\":\"Ragini Rohit Singh\",\"ID\":2}]}" };
+    EXPECT_TRUE(result_personliststr == personliststr);
+
+    auto fullstream1 = rohit::make_const_fullstream(result_personliststr);
+    arraytest::personlist personlist1 { };
+    personlist1.serialize_in<rohit::serializer::json>(fullstream1);
+    
+    EXPECT_TRUE(personlist.listid == personlist1.listid);
+    EXPECT_TRUE(personlist.list.size() == personlist1.list.size());
+    EXPECT_TRUE(personlist.list[0].name == personlist1.list[0].name);
+    
 }
