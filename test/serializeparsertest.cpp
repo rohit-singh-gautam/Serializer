@@ -116,7 +116,7 @@ TEST(SerializeParser, AccessType) {
             auto parsedstring = creator.ParseAccessType();
             EXPECT_EQ(parsedstring, output);
         } else {
-            EXPECT_THROW(creator.ParseAccessType(), rohit::exception::Base);
+            EXPECT_THROW(creator.ParseAccessType(), rohit::exception::BaseParser);
         }
     }
 }

@@ -424,4 +424,76 @@ template <typename ChT> constexpr inline const FullStream make_const_fullstream(
 constexpr inline const FullStream make_const_fullstream(const std::string &string) { return FullStream { const_cast<char *>(string.data()), string.size() }; }
 template <typename ChT> constexpr inline const FullStream make_const_fullstream(const ChT *begin, const ChT *end, const ChT *curr) { return FullStream { const_cast<ChT *>(begin), const_cast<ChT *>(end), const_cast<ChT *>(curr) }; }
 
+namespace exception {
+class BaseParser : public std::exception {
+protected:
+    const std::string whats_err;
+
+    static const auto CreateWhatString(const Stream stream, const std::string &errorstr) {
+        std::string whats_err { };
+        if (errorstr.empty()) whats_err += "Error ";
+        else whats_err += errorstr;
+        whats_err += " - Location: ";
+
+        const FullStream *fullstream = dynamic_cast<const FullStream *>(&stream);
+
+        if (fullstream) {
+            if (fullstream->index() >= 40 ){
+                std::string_view initial {reinterpret_cast<const char *>(fullstream->begin()), 16};
+                for(auto &current_ch: initial) {
+                    if (current_ch >= 32 /* &&  current_ch <= 127 */) {
+                        whats_err.push_back(current_ch);
+                    } else whats_err.push_back('#');
+                }
+                whats_err += " ... ";
+
+                std::string_view second {reinterpret_cast<const char *>(fullstream->curr()) - 16, 16};
+                for(auto &current_ch: initial) {
+                    if (current_ch >= 32 /* &&  current_ch <= 127 */) {
+                        whats_err.push_back(current_ch);
+                    } else whats_err.push_back('#');
+                }
+            } else {
+                std::string_view initial {reinterpret_cast<const char *>(fullstream->begin()), fullstream->index()};
+                for(auto &current_ch: initial) {
+                    if (current_ch >= 32 /* &&  current_ch <= 127 */) {
+                        whats_err.push_back(current_ch);
+                    } else whats_err.push_back('#');
+                }
+            }
+            whats_err += " <-- failed here with error ";
+            whats_err += errorstr;
+            whats_err += " --| ";
+        } else {
+            whats_err += "Failed with error: ";
+            whats_err += errorstr;
+            whats_err += " --- ";
+        }
+
+        std::string_view last {reinterpret_cast<const char *>(stream.curr()), std::min<size_t>(16, stream.remaining_buffer())};
+        for(auto &current_ch: last) {
+            if (current_ch >= 32 /* &&  current_ch <= 127 */) {
+                whats_err.push_back(current_ch);
+            } else whats_err.push_back('#');
+        }
+        if (stream.remaining_buffer() > 16) {
+            whats_err += " ... more ";
+            whats_err += std::to_string(stream.remaining_buffer() - 16UL);
+            whats_err += " characters.";
+        }
+
+        return whats_err;
+    }
+
+public:
+    BaseParser(const Stream &stream, const std::string &errorstr) : whats_err { CreateWhatString(stream, errorstr) } { }
+    BaseParser(const Stream &stream) : whats_err { CreateWhatString(stream, {}) } { }
+
+    const char *what() const noexcept override {
+        return whats_err.c_str();
+    }
+};
+
+} // namespace exception
+
 } // namespace rohit

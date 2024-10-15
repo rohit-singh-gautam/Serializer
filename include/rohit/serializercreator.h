@@ -48,52 +48,37 @@
 
 namespace rohit {
 namespace exception {
-class Base : public std::exception {
-protected:
-    const Stream stream;
-    std::string errorstr;
-
+class BadIdentifier : public BaseParser {
 public:
-    Base(const Stream &stream, std::string &errorstr) : stream { stream }, errorstr { errorstr } { }
-    Base(const Stream &stream, std::string &&errorstr) : stream { stream }, errorstr { std::move(errorstr) } { }
-
-    // TODO: Implement in detail
-    const char *what() const noexcept override {
-        return "Bad Identifier";
-    }
+    using BaseParser::BaseParser;
 };
 
-class BadIdentifier : public Base {
+class BadAccessType : public BaseParser {
 public:
-    using Base::Base;
+    using BaseParser::BaseParser;
 };
 
-class BadAccessType : public Base {
+class BadObjectType : public BaseParser {
 public:
-    using Base::Base;
+    using BaseParser::BaseParser;
 };
 
-class BadObjectType : public Base {
+class BadClassMember : public BaseParser {
 public:
-    using Base::Base;
+    using BaseParser::BaseParser;
 };
 
-class BadClassMember : public Base {
+class BadClass : public BaseParser {
 public:
-    using Base::Base;
+    using BaseParser::BaseParser;
 };
 
-class BadClass : public Base {
+class BadNamespace : public BaseParser {
 public:
-    using Base::Base;
+    using BaseParser::BaseParser;
 };
 
-class BadNamespace : public Base {
-public:
-    using Base::Base;
-};
-
-};
+} // namespace exception
 
 void tolower_inplace(std::string &value) {
     for(auto &ch: value) {
@@ -237,7 +222,7 @@ private:
             errstr.push_back(value);
             errstr += ", Found: ";
             errstr.push_back(*inStream);
-            throw exception::BadClass { inStream, std::move(errstr)};
+            throw exception::BadClass { inStream, errstr };
         }
         ++inStream;
     }
@@ -438,6 +423,7 @@ private:
 
     void Write(const AccessType access) {
         switch(access) {
+            default:
             case AccessType::Public:
                 outStream.Write("public");
                 break;
@@ -449,9 +435,6 @@ private:
             case AccessType::Private:
                 outStream.Write("private");
                 break;
-
-            default:
-                throw std::runtime_error("Bad access type");
         }
     }
 

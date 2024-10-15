@@ -28,29 +28,16 @@
 
 namespace rohit::serializer {
 namespace exception {
+using rohit::exception::BaseParser;
 
-class BadInputData : std::exception {
-    const Stream stream;
-
+class BadInputData : public BaseParser {
 public:
-    BadInputData(const Stream &stream) : stream { stream } { }
-
-    const char* what() const noexcept override {
-        // TODO: Point where error is
-        return "BadException";
-    }
+    using BaseParser::BaseParser;
 };
 
-class BadType : std::exception {
-    const Stream stream;
-
+class BadType : public BaseParser {
 public:
-    BadType(const Stream &stream) : stream { stream } { }
-
-    const char* what() const noexcept override {
-        // TODO: Point where error is
-        return "BadType";
-    }
+    using BaseParser::BaseParser;
 };
 
 
