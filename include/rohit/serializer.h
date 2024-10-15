@@ -22,15 +22,18 @@
 #include <cstdint>
 #include <iterator>
 #include <functional>
+#include <vector>
+#include <map>
+#include <type_traits>
 
 namespace rohit::serializer {
 namespace exception {
 
 class BadInputData : std::exception {
-    const FullStream stream;
+    const Stream stream;
 
 public:
-    BadInputData(const FullStream &stream) : stream { stream } { }
+    BadInputData(const Stream &stream) : stream { stream } { }
 
     const char* what() const noexcept override {
         // TODO: Point where error is
@@ -39,10 +42,10 @@ public:
 };
 
 class BadType : std::exception {
-    const FullStream stream;
+    const Stream stream;
 
 public:
-    BadType(const FullStream &stream) : stream { stream } { }
+    BadType(const Stream &stream) : stream { stream } { }
 
     const char* what() const noexcept override {
         // TODO: Point where error is
@@ -74,6 +77,14 @@ concept vector = requires(T t) {
     typename T::value_type;
     requires std::is_same_v<T, std::vector<typename T::value_type>>;
 };
+
+template <typename T>
+concept map = requires(T t) {
+    typename T::key_type;
+    typename T::mapped_type;
+    requires std::is_same_v<T, std::map<typename T::key_type, typename T::mapped_type>>;
+};
+
 } // namespace typecheck
 
 class json {
@@ -214,6 +225,26 @@ public:
                 }
             }
             ++stream;
+        } else if constexpr (typecheck::map<T>) {
+            check_in(stream, '{');
+            SkipWhiteSpace(stream);
+            if (*stream != '}') {
+                while(true) {
+                    typename T::key_type key { };
+                    serialize_in(stream, key);
+                    SkipWhiteSpace(stream);
+                    check_in(stream, ':');
+                    SkipWhiteSpace(stream);
+                    typename T::mapped_type valuetype { };
+                    serialize_in(stream, valuetype);
+                    value.emplace(std::move(key), std::move(valuetype));
+                    SkipWhiteSpace(stream);
+                    if (*stream == '}') break;
+                    check_in(stream, ',');
+                    SkipWhiteSpace(stream);
+                }
+            }
+            ++stream;
         } else throw exception::BadType { stream };
     }
 
@@ -273,7 +304,25 @@ public:
                 }
             }
             stream.Write(']');
+        } else if constexpr (typecheck::map<T>) {
+            stream.Write('{');
+            auto itr = std::begin(value);
+            if (itr != std::end(value)) {
+                serialize_out(stream, itr->first);
+                stream.Write(':');
+                serialize_out(stream, itr->second);
+                itr = std::next(itr);
+                while(itr != std::end(value)) {
+                    stream.Write(',');
+                    serialize_out(stream, itr->first);
+                    stream.Write(':');
+                    serialize_out(stream, itr->second);
+                    itr = std::next(itr);
+                }
+            }
+            stream.Write('}');
         } else {
+            // TODO: Improve exception
             throw std::runtime_error {"Bad Type"};
         }
     }

@@ -1,0 +1,11 @@
+namespace maptest {
+class person {
+    public string name;
+    public uint64 ID;
+}
+
+class personlist {
+    public uint64 listid;
+    public map(uint64) person list;
+}
+}

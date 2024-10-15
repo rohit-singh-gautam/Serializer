@@ -22,7 +22,14 @@ add_custom_command(
     VERBATIM
 )
 
-add_executable(CoreSerializerTest coreserializertest.cpp serializeparsertest.cpp ${CMAKE_BINARY_DIR}/test/person.h ${CMAKE_BINARY_DIR}/test/test1.h ${CMAKE_BINARY_DIR}/test/array.h generatedtest.cpp)
+add_custom_command(
+    OUTPUT ${CMAKE_BINARY_DIR}/test/map.h
+    COMMAND ${CMAKE_BINARY_DIR}/serializer input ${CMAKE_SOURCE_DIR}/test/resources/map.def output ${CMAKE_BINARY_DIR}/test/map.h
+    DEPENDS ${CMAKE_SOURCE_DIR}/test/resources/map.def ${CMAKE_SOURCE_DIR}/include/rohit/serializercreator.h
+    VERBATIM
+)
+
+add_executable(CoreSerializerTest coreserializertest.cpp serializeparsertest.cpp ${CMAKE_BINARY_DIR}/test/person.h ${CMAKE_BINARY_DIR}/test/test1.h ${CMAKE_BINARY_DIR}/test/array.h ${CMAKE_BINARY_DIR}/test/map.h generatedtest.cpp)
 
 include_directories(${CMAKE_SOURCE_DIR}/include ${CMAKE_BINARY_DIR}/test)
 

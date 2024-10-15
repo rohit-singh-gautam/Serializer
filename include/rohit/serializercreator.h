@@ -50,12 +50,12 @@ namespace rohit {
 namespace exception {
 class Base : public std::exception {
 protected:
-    const FullStream stream;
+    const Stream stream;
     std::string errorstr;
 
 public:
-    Base(const FullStream &stream, std::string &errorstr) : stream { stream }, errorstr { errorstr } { }
-    Base(const FullStream &stream, std::string &&errorstr) : stream { stream }, errorstr { std::move(errorstr) } { }
+    Base(const Stream &stream, std::string &errorstr) : stream { stream }, errorstr { errorstr } { }
+    Base(const Stream &stream, std::string &&errorstr) : stream { stream }, errorstr { std::move(errorstr) } { }
 
     // TODO: Implement in detail
     const char *what() const noexcept override {
@@ -143,6 +143,7 @@ struct Member {
     ModifierType modifer;
     std::string typeName;
     std::string Name;
+    std::string Key; // Optional parameter
 
     bool operator==(const Member &rhs) const { return access == rhs.access && modifer == rhs.modifer && typeName == rhs.typeName && Name == rhs.Name; }
 };
@@ -230,6 +231,17 @@ private:
     bool IsIdentifier() const { return IsIdentifier(*inStream); }
     void SkipWhiteSpace() const { while(IsWhiteSpace()) ++inStream; }
 
+    constexpr void check_in(char value) const {
+        if (*inStream != value) {
+            std::string errstr {"Expected: "};
+            errstr.push_back(value);
+            errstr += ", Found: ";
+            errstr.push_back(*inStream);
+            throw exception::BadClass { inStream, std::move(errstr)};
+        }
+        ++inStream;
+    }
+
     std::string ParseIdentifier() {
         std::string identifier { };
         auto ch = *inStream;
@@ -306,16 +318,24 @@ private:
         SkipWhiteSpace();
         auto typeName = ParseHierarchicalIdentifier();
         auto membermodifier = ParseMemberModifier(typeName);
-        if (membermodifier != Member::none) {
+        std::string key { };
+        if (membermodifier == Member::array) {
+            SkipWhiteSpace();
+            typeName = ParseHierarchicalIdentifier();
+        } else if(membermodifier == Member::map) {
+            SkipWhiteSpace();
+            check_in('(');
+            SkipWhiteSpace();
+            key = ParseHierarchicalIdentifier();
+            check_in(')');
             SkipWhiteSpace();
             typeName = ParseHierarchicalIdentifier();
         }
         SkipWhiteSpace();
         auto name = ParseIdentifier();
         SkipWhiteSpace();
-        if (*inStream != ';') throw exception::BadClassMember { inStream, {"Expected a ';'"} };
-        ++inStream;
-        return { accesstype, membermodifier, typeName, name };
+        check_in(';');
+        return { accesstype, membermodifier, typeName, name, key };
     }
 
     ObjectType ParseObjectType() {
@@ -458,17 +478,16 @@ private:
         else return type;
     }
 
-    constexpr const std::string GetCPPType(const std::string &type, Member::ModifierType membertype) {
-        auto cpptype = GetCPPType(type);
-        switch(membertype) {
+    constexpr const std::string GetCPPType(const Member &member) {
+        auto cpptype = GetCPPType(member.typeName);
+        switch(member.modifer) {
         default:
         case Member::none:
             return cpptype;
         case Member::array:
-            std::cout << "CPPType: " << cpptype << ", Type: " << type << std::endl;
             return std::string("std::vector<") + cpptype + ">";
         case Member::map:
-            return std::string("std::map<") + cpptype + ">";
+            return std::string("std::map<") + GetCPPType(member.Key) + "," + cpptype + ">";
         }
     }
 
@@ -506,7 +525,7 @@ private:
         if (!private_members.empty()) {
             outStream.Write("private:\n");
             for(auto &member: private_members) {
-                outStream.Write('\t', GetCPPType(member.typeName, member.modifer), ' ', member.Name, ";\n");
+                outStream.Write('\t', GetCPPType(member), ' ', member.Name, " { };\n");
             }
             prepend_newline = true;
         }
@@ -514,7 +533,7 @@ private:
             if (prepend_newline) outStream.Write('\n');
             outStream.Write("protected:\n");
             for(auto &member: protected_members) {
-                outStream.Write('\t', GetCPPType(member.typeName, member.modifer), ' ', member.Name, ";\n");
+                outStream.Write('\t', GetCPPType(member), ' ', member.Name, " { };\n");
             }
             prepend_newline = true;
         }
@@ -522,7 +541,7 @@ private:
             if (prepend_newline) outStream.Write('\n');
             outStream.Write("public:\n");
             for(auto &member: public_members) {
-                outStream.Write('\t', GetCPPType(member.typeName, member.modifer), ' ', member.Name, ";\n");
+                outStream.Write('\t', GetCPPType(member), ' ', member.Name, " { };\n");
             }
         }
     }
@@ -568,7 +587,7 @@ private:
         for(auto &member: obj->MemberList) {
             if (!first) outStream.Write(",\n");
             else first = false;
-            outStream.Write("\t\t\tstd::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {\"", member.Name, "\"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template serialize_in<", GetCPPType(member.typeName, member.modifer),">(stream, this->", member.Name, "); }}");
+            outStream.Write("\t\t\tstd::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {\"", member.Name, "\"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template serialize_in<", GetCPPType(member),">(stream, this->", member.Name, "); }}");
         }
         outStream.Write("\n\t\t);\n\t}\n");
     }

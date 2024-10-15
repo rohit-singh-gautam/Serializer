@@ -124,11 +124,11 @@ TEST(SerializeParser, AccessType) {
 TEST(SerializeParser, Member) {
     // tuple list are: source, Member, is negative test
     std::vector<std::tuple<std::string, rohit::Member, bool>> test_list {
-        {"private \r\n array \r\n\t uint8\t_test\r\n;", {rohit::AccessType::Private, rohit::Member::array, "uint8", "_test"}, false},
-        {"public uint8 test;", {rohit::AccessType::Public, rohit::Member::none, "uint8", "test"}, false},
-        {"protected \r\n uint8\ttest;", {rohit::AccessType::Protected, rohit::Member::none, "uint8", "test"}, false},
-        {"private \r\n newtest\t_test\r\n;", {rohit::AccessType::Private, rohit::Member::none, "newtest", "_test"}, false},
-        {"private \r\n 9newtest\t_test\r\n;", {rohit::AccessType::Private, rohit::Member::none, "uint8", "_test"}, true},
+        {"private \r\n array \r\n\t uint8\t_test\r\n;", {rohit::AccessType::Private, rohit::Member::array, "uint8", "_test", {}}, false},
+        {"public uint8 test;", {rohit::AccessType::Public, rohit::Member::none, "uint8", "test", {}}, false},
+        {"protected \r\n uint8\ttest;", {rohit::AccessType::Protected, rohit::Member::none, "uint8", "test", {}}, false},
+        {"private \r\n newtest\t_test\r\n;", {rohit::AccessType::Private, rohit::Member::none, "newtest", "_test", {}}, false},
+        {"private \r\n 9newtest\t_test\r\n;", {rohit::AccessType::Private, rohit::Member::none, "uint8", "_test", {}}, true},
     };
 
     rohit::FullStreamAutoAlloc outStream {128};
@@ -179,3 +179,22 @@ TEST(SerializeParser, CompleteStruct) {
     auto parsed = creator.Parse();
     EXPECT_EQ(parsed.size(), 1);
 }
+
+TEST(SerializeParser, CompleteStructWithMap) {
+    std::string input {
+        "namespace arraytest {"
+        "class person {"
+        "public string name;"
+        "public uint64 ID;}"
+        "class personlist {"
+        "public uint64 listid;"
+        "public map(uint64) person list;}}"
+    };
+
+    rohit::FullStreamAutoAlloc outStream {128};
+    rohit::FullStream inStream { input.data(), input.size() };
+    rohit::SerializerCreator creator { inStream, outStream };
+    auto parsed = creator.Parse();
+    EXPECT_EQ(parsed.size(), 1);
+}
+

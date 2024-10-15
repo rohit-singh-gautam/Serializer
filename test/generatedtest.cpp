@@ -19,6 +19,7 @@
 #include <person.h>
 #include <test1.h>
 #include <array.h>
+#include <map.h>
 #include <string>
 
 TEST(GeneratedTest, SerializeIn) {
@@ -79,4 +80,21 @@ TEST(GeneratedTest, SerializeArray) {
     EXPECT_TRUE(personlist.list.size() == personlist1.list.size());
     EXPECT_TRUE(personlist.list[0].name == personlist1.list[0].name);
     
+}
+
+TEST(GeneratedTest, SerializeMap) {
+    maptest::personlist personlist { 556, {std::pair<uint64_t, maptest::person> {1, {"Rohit Jairaj Singh", 1}}, std::pair<uint64_t, maptest::person> {2, {"Ragini Rohit Singh", 2}}} };
+    rohit::FullStreamAutoAlloc fullstream { 256 };
+    personlist.serialize_out<rohit::serializer::json>(fullstream);
+    std::string personliststr {reinterpret_cast<char *>(fullstream.begin()), fullstream.index()};
+    std::string result_personliststr { "{\"listid\":556,\"list\":{1:{\"name\":\"Rohit Jairaj Singh\",\"ID\":1},2:{\"name\":\"Ragini Rohit Singh\",\"ID\":2}}}" };
+    EXPECT_TRUE(result_personliststr == personliststr);
+
+    auto fullstream1 = rohit::make_const_fullstream(result_personliststr);
+    maptest::personlist personlist1 { };
+    personlist1.serialize_in<rohit::serializer::json>(fullstream1);
+    
+    EXPECT_TRUE(personlist.listid == personlist1.listid);
+    EXPECT_TRUE(personlist.list.size() == personlist1.list.size());
+    EXPECT_TRUE(personlist.list[1].name == personlist1.list[1].name);
 }
