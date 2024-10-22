@@ -1,6 +1,7 @@
 # Serializer
 
-C++ Serializer that utilized C++ language construct so that it can create simple class and template serializer.
+C++ Serializer that utilized C++ language construct so that it can create simple class and template serializerm with limited data types supported.
+This will be extended to other languages in future.
 
 ## Language Construct
 ### Namespace
@@ -19,7 +20,7 @@ By default all the members are public.
 Syntax:
 ```
 struct <name> packed : <public|private|protected> <parent> {
-<public|private|protected> <type> <variable>;
+<public|private|protected> [array|map] <type> <variable>;
 };
 ```
 
@@ -45,3 +46,202 @@ struct <name> packed : <public|private|protected> <parent> {
 Following collecting types are supported
 1. Array
 1. Map
+
+## Serializer Type
+Output is template based, only implementation
+
+## Example
+### Simple class
+Below input:
+```cpp
+namespace test {
+class person {
+    public string name;
+    public uint64 ID;
+}
+}
+```
+This will result in:
+```cpp
+/////////////////////////////////////////////////////////
+// This is auto genarated file using serializer. Must  //
+// not be manually edited. For more information refer  //
+// to https://github.com/rohit-singh-gautam/Serializer //
+/////////////////////////////////////////////////////////
+#pragma once
+#include <rohit/serializer.h>
+
+namespace test {
+class person {
+public:
+	std::string name { };
+	uint64_t ID { };
+
+	template <typename SerializerProtocol>
+	void serialize_out(rohit::Stream &stream) const {
+		SerializerProtocol::struct_serialize_out(
+			stream,
+			std::make_pair(std::string_view { "name" }, name),
+			std::make_pair(std::string_view { "ID" }, ID)
+		);}
+
+	template <typename SerializerProtocol>
+	void serialize_in(const rohit::FullStream &stream) {
+		SerializerProtocol::struct_serialize_in(
+			stream,
+			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"name"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template serialize_in<std::string>(stream, this->name); }},
+			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"ID"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template serialize_in<uint64_t>(stream, this->ID); }}
+		);
+	}
+}; // class person
+}
+```
+
+### Array
+```cpp
+namespace arraytest {
+class person {
+    public string name;
+    public uint64 ID;
+}
+
+class personlist {
+    public uint64 listid;
+    public array person list;
+}
+}
+```
+
+Above input will generate:
+```cpp
+/////////////////////////////////////////////////////////
+// This is auto genarated file using serializer. Must  //
+// not be manually edited. For more information refer  //
+// to https://github.com/rohit-singh-gautam/Serializer //
+/////////////////////////////////////////////////////////
+#pragma once
+#include <rohit/serializer.h>
+
+namespace arraytest {
+class person {
+public:
+	std::string name { };
+	uint64_t ID { };
+
+	template <typename SerializerProtocol>
+	void serialize_out(rohit::Stream &stream) const {
+		SerializerProtocol::struct_serialize_out(
+			stream,
+			std::make_pair(std::string_view { "name" }, name),
+			std::make_pair(std::string_view { "ID" }, ID)
+		);}
+
+	template <typename SerializerProtocol>
+	void serialize_in(const rohit::FullStream &stream) {
+		SerializerProtocol::struct_serialize_in(
+			stream,
+			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"name"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template serialize_in<std::string>(stream, this->name); }},
+			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"ID"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template serialize_in<uint64_t>(stream, this->ID); }}
+		);
+	}
+}; // class person
+
+class personlist {
+public:
+	uint64_t listid { };
+	std::vector<person> list { };
+
+	template <typename SerializerProtocol>
+	void serialize_out(rohit::Stream &stream) const {
+		SerializerProtocol::struct_serialize_out(
+			stream,
+			std::make_pair(std::string_view { "listid" }, listid),
+			std::make_pair(std::string_view { "list" }, list)
+		);}
+
+	template <typename SerializerProtocol>
+	void serialize_in(const rohit::FullStream &stream) {
+		SerializerProtocol::struct_serialize_in(
+			stream,
+			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"listid"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template serialize_in<uint64_t>(stream, this->listid); }},
+			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"list"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template serialize_in<std::vector<person>>(stream, this->list); }}
+		);
+	}
+}; // class personlist
+
+} // namespace arraytest
+```
+
+### Map
+```cpp
+namespace maptest {
+class person {
+    public string name;
+    public uint64 ID;
+}
+
+class personlist {
+    public uint64 listid;
+    public map(uint64) person list;
+}
+}
+```
+Above code will result in below C++ code
+```cpp
+/////////////////////////////////////////////////////////
+// This is auto genarated file using serializer. Must  //
+// not be manually edited. For more information refer  //
+// to https://github.com/rohit-singh-gautam/Serializer //
+/////////////////////////////////////////////////////////
+#pragma once
+#include <rohit/serializer.h>
+
+namespace maptest {
+class person {
+public:
+	std::string name { };
+	uint64_t ID { };
+
+	template <typename SerializerProtocol>
+	void serialize_out(rohit::Stream &stream) const {
+		SerializerProtocol::struct_serialize_out(
+			stream,
+			std::make_pair(std::string_view { "name" }, name),
+			std::make_pair(std::string_view { "ID" }, ID)
+		);}
+
+	template <typename SerializerProtocol>
+	void serialize_in(const rohit::FullStream &stream) {
+		SerializerProtocol::struct_serialize_in(
+			stream,
+			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"name"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template serialize_in<std::string>(stream, this->name); }},
+			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"ID"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template serialize_in<uint64_t>(stream, this->ID); }}
+		);
+	}
+}; // class person
+
+class personlist {
+public:
+	uint64_t listid { };
+	std::map<uint64_t,person> list { };
+
+	template <typename SerializerProtocol>
+	void serialize_out(rohit::Stream &stream) const {
+		SerializerProtocol::struct_serialize_out(
+			stream,
+			std::make_pair(std::string_view { "listid" }, listid),
+			std::make_pair(std::string_view { "list" }, list)
+		);}
+
+	template <typename SerializerProtocol>
+	void serialize_in(const rohit::FullStream &stream) {
+		SerializerProtocol::struct_serialize_in(
+			stream,
+			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"listid"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template serialize_in<uint64_t>(stream, this->listid); }},
+			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"list"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template serialize_in<std::map<uint64_t,person>>(stream, this->list); }}
+		);
+	}
+}; // class personlist
+
+} // namespace maptest
+```

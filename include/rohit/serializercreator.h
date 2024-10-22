@@ -615,10 +615,10 @@ public:
         outStream.Write(
             "/////////////////////////////////////////////////////////\n"
             "// This is auto genarated file using serializer. Must  //\n"
-            "// be manually edited. For more information refer to   //\n"
-            "// https://github.com/rohit-singh-gautam/Serializer    //\n"
+            "// not be manually edited. For more information refer  //\n"
+            "// to https://github.com/rohit-singh-gautam/Serializer //\n"
             "/////////////////////////////////////////////////////////\n"
-            "#pragma once\n\n"
+            "#pragma once\n"
             "#include <rohit/serializer.h>\n\n"
         );
         Write(statementlist);
