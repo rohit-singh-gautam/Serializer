@@ -167,6 +167,7 @@ TEST(SerializeParser, CompleteStruct) {
     std::string input {
         "namespace test {\r\n"
         "class person packed {\n"
+        "/*Name of the person*/"
         "public string name; "
         "public uint64 ID;\t"
         "}"

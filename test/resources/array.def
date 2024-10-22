@@ -1,6 +1,8 @@
 namespace arraytest {
 class person {
+    // This is name
     public string name;
+    /* This is ID */
     public uint64 ID;
 }
 

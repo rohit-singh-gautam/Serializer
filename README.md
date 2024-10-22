@@ -41,14 +41,16 @@ struct <name> packed : <public|private|protected> <parent> {
 |bool|bool|1|Bool|
 |string|std::string|variable|String|
 
-
 ## Collection types
 Following collecting types are supported
 1. Array
 1. Map
 
+## Comments
+"//" till new line and anything under "/*" and "*/" will be ignore.
+
 ## Serializer Type
-Output is template based, only implementation
+Output is template based, only implementation currently provided is 
 
 ## Example
 ### Simple class

@@ -215,6 +215,43 @@ private:
     bool IsFirstIdentifier() const { return IsFirstIdentifier(*inStream); }
     bool IsIdentifier() const { return IsIdentifier(*inStream); }
     void SkipWhiteSpace() const { while(IsWhiteSpace()) ++inStream; }
+    void SkipWhiteSpaceAndComment() const {
+        for(;;) {
+            auto ch = *inStream;
+            if (IsWhiteSpace(ch)) {
+                ++inStream;
+                continue;
+            }
+            if (ch == '/') {
+                ++inStream;
+                auto ch1 = *inStream;
+                if (ch1 == '/') {
+                    // Skip till new line
+                    ++inStream;
+                    while(*inStream && *inStream != '\n') ++inStream;
+                    continue;
+                }
+                if (ch1 == '*') {
+                    // Skip till */
+                    ++inStream;
+                    for(;;) {
+                        const auto ch = *inStream;
+                        if (ch == '*') {
+                            ++inStream;
+                            const auto ch1 = *inStream;
+                            if (ch1 == '/') {
+                                ++inStream;
+                                break;
+                            }
+                        }
+                        ++inStream;
+                    }
+                    continue;
+                }
+            }
+            break;
+        }
+    }
 
     constexpr void check_in(char value) const {
         if (*inStream != value) {
@@ -271,7 +308,7 @@ private:
             auto identifier = ParseIdentifier();
             fn(std::move(identifier));
             if (!IsWhiteSpace()) break;
-            SkipWhiteSpace();
+            SkipWhiteSpaceAndComment();
             if (!IsFirstIdentifier()) break;
         }
         return;
@@ -300,25 +337,25 @@ private:
 
     Member ParseMember() {
         auto accesstype = ParseAccessType();
-        SkipWhiteSpace();
+        SkipWhiteSpaceAndComment();
         auto typeName = ParseHierarchicalIdentifier();
         auto membermodifier = ParseMemberModifier(typeName);
         std::string key { };
         if (membermodifier == Member::array) {
-            SkipWhiteSpace();
+            SkipWhiteSpaceAndComment();
             typeName = ParseHierarchicalIdentifier();
         } else if(membermodifier == Member::map) {
-            SkipWhiteSpace();
+            SkipWhiteSpaceAndComment();
             check_in('(');
-            SkipWhiteSpace();
+            SkipWhiteSpaceAndComment();
             key = ParseHierarchicalIdentifier();
             check_in(')');
-            SkipWhiteSpace();
+            SkipWhiteSpaceAndComment();
             typeName = ParseHierarchicalIdentifier();
         }
-        SkipWhiteSpace();
+        SkipWhiteSpaceAndComment();
         auto name = ParseIdentifier();
-        SkipWhiteSpace();
+        SkipWhiteSpaceAndComment();
         check_in(';');
         return { accesstype, membermodifier, typeName, name, key };
     }
@@ -339,11 +376,11 @@ private:
             throw exception::BadClass { inStream, errorstr };
         }
         ++inStream;
-        SkipWhiteSpace();
+        SkipWhiteSpaceAndComment();
         while(*inStream != '}') {
             auto member = ParseMember();
             obj.MemberList.push_back(std::move(member));
-            SkipWhiteSpace();
+            SkipWhiteSpaceAndComment();
         }
         ++inStream;
         if (*inStream == ';') throw exception::BadClass { inStream, {"Semicolon is not expected at the end of a class"} };
@@ -351,7 +388,7 @@ private:
 
     Parent ParseParent(Namespace *CurrentNamespace) {
         auto access = ParseAccessType();
-        SkipWhiteSpace();
+        SkipWhiteSpaceAndComment();
         auto fullname = ParseHierarchicalIdentifier();
         return { access, fullname, CurrentNamespace, nullptr };
     }
@@ -362,10 +399,10 @@ private:
         while(true) {
             // TODO: if ParseParent return type comes a rvalue
             ret.push_back( ParseParent(CurrentNamespace) );
-            SkipWhiteSpace();
+            SkipWhiteSpaceAndComment();
             if (*inStream != ',') break;
             ++inStream;
-            SkipWhiteSpace();
+            SkipWhiteSpaceAndComment();
         }
 
         return ret;
@@ -373,9 +410,9 @@ private:
 
     Class ParseClassHeader(Namespace *CurrentNamespace) {
         // Object type is already parsed
-        SkipWhiteSpace();
+        SkipWhiteSpaceAndComment();
         auto name = ParseIdentifier();
-        SkipWhiteSpace();
+        SkipWhiteSpaceAndComment();
         auto attributes { ClassAtributes::None };
         SpaceSeparatedIdentifier([&attributes](std::string &&value) { 
             if (value == "packed") attributes |= ClassAtributes::Packed;
@@ -384,7 +421,7 @@ private:
         // At this point all whitespace is skipped
         if (*inStream == ':') {
             ++inStream;
-            SkipWhiteSpace();
+            SkipWhiteSpaceAndComment();
             auto parentlisttemp = ParseParentList(CurrentNamespace);
             std::swap(parentlist, parentlisttemp);
         }
@@ -404,7 +441,7 @@ private:
     std::vector<std::unique_ptr<Base>> ParseStatementList(Namespace *parentNamespace) {
         std::vector<std::unique_ptr<Base>> statementlist { };
         while(true) {
-            SkipWhiteSpace();
+            SkipWhiteSpaceAndComment();
             if (inStream.full() || *inStream == '}') break;
             auto objectType = ParseObjectType();
             if (objectType == ObjectType::Class) {
@@ -628,9 +665,9 @@ public:
 
 inline std::unique_ptr<Namespace> SerializerCreator::ParseNameSpace(Namespace *parentNamespace) {
     // Object type is already parsed
-    SkipWhiteSpace();
+    SkipWhiteSpaceAndComment();
     auto name = ParseHierarchicalIdentifier();
-    SkipWhiteSpace();
+    SkipWhiteSpaceAndComment();
     if (*inStream != '{' ) {
         std::string errorstr { "Expecting '{' found: "};
         errorstr += *inStream;
