@@ -102,10 +102,36 @@ TEST(GeneratedTest, SerializeMap) {
 
 TEST(GeneratedTest, SerializeUnion) {
     test::cacheserver cacheserver {10, 10, 10, 10, 2010, 10240};
-    test::server1 server {std::pair<test::server1::e_entry,test::server1::u_entry> {test::server1::e_entry::cache, {.cache = cacheserver}} };
+    test::server1 server {test::server1::e_entry::cache, {.cache = cacheserver} };
     rohit::FullStreamAutoAlloc fullstream { 256 };
     server.serialize_out<rohit::serializer::json>(fullstream);
     std::string serverstr {reinterpret_cast<char *>(fullstream.begin()), fullstream.index()};
     std::string result_serverstr {"{\"entry:cache\":{\"serverbase\":{\"name\":{\"a\":10,\"b\":10,\"c\":10,\"d\":10},\"port\":2010},\"size\":10240}}"};
     EXPECT_TRUE(result_serverstr == serverstr);
+
+    auto fullstream1 = rohit::make_const_fullstream(result_serverstr);
+    test::server1 server1 { };
+    server1.serialize_in<rohit::serializer::json>(fullstream1);
+
+    EXPECT_TRUE(server.entry_type == server1.entry_type);
+    EXPECT_TRUE(server.entry.cache.port == server.entry.cache.port);
+    EXPECT_TRUE(server.entry.cache.size == server.entry.cache.size);
+}
+
+TEST(GeneratedTest, SerializeUnion1) {
+    test::server1 server {test::server1::e_entry::http, {.http = {10, 10, 10, 10, 2010, 10240, 5021}} };
+    rohit::FullStreamAutoAlloc fullstream { 256 };
+    server.serialize_out<rohit::serializer::json>(fullstream);
+    std::string serverstr {reinterpret_cast<char *>(fullstream.begin()), fullstream.index()};
+    std::string result_serverstr {"{\"entry:http\":{\"serverbase\":{\"name\":{\"a\":10,\"b\":10,\"c\":10,\"d\":10},\"port\":2010},\"size\":10240,\"mimesize\":5021}}"};
+    EXPECT_TRUE(result_serverstr == serverstr);
+
+    auto fullstream1 = rohit::make_const_fullstream(result_serverstr);
+    test::server1 server1 { };
+    server1.serialize_in<rohit::serializer::json>(fullstream1);
+
+    EXPECT_TRUE(server.entry_type == server1.entry_type);
+    EXPECT_TRUE(server.entry.http.port == server.entry.http.port);
+    EXPECT_TRUE(server.entry.http.size == server.entry.http.size);
+    EXPECT_TRUE(server.entry.http.mimesize == server.entry.http.mimesize);
 }

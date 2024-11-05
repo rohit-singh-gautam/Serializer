@@ -580,7 +580,7 @@ private:
         case Member::map:
             return std::string("std::map<") + GetCPPType(member.Key) + "," + GetCPPType(member.typeNameList[0]) + ">";
         case Member::Union:
-            return "std::pair<e_" + member.Name + ",u_" + member.Name + "> ";
+            return "e_" + member.Name + " " + member.Name + "_type { };\n\t" + "u_" + member.Name;
         }
     }
 
@@ -620,9 +620,7 @@ private:
             for(auto &member: private_members) {
                 auto support = GetCPPTypeSupport(member);
                 if (!support.empty()) outStream.Write(support, "\n");
-                outStream.Write('\t', GetCPPType(member), ' ', member.Name);
-                if (member.modifer != Member::Union) outStream.Write(" { };\n");
-                else outStream.Write(";\n");
+                outStream.Write('\t', GetCPPType(member), ' ', member.Name, " { };\n");
             }
             prepend_newline = true;
         }
@@ -632,9 +630,7 @@ private:
             for(auto &member: protected_members) {
                 auto support = GetCPPTypeSupport(member);
                 if (!support.empty()) outStream.Write(support, "\n");
-                outStream.Write('\t', GetCPPType(member), ' ', member.Name);
-                if (member.modifer != Member::Union) outStream.Write(" { };\n");
-                else outStream.Write(";\n");
+                outStream.Write('\t', GetCPPType(member), ' ', member.Name, " { };\n");
             }
             prepend_newline = true;
         }
@@ -644,9 +640,7 @@ private:
             for(auto &member: public_members) {
                 auto support = GetCPPTypeSupport(member);
                 if (!support.empty()) outStream.Write(support, "\n");
-                outStream.Write('\t', GetCPPType(member), ' ', member.Name);
-                if (member.modifer != Member::Union) outStream.Write(" { };\n");
-                else outStream.Write(";\n");
+                outStream.Write('\t', GetCPPType(member), ' ', member.Name, " { };\n");
             }
         }
     }
@@ -680,7 +674,7 @@ private:
                         ");");
             }
             else {
-                outStream.Write("\n\t\tswitch(", member.Name, ".first) {");
+                outStream.Write("\n\t\tswitch(", member.Name, "_type) {");
                 for(size_t index { 0 }; index < member.enumNameList.size(); ++index) {
                     outStream.Write("\n\t\t\tcase e_", member.Name, "::", member.enumNameList[index], ":");
                     if (first) {
@@ -688,7 +682,7 @@ private:
                     }
                     else outStream.Write("\n\t\t\t\tSerializerProtocol::struct_serialize_out(stream, ");
                     outStream.Write("std::make_pair( std::string_view {\"", member.Name, ":", member.enumNameList[index], "\"}, ",
-                        member.Name, ".second.", member.enumNameList[index], "));",
+                        member.Name, ".", member.enumNameList[index], "));",
                         "\n\t\t\t\tbreak;");
                 }
                 first = false;
@@ -730,7 +724,8 @@ private:
                     outStream.Write(
                         "\t\t\tstd::pair<std::string_view, std::function<void(const rohit::FullStream &)>> {"
                         "\n\t\t\t\tstd::string_view {\"", member.Name, ":", enumName, "\"}, [this] (const rohit::FullStream &stream) {"
-                        "\n\t\t\t\t\tSerializerProtocol::template serialize_in(stream, this->", member.Name, ".second.", enumName, ");"
+                        "\n\t\t\t\tthis->", member.Name, "_type = e_", member.Name, "::", enumName, ";",
+                        "\n\t\t\t\t\tSerializerProtocol::template serialize_in(stream, this->", member.Name, ".", enumName, ");"
                         "\n\t\t\t\t}"
                         "\n\t\t\t}");
                 }
