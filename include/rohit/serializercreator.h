@@ -122,15 +122,17 @@ struct Member {
     enum ModifierType {
         none,
         array,
-        map
+        map,
+        Union
     };
     AccessType access;
     ModifierType modifer;
-    std::string typeName;
+    std::vector<std::string> enumNameList;
+    std::vector<std::string> typeNameList;
     std::string Name;
     std::string Key; // Optional parameter
 
-    bool operator==(const Member &rhs) const { return access == rhs.access && modifer == rhs.modifer && typeName == rhs.typeName && Name == rhs.Name; }
+    bool operator==(const Member &rhs) const { return access == rhs.access && modifer == rhs.modifer && enumNameList == rhs.enumNameList && typeNameList == rhs.typeNameList && Name == rhs.Name; }
 };
 
 struct Namespace;
@@ -332,18 +334,26 @@ private:
         else if (type == "map") {
             return Member::map;
         }
+        else if (type == "union") {
+            return Member::Union;
+        }
         return Member::none;
     }
 
     Member ParseMember() {
         auto accesstype = ParseAccessType();
         SkipWhiteSpaceAndComment();
-        auto typeName = ParseHierarchicalIdentifier();
-        auto membermodifier = ParseMemberModifier(typeName);
+        auto nextid = ParseHierarchicalIdentifier();
+        std::vector<std::string> enumNameList { };
+        std::vector<std::string> typeNameList { };
+        auto membermodifier = ParseMemberModifier(nextid);
         std::string key { };
-        if (membermodifier == Member::array) {
+        if (membermodifier == Member::none) {
+            typeNameList.push_back(nextid);
+        } else if (membermodifier == Member::array) {
             SkipWhiteSpaceAndComment();
-            typeName = ParseHierarchicalIdentifier();
+            auto typeName = ParseHierarchicalIdentifier();
+            typeNameList.push_back(typeName);
         } else if(membermodifier == Member::map) {
             SkipWhiteSpaceAndComment();
             check_in('(');
@@ -351,13 +361,37 @@ private:
             key = ParseHierarchicalIdentifier();
             check_in(')');
             SkipWhiteSpaceAndComment();
-            typeName = ParseHierarchicalIdentifier();
+            auto typeName = ParseHierarchicalIdentifier();
+            typeNameList.push_back(typeName);
+        } else if (membermodifier == Member::Union) {
+            SkipWhiteSpaceAndComment();
+            check_in('(');
+            int count { 0 };
+            while(true) {
+                SkipWhiteSpaceAndComment();
+                auto typeName = ParseHierarchicalIdentifier();
+                typeNameList.push_back(typeName);
+                SkipWhiteSpaceAndComment();
+                if (*inStream == '=') {
+                    ++inStream;
+                    SkipWhiteSpaceAndComment();
+                    auto enumName = ParseIdentifier();
+                    enumNameList.push_back(enumName);
+                    SkipWhiteSpaceAndComment();
+                } else {
+                    enumNameList.push_back("e_" + std::to_string(count));
+                    ++count;
+                }
+                if (*inStream != ',') break;
+                ++inStream;
+            }
+            check_in(')');
         }
         SkipWhiteSpaceAndComment();
         auto name = ParseIdentifier();
         SkipWhiteSpaceAndComment();
         check_in(';');
-        return { accesstype, membermodifier, typeName, name, key };
+        return { accesstype, membermodifier, enumNameList, typeNameList, name, key };
     }
 
     ObjectType ParseObjectType() {
@@ -498,16 +532,55 @@ private:
         else return type;
     }
 
-    constexpr const std::string GetCPPType(const Member &member) {
-        auto cpptype = GetCPPType(member.typeName);
+    constexpr const std::string GetCPPTypeSupport(const Member &member) {
         switch(member.modifer) {
         default:
         case Member::none:
-            return cpptype;
+            return { };
         case Member::array:
-            return std::string("std::vector<") + cpptype + ">";
+            return { };
         case Member::map:
-            return std::string("std::map<") + GetCPPType(member.Key) + "," + cpptype + ">";
+            return { };
+        case Member::Union: {
+                std::string retUnion { "\tenum class e_" };
+                retUnion += member.Name;
+                retUnion += " {\n";
+                for(auto &enumName: member.enumNameList) {
+                    retUnion += "\t\t" + enumName + ",\n";
+                }
+                retUnion += "\t};\n\tunion u_" + member.Name + " {\n";
+                for(size_t index { 0 }; index < member.enumNameList.size(); ++index) {
+                    retUnion += "\t\t" + member.typeNameList[index] + " " + member.enumNameList[index] + ";\n";
+                }
+                retUnion += "\t};\n\tstatic std::string to_string(const e_" + member.Name + " v) {\n\t\tswitch(v) {\n\t\t\tdefault:";
+                for(auto &enumName: member.enumNameList) {
+                    retUnion += "\n\t\t\tcase e_" + member.Name + "::" + enumName + ": return {\"" + enumName + "\"}; ";
+                }
+                retUnion += "\n\t\t}\n\t};\n\tstatic e_" + member.Name + " to_e_" + member.Name + "(const auto &v) {"
+                            "\n\t\tswitch(rohit::hash(v)) {";
+                for(auto &enumName: member.enumNameList) {
+                    retUnion += "\n\t\t\tcase rohit::hash(\"" + enumName + "\"): return e_" + member.Name + "::" + enumName + ";";
+                }
+                retUnion += "\n\t\t\tdefault: throw std::runtime_error(\"Bad Enum Name\");"
+                            "\n\t\t}"
+                            "\n\t}";
+                return retUnion;
+            }
+        }
+    }
+
+    constexpr const std::string GetCPPType(const Member &member) {
+        switch(member.modifer) {
+        default:
+        case Member::none:
+            // TODO: Range check
+            return GetCPPType(member.typeNameList[0]);
+        case Member::array:
+            return std::string("std::vector<") + GetCPPType(member.typeNameList[0]) + ">";
+        case Member::map:
+            return std::string("std::map<") + GetCPPType(member.Key) + "," + GetCPPType(member.typeNameList[0]) + ">";
+        case Member::Union:
+            return "std::pair<e_" + member.Name + ",u_" + member.Name + "> ";
         }
     }
 
@@ -545,7 +618,11 @@ private:
         if (!private_members.empty()) {
             outStream.Write("private:\n");
             for(auto &member: private_members) {
-                outStream.Write('\t', GetCPPType(member), ' ', member.Name, " { };\n");
+                auto support = GetCPPTypeSupport(member);
+                if (!support.empty()) outStream.Write(support, "\n");
+                outStream.Write('\t', GetCPPType(member), ' ', member.Name);
+                if (member.modifer != Member::Union) outStream.Write(" { };\n");
+                else outStream.Write(";\n");
             }
             prepend_newline = true;
         }
@@ -553,7 +630,11 @@ private:
             if (prepend_newline) outStream.Write('\n');
             outStream.Write("protected:\n");
             for(auto &member: protected_members) {
-                outStream.Write('\t', GetCPPType(member), ' ', member.Name, " { };\n");
+                auto support = GetCPPTypeSupport(member);
+                if (!support.empty()) outStream.Write(support, "\n");
+                outStream.Write('\t', GetCPPType(member), ' ', member.Name);
+                if (member.modifer != Member::Union) outStream.Write(" { };\n");
+                else outStream.Write(";\n");
             }
             prepend_newline = true;
         }
@@ -561,7 +642,11 @@ private:
             if (prepend_newline) outStream.Write('\n');
             outStream.Write("public:\n");
             for(auto &member: public_members) {
-                outStream.Write('\t', GetCPPType(member), ' ', member.Name, " { };\n");
+                auto support = GetCPPTypeSupport(member);
+                if (!support.empty()) outStream.Write(support, "\n");
+                outStream.Write('\t', GetCPPType(member), ' ', member.Name);
+                if (member.modifer != Member::Union) outStream.Write(" { };\n");
+                else outStream.Write(";\n");
             }
         }
     }
@@ -569,25 +654,49 @@ private:
     void WriteSerializer(const Class *obj) {
         // Serialize out
         outStream.Write(
-            "\ttemplate <typename SerializerProtocol>\n"
-            "\tvoid serialize_out(rohit::Stream &stream) const {\n"
-            "\t\tSerializerProtocol::struct_serialize_out(\n"
-            "\t\t\tstream,\n"
+            "\ttemplate <typename SerializerProtocol>"
+            "\n\tvoid serialize_out(rohit::Stream &stream) const {"
         );
         bool first = true;
         for(auto &parent: obj->parentlist) {
-            if (!first) outStream.Write(",\n");
-            else first = false;
-            outStream.Write("\t\t\tstd::make_pair(std::string_view { \"", parent.Name, "\" }, static_cast<const ", parent.Name," *>(this))");
+            if (first) {
+                first = false;
+                outStream.Write("\n\t\tSerializerProtocol::struct_serialize_out_start(stream, ");
+            }
+            else outStream.Write("\n\t\tSerializerProtocol::struct_serialize_out(stream, ");
+            outStream.Write(
+                "std::make_pair(std::string_view { \"", parent.Name, "\" }, static_cast<const ", parent.Name," *>(this))"
+                ");");
         }
-        if (!first) outStream.Write(",\n");
-        first = true;
         for(auto &member: obj->MemberList) {
-            if (!first) outStream.Write(",\n");
-            else first = false;
-            outStream.Write("\t\t\tstd::make_pair(std::string_view { \"", member.Name, "\" }, ", member.Name,")");
+            if (member.modifer != Member::Union) {
+                    if (first) {
+                        first = false;
+                        outStream.Write("\n\t\tSerializerProtocol::struct_serialize_out_start(stream, ");
+                    }
+                    else outStream.Write("\n\t\tSerializerProtocol::struct_serialize_out(stream, ");
+                    outStream.Write(
+                        "std::make_pair(std::string_view { \"", member.Name, "\" }, ", member.Name,")"
+                        ");");
+            }
+            else {
+                outStream.Write("\n\t\tswitch(", member.Name, ".first) {");
+                for(size_t index { 0 }; index < member.enumNameList.size(); ++index) {
+                    outStream.Write("\n\t\t\tcase e_", member.Name, "::", member.enumNameList[index], ":");
+                    if (first) {
+                        outStream.Write("\n\t\t\t\tSerializerProtocol::struct_serialize_out_start(stream, ");
+                    }
+                    else outStream.Write("\n\t\t\t\tSerializerProtocol::struct_serialize_out(stream, ");
+                    outStream.Write("std::make_pair( std::string_view {\"", member.Name, ":", member.enumNameList[index], "\"}, ",
+                        member.Name, ".second.", member.enumNameList[index], "));",
+                        "\n\t\t\t\tbreak;");
+                }
+                first = false;
+                outStream.Write("\n\t\t}");
+            }
         }
-        outStream.Write("\n\t\t);}\n\n");
+        outStream.Write("\n\t\tSerializerProtocol::struct_serialize_out_end(stream);\n");
+        outStream.Write("\n\t}\n\n");
 
         // Serialize in
         outStream.Write(
@@ -605,9 +714,27 @@ private:
         if (!first) outStream.Write(",\n");
         first = true;
         for(auto &member: obj->MemberList) {
-            if (!first) outStream.Write(",\n");
-            else first = false;
-            outStream.Write("\t\t\tstd::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {\"", member.Name, "\"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template serialize_in<", GetCPPType(member),">(stream, this->", member.Name, "); }}");
+            if (member.modifer != Member::Union) {
+                if (!first) outStream.Write(",\n");
+                else first = false;
+                outStream.Write(
+                    "\t\t\tstd::pair<std::string_view, std::function<void(const rohit::FullStream &)>> {"
+                    "\n\t\t\t\tstd::string_view {\"", member.Name, "\"}, [this] (const rohit::FullStream &stream) {"
+                    "\n\t\t\t\t\tSerializerProtocol::template serialize_in<", GetCPPType(member),">(stream, this->", member.Name, ");"
+                    "\n\t\t\t\t}"
+                    "\n\t\t\t}");
+            } else {
+                for(auto &enumName: member.enumNameList) {
+                    if (!first) outStream.Write(",\n");
+                    else first = false;
+                    outStream.Write(
+                        "\t\t\tstd::pair<std::string_view, std::function<void(const rohit::FullStream &)>> {"
+                        "\n\t\t\t\tstd::string_view {\"", member.Name, ":", enumName, "\"}, [this] (const rohit::FullStream &stream) {"
+                        "\n\t\t\t\t\tSerializerProtocol::template serialize_in(stream, this->", member.Name, ".second.", enumName, ");"
+                        "\n\t\t\t\t}"
+                        "\n\t\t\t}");
+                }
+            }
         }
         outStream.Write("\n\t\t);\n\t}\n");
     }

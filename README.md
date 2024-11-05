@@ -85,7 +85,8 @@ public:
 			stream,
 			std::make_pair(std::string_view { "name" }, name),
 			std::make_pair(std::string_view { "ID" }, ID)
-		);}
+		);
+	}
 
 	template <typename SerializerProtocol>
 	void serialize_in(const rohit::FullStream &stream) {

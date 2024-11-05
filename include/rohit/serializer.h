@@ -40,7 +40,6 @@ public:
     using BaseParser::BaseParser;
 };
 
-
 } // namespace exception
 
 namespace typecheck {
@@ -73,6 +72,57 @@ concept map = requires(T t) {
 };
 
 } // namespace typecheck
+
+template <typename TypeEnum, typename Base, typename T0>
+auto typecast(TypeEnum type, Base *ptr) { return reinterpret_cast<T0 *>(ptr); }
+template <typename TypeEnum, typename Base, typename T0, typename T1>
+auto typecast(TypeEnum type, Base *ptr) { 
+    switch(reinterpret_cast<std::underlying_type<TypeEnum>>(type)) {
+        default:
+        case 0: return reinterpret_cast<T0 *>(ptr);
+        case 1: return reinterpret_cast<T1 *>(ptr);
+    }
+}
+template <typename TypeEnum, typename Base, typename T0, typename T1, typename T2>
+auto typecast(TypeEnum type, Base *ptr) { 
+    switch(reinterpret_cast<std::underlying_type<TypeEnum>>(type)) {
+        default:
+        case 0: return reinterpret_cast<T0 *>(ptr);
+        case 1: return reinterpret_cast<T1 *>(ptr);
+        case 2: return reinterpret_cast<T2 *>(ptr);
+    }
+}
+template <typename TypeEnum, typename Base, typename T0, typename T1, typename T2, typename T3>
+auto typecast(TypeEnum type, Base *ptr) { 
+    switch(reinterpret_cast<std::underlying_type<TypeEnum>>(type)) {
+        default:
+        case 0: return reinterpret_cast<T0 *>(ptr);
+        case 1: return reinterpret_cast<T1 *>(ptr);
+        case 2: return reinterpret_cast<T2 *>(ptr);
+        case 3: return reinterpret_cast<T3 *>(ptr);
+    }
+}
+
+template <typename TypeEnum, typename Base, typename T, typename ...TArr>
+auto typecast(TypeEnum type, Base *ptr) {
+    auto id = reinterpret_cast<std::underlying_type<TypeEnum>>(type);
+    return typecast<TypeEnum, Base, TArr...>(reinterpret_cast<TypeEnum>(id - 1), ptr);
+}
+
+template <typename TypeEnum, typename Base, typename ...TArr>
+class variable_pointer {
+    TypeEnum type;
+    Base *ptr;
+
+public:
+    constexpr variable_pointer(TypeEnum type, Base *ptr) : type { type }, ptr { ptr } { }
+    ~variable_pointer() { if (ptr) delete ptr; }
+
+    constexpr auto GetType() { return type; }
+    constexpr auto Get() { return typecast<TypeEnum, Base, TArr...>(type, ptr); }
+    constexpr auto operator*() { return *Get(); }
+    constexpr auto operator->() { return Get(); }
+};
 
 class json {
     static constexpr bool IsWhiteSpace(const char val) noexcept { return val == ' ' || val == '\t' || val == '\n' || val == '\r'; }
@@ -314,11 +364,16 @@ public:
         }
     }
 
-    template <typename ... Types>
-    static constexpr void struct_serialize_out(Stream &stream, const auto &value, Types ... values) {
+    static constexpr void struct_serialize_out_start(Stream &stream, const auto &value) {
         stream.Write('{');
         serialize_out_first(stream, value.first, value.second);
-        (serialize_out_second(stream, values.first, values.second), ...);
+    }
+
+    static constexpr void struct_serialize_out(Stream &stream, const auto &value) {
+        serialize_out_second(stream, value.first, value.second);
+    }
+
+    static constexpr void struct_serialize_out_end(Stream &stream) {
         stream.Write('}');
     }
 };

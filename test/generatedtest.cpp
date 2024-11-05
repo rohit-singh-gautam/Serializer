@@ -19,6 +19,7 @@
 #include <person.h>
 #include <test1.h>
 #include <array.h>
+#include <variable.h>
 #include <map.h>
 #include <string>
 
@@ -97,4 +98,14 @@ TEST(GeneratedTest, SerializeMap) {
     EXPECT_TRUE(personlist.listid == personlist1.listid);
     EXPECT_TRUE(personlist.list.size() == personlist1.list.size());
     EXPECT_TRUE(personlist.list[1].name == personlist1.list[1].name);
+}
+
+TEST(GeneratedTest, SerializeUnion) {
+    test::cacheserver cacheserver {10, 10, 10, 10, 2010, 10240};
+    test::server1 server {std::pair<test::server1::e_entry,test::server1::u_entry> {test::server1::e_entry::cache, {.cache = cacheserver}} };
+    rohit::FullStreamAutoAlloc fullstream { 256 };
+    server.serialize_out<rohit::serializer::json>(fullstream);
+    std::string serverstr {reinterpret_cast<char *>(fullstream.begin()), fullstream.index()};
+    std::string result_serverstr {"{\"entry:cache\":{\"serverbase\":{\"name\":{\"a\":10,\"b\":10,\"c\":10,\"d\":10},\"port\":2010},\"size\":10240}}"};
+    EXPECT_TRUE(result_serverstr == serverstr);
 }

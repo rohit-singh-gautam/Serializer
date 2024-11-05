@@ -49,6 +49,39 @@ public:
 
 } // namespace exception
 
+template <size_t size>
+consteval size_t hash(const char (&str)[size]) {
+    size_t ret = 100000000003;
+    for(auto ch: str) {
+        ret = ((ret << 9) + ret) ^ static_cast<size_t>(ch);
+    }
+    return ret;
+}
+
+constexpr size_t hash(const char *str) {
+    size_t ret = 100000000003;
+    while(*str) {
+        ret = ((ret << 9) + ret) ^ static_cast<size_t>(*str++);
+    }
+    return ret;
+}
+
+constexpr size_t hash(const std::string &str) {
+    size_t ret = 100000000003;
+    for(auto ch: str) {
+        ret = ((ret << 9) + ret) ^ static_cast<size_t>(ch);
+    }
+    return ret;
+}
+
+constexpr size_t hash(const std::string_view &str) {
+    size_t ret = 100000000003;
+    for(auto ch: str) {
+        ret = ((ret << 9) + ret) ^ static_cast<size_t>(ch);
+    }
+    return ret;
+}
+
 class Stream {
 protected:
     friend class FixedBuffer;
@@ -429,17 +462,17 @@ class BaseParser : public std::exception {
 protected:
     const std::string whats_err;
 
-    static const auto CreateWhatString(const Stream stream, const std::string &errorstr) {
+    static const auto CreateWhatString(const Stream &stream, const std::string &errorstr) {
         std::string whats_err { };
         if (errorstr.empty()) whats_err += "Error ";
         else whats_err += errorstr;
-        whats_err += " - Location: ";
 
         const FullStream *fullstream = dynamic_cast<const FullStream *>(&stream);
 
         if (fullstream) {
+            whats_err += " - Location: ";
             if (fullstream->index() >= 40 ){
-                std::string_view initial {reinterpret_cast<const char *>(fullstream->begin()), 16};
+                std::string_view initial {reinterpret_cast<const char *>(fullstream->curr() - 16), 16};
                 for(auto &current_ch: initial) {
                     if (current_ch >= 32 /* &&  current_ch <= 127 */) {
                         whats_err.push_back(current_ch);

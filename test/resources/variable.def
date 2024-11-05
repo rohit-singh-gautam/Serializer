@@ -1,0 +1,75 @@
+//////////////////////////////////////////////////////////////////////////
+// Copyright (C) 2024  Rohit Jairaj Singh (rohit@singh.org.in)          //
+//                                                                      //
+// This program is free software: you can redistribute it and/or modify //
+// it under the terms of the GNU General Public License as published by //
+// the Free Software Foundation, either version 3 of the License, or    //
+// (at your option) any later version.                                  //
+//                                                                      //
+// This program is distributed in the hope that it will be useful,      //
+// but WITHOUT ANY WARRANTY; without even the implied warranty of       //
+// MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the        //
+// GNU General Public License for more details.                         //
+//                                                                      //
+// You should have received a copy of the GNU General Public License    //
+// along with this program.  If not, see <https://www.gnu.org/licenses/>//
+//////////////////////////////////////////////////////////////////////////
+
+namespace test {
+class IP {
+    public uint8 a;
+    public uint8 b;
+    public uint8 c;
+    public uint8 d;
+}
+
+class serverbase {
+    public IP name;
+    public uint16 port;
+}
+
+class cacheserver : public serverbase {
+    public uint32 size;
+}
+
+class httpserver : public serverbase {
+    public uint32 size;
+    public uint32 mimesize;
+}
+
+
+class server {
+    // entry_enum enumeration will be created
+    // pair<entry_enum, union> will be created
+    public union (cacheserver, httpserver) entry;
+}
+
+class server1 {
+    // entry_enum enumeration will be created
+    // pair<entry_enum, union> will be created
+    public union (cacheserver = cache, httpserver = http) entry;
+}
+
+/*
+class server1 {
+    // entry_enum enumeration will be created
+    // custom_unique_ptr<entry_enum, base pointer> will be created
+    public polymorphic (cacheserver, httpserver) entry;
+}
+
+class server2 {
+    // entry_enum will be created
+    // id will be added to common base, must not be present there
+    // if common base not found error will be thrown
+    public union (cacheserver, httpserver; id) entry;
+}
+
+class server {
+    // entry_enum will be created
+    // id will be added to common base if not exist
+    // if common base not found error will be thrown
+    // std::unique_ptr<base pointer> will be created
+    public polymorphic (cacheserver, httpserver; id) entry;
+} */
+
+}
