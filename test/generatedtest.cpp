@@ -126,6 +126,24 @@ TEST(GeneratedTest, SerializeUnion) {
     EXPECT_TRUE(server.entry_type == serverBinaryNone.entry_type);
     EXPECT_TRUE(server.entry.cache.port == serverBinaryNone.entry.cache.port);
     EXPECT_TRUE(server.entry.cache.size == serverBinaryNone.entry.cache.size);
+
+    rohit::FullStreamAutoAlloc fullstreamBinaryId { 256 };
+    server.serialize_out<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(fullstreamBinaryId);
+    test::server1 serverBinaryId { };
+    fullstreamBinaryId.Reset();
+    serverBinaryId.serialize_in<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(fullstreamBinaryId);
+    EXPECT_TRUE(server.entry_type == serverBinaryId.entry_type);
+    EXPECT_TRUE(server.entry.cache.port == serverBinaryId.entry.cache.port);
+    EXPECT_TRUE(server.entry.cache.size == serverBinaryId.entry.cache.size);
+
+    rohit::FullStreamAutoAlloc fullstreamBinaryName { 256 };
+    server.serialize_out<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(fullstreamBinaryName);
+    test::server1 serverBinaryString { };
+    fullstreamBinaryName.Reset();
+    serverBinaryString.serialize_in<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(fullstreamBinaryName);
+    EXPECT_TRUE(server.entry_type == serverBinaryString.entry_type);
+    EXPECT_TRUE(server.entry.cache.port == serverBinaryString.entry.cache.port);
+    EXPECT_TRUE(server.entry.cache.size == serverBinaryString.entry.cache.size);
 }
 
 

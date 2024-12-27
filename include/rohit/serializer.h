@@ -400,10 +400,21 @@ private:
         serialize_out(stream, value);
     }
 
+    template <typename T>
+    static constexpr void serialize_out(Stream &stream, const std::string &name, const T &value) {
+        serialize_out(stream, name);
+        serialize_out(stream, value);
+    }
+
+    template <typename T>
+    static constexpr void serialize_out(Stream &stream, const std::string_view &name, const T &value) {
+        serialize_out(stream, name);
+        serialize_out(stream, value);
+    }
+
     template <typename T, typename U>
     static constexpr void serialize_out(Stream &stream, const std::pair<T, U> &value) {
-        serialize_out_variable(stream, value.first);
-        serialize_out(stream, value.second);
+        serialize_out(stream, value.first, value.second);
     }
 
     template <typename T>
@@ -411,6 +422,11 @@ private:
         serialize_out_variable(stream, id);
         serialize_out_variable(stream, index);
         serialize_out(stream, value);
+    }
+
+    template <typename T, typename U, typename V>
+    static constexpr void serialize_out(Stream &stream, const std::tuple<T, U, V> &value) {
+        serialize_out(stream, std::get<0>(value), std::get<1>(value), std::get<2>(value));
     }
 
 public:
@@ -508,8 +524,7 @@ public:
                 auto itr = membermap.find(key);
                 itr->second(stream);
             }
-            ++stream;
-        } if constexpr (serialize_key_type == SerializeKeyType::String) {
+        } else if constexpr (serialize_key_type == SerializeKeyType::String) {
             std::unordered_map<std::string_view, std::function<void(const rohit::FullStream &)>> membermap { values... };
             while(true) {
                 std::string key { };
@@ -518,7 +533,6 @@ public:
                 auto itr = membermap.find(key);
                 itr->second(stream);
             }
-            ++stream;
         }
         else {
             (values(stream), ...);
@@ -540,6 +554,10 @@ public:
             *dest = changeEndian<std::endian::native, std::endian::big>(value);
             stream += sizeof(T);
         } else if constexpr (std::is_same_v<std::string, T>) {
+            // variable size following string of size
+            serialize_out_variable(stream, value.size());
+            stream.Copy(value);
+        } else if constexpr (std::is_same_v<std::string_view, T>) {
             // variable size following string of size
             serialize_out_variable(stream, value.size());
             stream.Copy(value);
@@ -576,13 +594,7 @@ public:
     }
 
     static constexpr void struct_serialize_out(Stream &stream, const auto &value) {
-        if constexpr (serialize_key_type == SerializeKeyType::None) {
-            serialize_out(stream, value);
-        } else if constexpr (serialize_key_type == SerializeKeyType::Integer) {
-            serialize_out(stream, std::get<0>(value), std::get<1>(value), std::get<2>(value));
-        } else {
-            serialize_out(stream, value.first, value.second);
-        }
+        serialize_out(stream, value);
     }
 
     static constexpr void struct_serialize_out_end(Stream &stream) {

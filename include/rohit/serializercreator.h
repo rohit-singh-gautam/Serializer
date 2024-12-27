@@ -732,7 +732,7 @@ private:
             if (serialize_key_type == rohit::serializer::SerializeKeyType::String) {
                 outStream.Write("\t\t\t\tstd::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {\"", parent.Name, "\"}, [this] (const rohit::FullStream &stream) { this->", parent.Name, "::template serialize_in<SerializerProtocol>(stream); }}");
             } else if (serialize_key_type == rohit::serializer::SerializeKeyType::Integer){
-                outStream.Write("\t\t\t\tstd::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { static_cast<uint32_t>(", parent.id, "), [this] (const rohit::FullStream &stream) { this->", parent.Name, "::template serialize_in<SerializerProtocol>(stream); }}");
+                outStream.Write("\t\t\t\tstd::pair<uint32_t, std::function<void(const rohit::FullStream &)>> { static_cast<uint32_t>(", parent.id, "), [this] (const rohit::FullStream &stream) { this->", parent.Name, "::template serialize_in<SerializerProtocol>(stream); }}");
             } else {
                 outStream.Write("\t\t\t\t[this] (const rohit::FullStream &stream) { this->", parent.Name, "::template serialize_in<SerializerProtocol>(stream); }");
             }
@@ -752,7 +752,7 @@ private:
                         "\n\t\t\t\t}");
                 } else if (serialize_key_type == rohit::serializer::SerializeKeyType::Integer){
                     outStream.Write(
-                        "\t\t\t\tstd::pair<std::string_view, std::function<void(const rohit::FullStream &)>> {"
+                        "\t\t\t\tstd::pair<uint32_t, std::function<void(const rohit::FullStream &)>> {"
                         "\n\t\t\t\t\tstatic_cast<uint32_t>(", member.id, "), [this] (const rohit::FullStream &stream) {"
                         "\n\t\t\t\t\t\tSerializerProtocol::template serialize_in<", GetCPPType(member),">(stream, this->", member.Name, ");"
                         "\n\t\t\t\t\t}"
@@ -786,7 +786,7 @@ private:
                         );
                     } else {
                         outStream.Write(
-                            "\t\t\t\tstd::pair<std::string_view, std::function<void(const rohit::FullStream &)>> {"
+                            "\t\t\t\tstd::pair<uint32_t, std::function<void(const rohit::FullStream &)>> {"
                             "\n\t\t\t\tstatic_cast<uint32_t>(", member.id, "), "
                         );
                     }
