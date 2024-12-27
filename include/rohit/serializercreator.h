@@ -704,11 +704,11 @@ private:
                             member.Name, ".", member.enumNameList[index], "));",
                             "\n\t\t\t\t\tbreak;");
                     } else if (serialize_key_type == rohit::serializer::SerializeKeyType::Integer) {
-                        outStream.Write("std::make_tuple(", member.id, ", ", index, ", ",
+                        outStream.Write("std::make_tuple(static_cast<uint32_t>(", member.id, "), static_cast<uint32_t>(", index, "), ",
                             member.Name, ".", member.enumNameList[index], "));",
                             "\n\t\t\t\t\tbreak;");
                     } else {
-                        outStream.Write("std::make_pair(", index, ", ",
+                        outStream.Write("std::make_pair(static_cast<uint32_t>(", index, "), ",
                             member.Name, ".", member.enumNameList[index], "));",
                             "\n\t\t\t\t\tbreak;");
                     }
@@ -793,7 +793,7 @@ private:
                     outStream.Write(
                         "[this] (const rohit::FullStream &stream) {\n"
                         "\t\t\t\t\t\tuint32_t ", member.Name, "_type { };\n"
-                        "\t\t\t\t\t\tSerializerProtocol::serialize_in_variable(stream, ", member.Name, "_type);\n"
+                        "\t\t\t\t\t\t", member.Name, "_type = SerializerProtocol::serialize_in_variable(stream);\n"
                         "\t\t\t\t\t\tthis->", member.Name, "_type = static_cast<e_", member.Name, ">(", member.Name, "_type);\n"
                         "\t\t\t\t\t\tswitch(this->", member.Name, "_type) {\n"
                     );

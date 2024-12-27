@@ -327,6 +327,160 @@ TEST(JSONSerializer, String) {
     }
 }
 
+TEST(BinarySerializer, Char) {
+    std::vector<std::pair<std::string, char>> test_list {
+        {"0", '0'},
+        {"1", '1'},
+        {"2", '2'},
+        {"3", '3'},
+        {"4", '4'},
+        {"5", '5'},
+        {"6", '6'},
+        {"7", '7'},
+        {"8", '8'},
+        {"9", '9'},
+        {"A", 'A'},
+        {"Z", 'Z'},
+        {"a", 'a'},
+        {"z", 'z'}
+    };
+
+    for(auto &test: test_list) {
+        auto stream = rohit::make_const_fullstream(test.first);
+        decltype(test.second) value { };
+        rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>::serialize_in(stream, value);
+        EXPECT_EQ(test.second, value); 
+    }
+}
+
+TEST(BinarySerializer, Integer8) {
+    std::vector<std::pair<std::string, int8_t>> test_list {
+        {"\x01", 1},
+        {"\xff", -1},
+        {"\x01", 1},
+        {"{", 123},
+        {"-", 45},
+        {"C", 67},
+        {"Y", 89},
+        {"\n", 10},
+        {"\x7f", 127},
+        {"\x80", -128}
+    };
+
+    for(auto &test: test_list) {
+        auto stream = rohit::make_const_fullstream(test.first);
+        decltype(test.second) value { };
+        rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>::serialize_in(stream, value);
+        EXPECT_EQ(test.second, value); 
+    }
+}
+
+TEST(BinarySerializer, Integer16) {
+    std::vector<std::pair<std::string, int16_t>> test_list {
+        {"\x89\xab", -30293},
+        {"\xcc\xff", -13057},
+        {"\x56\x48", 22088},
+        {"\xff\xff", -1},
+        {"\x7f\xff", 32767},
+        {"\x01\x23", 291},
+        {"\x45\x67", 17767},
+        {"\x12\x34", 4660},
+        {"\x9a\xbc", -25924},
+        {"\xde\xa8", -8536},
+        {"\x7f\xff", 32767},
+        {"\xff\xff", -1}
+    };
+
+    for(auto &test: test_list) {
+        auto stream = rohit::make_const_fullstream(test.first);
+        decltype(test.second) value { };
+        rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>::serialize_in(stream, value);
+        EXPECT_EQ(test.second, value); 
+    }
+}
+
+TEST(BinarySerializer, Integer16_Second) {
+    std::vector<int16_t> test_list {
+        -13057, 22088, -1, 32767, -32768, 291, 17767, -30293, 4660, -25924, -8536, 32767, 1, 0, 127, 128, -127, -128
+    };
+
+    for(auto test: test_list) {
+        uint8_t *begin = reinterpret_cast<uint8_t *>(&test);
+        uint8_t *end = begin + sizeof(test);
+        auto stream = rohit::make_const_fullstream(begin, end);
+        decltype(test) value { };
+        rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>::serialize_in(stream, value);
+        EXPECT_EQ(test, std::byteswap(value)); 
+    }
+}
+
+TEST(BinarySerializer, Integer32) {
+    std::vector<int32_t> test_list {
+        -13057, 22088, -1, 32767, -32768, 291, 17767, -30293, 4660, -25924, -8536, 32767, 1, 0, 127, 128, -127, -128,
+        56789, 39558, 2933, 55443, 55443333, 2147483647, -2147483648
+    };
+
+    for(auto test: test_list) {
+        uint8_t *begin = reinterpret_cast<uint8_t *>(&test);
+        uint8_t *end = begin + sizeof(test);
+        auto stream = rohit::make_const_fullstream(begin, end);
+        decltype(test) value { };
+        rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>::serialize_in(stream, value);
+        EXPECT_EQ(test, std::byteswap(value)); 
+    }
+}
+
+TEST(BinarySerializer, Integer64) {
+    std::vector<int64_t> test_list {
+        -13057, 22088, -1, 32767, -32768, 291, 17767, -30293, 4660, -25924, -8536, 32767, 1, 0, 127, 128, -127, -128,
+        56789, 39558, 2933, 55443, 55443333, 2147483647, -2147483648,
+        9223372036854775807, std::numeric_limits<int64_t>::min()
+    };
+
+    for(auto test: test_list) {
+        uint8_t *begin = reinterpret_cast<uint8_t *>(&test);
+        uint8_t *end = begin + sizeof(test);
+        auto stream = rohit::make_const_fullstream(begin, end);
+        decltype(test) value { };
+        rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>::serialize_in(stream, value);
+        EXPECT_EQ(test, std::byteswap(value)); 
+    }
+}
+
+TEST(BinarySerializer, UInteger32Variable) {
+    std::vector<uint32_t> test_list {
+        536870912, 1073741823,
+        13057, 22088, 32767, 32768, 291, 17767, 30293, 4660, 25924, 8536, 32767, 1, 0, 127, 128,
+        56789, 39558, 2933, 55443, 55443333,
+        65536, 1024, 1023, 16384, 16383
+    };
+
+    for(auto test: test_list) {
+        rohit::FullStreamAutoAlloc stream { 256 };
+        rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>::serialize_out_variable(stream, test);
+        stream.Reset();
+        const auto value = rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>::serialize_in_variable(stream);
+        EXPECT_EQ(test, value); 
+    }
+}
+
+TEST(BinarySerializer, String) {
+    std::vector<std::pair<std::string, std::string>> test_list {
+        {"\x0e" "This is a test", "This is a test"},
+        {"\x01" "0", "0"},
+        {"\x01" "1", "1"},
+        {"\x01" "a", "a"},
+        {"\x01" "z", "z"}
+    };
+
+    for(auto &test: test_list) {
+        auto stream = rohit::make_const_fullstream(test.first);
+        decltype(test.second) value { };
+        rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>::serialize_in(stream, value);
+        EXPECT_EQ(test.second, value); 
+    }
+}
+
 int main(int argc, char *argv[]) {
     ::testing::InitGoogleTest(&argc, argv);
     return RUN_ALL_TESTS();

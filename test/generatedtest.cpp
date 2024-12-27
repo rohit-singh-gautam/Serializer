@@ -114,9 +114,20 @@ TEST(GeneratedTest, SerializeUnion) {
     server1.serialize_in<rohit::serializer::json>(fullstream1);
 
     EXPECT_TRUE(server.entry_type == server1.entry_type);
-    EXPECT_TRUE(server.entry.cache.port == server.entry.cache.port);
-    EXPECT_TRUE(server.entry.cache.size == server.entry.cache.size);
+    EXPECT_TRUE(server.entry.cache.port == server1.entry.cache.port);
+    EXPECT_TRUE(server.entry.cache.size == server1.entry.cache.size);
+    
+
+    rohit::FullStreamAutoAlloc fullstreamBinaryNone { 256 };
+    server.serialize_out<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(fullstreamBinaryNone);
+    test::server1 serverBinaryNone { };
+    fullstreamBinaryNone.Reset();
+    serverBinaryNone.serialize_in<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(fullstreamBinaryNone);
+    EXPECT_TRUE(server.entry_type == serverBinaryNone.entry_type);
+    EXPECT_TRUE(server.entry.cache.port == serverBinaryNone.entry.cache.port);
+    EXPECT_TRUE(server.entry.cache.size == serverBinaryNone.entry.cache.size);
 }
+
 
 TEST(GeneratedTest, SerializeUnion1) {
     test::server1 server {test::server1::e_entry::http, {.http = {10, 10, 10, 10, 2010, 10240, 5021}} };

@@ -395,19 +395,26 @@ public:
 
 private:
     template <typename T>
-    static constexpr void serialize_out(Stream &stream, std::integral auto &id, const T &value) {
+    static constexpr void serialize_out(Stream &stream, const std::integral auto &id, const T &value) {
         serialize_out_variable(stream, id);
         serialize_out(stream, value);
     }
 
+    template <typename T, typename U>
+    static constexpr void serialize_out(Stream &stream, const std::pair<T, U> &value) {
+        serialize_out_variable(stream, value.first);
+        serialize_out(stream, value.second);
+    }
+
     template <typename T>
-    static constexpr void serialize_out(Stream &stream, std::integral auto &id, std::integral auto &index, const T &value) {
+    static constexpr void serialize_out(Stream &stream, const std::integral auto &id, const std::integral auto &index, const T &value) {
         serialize_out_variable(stream, id);
         serialize_out_variable(stream, index);
         serialize_out(stream, value);
     }
 
-    static constexpr void serialize_out_variable(const Stream &stream, std::integral auto id) {
+public:
+    static constexpr void serialize_out_variable(Stream &stream, const std::integral auto id) {
         if (id <= 0x3f) {
             *stream++ = id;
         } else if (id <= 0x3fff) {
@@ -425,19 +432,19 @@ private:
         }
     }
 
-public:
     static constexpr uint32_t serialize_in_variable(const FullStream &stream) {
         if (stream.full()) throw exception::BadInputData { stream };
         auto val = *stream++;
         switch(val & 0xc0) {
+            default:
             case 0x00: return val;
-            case 0x04:
+            case 0x40:
                 if (stream.full()) throw exception::BadInputData { stream };
                 return ((val & 0x3f) << 8) | *stream++;
-            case 0x08:
+            case 0x80:
                 if (stream.remaining_buffer() < 3) throw exception::BadInputData { stream };
                 return ((val & 0x3f) << 16) | (*stream++ << 8) | *stream++;
-            case 0x0c:
+            case 0xc0:
                 if (stream.remaining_buffer() < 7) throw exception::BadInputData { stream };
                 return ((val & 0x3f) << 24) | (*stream++ << 16) | (*stream++ << 8) | *stream++;
         }
@@ -466,10 +473,10 @@ public:
             if (stream.remaining_buffer() < sizeof(T)) throw exception::BadInputData { stream };
             value = *reinterpret_cast<const T *>(stream.curr());
             stream += sizeof(T);
-        } else if constexpr (typecheck::SerializerOutEnabledPtr<T, json>) {
-            value->template serialize_in<json>(stream);
-        } else if constexpr (typecheck::SerializerOutEnabled<T, json>) {
-            value.template serialize_in<json>(stream);
+        } else if constexpr (typecheck::SerializerOutEnabledPtr<T, binary<SERIALIZE_KEY_TYPE>>) {
+            value->template serialize_in<binary<SERIALIZE_KEY_TYPE>>(stream);
+        } else if constexpr (typecheck::SerializerOutEnabled<T, binary<SERIALIZE_KEY_TYPE>>) {
+            value.template serialize_in<binary<SERIALIZE_KEY_TYPE>>(stream);
         } else if constexpr (typecheck::vector<T>) {
             // variable size following vector members
             auto size = serialize_in_variable(stream);
@@ -541,10 +548,10 @@ public:
             auto dest = reinterpret_cast<T *>(stream.curr());
             *dest = value;
             stream += sizeof(T);
-        } else if constexpr (typecheck::SerializerOutEnabledPtr<T, json>) {
-            value->template serialize_out<json>(stream);
-        } else if constexpr (typecheck::SerializerOutEnabled<T, json>) {
-            value.template serialize_out<json>(stream);
+        } else if constexpr (typecheck::SerializerOutEnabledPtr<T, binary<SERIALIZE_KEY_TYPE>>) {
+            value->template serialize_out<binary<SERIALIZE_KEY_TYPE>>(stream);
+        } else if constexpr (typecheck::SerializerOutEnabled<T, binary<SERIALIZE_KEY_TYPE>>) {
+            value.template serialize_out<binary<SERIALIZE_KEY_TYPE>>(stream);
         } else if constexpr (typecheck::vector<T>) {
             // variable size following vector members
             serialize_out_variable(stream, value.size());
@@ -570,7 +577,7 @@ public:
 
     static constexpr void struct_serialize_out(Stream &stream, const auto &value) {
         if constexpr (serialize_key_type == SerializeKeyType::None) {
-            serialize_out(stream, value.first, value.second);
+            serialize_out(stream, value);
         } else if constexpr (serialize_key_type == SerializeKeyType::Integer) {
             serialize_out(stream, std::get<0>(value), std::get<1>(value), std::get<2>(value));
         } else {
