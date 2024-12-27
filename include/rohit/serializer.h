@@ -124,7 +124,17 @@ public:
     constexpr auto operator->() { return Get(); }
 };
 
+enum class SerializeKeyType {
+    None,
+    Integer,
+    String
+};
+
 class json {
+public:
+    constexpr static SerializeKeyType serialize_key_type = SerializeKeyType::String;
+
+private:
     static constexpr bool IsWhiteSpace(const char val) noexcept { return val == ' ' || val == '\t' || val == '\n' || val == '\r'; }
     static void SkipWhiteSpace(const Stream &inStream) { while(IsWhiteSpace(*inStream)) ++inStream; }
 
@@ -376,6 +386,206 @@ public:
     static constexpr void struct_serialize_out_end(Stream &stream) {
         stream.Write('}');
     }
-};
+}; // class json
+
+template <SerializeKeyType SERIALIZE_KEY_TYPE = SerializeKeyType::Integer>
+class binary {
+public:
+    constexpr static SerializeKeyType serialize_key_type = SERIALIZE_KEY_TYPE;
+
+private:
+    template <typename T>
+    static constexpr void serialize_out(Stream &stream, std::integral auto &id, const T &value) {
+        serialize_out_variable(stream, id);
+        serialize_out(stream, value);
+    }
+
+    template <typename T>
+    static constexpr void serialize_out(Stream &stream, std::integral auto &id, std::integral auto &index, const T &value) {
+        serialize_out_variable(stream, id);
+        serialize_out_variable(stream, index);
+        serialize_out(stream, value);
+    }
+
+    static constexpr void serialize_out_variable(const Stream &stream, std::integral auto id) {
+        if (id <= 0x3f) {
+            *stream++ = id;
+        } else if (id <= 0x3fff) {
+            *stream++ = ((id >> 8) | 0x40);
+            *stream++ = id & 0xff;
+        } else if (id <= 0x3fffff) {
+            *stream++ = ((id >> 16) | 0x80);
+            *stream++ = (id >> 8) & 0xff;
+            *stream++ = id & 0xff;
+        } else if (id <= 0x3fffffff) {
+            *stream++ = ((id >> 24) | 0xc0);
+            *stream++ = (id >> 16) & 0xff;
+            *stream++ = (id >> 8) & 0xff;
+            *stream++ = id & 0xff;
+        }
+    }
+
+public:
+    static constexpr uint32_t serialize_in_variable(const FullStream &stream) {
+        if (stream.full()) throw exception::BadInputData { stream };
+        auto val = *stream++;
+        switch(val & 0xc0) {
+            case 0x00: return val;
+            case 0x04:
+                if (stream.full()) throw exception::BadInputData { stream };
+                return ((val & 0x3f) << 8) | *stream++;
+            case 0x08:
+                if (stream.remaining_buffer() < 3) throw exception::BadInputData { stream };
+                return ((val & 0x3f) << 16) | (*stream++ << 8) | *stream++;
+            case 0x0c:
+                if (stream.remaining_buffer() < 7) throw exception::BadInputData { stream };
+                return ((val & 0x3f) << 24) | (*stream++ << 16) | (*stream++ << 8) | *stream++;
+        }
+    }
+
+    template <typename T>
+    static constexpr void serialize_in(const FullStream &stream, T &value) {
+        if constexpr (std::is_same_v<bool, T>) {
+            if (stream.full()) throw exception::BadInputData { stream };
+            value = !!(*stream++);
+        } else if constexpr (std::is_same_v<char, T>) {
+            if (stream.full()) throw exception::BadInputData { stream };
+            value = *stream++;
+        } else if constexpr (std::integral<T>) {
+            if (stream.remaining_buffer() < sizeof(T)) throw exception::BadInputData { stream };
+            auto source = *reinterpret_cast<const T *>(stream.curr());
+            value = changeEndian<std::endian::big, std::endian::native>(source);
+            stream += sizeof(T);
+        } else if constexpr (std::is_same_v<std::string, T>) {
+            // variable size following string of size
+            auto size = serialize_in_variable(stream);
+            if (stream.remaining_buffer() < size) throw exception::BadInputData { stream };
+            value = std::string { stream.curr(), stream.curr() + size };
+            stream += size;
+        } else if constexpr (std::is_same_v<float, T> || std::is_same_v<double, T>) {
+            if (stream.remaining_buffer() < sizeof(T)) throw exception::BadInputData { stream };
+            value = *reinterpret_cast<const T *>(stream.curr());
+            stream += sizeof(T);
+        } else if constexpr (typecheck::SerializerOutEnabledPtr<T, json>) {
+            value->template serialize_in<json>(stream);
+        } else if constexpr (typecheck::SerializerOutEnabled<T, json>) {
+            value.template serialize_in<json>(stream);
+        } else if constexpr (typecheck::vector<T>) {
+            // variable size following vector members
+            auto size = serialize_in_variable(stream);
+            for (size_t i = 0; i < size; ++i) {
+                typename T::value_type valuetype { };
+                serialize_in(stream, valuetype);
+                value.emplace_back(std::move(valuetype));
+            }
+        } else if constexpr (typecheck::map<T>) {
+            // variable size following map members
+            auto size = serialize_in_variable(stream);
+            for (size_t i = 0; i < size; ++i) {
+                typename T::key_type key { };
+                serialize_in(stream, key);
+                typename T::mapped_type valuetype { };
+                serialize_in(stream, valuetype);
+                value.emplace(std::move(key), std::move(valuetype));
+            }
+        } else throw exception::BadType { stream };
+    }
+
+    template <typename ... Types>
+    static constexpr void struct_serialize_in(const FullStream &stream, Types ... values) {
+        if constexpr (serialize_key_type == SerializeKeyType::Integer) {
+            std::unordered_map<uint32_t, std::function<void(const rohit::FullStream &)>> membermap { values... };
+            while(true) {
+                auto key = serialize_in_variable(stream);
+                if (key == 0) break;
+                auto itr = membermap.find(key);
+                itr->second(stream);
+            }
+            ++stream;
+        } if constexpr (serialize_key_type == SerializeKeyType::String) {
+            std::unordered_map<std::string_view, std::function<void(const rohit::FullStream &)>> membermap { values... };
+            while(true) {
+                std::string key { };
+                serialize_in(stream, key);
+                if (key.empty()) break;
+                auto itr = membermap.find(key);
+                itr->second(stream);
+            }
+            ++stream;
+        }
+        else {
+            (values(stream), ...);
+        }
+    }
+
+    template <typename T>
+    static constexpr void serialize_out(Stream &stream, const T &value) {
+        if constexpr (std::is_same_v<T, void(Stream &)> || std::is_function_v<T> || std::is_same_v<T, std::function<void(Stream &)>>) {
+            value(stream);
+        } else if constexpr (std::is_same_v<char, T>) {
+            *stream = value;
+            stream += sizeof(T);
+        } else if constexpr (std::is_same_v<bool, T>) {
+            *stream = value;
+            stream += sizeof(T);
+        } else if constexpr (std::integral<T>) {
+            auto dest = reinterpret_cast<T *>(stream.curr());
+            *dest = changeEndian<std::endian::native, std::endian::big>(value);
+            stream += sizeof(T);
+        } else if constexpr (std::is_same_v<std::string, T>) {
+            // variable size following string of size
+            serialize_out_variable(stream, value.size());
+            stream.Copy(value);
+        } else if constexpr (std::is_same_v<float, T> || std::is_same_v<double, T>) {
+            if (stream.remaining_buffer() < sizeof(T)) throw exception::BadInputData { stream };
+            auto dest = reinterpret_cast<T *>(stream.curr());
+            *dest = value;
+            stream += sizeof(T);
+        } else if constexpr (typecheck::SerializerOutEnabledPtr<T, json>) {
+            value->template serialize_out<json>(stream);
+        } else if constexpr (typecheck::SerializerOutEnabled<T, json>) {
+            value.template serialize_out<json>(stream);
+        } else if constexpr (typecheck::vector<T>) {
+            // variable size following vector members
+            serialize_out_variable(stream, value.size());
+            for (const auto &item : value) {
+                serialize_out(stream, item);
+            }
+        } else if constexpr (typecheck::map<T>) {
+            // variable size following map members
+            serialize_out_variable(stream, value.size());
+            for (const auto &item : value) {
+                serialize_out(stream, item.first);
+                serialize_out(stream, item.second);
+            }
+        } else {
+            // TODO: Improve exception
+            throw std::runtime_error {"Bad Type"};
+        }
+    }
+
+    static constexpr void struct_serialize_out_start(Stream &stream, const auto &value) {
+        struct_serialize_out(stream, value);
+    }
+
+    static constexpr void struct_serialize_out(Stream &stream, const auto &value) {
+        if constexpr (serialize_key_type == SerializeKeyType::None) {
+            serialize_out(stream, value.first, value.second);
+        } else if constexpr (serialize_key_type == SerializeKeyType::Integer) {
+            serialize_out(stream, std::get<0>(value), std::get<1>(value), std::get<2>(value));
+        } else {
+            serialize_out(stream, value.first, value.second);
+        }
+    }
+
+    static constexpr void struct_serialize_out_end(Stream &stream) {
+        if constexpr (serialize_key_type == SerializeKeyType::Integer) {
+            serialize_out_variable(stream, 0U);
+        } else if constexpr (serialize_key_type == SerializeKeyType::String) {
+            std::string empty { };
+            serialize_out(stream, empty);
+        }
+    }
+}; // class binary
 
 } // namespace rohit::serializer

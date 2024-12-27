@@ -25,6 +25,12 @@
 
 namespace rohit {
 
+template <std::endian source, std::endian destination>
+constexpr auto changeEndian(const auto &val) {
+    if constexpr (source == destination) return val;
+    else return std::byteswap(val);
+}
+
 namespace exception {
 class StreamOverflowException : std::exception {
 public:
