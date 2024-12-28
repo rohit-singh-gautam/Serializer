@@ -50,7 +50,24 @@ Following collecting types are supported
 "//" till new line and anything under "/*" and "*/" will be ignore.
 
 ## Serializer Type
-Output is template based, only implementation currently provided is 
+Output is template based, hence one of following serializer can be used:
+1. JSON
+1. Binary
+	1. Positional Binary
+	1. ID based indexing
+	1. String based indexing
+
+if ```cpp test::person pr``` is name of your class different serializer can be applied as follows:
+```cpp
+pr.serialize_out<rohit::serializer::json>(stream);
+pr.serialize_in<rohit::serializer::json>(stream);
+pr.serialize_out<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(stream);
+pr.serialize_in<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(stream);
+pr.serialize_out<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(stream);
+pr.serialize_in<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(stream);
+pr.serialize_out<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(stream);
+pr.serialize_in<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(stream);
+```
 
 ## Example
 ### Simple class
