@@ -63,6 +63,33 @@ TEST(GeneratedTest, SerializeOut) {
     std::string result_valuesstr { "{\"ch\":\"a\",\"pi\":3.14,\"t1\":3.884563,\"t2\":TRUE}" };
 
     EXPECT_TRUE(result_valuesstr == valuesstr);
+
+    fullstream.Reset();
+    personex.serialize_out<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(fullstream);
+    test::test1::personex personexBinaryNone { };
+    fullstream.Reset();
+    personexBinaryNone.serialize_in<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(fullstream);
+    EXPECT_TRUE(personex.name == personexBinaryNone.name);
+    EXPECT_TRUE(personex.ID == personexBinaryNone.ID);
+    EXPECT_TRUE(personex.account == personexBinaryNone.account);
+
+    fullstream.Reset();
+    personex.serialize_out<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(fullstream);
+    test::test1::personex personexBinaryInteger { };
+    fullstream.Reset();
+    personexBinaryInteger.serialize_in<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(fullstream);
+    EXPECT_TRUE(personex.name == personexBinaryInteger.name);
+    EXPECT_TRUE(personex.ID == personexBinaryInteger.ID);
+    EXPECT_TRUE(personex.account == personexBinaryInteger.account);
+
+    fullstream.Reset();
+    personex.serialize_out<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(fullstream);
+    test::test1::personex personexBinaryString { };
+    fullstream.Reset();
+    personexBinaryString.serialize_in<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(fullstream);
+    EXPECT_TRUE(personex.name == personexBinaryString.name);
+    EXPECT_TRUE(personex.ID == personexBinaryString.ID);
+    EXPECT_TRUE(personex.account == personexBinaryString.account);
 }
 
 TEST(GeneratedTest, SerializeArray) {
@@ -80,7 +107,33 @@ TEST(GeneratedTest, SerializeArray) {
     EXPECT_TRUE(personlist.listid == personlist1.listid);
     EXPECT_TRUE(personlist.list.size() == personlist1.list.size());
     EXPECT_TRUE(personlist.list[0].name == personlist1.list[0].name);
-    
+
+    rohit::FullStreamAutoAlloc fullstreamBinaryNone { 256 };
+    personlist.serialize_out<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(fullstreamBinaryNone);
+    arraytest::personlist personlistBinaryNone { };
+    fullstreamBinaryNone.Reset();
+    personlistBinaryNone.serialize_in<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(fullstreamBinaryNone);
+    EXPECT_TRUE(personlist.listid == personlistBinaryNone.listid);
+    EXPECT_TRUE(personlist.list.size() == personlistBinaryNone.list.size());
+    EXPECT_TRUE(personlist.list[0].name == personlistBinaryNone.list[0].name);
+
+    rohit::FullStreamAutoAlloc fullstreamBinaryInteger { 256 };
+    personlist.serialize_out<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(fullstreamBinaryInteger);
+    arraytest::personlist personlistBinaryInteger { };
+    fullstreamBinaryInteger.Reset();
+    personlistBinaryInteger.serialize_in<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(fullstreamBinaryInteger);
+    EXPECT_TRUE(personlist.listid == personlistBinaryInteger.listid);
+    EXPECT_TRUE(personlist.list.size() == personlistBinaryInteger.list.size());
+    EXPECT_TRUE(personlist.list[0].name == personlistBinaryInteger.list[0].name);
+
+    rohit::FullStreamAutoAlloc fullstreamBinaryString { 256 };
+    personlist.serialize_out<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(fullstreamBinaryString);
+    arraytest::personlist personlistBinaryString { };
+    fullstreamBinaryString.Reset();
+    personlistBinaryString.serialize_in<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(fullstreamBinaryString);
+    EXPECT_TRUE(personlist.listid == personlistBinaryString.listid);
+    EXPECT_TRUE(personlist.list.size() == personlistBinaryString.list.size());
+    EXPECT_TRUE(personlist.list[0].name == personlistBinaryString.list[0].name);
 }
 
 TEST(GeneratedTest, SerializeMap) {
@@ -98,6 +151,33 @@ TEST(GeneratedTest, SerializeMap) {
     EXPECT_TRUE(personlist.listid == personlist1.listid);
     EXPECT_TRUE(personlist.list.size() == personlist1.list.size());
     EXPECT_TRUE(personlist.list[1].name == personlist1.list[1].name);
+
+    fullstream.Reset();
+    personlist.serialize_out<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(fullstream);
+    maptest::personlist personlistBinaryNone { };
+    fullstream.Reset();
+    personlistBinaryNone.serialize_in<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(fullstream);
+    EXPECT_TRUE(personlist.listid == personlistBinaryNone.listid);
+    EXPECT_TRUE(personlist.list.size() == personlistBinaryNone.list.size());
+    EXPECT_TRUE(personlist.list[1].name == personlistBinaryNone.list[1].name);
+
+    fullstream.Reset();
+    personlist.serialize_out<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(fullstream);
+    maptest::personlist personlistBinaryInteger { };
+    fullstream.Reset();
+    personlistBinaryInteger.serialize_in<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(fullstream);
+    EXPECT_TRUE(personlist.listid == personlistBinaryInteger.listid);
+    EXPECT_TRUE(personlist.list.size() == personlistBinaryInteger.list.size());
+    EXPECT_TRUE(personlist.list[1].name == personlistBinaryInteger.list[1].name);
+
+    fullstream.Reset();
+    personlist.serialize_out<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(fullstream);
+    maptest::personlist personlistBinaryString { };
+    fullstream.Reset();
+    personlistBinaryString.serialize_in<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(fullstream);
+    EXPECT_TRUE(personlist.listid == personlistBinaryString.listid);
+    EXPECT_TRUE(personlist.list.size() == personlistBinaryString.list.size());
+    EXPECT_TRUE(personlist.list[1].name == personlistBinaryString.list[1].name);
 }
 
 TEST(GeneratedTest, SerializeUnion) {
@@ -163,4 +243,34 @@ TEST(GeneratedTest, SerializeUnion1) {
     EXPECT_TRUE(server.entry.http.port == server.entry.http.port);
     EXPECT_TRUE(server.entry.http.size == server.entry.http.size);
     EXPECT_TRUE(server.entry.http.mimesize == server.entry.http.mimesize);
+
+    fullstream.Reset();
+    server.serialize_out<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(fullstream);
+    test::server1 serverBinaryNone { };
+    fullstream.Reset();
+    serverBinaryNone.serialize_in<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(fullstream);
+    EXPECT_TRUE(server.entry_type == serverBinaryNone.entry_type);
+    EXPECT_TRUE(server.entry.http.port == serverBinaryNone.entry.http.port);
+    EXPECT_TRUE(server.entry.http.size == serverBinaryNone.entry.http.size);
+    EXPECT_TRUE(server.entry.http.mimesize == serverBinaryNone.entry.http.mimesize);
+
+    fullstream.Reset();
+    server.serialize_out<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(fullstream);
+    test::server1 serverBinaryInteger { };
+    fullstream.Reset();
+    serverBinaryInteger.serialize_in<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(fullstream);
+    EXPECT_TRUE(server.entry_type == serverBinaryInteger.entry_type);
+    EXPECT_TRUE(server.entry.http.port == serverBinaryInteger.entry.http.port);
+    EXPECT_TRUE(server.entry.http.size == serverBinaryInteger.entry.http.size);
+    EXPECT_TRUE(server.entry.http.mimesize == serverBinaryInteger.entry.http.mimesize);
+
+    fullstream.Reset();
+    server.serialize_out<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(fullstream);
+    test::server1 serverBinaryString { };
+    fullstream.Reset();
+    serverBinaryString.serialize_in<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(fullstream);
+    EXPECT_TRUE(server.entry_type == serverBinaryString.entry_type);
+    EXPECT_TRUE(server.entry.http.port == serverBinaryString.entry.http.port);
+    EXPECT_TRUE(server.entry.http.size == serverBinaryString.entry.http.size);
+    EXPECT_TRUE(server.entry.http.mimesize == serverBinaryString.entry.http.mimesize);
 }
