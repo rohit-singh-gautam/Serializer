@@ -12,6 +12,7 @@ include_directories(include)
 
 set_property(TARGET serializer PROPERTY CXX_STANDARD 23)
 
-enable_testing()
-
-add_subdirectory(test)
+if(${CMAKE_CURRENT_SOURCE_DIR} STREQUAL ${CMAKE_SOURCE_DIR})
+    enable_testing()
+    add_subdirectory(test)
+endif()
