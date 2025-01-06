@@ -8,7 +8,7 @@ add_compile_options(-Wall -Werror -Wpedantic -Wextra -Weffc++ -Wsuggest-override
 
 add_executable(serializer src/serializer.cpp)
 
-include_directories(${PROJECT_SOURCE_DIR}/include)
+include_directories(include)
 
 set_property(TARGET serializer PROPERTY CXX_STANDARD 23)
 
