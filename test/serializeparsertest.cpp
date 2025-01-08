@@ -124,11 +124,11 @@ TEST(SerializeParser, AccessType) {
 TEST(SerializeParser, Member) {
     // tuple list are: source, Member, is negative test
     std::vector<std::tuple<std::string, rohit::Member, bool>> test_list {
-        {"private \r\n array \r\n\t uint8\t_test\r\n;", {rohit::AccessType::Private, rohit::Member::array, {}, {"uint8"}, "_test", 1, {}}, false},
-        {"public uint8 test;", {rohit::AccessType::Public, rohit::Member::none, {}, {"uint8"}, "test", 2, {}}, false},
-        {"protected \r\n uint8\ttest;", {rohit::AccessType::Protected, rohit::Member::none, {}, {"uint8"}, "test", 3, {}}, false},
-        {"private \r\n newtest\t_test\r\n;", {rohit::AccessType::Private, rohit::Member::none, {}, {"newtest"}, "_test", 4, {}}, false},
-        {"private \r\n 9newtest\t_test\r\n;", {rohit::AccessType::Private, rohit::Member::none, {}, {"uint8"}, "_test", 5, {}}, true},
+        {"private \r\n array \r\n\t uint8\t_test\r\n;", {rohit::AccessType::Private, rohit::Member::array, { {"uint8", nullptr} }, "_test", 1, {}}, false},
+        {"public uint8 test;", {rohit::AccessType::Public, rohit::Member::none, { {"uint8", nullptr} }, "test", 2, {}}, false},
+        {"protected \r\n uint8\ttest;", {rohit::AccessType::Protected, rohit::Member::none, { {"uint8", nullptr} }, "test", 3, {}}, false},
+        {"private \r\n newtest\t_test\r\n;", {rohit::AccessType::Private, rohit::Member::none, { {"newtest", nullptr} }, "_test", 4, {}}, false},
+        {"private \r\n 9newtest\t_test\r\n;", {rohit::AccessType::Private, rohit::Member::none, { {"uint8", nullptr} }, "_test", 5, {}}, true},
     };
 
     rohit::FullStreamAutoAlloc outStream {128};
@@ -137,10 +137,10 @@ TEST(SerializeParser, Member) {
         rohit::FullStream inStream { input.data(), input.size() };
         rohit::SerializerCreator creator { inStream, outStream };
         if (!negativetest) {
-            auto parsedmember = creator.ParseMember(output.id);
+            auto parsedmember = creator.ParseMember(output.id, nullptr);
             EXPECT_EQ(parsedmember, output);
         } else {
-            EXPECT_THROW(creator.ParseMember(output.id), rohit::exception::BadIdentifier);
+            EXPECT_THROW(creator.ParseMember(output.id, nullptr), rohit::exception::BadIdentifier);
         }
     }
 }
@@ -160,7 +160,7 @@ TEST(SerializeParser, ClassBody) {
     std::vector<rohit::Parent> parent { };
     rohit::Class obj {rohit::ObjectType::Class, std::move(name), nullptr, rohit::ClassAtributes::None, std::move(parent)};
     uint32_t id { 1 };
-    creator.ParseClassBody(obj, id);
+    creator.ParseClassBody(&obj, id);
     EXPECT_EQ(obj.MemberList.size(), 2);
 }
 
@@ -247,5 +247,59 @@ class server1 {
     rohit::SerializerCreator creator { inStream, outStream };
     auto parsed = creator.Parse();
     EXPECT_EQ(parsed.size(), 1);
+}
+
+TEST(SerializeParser, CompleteEnumTest) {
+    std::string input {
+        R"(
+namespace test {
+class IP {
+    public uint8 a;
+    public uint8 b;
+    public uint8 c;
+    public uint8 d;
+}
+
+class serverbase {
+    public IP name;
+    public uint16 port;
+}
+
+class cacheserver : public serverbase {
+    public uint32 size;
+}
+
+class httpserver : public serverbase {
+    public uint32 size;
+    public uint32 mimesize;
+}
+
+
+class server {
+    // entry_enum enumeration will be created
+    // pair<entry_enum, union> will be created
+    public union (cacheserver, httpserver) entry;
+}
+
+enum test {
+    test1,
+    test2,
+    test3
+}
+
+class server1 {
+    // entry_enum enumeration will be created
+    // pair<entry_enum, union> will be created
+    public union (cacheserver = cache, httpserver = http) entry;
+}
+
+} // namespace test
+)"
+    };
+
+    rohit::FullStreamAutoAlloc outStream {128};
+    rohit::FullStream inStream { input.data(), input.size() };
+    rohit::SerializerCreator creator { inStream, outStream };
+    creator.Write();
 }
 

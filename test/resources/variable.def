@@ -44,10 +44,17 @@ class server {
     public union (cacheserver, httpserver) entry;
 }
 
+enum test112 {
+    em1,
+    em2,
+    em3
+}
+
 class server1 {
     // entry_enum enumeration will be created
     // pair<entry_enum, union> will be created
     public union (cacheserver = cache, httpserver = http) entry;
+    public test112 test12;
 }
 
 /*

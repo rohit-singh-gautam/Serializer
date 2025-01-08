@@ -474,7 +474,11 @@ public:
         } else if constexpr (std::is_same_v<char, T>) {
             if (stream.full()) throw exception::BadInputData { stream };
             value = *stream++;
-        } else if constexpr (std::integral<T>) {
+        } else if constexpr (std::is_enum_v<T>) {
+            auto ival = serialize_in_variable(stream);
+            value = static_cast<T>(ival);
+        }
+        else if constexpr (std::integral<T>) {
             if (stream.remaining_buffer() < sizeof(T)) throw exception::BadInputData { stream };
             auto source = *reinterpret_cast<const T *>(stream.curr());
             value = changeEndian<std::endian::big, std::endian::native>(source);
@@ -549,6 +553,8 @@ public:
         } else if constexpr (std::is_same_v<bool, T>) {
             *stream = value;
             stream += sizeof(T);
+        } else if constexpr (std::is_enum_v<T>) {
+            serialize_out_variable(stream, static_cast<std::underlying_type_t<T>>(value));
         } else if constexpr (std::integral<T>) {
             auto dest = reinterpret_cast<T *>(stream.curr());
             *dest = changeEndian<std::endian::native, std::endian::big>(value);

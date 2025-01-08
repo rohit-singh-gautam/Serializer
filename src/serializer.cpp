@@ -19,6 +19,23 @@
 #include <rohit/serializercreator.h>
 #include <fstream>
 
+const std::unordered_map<std::string, std::string> rohit::SerializerCreator::CPPTypeMap {
+    {"char", "char"},
+    {"int8", "int8_t"},
+    {"int16", "int16_t"},
+    {"int8", "int8_t"},
+    {"int32", "int32_t"},
+    {"int64", "int64_t"},
+    {"uint8", "uint8_t"},
+    {"uint16", "uint16_t"},
+    {"uint32", "uint32_t"},
+    {"uint64", "uint64_t"},
+    {"float", "float"},
+    {"double", "double"},
+    {"bool", "bool"},
+    {"string", "std::string"}
+};
+
 void DisplayHelp(const std::string &err) {
     std::cout << "Usage: Serializer input <input filename> output <output filename>" << std::endl;
     if (!err.empty()) {

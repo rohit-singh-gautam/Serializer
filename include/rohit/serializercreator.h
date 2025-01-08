@@ -20,6 +20,7 @@
 #include <string.h>
 #include <stack>
 #include <vector>
+#include <queue>
 #include <functional>
 #include <memory>
 #include <filesystem>
@@ -69,6 +70,11 @@ public:
     using BaseParser::BaseParser;
 };
 
+class BadMemberType : public BaseParser {
+public:
+    using BaseParser::BaseParser;
+};
+
 class BadClass : public BaseParser {
 public:
     using BaseParser::BaseParser;
@@ -95,8 +101,11 @@ enum class AccessType {
 };
 
 enum class ObjectType {
+    Unresolved,
     Namespace,
-    Class
+    Class,
+    Enum,
+    Primitive
 };
 
 enum class ClassAtributes : uint8_t {
@@ -119,25 +128,9 @@ ClassAtributes operator&(const ClassAtributes &lhs, const ClassAtributes &rhs) {
     return static_cast<ClassAtributes>(ulhs & urhs);
 }
 
-struct Member {
-    enum ModifierType {
-        none,
-        array,
-        map,
-        Union
-    };
-    AccessType access;
-    ModifierType modifer;
-    std::vector<std::string> enumNameList;
-    std::vector<std::string> typeNameList;
-    std::string Name;
-    uint32_t id;
-    std::string Key; // Optional parameter
-
-    bool operator==(const Member &rhs) const { return access == rhs.access && modifer == rhs.modifer && enumNameList == rhs.enumNameList && typeNameList == rhs.typeNameList && Name == rhs.Name; }
-};
-
 struct Namespace;
+
+std::string GetFullName(const Namespace *nameSpace);
 
 struct Base {
     ObjectType type;
@@ -149,7 +142,76 @@ struct Base {
         parentNamespace { base.parentNamespace } { }
     virtual ~Base() = default;
     Base(const Base &base) = delete;
-    Base &operator=(const Base &) = delete; 
+    Base &operator=(const Base &) = delete;
+    std::string GetFullName() const {
+        std::string fullName { };
+        if (parentNamespace) {
+            fullName = rohit::GetFullName(parentNamespace);
+            fullName += "::";
+        }
+        fullName += Name;
+        return fullName;
+    }
+};
+
+struct Namespace : public Base {
+    std::vector<std::unique_ptr<Base>> statementlist { };
+    Namespace(ObjectType type, std::string &&Name,
+        Namespace *parentNamespace) :
+            Base { type, std::move(Name), parentNamespace }
+                {}
+};
+
+std::string GetFullName(const Namespace *nameSpace) {
+    return nameSpace->GetFullName();
+}
+
+struct TypeName {
+    TypeName(std::string &&Name, Namespace *declaredNameSpace) : Name { std::move(Name) }, EnumName { }, declaredNameSpace { declaredNameSpace } { }
+    TypeName(std::string &&Name, std::string &&EnumName, Namespace *declaredNameSpace) : Name { std::move(Name) }, EnumName { std::move(EnumName) }, declaredNameSpace { declaredNameSpace } { }
+    TypeName(const TypeName &rhs) : Name { rhs.Name }, EnumName { rhs.EnumName }, declaredNameSpace { rhs.declaredNameSpace }, definedNameSpace { definedNameSpace } { }
+    TypeName &operator=(const TypeName &rhs) {
+        Name = rhs.Name;
+        EnumName = rhs.EnumName;
+        declaredNameSpace = rhs.declaredNameSpace;
+        definedNameSpace = rhs.definedNameSpace;
+        return *this;
+    }
+
+    std::string Name;
+    std::string EnumName;
+    Namespace *declaredNameSpace;
+    Namespace *definedNameSpace { };
+    ObjectType type { ObjectType::Unresolved };
+
+    std::string GetFullName() {
+        std::string fullName { };
+        if (definedNameSpace) {
+            fullName = rohit::GetFullName(definedNameSpace);
+            fullName += "::";
+        }
+        fullName += Name;
+        return fullName;
+    }
+
+    bool operator==(const TypeName &rhs) const { return Name == rhs.Name && EnumName == rhs.EnumName && declaredNameSpace == rhs.declaredNameSpace; }
+};
+
+struct Member {
+    enum ModifierType {
+        none,
+        array,
+        map,
+        Union
+    };
+    AccessType access;
+    ModifierType modifer;
+    std::vector<TypeName> typeNameList;
+    std::string Name;
+    uint32_t id;
+    std::string Key; // Optional parameter
+
+    bool operator==(const Member &rhs) const { return access == rhs.access && modifer == rhs.modifer && typeNameList == rhs.typeNameList && Name == rhs.Name; }
 };
 
 struct Class;
@@ -169,7 +231,7 @@ struct Class : public Base {
     std::vector<Member> MemberList { };
     Class(ObjectType type, std::string &&Name,
         Namespace *parentNamespace, ClassAtributes attributes,
-        std::vector<Parent> &&parentlist) : Base(type, std::move(Name), parentNamespace),
+        std::vector<Parent> &&parentlist) : Base { type, std::move(Name), parentNamespace },
             attributes { attributes }, parentlist { std::move(parentlist) } { }
     Class(Class &&rhs) : Base { std::move(rhs) },
         attributes { rhs.attributes }, parentlist { std::move(rhs.parentlist) },
@@ -178,12 +240,13 @@ struct Class : public Base {
     Class &operator=(const Class&) = delete;
 };
 
-struct Namespace : public Base {
-    std::vector<std::unique_ptr<Base>> statementlist { };
-    Namespace(ObjectType type, std::string &&Name,
-        Namespace *parentNamespace) :
-            Base { type, std::move(Name), parentNamespace }
-                {}
+struct Enum : public Base {
+    Enum(ObjectType type, std::string &&Name,
+        Namespace *parentNamespace,
+        std::vector<std::string> &&enumNameList) : 
+                Base { type, std::move(Name), parentNamespace }, enumNameList { std::move(enumNameList) } { }
+    
+    std::vector<std::string> enumNameList { };
 };
 
 class SerializerCreator {
@@ -269,6 +332,8 @@ private:
         ++inStream;
     }
 
+    std::unordered_map<std::string, ObjectType> VariableTypeMap { };
+
     std::string ParseIdentifier() {
         std::string identifier { };
         auto ch = *inStream;
@@ -343,20 +408,20 @@ private:
         return Member::none;
     }
 
-    Member ParseMember(const uint32_t id) {
+    Member ParseMember(const uint32_t id, Namespace *declaredNameSpace) {
         auto accesstype = ParseAccessType();
         SkipWhiteSpaceAndComment();
         auto nextid = ParseHierarchicalIdentifier();
         std::vector<std::string> enumNameList { };
-        std::vector<std::string> typeNameList { };
+        std::vector<TypeName> typeNameList { };
         auto membermodifier = ParseMemberModifier(nextid);
         std::string key { };
         if (membermodifier == Member::none) {
-            typeNameList.push_back(nextid);
+            typeNameList.emplace_back(std::move(nextid), declaredNameSpace);
         } else if (membermodifier == Member::array) {
             SkipWhiteSpaceAndComment();
             auto typeName = ParseHierarchicalIdentifier();
-            typeNameList.push_back(typeName);
+            typeNameList.emplace_back(std::move(typeName), declaredNameSpace);
         } else if(membermodifier == Member::map) {
             SkipWhiteSpaceAndComment();
             check_in('(');
@@ -365,7 +430,7 @@ private:
             check_in(')');
             SkipWhiteSpaceAndComment();
             auto typeName = ParseHierarchicalIdentifier();
-            typeNameList.push_back(typeName);
+            typeNameList.emplace_back(std::move(typeName), declaredNameSpace);
         } else if (membermodifier == Member::Union) {
             SkipWhiteSpaceAndComment();
             check_in('(');
@@ -373,16 +438,16 @@ private:
             while(true) {
                 SkipWhiteSpaceAndComment();
                 auto typeName = ParseHierarchicalIdentifier();
-                typeNameList.push_back(typeName);
                 SkipWhiteSpaceAndComment();
                 if (*inStream == '=') {
                     ++inStream;
                     SkipWhiteSpaceAndComment();
                     auto enumName = ParseIdentifier();
-                    enumNameList.push_back(enumName);
+                    typeNameList.emplace_back(std::move(typeName), std::move(enumName), declaredNameSpace);
                     SkipWhiteSpaceAndComment();
                 } else {
-                    enumNameList.push_back("e_" + std::to_string(count));
+                    std::string enumName { "e_" + std::to_string(count) };
+                    typeNameList.emplace_back(std::move(typeName), std::move(enumName), declaredNameSpace);
                     ++count;
                 }
                 if (*inStream != ',') break;
@@ -394,19 +459,20 @@ private:
         auto name = ParseIdentifier();
         SkipWhiteSpaceAndComment();
         check_in(';');
-        return { accesstype, membermodifier, enumNameList, typeNameList, name, id, key };
+        return { accesstype, membermodifier, typeNameList, name, id, key };
     }
 
     ObjectType ParseObjectType() {
         auto objectType = ParseIdentifier();
         if (objectType == "class") return ObjectType::Class;
         if (objectType == "namespace") return ObjectType::Namespace;
+        if (objectType == "enum") return ObjectType::Enum;
         std::string errorstr { "Bad identifier type it must be one of 'class' or 'namespace' case sensitive. Unknown access type: " };
         errorstr += objectType;
         throw exception::BadObjectType { inStream, errorstr };
     }
 
-    void ParseClassBody(Class &obj, uint32_t &id) {
+    void ParseClassBody(Class *obj, uint32_t &id) {
         if (*inStream != '{' ) {
             std::string errorstr { "Expecting '{' found: "};
             errorstr += *inStream;
@@ -415,8 +481,8 @@ private:
         ++inStream;
         SkipWhiteSpaceAndComment();
         while(*inStream != '}') {
-            auto member = ParseMember(id++);
-            obj.MemberList.push_back(std::move(member));
+            auto member = ParseMember(id++, obj->parentNamespace);
+            obj->MemberList.push_back(std::move(member));
             SkipWhiteSpaceAndComment();
         }
         ++inStream;
@@ -445,7 +511,7 @@ private:
         return ret;
     }
 
-    Class ParseClassHeader(Namespace *CurrentNamespace, uint32_t &id) {
+    std::unique_ptr<Class> ParseClassHeader(Namespace *CurrentNamespace, uint32_t &id) {
         // Object type is already parsed
         SkipWhiteSpaceAndComment();
         auto name = ParseIdentifier();
@@ -463,15 +529,50 @@ private:
             std::swap(parentlist, parentlisttemp);
         }
 
-        return {ObjectType::Class, std::move(name), CurrentNamespace, attributes, std::move(parentlist)};
+        return std::make_unique<Class>(ObjectType::Class, std::move(name), CurrentNamespace, attributes, std::move(parentlist));
     }
 
-    Class ParseClass(Namespace *CurrentNamespace) {
+    std::unique_ptr<Class> ParseClass(Namespace *CurrentNamespace) {
         uint32_t id { 1 };
-        Class obj = ParseClassHeader(CurrentNamespace, id);
+        auto obj = ParseClassHeader(CurrentNamespace, id);
         // At this point all whitespace is skipped
-        ParseClassBody(obj, id);
+        ParseClassBody(obj.get(), id);
+        VariableTypeMap.insert({obj->GetFullName(), ObjectType::Class});
         return obj;
+    }
+
+    std::unique_ptr<Enum> ParseEnum(Namespace *CurrentNamespace) {
+        SkipWhiteSpaceAndComment();
+        auto enumName = ParseIdentifier();
+        SkipWhiteSpaceAndComment();
+        if (*inStream != '{' ) {
+            std::string errorstr { "Expecting '{' found: "};
+            errorstr += *inStream;
+            throw exception::BadClass { inStream, errorstr };
+        }
+        ++inStream;
+        SkipWhiteSpaceAndComment();
+        std::vector<std::string> enumNameList { };
+        if (*inStream != '}') {
+            while(true) {
+                auto name = ParseIdentifier();
+                enumNameList.push_back(name);
+                SkipWhiteSpaceAndComment();
+                if (*inStream != ',') break;
+                ++inStream;
+                SkipWhiteSpaceAndComment();
+            }
+            if (*inStream != '}') {
+                std::string errorstr { "Expecting '}' found: "};
+                errorstr += *inStream;
+                throw exception::BadClass { inStream, errorstr };
+            }
+        }
+        ++inStream;
+        if (*inStream == ';') throw exception::BadClass { inStream, {"Semicolon is not expected at the end of a class"} };
+        auto ret = std::make_unique<Enum>(ObjectType::Enum, std::move(enumName), CurrentNamespace, std::move(enumNameList));
+        VariableTypeMap.insert({ret->GetFullName(), ObjectType::Enum});
+        return ret;
     }
 
     std::unique_ptr<Namespace> ParseNameSpace(Namespace *parentNamespace);
@@ -483,10 +584,11 @@ private:
             if (inStream.full() || *inStream == '}') break;
             auto objectType = ParseObjectType();
             if (objectType == ObjectType::Class) {
-                auto obj = new Class { ParseClass(parentNamespace) };
-                statementlist.emplace_back(obj);
+                statementlist.emplace_back(ParseClass(parentNamespace));
             } else if (objectType == ObjectType::Namespace) {
                 statementlist.emplace_back( ParseNameSpace(parentNamespace) );
+            } else if (objectType == ObjectType::Enum) {
+                statementlist.emplace_back( ParseEnum(parentNamespace) );
             } else {
                 std::string errorstr { "Bad identifier type it must be one of 'class' or 'namespace' case sensitive." };
                 throw exception::BadObjectType { inStream, errorstr };
@@ -513,30 +615,15 @@ private:
         }
     }
 
-    constexpr const std::string &GetCPPType(const std::string &type) {
-        static std::unordered_map<std::string, std::string> CPPTypeMap {
-            {"char", "char"},
-            {"int8", "int8_t"},
-            {"int16", "int16_t"},
-            {"int8", "int8_t"},
-            {"int32", "int32_t"},
-            {"int64", "int64_t"},
-            {"uint8", "uint8_t"},
-            {"uint16", "uint16_t"},
-            {"uint32", "uint32_t"},
-            {"uint64", "uint64_t"},
-            {"float", "float"},
-            {"double", "double"},
-            {"bool", "bool"},
-            {"string", "std::string"}
-        };
-        
+    static const std::unordered_map<std::string, std::string> CPPTypeMap;
+
+    static const std::string &GetCPPType(const std::string &type) {
         auto itr = CPPTypeMap.find(type);
-        if (itr != std::end(CPPTypeMap)) return CPPTypeMap[type];
+        if (itr != std::end(CPPTypeMap)) return itr->second;
         else return type;
     }
 
-    constexpr const std::string GetCPPTypeSupport(const Member &member) {
+    static const std::string GetCPPTypeSupport(const Member &member) {
         switch(member.modifer) {
         default:
         case Member::none:
@@ -549,21 +636,21 @@ private:
                 std::string retUnion { "\tenum class e_" };
                 retUnion += member.Name;
                 retUnion += " {\n";
-                for(auto &enumName: member.enumNameList) {
-                    retUnion += "\t\t" + enumName + ",\n";
+                for(auto &typeName: member.typeNameList) {
+                    retUnion += "\t\t" + typeName.EnumName + ",\n";
                 }
                 retUnion += "\t};\n\tunion u_" + member.Name + " {\n";
-                for(size_t index { 0 }; index < member.enumNameList.size(); ++index) {
-                    retUnion += "\t\t" + member.typeNameList[index] + " " + member.enumNameList[index] + ";\n";
+                for(size_t index { 0 }; index < member.typeNameList.size(); ++index) {
+                    retUnion += "\t\t" + member.typeNameList[index].Name + " " + member.typeNameList[index].EnumName + ";\n";
                 }
                 retUnion += "\t};\n\tstatic std::string to_string(const e_" + member.Name + " v) {\n\t\tswitch(v) {\n\t\t\tdefault:";
-                for(auto &enumName: member.enumNameList) {
-                    retUnion += "\n\t\t\tcase e_" + member.Name + "::" + enumName + ": return {\"" + enumName + "\"}; ";
+                for(auto &typeName: member.typeNameList) {
+                    retUnion += "\n\t\t\tcase e_" + member.Name + "::" + typeName.EnumName + ": return {\"" + typeName.EnumName + "\"}; ";
                 }
                 retUnion += "\n\t\t}\n\t};\n\tstatic e_" + member.Name + " to_e_" + member.Name + "(const auto &v) {"
                             "\n\t\tswitch(rohit::hash(v)) {";
-                for(auto &enumName: member.enumNameList) {
-                    retUnion += "\n\t\t\tcase rohit::hash(\"" + enumName + "\"): return e_" + member.Name + "::" + enumName + ";";
+                for(auto &typeName: member.typeNameList) {
+                    retUnion += "\n\t\t\tcase rohit::hash(\"" + typeName.EnumName + "\"): return e_" + member.Name + "::" + typeName.EnumName + ";";
                 }
                 retUnion += "\n\t\t\tdefault: throw std::runtime_error(\"Bad Enum Name\");"
                             "\n\t\t}"
@@ -573,16 +660,16 @@ private:
         }
     }
 
-    constexpr const std::string GetCPPType(const Member &member) {
+    static const std::string GetCPPType(const Member &member) {
         switch(member.modifer) {
         default:
         case Member::none:
             // TODO: Range check
-            return GetCPPType(member.typeNameList[0]);
+            return GetCPPType(member.typeNameList[0].Name);
         case Member::array:
-            return std::string("std::vector<") + GetCPPType(member.typeNameList[0]) + ">";
+            return std::string("std::vector<") + GetCPPType(member.typeNameList[0].Name) + ">";
         case Member::map:
-            return std::string("std::map<") + GetCPPType(member.Key) + "," + GetCPPType(member.typeNameList[0]) + ">";
+            return std::string("std::map<") + GetCPPType(member.Key) + "," + GetCPPType(member.typeNameList[0].Name) + ">";
         case Member::Union:
             return "e_" + member.Name + " " + member.Name + "_type { };\n\t" + "u_" + member.Name;
         }
@@ -693,23 +780,23 @@ private:
             }
             else {
                 outStream.Write("\n\t\t\tswitch(", member.Name, "_type) {");
-                for(size_t index { 0 }; index < member.enumNameList.size(); ++index) {
-                    outStream.Write("\n\t\t\t\tcase e_", member.Name, "::", member.enumNameList[index], ":");
+                for(size_t index { 0 }; index < member.typeNameList.size(); ++index) {
+                    outStream.Write("\n\t\t\t\tcase e_", member.Name, "::", member.typeNameList[index].EnumName, ":");
                     if (first) {
                         outStream.Write("\n\t\t\t\t\tSerializerProtocol::struct_serialize_out_start(stream, ");
                     }
                     else outStream.Write("\n\t\t\t\t\tSerializerProtocol::struct_serialize_out(stream, ");
                     if (serialize_key_type == rohit::serializer::SerializeKeyType::String) {
-                        outStream.Write("std::make_pair( std::string_view {\"", member.Name, ":", member.enumNameList[index], "\"}, ",
-                            member.Name, ".", member.enumNameList[index], "));",
+                        outStream.Write("std::make_pair( std::string_view {\"", member.Name, ":", member.typeNameList[index].EnumName, "\"}, ",
+                            member.Name, ".", member.typeNameList[index].EnumName, "));",
                             "\n\t\t\t\t\tbreak;");
                     } else if (serialize_key_type == rohit::serializer::SerializeKeyType::Integer) {
                         outStream.Write("std::make_tuple(static_cast<uint32_t>(", member.id, "), static_cast<uint32_t>(", index, "), ",
-                            member.Name, ".", member.enumNameList[index], "));",
+                            member.Name, ".", member.typeNameList[index].EnumName, "));",
                             "\n\t\t\t\t\tbreak;");
                     } else {
                         outStream.Write("std::make_pair(static_cast<uint32_t>(", index, "), ",
-                            member.Name, ".", member.enumNameList[index], "));",
+                            member.Name, ".", member.typeNameList[index].EnumName, "));",
                             "\n\t\t\t\t\tbreak;");
                     }
                 }
@@ -764,16 +851,16 @@ private:
                         "\n\t\t\t\t\t}"
                         "\n\t\t\t\t)");
                 }
-            } else if (member.enumNameList.size()) {
+            } else if (member.typeNameList.size()) {
                 if (serialize_key_type == rohit::serializer::SerializeKeyType::String) {
-                    for(auto &enumName: member.enumNameList) {
+                    for(auto &typeName: member.typeNameList) {
                         if (!first) outStream.Write(",\n");
                         else first = false;
                         outStream.Write(
                             "\t\t\t\tstd::pair<std::string_view, std::function<void(const rohit::FullStream &)>> {"
-                            "\n\t\t\t\t\tstd::string_view {\"", member.Name, ":", enumName, "\"}, [this] (const rohit::FullStream &stream) {"
-                            "\n\t\t\t\t\t\tthis->", member.Name, "_type = e_", member.Name, "::", enumName, ";",
-                            "\n\t\t\t\t\t\tSerializerProtocol::template serialize_in(stream, this->", member.Name, ".", enumName, ");"
+                            "\n\t\t\t\t\tstd::string_view {\"", member.Name, ":", typeName.EnumName, "\"}, [this] (const rohit::FullStream &stream) {"
+                            "\n\t\t\t\t\t\tthis->", member.Name, "_type = e_", member.Name, "::", typeName.EnumName, ";",
+                            "\n\t\t\t\t\t\tSerializerProtocol::template serialize_in(stream, this->", member.Name, ".", typeName.EnumName, ");"
                             "\n\t\t\t\t\t}"
                             "\n\t\t\t\t}");
                     }
@@ -797,10 +884,10 @@ private:
                         "\t\t\t\t\t\tthis->", member.Name, "_type = static_cast<e_", member.Name, ">(", member.Name, "_type);\n"
                         "\t\t\t\t\t\tswitch(this->", member.Name, "_type) {\n"
                     );
-                    for(size_t index { 0 }; index < member.enumNameList.size(); ++index) {
+                    for(size_t index { 0 }; index < member.typeNameList.size(); ++index) {
                         outStream.Write(
-                            "\t\t\t\t\t\t\tcase e_", member.Name, "::", member.enumNameList[index], ":\n"
-                            "\t\t\t\t\t\t\t\tSerializerProtocol::template serialize_in(stream, this->", member.Name,".", member.enumNameList[index], ");\n"
+                            "\t\t\t\t\t\t\tcase e_", member.Name, "::", member.typeNameList[index].EnumName, ":\n"
+                            "\t\t\t\t\t\t\t\tSerializerProtocol::template serialize_in(stream, this->", member.Name,".", member.typeNameList[index].EnumName, ");\n"
                             "\t\t\t\t\t\t\t\tbreak;\n"
                         );
                     }
@@ -867,6 +954,32 @@ private:
         outStream.Write("}; // class ", obj->Name, "\n\n");
     }
 
+    void Write(const Enum *enumptr) {
+        outStream.Write("enum class ", enumptr->Name, " {\n");
+        for(auto &enumName: enumptr->enumNameList) {
+            outStream.Write("\t", enumName, ",\n");
+        }
+        outStream.Write("}; // enum class ", enumptr->Name, "\n\n");
+
+        outStream.Write("constexpr inline std::string to_string(const ", enumptr->Name, " v) {\n");
+        outStream.Write("\tswitch(v) {\n");
+        for(auto &enumName: enumptr->enumNameList) {
+            outStream.Write("\t\tcase ", enumptr->Name, "::", enumName, ": return {\"", enumName, "\"};\n");
+        }
+        outStream.Write("\t\tdefault: throw std::runtime_error(\"Bad Enum Name\");\n");
+        outStream.Write("\t}\n");
+        outStream.Write("};\n\n");
+
+        outStream.Write("constexpr inline ", enumptr->Name, " to_", enumptr->Name, "(const auto &v) {\n");
+        outStream.Write("\tswitch(rohit::hash(v)) {\n");
+        for(auto &enumName: enumptr->enumNameList) {
+            outStream.Write("\t\tcase rohit::hash(\"", enumName, "\"): return ", enumptr->Name, "::", enumName, ";\n");
+        }
+        outStream.Write("\t\tdefault: throw std::runtime_error(\"Bad Enum Name\");\n");
+        outStream.Write("\t}\n");
+        outStream.Write("};\n\n");
+    }
+
     void Write(const std::vector<std::unique_ptr<Base>> &statementlist);
     void Write(const Namespace *namespaceptr) {
         std::string completename = namespaceptr->Name;
@@ -884,11 +997,80 @@ private:
         return ParseStatementList(nullptr);
     }
 
+    std::vector<Member *> GenerateMemberList(std::vector<std::unique_ptr<rohit::Base>> &statementlist) {
+        std::vector<Member *> ret { };
+        for(auto &statement: statementlist) {
+            switch (statement->type)
+            {
+            case ObjectType::Namespace:
+                {
+                    auto namespaceptr = dynamic_cast<Namespace *>(statement.get());
+                    auto memberList = GenerateMemberList(namespaceptr->statementlist);
+                    ret.insert(std::end(ret), std::begin(memberList), std::end(memberList));
+                }
+                break;
+
+            case ObjectType::Class:
+                {
+                    auto classptr = dynamic_cast<Class *>(statement.get());
+                    for(auto &member: classptr->MemberList) {
+                        ret.push_back(&member);
+                    }
+                }
+                break;
+
+            case ObjectType::Enum:
+                break;
+            
+            default:
+                break;
+            }
+        }
+        return ret;
+    }
+
+    void CheckMemberTypeForPrimitive(TypeName &typeName) {
+        if (typeName.type != ObjectType::Unresolved) return;
+        if (CPPTypeMap.find(typeName.Name) == std::end(CPPTypeMap)) {
+            std::string errorstr { "Unknown type: " };
+            errorstr += typeName.Name;
+            throw exception::BadMemberType { inStream, errorstr };
+        }
+        typeName.type = ObjectType::Primitive;
+    }
+
+    void ResolveMember(std::vector<std::unique_ptr<rohit::Base>> &statementlist) {
+        auto MemberList = GenerateMemberList(statementlist);
+        for(auto &member: MemberList) {
+            for(auto &typeName: member->typeNameList) {
+                std::queue<Namespace *> namespaceStack { };
+                Namespace *currentNamespace = typeName.declaredNameSpace;
+                while(currentNamespace) {
+                    namespaceStack.push(currentNamespace);
+                    currentNamespace = currentNamespace->parentNamespace;
+                }
+                while(!namespaceStack.empty()) {
+                    currentNamespace = namespaceStack.front();
+                    namespaceStack.pop();
+                    if (VariableTypeMap.find(currentNamespace->GetFullName() + "::" + typeName.Name) != std::end(VariableTypeMap)) {
+                        typeName.type = VariableTypeMap[currentNamespace->GetFullName() + "::" + typeName.Name];
+                        typeName.definedNameSpace = currentNamespace;
+                        break;
+                    }
+                }
+                CheckMemberTypeForPrimitive(typeName);
+            }
+        }
+    }
+
 public:
     SerializerCreator(const FullStream &inStream, FullStreamAutoAlloc &outStream) : inStream { inStream }, outStream { outStream } { }
+    SerializerCreator(const SerializerCreator &) = delete;
+    SerializerCreator &operator=(const SerializerCreator &) = delete;
 
     void Write() {
         auto statementlist = Parse();
+        ResolveMember(statementlist);
         outStream.Write(
             "/////////////////////////////////////////////////////////\n"
             "// This is auto genarated file using serializer. Must  //\n"
@@ -932,8 +1114,23 @@ void SerializerCreator::Write(const std::vector<std::unique_ptr<Base>> &statemen
     if (statementlist.empty()) return;
 
     for(auto &statement: statementlist) {
-        if (statement->type == ObjectType::Namespace) Write(dynamic_cast<const Namespace *>(statement.get()));
-        else Write(dynamic_cast<const Class *>(statement.get()));
+        switch (statement->type)
+        {
+        case ObjectType::Namespace:
+            Write(dynamic_cast<const Namespace *>(statement.get()));
+            break;
+
+        case ObjectType::Class:
+            Write(dynamic_cast<const Class *>(statement.get()));
+            break;
+
+        case ObjectType::Enum:
+            Write(dynamic_cast<const Enum *>(statement.get()));
+            break;
+        
+        default:
+            break;
+        }
     }
 }
 
