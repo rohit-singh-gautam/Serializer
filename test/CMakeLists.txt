@@ -1,6 +1,13 @@
 cmake_minimum_required(VERSION 3.28)
 
 add_custom_command(
+    OUTPUT ${CMAKE_BINARY_DIR}/test/enum.h
+    COMMAND ${CMAKE_BINARY_DIR}/serializer input ${CMAKE_SOURCE_DIR}/test/resources/enum.def output ${CMAKE_BINARY_DIR}/test/enum.h
+    DEPENDS ${CMAKE_SOURCE_DIR}/test/resources/enum.def ${CMAKE_SOURCE_DIR}/include/rohit/serializercreator.h
+    VERBATIM
+)
+
+add_custom_command(
     OUTPUT ${CMAKE_BINARY_DIR}/test/person.h
     COMMAND ${CMAKE_BINARY_DIR}/serializer input ${CMAKE_SOURCE_DIR}/test/resources/person.def output ${CMAKE_BINARY_DIR}/test/person.h
     DEPENDS ${CMAKE_SOURCE_DIR}/test/resources/person.def ${CMAKE_SOURCE_DIR}/include/rohit/serializercreator.h
@@ -44,6 +51,7 @@ add_executable(CoreSerializerTest
     ${CMAKE_BINARY_DIR}/test/array.h
     ${CMAKE_BINARY_DIR}/test/map.h
     ${CMAKE_BINARY_DIR}/test/variable.h
+    ${CMAKE_BINARY_DIR}/test/enum.h
     generatedtest.cpp)
 
 include_directories(${CMAKE_SOURCE_DIR}/include ${CMAKE_BINARY_DIR}/test)

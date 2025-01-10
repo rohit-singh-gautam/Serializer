@@ -22,6 +22,7 @@
 #include <variable.h>
 #include <map.h>
 #include <string>
+#include <enum.h>
 
 TEST(GeneratedTest, SerializeIn) {
     const std::string personstr {"{\"name\":\"Rohit Jairaj Singh\",\"ID\":322}"};
@@ -103,7 +104,6 @@ TEST(GeneratedTest, SerializeArray) {
     auto fullstream1 = rohit::make_const_fullstream(result_personliststr);
     arraytest::personlist personlist1 { };
     personlist1.serialize_in<rohit::serializer::json>(fullstream1);
-    
     EXPECT_TRUE(personlist.listid == personlist1.listid);
     EXPECT_TRUE(personlist.list.size() == personlist1.list.size());
     EXPECT_TRUE(personlist.list[0].name == personlist1.list[0].name);
@@ -147,7 +147,6 @@ TEST(GeneratedTest, SerializeMap) {
     auto fullstream1 = rohit::make_const_fullstream(result_personliststr);
     maptest::personlist personlist1 { };
     personlist1.serialize_in<rohit::serializer::json>(fullstream1);
-    
     EXPECT_TRUE(personlist.listid == personlist1.listid);
     EXPECT_TRUE(personlist.list.size() == personlist1.list.size());
     EXPECT_TRUE(personlist.list[1].name == personlist1.list[1].name);
@@ -182,17 +181,16 @@ TEST(GeneratedTest, SerializeMap) {
 
 TEST(GeneratedTest, SerializeUnion) {
     test::cacheserver cacheserver {10, 10, 10, 10, 2010, 10240};
-    test::server1 server {test::server1::e_entry::cache, {.cache = cacheserver} };
+    test::server1 server {test::server1::e_entry::cache, {.cache = cacheserver}, test::test112::em2 };
     rohit::FullStreamAutoAlloc fullstream { 256 };
     server.serialize_out<rohit::serializer::json>(fullstream);
     std::string serverstr {reinterpret_cast<char *>(fullstream.begin()), fullstream.index()};
-    std::string result_serverstr {"{\"entry:cache\":{\"serverbase\":{\"name\":{\"a\":10,\"b\":10,\"c\":10,\"d\":10},\"port\":2010},\"size\":10240}}"};
+    std::string result_serverstr { "{\"entry:cache\":{\"serverbase\":{\"name\":{\"a\":10,\"b\":10,\"c\":10,\"d\":10},\"port\":2010},\"size\":10240},\"test12\":\"em2\"}"};
     EXPECT_TRUE(result_serverstr == serverstr);
 
     auto fullstream1 = rohit::make_const_fullstream(result_serverstr);
     test::server1 server1 { };
     server1.serialize_in<rohit::serializer::json>(fullstream1);
-
     EXPECT_TRUE(server.entry_type == server1.entry_type);
     EXPECT_TRUE(server.entry.cache.port == server1.entry.cache.port);
     EXPECT_TRUE(server.entry.cache.size == server1.entry.cache.size);
@@ -228,17 +226,17 @@ TEST(GeneratedTest, SerializeUnion) {
 
 
 TEST(GeneratedTest, SerializeUnion1) {
-    test::server1 server {test::server1::e_entry::http, {.http = {10, 10, 10, 10, 2010, 10240, 5021}} };
+    constexpr auto enumval = test::to_test112("em3");
+    test::server1 server {test::server1::e_entry::http, {.http = {10, 10, 10, 10, 2010, 10240, 5021}}, enumval };
     rohit::FullStreamAutoAlloc fullstream { 256 };
     server.serialize_out<rohit::serializer::json>(fullstream);
     std::string serverstr {reinterpret_cast<char *>(fullstream.begin()), fullstream.index()};
-    std::string result_serverstr {"{\"entry:http\":{\"serverbase\":{\"name\":{\"a\":10,\"b\":10,\"c\":10,\"d\":10},\"port\":2010},\"size\":10240,\"mimesize\":5021}}"};
+    std::string result_serverstr {"{\"entry:http\":{\"serverbase\":{\"name\":{\"a\":10,\"b\":10,\"c\":10,\"d\":10},\"port\":2010},\"size\":10240,\"mimesize\":5021},\"test12\":\"em3\"}"};
     EXPECT_TRUE(result_serverstr == serverstr);
 
     auto fullstream1 = rohit::make_const_fullstream(result_serverstr);
     test::server1 server1 { };
     server1.serialize_in<rohit::serializer::json>(fullstream1);
-
     EXPECT_TRUE(server.entry_type == server1.entry_type);
     EXPECT_TRUE(server.entry.http.port == server.entry.http.port);
     EXPECT_TRUE(server.entry.http.size == server.entry.http.size);
@@ -273,4 +271,40 @@ TEST(GeneratedTest, SerializeUnion1) {
     EXPECT_TRUE(server.entry.http.port == serverBinaryString.entry.http.port);
     EXPECT_TRUE(server.entry.http.size == serverBinaryString.entry.http.size);
     EXPECT_TRUE(server.entry.http.mimesize == serverBinaryString.entry.http.mimesize);
+}
+
+
+TEST(GeneratedTest, SerializeEnum) {
+    enumtest::test test1 { enumtest::to_testenum("test1") };
+    rohit::FullStreamAutoAlloc fullstream { 256 };
+    test1.serialize_out<rohit::serializer::json>(fullstream);
+    std::string teststr {reinterpret_cast<char *>(fullstream.begin()), fullstream.index()};
+    std::string result_teststr { "{\"te\":\"test1\"}" };
+    EXPECT_TRUE(result_teststr == teststr);
+
+    auto fullstream1 = rohit::make_const_fullstream(result_teststr);
+    enumtest::test test11 { };
+    test11.serialize_in<rohit::serializer::json>(fullstream1);
+    EXPECT_TRUE(test1.te == test11.te);
+
+    fullstream.Reset();
+    test1.serialize_out<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(fullstream);
+    enumtest::test testBinaryNone { };
+    fullstream.Reset();
+    testBinaryNone.serialize_in<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(fullstream);
+    EXPECT_TRUE(test1.te == testBinaryNone.te);
+
+    fullstream.Reset();
+    test1.serialize_out<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(fullstream);
+    enumtest::test testBinaryInteger { };
+    fullstream.Reset();
+    testBinaryInteger.serialize_in<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(fullstream);
+    EXPECT_TRUE(test1.te == testBinaryInteger.te);
+
+    fullstream.Reset();
+    test1.serialize_out<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(fullstream);
+    enumtest::test testBinaryString { };
+    fullstream.Reset();
+    testBinaryString.serialize_in<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(fullstream);
+    EXPECT_TRUE(test1.te == testBinaryString.te);
 }

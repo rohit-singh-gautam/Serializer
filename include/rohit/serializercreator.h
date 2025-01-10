@@ -184,7 +184,7 @@ struct TypeName {
     Namespace *definedNameSpace { };
     ObjectType type { ObjectType::Unresolved };
 
-    std::string GetFullName() {
+    std::string GetFullName() const {
         std::string fullName { };
         if (definedNameSpace) {
             fullName = rohit::GetFullName(definedNameSpace);
@@ -782,29 +782,29 @@ private:
         }
         for(auto &member: obj->MemberList) {
             if (member.modifer != Member::Union) {
-                    if (first) {
-                        first = false;
-                        outStream.Write("\n\t\t\tSerializerProtocol::struct_serialize_out_start(stream, ");
-                    }
-                    else outStream.Write("\n\t\t\tSerializerProtocol::struct_serialize_out(stream, ");
-                    if (serialize_key_type == rohit::serializer::SerializeKeyType::String) {
-                        if (member.typeNameList[0].type != ObjectType::Enum) {
-                            outStream.Write(
-                                "std::make_pair(std::string_view { \"", member.Name, "\" }, ", member.Name,")"
-                                ");");
-                        } else {
-                            outStream.Write(
-                                "std::make_pair(std::string_view { \"", member.Name, "\" }, ", member.typeNameList[0].Name , "_string(", member.Name,"))"
-                                ");");
-                        }
-                    } else if (serialize_key_type == rohit::serializer::SerializeKeyType::Integer){
+                if (first) {
+                    first = false;
+                    outStream.Write("\n\t\t\tSerializerProtocol::struct_serialize_out_start(stream, ");
+                }
+                else outStream.Write("\n\t\t\tSerializerProtocol::struct_serialize_out(stream, ");
+                if (serialize_key_type == rohit::serializer::SerializeKeyType::String) {
+                    if (member.typeNameList[0].type != ObjectType::Enum) {
                         outStream.Write(
-                            "std::make_pair(static_cast<uint32_t>(", member.id,"), ", member.Name,")"
+                            "std::make_pair(std::string_view { \"", member.Name, "\" }, ", member.Name,")"
                             ");");
                     } else {
                         outStream.Write(
-                            member.Name, ");");
+                            "std::make_pair(std::string_view { \"", member.Name, "\" }, ", member.typeNameList[0].declaredNameSpace->GetFullName() , "::to_string(", member.Name,"))"
+                            ");");
                     }
+                } else if (serialize_key_type == rohit::serializer::SerializeKeyType::Integer){
+                    outStream.Write(
+                        "std::make_pair(static_cast<uint32_t>(", member.id,"), ", member.Name,")"
+                        ");");
+                } else {
+                    outStream.Write(
+                        member.Name, ");");
+                }
             }
             else {
                 outStream.Write("\n\t\t\tswitch(", member.Name, "_type) {");
@@ -872,7 +872,7 @@ private:
                             "\n\t\t\t\t\tstd::string_view {\"", member.Name, "\"}, [this] (const rohit::FullStream &stream) {"
                             "\n\t\t\t\t\t\tstd::string str_", member.Name, " { };"
                             "\n\t\t\t\t\t\tSerializerProtocol::template serialize_in<std::string>(stream, str_", member.Name, ");"
-                            "\n\t\t\t\t\t\tthis->", member.Name, " = to_test112(str_", member.Name, ");"
+                            "\n\t\t\t\t\t\tthis->", member.Name, " = to_", member.typeNameList[0].Name,"(str_", member.Name, ");"
                             "\n\t\t\t\t\t}"
                             "\n\t\t\t\t}");
                     }
@@ -1000,7 +1000,7 @@ private:
         }
         outStream.Write("}; // enum class ", enumptr->Name, "\n\n");
 
-        outStream.Write("constexpr inline std::string ", enumptr->Name, "_string(const ", enumptr->Name, " v) {\n");
+        outStream.Write("constexpr inline std::string to_string(const ", enumptr->Name, " v) {\n");
         outStream.Write("\tswitch(v) {\n");
         for(auto &enumName: enumptr->enumNameList) {
             outStream.Write("\t\tcase ", enumptr->Name, "::", enumName, ": return {\"", enumName, "\"};\n");
