@@ -1013,6 +1013,8 @@ private:
         outStream.Write("\tswitch(rohit::hash(v)) {\n");
         for(auto &enumName: enumptr->enumNameList) {
             outStream.Write("\t\tcase rohit::hash(\"", enumName, "\"): return ", enumptr->Name, "::", enumName, ";\n");
+            outStream.Write("\t\tcase rohit::hash(\"", enumptr->Name, "::", enumName, "\"): return ", enumptr->Name, "::", enumName, ";\n");
+            outStream.Write("\t\tcase rohit::hash(\"", enumptr->GetFullName(), "::", enumName, "\"): return ", enumptr->Name, "::", enumName, ";\n");
         }
         outStream.Write("\t\tdefault: throw std::runtime_error(\"Bad Enum Name\");\n");
         outStream.Write("\t}\n");
