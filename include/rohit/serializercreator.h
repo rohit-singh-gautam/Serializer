@@ -332,8 +332,6 @@ private:
         ++inStream;
     }
 
-    std::unordered_map<std::string, ObjectType> VariableTypeMap { };
-
     std::string ParseIdentifier() {
         std::string identifier { };
         auto ch = *inStream;
@@ -537,7 +535,6 @@ private:
         auto obj = ParseClassHeader(CurrentNamespace, id);
         // At this point all whitespace is skipped
         ParseClassBody(obj.get(), id);
-        VariableTypeMap.insert({obj->GetFullName(), ObjectType::Class});
         return obj;
     }
 
@@ -571,7 +568,6 @@ private:
         ++inStream;
         if (*inStream == ';') throw exception::BadClass { inStream, {"Semicolon is not expected at the end of a class"} };
         auto ret = std::make_unique<Enum>(ObjectType::Enum, std::move(enumName), CurrentNamespace, std::move(enumNameList));
-        VariableTypeMap.insert({ret->GetFullName(), ObjectType::Enum});
         return ret;
     }
 
@@ -615,12 +611,61 @@ private:
         }
     }
 
-    static const std::unordered_map<std::string, std::string> CPPTypeMap;
+    static constexpr const std::string &GetCPPTypeOrEmpty(const std::string &type) {
+        static const std::unordered_map<std::string, std::string> CPPTypeMap {
+            {"char", "char"},
+            {"int8", "int8_t"},
+            {"int16", "int16_t"},
+            {"int8", "int8_t"},
+            {"int32", "int32_t"},
+            {"int64", "int64_t"},
+            {"uint8", "uint8_t"},
+            {"uint16", "uint16_t"},
+            {"uint32", "uint32_t"},
+            {"uint64", "uint64_t"},
+            {"float", "float"},
+            {"double", "double"},
+            {"bool", "bool"},
+            {"string", "std::string"}
+        };
 
-    static const std::string &GetCPPType(const std::string &type) {
+        static const std::string empty { };
+
         auto itr = CPPTypeMap.find(type);
         if (itr != std::end(CPPTypeMap)) return itr->second;
-        else return type;
+        return empty;
+    }
+
+    static constexpr const std::string &GetCPPType(const std::string &type) {
+        auto &ret = GetCPPTypeOrEmpty(type);
+        if (!ret.empty()) return ret;
+        return type;
+    }
+
+    static const std::string GetCPPTypeSupportUnion(const Member &member) {
+        std::string retUnion { "\tenum class e_" };
+        retUnion += member.Name;
+        retUnion += " {\n";
+        for(auto &typeName: member.typeNameList) {
+            retUnion += "\t\t" + typeName.EnumName + ",\n";
+        }
+        retUnion += "\t};\n\tunion u_" + member.Name + " {\n";
+        for(size_t index { 0 }; index < member.typeNameList.size(); ++index) {
+            retUnion += "\t\t" + member.typeNameList[index].Name + " " + member.typeNameList[index].EnumName + ";\n";
+        }
+        retUnion += "\t};\n\tstatic std::string to_string(const e_" + member.Name + " v) {\n\t\tswitch(v) {\n\t\t\tdefault:";
+        for(auto &typeName: member.typeNameList) {
+            retUnion += "\n\t\t\tcase e_" + member.Name + "::" + typeName.EnumName + ": return {\"" + typeName.EnumName + "\"}; ";
+        }
+        retUnion += "\n\t\t}\n\t};\n\tstatic e_" + member.Name + " to_e_" + member.Name + "(const auto &v) {"
+                    "\n\t\tswitch(rohit::hash(v)) {";
+        for(auto &typeName: member.typeNameList) {
+            retUnion += "\n\t\t\tcase rohit::hash(\"" + typeName.EnumName + "\"): return e_" + member.Name + "::" + typeName.EnumName + ";";
+        }
+        retUnion += "\n\t\t\tdefault: throw std::runtime_error(\"Bad Enum Name\");"
+                    "\n\t\t}"
+                    "\n\t}";
+        return retUnion;
     }
 
     static const std::string GetCPPTypeSupport(const Member &member) {
@@ -632,31 +677,8 @@ private:
             return { };
         case Member::map:
             return { };
-        case Member::Union: {
-                std::string retUnion { "\tenum class e_" };
-                retUnion += member.Name;
-                retUnion += " {\n";
-                for(auto &typeName: member.typeNameList) {
-                    retUnion += "\t\t" + typeName.EnumName + ",\n";
-                }
-                retUnion += "\t};\n\tunion u_" + member.Name + " {\n";
-                for(size_t index { 0 }; index < member.typeNameList.size(); ++index) {
-                    retUnion += "\t\t" + member.typeNameList[index].Name + " " + member.typeNameList[index].EnumName + ";\n";
-                }
-                retUnion += "\t};\n\tstatic std::string to_string(const e_" + member.Name + " v) {\n\t\tswitch(v) {\n\t\t\tdefault:";
-                for(auto &typeName: member.typeNameList) {
-                    retUnion += "\n\t\t\tcase e_" + member.Name + "::" + typeName.EnumName + ": return {\"" + typeName.EnumName + "\"}; ";
-                }
-                retUnion += "\n\t\t}\n\t};\n\tstatic e_" + member.Name + " to_e_" + member.Name + "(const auto &v) {"
-                            "\n\t\tswitch(rohit::hash(v)) {";
-                for(auto &typeName: member.typeNameList) {
-                    retUnion += "\n\t\t\tcase rohit::hash(\"" + typeName.EnumName + "\"): return e_" + member.Name + "::" + typeName.EnumName + ";";
-                }
-                retUnion += "\n\t\t\tdefault: throw std::runtime_error(\"Bad Enum Name\");"
-                            "\n\t\t}"
-                            "\n\t}";
-                return retUnion;
-            }
+        case Member::Union:
+            return GetCPPTypeSupportUnion(member);
         }
     }
 
@@ -766,9 +788,15 @@ private:
                     }
                     else outStream.Write("\n\t\t\tSerializerProtocol::struct_serialize_out(stream, ");
                     if (serialize_key_type == rohit::serializer::SerializeKeyType::String) {
-                        outStream.Write(
-                            "std::make_pair(std::string_view { \"", member.Name, "\" }, ", member.Name,")"
-                            ");");
+                        if (member.typeNameList[0].type != ObjectType::Enum) {
+                            outStream.Write(
+                                "std::make_pair(std::string_view { \"", member.Name, "\" }, ", member.Name,")"
+                                ");");
+                        } else {
+                            outStream.Write(
+                                "std::make_pair(std::string_view { \"", member.Name, "\" }, ", member.typeNameList[0].Name , "_string(", member.Name,"))"
+                                ");");
+                        }
                     } else if (serialize_key_type == rohit::serializer::SerializeKeyType::Integer){
                         outStream.Write(
                             "std::make_pair(static_cast<uint32_t>(", member.id,"), ", member.Name,")"
@@ -831,12 +859,23 @@ private:
                 if (!first) outStream.Write(",\n");
                 else first = false;
                 if (serialize_key_type == rohit::serializer::SerializeKeyType::String) {
-                    outStream.Write(
-                        "\t\t\t\tstd::pair<std::string_view, std::function<void(const rohit::FullStream &)>> {"
-                        "\n\t\t\t\t\tstd::string_view {\"", member.Name, "\"}, [this] (const rohit::FullStream &stream) {"
-                        "\n\t\t\t\t\t\tSerializerProtocol::template serialize_in<", GetCPPType(member),">(stream, this->", member.Name, ");"
-                        "\n\t\t\t\t\t}"
-                        "\n\t\t\t\t}");
+                    if (member.typeNameList[0].type != ObjectType::Enum) {
+                        outStream.Write(
+                            "\t\t\t\tstd::pair<std::string_view, std::function<void(const rohit::FullStream &)>> {"
+                            "\n\t\t\t\t\tstd::string_view {\"", member.Name, "\"}, [this] (const rohit::FullStream &stream) {"
+                            "\n\t\t\t\t\t\tSerializerProtocol::template serialize_in<", GetCPPType(member),">(stream, this->", member.Name, ");"
+                            "\n\t\t\t\t\t}"
+                            "\n\t\t\t\t}");
+                    } else {
+                        outStream.Write(
+                            "\t\t\t\tstd::pair<std::string_view, std::function<void(const rohit::FullStream &)>> {"
+                            "\n\t\t\t\t\tstd::string_view {\"", member.Name, "\"}, [this] (const rohit::FullStream &stream) {"
+                            "\n\t\t\t\t\t\tstd::string str_", member.Name, " { };"
+                            "\n\t\t\t\t\t\tSerializerProtocol::template serialize_in<std::string>(stream, str_", member.Name, ");"
+                            "\n\t\t\t\t\t\tthis->", member.Name, " = to_test112(str_", member.Name, ");"
+                            "\n\t\t\t\t\t}"
+                            "\n\t\t\t\t}");
+                    }
                 } else if (serialize_key_type == rohit::serializer::SerializeKeyType::Integer){
                     outStream.Write(
                         "\t\t\t\tstd::pair<uint32_t, std::function<void(const rohit::FullStream &)>> {"
@@ -961,7 +1000,7 @@ private:
         }
         outStream.Write("}; // enum class ", enumptr->Name, "\n\n");
 
-        outStream.Write("constexpr inline std::string to_string(const ", enumptr->Name, " v) {\n");
+        outStream.Write("constexpr inline std::string ", enumptr->Name, "_string(const ", enumptr->Name, " v) {\n");
         outStream.Write("\tswitch(v) {\n");
         for(auto &enumName: enumptr->enumNameList) {
             outStream.Write("\t\tcase ", enumptr->Name, "::", enumName, ": return {\"", enumName, "\"};\n");
@@ -997,41 +1036,9 @@ private:
         return ParseStatementList(nullptr);
     }
 
-    std::vector<Member *> GenerateMemberList(std::vector<std::unique_ptr<rohit::Base>> &statementlist) {
-        std::vector<Member *> ret { };
-        for(auto &statement: statementlist) {
-            switch (statement->type)
-            {
-            case ObjectType::Namespace:
-                {
-                    auto namespaceptr = dynamic_cast<Namespace *>(statement.get());
-                    auto memberList = GenerateMemberList(namespaceptr->statementlist);
-                    ret.insert(std::end(ret), std::begin(memberList), std::end(memberList));
-                }
-                break;
-
-            case ObjectType::Class:
-                {
-                    auto classptr = dynamic_cast<Class *>(statement.get());
-                    for(auto &member: classptr->MemberList) {
-                        ret.push_back(&member);
-                    }
-                }
-                break;
-
-            case ObjectType::Enum:
-                break;
-            
-            default:
-                break;
-            }
-        }
-        return ret;
-    }
-
     void CheckMemberTypeForPrimitive(TypeName &typeName) {
         if (typeName.type != ObjectType::Unresolved) return;
-        if (CPPTypeMap.find(typeName.Name) == std::end(CPPTypeMap)) {
+        if (GetCPPTypeOrEmpty(typeName.Name).empty()) {
             std::string errorstr { "Unknown type: " };
             errorstr += typeName.Name;
             throw exception::BadMemberType { inStream, errorstr };
@@ -1039,26 +1046,59 @@ private:
         typeName.type = ObjectType::Primitive;
     }
 
-    void ResolveMember(std::vector<std::unique_ptr<rohit::Base>> &statementlist) {
-        auto MemberList = GenerateMemberList(statementlist);
-        for(auto &member: MemberList) {
-            for(auto &typeName: member->typeNameList) {
-                std::queue<Namespace *> namespaceStack { };
-                Namespace *currentNamespace = typeName.declaredNameSpace;
-                while(currentNamespace) {
-                    namespaceStack.push(currentNamespace);
-                    currentNamespace = currentNamespace->parentNamespace;
+    void ResolveMember(Member &member, const std::unordered_map<std::string, ObjectType> &VariableTypeMap) {
+        for(auto &typeName: member.typeNameList) {
+            std::queue<Namespace *> namespaceStack { };
+            Namespace *currentNamespace = typeName.declaredNameSpace;
+            while(currentNamespace) {
+                namespaceStack.push(currentNamespace);
+                currentNamespace = currentNamespace->parentNamespace;
+            }
+            while(!namespaceStack.empty()) {
+                currentNamespace = namespaceStack.front();
+                namespaceStack.pop();
+                auto tryFullname = currentNamespace->GetFullName() + "::" + typeName.Name;
+                auto typeitr = VariableTypeMap.find(tryFullname);
+                if (typeitr != std::end(VariableTypeMap)) {
+                    typeName.type = typeitr->second;
+                    typeName.definedNameSpace = currentNamespace;
+                    break;
                 }
-                while(!namespaceStack.empty()) {
-                    currentNamespace = namespaceStack.front();
-                    namespaceStack.pop();
-                    if (VariableTypeMap.find(currentNamespace->GetFullName() + "::" + typeName.Name) != std::end(VariableTypeMap)) {
-                        typeName.type = VariableTypeMap[currentNamespace->GetFullName() + "::" + typeName.Name];
-                        typeName.definedNameSpace = currentNamespace;
-                        break;
+            }
+            CheckMemberTypeForPrimitive(typeName);
+        }
+    }
+
+    void ResolveMember(
+        std::vector<std::unique_ptr<rohit::Base>> &statementlist,
+        std::unordered_map<std::string, ObjectType> &VariableTypeMap) 
+    {
+        for(auto &statement: statementlist) {
+            switch (statement->type)
+            {
+            case ObjectType::Namespace:
+                {
+                    auto namespaceptr = dynamic_cast<Namespace *>(statement.get());
+                    ResolveMember(namespaceptr->statementlist, VariableTypeMap);
+                }
+                break;
+
+            case ObjectType::Class:
+                {
+                    VariableTypeMap.insert({statement->GetFullName(), ObjectType::Class});
+                    auto classptr = dynamic_cast<Class *>(statement.get());
+                    for(auto &member: classptr->MemberList) {
+                        ResolveMember(member, VariableTypeMap);
                     }
                 }
-                CheckMemberTypeForPrimitive(typeName);
+                break;
+
+            case ObjectType::Enum:
+                VariableTypeMap.insert({statement->GetFullName(), ObjectType::Enum});
+                break;
+            
+            default:
+                break;
             }
         }
     }
@@ -1070,7 +1110,8 @@ public:
 
     void Write() {
         auto statementlist = Parse();
-        ResolveMember(statementlist);
+        std::unordered_map<std::string, ObjectType> VariableTypeMap;
+        ResolveMember(statementlist, VariableTypeMap);
         outStream.Write(
             "/////////////////////////////////////////////////////////\n"
             "// This is auto genarated file using serializer. Must  //\n"
