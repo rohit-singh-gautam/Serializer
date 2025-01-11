@@ -35,10 +35,10 @@ TEST(SerializeParser, Identifier) {
         rohit::FullStream inStream { input.data(), input.size() };
         rohit::SerializerCreator creator { inStream, outStream };
         if (!negativetest) {
-            auto parsedstring = creator.ParseIdentifier();
+            auto parsedstring = rohit::Parser::ParseIdentifier(inStream);
             EXPECT_EQ(parsedstring, output);
         } else {
-            EXPECT_THROW(creator.ParseIdentifier(), rohit::exception::BadIdentifier);
+            EXPECT_THROW(rohit::Parser::ParseIdentifier(inStream), rohit::exception::BadIdentifier);
         }
     }
 }
@@ -61,10 +61,10 @@ TEST(SerializeParser, HierarchicalIdentifier) {
         rohit::FullStream inStream { input.data(), input.size() };
         rohit::SerializerCreator creator { inStream, outStream };
         if (!negativetest) {
-            auto parsedstring = creator.ParseHierarchicalIdentifier();
+            auto parsedstring = rohit::Parser::ParseHierarchicalIdentifier(inStream);
             EXPECT_EQ(parsedstring, output);
         } else {
-            EXPECT_THROW(creator.ParseHierarchicalIdentifier(), rohit::exception::BadIdentifier);
+            EXPECT_THROW(rohit::Parser::ParseHierarchicalIdentifier(inStream), rohit::exception::BadIdentifier);
         }
     }
 }
@@ -88,7 +88,7 @@ TEST(SerializeParser, SpaceSeparatedIdentifier) {
         auto &[input, output ] = test;
         rohit::FullStream inStream { input.data(), input.size() };
         rohit::SerializerCreator creator { inStream, outStream };
-        creator.SpaceSeparatedIdentifier(resultfn);
+        rohit::Parser::SpaceSeparatedIdentifier(inStream, resultfn);
         EXPECT_EQ(parsedstring, output);
     }
 }
@@ -113,10 +113,10 @@ TEST(SerializeParser, AccessType) {
         rohit::FullStream inStream { input.data(), input.size() };
         rohit::SerializerCreator creator { inStream, outStream };
         if (output != rohit::AccessType::Error) {
-            auto parsedstring = creator.ParseAccessType();
+            auto parsedstring = rohit::Parser::ParseAccessType(inStream);
             EXPECT_EQ(parsedstring, output);
         } else {
-            EXPECT_THROW(creator.ParseAccessType(), rohit::exception::BaseParser);
+            EXPECT_THROW(rohit::Parser::ParseAccessType(inStream), rohit::exception::BaseParser);
         }
     }
 }
@@ -137,10 +137,10 @@ TEST(SerializeParser, Member) {
         rohit::FullStream inStream { input.data(), input.size() };
         rohit::SerializerCreator creator { inStream, outStream };
         if (!negativetest) {
-            auto parsedmember = creator.ParseMember(output.id, nullptr);
+            auto parsedmember = rohit::Parser::ParseMember(inStream, output.id, nullptr);
             EXPECT_EQ(parsedmember, output);
         } else {
-            EXPECT_THROW(creator.ParseMember(output.id, nullptr), rohit::exception::BadIdentifier);
+            EXPECT_THROW(rohit::Parser::ParseMember(inStream, output.id, nullptr), rohit::exception::BadIdentifier);
         }
     }
 }
@@ -160,7 +160,7 @@ TEST(SerializeParser, ClassBody) {
     std::vector<rohit::Parent> parent { };
     rohit::Class obj {rohit::ObjectType::Class, std::move(name), nullptr, rohit::ClassAtributes::None, std::move(parent)};
     uint32_t id { 1 };
-    creator.ParseClassBody(&obj, id);
+    rohit::Parser::ParseClassBody(inStream, &obj, id);
     EXPECT_EQ(obj.MemberList.size(), 2);
 }
 
@@ -178,7 +178,7 @@ TEST(SerializeParser, CompleteStruct) {
     rohit::FullStreamAutoAlloc outStream {128};
     rohit::FullStream inStream { input.data(), input.size() };
     rohit::SerializerCreator creator { inStream, outStream };
-    auto parsed = creator.Parse();
+    auto parsed = rohit::Parser::Parse(inStream);
     EXPECT_EQ(parsed.size(), 1);
 }
 
@@ -196,7 +196,7 @@ TEST(SerializeParser, CompleteStructWithMap) {
     rohit::FullStreamAutoAlloc outStream {128};
     rohit::FullStream inStream { input.data(), input.size() };
     rohit::SerializerCreator creator { inStream, outStream };
-    auto parsed = creator.Parse();
+    auto parsed = rohit::Parser::Parse(inStream);
     EXPECT_EQ(parsed.size(), 1);
 }
 
@@ -245,7 +245,7 @@ class server1 {
     rohit::FullStreamAutoAlloc outStream {128};
     rohit::FullStream inStream { input.data(), input.size() };
     rohit::SerializerCreator creator { inStream, outStream };
-    auto parsed = creator.Parse();
+    auto parsed = rohit::Parser::Parse(inStream);
     EXPECT_EQ(parsed.size(), 1);
 }
 

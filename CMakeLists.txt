@@ -8,11 +8,16 @@ endif()
 
 add_compile_options(-Wall -Werror -Wpedantic -Wextra -Weffc++ -Wsuggest-override) # -fanalyzer
 
+add_library(serializerlib src/serializerparser.cpp)
+
 add_executable(serializer src/serializer.cpp)
+
+target_link_libraries(serializer serializerlib)
 
 include_directories(include)
 
 set_property(TARGET serializer PROPERTY CXX_STANDARD 23)
+set_property(TARGET serializerlib PROPERTY CXX_STANDARD 23)
 
 if(${CMAKE_CURRENT_SOURCE_DIR} STREQUAL ${CMAKE_SOURCE_DIR})
     enable_testing()

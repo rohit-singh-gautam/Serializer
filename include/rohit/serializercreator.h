@@ -87,11 +87,7 @@ public:
 
 } // namespace exception
 
-void tolower_inplace(std::string &value) {
-    for(auto &ch: value) {
-        if (ch >= 'A' && ch <= 'Z') ch = ch - 'A' + 'a';
-    }
-}
+void tolower_inplace(std::string &value);
 
 enum class AccessType {
     Error,
@@ -113,20 +109,9 @@ enum class ClassAtributes : uint8_t {
     Packed = 0x01
 };
 
-ClassAtributes &operator|=(ClassAtributes &lhs, const ClassAtributes &rhs) {
-    using T = std::underlying_type_t<ClassAtributes>;
-    auto ulhs = static_cast<T>(lhs);
-    auto urhs = static_cast<T>(rhs);
-    lhs = static_cast<ClassAtributes>(ulhs | urhs);
-    return lhs;
-}
+ClassAtributes &operator|=(ClassAtributes &lhs, const ClassAtributes &rhs);
 
-ClassAtributes operator&(const ClassAtributes &lhs, const ClassAtributes &rhs) {
-    using T = std::underlying_type_t<ClassAtributes>;
-    auto ulhs = static_cast<T>(lhs);
-    auto urhs = static_cast<T>(rhs);
-    return static_cast<ClassAtributes>(ulhs & urhs);
-}
+ClassAtributes operator&(const ClassAtributes &lhs, const ClassAtributes &rhs);
 
 struct Namespace;
 
@@ -161,10 +146,6 @@ struct Namespace : public Base {
             Base { type, std::move(Name), parentNamespace }
                 {}
 };
-
-std::string GetFullName(const Namespace *nameSpace) {
-    return nameSpace->GetFullName();
-}
 
 struct TypeName {
     TypeName(std::string &&Name, Namespace *declaredNameSpace) : Name { std::move(Name) }, EnumName { }, declaredNameSpace { declaredNameSpace } { }
@@ -249,350 +230,27 @@ struct Enum : public Base {
     std::vector<std::string> enumNameList { };
 };
 
-class SerializerCreator {
+namespace Parser {
+std::vector<std::unique_ptr<Base>> Parse(const Stream &inStream);
 #ifdef ENABLE_GTEST
-public:
-    FRIEND_TEST(SerializeParser, Identifier);
-    FRIEND_TEST(SerializeParser, HierarchicalIdentifier);
-    FRIEND_TEST(SerializeParser, SpaceSeparatedIdentifier);
-    FRIEND_TEST(SerializeParser, AccessType);
-    FRIEND_TEST(SerializeParser, Member);
-    FRIEND_TEST(SerializeParser, ClassBody);
-    FRIEND_TEST(SerializeParser, CompleteStruct);
-#else
-private:
+std::string ParseIdentifier(const Stream &inStream);
+std::string ParseHierarchicalIdentifier(const Stream &inStream);
+void SpaceSeparatedIdentifier(const Stream &inStream, std::function<void(std::string &&)> fn);
+AccessType ParseAccessType(const Stream &inStream);
+Member ParseMember(const Stream &inStream, const uint32_t id, Namespace *declaredNameSpace);
+void ParseClassBody(const Stream &inStream, Class *obj, uint32_t &id);
 #endif
+} // namespace Parser
 
+class SerializerCreator {
+private:
     // For Optimization inStream must be null terminated
     const FullStream &inStream;
     FullStreamAutoAlloc &outStream;
 
     class Namespace *CurrentNamespace { nullptr };
-
-    static constexpr bool IsWhiteSpace(const char val) noexcept { return val == ' ' || val == '\t' || val == '\n' || val == '\r'; }
-    static constexpr bool IsNumber(const char val) noexcept { return val >= '0' && val <= '9'; }
-    static constexpr bool IsSmallAlphabet(const char val) noexcept { return val >= 'a' && val <= 'z'; }
-    static constexpr bool IsCapitalAlphabet(const char val) noexcept { return val >= 'A' && val <= 'Z'; }
-    static constexpr bool IsFirstIdentifier(const char val) noexcept { return IsCapitalAlphabet(val) || IsSmallAlphabet(val) || val == '_'; }
-    static constexpr bool IsIdentifier(const char val) noexcept { return IsNumber(val) || IsCapitalAlphabet(val) || IsSmallAlphabet(val) || val == '_'; }
-
-    bool IsWhiteSpace() const { return IsWhiteSpace(*inStream); }
-    bool IsNumber() const { return IsNumber(*inStream); }
-    bool IsSmallAlphabet() const { return IsSmallAlphabet(*inStream); }
-    bool IsCapitalAlphabet() const { return IsCapitalAlphabet(*inStream); }
-    bool IsFirstIdentifier() const { return IsFirstIdentifier(*inStream); }
-    bool IsIdentifier() const { return IsIdentifier(*inStream); }
-    void SkipWhiteSpace() const { while(IsWhiteSpace()) ++inStream; }
-    void SkipWhiteSpaceAndComment() const {
-        for(;;) {
-            auto ch = *inStream;
-            if (IsWhiteSpace(ch)) {
-                ++inStream;
-                continue;
-            }
-            if (ch == '/') {
-                ++inStream;
-                auto ch1 = *inStream;
-                if (ch1 == '/') {
-                    // Skip till new line
-                    ++inStream;
-                    while(*inStream && *inStream != '\n') ++inStream;
-                    continue;
-                }
-                if (ch1 == '*') {
-                    // Skip till */
-                    ++inStream;
-                    for(;;) {
-                        const auto ch = *inStream;
-                        if (ch == '*') {
-                            ++inStream;
-                            const auto ch1 = *inStream;
-                            if (ch1 == '/') {
-                                ++inStream;
-                                break;
-                            }
-                        }
-                        ++inStream;
-                    }
-                    continue;
-                }
-            }
-            break;
-        }
-    }
-
-    constexpr void check_in(char value) const {
-        if (*inStream != value) {
-            std::string errstr {"Expected: "};
-            errstr.push_back(value);
-            errstr += ", Found: ";
-            errstr.push_back(*inStream);
-            throw exception::BadClass { inStream, errstr };
-        }
-        ++inStream;
-    }
-
-    std::string ParseIdentifier() {
-        std::string identifier { };
-        auto ch = *inStream;
-        if (!IsFirstIdentifier(ch)) {
-            std::string errstr { "Identifier can start with '_' or alphabet only it cannot start with: "};
-            errstr.push_back(ch);
-            throw exception::BadIdentifier { inStream, errstr };
-        }
-        identifier.push_back(ch);
-        ++inStream;
-        while(IsIdentifier(*inStream)) { identifier.push_back(*inStream); ++inStream; }
-        return identifier;
-    }
-
-    std::string ParseHierarchicalIdentifier() {
-        std::string identifier { };
-        while(true) {
-            if (!IsFirstIdentifier(*inStream)) {
-                std::string errstr { "Identifier cannot start with " };
-                errstr.push_back(*inStream);
-                throw exception::BadIdentifier { inStream, errstr };
-            }
-            identifier.push_back(*inStream);
-            ++inStream;
-            while(IsIdentifier(*inStream)) { identifier.push_back(*inStream); ++inStream; }
-            if (inStream.remaining_buffer() < 2) break;
-            if (*inStream != ':') break;
-            ++inStream;
-            if (*inStream != ':') throw exception::BadIdentifier { inStream, { "Namespace and identifier must be separated by '::', only one ':' is unsupported " } };
-            ++inStream;
-            identifier.push_back(':');
-            identifier.push_back(':');
-            if (inStream.full()) throw exception::BadIdentifier { inStream, { "Atleast one characted is require for identifier" } };
-
-        }
-        return identifier;
-    }
-
-    void SpaceSeparatedIdentifier(std::function<void(std::string &&)> fn) {
-        if (!IsFirstIdentifier()) return;
-        while(true) {
-            auto identifier = ParseIdentifier();
-            fn(std::move(identifier));
-            if (!IsWhiteSpace()) break;
-            SkipWhiteSpaceAndComment();
-            if (!IsFirstIdentifier()) break;
-        }
-        return;
-    }
-
-    AccessType ParseAccessType() {
-        auto accessType = ParseIdentifier();
-        if (accessType == "public") return AccessType::Public;
-        if (accessType == "protected") return AccessType::Protected;
-        if (accessType == "private") return AccessType::Private;
-        std::string errorstr { "Bad access type it must be one of 'public', 'protected' or 'private' case sensitive. Unknown access type: " };
-        errorstr += accessType;
-        throw exception::BadAccessType { inStream, errorstr };
-    }
-
-    // Returns true if present.
-    auto ParseMemberModifier(const std::string &type) {
-        if (type == "array") {
-            return Member::array;
-        }
-        else if (type == "map") {
-            return Member::map;
-        }
-        else if (type == "union") {
-            return Member::Union;
-        }
-        return Member::none;
-    }
-
-    Member ParseMember(const uint32_t id, Namespace *declaredNameSpace) {
-        auto accesstype = ParseAccessType();
-        SkipWhiteSpaceAndComment();
-        auto nextid = ParseHierarchicalIdentifier();
-        std::vector<std::string> enumNameList { };
-        std::vector<TypeName> typeNameList { };
-        auto membermodifier = ParseMemberModifier(nextid);
-        std::string key { };
-        if (membermodifier == Member::none) {
-            typeNameList.emplace_back(std::move(nextid), declaredNameSpace);
-        } else if (membermodifier == Member::array) {
-            SkipWhiteSpaceAndComment();
-            auto typeName = ParseHierarchicalIdentifier();
-            typeNameList.emplace_back(std::move(typeName), declaredNameSpace);
-        } else if(membermodifier == Member::map) {
-            SkipWhiteSpaceAndComment();
-            check_in('(');
-            SkipWhiteSpaceAndComment();
-            key = ParseHierarchicalIdentifier();
-            check_in(')');
-            SkipWhiteSpaceAndComment();
-            auto typeName = ParseHierarchicalIdentifier();
-            typeNameList.emplace_back(std::move(typeName), declaredNameSpace);
-        } else if (membermodifier == Member::Union) {
-            SkipWhiteSpaceAndComment();
-            check_in('(');
-            int count { 0 };
-            while(true) {
-                SkipWhiteSpaceAndComment();
-                auto typeName = ParseHierarchicalIdentifier();
-                SkipWhiteSpaceAndComment();
-                if (*inStream == '=') {
-                    ++inStream;
-                    SkipWhiteSpaceAndComment();
-                    auto enumName = ParseIdentifier();
-                    typeNameList.emplace_back(std::move(typeName), std::move(enumName), declaredNameSpace);
-                    SkipWhiteSpaceAndComment();
-                } else {
-                    std::string enumName { "e_" + std::to_string(count) };
-                    typeNameList.emplace_back(std::move(typeName), std::move(enumName), declaredNameSpace);
-                    ++count;
-                }
-                if (*inStream != ',') break;
-                ++inStream;
-            }
-            check_in(')');
-        }
-        SkipWhiteSpaceAndComment();
-        auto name = ParseIdentifier();
-        SkipWhiteSpaceAndComment();
-        check_in(';');
-        return { accesstype, membermodifier, typeNameList, name, id, key };
-    }
-
-    ObjectType ParseObjectType() {
-        auto objectType = ParseIdentifier();
-        if (objectType == "class") return ObjectType::Class;
-        if (objectType == "namespace") return ObjectType::Namespace;
-        if (objectType == "enum") return ObjectType::Enum;
-        std::string errorstr { "Bad identifier type it must be one of 'class' or 'namespace' case sensitive. Unknown access type: " };
-        errorstr += objectType;
-        throw exception::BadObjectType { inStream, errorstr };
-    }
-
-    void ParseClassBody(Class *obj, uint32_t &id) {
-        if (*inStream != '{' ) {
-            std::string errorstr { "Expecting '{' found: "};
-            errorstr += *inStream;
-            throw exception::BadClass { inStream, errorstr };
-        }
-        ++inStream;
-        SkipWhiteSpaceAndComment();
-        while(*inStream != '}') {
-            auto member = ParseMember(id++, obj->parentNamespace);
-            obj->MemberList.push_back(std::move(member));
-            SkipWhiteSpaceAndComment();
-        }
-        ++inStream;
-        if (*inStream == ';') throw exception::BadClass { inStream, {"Semicolon is not expected at the end of a class"} };
-    }
-
-    Parent ParseParent(Namespace *CurrentNamespace, const uint32_t id) {
-        auto access = ParseAccessType();
-        SkipWhiteSpaceAndComment();
-        auto fullname = ParseHierarchicalIdentifier();
-        return { access, fullname, id, CurrentNamespace, nullptr };
-    }
-
-    std::vector<Parent> ParseParentList(Namespace *CurrentNamespace, uint32_t &id) {
-        std::vector<Parent> ret { };
-        if (!IsFirstIdentifier()) return ret;
-        while(true) {
-            // TODO: if ParseParent return type comes a rvalue
-            ret.push_back( ParseParent(CurrentNamespace, id++) );
-            SkipWhiteSpaceAndComment();
-            if (*inStream != ',') break;
-            ++inStream;
-            SkipWhiteSpaceAndComment();
-        }
-
-        return ret;
-    }
-
-    std::unique_ptr<Class> ParseClassHeader(Namespace *CurrentNamespace, uint32_t &id) {
-        // Object type is already parsed
-        SkipWhiteSpaceAndComment();
-        auto name = ParseIdentifier();
-        SkipWhiteSpaceAndComment();
-        auto attributes { ClassAtributes::None };
-        SpaceSeparatedIdentifier([&attributes](std::string &&value) { 
-            if (value == "packed") attributes |= ClassAtributes::Packed;
-        });
-        std::vector<Parent> parentlist;
-        // At this point all whitespace is skipped
-        if (*inStream == ':') {
-            ++inStream;
-            SkipWhiteSpaceAndComment();
-            auto parentlisttemp = ParseParentList(CurrentNamespace, id);
-            std::swap(parentlist, parentlisttemp);
-        }
-
-        return std::make_unique<Class>(ObjectType::Class, std::move(name), CurrentNamespace, attributes, std::move(parentlist));
-    }
-
-    std::unique_ptr<Class> ParseClass(Namespace *CurrentNamespace) {
-        uint32_t id { 1 };
-        auto obj = ParseClassHeader(CurrentNamespace, id);
-        // At this point all whitespace is skipped
-        ParseClassBody(obj.get(), id);
-        return obj;
-    }
-
-    std::unique_ptr<Enum> ParseEnum(Namespace *CurrentNamespace) {
-        SkipWhiteSpaceAndComment();
-        auto enumName = ParseIdentifier();
-        SkipWhiteSpaceAndComment();
-        if (*inStream != '{' ) {
-            std::string errorstr { "Expecting '{' found: "};
-            errorstr += *inStream;
-            throw exception::BadClass { inStream, errorstr };
-        }
-        ++inStream;
-        SkipWhiteSpaceAndComment();
-        std::vector<std::string> enumNameList { };
-        if (*inStream != '}') {
-            while(true) {
-                auto name = ParseIdentifier();
-                enumNameList.push_back(name);
-                SkipWhiteSpaceAndComment();
-                if (*inStream != ',') break;
-                ++inStream;
-                SkipWhiteSpaceAndComment();
-            }
-            if (*inStream != '}') {
-                std::string errorstr { "Expecting '}' found: "};
-                errorstr += *inStream;
-                throw exception::BadClass { inStream, errorstr };
-            }
-        }
-        ++inStream;
-        if (*inStream == ';') throw exception::BadClass { inStream, {"Semicolon is not expected at the end of a class"} };
-        auto ret = std::make_unique<Enum>(ObjectType::Enum, std::move(enumName), CurrentNamespace, std::move(enumNameList));
-        return ret;
-    }
-
-    std::unique_ptr<Namespace> ParseNameSpace(Namespace *parentNamespace);
     
-    std::vector<std::unique_ptr<Base>> ParseStatementList(Namespace *parentNamespace) {
-        std::vector<std::unique_ptr<Base>> statementlist { };
-        while(true) {
-            SkipWhiteSpaceAndComment();
-            if (inStream.full() || *inStream == '}') break;
-            auto objectType = ParseObjectType();
-            if (objectType == ObjectType::Class) {
-                statementlist.emplace_back(ParseClass(parentNamespace));
-            } else if (objectType == ObjectType::Namespace) {
-                statementlist.emplace_back( ParseNameSpace(parentNamespace) );
-            } else if (objectType == ObjectType::Enum) {
-                statementlist.emplace_back( ParseEnum(parentNamespace) );
-            } else {
-                std::string errorstr { "Bad identifier type it must be one of 'class' or 'namespace' case sensitive." };
-                throw exception::BadObjectType { inStream, errorstr };
-            }
-        }
 
-        return statementlist;
-    }
 
     void Write(const AccessType access) {
         switch(access) {
@@ -1032,10 +690,6 @@ private:
         outStream.Write("} // namespace ", completename,"\n\n");
     }
 
-    std::vector<std::unique_ptr<Base>> Parse() { 
-        return ParseStatementList(nullptr);
-    }
-
     void CheckMemberTypeForPrimitive(TypeName &typeName) {
         if (typeName.type != ObjectType::Unresolved) return;
         if (GetCPPTypeOrEmpty(typeName.Name).empty()) {
@@ -1109,7 +763,7 @@ public:
     SerializerCreator &operator=(const SerializerCreator &) = delete;
 
     void Write() {
-        auto statementlist = Parse();
+        auto statementlist = Parser::Parse(inStream);
         std::unordered_map<std::string, ObjectType> VariableTypeMap;
         ResolveMember(statementlist, VariableTypeMap);
         outStream.Write(
@@ -1126,32 +780,7 @@ public:
     
 }; // class SerializerCreator
 
-inline std::unique_ptr<Namespace> SerializerCreator::ParseNameSpace(Namespace *parentNamespace) {
-    // Object type is already parsed
-    SkipWhiteSpaceAndComment();
-    auto name = ParseHierarchicalIdentifier();
-    SkipWhiteSpaceAndComment();
-    if (*inStream != '{' ) {
-        std::string errorstr { "Expecting '{' found: "};
-        errorstr += *inStream;
-        throw exception::BadNamespace { inStream, errorstr };
-    }
-    ++inStream;
-
-    auto ret = std::make_unique<Namespace>(ObjectType::Namespace, std::move(name), parentNamespace);
-    auto statementlist = ParseStatementList(ret.get());
-    std::swap(ret->statementlist, statementlist);
-    
-    if (*inStream != '}' ) {
-        std::string errorstr { "Expecting '}' found: "};
-        errorstr += *inStream;
-        throw exception::BadNamespace { inStream, errorstr };
-    }
-    ++inStream;
-    return ret;
-}
-
-void SerializerCreator::Write(const std::vector<std::unique_ptr<Base>> &statementlist) {
+inline void SerializerCreator::Write(const std::vector<std::unique_ptr<Base>> &statementlist) {
     if (statementlist.empty()) return;
 
     for(auto &statement: statementlist) {
