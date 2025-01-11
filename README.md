@@ -58,13 +58,27 @@ Output is template based, hence one of following serializer can be used:
 	1. String based indexing
 
 if ```cpp test::person pr``` is name of your class different serializer can be applied as follows:
+
+JSON Serializer support.
 ```cpp
 pr.serialize_out<rohit::serializer::json>(stream);
 pr.serialize_in<rohit::serializer::json>(stream);
+```
+
+Positional binary, there will be no indexing either by ID or name.
+```cpp
 pr.serialize_out<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(stream);
 pr.serialize_in<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(stream);
+```
+
+Binary serialization with Index by ID, currently ID is positional it will allowed to set in future.
+```cpp
 pr.serialize_out<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(stream);
 pr.serialize_in<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(stream);
+```
+
+Binary serialization with String ID. Currently string ID is name of member variable, it will be allowed to be custom in future.
+```cpp
 pr.serialize_out<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(stream);
 pr.serialize_in<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(stream);
 ```
@@ -265,3 +279,30 @@ public:
 
 } // namespace maptest
 ```
+
+### Enum
+This is a specialize case where in string and JSON mode value name will be serialized in other binary mode its positional ID will be serialized.
+
+Example of CPP:
+```cpp
+namespace enumtest {
+enum testenum {
+    test1,
+    test2,
+    test3,
+    test4,
+    test5,
+    test6
+}
+
+class test {
+    public testenum te;
+}
+}
+```
+
+
+## Roadmap
+1. Allowed to set Default value.
+1. Custom integer ID and string name for member variable.
+1. Bit field.
