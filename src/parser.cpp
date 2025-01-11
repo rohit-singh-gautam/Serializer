@@ -16,9 +16,8 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include <rohit/serializercreator.h>
-#include <rohit/stream.h>
 
-namespace rohit {
+namespace rohit::Serializer {
 
 void tolower_inplace(std::string &value) {
     for(auto &ch: value) {
@@ -41,7 +40,7 @@ ClassAtributes operator&(const ClassAtributes &lhs, const ClassAtributes &rhs) {
     return static_cast<ClassAtributes>(ulhs & urhs);
 }
 
-std::string GetFullName(const Namespace *nameSpace) {
+std::string GetFullNameForNamespace(const Namespace *nameSpace) {
     return nameSpace->GetFullName();
 }
 
@@ -403,11 +402,80 @@ std::unique_ptr<Namespace> ParseNameSpace(const Stream &inStream, Namespace *par
     return ret;
 } // ParseNameSpace
 
+void CheckMemberTypeForPrimitive(const Stream &inStream, TypeName &typeName) {
+    if (typeName.type != ObjectType::Unresolved) return;
+    if (Serializer::GetCPPTypeOrEmpty(typeName.Name).empty()) {
+        std::string errorstr { "Unknown type: " };
+        errorstr += typeName.Name;
+        throw exception::BadMemberType { inStream, errorstr };
+    }
+    typeName.type = ObjectType::Primitive;
+}
+
+void ResolveMember(const Stream &inStream, Member &member, const std::unordered_map<std::string, ObjectType> &VariableTypeMap) {
+    for(auto &typeName: member.typeNameList) {
+        std::queue<Namespace *> namespaceStack { };
+        Namespace *currentNamespace = typeName.declaredNameSpace;
+        while(currentNamespace) {
+            namespaceStack.push(currentNamespace);
+            currentNamespace = currentNamespace->parentNamespace;
+        }
+        while(!namespaceStack.empty()) {
+            currentNamespace = namespaceStack.front();
+            namespaceStack.pop();
+            auto tryFullname = currentNamespace->GetFullName() + "::" + typeName.Name;
+            auto typeitr = VariableTypeMap.find(tryFullname);
+            if (typeitr != std::end(VariableTypeMap)) {
+                typeName.type = typeitr->second;
+                typeName.definedNameSpace = currentNamespace;
+                break;
+            }
+        }
+        CheckMemberTypeForPrimitive(inStream, typeName);
+    }
+}
+
+void ResolveMember(
+    const Stream &inStream,
+    std::vector<std::unique_ptr<rohit::Serializer::Base>> &statementlist,
+    std::unordered_map<std::string, ObjectType> &VariableTypeMap) 
+{
+    for(auto &statement: statementlist) {
+        switch (statement->type)
+        {
+        case ObjectType::Namespace:
+            {
+                auto namespaceptr = dynamic_cast<Namespace *>(statement.get());
+                ResolveMember(inStream, namespaceptr->statementlist, VariableTypeMap);
+            }
+            break;
+
+        case ObjectType::Class:
+            {
+                VariableTypeMap.insert({statement->GetFullName(), ObjectType::Class});
+                auto classptr = dynamic_cast<Class *>(statement.get());
+                for(auto &member: classptr->MemberList) {
+                    ResolveMember(inStream, member, VariableTypeMap);
+                }
+            }
+            break;
+
+        case ObjectType::Enum:
+            VariableTypeMap.insert({statement->GetFullName(), ObjectType::Enum});
+            break;
+        
+        default:
+            break;
+        }
+    }
+}
+
 std::vector<std::unique_ptr<Base>> Parse(const Stream &inStream) { 
-    return ParseStatementList(inStream, nullptr);
+    auto statementlist = ParseStatementList(inStream, nullptr);
+    std::unordered_map<std::string, ObjectType> VariableTypeMap;
+    ResolveMember(inStream, statementlist, VariableTypeMap);
+    return statementlist;
 }
 
 } // namespace Parser
-
-
-} // namespace rohit
+} // namespace rohit::Serializer

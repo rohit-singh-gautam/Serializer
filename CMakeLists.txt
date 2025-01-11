@@ -8,7 +8,7 @@ endif()
 
 add_compile_options(-Wall -Werror -Wpedantic -Wextra -Weffc++ -Wsuggest-override) # -fanalyzer
 
-add_library(serializerlib src/serializerparser.cpp)
+add_library(serializerlib src/parser.cpp src/cppwriter.cpp src/common.cpp)
 
 add_executable(serializer src/serializer.cpp)
 

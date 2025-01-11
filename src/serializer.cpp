@@ -96,14 +96,14 @@ int main(const int argc, const char *argv[]) {
 
     const rohit::FullStream inStream {buffer, size};
     rohit::FullStreamAutoAlloc outStream {256};
-    rohit::SerializerCreator creator {inStream, outStream};
-
 
     bool OutputIsHeader = output_file.extension() == ".h" || output_file.extension() == ".hpp" || output_file.extension() == ".hxx";
     if (!OutputIsHeader) {
         std::cout << "WARNING: Output file is designed for C++ header, output extension must be one of .h, .hpp or .hxx" << std::endl;
     }
-    creator.Write();
+
+    auto statementlist = rohit::Serializer::Parser::Parse(inStream);
+    rohit::Serializer::Writer::CPP::Write(outStream, statementlist);
     WriteBufferToFile(output_file, outStream);
 
     return 0;
