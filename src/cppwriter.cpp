@@ -74,7 +74,7 @@ const std::string GetCPPType(const Member &member) {
     }
 }
 
-void Write(Stream &outStream, const AccessType access) {
+void WriteAccessType(Stream &outStream, const AccessType access) {
     switch(access) {
         default:
         case AccessType::Public:
@@ -91,23 +91,23 @@ void Write(Stream &outStream, const AccessType access) {
     }
 }
 
-void Write(Stream &outStream, const std::vector<Parent> &parents) {
+void WriteParentList(Stream &outStream, const std::vector<Parent> &parents) {
     bool first { true };
     for(auto &parent: parents) {
         if (first) first = false;
         else outStream.Write(", ");
-        Write(outStream, parent.access);
+        WriteAccessType(outStream, parent.access);
         outStream.Write(' ', parent.Name);
     }
 }
 
-void Write(Stream &outStream, const std::vector<Member> &members) {
+void WriteMemberList(Stream &outStream, const std::vector<Member> &members) {
     AccessType lastaccess { AccessType::Private };
 
     for(auto &member: members) {
         if (member.access != lastaccess) {
             outStream.Write('\n');
-            Write(outStream, member.access);
+            WriteAccessType(outStream, member.access);
             outStream.Write(":\n");
             lastaccess = member.access;
         }
@@ -372,18 +372,18 @@ void WriteSerializer(Stream &outStream, const Class *obj) {
     WriteSerializerInBody(outStream, obj);
 }
 
-void Write(Stream &outStream, const Class *obj) {
+void WriteClass(Stream &outStream, const Class *obj) {
     if ((obj->attributes & ClassAtributes::Packed) == ClassAtributes::Packed)
         outStream.Write("class __attribute__ ((__packed__)) ", obj->Name);
     else outStream.Write("class ", obj->Name);
 
     if (!obj->parentlist.empty()) {
         outStream.Write(" : ");
-        Write(outStream, obj->parentlist);
+        WriteParentList(outStream, obj->parentlist);
     }
 
     outStream.Write(" {\n");
-    Write(outStream, obj->MemberList);
+    WriteMemberList(outStream, obj->MemberList);
 
     outStream.Write('\n');
     WriteSerializer(outStream, obj);
@@ -391,7 +391,7 @@ void Write(Stream &outStream, const Class *obj) {
     outStream.Write("}; // class ", obj->Name, "\n\n");
 }
 
-void Write(Stream &outStream, const Enum *enumptr) {
+void WriteEnum(Stream &outStream, const Enum *enumptr) {
     outStream.Write("enum class ", enumptr->Name, " {\n");
     for(auto &enumName: enumptr->enumNameList) {
         outStream.Write("\t", enumName, ",\n");
@@ -419,7 +419,7 @@ void Write(Stream &outStream, const Enum *enumptr) {
 
 void WriteStatementList(Stream &outStream, const std::vector<std::unique_ptr<Base>> &statementlist);
 
-void Write(Stream &outStream, const Namespace *namespaceptr) {
+void WriteNamespace(Stream &outStream, const Namespace *namespaceptr) {
     std::string completename = namespaceptr->Name;
     while (namespaceptr->statementlist.size() == 1 && namespaceptr->statementlist.back()->type == ObjectType::Namespace) {
         namespaceptr = dynamic_cast<Namespace *>(namespaceptr->statementlist.back().get());
@@ -438,15 +438,15 @@ void WriteStatementList(Stream &outStream, const std::vector<std::unique_ptr<Bas
         switch (statement->type)
         {
         case ObjectType::Namespace:
-            Write(outStream, dynamic_cast<const Namespace *>(statement.get()));
+            WriteNamespace(outStream, dynamic_cast<const Namespace *>(statement.get()));
             break;
 
         case ObjectType::Class:
-            Write(outStream, dynamic_cast<const Class *>(statement.get()));
+            WriteClass(outStream, dynamic_cast<const Class *>(statement.get()));
             break;
 
         case ObjectType::Enum:
-            Write(outStream, dynamic_cast<const Enum *>(statement.get()));
+            WriteEnum(outStream, dynamic_cast<const Enum *>(statement.get()));
             break;
         
         default:

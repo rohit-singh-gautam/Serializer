@@ -169,129 +169,163 @@ private:
         return { reinterpret_cast<const char *>(start), reinterpret_cast<const char *>(end) };
     }
 
+    static constexpr void serialize_in_bool(const FullStream &stream, bool &value) {
+        if (stream.remaining_buffer() < 4) throw exception::BadInputData { stream };
+        auto ch = std::tolower(*stream);
+        if (ch == 't') {
+            ++stream;
+            if (std::tolower(*stream) != 'r') throw exception::BadInputData { stream };
+            ++stream;
+            if (std::tolower(*stream) != 'u') throw exception::BadInputData { stream };
+            ++stream;
+            if (std::tolower(*stream) != 'e') throw exception::BadInputData { stream };
+            ++stream;
+            value = true;
+        } else if (ch == 'f') {
+            ++stream;
+            if (std::tolower(*stream) != 'a') throw exception::BadInputData { stream };
+            ++stream;
+            if (std::tolower(*stream) != 'l') throw exception::BadInputData { stream };
+            ++stream;
+            if (std::tolower(*stream) != 's') throw exception::BadInputData { stream };
+            ++stream;
+            if (stream.full()) throw exception::BadInputData { stream };
+            if (std::tolower(*stream) != 'e') throw exception::BadInputData { stream };
+            ++stream;
+            value = false;
+        }
+    }
+
+    static constexpr void serialize_in_char(const FullStream &stream, char &value) {
+        if (stream.remaining_buffer() < 3) throw exception::BadInputData { stream };
+        if (*stream != '"') throw exception::BadInputData { stream };
+        ++stream;
+        value = *stream;
+        ++stream;
+        if (*stream != '"') throw exception::BadInputData { stream };
+        ++stream;
+    }
+
+    static constexpr void serialize_in_unsigned_integer(const FullStream &stream, std::unsigned_integral auto &value) {
+        if (stream.full()) throw exception::BadInputData { stream };
+        // TODO: Check out of range values
+        if (*stream < '0' || *stream > '9') throw exception::BadInputData { stream };
+        value = *stream - '0';
+        ++stream;
+        while(!stream.full()) {
+            if (*stream < '0' || *stream > '9') break;
+            value = value * 10 + *stream - '0';
+            ++stream;
+        }
+    }
+
+    static constexpr void serialize_in_signed_integer(const FullStream &stream, std::signed_integral auto &value) {
+        if (stream.full()) throw exception::BadInputData { stream };
+        // TODO: Check out of range values
+        if ((*stream < '0' || *stream > '9') && *stream != '-' && *stream != '+') throw exception::BadInputData { stream };
+        auto sign { static_cast<std::remove_reference_t<decltype(value)>>(1) };
+        if (*stream == '-') {
+            sign = -1;
+            ++stream;
+        } else if (*stream == '+') ++stream;
+        value = *stream - '0';
+        ++stream;
+        while(!stream.full()) {
+            if (*stream < '0' || *stream > '9') break;
+            value = value * 10 + *stream - '0';
+            ++stream;
+        }
+        value *= sign;
+    }
+
+    static constexpr void serialize_in_string(const FullStream &stream, std::string &value) {
+        if (stream.remaining_buffer() < 2) throw exception::BadInputData { stream };
+        if (*stream != '"') throw exception::BadInputData { stream };
+        ++stream;
+        while(*stream != '"') {
+            if (stream.full()) throw exception::BadInputData { stream };
+            value.push_back(*stream);
+            ++stream;
+        }
+        ++stream;
+    }
+
+    static constexpr void serialize_in_floating_point(const FullStream &stream, std::floating_point auto &value) {
+        if (stream.full()) throw exception::BadInputData { stream };
+        // TODO: Check out of range values
+        if ((*stream < '0' || *stream > '9') && *stream != '-' && *stream != '+') throw exception::BadInputData { stream };
+        auto start = stream.curr();
+        while (!stream.full() && *stream != ',' && *stream != '!' && *stream != ']' && *stream != '}' && *stream != ' ')
+            ++stream;
+        std::string number {start, stream.curr()};
+        if constexpr (std::is_same_v<float, std::remove_reference_t<decltype(value)>>) value = std::stof(number);
+        else value = std::stod(number);
+    }
+
+    static constexpr void serialize_in_vector(const FullStream &stream, typecheck::vector auto &value) {
+        check_in(stream, '[');
+        SkipWhiteSpace(stream);
+        if (*stream != ']') {
+            while(true) {
+                using value_type = std::remove_reference_t<decltype(value)>::value_type;
+                value_type valuetype { };
+                serialize_in(stream, valuetype);
+                value.emplace_back(valuetype);
+                SkipWhiteSpace(stream);
+                if (*stream == ']') break;
+                check_in(stream, ',');
+                SkipWhiteSpace(stream);
+            }
+        }
+        ++stream;
+    }
+
+    static constexpr void serialize_in_map(const FullStream &stream, typecheck::map auto &value) {
+        check_in(stream, '{');
+        SkipWhiteSpace(stream);
+        if (*stream != '}') {
+            while(true) {
+                using T = std::remove_reference_t<decltype(value)>;
+                typename T::key_type key { };
+                serialize_in(stream, key);
+                SkipWhiteSpace(stream);
+                check_in(stream, ':');
+                SkipWhiteSpace(stream);
+                typename T::mapped_type valuetype { };
+                serialize_in(stream, valuetype);
+                value.emplace(std::move(key), std::move(valuetype));
+                SkipWhiteSpace(stream);
+                if (*stream == '}') break;
+                check_in(stream, ',');
+                SkipWhiteSpace(stream);
+            }
+        }
+        ++stream;
+    }
+
 public:
     template <typename T>
     static constexpr void serialize_in(const FullStream &stream, T &value) {
         if constexpr (std::is_same_v<bool, T>) {
-            if (stream.remaining_buffer() < 4) throw exception::BadInputData { stream };
-            auto ch = std::tolower(*stream);
-            if (ch == 't') {
-                ++stream;
-                if (std::tolower(*stream) != 'r') throw exception::BadInputData { stream };
-                ++stream;
-                if (std::tolower(*stream) != 'u') throw exception::BadInputData { stream };
-                ++stream;
-                if (std::tolower(*stream) != 'e') throw exception::BadInputData { stream };
-                ++stream;
-                value = true;
-            } else if (ch == 'f') {
-                ++stream;
-                if (std::tolower(*stream) != 'a') throw exception::BadInputData { stream };
-                ++stream;
-                if (std::tolower(*stream) != 'l') throw exception::BadInputData { stream };
-                ++stream;
-                if (std::tolower(*stream) != 's') throw exception::BadInputData { stream };
-                ++stream;
-                if (stream.full()) throw exception::BadInputData { stream };
-                if (std::tolower(*stream) != 'e') throw exception::BadInputData { stream };
-                ++stream;
-                value = false;
-            }
+            serialize_in_bool(stream, value);
         } else if constexpr (std::is_same_v<char, T>) {
-            if (stream.remaining_buffer() < 3) throw exception::BadInputData { stream };
-            if (*stream != '"') throw exception::BadInputData { stream };
-            ++stream;
-            value = *stream;
-            ++stream;
-            if (*stream != '"') throw exception::BadInputData { stream };
-            ++stream;
+            serialize_in_char(stream, value);
         } else if constexpr (std::unsigned_integral<T>) {
-            if (stream.full()) throw exception::BadInputData { stream };
-            // TODO: Check out of range values
-            if (*stream < '0' || *stream > '9') throw exception::BadInputData { stream };
-            value = *stream - '0';
-            ++stream;
-            while(!stream.full()) {
-                if (*stream < '0' || *stream > '9') break;
-                value = value * 10 + *stream - '0';
-                ++stream;
-            }
+            serialize_in_unsigned_integer(stream, value);
         } else if constexpr (std::signed_integral<T>) {
-            if (stream.full()) throw exception::BadInputData { stream };
-            // TODO: Check out of range values
-            if ((*stream < '0' || *stream > '9') && *stream != '-' && *stream != '+') throw exception::BadInputData { stream };
-            T sign { 1 };
-            if (*stream == '-') {
-                sign = -1;
-                ++stream;
-            } else if (*stream == '+') ++stream;
-            value = *stream - '0';
-            ++stream;
-            while(!stream.full()) {
-                if (*stream < '0' || *stream > '9') break;
-                value = value * 10 + *stream - '0';
-                ++stream;
-            }
-            value *= sign;
+            serialize_in_signed_integer(stream, value);
         } else if constexpr (std::is_same_v<std::string, T>) {
-            if (stream.remaining_buffer() < 2) throw exception::BadInputData { stream };
-            if (*stream != '"') throw exception::BadInputData { stream };
-            ++stream;
-            while(*stream != '"') {
-                if (stream.full()) throw exception::BadInputData { stream };
-                value.push_back(*stream);
-                ++stream;
-            }
-            ++stream;
-        } else if constexpr (std::is_same_v<float, T> || std::is_same_v<double, T>) {
-            if (stream.full()) throw exception::BadInputData { stream };
-            // TODO: Check out of range values
-            if ((*stream < '0' || *stream > '9') && *stream != '-' && *stream != '+') throw exception::BadInputData { stream };
-            auto start = stream.curr();
-            while (!stream.full() && *stream != ',' && *stream != '!' && *stream != ']' && *stream != '}' && *stream != ' ')
-                ++stream;
-            std::string number {start, stream.curr()};
-            if constexpr (std::is_same_v<float, T>) value = std::stof(number);
-            else value = std::stod(number);
+            serialize_in_string(stream, value);
+        } else if constexpr (std::floating_point<T>) {
+            serialize_in_floating_point(stream, value);
         } else if constexpr (typecheck::SerializerOutEnabledPtr<T, json>) {
             value->template serialize_in<json>(stream);
         } else if constexpr (typecheck::SerializerOutEnabled<T, json>) {
             value.template serialize_in<json>(stream);
         } else if constexpr (typecheck::vector<T>) {
-            check_in(stream, '[');
-            SkipWhiteSpace(stream);
-            if (*stream != ']') {
-                while(true) {
-                    typename T::value_type valuetype { };
-                    serialize_in(stream, valuetype);
-                    value.emplace_back(valuetype);
-                    SkipWhiteSpace(stream);
-                    if (*stream == ']') break;
-                    check_in(stream, ',');
-                    SkipWhiteSpace(stream);
-                }
-            }
-            ++stream;
+            serialize_in_vector(stream, value);
         } else if constexpr (typecheck::map<T>) {
-            check_in(stream, '{');
-            SkipWhiteSpace(stream);
-            if (*stream != '}') {
-                while(true) {
-                    typename T::key_type key { };
-                    serialize_in(stream, key);
-                    SkipWhiteSpace(stream);
-                    check_in(stream, ':');
-                    SkipWhiteSpace(stream);
-                    typename T::mapped_type valuetype { };
-                    serialize_in(stream, valuetype);
-                    value.emplace(std::move(key), std::move(valuetype));
-                    SkipWhiteSpace(stream);
-                    if (*stream == '}') break;
-                    check_in(stream, ',');
-                    SkipWhiteSpace(stream);
-                }
-            }
-            ++stream;
+            serialize_in_map(stream, value);
         } else throw exception::BadType { stream };
     }
 
@@ -330,7 +364,7 @@ public:
             *stream++ = '"';
             stream.Copy(value);
             *stream++ = '"';
-        } else if constexpr (std::is_same_v<float, T> || std::is_same_v<double, T>) {
+        } else if constexpr (std::floating_point<T>) {
             char buffer[std::numeric_limits<T>::digits10 + 3] { 0 };
             auto result = std::to_chars(std::begin(buffer), std::end(buffer), value);
             stream.Copy(buffer, result.ptr);
@@ -489,7 +523,7 @@ public:
             if (stream.remaining_buffer() < size) throw exception::BadInputData { stream };
             value = std::string { stream.curr(), stream.curr() + size };
             stream += size;
-        } else if constexpr (std::is_same_v<float, T> || std::is_same_v<double, T>) {
+        } else if constexpr (std::floating_point<T>) {
             if (stream.remaining_buffer() < sizeof(T)) throw exception::BadInputData { stream };
             value = *reinterpret_cast<const T *>(stream.curr());
             stream += sizeof(T);
@@ -567,7 +601,7 @@ public:
             // variable size following string of size
             serialize_out_variable(stream, value.size());
             stream.Copy(value);
-        } else if constexpr (std::is_same_v<float, T> || std::is_same_v<double, T>) {
+        } else if constexpr (std::floating_point<T>) {
             if (stream.remaining_buffer() < sizeof(T)) throw exception::BadInputData { stream };
             auto dest = reinterpret_cast<T *>(stream.curr());
             *dest = value;
