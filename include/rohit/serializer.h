@@ -71,6 +71,11 @@ concept map = requires(T t) {
     requires std::is_same_v<T, std::map<typename T::key_type, typename T::mapped_type>>;
 };
 
+template <typename T>
+concept functions = requires(T t) {
+    requires std::is_same_v<T, void(Stream &)> || std::is_function_v<T> || std::is_same_v<T, std::function<void(Stream &)>>;
+};
+
 } // namespace typecheck
 
 template <typename TypeEnum, typename Base, typename T0>
@@ -349,7 +354,7 @@ public:
 
     template <typename T>
     static constexpr void serialize_out(Stream &stream, const T &value) {
-        if constexpr (std::is_same_v<T, void(Stream &)> || std::is_function_v<T> || std::is_same_v<T, std::function<void(Stream &)>>) {
+        if constexpr (typecheck::functions<T>) {
             value(stream);
         } else if constexpr (std::is_same_v<char, T>) {
             *stream++ = '"';
@@ -579,7 +584,7 @@ public:
 
     template <typename T>
     static constexpr void serialize_out(Stream &stream, const T &value) {
-        if constexpr (std::is_same_v<T, void(Stream &)> || std::is_function_v<T> || std::is_same_v<T, std::function<void(Stream &)>>) {
+        if constexpr (typecheck::functions<T>) {
             value(stream);
         } else if constexpr (std::is_same_v<char, T>) {
             *stream = value;
