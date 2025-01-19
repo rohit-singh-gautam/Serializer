@@ -447,6 +447,11 @@ constexpr inline void json::serialize_out<std::string>(Stream &stream, const std
     stream.Write('"', value, '"');
 }
 
+template<>
+constexpr inline void json::serialize_out<std::string_view>(Stream &stream, const std::string_view &value) {
+    stream.Write('"', value, '"');
+}
+
 template <SerializeKeyType SERIALIZE_KEY_TYPE = SerializeKeyType::Integer>
 class binary {
 public:
@@ -604,9 +609,7 @@ public:
 
     template <typename T>
     static constexpr void serialize_out(Stream &stream, const T &value) {
-        if constexpr (typecheck::functions<T>) {
-            value(stream);
-        } else if constexpr (std::is_same_v<char, T>) {
+        if constexpr (std::is_same_v<char, T>) {
             *stream = value;
             stream += sizeof(T);
         } else if constexpr (std::is_same_v<bool, T>) {
@@ -635,22 +638,31 @@ public:
             value->template serialize_out<binary<SERIALIZE_KEY_TYPE>>(stream);
         } else if constexpr (typecheck::SerializerOutEnabled<T, binary<SERIALIZE_KEY_TYPE>>) {
             value.template serialize_out<binary<SERIALIZE_KEY_TYPE>>(stream);
-        } else if constexpr (typecheck::vector<T>) {
-            // variable size following vector members
-            serialize_out_variable(stream, value.size());
-            for (const auto &item : value) {
-                serialize_out(stream, item);
-            }
-        } else if constexpr (typecheck::map<T>) {
-            // variable size following map members
-            serialize_out_variable(stream, value.size());
-            for (const auto &item : value) {
-                serialize_out(stream, item.first);
-                serialize_out(stream, item.second);
-            }
         } else {
             // TODO: Improve exception
             throw std::runtime_error {"Bad Type"};
+        }
+    }
+
+    template <typecheck::functions T>
+    static constexpr void serialize_out(Stream &stream, const T &value) {
+        value(stream);
+    }
+
+    template <typecheck::vector T>
+    static constexpr void serialize_out(Stream &stream, const T &value) {
+        serialize_out_variable(stream, value.size());
+        for (const auto &item : value) {
+            serialize_out(stream, item);
+        }
+    }
+
+    template <typecheck::map T>
+    static constexpr void serialize_out(Stream &stream, const T &value) {
+        serialize_out_variable(stream, value.size());
+        for (const auto &item : value) {
+            serialize_out(stream, item.first);
+            serialize_out(stream, item.second);
         }
     }
 
