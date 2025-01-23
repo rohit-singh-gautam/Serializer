@@ -97,7 +97,7 @@ void SkipWhiteSpaceAndComment(const Stream &inStream) {
     }
 } // SkipWhiteSpaceAndComment
 
-void check_in(const Stream &inStream, char value) {
+void CheckAndIncrease(const Stream &inStream, char value) {
     if (*inStream != value) {
         std::string errstr {"Expected: "};
         errstr.push_back(value);
@@ -106,7 +106,7 @@ void check_in(const Stream &inStream, char value) {
         throw exception::BadClass { inStream, errstr };
     }
     ++inStream;
-} // check_in
+} // CheckAndIncrease
 
 std::string ParseIdentifier(const Stream &inStream) {
     std::string identifier { };
@@ -182,7 +182,7 @@ auto ParseMemberModifier(const std::string &type) {
 
 void ParseMemberTypeUnion(const Stream &inStream, Namespace *declaredNameSpace, std::vector<TypeName> &typeNameList) {
     SkipWhiteSpaceAndComment(inStream);
-    check_in(inStream, '(');
+    CheckAndIncrease(inStream, '(');
     int count { 0 };
     while(true) {
         SkipWhiteSpaceAndComment(inStream);
@@ -202,15 +202,15 @@ void ParseMemberTypeUnion(const Stream &inStream, Namespace *declaredNameSpace, 
         if (*inStream != ',') break;
         ++inStream;
     }
-    check_in(inStream, ')');
+    CheckAndIncrease(inStream, ')');
 } // ParseMemberTypeUnion
 
 void ParseMemberTypeMap(const Stream &inStream, Namespace *declaredNameSpace, std::vector<TypeName> &typeNameList, std::string &key) {
     SkipWhiteSpaceAndComment(inStream);
-    check_in(inStream, '(');
+    CheckAndIncrease(inStream, '(');
     SkipWhiteSpaceAndComment(inStream);
     key = ParseHierarchicalIdentifier(inStream);
-    check_in(inStream, ')');
+    CheckAndIncrease(inStream, ')');
     SkipWhiteSpaceAndComment(inStream);
     auto typeName = ParseHierarchicalIdentifier(inStream);
     typeNameList.emplace_back(std::move(typeName), declaredNameSpace);
@@ -239,7 +239,7 @@ Member ParseMember(const Stream &inStream, const uint32_t id, Namespace *declare
     SkipWhiteSpaceAndComment(inStream);
     auto name = ParseIdentifier(inStream);
     SkipWhiteSpaceAndComment(inStream);
-    check_in(inStream, ';');
+    CheckAndIncrease(inStream, ';');
     return { accesstype, membermodifier, typeNameList, name, id, key };
 } // ParseMember
 

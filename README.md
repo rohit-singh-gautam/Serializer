@@ -61,26 +61,26 @@ if ```cpp test::person pr``` is name of your class different serializer can be a
 
 JSON Serializer support.
 ```cpp
-pr.serialize_out<rohit::serializer::json>(stream);
-pr.serialize_in<rohit::serializer::json>(stream);
+pr.SerializeOut<rohit::serializer::json>(stream);
+pr.SerializeIn<rohit::serializer::json>(stream);
 ```
 
 Positional binary, there will be no indexing either by ID or name.
 ```cpp
-pr.serialize_out<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(stream);
-pr.serialize_in<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(stream);
+pr.SerializeOut<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(stream);
+pr.SerializeIn<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(stream);
 ```
 
 Binary serialization with Index by ID, currently ID is positional it will allowed to set in future.
 ```cpp
-pr.serialize_out<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(stream);
-pr.serialize_in<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(stream);
+pr.SerializeOut<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(stream);
+pr.SerializeIn<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(stream);
 ```
 
 Binary serialization with String ID. Currently string ID is name of member variable, it will be allowed to be custom in future.
 ```cpp
-pr.serialize_out<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(stream);
-pr.serialize_in<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(stream);
+pr.SerializeOut<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(stream);
+pr.SerializeIn<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(stream);
 ```
 
 ## Example
@@ -111,8 +111,8 @@ public:
 	uint64_t ID { };
 
 	template <typename SerializerProtocol>
-	void serialize_out(rohit::Stream &stream) const {
-		SerializerProtocol::struct_serialize_out(
+	void SerializeOut(rohit::Stream &stream) const {
+		SerializerProtocol::StructSerializeOut(
 			stream,
 			std::make_pair(std::string_view { "name" }, name),
 			std::make_pair(std::string_view { "ID" }, ID)
@@ -120,11 +120,11 @@ public:
 	}
 
 	template <typename SerializerProtocol>
-	void serialize_in(const rohit::FullStream &stream) {
-		SerializerProtocol::struct_serialize_in(
+	void SerializeIn(const rohit::FullStream &stream) {
+		SerializerProtocol::StructSerializeIn(
 			stream,
-			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"name"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template serialize_in<std::string>(stream, this->name); }},
-			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"ID"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template serialize_in<uint64_t>(stream, this->ID); }}
+			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"name"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template SerializeIn<std::string>(stream, this->name); }},
+			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"ID"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template SerializeIn<uint64_t>(stream, this->ID); }}
 		);
 	}
 }; // class person
@@ -163,19 +163,19 @@ public:
 	uint64_t ID { };
 
 	template <typename SerializerProtocol>
-	void serialize_out(rohit::Stream &stream) const {
-		SerializerProtocol::struct_serialize_out(
+	void SerializeOut(rohit::Stream &stream) const {
+		SerializerProtocol::StructSerializeOut(
 			stream,
 			std::make_pair(std::string_view { "name" }, name),
 			std::make_pair(std::string_view { "ID" }, ID)
 		);}
 
 	template <typename SerializerProtocol>
-	void serialize_in(const rohit::FullStream &stream) {
-		SerializerProtocol::struct_serialize_in(
+	void SerializeIn(const rohit::FullStream &stream) {
+		SerializerProtocol::StructSerializeIn(
 			stream,
-			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"name"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template serialize_in<std::string>(stream, this->name); }},
-			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"ID"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template serialize_in<uint64_t>(stream, this->ID); }}
+			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"name"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template SerializeIn<std::string>(stream, this->name); }},
+			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"ID"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template SerializeIn<uint64_t>(stream, this->ID); }}
 		);
 	}
 }; // class person
@@ -186,19 +186,19 @@ public:
 	std::vector<person> list { };
 
 	template <typename SerializerProtocol>
-	void serialize_out(rohit::Stream &stream) const {
-		SerializerProtocol::struct_serialize_out(
+	void SerializeOut(rohit::Stream &stream) const {
+		SerializerProtocol::StructSerializeOut(
 			stream,
 			std::make_pair(std::string_view { "listid" }, listid),
 			std::make_pair(std::string_view { "list" }, list)
 		);}
 
 	template <typename SerializerProtocol>
-	void serialize_in(const rohit::FullStream &stream) {
-		SerializerProtocol::struct_serialize_in(
+	void SerializeIn(const rohit::FullStream &stream) {
+		SerializerProtocol::StructSerializeIn(
 			stream,
-			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"listid"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template serialize_in<uint64_t>(stream, this->listid); }},
-			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"list"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template serialize_in<std::vector<person>>(stream, this->list); }}
+			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"listid"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template SerializeIn<uint64_t>(stream, this->listid); }},
+			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"list"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template SerializeIn<std::vector<person>>(stream, this->list); }}
 		);
 	}
 }; // class personlist
@@ -237,19 +237,19 @@ public:
 	uint64_t ID { };
 
 	template <typename SerializerProtocol>
-	void serialize_out(rohit::Stream &stream) const {
-		SerializerProtocol::struct_serialize_out(
+	void SerializeOut(rohit::Stream &stream) const {
+		SerializerProtocol::StructSerializeOut(
 			stream,
 			std::make_pair(std::string_view { "name" }, name),
 			std::make_pair(std::string_view { "ID" }, ID)
 		);}
 
 	template <typename SerializerProtocol>
-	void serialize_in(const rohit::FullStream &stream) {
-		SerializerProtocol::struct_serialize_in(
+	void SerializeIn(const rohit::FullStream &stream) {
+		SerializerProtocol::StructSerializeIn(
 			stream,
-			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"name"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template serialize_in<std::string>(stream, this->name); }},
-			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"ID"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template serialize_in<uint64_t>(stream, this->ID); }}
+			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"name"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template SerializeIn<std::string>(stream, this->name); }},
+			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"ID"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template SerializeIn<uint64_t>(stream, this->ID); }}
 		);
 	}
 }; // class person
@@ -260,19 +260,19 @@ public:
 	std::map<uint64_t,person> list { };
 
 	template <typename SerializerProtocol>
-	void serialize_out(rohit::Stream &stream) const {
-		SerializerProtocol::struct_serialize_out(
+	void SerializeOut(rohit::Stream &stream) const {
+		SerializerProtocol::StructSerializeOut(
 			stream,
 			std::make_pair(std::string_view { "listid" }, listid),
 			std::make_pair(std::string_view { "list" }, list)
 		);}
 
 	template <typename SerializerProtocol>
-	void serialize_in(const rohit::FullStream &stream) {
-		SerializerProtocol::struct_serialize_in(
+	void SerializeIn(const rohit::FullStream &stream) {
+		SerializerProtocol::StructSerializeIn(
 			stream,
-			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"listid"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template serialize_in<uint64_t>(stream, this->listid); }},
-			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"list"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template serialize_in<std::map<uint64_t,person>>(stream, this->list); }}
+			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"listid"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template SerializeIn<uint64_t>(stream, this->listid); }},
+			std::pair<std::string_view, std::function<void(const rohit::FullStream &)>> { std::string_view {"list"}, [this] (const rohit::FullStream &stream) { SerializerProtocol::template SerializeIn<std::map<uint64_t,person>>(stream, this->list); }}
 		);
 	}
 }; // class personlist
