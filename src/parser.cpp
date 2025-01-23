@@ -51,15 +51,15 @@ constexpr bool IsSmallAlphabet(const char val) noexcept { return val >= 'a' && v
 constexpr bool IsCapitalAlphabet(const char val) noexcept { return val >= 'A' && val <= 'Z'; }
 constexpr bool IsFirstIdentifier(const char val) noexcept { return IsCapitalAlphabet(val) || IsSmallAlphabet(val) || val == '_'; }
 constexpr bool IsIdentifier(const char val) noexcept { return IsNumber(val) || IsCapitalAlphabet(val) || IsSmallAlphabet(val) || val == '_'; }
-constexpr bool IsWhiteSpace(const Stream &inStream) { return IsWhiteSpace(*inStream); }
-constexpr bool IsNumber(const Stream &inStream) { return IsNumber(*inStream); }
-constexpr bool IsSmallAlphabet(const Stream &inStream) { return IsSmallAlphabet(*inStream); }
-constexpr bool IsCapitalAlphabet(const Stream &inStream) { return IsCapitalAlphabet(*inStream); }
-constexpr bool IsFirstIdentifier(const Stream &inStream) { return IsFirstIdentifier(*inStream); }
-constexpr bool IsIdentifier(const Stream &inStream) { return IsIdentifier(*inStream); }
-constexpr void SkipWhiteSpace(const Stream &inStream) { while(IsWhiteSpace(inStream)) ++inStream; }
+bool IsWhiteSpace(const Stream &inStream) { return IsWhiteSpace(*inStream); }
+bool IsNumber(const Stream &inStream) { return IsNumber(*inStream); }
+bool IsSmallAlphabet(const Stream &inStream) { return IsSmallAlphabet(*inStream); }
+bool IsCapitalAlphabet(const Stream &inStream) { return IsCapitalAlphabet(*inStream); }
+bool IsFirstIdentifier(const Stream &inStream) { return IsFirstIdentifier(*inStream); }
+bool IsIdentifier(const Stream &inStream) { return IsIdentifier(*inStream); }
+void SkipWhiteSpace(const Stream &inStream) { while(IsWhiteSpace(inStream)) ++inStream; }
 
-constexpr void SkipWhiteSpaceAndComment(const Stream &inStream) {
+void SkipWhiteSpaceAndComment(const Stream &inStream) {
     for(;;) {
         auto ch = *inStream;
         if (IsWhiteSpace(ch)) {
@@ -97,7 +97,7 @@ constexpr void SkipWhiteSpaceAndComment(const Stream &inStream) {
     }
 } // SkipWhiteSpaceAndComment
 
-constexpr void check_in(const Stream &inStream, char value) {
+void check_in(const Stream &inStream, char value) {
     if (*inStream != value) {
         std::string errstr {"Expected: "};
         errstr.push_back(value);

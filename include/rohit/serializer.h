@@ -145,18 +145,18 @@ private:
     static void SkipWhiteSpace(const Stream &inStream) { while(IsWhiteSpace(*inStream)) ++inStream; }
 
     template <typename T>
-    static constexpr void serialize_out_first(Stream &stream, auto &name, const T &value) {
+    static void serialize_out_first(Stream &stream, auto &name, const T &value) {
         stream.Write('"', name, "\":");
         serialize_out(stream, value);
     }
 
     template <typename T>
-    static constexpr void serialize_out_second(Stream &stream, auto &name, const T &value) {
+    static void serialize_out_second(Stream &stream, auto &name, const T &value) {
         stream.Write(",\"", name, "\":");
         serialize_out(stream, value);
     }
 
-    static constexpr void check_in(const FullStream &stream, char value) {
+    static void check_in(const FullStream &stream, char value) {
         if (*stream != value) throw exception::BadInputData { stream };
         ++stream;
     }
@@ -212,7 +212,7 @@ private:
         ++stream;
     }
 
-    static constexpr void serialize_in_unsigned_integer(const FullStream &stream, std::unsigned_integral auto &value) {
+    static void serialize_in_unsigned_integer(const FullStream &stream, std::unsigned_integral auto &value) {
         if (stream.full()) throw exception::BadInputData { stream };
         // TODO: Check out of range values
         if (*stream < '0' || *stream > '9') throw exception::BadInputData { stream };
@@ -225,7 +225,7 @@ private:
         }
     }
 
-    static constexpr void serialize_in_signed_integer(const FullStream &stream, std::signed_integral auto &value) {
+    static void serialize_in_signed_integer(const FullStream &stream, std::signed_integral auto &value) {
         if (stream.full()) throw exception::BadInputData { stream };
         // TODO: Check out of range values
         if ((*stream < '0' || *stream > '9') && *stream != '-' && *stream != '+') throw exception::BadInputData { stream };
@@ -460,42 +460,42 @@ public:
 
 private:
     template <typename T>
-    static constexpr void serialize_out(Stream &stream, const std::integral auto &id, const T &value) {
+    static void serialize_out(Stream &stream, const std::integral auto &id, const T &value) {
         serialize_out_variable(stream, id);
         serialize_out(stream, value);
     }
 
     template <typename T>
-    static constexpr void serialize_out(Stream &stream, const std::string &name, const T &value) {
+    static void serialize_out(Stream &stream, const std::string &name, const T &value) {
         serialize_out(stream, name);
         serialize_out(stream, value);
     }
 
     template <typename T>
-    static constexpr void serialize_out(Stream &stream, const std::string_view &name, const T &value) {
+    static void serialize_out(Stream &stream, const std::string_view &name, const T &value) {
         serialize_out(stream, name);
         serialize_out(stream, value);
     }
 
     template <typename T, typename U>
-    static constexpr void serialize_out(Stream &stream, const std::pair<T, U> &value) {
+    static void serialize_out(Stream &stream, const std::pair<T, U> &value) {
         serialize_out(stream, value.first, value.second);
     }
 
     template <typename T>
-    static constexpr void serialize_out(Stream &stream, const std::integral auto &id, const std::integral auto &index, const T &value) {
+    static void serialize_out(Stream &stream, const std::integral auto &id, const std::integral auto &index, const T &value) {
         serialize_out_variable(stream, id);
         serialize_out_variable(stream, index);
         serialize_out(stream, value);
     }
 
     template <typename T, typename U, typename V>
-    static constexpr void serialize_out(Stream &stream, const std::tuple<T, U, V> &value) {
+    static void serialize_out(Stream &stream, const std::tuple<T, U, V> &value) {
         serialize_out(stream, std::get<0>(value), std::get<1>(value), std::get<2>(value));
     }
 
 public:
-    static constexpr void serialize_out_variable(Stream &stream, const std::integral auto id) {
+    static void serialize_out_variable(Stream &stream, const std::integral auto id) {
         if (id <= 0x3f) {
             *stream++ = id;
         } else if (id <= 0x3fff) {
@@ -513,7 +513,7 @@ public:
         }
     }
 
-    static constexpr uint32_t serialize_in_variable(const FullStream &stream) {
+    static uint32_t serialize_in_variable(const FullStream &stream) {
         if (stream.full()) throw exception::BadInputData { stream };
         const uint32_t val = *stream++;
         switch(val & 0xc0) {
@@ -537,7 +537,7 @@ public:
     }
 
     template <typename T>
-    static constexpr void serialize_in(const FullStream &stream, T &value) {
+    static void serialize_in(const FullStream &stream, T &value) {
         if constexpr (std::is_same_v<bool, T>) {
             if (stream.full()) throw exception::BadInputData { stream };
             value = !!(*stream++);
@@ -589,7 +589,7 @@ public:
     }
 
     template <typename ... Types>
-    static constexpr void struct_serialize_in(const FullStream &stream, Types ... values) {
+    static void struct_serialize_in(const FullStream &stream, Types ... values) {
         if constexpr (serialize_key_type == SerializeKeyType::Integer) {
             std::unordered_map<uint32_t, std::function<void(const rohit::FullStream &)>> membermap { values... };
             while(true) {
@@ -614,7 +614,7 @@ public:
     }
 
     template <typename T>
-    static constexpr void serialize_out(Stream &stream, const T &value) {
+    static void serialize_out(Stream &stream, const T &value) {
         if constexpr (std::is_same_v<char, T>) {
             *stream = value;
             stream += sizeof(T);
@@ -651,12 +651,12 @@ public:
     }
 
     template <typecheck::functions T>
-    static constexpr void serialize_out(Stream &stream, const T &value) {
+    static void serialize_out(Stream &stream, const T &value) {
         value(stream);
     }
 
     template <typecheck::vector T>
-    static constexpr void serialize_out(Stream &stream, const T &value) {
+    static void serialize_out(Stream &stream, const T &value) {
         serialize_out_variable(stream, value.size());
         for (const auto &item : value) {
             serialize_out(stream, item);
@@ -664,7 +664,7 @@ public:
     }
 
     template <typecheck::map T>
-    static constexpr void serialize_out(Stream &stream, const T &value) {
+    static void serialize_out(Stream &stream, const T &value) {
         serialize_out_variable(stream, value.size());
         for (const auto &item : value) {
             serialize_out(stream, item.first);
@@ -672,15 +672,15 @@ public:
         }
     }
 
-    static constexpr void struct_serialize_out_start(Stream &stream, const auto &value) {
+    static void struct_serialize_out_start(Stream &stream, const auto &value) {
         struct_serialize_out(stream, value);
     }
 
-    static constexpr void struct_serialize_out(Stream &stream, const auto &value) {
+    static void struct_serialize_out(Stream &stream, const auto &value) {
         serialize_out(stream, value);
     }
 
-    static constexpr void struct_serialize_out_end(Stream &stream) {
+    static void struct_serialize_out_end(Stream &stream) {
         if constexpr (serialize_key_type == SerializeKeyType::Integer) {
             serialize_out_variable(stream, 0U);
         } else if constexpr (serialize_key_type == SerializeKeyType::String) {
