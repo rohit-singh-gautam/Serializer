@@ -2,8 +2,8 @@
     "version": 3,
     "configurePresets": [
         {
-            "name": "Base",
-            "displayName": "Base",
+            "name": "BaseLinux",
+            "displayName": "BaseLinux",
             "hidden": true,
             "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
             "cacheVariables": {
@@ -20,11 +20,11 @@
             }
         },
         {
-            "name": "Debug",
-            "displayName": "Debug",
-            "description": "Debug",
+            "name": "DebugLinux",
+            "displayName": "DebugLinux",
+            "description": "DebugLinux",
             "hidden": false,
-            "inherits": "Base",
+            "inherits": "BaseLinux",
             "binaryDir": "${sourceDir}/out/build/${presetName}",
             "installDir": "${sourceDir}/out/install/${presetName}",
             "cacheVariables": {
@@ -32,11 +32,53 @@
             }
         },
         {
-            "name": "Release",
-            "displayName": "Release",
-            "description": "Release",
+            "name": "ReleaseLinux",
+            "displayName": "ReleaseLinux",
+            "description": "ReleaseLinux",
             "hidden": false,
-            "inherits": "Base",
+            "inherits": "BaseLinux",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "installDir": "${sourceDir}/out/install/${presetName}",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
+            "name": "BaseWindows",
+            "displayName": "BaseWindows",
+            "hidden": true,
+            "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+            "cacheVariables": {
+                "VCPKG_TARGET_TRIPLET": "x64-windows"
+            },
+            "architecture": {
+                "value": "x64",
+                "strategy": "external"
+            },
+            "condition": {
+                "type": "equals",
+                "lhs": "${hostSystemName}",
+                "rhs": "Windows"
+            }
+        },
+        {
+            "name": "DebugWindows",
+            "displayName": "DebugWindows",
+            "description": "DebugWindows",
+            "hidden": false,
+            "inherits": "BaseWindows",
+            "binaryDir": "${sourceDir}/out/build/${presetName}",
+            "installDir": "${sourceDir}/out/install/${presetName}",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "ReleaseWindows",
+            "displayName": "ReleaseWindows",
+            "description": "ReleaseWindows",
+            "hidden": false,
+            "inherits": "BaseWindows",
             "binaryDir": "${sourceDir}/out/build/${presetName}",
             "installDir": "${sourceDir}/out/install/${presetName}",
             "cacheVariables": {

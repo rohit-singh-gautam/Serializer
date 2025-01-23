@@ -22,6 +22,7 @@
 #include <exception>
 #include <string>
 #include <stdint.h>
+#include <bit>
 
 namespace rohit {
 
@@ -99,16 +100,16 @@ protected:
 
     Stream() : _curr { nullptr }, _end { nullptr } { }
 public:
-    constexpr Stream(auto *_begin, auto *_end) : _curr { reinterpret_cast<uint8_t *>(_begin) }, _end { reinterpret_cast<uint8_t *>(_end) } { }
-    constexpr Stream(auto *_begin, size_t size) : _curr { reinterpret_cast<uint8_t *>(_begin) }, _end { _curr + size } { }
-    constexpr Stream(Stream &&stream) : _curr { stream._curr }, _end { stream._end } { stream._curr = stream._end = nullptr; }
-    constexpr Stream(std::string &string) : _curr { reinterpret_cast<uint8_t *>(string.data()) }, _end { _curr + string.size() } { }
+    Stream(auto *_begin, auto *_end) : _curr { reinterpret_cast<uint8_t *>(_begin) }, _end { reinterpret_cast<uint8_t *>(_end) } { }
+    Stream(auto *_begin, size_t size) : _curr { reinterpret_cast<uint8_t *>(_begin) }, _end { _curr + size } { }
+    Stream(Stream &&stream) : _curr { stream._curr }, _end { stream._end } { stream._curr = stream._end = nullptr; }
+    Stream(std::string &string) : _curr { reinterpret_cast<uint8_t *>(string.data()) }, _end { _curr + string.size() } { }
     Stream(const Stream &stream) : _curr { stream._curr }, _end { stream._end } { }
     virtual ~Stream() = default;
 
-    constexpr Stream GetSimpleStream() { return Stream { _curr, _end }; }
-    constexpr const Stream GetSimpleStream() const { return Stream { _curr, _end }; }
-    constexpr const Stream GetSimpleConstStream() const { return Stream { _curr, _end }; }
+    Stream GetSimpleStream() { return Stream { _curr, _end }; }
+    const Stream GetSimpleStream() const { return Stream { _curr, _end }; }
+    const Stream GetSimpleConstStream() const { return Stream { _curr, _end }; }
 
     template <size_t _size>
     bool operator==(const auto (&data)[_size + 1]) const {
@@ -129,28 +130,32 @@ public:
     virtual Stream &operator+=(size_t len) { _curr += len; return *this; }
     virtual const Stream &operator+=(size_t len) const { _curr += len; return *this; }
 
-    constexpr inline uint8_t &operator*() { return *_curr; }
-    constexpr inline uint8_t operator*() const { return *_curr; }
-    constexpr inline uint8_t &at_unchecked() { return *_curr; }
-    constexpr inline uint8_t at_unchecked() const { return *_curr; }
-    virtual constexpr inline Stream &operator++() { ++_curr; return *this; }
-    virtual constexpr inline Stream &operator--() { --_curr; return *this;}
-    virtual constexpr inline const Stream &operator++() const { ++_curr; return *this; }
-    virtual constexpr inline const Stream &operator--() const { --_curr; return *this;}
-    constexpr inline void push(const auto ch) { operator*() = static_cast<uint8_t>(ch); operator++(); }
+    inline uint8_t &operator*() { return *_curr; }
+    inline uint8_t operator*() const { return *_curr; }
+    inline uint8_t &at_unchecked() { return *_curr; }
+    inline uint8_t at_unchecked() const { return *_curr; }
+    virtual inline Stream &operator++() { ++_curr; return *this; }
+    virtual inline Stream &operator--() { --_curr; return *this;}
+    virtual inline const Stream &operator++() const { ++_curr; return *this; }
+    virtual inline const Stream &operator--() const { --_curr; return *this;}
+    inline void push(const auto ch) { operator*() = static_cast<uint8_t>(ch); operator++(); }
 
-    virtual constexpr inline uint8_t *GetCurrAndIncrease(const size_t len) { auto temp = _curr; _curr += len; return temp; }
-    virtual constexpr inline const uint8_t *GetCurrAndIncrease(const size_t len) const { auto temp = _curr; _curr += len; return temp; }
+    virtual inline uint8_t *GetCurrAndIncrease(const size_t len) { auto temp = _curr; _curr += len; return temp; }
+    virtual inline const uint8_t *GetCurrAndIncrease(const size_t len) const { auto temp = _curr; _curr += len; return temp; }
 
     size_t GetSizeFrom(const auto *start) const { return static_cast<size_t>(_curr - reinterpret_cast<const uint8_t *>(start)); }
 
+    #if defined(__GNUC__)
     #pragma GCC diagnostic push
     #pragma GCC diagnostic ignored "-Weffc++"
-    virtual constexpr inline uint8_t *operator++(int) { uint8_t *temp = _curr; ++_curr; return temp; };
-    virtual constexpr inline uint8_t *operator--(int) { uint8_t *temp = _curr; --_curr; return temp; };
-    virtual constexpr inline const uint8_t *operator++(int) const { uint8_t *temp = _curr; ++_curr; return temp; };
-    virtual constexpr inline const uint8_t *operator--(int) const { uint8_t *temp = _curr; --_curr; return temp; };
+    #endif
+    virtual inline uint8_t *operator++(int) { uint8_t *temp = _curr; ++_curr; return temp; };
+    virtual inline uint8_t *operator--(int) { uint8_t *temp = _curr; --_curr; return temp; };
+    virtual inline const uint8_t *operator++(int) const { uint8_t *temp = _curr; ++_curr; return temp; };
+    virtual inline const uint8_t *operator--(int) const { uint8_t *temp = _curr; --_curr; return temp; };
+    #if defined(__GNUC__)
     #pragma GCC diagnostic pop
+    #endif
 
     const uint8_t *end() const { return _end; }
     const uint8_t *curr() const { return _curr; }
@@ -170,19 +175,19 @@ public:
 
     auto GetRawCurrentBuffer() { return std::make_pair(_curr, remaining_buffer()); }
 
-    virtual constexpr inline void Reserve(const size_t len) { CheckOverflow(len); }
-    constexpr inline void Reserve(const auto *_begin, const auto *_end) { 
+    virtual inline void Reserve(const size_t len) { CheckOverflow(len); }
+    inline void Reserve(const auto *_begin, const auto *_end) { 
         const size_t len = reinterpret_cast<const char *>(_end) - reinterpret_cast<const char *>(_begin);
         CheckOverflow(len);
     }
-    constexpr inline void Copy(const std::string_view &source) { Reserve(source.size()); _curr = std::copy(std::begin(source), std::end(source), _curr); }
-    constexpr inline void Copy(const std::string &source) { Reserve(source.size()); _curr = std::copy(std::begin(source), std::end(source), _curr); }
-    constexpr inline void Copy(const Stream &source) { Reserve(source.remaining_buffer()); _curr = std::copy(source.curr(), source.end(), _curr); }
-    constexpr inline void Copy(const auto *begin, const auto *end) { Reserve(begin, end); _curr = std::copy(reinterpret_cast<const uint8_t *>(begin), reinterpret_cast<const uint8_t *>(end), _curr); }
-    constexpr inline void Copy(const auto *begin, size_t size) { Reserve(size); _curr = std::copy(reinterpret_cast<const uint8_t *>(begin), reinterpret_cast<const uint8_t *>(begin) + size, _curr); }
+    inline void Copy(const std::string_view &source) { Reserve(source.size()); _curr = std::copy(std::begin(source), std::end(source), _curr); }
+    inline void Copy(const std::string &source) { Reserve(source.size()); _curr = std::copy(std::begin(source), std::end(source), _curr); }
+    inline void Copy(const Stream &source) { Reserve(source.remaining_buffer()); _curr = std::copy(source.curr(), source.end(), _curr); }
+    inline void Copy(const auto *begin, const auto *end) { Reserve(begin, end); _curr = std::copy(reinterpret_cast<const uint8_t *>(begin), reinterpret_cast<const uint8_t *>(end), _curr); }
+    inline void Copy(const auto *begin, size_t size) { Reserve(size); _curr = std::copy(reinterpret_cast<const uint8_t *>(begin), reinterpret_cast<const uint8_t *>(begin) + size, _curr); }
 
     template <typename ValueType>
-    constexpr inline void Copy(const ValueType &value) {
+    inline void Copy(const ValueType &value) {
         if constexpr (std::is_same_v<ValueType, char>) {
             at_unchecked() = value;
             operator++();
@@ -207,7 +212,7 @@ public:
     }
 
     template<typename... ValueType> 
-    constexpr inline void Write(const ValueType& ...value) {
+    inline void Write(const ValueType& ...value) {
         ((Copy(value)), ...);
     }
 }; // class Stream
@@ -221,10 +226,10 @@ protected:
 
     FullStream() : Stream { }, _begin { nullptr } { }
 public:
-    constexpr FullStream(auto *_begin, auto *_end) : Stream {reinterpret_cast<uint8_t *>(_begin), reinterpret_cast<uint8_t *>(_end)}, _begin { reinterpret_cast<uint8_t *>(_begin) } { }
-    constexpr FullStream(auto *_begin, auto *_end, auto *_curr) : Stream {reinterpret_cast<uint8_t *>(_curr), reinterpret_cast<uint8_t *>(_end)}, _begin { reinterpret_cast<uint8_t *>(_begin) } { }
-    constexpr FullStream(auto *_begin, size_t size) :  Stream {reinterpret_cast<uint8_t *>(_begin), size}, _begin { reinterpret_cast<uint8_t *>(_begin) } { }
-    constexpr FullStream(FullStream &&stream) : Stream { std::move(stream) }, _begin { stream._begin } { stream._begin = nullptr; }
+    FullStream(auto *_begin, auto *_end) : Stream {reinterpret_cast<uint8_t *>(_begin), reinterpret_cast<uint8_t *>(_end)}, _begin { reinterpret_cast<uint8_t *>(_begin) } { }
+    FullStream(auto *_begin, auto *_end, auto *_curr) : Stream {reinterpret_cast<uint8_t *>(_curr), reinterpret_cast<uint8_t *>(_end)}, _begin { reinterpret_cast<uint8_t *>(_begin) } { }
+    FullStream(auto *_begin, size_t size) :  Stream {reinterpret_cast<uint8_t *>(_begin), size}, _begin { reinterpret_cast<uint8_t *>(_begin) } { }
+    FullStream(FullStream &&stream) : Stream { std::move(stream) }, _begin { stream._begin } { stream._begin = nullptr; }
     FullStream(const FullStream &stream) : Stream { stream }, _begin { stream._begin } { }
 
     FullStream &operator=(const FullStream &stream) { _curr = stream._curr; return *this; }
@@ -255,24 +260,28 @@ public:
 class FullStreamLimitChecked : public FullStream {
 public:
     using FullStream::FullStream;
+    #if defined(__GNUC__)
     #pragma GCC diagnostic push
     #pragma GCC diagnostic ignored "-Weffc++"
-    constexpr inline Stream &operator--() override { CheckUnderflow(); --_curr; return *this;}
-    constexpr inline const Stream &operator--() const override { CheckUnderflow(); --_curr; return *this;}
-    constexpr inline const uint8_t *operator--(int) const override { CheckUnderflow(); const uint8_t *temp = _curr; --_curr; return temp; };
+    #endif
+    inline Stream &operator--() override { CheckUnderflow(); --_curr; return *this;}
+    inline const Stream &operator--() const override { CheckUnderflow(); --_curr; return *this;}
+    inline const uint8_t *operator--(int) const override { CheckUnderflow(); const uint8_t *temp = _curr; --_curr; return temp; };
 
     Stream operator+(size_t len) override { _curr += len; CheckOverflow(); return *this; }
     const Stream operator+(size_t len) const override { _curr += len; CheckOverflow(); return *this; }
     Stream &operator+=(size_t len) override { _curr += len; CheckOverflow(); return *this; }
     const Stream &operator+=(size_t len) const override { _curr += len; CheckOverflow(); return *this; }
-    constexpr inline Stream &operator++() override { ++_curr; CheckOverflow(); return *this; }
-    constexpr inline const Stream &operator++() const override { ++_curr; CheckOverflow(); return *this; }
-    constexpr inline const uint8_t *GetCurrAndIncrease(const size_t len) const override { auto temp = _curr; CheckOverflow(); _curr += len; return temp; }
+    inline Stream &operator++() override { ++_curr; CheckOverflow(); return *this; }
+    inline const Stream &operator++() const override { ++_curr; CheckOverflow(); return *this; }
+    inline const uint8_t *GetCurrAndIncrease(const size_t len) const override { auto temp = _curr; CheckOverflow(); _curr += len; return temp; }
+    #if defined(__GNUC__)
     #pragma GCC diagnostic pop
+    #endif
 };
 
 class FullStreamAutoAlloc : public FullStream {
-    constexpr inline void CheckResize() {
+    inline void CheckResize() {
         if (_curr == _end) {
             auto curr_index = index();
             auto new_capacity = capacity() * 2;
@@ -282,7 +291,7 @@ class FullStreamAutoAlloc : public FullStream {
         }
     }
 
-    constexpr inline void CheckResize(const size_t len) {
+    inline void CheckResize(const size_t len) {
         if (_curr + len > _end) {
             auto curr_index = index();
             auto new_capacity = capacity() * 2;
@@ -299,25 +308,29 @@ public:
     FullStreamAutoAlloc(const size_t size) : FullStream { reinterpret_cast<uint8_t *>(malloc(size)), size } { if (_begin == nullptr) throw exception::MemoryAllocationException { }; }
     FullStreamAutoAlloc() : FullStream { } { }
 
+    #if defined(__GNUC__)
     #pragma GCC diagnostic push
     #pragma GCC diagnostic ignored "-Weffc++"
-    constexpr inline Stream &operator--() override { CheckUnderflow(); --_curr; return *this;}
-    constexpr inline const Stream &operator--() const override { CheckUnderflow(); --_curr; return *this;}
-    constexpr inline Stream &operator++() override { CheckResize(); ++_curr; return *this; }
-    constexpr inline const Stream &operator++() const override { CheckOverflow(); ++_curr; return *this; }
-    constexpr inline uint8_t *operator++(int) override { CheckResize(); uint8_t *temp = _curr; ++_curr; return temp; };
-    constexpr inline const uint8_t *operator++(int) const override { CheckOverflow(); uint8_t *temp = _curr; ++_curr; return temp; };
-    constexpr inline Stream operator+(size_t len) override { CheckResize(len); _curr += len; return *this; }
-    constexpr inline  const Stream operator+(size_t len) const override { _curr += len; CheckOverflow(); return *this; }
-    constexpr inline Stream &operator+=(size_t len) override { CheckResize(len); _curr += len; return *this; }
-    constexpr inline const Stream &operator+=(size_t len) const override { _curr += len; CheckOverflow(); return *this; }
+    #endif
+    inline Stream &operator--() override { CheckUnderflow(); --_curr; return *this;}
+    inline const Stream &operator--() const override { CheckUnderflow(); --_curr; return *this;}
+    inline Stream &operator++() override { CheckResize(); ++_curr; return *this; }
+    inline const Stream &operator++() const override { CheckOverflow(); ++_curr; return *this; }
+    inline uint8_t *operator++(int) override { CheckResize(); uint8_t *temp = _curr; ++_curr; return temp; };
+    inline const uint8_t *operator++(int) const override { CheckOverflow(); uint8_t *temp = _curr; ++_curr; return temp; };
+    inline Stream operator+(size_t len) override { CheckResize(len); _curr += len; return *this; }
+    inline  const Stream operator+(size_t len) const override { _curr += len; CheckOverflow(); return *this; }
+    inline Stream &operator+=(size_t len) override { CheckResize(len); _curr += len; return *this; }
+    inline const Stream &operator+=(size_t len) const override { _curr += len; CheckOverflow(); return *this; }
+    #if defined(__GNUC__)
     #pragma GCC diagnostic pop
+    #endif
 
 
-    constexpr inline void Reserve(const size_t len) override { CheckResize(len); }
+    inline void Reserve(const size_t len) override { CheckResize(len); }
 
-    constexpr inline uint8_t *GetCurrAndIncrease(const size_t len) override { CheckResize(len); auto temp = _curr; _curr += len; return temp; }
-    constexpr inline const uint8_t *GetCurrAndIncrease(const size_t len) const override { auto temp = _curr; _curr += len; CheckOverflow(); return temp; }
+    inline uint8_t *GetCurrAndIncrease(const size_t len) override { CheckResize(len); auto temp = _curr; _curr += len; return temp; }
+    inline const uint8_t *GetCurrAndIncrease(const size_t len) const override { auto temp = _curr; _curr += len; CheckOverflow(); return temp; }
 
     auto ReturnOldAndAlloc(const size_t size) { 
         FullStream stream { _begin, _end, _curr };
@@ -337,7 +350,7 @@ struct streamlimit_t {
 class FullStreamAutoAllocLimits : public FullStream {
     const streamlimit_t *limits { nullptr };
 
-    constexpr inline void CheckResize() {
+    inline void CheckResize() {
         if (_curr == _end) {
             auto curr_index = index();
             auto new_capacity = capacity() * 2;
@@ -349,7 +362,7 @@ class FullStreamAutoAllocLimits : public FullStream {
         }
     }
 
-    constexpr inline void CheckResize(const size_t len) {
+    inline void CheckResize(const size_t len) {
         if (_curr + len > _end) {
             auto curr_index = index();
             auto new_capacity = capacity() * 2;
@@ -362,7 +375,7 @@ class FullStreamAutoAllocLimits : public FullStream {
         }
     }
 
-    constexpr inline void SetMinBuffer() {
+    inline void SetMinBuffer() {
         auto current_buffer_size = static_cast<size_t>(_end - _begin);
         if (current_buffer_size < limits->MinReadBuffer) {
             auto curr_index = index();
@@ -380,25 +393,28 @@ public:
     FullStreamAutoAllocLimits(const FullStreamAutoAllocLimits &) = delete;
     FullStreamAutoAllocLimits &operator=(const FullStreamAutoAllocLimits &) = delete;
 
+    #if defined(__GNUC__)
     #pragma GCC diagnostic push
     #pragma GCC diagnostic ignored "-Weffc++"
-    constexpr inline Stream &operator--() override { CheckUnderflow(); --_curr; return *this;}
-    constexpr inline const Stream &operator--() const override { CheckUnderflow(); --_curr; return *this;}
-    constexpr inline Stream &operator++() override { CheckResize(); ++_curr; return *this; }
-    constexpr inline const Stream &operator++() const override { CheckOverflow(); ++_curr; return *this; }
-    constexpr inline uint8_t *operator++(int) override { CheckResize(); uint8_t *temp = _curr; ++_curr; return temp; };
-    constexpr inline const uint8_t *operator++(int) const override { CheckOverflow(); uint8_t *temp = _curr; ++_curr; return temp; };
-    constexpr inline Stream operator+(size_t len) override { CheckResize(len); _curr += len; return *this; }
-    constexpr inline  const Stream operator+(size_t len) const override { _curr += len; CheckOverflow(); return *this; }
-    constexpr inline Stream &operator+=(size_t len) override { CheckResize(len); _curr += len; return *this; }
-    constexpr inline const Stream &operator+=(size_t len) const override { _curr += len; CheckOverflow(); return *this; }
+    #endif
+    inline Stream &operator--() override { CheckUnderflow(); --_curr; return *this;}
+    inline const Stream &operator--() const override { CheckUnderflow(); --_curr; return *this;}
+    inline Stream &operator++() override { CheckResize(); ++_curr; return *this; }
+    inline const Stream &operator++() const override { CheckOverflow(); ++_curr; return *this; }
+    inline uint8_t *operator++(int) override { CheckResize(); uint8_t *temp = _curr; ++_curr; return temp; };
+    inline const uint8_t *operator++(int) const override { CheckOverflow(); uint8_t *temp = _curr; ++_curr; return temp; };
+    inline Stream operator+(size_t len) override { CheckResize(len); _curr += len; return *this; }
+    inline  const Stream operator+(size_t len) const override { _curr += len; CheckOverflow(); return *this; }
+    inline Stream &operator+=(size_t len) override { CheckResize(len); _curr += len; return *this; }
+    inline const Stream &operator+=(size_t len) const override { _curr += len; CheckOverflow(); return *this; }
+    #if defined(__GNUC__)
     #pragma GCC diagnostic pop
+    #endif
 
+    inline void Reserve(const size_t len) override { CheckResize(len); }
 
-    constexpr inline void Reserve(const size_t len) override { CheckResize(len); }
-
-    constexpr inline uint8_t *GetCurrAndIncrease(const size_t len) override { CheckResize(len); auto temp = _curr; _curr += len; return temp; }
-    constexpr inline const uint8_t *GetCurrAndIncrease(const size_t len) const override { auto temp = _curr; _curr += len; CheckOverflow(); return temp; }
+    inline uint8_t *GetCurrAndIncrease(const size_t len) override { CheckResize(len); auto temp = _curr; _curr += len; return temp; }
+    inline const uint8_t *GetCurrAndIncrease(const size_t len) const override { auto temp = _curr; _curr += len; CheckOverflow(); return temp; }
 
     auto ReturnOldAndAlloc() { 
         FullStream stream { _begin, _end, _curr };
@@ -450,18 +466,18 @@ concept WriteStream = std::is_base_of_v<rohit::Stream, T> || std::is_base_of_v<r
 } // namespace typecheck
 
 
-constexpr inline Stream make_stream(auto *begin, auto *end) { return Stream { begin, end }; }
-constexpr inline Stream make_stream(auto *begin, size_t size) { return Stream { begin, size }; }
-constexpr inline Stream make_stream(std::string &string) { return Stream { string }; }
+inline Stream make_stream(auto *begin, auto *end) { return Stream { begin, end }; }
+inline Stream make_stream(auto *begin, size_t size) { return Stream { begin, size }; }
+inline Stream make_stream(std::string &string) { return Stream { string }; }
 
-template <typename ChT> constexpr inline const Stream make_const_stream(const ChT *begin, const ChT *end) { return Stream { const_cast<ChT *>(begin), const_cast<ChT *>(end) }; }
-template <typename ChT> constexpr inline const Stream make_const_stream(const ChT *begin, size_t size) { return Stream { const_cast<ChT *>(begin), size }; }
-constexpr inline const Stream make_const_stream(const std::string &string) { return Stream { const_cast<char *>(string.data()), string.size() }; }
+template <typename ChT> inline const Stream make_const_stream(const ChT *begin, const ChT *end) { return Stream { const_cast<ChT *>(begin), const_cast<ChT *>(end) }; }
+template <typename ChT> inline const Stream make_const_stream(const ChT *begin, size_t size) { return Stream { const_cast<ChT *>(begin), size }; }
+inline const Stream make_const_stream(const std::string &string) { return Stream { const_cast<char *>(string.data()), string.size() }; }
 
-template <typename ChT> constexpr inline const FullStream make_const_fullstream(const ChT *begin, const ChT *end) { return FullStream { const_cast<ChT *>(begin), const_cast<ChT *>(end) }; }
-template <typename ChT> constexpr inline const FullStream make_const_fullstream(const ChT *begin, size_t size) { return FullStream { const_cast<ChT *>(begin), size }; }
-constexpr inline const FullStream make_const_fullstream(const std::string &string) { return FullStream { const_cast<char *>(string.data()), string.size() }; }
-template <typename ChT> constexpr inline const FullStream make_const_fullstream(const ChT *begin, const ChT *end, const ChT *curr) { return FullStream { const_cast<ChT *>(begin), const_cast<ChT *>(end), const_cast<ChT *>(curr) }; }
+template <typename ChT> inline const FullStream make_const_fullstream(const ChT *begin, const ChT *end) { return FullStream { const_cast<ChT *>(begin), const_cast<ChT *>(end) }; }
+template <typename ChT> inline const FullStream make_const_fullstream(const ChT *begin, size_t size) { return FullStream { const_cast<ChT *>(begin), size }; }
+inline const FullStream make_const_fullstream(const std::string &string) { return FullStream { const_cast<char *>(string.data()), string.size() }; }
+template <typename ChT> inline const FullStream make_const_fullstream(const ChT *begin, const ChT *end, const ChT *curr) { return FullStream { const_cast<ChT *>(begin), const_cast<ChT *>(end), const_cast<ChT *>(curr) }; }
 
 namespace exception {
 class BaseParser : public std::exception {

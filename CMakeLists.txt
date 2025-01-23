@@ -6,7 +6,9 @@ project(serializer)
 find_package(GTest CONFIG REQUIRED)
 endif()
 
+if (UNIX)
 add_compile_options(-Wall -Werror -Wpedantic -Wextra -Weffc++ -Wsuggest-override) # -fanalyzer
+endif()
 
 add_library(serializerlib src/parser.cpp src/cppwriter.cpp src/common.cpp)
 

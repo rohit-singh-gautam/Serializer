@@ -25,6 +25,7 @@
 #include <vector>
 #include <map>
 #include <type_traits>
+#include <stdexcept>
 
 namespace rohit::serializer {
 namespace exception {
@@ -160,7 +161,7 @@ private:
         ++stream;
     }
 
-    static constexpr const std::string_view serialize_in_get_key(const FullStream &stream) {
+    static const std::string_view serialize_in_get_key(const FullStream &stream) {
         SkipWhiteSpace(stream);
         check_in(stream, '"');
         auto start = stream.curr();
@@ -174,7 +175,7 @@ private:
         return { reinterpret_cast<const char *>(start), reinterpret_cast<const char *>(end) };
     }
 
-    static constexpr void serialize_in_bool(const FullStream &stream, bool &value) {
+    static void serialize_in_bool(const FullStream &stream, bool &value) {
         if (stream.remaining_buffer() < 4) throw exception::BadInputData { stream };
         auto ch = std::tolower(*stream);
         if (ch == 't') {
@@ -201,7 +202,7 @@ private:
         }
     }
 
-    static constexpr void serialize_in_char(const FullStream &stream, char &value) {
+    static void serialize_in_char(const FullStream &stream, char &value) {
         if (stream.remaining_buffer() < 3) throw exception::BadInputData { stream };
         if (*stream != '"') throw exception::BadInputData { stream };
         ++stream;
@@ -243,7 +244,7 @@ private:
         value *= sign;
     }
 
-    static constexpr void serialize_in_string(const FullStream &stream, std::string &value) {
+    static void serialize_in_string(const FullStream &stream, std::string &value) {
         if (stream.remaining_buffer() < 2) throw exception::BadInputData { stream };
         if (*stream != '"') throw exception::BadInputData { stream };
         ++stream;
@@ -255,7 +256,7 @@ private:
         ++stream;
     }
 
-    static constexpr void serialize_in_floating_point(const FullStream &stream, std::floating_point auto &value) {
+    static void serialize_in_floating_point(const FullStream &stream, std::floating_point auto &value) {
         if (stream.full()) throw exception::BadInputData { stream };
         // TODO: Check out of range values
         if ((*stream < '0' || *stream > '9') && *stream != '-' && *stream != '+') throw exception::BadInputData { stream };
@@ -267,7 +268,7 @@ private:
         else value = std::stod(number);
     }
 
-    static constexpr void serialize_in_vector(const FullStream &stream, typecheck::vector auto &value) {
+    static void serialize_in_vector(const FullStream &stream, typecheck::vector auto &value) {
         check_in(stream, '[');
         SkipWhiteSpace(stream);
         if (*stream != ']') {
@@ -285,7 +286,7 @@ private:
         ++stream;
     }
 
-    static constexpr void serialize_in_map(const FullStream &stream, typecheck::map auto &value) {
+    static void serialize_in_map(const FullStream &stream, typecheck::map auto &value) {
         check_in(stream, '{');
         SkipWhiteSpace(stream);
         if (*stream != '}') {
@@ -310,7 +311,7 @@ private:
 
 public:
     template <typename T>
-    static constexpr void serialize_in(const FullStream &stream, T &value) {
+    static void serialize_in(const FullStream &stream, T &value) {
         if constexpr (std::is_same_v<bool, T>) {
             serialize_in_bool(stream, value);
         } else if constexpr (std::is_same_v<char, T>) {
@@ -335,7 +336,7 @@ public:
     }
 
     template <typename ... Types>
-    static constexpr void struct_serialize_in(const FullStream &stream, Types ... values) {
+    static void struct_serialize_in(const FullStream &stream, Types ... values) {
         std::unordered_map<std::string_view, std::function<void(const rohit::FullStream &)>> membermap { values... };
         check_in(stream, '{');
         while(true) {
@@ -353,7 +354,7 @@ public:
     }
 
     template <typename T>
-    static constexpr void serialize_out(Stream &stream, const T &value) {
+    static void serialize_out(Stream &stream, const T &value) {
         if constexpr (typecheck::SerializerOutEnabledPtr<T, json>) {
             value->template serialize_out<json>(stream);
         } else if constexpr (typecheck::SerializerOutEnabled<T, json>) {
@@ -365,24 +366,24 @@ public:
     }
 
     template <typecheck::functions T>
-    static constexpr void serialize_out(Stream &stream, const T &value) {
+    static void serialize_out(Stream &stream, const T &value) {
         value(stream);
     }
 
     template <std::integral T>
-    static constexpr void serialize_out(Stream &stream, const T &value) {
+    static void serialize_out(Stream &stream, const T &value) {
         stream.Copy(value);
     }
 
     template <std::floating_point T>
-    static constexpr void serialize_out(Stream &stream, const T &value) {
+    static void serialize_out(Stream &stream, const T &value) {
         char buffer[std::numeric_limits<T>::digits10 + 3] { 0 };
         auto result = std::to_chars(std::begin(buffer), std::end(buffer), value);
         stream.Copy(buffer, result.ptr);
     }
 
     template <typecheck::vector T>
-    static constexpr void serialize_out(Stream &stream, const T &value) {
+    static void serialize_out(Stream &stream, const T &value) {
         stream.Write('[');
         auto itr = std::begin(value);
         if (itr != std::end(value)) {
@@ -398,7 +399,7 @@ public:
     }
 
     template <typecheck::map T>
-    static constexpr void serialize_out(Stream &stream, const T &value) {
+    static void serialize_out(Stream &stream, const T &value) {
         stream.Write('{');
         auto itr = std::begin(value);
         if (itr != std::end(value)) {
@@ -417,38 +418,38 @@ public:
         stream.Write('}');
     }
 
-    static constexpr void struct_serialize_out_start(Stream &stream, const auto &value) {
+    static void struct_serialize_out_start(Stream &stream, const auto &value) {
         stream.Write('{');
         serialize_out_first(stream, value.first, value.second);
     }
 
-    static constexpr void struct_serialize_out(Stream &stream, const auto &value) {
+    static void struct_serialize_out(Stream &stream, const auto &value) {
         serialize_out_second(stream, value.first, value.second);
     }
 
-    static constexpr void struct_serialize_out_end(Stream &stream) {
+    static void struct_serialize_out_end(Stream &stream) {
         stream.Write('}');
     }
 }; // class json
 
 template<>
-constexpr inline void json::serialize_out<char>(Stream &stream, const char &value) {
+inline void json::serialize_out<char>(Stream &stream, const char &value) {
     stream.Write('"', value, '"');
 }
 
 template<>
-constexpr inline void json::serialize_out<bool>(Stream &stream, const bool &value) {
+inline void json::serialize_out<bool>(Stream &stream, const bool &value) {
     if (value) stream.Copy("TRUE");
     else stream.Copy("FALSE");
 }
 
 template<>
-constexpr inline void json::serialize_out<std::string>(Stream &stream, const std::string &value) {
+inline void json::serialize_out<std::string>(Stream &stream, const std::string &value) {
     stream.Write('"', value, '"');
 }
 
 template<>
-constexpr inline void json::serialize_out<std::string_view>(Stream &stream, const std::string_view &value) {
+inline void json::serialize_out<std::string_view>(Stream &stream, const std::string_view &value) {
     stream.Write('"', value, '"');
 }
 
@@ -514,19 +515,24 @@ public:
 
     static constexpr uint32_t serialize_in_variable(const FullStream &stream) {
         if (stream.full()) throw exception::BadInputData { stream };
-        auto val = *stream++;
+        const uint32_t val = *stream++;
         switch(val & 0xc0) {
             default:
             case 0x00: return val;
             case 0x40:
                 if (stream.full()) throw exception::BadInputData { stream };
                 return ((val & 0x3f) << 8) | *stream++;
-            case 0x80:
+            case 0x80: {
                 if (stream.remaining_buffer() < 3) throw exception::BadInputData { stream };
-                return ((val & 0x3f) << 16) | (*stream++ << 8) | *stream++;
-            case 0xc0:
+                const uint32_t val8 = *stream++;
+                return ((val & 0x3f) << 16) | (val8 << 8) | *stream++;
+            }
+            case 0xc0: {
                 if (stream.remaining_buffer() < 7) throw exception::BadInputData { stream };
-                return ((val & 0x3f) << 24) | (*stream++ << 16) | (*stream++ << 8) | *stream++;
+                const uint32_t val16 = *stream++;
+                const uint32_t val8 = *stream++;
+                return ((val & 0x3f) << 24) | (val16 << 16) | (val8 << 8) | *stream++;
+            }
         }
     }
 
