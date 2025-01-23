@@ -133,7 +133,7 @@ std::string ParseHierarchicalIdentifier(const Stream &inStream) {
         identifier.push_back(*inStream);
         ++inStream;
         while(IsIdentifier(*inStream)) { identifier.push_back(*inStream); ++inStream; }
-        if (inStream.remaining_buffer() < 2) break;
+        if (inStream.RemainingBuffer() < 2) break;
         if (*inStream != ':') break;
         ++inStream;
         if (*inStream != ':') throw exception::BadIdentifier { inStream, { "Namespace and identifier must be separated by '::', only one ':' is unsupported " } };

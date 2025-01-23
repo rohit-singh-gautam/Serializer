@@ -26,7 +26,7 @@
 
 TEST(GeneratedTest, SerializeIn) {
     const std::string personstr {"{\"name\":\"Rohit Jairaj Singh\",\"ID\":322}"};
-    auto fullstream = rohit::make_const_fullstream(personstr);
+    auto fullstream = rohit::MakeConstantFullStream(personstr);
 
     test::test1::person person { };
     person.serialize_in<rohit::serializer::json>(fullstream);
@@ -34,7 +34,7 @@ TEST(GeneratedTest, SerializeIn) {
 
     std::string valuesstr { "{\"ch\":\"a\",\"pi\":3.14,\"t1\":3.884563,\"t2\":TRUE}" };
     test::values values { };
-    auto fullstream1 = rohit::make_const_fullstream(valuesstr);
+    auto fullstream1 = rohit::MakeConstantFullStream(valuesstr);
     values.serialize_in<rohit::serializer::json>(fullstream1);
     EXPECT_EQ(values.ch, 'a');
 }
@@ -44,14 +44,14 @@ TEST(GeneratedTest, SerializeOut) {
     rohit::FullStreamAutoAlloc fullstream { 256 };
     person.serialize_out<rohit::serializer::json>(fullstream);
 
-    std::string result_person {reinterpret_cast<char *>(fullstream.begin()), fullstream.index()};
+    std::string result_person {reinterpret_cast<char *>(fullstream.begin()), fullstream.CurrentOffset()};
     std::string personstr {"{\"name\":\"Rohit Jairaj Singh\",\"ID\":322}"};
     EXPECT_TRUE(result_person == personstr);
 
     test::test1::personex personex { "Rohit Jairaj Singh", 322, 122 };
     fullstream.Reset();
     personex.serialize_out<rohit::serializer::json>(fullstream);
-    std::string result_personex {reinterpret_cast<char *>(fullstream.begin()), fullstream.index()};
+    std::string result_personex {reinterpret_cast<char *>(fullstream.begin()), fullstream.CurrentOffset()};
 
     std::string personexstr { "{\"person\":{\"name\":\"Rohit Jairaj Singh\",\"ID\":322},\"account\":122}" };
 
@@ -60,7 +60,7 @@ TEST(GeneratedTest, SerializeOut) {
     test::values values { 'a', 3.14, 3.884563, true};
     fullstream.Reset();
     values.serialize_out<rohit::serializer::json>(fullstream);
-    std::string valuesstr {reinterpret_cast<char *>(fullstream.begin()), fullstream.index()};
+    std::string valuesstr {reinterpret_cast<char *>(fullstream.begin()), fullstream.CurrentOffset()};
     std::string result_valuesstr { "{\"ch\":\"a\",\"pi\":3.14,\"t1\":3.884563,\"t2\":TRUE}" };
 
     EXPECT_TRUE(result_valuesstr == valuesstr);
@@ -97,11 +97,11 @@ TEST(GeneratedTest, SerializeArray) {
     arraytest::personlist personlist { 556, {{"Rohit Jairaj Singh", 1}, {"Ragini Rohit Singh", 2}}};
     rohit::FullStreamAutoAlloc fullstream { 256 };
     personlist.serialize_out<rohit::serializer::json>(fullstream);
-    std::string personliststr {reinterpret_cast<char *>(fullstream.begin()), fullstream.index()};
+    std::string personliststr {reinterpret_cast<char *>(fullstream.begin()), fullstream.CurrentOffset()};
     std::string result_personliststr { "{\"listid\":556,\"list\":[{\"name\":\"Rohit Jairaj Singh\",\"ID\":1},{\"name\":\"Ragini Rohit Singh\",\"ID\":2}]}" };
     EXPECT_TRUE(result_personliststr == personliststr);
 
-    auto fullstream1 = rohit::make_const_fullstream(result_personliststr);
+    auto fullstream1 = rohit::MakeConstantFullStream(result_personliststr);
     arraytest::personlist personlist1 { };
     personlist1.serialize_in<rohit::serializer::json>(fullstream1);
     EXPECT_TRUE(personlist.listid == personlist1.listid);
@@ -140,11 +140,11 @@ TEST(GeneratedTest, SerializeMap) {
     maptest::personlist personlist { 556, {std::pair<uint64_t, maptest::person> {1, {"Rohit Jairaj Singh", 1}}, std::pair<uint64_t, maptest::person> {2, {"Ragini Rohit Singh", 2}}} };
     rohit::FullStreamAutoAlloc fullstream { 256 };
     personlist.serialize_out<rohit::serializer::json>(fullstream);
-    std::string personliststr {reinterpret_cast<char *>(fullstream.begin()), fullstream.index()};
+    std::string personliststr {reinterpret_cast<char *>(fullstream.begin()), fullstream.CurrentOffset()};
     std::string result_personliststr { "{\"listid\":556,\"list\":{1:{\"name\":\"Rohit Jairaj Singh\",\"ID\":1},2:{\"name\":\"Ragini Rohit Singh\",\"ID\":2}}}" };
     EXPECT_TRUE(result_personliststr == personliststr);
 
-    auto fullstream1 = rohit::make_const_fullstream(result_personliststr);
+    auto fullstream1 = rohit::MakeConstantFullStream(result_personliststr);
     maptest::personlist personlist1 { };
     personlist1.serialize_in<rohit::serializer::json>(fullstream1);
     EXPECT_TRUE(personlist.listid == personlist1.listid);
@@ -184,11 +184,11 @@ TEST(GeneratedTest, SerializeUnion) {
     test::server1 server {test::server1::e_entry::cache, {.cache = cacheserver}, test::test112::em2 };
     rohit::FullStreamAutoAlloc fullstream { 256 };
     server.serialize_out<rohit::serializer::json>(fullstream);
-    std::string serverstr {reinterpret_cast<char *>(fullstream.begin()), fullstream.index()};
+    std::string serverstr {reinterpret_cast<char *>(fullstream.begin()), fullstream.CurrentOffset()};
     std::string result_serverstr { "{\"entry:cache\":{\"serverbase\":{\"name\":{\"a\":10,\"b\":10,\"c\":10,\"d\":10},\"port\":2010},\"size\":10240},\"test12\":\"em2\"}"};
     EXPECT_TRUE(result_serverstr == serverstr);
 
-    auto fullstream1 = rohit::make_const_fullstream(result_serverstr);
+    auto fullstream1 = rohit::MakeConstantFullStream(result_serverstr);
     test::server1 server1 { };
     server1.serialize_in<rohit::serializer::json>(fullstream1);
     EXPECT_TRUE(server.entry_type == server1.entry_type);
@@ -230,11 +230,11 @@ TEST(GeneratedTest, SerializeUnion1) {
     test::server1 server {test::server1::e_entry::http, {.http = {10, 10, 10, 10, 2010, 10240, 5021}}, enumval };
     rohit::FullStreamAutoAlloc fullstream { 256 };
     server.serialize_out<rohit::serializer::json>(fullstream);
-    std::string serverstr {reinterpret_cast<char *>(fullstream.begin()), fullstream.index()};
+    std::string serverstr {reinterpret_cast<char *>(fullstream.begin()), fullstream.CurrentOffset()};
     std::string result_serverstr {"{\"entry:http\":{\"serverbase\":{\"name\":{\"a\":10,\"b\":10,\"c\":10,\"d\":10},\"port\":2010},\"size\":10240,\"mimesize\":5021},\"test12\":\"em3\"}"};
     EXPECT_TRUE(result_serverstr == serverstr);
 
-    auto fullstream1 = rohit::make_const_fullstream(result_serverstr);
+    auto fullstream1 = rohit::MakeConstantFullStream(result_serverstr);
     test::server1 server1 { };
     server1.serialize_in<rohit::serializer::json>(fullstream1);
     EXPECT_TRUE(server.entry_type == server1.entry_type);
@@ -278,11 +278,11 @@ TEST(GeneratedTest, SerializeEnum) {
     enumtest::test test1 { enumtest::to_testenum("test1") };
     rohit::FullStreamAutoAlloc fullstream { 256 };
     test1.serialize_out<rohit::serializer::json>(fullstream);
-    std::string teststr {reinterpret_cast<char *>(fullstream.begin()), fullstream.index()};
+    std::string teststr {reinterpret_cast<char *>(fullstream.begin()), fullstream.CurrentOffset()};
     std::string result_teststr { "{\"te\":\"test1\"}" };
     EXPECT_TRUE(result_teststr == teststr);
 
-    auto fullstream1 = rohit::make_const_fullstream(result_teststr);
+    auto fullstream1 = rohit::MakeConstantFullStream(result_teststr);
     enumtest::test test11 { };
     test11.serialize_in<rohit::serializer::json>(fullstream1);
     EXPECT_TRUE(test1.te == test11.te);

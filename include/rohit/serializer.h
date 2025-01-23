@@ -176,7 +176,7 @@ private:
     }
 
     static void serialize_in_bool(const FullStream &stream, bool &value) {
-        if (stream.remaining_buffer() < 4) throw exception::BadInputData { stream };
+        if (stream.RemainingBuffer() < 4) throw exception::BadInputData { stream };
         auto ch = std::tolower(*stream);
         if (ch == 't') {
             ++stream;
@@ -203,7 +203,7 @@ private:
     }
 
     static void serialize_in_char(const FullStream &stream, char &value) {
-        if (stream.remaining_buffer() < 3) throw exception::BadInputData { stream };
+        if (stream.RemainingBuffer() < 3) throw exception::BadInputData { stream };
         if (*stream != '"') throw exception::BadInputData { stream };
         ++stream;
         value = *stream;
@@ -245,7 +245,7 @@ private:
     }
 
     static void serialize_in_string(const FullStream &stream, std::string &value) {
-        if (stream.remaining_buffer() < 2) throw exception::BadInputData { stream };
+        if (stream.RemainingBuffer() < 2) throw exception::BadInputData { stream };
         if (*stream != '"') throw exception::BadInputData { stream };
         ++stream;
         while(*stream != '"') {
@@ -523,12 +523,12 @@ public:
                 if (stream.full()) throw exception::BadInputData { stream };
                 return ((val & 0x3f) << 8) | *stream++;
             case 0x80: {
-                if (stream.remaining_buffer() < 3) throw exception::BadInputData { stream };
+                if (stream.RemainingBuffer() < 3) throw exception::BadInputData { stream };
                 const uint32_t val8 = *stream++;
                 return ((val & 0x3f) << 16) | (val8 << 8) | *stream++;
             }
             case 0xc0: {
-                if (stream.remaining_buffer() < 7) throw exception::BadInputData { stream };
+                if (stream.RemainingBuffer() < 7) throw exception::BadInputData { stream };
                 const uint32_t val16 = *stream++;
                 const uint32_t val8 = *stream++;
                 return ((val & 0x3f) << 24) | (val16 << 16) | (val8 << 8) | *stream++;
@@ -549,18 +549,18 @@ public:
             value = static_cast<T>(ival);
         }
         else if constexpr (std::integral<T>) {
-            if (stream.remaining_buffer() < sizeof(T)) throw exception::BadInputData { stream };
+            if (stream.RemainingBuffer() < sizeof(T)) throw exception::BadInputData { stream };
             auto source = *reinterpret_cast<const T *>(stream.curr());
-            value = changeEndian<std::endian::big, std::endian::native>(source);
+            value = ChangeEndian<std::endian::big, std::endian::native>(source);
             stream += sizeof(T);
         } else if constexpr (std::is_same_v<std::string, T>) {
             // variable size following string of size
             auto size = serialize_in_variable(stream);
-            if (stream.remaining_buffer() < size) throw exception::BadInputData { stream };
+            if (stream.RemainingBuffer() < size) throw exception::BadInputData { stream };
             value = std::string { stream.curr(), stream.curr() + size };
             stream += size;
         } else if constexpr (std::floating_point<T>) {
-            if (stream.remaining_buffer() < sizeof(T)) throw exception::BadInputData { stream };
+            if (stream.RemainingBuffer() < sizeof(T)) throw exception::BadInputData { stream };
             value = *reinterpret_cast<const T *>(stream.curr());
             stream += sizeof(T);
         } else if constexpr (typecheck::SerializerOutEnabledPtr<T, binary<SERIALIZE_KEY_TYPE>>) {
@@ -625,7 +625,7 @@ public:
             serialize_out_variable(stream, static_cast<std::underlying_type_t<T>>(value));
         } else if constexpr (std::integral<T>) {
             auto dest = reinterpret_cast<T *>(stream.curr());
-            *dest = changeEndian<std::endian::native, std::endian::big>(value);
+            *dest = ChangeEndian<std::endian::native, std::endian::big>(value);
             stream += sizeof(T);
         } else if constexpr (std::is_same_v<std::string, T>) {
             // variable size following string of size
@@ -636,7 +636,7 @@ public:
             serialize_out_variable(stream, value.size());
             stream.Copy(value);
         } else if constexpr (std::floating_point<T>) {
-            if (stream.remaining_buffer() < sizeof(T)) throw exception::BadInputData { stream };
+            if (stream.RemainingBuffer() < sizeof(T)) throw exception::BadInputData { stream };
             auto dest = reinterpret_cast<T *>(stream.curr());
             *dest = value;
             stream += sizeof(T);

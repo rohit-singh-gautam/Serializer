@@ -27,7 +27,7 @@
 namespace rohit {
 
 template <std::endian source, std::endian destination>
-constexpr auto changeEndian(const auto &val) {
+constexpr auto ChangeEndian(const auto &val) {
     if constexpr (source == destination) return val;
     else return std::byteswap(val);
 }
@@ -57,7 +57,7 @@ public:
 } // namespace exception
 
 template <size_t size>
-consteval size_t hash(const char (&str)[size]) {
+consteval size_t Hash(const char (&str)[size]) {
     size_t ret = 100000000003;
     for(auto ch: str) {
         ret = ((ret << 9) + ret) ^ static_cast<size_t>(ch);
@@ -65,7 +65,7 @@ consteval size_t hash(const char (&str)[size]) {
     return ret;
 }
 
-constexpr size_t hash(const char *str) {
+constexpr size_t Hash(const char *str) {
     size_t ret = 100000000003;
     while(*str) {
         ret = ((ret << 9) + ret) ^ static_cast<size_t>(*str++);
@@ -73,7 +73,7 @@ constexpr size_t hash(const char *str) {
     return ret;
 }
 
-constexpr size_t hash(const std::string &str) {
+constexpr size_t Hash(const std::string &str) {
     size_t ret = 100000000003;
     for(auto ch: str) {
         ret = ((ret << 9) + ret) ^ static_cast<size_t>(ch);
@@ -81,7 +81,7 @@ constexpr size_t hash(const std::string &str) {
     return ret;
 }
 
-constexpr size_t hash(const std::string_view &str) {
+constexpr size_t Hash(const std::string_view &str) {
     size_t ret = 100000000003;
     for(auto ch: str) {
         ret = ((ret << 9) + ret) ^ static_cast<size_t>(ch);
@@ -113,13 +113,13 @@ public:
 
     template <size_t _size>
     bool operator==(const auto (&data)[_size + 1]) const {
-        if (remaining_buffer() < _size) return false;
+        if (RemainingBuffer() < _size) return false;
         return std::equal(std::begin(data), std::end(data), _curr);
     }
 
     /*! IMPORTANT: text must not be null terminated */
     bool operator==(const std::string_view &text) const {
-        if (remaining_buffer() < text.size()) return false;
+        if (RemainingBuffer() < text.size()) return false;
         return std::equal(std::begin(text), std::end(text), _curr);
     }
 
@@ -163,17 +163,17 @@ public:
     auto &end() { return _end; }
     auto &curr() { return _curr; }
 
-    size_t remaining_buffer() const { return static_cast<size_t>(_end - _curr); }
+    size_t RemainingBuffer() const { return static_cast<size_t>(_end - _curr); }
 
     bool full() const { return _curr == _end; }
 
     template <typename T>
-    bool CheckCapacity() const { return remaining_buffer() >= sizeof(T); }
-    bool CheckCapacity(const size_t size) const { return remaining_buffer() >= size; }
+    bool CheckCapacity() const { return RemainingBuffer() >= sizeof(T); }
+    bool CheckCapacity(const size_t size) const { return RemainingBuffer() >= size; }
 
     void UpdateCurr(uint8_t *_curr) const { this->_curr = _curr; }
 
-    auto GetRawCurrentBuffer() { return std::make_pair(_curr, remaining_buffer()); }
+    auto GetRawCurrentBuffer() { return std::make_pair(_curr, RemainingBuffer()); }
 
     virtual inline void Reserve(const size_t len) { CheckOverflow(len); }
     inline void Reserve(const auto *_begin, const auto *_end) { 
@@ -182,7 +182,7 @@ public:
     }
     inline void Copy(const std::string_view &source) { Reserve(source.size()); _curr = std::copy(std::begin(source), std::end(source), _curr); }
     inline void Copy(const std::string &source) { Reserve(source.size()); _curr = std::copy(std::begin(source), std::end(source), _curr); }
-    inline void Copy(const Stream &source) { Reserve(source.remaining_buffer()); _curr = std::copy(source.curr(), source.end(), _curr); }
+    inline void Copy(const Stream &source) { Reserve(source.RemainingBuffer()); _curr = std::copy(source.curr(), source.end(), _curr); }
     inline void Copy(const auto *begin, const auto *end) { Reserve(begin, end); _curr = std::copy(reinterpret_cast<const uint8_t *>(begin), reinterpret_cast<const uint8_t *>(end), _curr); }
     inline void Copy(const auto *begin, size_t size) { Reserve(size); _curr = std::copy(reinterpret_cast<const uint8_t *>(begin), reinterpret_cast<const uint8_t *>(begin) + size, _curr); }
 
@@ -237,8 +237,8 @@ public:
     const auto begin() const { return _begin; }
     auto begin() { return _begin; }
 
-    auto index() const { return static_cast<size_t>(_curr - _begin); }
-    auto capacity() const { return static_cast<size_t>(_end - _begin); }
+    auto CurrentOffset() const { return static_cast<size_t>(_curr - _begin); }
+    auto Capacity() const { return static_cast<size_t>(_end - _begin); }
 
     uint8_t *Move() {
         auto temp = _begin;
@@ -247,9 +247,9 @@ public:
     }
 
     bool IsNull() const { return _begin == nullptr; }
-    auto GetRawFullBuffer() { return std::make_pair(_begin, capacity()); }
+    auto GetRawFullBuffer() { return std::make_pair(_begin, Capacity()); }
     void Reset() const { _curr = _begin; }
-    bool empty() const { return _curr == _begin; }
+    bool IsEmpty() const { return _curr == _begin; }
 };
 
 class StreamAutoFree : public FullStream {
@@ -283,8 +283,8 @@ public:
 class FullStreamAutoAlloc : public FullStream {
     inline void CheckResize() {
         if (_curr == _end) {
-            auto curr_index = index();
-            auto new_capacity = capacity() * 2;
+            auto curr_index = CurrentOffset();
+            auto new_capacity = Capacity() * 2;
             _begin = reinterpret_cast<uint8_t *>(realloc(reinterpret_cast<void *>(_begin), new_capacity));
             _end = _begin + new_capacity;
             _curr = _begin + curr_index;
@@ -293,9 +293,9 @@ class FullStreamAutoAlloc : public FullStream {
 
     inline void CheckResize(const size_t len) {
         if (_curr + len > _end) {
-            auto curr_index = index();
-            auto new_capacity = capacity() * 2;
-            while(curr_index + len > new_capacity) new_capacity += capacity();
+            auto curr_index = CurrentOffset();
+            auto new_capacity = Capacity() * 2;
+            while(curr_index + len > new_capacity) new_capacity += Capacity();
             _begin = reinterpret_cast<uint8_t *>(realloc(reinterpret_cast<void *>(_begin), new_capacity));
             if (_begin == nullptr) throw exception::MemoryAllocationException { };
             _end = _begin + new_capacity;
@@ -352,8 +352,8 @@ class FullStreamAutoAllocLimits : public FullStream {
 
     inline void CheckResize() {
         if (_curr == _end) {
-            auto curr_index = index();
-            auto new_capacity = capacity() * 2;
+            auto curr_index = CurrentOffset();
+            auto new_capacity = Capacity() * 2;
             if (new_capacity > limits->MaxReadBuffer) throw exception::StreamOverflowException { };
             _begin = reinterpret_cast<uint8_t *>(realloc(reinterpret_cast<void *>(_begin), new_capacity));
             if (_begin == nullptr) throw exception::MemoryAllocationException { };
@@ -364,9 +364,9 @@ class FullStreamAutoAllocLimits : public FullStream {
 
     inline void CheckResize(const size_t len) {
         if (_curr + len > _end) {
-            auto curr_index = index();
-            auto new_capacity = capacity() * 2;
-            while(curr_index + len > new_capacity) new_capacity += capacity();
+            auto curr_index = CurrentOffset();
+            auto new_capacity = Capacity() * 2;
+            while(curr_index + len > new_capacity) new_capacity += Capacity();
             if (new_capacity > limits->MaxReadBuffer) throw exception::StreamOverflowException { };
             _begin = reinterpret_cast<uint8_t *>(realloc(reinterpret_cast<void *>(_begin), new_capacity));
             if (_begin == nullptr) throw exception::MemoryAllocationException { };
@@ -378,7 +378,7 @@ class FullStreamAutoAllocLimits : public FullStream {
     inline void SetMinBuffer() {
         auto current_buffer_size = static_cast<size_t>(_end - _begin);
         if (current_buffer_size < limits->MinReadBuffer) {
-            auto curr_index = index();
+            auto curr_index = CurrentOffset();
             _begin = reinterpret_cast<uint8_t *>(realloc(reinterpret_cast<void *>(_begin), limits->MinReadBuffer));
             if (_begin == nullptr) throw exception::MemoryAllocationException { };
             _end = _begin + limits->MinReadBuffer;
@@ -450,7 +450,7 @@ public:
     auto end() { return _end; }
     const auto end() const { return _end; }
 
-    auto size() const { return static_cast<size_t>(_end - _begin); }
+    auto Capacity() const { return static_cast<size_t>(_end - _begin); }
 
 };
 
@@ -466,18 +466,18 @@ concept WriteStream = std::is_base_of_v<rohit::Stream, T> || std::is_base_of_v<r
 } // namespace typecheck
 
 
-inline Stream make_stream(auto *begin, auto *end) { return Stream { begin, end }; }
-inline Stream make_stream(auto *begin, size_t size) { return Stream { begin, size }; }
-inline Stream make_stream(std::string &string) { return Stream { string }; }
+inline Stream MakeStream(auto *begin, auto *end) { return Stream { begin, end }; }
+inline Stream MakeStream(auto *begin, size_t size) { return Stream { begin, size }; }
+inline Stream MakeStream(std::string &string) { return Stream { string }; }
 
-template <typename ChT> inline const Stream make_const_stream(const ChT *begin, const ChT *end) { return Stream { const_cast<ChT *>(begin), const_cast<ChT *>(end) }; }
-template <typename ChT> inline const Stream make_const_stream(const ChT *begin, size_t size) { return Stream { const_cast<ChT *>(begin), size }; }
-inline const Stream make_const_stream(const std::string &string) { return Stream { const_cast<char *>(string.data()), string.size() }; }
+template <typename ChT> inline const Stream MakeConstantStream(const ChT *begin, const ChT *end) { return Stream { const_cast<ChT *>(begin), const_cast<ChT *>(end) }; }
+template <typename ChT> inline const Stream MakeConstantStream(const ChT *begin, size_t size) { return Stream { const_cast<ChT *>(begin), size }; }
+inline const Stream MakeConstantStream(const std::string &string) { return Stream { const_cast<char *>(string.data()), string.size() }; }
 
-template <typename ChT> inline const FullStream make_const_fullstream(const ChT *begin, const ChT *end) { return FullStream { const_cast<ChT *>(begin), const_cast<ChT *>(end) }; }
-template <typename ChT> inline const FullStream make_const_fullstream(const ChT *begin, size_t size) { return FullStream { const_cast<ChT *>(begin), size }; }
-inline const FullStream make_const_fullstream(const std::string &string) { return FullStream { const_cast<char *>(string.data()), string.size() }; }
-template <typename ChT> inline const FullStream make_const_fullstream(const ChT *begin, const ChT *end, const ChT *curr) { return FullStream { const_cast<ChT *>(begin), const_cast<ChT *>(end), const_cast<ChT *>(curr) }; }
+template <typename ChT> inline const FullStream MakeConstantFullStream(const ChT *begin, const ChT *end) { return FullStream { const_cast<ChT *>(begin), const_cast<ChT *>(end) }; }
+template <typename ChT> inline const FullStream MakeConstantFullStream(const ChT *begin, size_t size) { return FullStream { const_cast<ChT *>(begin), size }; }
+inline const FullStream MakeConstantFullStream(const std::string &string) { return FullStream { const_cast<char *>(string.data()), string.size() }; }
+template <typename ChT> inline const FullStream MakeConstantFullStream(const ChT *begin, const ChT *end, const ChT *curr) { return FullStream { const_cast<ChT *>(begin), const_cast<ChT *>(end), const_cast<ChT *>(curr) }; }
 
 namespace exception {
 class BaseParser : public std::exception {
@@ -493,7 +493,7 @@ protected:
 
         if (fullstream) {
             whats_err += " - Location: ";
-            if (fullstream->index() >= 40 ){
+            if (fullstream->CurrentOffset() >= 40 ){
                 std::string_view initial {reinterpret_cast<const char *>(fullstream->curr() - 16), 16};
                 for(auto &current_ch: initial) {
                     if (current_ch >= 32 /* &&  current_ch <= 127 */) {
@@ -509,7 +509,7 @@ protected:
                     } else whats_err.push_back('#');
                 }
             } else {
-                std::string_view initial {reinterpret_cast<const char *>(fullstream->begin()), fullstream->index()};
+                std::string_view initial {reinterpret_cast<const char *>(fullstream->begin()), fullstream->CurrentOffset()};
                 for(auto &current_ch: initial) {
                     if (current_ch >= 32 /* &&  current_ch <= 127 */) {
                         whats_err.push_back(current_ch);
@@ -525,15 +525,15 @@ protected:
             whats_err += " --- ";
         }
 
-        std::string_view last {reinterpret_cast<const char *>(stream.curr()), std::min<size_t>(16, stream.remaining_buffer())};
+        std::string_view last {reinterpret_cast<const char *>(stream.curr()), std::min<size_t>(16, stream.RemainingBuffer())};
         for(auto &current_ch: last) {
             if (current_ch >= 32 /* &&  current_ch <= 127 */) {
                 whats_err.push_back(current_ch);
             } else whats_err.push_back('#');
         }
-        if (stream.remaining_buffer() > 16) {
+        if (stream.RemainingBuffer() > 16) {
             whats_err += " ... more ";
-            whats_err += std::to_string(stream.remaining_buffer() - 16UL);
+            whats_err += std::to_string(stream.RemainingBuffer() - 16UL);
             whats_err += " characters.";
         }
 

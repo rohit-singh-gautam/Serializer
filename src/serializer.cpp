@@ -45,7 +45,7 @@ std::pair<char *, size_t> ReadBufferFromFile(const std::filesystem::path &path) 
 
 void WriteBufferToFile(const std::filesystem::path &path, const rohit::FullStream &stream) {
     std::ofstream filestream { path };
-    filestream.write(reinterpret_cast<const char *>(stream.begin()), stream.index());
+    filestream.write(reinterpret_cast<const char *>(stream.begin()), stream.CurrentOffset());
     filestream.close();
 }
 

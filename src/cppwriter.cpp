@@ -35,9 +35,9 @@ const std::string GetCPPTypeSupportUnion(const Member &member) {
         retUnion += "\n\t\t\tcase e_" + member.Name + "::" + typeName.EnumName + ": return {\"" + typeName.EnumName + "\"}; ";
     }
     retUnion += "\n\t\t}\n\t};\n\tstatic e_" + member.Name + " to_e_" + member.Name + "(const auto &v) {"
-                "\n\t\tswitch(rohit::hash(v)) {";
+                "\n\t\tswitch(rohit::Hash(v)) {";
     for(auto &typeName: member.typeNameList) {
-        retUnion += "\n\t\t\tcase rohit::hash(\"" + typeName.EnumName + "\"): return e_" + member.Name + "::" + typeName.EnumName + ";";
+        retUnion += "\n\t\t\tcase rohit::Hash(\"" + typeName.EnumName + "\"): return e_" + member.Name + "::" + typeName.EnumName + ";";
     }
     retUnion += "\n\t\t\tdefault: throw std::runtime_error(\"Bad Enum Name\");"
                 "\n\t\t}"
@@ -408,9 +408,9 @@ void WriteEnum(Stream &outStream, const Enum *enumptr) {
     outStream.Write("};\n\n");
 
     outStream.Write("constexpr inline ", enumptr->Name, " to_", enumptr->Name, "(const auto &v) {\n");
-    outStream.Write("\tswitch(rohit::hash(v)) {\n");
+    outStream.Write("\tswitch(rohit::Hash(v)) {\n");
     for(auto &enumName: enumptr->enumNameList) {
-        outStream.Write("\t\tcase rohit::hash(\"", enumName, "\"): return ", enumptr->Name, "::", enumName, ";\n");
+        outStream.Write("\t\tcase rohit::Hash(\"", enumName, "\"): return ", enumptr->Name, "::", enumName, ";\n");
     }
     outStream.Write("\t\tdefault: throw std::runtime_error(\"Bad Enum Name\");\n");
     outStream.Write("\t}\n");
