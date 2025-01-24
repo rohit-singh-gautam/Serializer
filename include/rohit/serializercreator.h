@@ -48,7 +48,7 @@
 // space: onespace | onespace space
 // onespace: ' ' | '\t' | '\n' | '\r'
 
-namespace rohit::Serializer {
+namespace rohit::serializer {
 namespace exception {
 class BadIdentifier : public rohit::exception::BaseParser {
 public:
@@ -247,4 +247,4 @@ void ParseClassBody(const Stream &inStream, Class *obj, uint32_t &id);
 namespace Writer::CPP {
 void Write(Stream &outStream, std::vector<std::unique_ptr<Base>> &statementlist);
 } // namespace Writer::CPP
-} // namespace rohit::Serializer
+} // namespace rohit::serializer

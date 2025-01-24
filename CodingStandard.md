@@ -27,3 +27,6 @@ Class must be used for single logical functionality.
 ## Enum
 All enum must be enum class.
 Enum member must be first letter capital
+
+## Namespace
+All namespace must be in small letter.

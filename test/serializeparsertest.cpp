@@ -33,10 +33,10 @@ TEST(SerializeParser, Identifier) {
         auto &[input, output, negativetest ] = test;
         rohit::FullStream inStream { input.data(), input.size() };
         if (!negativetest) {
-            auto parsedstring = rohit::Serializer::Parser::ParseIdentifier(inStream);
+            auto parsedstring = rohit::serializer::Parser::ParseIdentifier(inStream);
             EXPECT_EQ(parsedstring, output);
         } else {
-            EXPECT_THROW(rohit::Serializer::Parser::ParseIdentifier(inStream), rohit::Serializer::exception::BadIdentifier);
+            EXPECT_THROW(rohit::serializer::Parser::ParseIdentifier(inStream), rohit::serializer::exception::BadIdentifier);
         }
     }
 }
@@ -57,10 +57,10 @@ TEST(SerializeParser, HierarchicalIdentifier) {
         auto &[input, output, negativetest ] = test;
         rohit::FullStream inStream { input.data(), input.size() };
         if (!negativetest) {
-            auto parsedstring = rohit::Serializer::Parser::ParseHierarchicalIdentifier(inStream);
+            auto parsedstring = rohit::serializer::Parser::ParseHierarchicalIdentifier(inStream);
             EXPECT_EQ(parsedstring, output);
         } else {
-            EXPECT_THROW(rohit::Serializer::Parser::ParseHierarchicalIdentifier(inStream), rohit::Serializer::exception::BadIdentifier);
+            EXPECT_THROW(rohit::serializer::Parser::ParseHierarchicalIdentifier(inStream), rohit::serializer::exception::BadIdentifier);
         }
     }
 }
@@ -82,55 +82,55 @@ TEST(SerializeParser, SpaceSeparatedIdentifier) {
         };
         auto &[input, output ] = test;
         rohit::FullStream inStream { input.data(), input.size() };
-        rohit::Serializer::Parser::SpaceSeparatedIdentifier(inStream, resultfn);
+        rohit::serializer::Parser::SpaceSeparatedIdentifier(inStream, resultfn);
         EXPECT_EQ(parsedstring, output);
     }
 }
 
 TEST(SerializeParser, AccessType) {
-    std::vector<std::tuple<std::string, rohit::Serializer::AccessType>> test_list {
-        {"public", rohit::Serializer::AccessType::Public},
-        {"protected", rohit::Serializer::AccessType::Protected},
-        {"private", rohit::Serializer::AccessType::Private},
-        {"Public", rohit::Serializer::AccessType::Error},
-        {"Protected", rohit::Serializer::AccessType::Error},
-        {"Private", rohit::Serializer::AccessType::Error},
-        {"", rohit::Serializer::AccessType::Error},
-        {"_", rohit::Serializer::AccessType::Error},
-        {"public1", rohit::Serializer::AccessType::Error},
-        {"protected ", rohit::Serializer::AccessType::Protected},
+    std::vector<std::tuple<std::string, rohit::serializer::AccessType>> test_list {
+        {"public", rohit::serializer::AccessType::Public},
+        {"protected", rohit::serializer::AccessType::Protected},
+        {"private", rohit::serializer::AccessType::Private},
+        {"Public", rohit::serializer::AccessType::Error},
+        {"Protected", rohit::serializer::AccessType::Error},
+        {"Private", rohit::serializer::AccessType::Error},
+        {"", rohit::serializer::AccessType::Error},
+        {"_", rohit::serializer::AccessType::Error},
+        {"public1", rohit::serializer::AccessType::Error},
+        {"protected ", rohit::serializer::AccessType::Protected},
     };
 
     for(auto &test: test_list) {
         auto &[input, output ] = test;
         rohit::FullStream inStream { input.data(), input.size() };
-        if (output != rohit::Serializer::AccessType::Error) {
-            auto parsedstring = rohit::Serializer::Parser::ParseAccessType(inStream);
+        if (output != rohit::serializer::AccessType::Error) {
+            auto parsedstring = rohit::serializer::Parser::ParseAccessType(inStream);
             EXPECT_EQ(parsedstring, output);
         } else {
-            EXPECT_THROW(rohit::Serializer::Parser::ParseAccessType(inStream), rohit::exception::BaseParser);
+            EXPECT_THROW(rohit::serializer::Parser::ParseAccessType(inStream), rohit::exception::BaseParser);
         }
     }
 }
 
 TEST(SerializeParser, Member) {
     // tuple list are: source, Member, is negative test
-    std::vector<std::tuple<std::string, rohit::Serializer::Member, bool>> test_list {
-        {"private \r\n array \r\n\t uint8\t_test\r\n;", {rohit::Serializer::AccessType::Private, rohit::Serializer::Member::array, { {"uint8", nullptr} }, "_test", 1, {}}, false},
-        {"public uint8 test;", {rohit::Serializer::AccessType::Public, rohit::Serializer::Member::none, { {"uint8", nullptr} }, "test", 2, {}}, false},
-        {"protected \r\n uint8\ttest;", {rohit::Serializer::AccessType::Protected, rohit::Serializer::Member::none, { {"uint8", nullptr} }, "test", 3, {}}, false},
-        {"private \r\n newtest\t_test\r\n;", {rohit::Serializer::AccessType::Private, rohit::Serializer::Member::none, { {"newtest", nullptr} }, "_test", 4, {}}, false},
-        {"private \r\n 9newtest\t_test\r\n;", {rohit::Serializer::AccessType::Private, rohit::Serializer::Member::none, { {"uint8", nullptr} }, "_test", 5, {}}, true},
+    std::vector<std::tuple<std::string, rohit::serializer::Member, bool>> test_list {
+        {"private \r\n array \r\n\t uint8\t_test\r\n;", {rohit::serializer::AccessType::Private, rohit::serializer::Member::array, { {"uint8", nullptr} }, "_test", 1, {}}, false},
+        {"public uint8 test;", {rohit::serializer::AccessType::Public, rohit::serializer::Member::none, { {"uint8", nullptr} }, "test", 2, {}}, false},
+        {"protected \r\n uint8\ttest;", {rohit::serializer::AccessType::Protected, rohit::serializer::Member::none, { {"uint8", nullptr} }, "test", 3, {}}, false},
+        {"private \r\n newtest\t_test\r\n;", {rohit::serializer::AccessType::Private, rohit::serializer::Member::none, { {"newtest", nullptr} }, "_test", 4, {}}, false},
+        {"private \r\n 9newtest\t_test\r\n;", {rohit::serializer::AccessType::Private, rohit::serializer::Member::none, { {"uint8", nullptr} }, "_test", 5, {}}, true},
     };
 
     for(auto &test: test_list) {
         auto &[input, output, negativetest ] = test;
         rohit::FullStream inStream { input.data(), input.size() };
         if (!negativetest) {
-            auto parsedmember = rohit::Serializer::Parser::ParseMember(inStream, output.id, nullptr);
+            auto parsedmember = rohit::serializer::Parser::ParseMember(inStream, output.id, nullptr);
             EXPECT_EQ(parsedmember, output);
         } else {
-            EXPECT_THROW(rohit::Serializer::Parser::ParseMember(inStream, output.id, nullptr), rohit::Serializer::exception::BadIdentifier);
+            EXPECT_THROW(rohit::serializer::Parser::ParseMember(inStream, output.id, nullptr), rohit::serializer::exception::BadIdentifier);
         }
     }
 }
@@ -145,10 +145,10 @@ TEST(SerializeParser, ClassBody) {
 
     rohit::FullStream inStream { input.data(), input.size() };
     std::string name { "person" };
-    std::vector<rohit::Serializer::Parent> parent { };
-    rohit::Serializer::Class obj {rohit::Serializer::ObjectType::Class, std::move(name), nullptr, rohit::Serializer::ClassAtributes::None, std::move(parent)};
+    std::vector<rohit::serializer::Parent> parent { };
+    rohit::serializer::Class obj {rohit::serializer::ObjectType::Class, std::move(name), nullptr, rohit::serializer::ClassAtributes::None, std::move(parent)};
     uint32_t id { 1 };
-    rohit::Serializer::Parser::ParseClassBody(inStream, &obj, id);
+    rohit::serializer::Parser::ParseClassBody(inStream, &obj, id);
     EXPECT_EQ(obj.MemberList.size(), 2);
 }
 
@@ -164,7 +164,7 @@ TEST(SerializeParser, CompleteStruct) {
     };
 
     rohit::FullStream inStream { input.data(), input.size() };
-    auto parsed = rohit::Serializer::Parser::Parse(inStream);
+    auto parsed = rohit::serializer::Parser::Parse(inStream);
     EXPECT_EQ(parsed.size(), 1);
 }
 
@@ -180,7 +180,7 @@ TEST(SerializeParser, CompleteStructWithMap) {
     };
 
     rohit::FullStream inStream { input.data(), input.size() };
-    auto parsed = rohit::Serializer::Parser::Parse(inStream);
+    auto parsed = rohit::serializer::Parser::Parse(inStream);
     EXPECT_EQ(parsed.size(), 1);
 }
 
@@ -196,7 +196,7 @@ TEST(SerializeParser, BadStructWithMap) {
     };
 
     rohit::FullStream inStream { input.data(), input.size() };
-    EXPECT_THROW(rohit::Serializer::Parser::Parse(inStream), rohit::Serializer::exception::BadIdentifier);
+    EXPECT_THROW(rohit::serializer::Parser::Parse(inStream), rohit::serializer::exception::BadIdentifier);
 }
 
 TEST(SerializeParser, BadTest) {
@@ -212,7 +212,7 @@ TEST(SerializeParser, BadTest) {
     };
 
     rohit::FullStream inStream { input.data(), input.size() };
-    auto parsed = rohit::Serializer::Parser::Parse(inStream);
+    auto parsed = rohit::serializer::Parser::Parse(inStream);
     EXPECT_EQ(parsed.size(), 1);
 }
 
@@ -259,7 +259,7 @@ class server1 {
     };
 
     rohit::FullStream inStream { input.data(), input.size() };
-    auto parsed = rohit::Serializer::Parser::Parse(inStream);
+    auto parsed = rohit::serializer::Parser::Parse(inStream);
     EXPECT_EQ(parsed.size(), 1);
 }
 
@@ -313,7 +313,7 @@ class server1 {
 
     rohit::FullStreamAutoAlloc outStream {128};
     rohit::FullStream inStream { input.data(), input.size() };
-    auto statementlist = rohit::Serializer::Parser::Parse(inStream);
-    rohit::Serializer::Writer::CPP::Write(outStream, statementlist);
+    auto statementlist = rohit::serializer::Parser::Parse(inStream);
+    rohit::serializer::Writer::CPP::Write(outStream, statementlist);
 }
 

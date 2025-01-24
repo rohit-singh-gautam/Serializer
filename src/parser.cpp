@@ -17,7 +17,7 @@
 
 #include <rohit/serializercreator.h>
 
-namespace rohit::Serializer {
+namespace rohit::serializer {
 
 void tolower_inplace(std::string &value) {
     for(auto &ch: value) {
@@ -405,7 +405,7 @@ std::unique_ptr<Namespace> ParseNameSpace(const Stream &inStream, Namespace *par
 
 void CheckMemberTypeForPrimitive(const Stream &inStream, TypeName &typeName) {
     if (typeName.type != ObjectType::Unresolved) return;
-    if (Serializer::GetCPPTypeOrEmpty(typeName.Name).empty()) {
+    if (serializer::GetCPPTypeOrEmpty(typeName.Name).empty()) {
         std::string errorstr { "Unknown type: " };
         errorstr += typeName.Name;
         throw exception::BadMemberType { inStream, errorstr };
@@ -438,7 +438,7 @@ void ResolveMember(const Stream &inStream, Member &member, const std::unordered_
 
 void ResolveMember(
     const Stream &inStream,
-    std::vector<std::unique_ptr<rohit::Serializer::Base>> &statementlist,
+    std::vector<std::unique_ptr<rohit::serializer::Base>> &statementlist,
     std::unordered_map<std::string, ObjectType> &VariableTypeMap) 
 {
     for(auto &statement: statementlist) {
@@ -479,4 +479,4 @@ std::vector<std::unique_ptr<Base>> Parse(const Stream &inStream) {
 }
 
 } // namespace Parser
-} // namespace rohit::Serializer
+} // namespace rohit::serializer

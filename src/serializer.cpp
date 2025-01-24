@@ -103,8 +103,8 @@ int main(const int argc, const char *argv[]) {
     }
 
     try {
-        auto statementlist = rohit::Serializer::Parser::Parse(inStream);
-        rohit::Serializer::Writer::CPP::Write(outStream, statementlist);
+        auto statementlist = rohit::serializer::Parser::Parse(inStream);
+        rohit::serializer::Writer::CPP::Write(outStream, statementlist);
         WriteBufferToFile(output_file, outStream);
     } catch(const std::exception &e) {
         std::cout << "Failed to parse with error:\n" << e.what() << std::endl;

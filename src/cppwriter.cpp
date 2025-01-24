@@ -17,7 +17,7 @@
 
 #include <rohit/serializercreator.h>
 
-namespace rohit::Serializer::Writer::CPP {
+namespace rohit::serializer::Writer::CPP {
 
 const std::string GetCPPTypeSupportUnion(const Member &member) {
     std::string retUnion { "\tenum class e_" };
@@ -64,11 +64,11 @@ const std::string GetCPPType(const Member &member) {
     default:
     case Member::none:
         // TODO: Range check
-        return Serializer::GetCPPType(member.typeNameList[0].Name);
+        return serializer::GetCPPType(member.typeNameList[0].Name);
     case Member::array:
-        return std::string("std::vector<") + Serializer::GetCPPType(member.typeNameList[0].Name) + ">";
+        return std::string("std::vector<") + serializer::GetCPPType(member.typeNameList[0].Name) + ">";
     case Member::map:
-        return std::string("std::map<") + Serializer::GetCPPType(member.Key) + "," + Serializer::GetCPPType(member.typeNameList[0].Name) + ">";
+        return std::string("std::map<") + serializer::GetCPPType(member.Key) + "," + serializer::GetCPPType(member.typeNameList[0].Name) + ">";
     case Member::Union:
         return "e_" + member.Name + " " + member.Name + "_type { };\n\t" + "u_" + member.Name;
     }
@@ -469,4 +469,4 @@ void Write(Stream &outStream, std::vector<std::unique_ptr<Base>> &statementlist)
     WriteStatementList(outStream, statementlist);
 }
 
-} // namespace rohit::Serializer::Writer::CPP
+} // namespace rohit::serializer::Writer::CPP

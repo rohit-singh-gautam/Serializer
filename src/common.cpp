@@ -19,7 +19,7 @@
 
 namespace rohit {
 
-namespace Serializer {
+namespace serializer {
 const std::string &GetCPPTypeOrEmpty(const std::string &type) {
     static const std::unordered_map<std::string, std::string> CPPTypeMap {
         {"char", "char"},
@@ -50,6 +50,6 @@ const std::string &GetCPPType(const std::string &type) {
     if (!ret.empty()) return ret;
     return type;
 }
-} // namespace Serializer
+} // namespace serializer
 
 } // namespace rohit
