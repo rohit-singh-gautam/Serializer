@@ -102,9 +102,13 @@ int main(const int argc, const char *argv[]) {
         std::cout << "WARNING: Output file is designed for C++ header, output extension must be one of .h, .hpp or .hxx" << std::endl;
     }
 
-    auto statementlist = rohit::Serializer::Parser::Parse(inStream);
-    rohit::Serializer::Writer::CPP::Write(outStream, statementlist);
-    WriteBufferToFile(output_file, outStream);
+    try {
+        auto statementlist = rohit::Serializer::Parser::Parse(inStream);
+        rohit::Serializer::Writer::CPP::Write(outStream, statementlist);
+        WriteBufferToFile(output_file, outStream);
+    } catch(const std::exception &e) {
+        std::cout << "Failed to parse with error:\n" << e.what() << std::endl;
+    }
 
     return 0;
 }

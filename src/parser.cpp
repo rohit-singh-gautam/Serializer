@@ -341,6 +341,7 @@ std::unique_ptr<Enum> ParseEnum(const Stream &inStream, Namespace *CurrentNamesp
             if (*inStream != ',') break;
             ++inStream;
             SkipWhiteSpaceAndComment(inStream);
+            if (*inStream == '}') break;
         }
         if (*inStream != '}') {
             std::string errorstr { "Expecting '}' found: "};

@@ -41,6 +41,11 @@ public:
     using BaseParser::BaseParser;
 };
 
+class UnknownSerializationType : public BaseParser {
+public:
+    using BaseParser::BaseParser;
+};
+
 } // namespace exception
 
 namespace typecheck {
@@ -343,7 +348,12 @@ public:
             SkipWhiteSpace(stream);
             auto key = SerializeInGetKey(stream);
             auto itr = membermap.find(key);
-            if (itr == std::end(membermap)) throw std::runtime_error("Key not present");
+            if (itr == std::end(membermap)) {
+                std::string errorstr { "Key: " };
+                errorstr += key;
+                errorstr += " - Not present";
+                throw exception::BadInputData {stream, std::move(errorstr)};
+            }
             itr->second(stream);
             if (*stream == '}') {
                 break;
@@ -360,8 +370,7 @@ public:
         } else if constexpr (typecheck::SerializerOutEnabled<T, json>) {
             value.template SerializeOut<json>(stream);
         } else {
-            // TODO: Improve exception
-            throw std::runtime_error {"Bad Type"};
+            throw exception::UnknownSerializationType {stream, "Unknown Serialization Type"};
         }
     }
 
@@ -645,8 +654,7 @@ public:
         } else if constexpr (typecheck::SerializerOutEnabled<T, binary<SERIALIZE_KEY_TYPE>>) {
             value.template SerializeOut<binary<SERIALIZE_KEY_TYPE>>(stream);
         } else {
-            // TODO: Improve exception
-            throw std::runtime_error {"Bad Type"};
+            throw exception::BadType {stream, "Bad Type, this is internal error."};
         }
     }
 

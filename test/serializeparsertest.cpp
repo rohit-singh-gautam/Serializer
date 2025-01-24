@@ -184,6 +184,38 @@ TEST(SerializeParser, CompleteStructWithMap) {
     EXPECT_EQ(parsed.size(), 1);
 }
 
+TEST(SerializeParser, BadStructWithMap) {
+    std::string input {
+        "namespace arraytest {"
+        "class person {"
+        "public string name;"
+        "public uint64 ID;}"
+        "class personlist {"
+        "public uint64 listid;"
+        "public map(uint64) person;}}"
+    };
+
+    rohit::FullStream inStream { input.data(), input.size() };
+    EXPECT_THROW(rohit::Serializer::Parser::Parse(inStream), rohit::Serializer::exception::BadIdentifier);
+}
+
+TEST(SerializeParser, BadTest) {
+    std::string input {
+        "namespace enumtest {"
+        "enum test {"
+        "\ttest1,"
+        "\ttest2,"
+        "\ttest3,"
+        "\ttest4,"
+        "\ttest5,"
+        "}}"
+    };
+
+    rohit::FullStream inStream { input.data(), input.size() };
+    auto parsed = rohit::Serializer::Parser::Parse(inStream);
+    EXPECT_EQ(parsed.size(), 1);
+}
+
 TEST(SerializeParser, VariableMember) {
     std::string input {
         R"(
