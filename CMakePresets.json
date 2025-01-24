@@ -53,7 +53,7 @@
             },
             "architecture": {
                 "value": "x64",
-                "strategy": "external"
+                "strategy": "set"
             },
             "condition": {
                 "type": "equals",
@@ -84,6 +84,32 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release"
             }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "DebugLinux",
+            "displayName": "DebugLinux",
+            "configurePreset": "DebugLinux",
+            "configuration": "Debug"
+        },
+        {
+            "name": "ReleaseLinux",
+            "displayName": "ReleaseLinux",
+            "configurePreset": "ReleaseLinux",
+            "configuration": "Release"
+        },
+        {
+            "name": "DebugWindows",
+            "displayName": "DebugWindows",
+            "configurePreset": "DebugWindows",
+            "configuration": "Debug"
+        },
+        {
+            "name": "ReleaseWindows",
+            "displayName": "ReleaseWindows",
+            "configurePreset": "ReleaseWindows",
+            "configuration": "Release"
         }
     ]
 }
