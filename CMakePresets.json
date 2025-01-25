@@ -40,7 +40,7 @@
             "binaryDir": "${sourceDir}/out/build/${presetName}",
             "installDir": "${sourceDir}/out/install/${presetName}",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Release"
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo"
             }
         },
         {
@@ -82,7 +82,7 @@
             "binaryDir": "${sourceDir}/out/build/${presetName}",
             "installDir": "${sourceDir}/out/install/${presetName}",
             "cacheVariables": {
-                "CMAKE_BUILD_TYPE": "Release"
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo"
             }
         }
     ],
@@ -97,7 +97,7 @@
             "name": "ReleaseLinux",
             "displayName": "ReleaseLinux",
             "configurePreset": "ReleaseLinux",
-            "configuration": "Release"
+            "configuration": "RelWithDebInfo"
         },
         {
             "name": "DebugWindows",
@@ -109,7 +109,7 @@
             "name": "ReleaseWindows",
             "displayName": "ReleaseWindows",
             "configurePreset": "ReleaseWindows",
-            "configuration": "Release"
+            "configuration": "RelWithDebInfo"
         }
     ]
 }

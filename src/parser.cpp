@@ -361,7 +361,7 @@ std::vector<std::unique_ptr<Base>> ParseStatementList(const Stream &inStream, Na
     std::vector<std::unique_ptr<Base>> statementlist { };
     while(true) {
         SkipWhiteSpaceAndComment(inStream);
-        if (inStream.full() || *inStream == '}' || *inStream == 0xcd) break;
+        if (inStream.full() || *inStream == '}' || *inStream == 0xcd || *inStream == 0x00) break;
         auto objectType = ParseObjectType(inStream);
         if (objectType == ObjectType::Class) {
             statementlist.emplace_back(ParseClass(inStream, parentNamespace));

@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.28)
 
 if(WIN32)
-set(SERIALIZER ${CMAKE_BINARY_DIR}/Debug/serializer.exe)
+set(SERIALIZER ${CMAKE_BINARY_DIR}/${CMAKE_BUILD_TYPE}/serializer.exe)
 elseif(UNIX)
 set(SERIALIZER ${CMAKE_BINARY_DIR}/serializer)
 endif()

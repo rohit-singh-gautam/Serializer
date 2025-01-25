@@ -31,13 +31,14 @@ std::pair<char *, size_t> ReadBufferFromFile(const std::filesystem::path &path) 
         throw std::invalid_argument { "Not a valid file" };
     }
     std::ifstream filestream { path };
+
     filestream.seekg(0, std::ios::end);
-    auto size = filestream.tellg();
+    size_t size = filestream.tellg();
     filestream.seekg(0, std::ios::beg);
 
     auto buffer = new char[size];
-
     filestream.read(buffer, size);
+    size = filestream.gcount();
 
     filestream.close();
     return { buffer, size };
