@@ -58,6 +58,32 @@ bool IsCapitalAlphabet(const Stream &inStream) { return IsCapitalAlphabet(*inStr
 bool IsFirstIdentifier(const Stream &inStream) { return IsFirstIdentifier(*inStream); }
 bool IsIdentifier(const Stream &inStream) { return IsIdentifier(*inStream); }
 void SkipWhiteSpace(const Stream &inStream) { while(IsWhiteSpace(inStream)) ++inStream; }
+bool CheckNumber(const std::string &numstr) {
+    for(auto ch: numstr) {
+        if (!IsNumber(ch)) return false;
+    }
+    return true;
+}
+
+auto GetMemberSpecToken(const Stream &inStream) {
+    std::string token { };
+    bool isString { false };
+    if (*inStream == '"') {
+        isString = true;
+        ++inStream;
+    }
+    while(IsIdentifier(inStream)) {
+        token.push_back(*inStream);
+        ++inStream;
+    }
+    if (isString) {
+        if (*inStream != '"') {
+            throw exception::BadMemberSpec { inStream, "String must be enclosed in double quotes" };
+        }
+        ++inStream;
+    }
+    return std::make_pair(token, isString);
+}
 
 void SkipWhiteSpaceAndComment(const Stream &inStream) {
     for(;;) {
@@ -97,6 +123,21 @@ void SkipWhiteSpaceAndComment(const Stream &inStream) {
     }
 } // SkipWhiteSpaceAndComment
 
+std::string GetDefaultValue(const Stream &inStream) {
+    std::string defaultValue { };
+    if (*inStream != '{') return defaultValue;
+    ++inStream;
+    SkipWhiteSpaceAndComment(inStream);
+    while(*inStream != '}' && !IsWhiteSpace(inStream)) {
+        defaultValue.push_back(*inStream);
+        ++inStream;
+    }
+    SkipWhiteSpaceAndComment(inStream);
+    if (*inStream != '}') throw exception::BadMemberSpec { inStream, "Default value must be enclosed in curly braces" };
+    ++inStream;
+    return defaultValue;
+} // GetDefaultValue
+
 void CheckAndIncrease(const Stream &inStream, char value) {
     if (*inStream != value) {
         std::string errstr {"Expected: "};
@@ -107,6 +148,16 @@ void CheckAndIncrease(const Stream &inStream, char value) {
     }
     ++inStream;
 } // CheckAndIncrease
+
+template <std::integral T>
+T ParseNumber(const Stream &inStream) {
+    T ret { 0 };
+    while(IsNumber(*inStream)) {
+        ret = ret * 10 + (*inStream - '0');
+        ++inStream;
+    }
+    return ret;
+}
 
 std::string ParseIdentifier(const Stream &inStream) {
     std::string identifier { };
@@ -216,6 +267,41 @@ void ParseMemberTypeMap(const Stream &inStream, Namespace *declaredNameSpace, st
     typeNameList.emplace_back(std::move(typeName), declaredNameSpace);
 } // ParseMemberTypeMap
 
+void ParseNameSpec(const Stream &inStream, uint32_t &newId, std::string &displayName) {
+    CheckAndIncrease(inStream, '(');
+    bool stringParsed { false };
+    bool numberParsed { false };
+    bool paramParsed { false };
+    if (*inStream != ')') {
+        while(true) {
+            SkipWhiteSpaceAndComment(inStream);
+            auto [id, isString] = GetMemberSpecToken(inStream);
+            if (isString) {
+                if (stringParsed) {
+                    throw exception::BadMemberSpec { inStream, "Only one string is allowed in member spec" };
+                }
+                stringParsed = true;
+                displayName = id;
+            } else
+            if (CheckNumber(id)) {
+                if (numberParsed) {
+                    throw exception::BadMemberSpec { inStream, "Only one number is allowed in member spec" };
+                }
+                numberParsed = true;
+                newId = std::stoul(id);
+            } else {
+                throw exception::BadMemberSpec { inStream, "Unknown parameter in member spec" };
+            }
+            SkipWhiteSpaceAndComment(inStream);
+            if (*inStream != ',') break;
+            ++inStream;
+            if (*inStream == ')') {
+                throw exception::BadMemberSpec { inStream, "Unexpected end of member spec" };
+            }
+        }
+    }
+    CheckAndIncrease(inStream, ')');
+} // ParseNameSpec
 
 Member ParseMember(const Stream &inStream, const uint32_t id, Namespace *declaredNameSpace) {
     auto accesstype = ParseAccessType(inStream);
@@ -238,9 +324,32 @@ Member ParseMember(const Stream &inStream, const uint32_t id, Namespace *declare
     }
     SkipWhiteSpaceAndComment(inStream);
     auto name = ParseIdentifier(inStream);
+    auto displayName = name;
+    uint32_t newId { id };
+    bool parsedMemberSpec { false };
+    bool parsedDefaultValue { false };
+    std::string defaultValue { };
+    while(true) {
+        SkipWhiteSpaceAndComment(inStream);
+        if (*inStream == '(') {
+            if (parsedMemberSpec) {
+                throw exception::BadMemberSpec { inStream, "Only one member spec is allowed" };
+            }
+            parsedMemberSpec = true;
+            ParseNameSpec(inStream, newId, displayName);
+        } else if (*inStream == '{') {
+            if (parsedDefaultValue) {
+                throw exception::BadMemberSpec { inStream, "Only one default value is allowed" };
+            }
+            parsedDefaultValue = true;
+            defaultValue = GetDefaultValue(inStream);
+        } else {
+            break;
+        }
+    }
     SkipWhiteSpaceAndComment(inStream);
     CheckAndIncrease(inStream, ';');
-    return { accesstype, membermodifier, typeNameList, name, id, key };
+    return { accesstype, membermodifier, typeNameList, name, displayName, newId, key, defaultValue };
 } // ParseMember
 
 ObjectType ParseObjectType(const Stream &inStream) {
@@ -274,7 +383,14 @@ Parent ParseParent(const Stream &inStream, Namespace *CurrentNamespace, const ui
     auto access = ParseAccessType(inStream);
     SkipWhiteSpaceAndComment(inStream);
     auto fullname = ParseHierarchicalIdentifier(inStream);
-    return { access, fullname, id, CurrentNamespace, nullptr };
+    std::string displayName = fullname;
+    uint32_t newId = id;
+    SkipWhiteSpaceAndComment(inStream);
+    if (*inStream == '(') {
+        ParseNameSpec(inStream, newId, displayName);
+        SkipWhiteSpaceAndComment(inStream);
+    }
+    return { access, fullname, displayName, newId, CurrentNamespace, nullptr };
 }
 
 std::vector<Parent> ParseParentList(const Stream &inStream, Namespace *CurrentNamespace, uint32_t &id) {
@@ -283,7 +399,6 @@ std::vector<Parent> ParseParentList(const Stream &inStream, Namespace *CurrentNa
     while(true) {
         // TODO: if ParseParent return type comes a rvalue
         ret.push_back( ParseParent(inStream, CurrentNamespace, id++) );
-        SkipWhiteSpaceAndComment(inStream);
         if (*inStream != ',') break;
         ++inStream;
         SkipWhiteSpaceAndComment(inStream);

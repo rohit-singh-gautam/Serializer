@@ -116,11 +116,11 @@ TEST(SerializeParser, AccessType) {
 TEST(SerializeParser, Member) {
     // tuple list are: source, Member, is negative test
     std::vector<std::tuple<std::string, rohit::serializer::Member, bool>> test_list {
-        {"private \r\n array \r\n\t uint8\t_test\r\n;", {rohit::serializer::AccessType::Private, rohit::serializer::Member::array, { {"uint8", nullptr} }, "_test", 1, {}}, false},
-        {"public uint8 test;", {rohit::serializer::AccessType::Public, rohit::serializer::Member::none, { {"uint8", nullptr} }, "test", 2, {}}, false},
-        {"protected \r\n uint8\ttest;", {rohit::serializer::AccessType::Protected, rohit::serializer::Member::none, { {"uint8", nullptr} }, "test", 3, {}}, false},
-        {"private \r\n newtest\t_test\r\n;", {rohit::serializer::AccessType::Private, rohit::serializer::Member::none, { {"newtest", nullptr} }, "_test", 4, {}}, false},
-        {"private \r\n 9newtest\t_test\r\n;", {rohit::serializer::AccessType::Private, rohit::serializer::Member::none, { {"uint8", nullptr} }, "_test", 5, {}}, true},
+        {"private \r\n array \r\n\t uint8\t_test\r\n;", {rohit::serializer::AccessType::Private, rohit::serializer::Member::array, { {"uint8", nullptr} }, "_test", "_test", 1, {}, {}}, false},
+        {"public uint8 test;", {rohit::serializer::AccessType::Public, rohit::serializer::Member::none, { {"uint8", nullptr} }, "test", "test", 2, {}, {}}, false},
+        {"protected \r\n uint8\ttest;", {rohit::serializer::AccessType::Protected, rohit::serializer::Member::none, { {"uint8", nullptr} }, "test", "test", 3, {}, {}}, false},
+        {"private \r\n newtest\t_test\r\n;", {rohit::serializer::AccessType::Private, rohit::serializer::Member::none, { {"newtest", nullptr} }, "_test", "_test", 4, {}, {}}, false},
+        {"private \r\n 9newtest\t_test\r\n;", {rohit::serializer::AccessType::Private, rohit::serializer::Member::none, { {"uint8", nullptr} }, "_test", "_test", 5, {}, {}}, true},
     };
 
     for(auto &test: test_list) {
@@ -138,8 +138,8 @@ TEST(SerializeParser, Member) {
 TEST(SerializeParser, ClassBody) {
     std::string input {
         "{\n"
-        "public string name; "
-        "public uint64 ID;\t"
+        "public string name {\"None\"}(\"Name\"); "
+        "public uint64 ID (\"id\", 3) { 1 };\t"
         "}"
     };
 
@@ -150,6 +150,14 @@ TEST(SerializeParser, ClassBody) {
     uint32_t id { 1 };
     rohit::serializer::Parser::ParseClassBody(inStream, &obj, id);
     EXPECT_EQ(obj.MemberList.size(), 2);
+    EXPECT_EQ(obj.MemberList[0].Name, "name");
+    EXPECT_EQ(obj.MemberList[0].displayName, "Name");
+    EXPECT_EQ(obj.MemberList[0].id, 1);
+    EXPECT_EQ(obj.MemberList[0].defaultValue, "\"None\"");
+    EXPECT_EQ(obj.MemberList[1].defaultValue, "1");
+    EXPECT_EQ(obj.MemberList[1].Name, "ID");
+    EXPECT_EQ(obj.MemberList[1].displayName, "id");
+    EXPECT_EQ(obj.MemberList[1].id, 3);
 }
 
 TEST(SerializeParser, CompleteStruct) {

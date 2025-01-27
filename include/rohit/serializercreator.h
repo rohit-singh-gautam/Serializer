@@ -55,6 +55,11 @@ public:
     using rohit::exception::BaseParser::BaseParser;
 };
 
+class BadMemberSpec : public rohit::exception::BaseParser {
+public:
+    using rohit::exception::BaseParser::BaseParser;
+};
+
 class BadAccessType : public rohit::exception::BaseParser {
 public:
     using rohit::exception::BaseParser::BaseParser;
@@ -185,8 +190,10 @@ struct Member {
     ModifierType modifer;
     std::vector<TypeName> typeNameList;
     std::string Name;
+    std::string displayName;
     uint32_t id;
     std::string Key; // Optional parameter
+    std::string defaultValue;
 
     bool operator==(const Member &rhs) const { return access == rhs.access && modifer == rhs.modifer && typeNameList == rhs.typeNameList && Name == rhs.Name; }
 };
@@ -196,6 +203,7 @@ struct Class;
 struct Parent {
     AccessType access { };
     std::string Name { };
+    std::string displayName { };
     uint32_t id { };
     Namespace *currentNameSpace { };
     Class *parentClass { nullptr }; // This will be filled in later

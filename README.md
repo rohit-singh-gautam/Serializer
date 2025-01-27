@@ -301,8 +301,40 @@ class test {
 }
 ```
 
+### Member Modifier
+Member can have custom numeric ID for indexing with integer or custom string for indexing with string. This can be done by adding number or a string in double quote inside a round bracket after definition of member variable.
+
+Example:
+```cpp
+namespace test {
+class person {
+    public string name ("Name", 3);
+    public uint64 ID ("id", 4);
+}
+}
+```
+
+Similar parameter can also be added for parent class definition example:
+```cpp
+namespace test {
+class personex : public person ("Person", 5) {
+    public uint64 ID ("id", 6);
+}
+}
+```
+
+### Default value
+Default value can be added for member variable by adding a value in braces after definition of member variable example:
+```cpp
+namespace test {
+class person {
+    public string name {"None"}("Name", 3);
+    public uint64 ID ("id", 4) { 4 };
+}
+}
+```
 
 ## Roadmap
-1. Allowed to set Default value.
-1. Custom integer ID and string name for member variable.
+1. Check for validity for default value.
+1. Store position of member variable in input stream.
 1. Bit field.

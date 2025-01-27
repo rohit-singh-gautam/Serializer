@@ -25,7 +25,7 @@
 #include <enum.h>
 
 TEST(GeneratedTest, SerializeIn) {
-    const std::string personstr {"{\"name\":\"Rohit Jairaj Singh\",\"ID\":322}"};
+    const std::string personstr {"{\"fullname\":\"Rohit Jairaj Singh\",\"ID\":322}"};
     auto fullstream = rohit::MakeConstantFullStream(personstr);
 
     test::test1::person person { };
@@ -45,7 +45,7 @@ TEST(GeneratedTest, SerializeOut) {
     person.SerializeOut<rohit::serializer::json>(fullstream);
 
     std::string result_person {reinterpret_cast<char *>(fullstream.begin()), fullstream.CurrentOffset()};
-    std::string personstr {"{\"name\":\"Rohit Jairaj Singh\",\"ID\":322}"};
+    std::string personstr {"{\"fullname\":\"Rohit Jairaj Singh\",\"ID\":322}"};
     EXPECT_TRUE(result_person == personstr);
 
     test::test1::personex personex { "Rohit Jairaj Singh", 322, 122 };
@@ -53,7 +53,7 @@ TEST(GeneratedTest, SerializeOut) {
     personex.SerializeOut<rohit::serializer::json>(fullstream);
     std::string result_personex {reinterpret_cast<char *>(fullstream.begin()), fullstream.CurrentOffset()};
 
-    std::string personexstr { "{\"person\":{\"name\":\"Rohit Jairaj Singh\",\"ID\":322},\"account\":122}" };
+    std::string personexstr { "{\"person\":{\"fullname\":\"Rohit Jairaj Singh\",\"ID\":322},\"account\":122}" };
 
     EXPECT_TRUE(result_personex == personexstr);
     
