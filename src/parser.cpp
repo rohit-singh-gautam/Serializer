@@ -271,7 +271,6 @@ void ParseNameSpec(const Stream &inStream, uint32_t &newId, std::string &display
     CheckAndIncrease(inStream, '(');
     bool stringParsed { false };
     bool numberParsed { false };
-    bool paramParsed { false };
     if (*inStream != ')') {
         while(true) {
             SkipWhiteSpaceAndComment(inStream);
