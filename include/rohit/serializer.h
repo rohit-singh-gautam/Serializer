@@ -506,19 +506,19 @@ private:
 public:
     static void SerializeOutVariable(Stream &stream, const std::integral auto id) {
         if (id <= 0x3f) {
-            *stream++ = id;
+            *stream++ = static_cast<uint8_t>(id);
         } else if (id <= 0x3fff) {
-            *stream++ = ((id >> 8) | 0x40);
-            *stream++ = id & 0xff;
+            *stream++ = static_cast<uint8_t>(((id >> 8) | 0x40));
+            *stream++ = static_cast<uint8_t>(id & 0xff);
         } else if (id <= 0x3fffff) {
-            *stream++ = ((id >> 16) | 0x80);
-            *stream++ = (id >> 8) & 0xff;
-            *stream++ = id & 0xff;
+            *stream++ = static_cast<uint8_t>(((id >> 16) | 0x80));
+            *stream++ = static_cast<uint8_t>((id >> 8) & 0xff);
+            *stream++ = static_cast<uint8_t>(id & 0xff);
         } else if (id <= 0x3fffffff) {
-            *stream++ = ((id >> 24) | 0xc0);
-            *stream++ = (id >> 16) & 0xff;
-            *stream++ = (id >> 8) & 0xff;
-            *stream++ = id & 0xff;
+            *stream++ = static_cast<uint8_t>(((id >> 24) | 0xc0));
+            *stream++ = static_cast<uint8_t>((id >> 16) & 0xff);
+            *stream++ = static_cast<uint8_t>((id >> 8) & 0xff);
+            *stream++ = static_cast<uint8_t>(id & 0xff);
         }
     }
 

@@ -105,11 +105,11 @@ void SkipWhiteSpaceAndComment(const Stream &inStream) {
                 // Skip till */
                 ++inStream;
                 for(;;) {
-                    const auto ch = *inStream;
-                    if (ch == '*') {
+                    const auto ch2 = *inStream;
+                    if (ch2 == '*') {
                         ++inStream;
-                        const auto ch1 = *inStream;
-                        if (ch1 == '/') {
+                        const auto ch3 = *inStream;
+                        if (ch3 == '/') {
                             ++inStream;
                             break;
                         }

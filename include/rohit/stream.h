@@ -23,6 +23,7 @@
 #include <string>
 #include <stdint.h>
 #include <bit>
+#include <stdexcept>
 
 namespace rohit {
 
@@ -33,21 +34,21 @@ constexpr auto ChangeEndian(const auto &val) {
 }
 
 namespace exception {
-class StreamOverflowException : std::exception {
+class StreamOverflowException : public std::exception {
 public:
     const char *what() const noexcept override {
         return "Stream Overflow";
     }
 }; // class StreamOverflowException
 
-class StreamUnderflowException : std::exception {
+class StreamUnderflowException : public std::exception {
 public:
     const char *what() const noexcept override {
         return "Stream Underflow";
     }
 }; // class StreamUnderflowException
 
-class MemoryAllocationException : std::exception {
+class MemoryAllocationException : public std::exception {
 public:
     const char *what() const noexcept override {
         return "Stream unable to allocate memory";
@@ -171,7 +172,7 @@ public:
     bool CheckCapacity() const { return RemainingBuffer() >= sizeof(T); }
     bool CheckCapacity(const size_t size) const { return RemainingBuffer() >= size; }
 
-    void UpdateCurr(uint8_t *_curr) const { this->_curr = _curr; }
+    void UpdateCurr(uint8_t *incurr) const { this->_curr = incurr; }
 
     auto GetRawCurrentBuffer() { return std::make_pair(_curr, RemainingBuffer()); }
 
