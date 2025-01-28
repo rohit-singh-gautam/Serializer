@@ -26,4 +26,15 @@ class personlist {
     public uint64 listid;
     public array person list;
 }
+
+class session {
+    public string name;
+    public uint64 id;
+    public personlist persons;
 }
+
+class sessionstore {
+    public string name;
+    public array session sessionlist;
+}
+} // namespace arraytest 

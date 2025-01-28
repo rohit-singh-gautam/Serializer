@@ -308,3 +308,44 @@ TEST(GeneratedTest, SerializeEnum) {
     testBinaryString.SerializeIn<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(fullstream);
     EXPECT_TRUE(test1.te == testBinaryString.te);
 }
+
+TEST(GeneratedTest, SerializeArrayComplete) {
+    std::string input {
+        // Redundant spaces are added in below string for testing
+R"(
+{
+    "name": "First Store",
+    "sessionlist": [
+        {
+            "name": "First Session"  
+            ,
+            "id": 22,
+            "persons": {
+                "listid": 55,
+                "list": [
+                    {
+                        "name": "Rohit Jairaj Singh"  ,
+                        "ID": 322
+                    },
+                    {
+                        "name": "Ragini Rohit Singh"  ,
+                        "ID": 323
+                    }
+                ]
+            }
+        }
+    ]
+}
+)"
+
+    };
+
+    auto fullstream = rohit::MakeConstantFullStream(input);
+    arraytest::sessionstore sessionstore { };
+    try {
+        sessionstore.SerializeIn<rohit::serializer::json>(fullstream);
+    } catch (const std::exception &e) {
+        std::cerr << e.what() << std::endl;
+    }
+
+}

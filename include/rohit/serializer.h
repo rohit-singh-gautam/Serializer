@@ -343,6 +343,7 @@ public:
     template <typename ... Types>
     static void StructSerializeIn(const FullStream &stream, Types ... values) {
         std::unordered_map<std::string_view, std::function<void(const rohit::FullStream &)>> membermap { values... };
+        SkipWhiteSpace(stream);
         CheckAndIncrease(stream, '{');
         while(true) {
             SkipWhiteSpace(stream);
@@ -355,6 +356,7 @@ public:
                 throw exception::BadInputData {stream, std::move(errorstr)};
             }
             itr->second(stream);
+            SkipWhiteSpace(stream);
             if (*stream == '}') {
                 break;
             }
