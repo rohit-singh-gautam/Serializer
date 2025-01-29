@@ -24,6 +24,8 @@
 #include <stdint.h>
 #include <bit>
 #include <stdexcept>
+#include <filesystem>
+#include <fstream>
 
 namespace rohit {
 
@@ -251,10 +253,22 @@ public:
     auto GetRawFullBuffer() { return std::make_pair(_begin, Capacity()); }
     void Reset() const { _curr = _begin; }
     bool IsEmpty() const { return _curr == _begin; }
+
+    void WriteToFileTillOffset(const std::filesystem::path &path) {
+        std::ofstream filestream { path };
+        filestream.write(reinterpret_cast<const char *>(_begin), CurrentOffset());
+        filestream.close();
+    }
+    void WriteToFileComplete(const std::filesystem::path &path) {
+        std::ofstream filestream { path };
+        filestream.write(reinterpret_cast<const char *>(_begin), Capacity());
+        filestream.close();
+    }
 };
 
 class StreamAutoFree : public FullStream {
 public:
+    using FullStream::FullStream;
     ~StreamAutoFree() { free(_begin); }
 };
 
@@ -308,6 +322,7 @@ public:
     using FullStream::FullStream;
     FullStreamAutoAlloc(const size_t size) : FullStream { reinterpret_cast<uint8_t *>(malloc(size)), size } { if (_begin == nullptr) throw exception::MemoryAllocationException { }; }
     FullStreamAutoAlloc() : FullStream { } { }
+    ~FullStreamAutoAlloc() { free(_begin); }
 
     #if defined(__GNUC__)
     #pragma GCC diagnostic push
@@ -391,6 +406,7 @@ public:
     using FullStream::FullStream;
     FullStreamAutoAllocLimits(const streamlimit_t *limits) : FullStream { reinterpret_cast<uint8_t *>(malloc(limits->MinReadBuffer)), limits->MinReadBuffer }, limits { limits } { if (_begin == nullptr) throw exception::MemoryAllocationException { }; }
     FullStreamAutoAllocLimits() : FullStream { } { }
+    ~FullStreamAutoAllocLimits() { free(_begin); }
     FullStreamAutoAllocLimits(const FullStreamAutoAllocLimits &) = delete;
     FullStreamAutoAllocLimits &operator=(const FullStreamAutoAllocLimits &) = delete;
 
@@ -479,6 +495,25 @@ template <typename ChT> inline const FullStream MakeConstantFullStream(const ChT
 template <typename ChT> inline const FullStream MakeConstantFullStream(const ChT *begin, size_t size) { return FullStream { const_cast<ChT *>(begin), size }; }
 inline const FullStream MakeConstantFullStream(const std::string &string) { return FullStream { const_cast<char *>(string.data()), string.size() }; }
 template <typename ChT> inline const FullStream MakeConstantFullStream(const ChT *begin, const ChT *end, const ChT *curr) { return FullStream { const_cast<ChT *>(begin), const_cast<ChT *>(end), const_cast<ChT *>(curr) }; }
+inline const StreamAutoFree MakeStreamFromFile(const std::filesystem::path &path) {
+    if (!std::filesystem::is_regular_file(path)) {
+        throw std::invalid_argument { "Not a valid file" };
+    }
+
+    std::ifstream filestream { path, std::ios::binary | std::ios::ate };
+    if (!filestream.is_open()) throw std::runtime_error { "Unable to open file" };
+
+    filestream.seekg(0, std::ios::end);
+    size_t size = filestream.tellg();
+    filestream.seekg(0, std::ios::beg);
+
+    auto buffer = reinterpret_cast<char *>(malloc(size));
+    filestream.read(buffer, size);
+    size = filestream.gcount();
+
+    filestream.close();
+    return StreamAutoFree { buffer, size };
+}
 
 namespace exception {
 class BaseParser : public std::exception {

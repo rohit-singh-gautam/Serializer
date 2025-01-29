@@ -26,30 +26,6 @@ void DisplayHelp(const std::string &err) {
     }
 }
 
-std::pair<char *, size_t> ReadBufferFromFile(const std::filesystem::path &path) {
-    if (!std::filesystem::is_regular_file(path)) {
-        throw std::invalid_argument { "Not a valid file" };
-    }
-    std::ifstream filestream { path };
-
-    filestream.seekg(0, std::ios::end);
-    size_t size = filestream.tellg();
-    filestream.seekg(0, std::ios::beg);
-
-    auto buffer = new char[size];
-    filestream.read(buffer, size);
-    size = filestream.gcount();
-
-    filestream.close();
-    return { buffer, size };
-}
-
-void WriteBufferToFile(const std::filesystem::path &path, const rohit::FullStream &stream) {
-    std::ofstream filestream { path };
-    filestream.write(reinterpret_cast<const char *>(stream.begin()), stream.CurrentOffset());
-    filestream.close();
-}
-
 std::ostream &operator<<(std::ostream &os, const std::vector<std::string> &strlist) {
     os << "{ ";
     for(auto &str: strlist) {
@@ -93,9 +69,7 @@ int main(const int argc, const char *argv[]) {
         return 0;
     }
 
-    auto [buffer, size] = ReadBufferFromFile(input_file);
-
-    const rohit::FullStream inStream {buffer, size};
+    auto inStream = rohit::MakeStreamFromFile(input_file);
     rohit::FullStreamAutoAlloc outStream {256};
 
     bool OutputIsHeader = output_file.extension() == ".h" || output_file.extension() == ".hpp" || output_file.extension() == ".hxx";
@@ -106,7 +80,7 @@ int main(const int argc, const char *argv[]) {
     try {
         auto statementlist = rohit::serializer::Parser::Parse(inStream);
         rohit::serializer::Writer::CPP::Write(outStream, statementlist);
-        WriteBufferToFile(output_file, outStream);
+        outStream.WriteToFileTillOffset(output_file);
     } catch(const std::exception &e) {
         std::cout << "Failed to parse with error:\n" << e.what() << std::endl;
     }
