@@ -62,7 +62,7 @@ add_executable(CoreSerializerTest
 
 include_directories(${CMAKE_SOURCE_DIR}/include ${CMAKE_BINARY_DIR}/test)
 
-set_property(TARGET CoreSerializerTest PROPERTY CXX_STANDARD 23)
+set_property(TARGET CoreSerializerTest PROPERTY CXX_STANDARD 20)
 
 target_link_libraries(CoreSerializerTest PRIVATE serializerlib GTest::gtest_main)
 

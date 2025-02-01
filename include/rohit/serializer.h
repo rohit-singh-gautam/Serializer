@@ -561,7 +561,7 @@ public:
         }
         else if constexpr (std::integral<T>) {
             if (stream.RemainingBuffer() < sizeof(T)) throw exception::BadInputData { stream };
-            auto source = *reinterpret_cast<const T *>(stream.curr());
+            T source = *reinterpret_cast<const T *>(stream.curr());
             value = ChangeEndian<std::endian::big, std::endian::native>(source);
             stream += sizeof(T);
         } else if constexpr (std::is_same_v<std::string, T>) {

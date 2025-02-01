@@ -29,32 +29,46 @@
 
 namespace rohit {
 
-template <std::endian source, std::endian destination>
-constexpr auto ChangeEndian(const auto &val) {
-    if constexpr (source == destination || sizeof(val) == 1) return val;
-    else {
+template <typename T>
+constexpr T byteswap(const T &val) {
 #if __cpp_lib_byteswap
         return std::byteswap(val);
 #else
         if constexpr (sizeof(val) == 2) {
-            return static_cast<std::make_unsigned_t<decltype(val)>>(val >> 8) | static_cast<std::make_unsigned_t<decltype(val)>>(val << 8);
+            if constexpr (std::is_signed_v<T> && !std::is_same_v<T, bool>) {
+                const auto retval1 = static_cast<std::make_unsigned_t<T>>(val) >> 8;
+                const auto retval2 = static_cast<std::make_unsigned_t<T>>(val) << 8;
+                return static_cast<T>(retval1 | retval2);
+            } else {
+                return (val >> 8) | (val << 8);
+            }
         } else if constexpr (sizeof(val) == 4) {
-            return static_cast<std::make_unsigned_t<decltype(val)>>(val >> 24) | 
-                ((val >> 8) & 0x0000FF00) | 
-                ((val << 8) & 0x00FF0000) | 
-                static_cast<std::make_unsigned_t<decltype(val)>>(val << 24);
+            T retval = ((val >> 8) & 0x0000FF00) | ((val << 8) & 0x00FF0000);
+            if constexpr (std::is_signed_v<T> && !std::is_same_v<T, bool>) {
+                const auto retval1 = static_cast<std::make_unsigned_t<T>>(val) >> 24;
+                const auto retval2 = static_cast<std::make_unsigned_t<T>>(val) << 24;
+                return static_cast<T>(retval1 | retval2 | retval);
+            } else return (val >> 24) | (val << 24) | retval;
         } else if constexpr (sizeof(val) == 8) {
-            return static_cast<std::make_unsigned_t<decltype(val)>>(val >> 56) | 
-                ((val >> 40) & 0x000000000000FF00) | 
-                ((val >> 24) & 0x0000000000FF0000) | 
-                ((val >> 8) & 0x00000000FF000000) | 
-                ((val << 8) & 0x000000FF00000000) | 
-                ((val << 24) & 0x0000FF0000000000) | 
-                ((val << 40) & 0x00FF000000000000) | 
-                static_cast<std::make_unsigned_t<decltype(val)>>(val << 56);
+            T retval =  ((val >> 40) & 0x000000000000FF00ULL) | 
+                                    ((val >> 24) & 0x0000000000FF0000ULL) | 
+                                    ((val >> 8)  & 0x00000000FF000000ULL) | 
+                                    ((val << 8)  & 0x000000FF00000000ULL) | 
+                                    ((val << 24) & 0x0000FF0000000000ULL) | 
+                                    ((val << 40) & 0x00FF000000000000ULL);
+            if constexpr (std::is_signed_v<T> && !std::is_same_v<T, bool>) {
+                const auto retval1 = static_cast<std::make_unsigned_t<T>>(val) >> 56;
+                const auto retval2 = static_cast<std::make_unsigned_t<T>>(val) << 56;
+                return static_cast<T>(retval1 | retval2 | retval);
+            } else return (val >> 56) | (val << 56) | retval;
         } else static_assert(false, "Unsupported type");
 #endif
-    }
+}
+
+template <std::endian source, std::endian destination, typename T>
+constexpr T ChangeEndian(const T &val) {
+    if constexpr (source == destination || sizeof(val) == 1) return val;
+    else return byteswap(val);
 }
 
 namespace exception {

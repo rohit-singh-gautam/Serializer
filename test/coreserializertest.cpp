@@ -410,7 +410,7 @@ TEST(BinarySerializer, Integer16_Second) {
         auto stream = rohit::MakeConstantFullStream(begin, end);
         decltype(test) value { };
         rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>::SerializeIn(stream, value);
-        EXPECT_EQ(test, std::byteswap(value)); 
+        EXPECT_EQ(test, rohit::byteswap(value)); 
     }
 }
 
@@ -426,7 +426,7 @@ TEST(BinarySerializer, Integer32) {
         auto stream = rohit::MakeConstantFullStream(begin, end);
         decltype(test) value { };
         rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>::SerializeIn(stream, value);
-        EXPECT_EQ(test, std::byteswap(value)); 
+        EXPECT_EQ(test, rohit::byteswap(value)); 
     }
 }
 
@@ -443,7 +443,7 @@ TEST(BinarySerializer, Integer64) {
         auto stream = rohit::MakeConstantFullStream(begin, end);
         decltype(test) value { };
         rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>::SerializeIn(stream, value);
-        EXPECT_EQ(test, std::byteswap(value)); 
+        EXPECT_EQ(test, rohit::byteswap(value)); 
     }
 }
 
