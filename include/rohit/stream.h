@@ -31,8 +31,30 @@ namespace rohit {
 
 template <std::endian source, std::endian destination>
 constexpr auto ChangeEndian(const auto &val) {
-    if constexpr (source == destination) return val;
-    else return std::byteswap(val);
+    if constexpr (source == destination || sizeof(val) == 1) return val;
+    else {
+#if __cpp_lib_byteswap
+        return std::byteswap(val);
+#else
+        if constexpr (sizeof(val) == 2) {
+            return static_cast<std::make_unsigned_t<decltype(val)>>(val >> 8) | static_cast<std::make_unsigned_t<decltype(val)>>(val << 8);
+        } else if constexpr (sizeof(val) == 4) {
+            return static_cast<std::make_unsigned_t<decltype(val)>>(val >> 24) | 
+                ((val >> 8) & 0x0000FF00) | 
+                ((val << 8) & 0x00FF0000) | 
+                static_cast<std::make_unsigned_t<decltype(val)>>(val << 24);
+        } else if constexpr (sizeof(val) == 8) {
+            return static_cast<std::make_unsigned_t<decltype(val)>>(val >> 56) | 
+                ((val >> 40) & 0x000000000000FF00) | 
+                ((val >> 24) & 0x0000000000FF0000) | 
+                ((val >> 8) & 0x00000000FF000000) | 
+                ((val << 8) & 0x000000FF00000000) | 
+                ((val << 24) & 0x0000FF0000000000) | 
+                ((val << 40) & 0x00FF000000000000) | 
+                static_cast<std::make_unsigned_t<decltype(val)>>(val << 56);
+        } else static_assert(false, "Unsupported type");
+#endif
+    }
 }
 
 namespace exception {

@@ -20,8 +20,8 @@ target_link_libraries(serializer serializerlib)
 
 include_directories(include)
 
-set_property(TARGET serializer PROPERTY CXX_STANDARD 23)
-set_property(TARGET serializerlib PROPERTY CXX_STANDARD 23)
+set_property(TARGET serializer PROPERTY CXX_STANDARD 20)
+set_property(TARGET serializerlib PROPERTY CXX_STANDARD 20)
 
 if(${CMAKE_CURRENT_SOURCE_DIR} STREQUAL ${CMAKE_SOURCE_DIR})
     enable_testing()
