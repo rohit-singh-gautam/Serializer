@@ -291,12 +291,12 @@ public:
     bool IsEmpty() const { return _curr == _begin; }
 
     void WriteToFileTillOffset(const std::filesystem::path &path) {
-        std::ofstream filestream { path };
+        std::ofstream filestream { path, std::ios::binary };
         filestream.write(reinterpret_cast<const char *>(_begin), CurrentOffset());
         filestream.close();
     }
     void WriteToFileComplete(const std::filesystem::path &path) {
-        std::ofstream filestream { path };
+        std::ofstream filestream { path, std::ios::binary };
         filestream.write(reinterpret_cast<const char *>(_begin), Capacity());
         filestream.close();
     }
