@@ -46,6 +46,11 @@ public:
     using BaseParser::BaseParser;
 };
 
+class KeyNotFound : public BaseParser {
+public:
+    using BaseParser::BaseParser;
+};
+
 } // namespace exception
 
 namespace typecheck {
@@ -162,7 +167,13 @@ private:
     }
 
     static void CheckAndIncrease(const FullStream &stream, char value) {
-        if (*stream != value) throw exception::BadInputData { stream };
+        if (*stream != value) {
+            std::string errStr { "Expected " };
+            errStr.push_back(value);
+            errStr += " but found ";
+            errStr.push_back(*stream);
+            throw exception::BadInputData { stream , std::move(errStr) };
+        }
         ++stream;
     }
 
@@ -286,6 +297,9 @@ private:
                 if (*stream == ']') break;
                 CheckAndIncrease(stream, ',');
                 SkipWhiteSpace(stream);
+                if (*stream == ']') {
+                    throw exception::BadInputData { stream, "Unexpected ',', there must be next array entry after ','" };
+                }
             }
         }
         ++stream;
@@ -309,6 +323,9 @@ private:
                 if (*stream == '}') break;
                 CheckAndIncrease(stream, ',');
                 SkipWhiteSpace(stream);
+                if (*stream == '}') {
+                    throw exception::BadInputData { stream, "Unexpected ',', there must be next map entry after ','" };
+                }
             }
         }
         ++stream;
@@ -345,22 +362,24 @@ public:
         std::unordered_map<std::string_view, std::function<void(const rohit::FullStream &)>> membermap { values... };
         SkipWhiteSpace(stream);
         CheckAndIncrease(stream, '{');
+        SkipWhiteSpace(stream);
         while(true) {
-            SkipWhiteSpace(stream);
             auto key = SerializeInGetKey(stream);
             auto itr = membermap.find(key);
             if (itr == std::end(membermap)) {
                 std::string errorstr { "Key: " };
                 errorstr += key;
-                errorstr += " - Not present";
-                throw exception::BadInputData {stream, std::move(errorstr)};
+                errorstr += " not present";
+                throw exception::KeyNotFound {stream, std::move(errorstr)};
             }
             itr->second(stream);
             SkipWhiteSpace(stream);
-            if (*stream == '}') {
-                break;
-            }
+            if (*stream == '}') break;
             CheckAndIncrease(stream, ',');
+            SkipWhiteSpace(stream);
+            if (*stream == '}') {
+                throw exception::BadInputData { stream, "Unexpected ',', there must be next object after ','" };
+            }
         }
         ++stream;
     }
@@ -549,12 +568,12 @@ public:
 
     template <typename T>
     static void SerializeIn(const FullStream &stream, T &value) {
-        if constexpr (std::is_same_v<bool, T>) {
-            if (stream.full()) throw exception::BadInputData { stream };
-            value = !!(*stream++);
-        } else if constexpr (std::is_same_v<char, T>) {
+        if constexpr (std::is_same_v<char, T>) {
             if (stream.full()) throw exception::BadInputData { stream };
             value = *stream++;
+        } else if constexpr (std::is_same_v<bool, T>) {
+            if (stream.full()) throw exception::BadInputData { stream };
+            value = !!(*stream++);
         } else if constexpr (std::is_enum_v<T>) {
             auto ival = SerializeInVariable(stream);
             value = static_cast<T>(ival);
@@ -607,6 +626,12 @@ public:
                 auto key = SerializeInVariable(stream);
                 if (key == 0) break;
                 auto itr = membermap.find(key);
+                if (itr == std::end(membermap)) {
+                    std::string errorstr { "Key: " };
+                    errorstr += std::to_string(key);
+                    errorstr += " not found";
+                    throw exception::KeyNotFound {stream, std::move(errorstr)};
+                }
                 itr->second(stream);
             }
         } else if constexpr (serialize_key_type == SerializeKeyType::String) {
@@ -616,6 +641,12 @@ public:
                 SerializeIn(stream, key);
                 if (key.empty()) break;
                 auto itr = membermap.find(key);
+                if (itr == std::end(membermap)) {
+                    std::string errorstr { "Key: " };
+                    errorstr += key;
+                    errorstr += " not found";
+                    throw exception::KeyNotFound {stream, std::move(errorstr)};
+                }
                 itr->second(stream);
             }
         }
@@ -655,6 +686,17 @@ public:
             value->template SerializeOut<binary<SERIALIZE_KEY_TYPE>>(stream);
         } else if constexpr (typecheck::SerializerOutEnabled<T, binary<SERIALIZE_KEY_TYPE>>) {
             value.template SerializeOut<binary<SERIALIZE_KEY_TYPE>>(stream);
+        } else if constexpr (typecheck::vector<T>) {
+            SerializeOutVariable(stream, value.size());
+            for (const auto &item : value) {
+                SerializeOut(stream, item);
+            }
+        } else if constexpr (typecheck::map<T>) {
+            SerializeOutVariable(stream, value.size());
+            for (const auto &item : value) {
+                SerializeOut(stream, item.first);
+                SerializeOut(stream, item.second);
+            }
         } else {
             throw exception::BadType {stream, "Bad Type, this is internal error."};
         }
@@ -663,23 +705,6 @@ public:
     template <typecheck::functions T>
     static void SerializeOut(Stream &stream, const T &value) {
         value(stream);
-    }
-
-    template <typecheck::vector T>
-    static void SerializeOut(Stream &stream, const T &value) {
-        SerializeOutVariable(stream, value.size());
-        for (const auto &item : value) {
-            SerializeOut(stream, item);
-        }
-    }
-
-    template <typecheck::map T>
-    static void SerializeOut(Stream &stream, const T &value) {
-        SerializeOutVariable(stream, value.size());
-        for (const auto &item : value) {
-            SerializeOut(stream, item.first);
-            SerializeOut(stream, item.second);
-        }
     }
 
     static void StructSerializeOutStart(Stream &stream, const auto &value) {
@@ -699,5 +724,9 @@ public:
         }
     }
 }; // class binary
+
+using binary_integer = binary<SerializeKeyType::Integer>;
+using binary_string = binary<SerializeKeyType::String>;
+using binary_none = binary<SerializeKeyType::None>;
 
 } // namespace rohit::serializer

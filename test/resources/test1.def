@@ -16,6 +16,13 @@
 //////////////////////////////////////////////////////////////////////////
 
 namespace test {
+enum testenum {
+    test1,
+    test2,
+    test3,
+    test4
+}
+
 class values {
     public char ch;
     public float pi;

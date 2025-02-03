@@ -24,7 +24,9 @@ class person {
 
 class personlist {
     public uint64 listid;
+    public bool check;
     public array person list;
+    public map(uint32) uint32 reverseListMap;
 }
 
 class session {

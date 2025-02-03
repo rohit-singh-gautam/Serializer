@@ -557,33 +557,23 @@ protected:
     const std::string whats_err;
 
     static const auto CreateWhatString(const Stream &stream, const std::string &errorstr) {
-        std::string whats_err { };
-        if (errorstr.empty()) whats_err += "Error ";
-        else whats_err += errorstr;
+        std::string whats_err { "Error: " };
 
         const FullStream *fullstream = dynamic_cast<const FullStream *>(&stream);
 
         if (fullstream) {
             whats_err += " - Location: ";
-            if (fullstream->CurrentOffset() >= 40 ){
-                std::string_view initial {reinterpret_cast<const char *>(fullstream->curr() - 16), 16};
-                for(auto &current_ch: initial) {
-                    if (current_ch >= 32 /* &&  current_ch <= 127 */) {
-                        whats_err.push_back(current_ch);
-                    } else whats_err.push_back('#');
-                }
-                whats_err += " ... ";
-
-                std::string_view second {reinterpret_cast<const char *>(fullstream->curr()) - 16, 16};
-                for(auto &current_ch: initial) {
-                    if (current_ch >= 32 /* &&  current_ch <= 127 */) {
+            if (fullstream->CurrentOffset() >= 168 ){
+                std::string_view second {reinterpret_cast<const char *>(fullstream->curr()) - 160, 160};
+                for(auto &current_ch: second) {
+                    if ((current_ch >= 32 /* &&  current_ch <= 127 */) || current_ch == '\n' || current_ch == '\r' || current_ch == '\t') {
                         whats_err.push_back(current_ch);
                     } else whats_err.push_back('#');
                 }
             } else {
                 std::string_view initial {reinterpret_cast<const char *>(fullstream->begin()), fullstream->CurrentOffset()};
                 for(auto &current_ch: initial) {
-                    if (current_ch >= 32 /* &&  current_ch <= 127 */) {
+                    if ((current_ch >= 32 /* &&  current_ch <= 127 */) || current_ch == '\n' || current_ch == '\r' || current_ch == '\t') {
                         whats_err.push_back(current_ch);
                     } else whats_err.push_back('#');
                 }
@@ -597,15 +587,15 @@ protected:
             whats_err += " --- ";
         }
 
-        std::string_view last {reinterpret_cast<const char *>(stream.curr()), std::min<size_t>(16, stream.RemainingBuffer())};
+        std::string_view last {reinterpret_cast<const char *>(stream.curr()), std::min<size_t>(80, stream.RemainingBuffer())};
         for(auto &current_ch: last) {
-            if (current_ch >= 32 /* &&  current_ch <= 127 */) {
+            if ((current_ch >= 32 /* &&  current_ch <= 127 */) || current_ch == '\n' || current_ch == '\r' || current_ch == '\t') {
                 whats_err.push_back(current_ch);
             } else whats_err.push_back('#');
         }
-        if (stream.RemainingBuffer() > 16) {
+        if (stream.RemainingBuffer() > 80) {
             whats_err += " ... more ";
-            whats_err += std::to_string(stream.RemainingBuffer() - 16UL);
+            whats_err += std::to_string(stream.RemainingBuffer() - 80UL);
             whats_err += " characters.";
         }
 
