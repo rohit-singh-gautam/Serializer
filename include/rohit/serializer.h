@@ -591,7 +591,8 @@ public:
             stream += size;
         } else if constexpr (std::floating_point<T>) {
             if (stream.RemainingBuffer() < sizeof(T)) throw exception::BadInputData { stream };
-            value = *reinterpret_cast<const T *>(stream.curr());
+            T source = *reinterpret_cast<const T *>(stream.curr());
+            value = ChangeEndian<std::endian::big, std::endian::native>(source);
             stream += sizeof(T);
         } else if constexpr (typecheck::SerializerOutEnabledPtr<T, binary<SERIALIZE_KEY_TYPE>>) {
             value->template SerializeIn<binary<SERIALIZE_KEY_TYPE>>(stream);
@@ -658,17 +659,17 @@ public:
     template <typename T>
     static void SerializeOut(Stream &stream, const T &value) {
         if constexpr (std::is_same_v<char, T>) {
-            *stream = value;
             stream += sizeof(T);
+            *(stream.curr() - sizeof(T)) = value;
         } else if constexpr (std::is_same_v<bool, T>) {
-            *stream = value;
             stream += sizeof(T);
+            *(stream.curr() - sizeof(T)) = value;
         } else if constexpr (std::is_enum_v<T>) {
             SerializeOutVariable(stream, static_cast<std::underlying_type_t<T>>(value));
         } else if constexpr (std::integral<T>) {
-            auto dest = reinterpret_cast<T *>(stream.curr());
-            *dest = ChangeEndian<std::endian::native, std::endian::big>(value);
             stream += sizeof(T);
+            auto dest = reinterpret_cast<T *>(stream.curr() - sizeof(T));
+            *dest = ChangeEndian<std::endian::native, std::endian::big>(value);
         } else if constexpr (std::is_same_v<std::string, T>) {
             // variable size following string of size
             SerializeOutVariable(stream, value.size());
@@ -678,10 +679,9 @@ public:
             SerializeOutVariable(stream, value.size());
             stream.Copy(value);
         } else if constexpr (std::floating_point<T>) {
-            if (stream.RemainingBuffer() < sizeof(T)) throw exception::BadInputData { stream };
-            auto dest = reinterpret_cast<T *>(stream.curr());
-            *dest = value;
             stream += sizeof(T);
+            auto dest = reinterpret_cast<T *>(stream.curr() - sizeof(T));
+            *dest = ChangeEndian<std::endian::native, std::endian::big>(value);
         } else if constexpr (typecheck::SerializerOutEnabledPtr<T, binary<SERIALIZE_KEY_TYPE>>) {
             value->template SerializeOut<binary<SERIALIZE_KEY_TYPE>>(stream);
         } else if constexpr (typecheck::SerializerOutEnabled<T, binary<SERIALIZE_KEY_TYPE>>) {
