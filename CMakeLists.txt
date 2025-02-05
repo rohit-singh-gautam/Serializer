@@ -12,7 +12,7 @@ elseif (MSVC)
 add_compile_options(/W4 /WX)
 endif()
 
-add_library(serializerlib src/parser.cpp src/cppwriter.cpp src/common.cpp)
+add_library(serializerlib src/parser.cpp src/cppwriter.cpp src/common.cpp include/rohit/serializercreator.h include/rohit/serializer.h include/rohit/stream.h)
 
 add_executable(serializer src/serializer.cpp)
 
