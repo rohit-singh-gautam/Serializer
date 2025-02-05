@@ -6,6 +6,7 @@
             "displayName": "BaseLinux",
             "hidden": true,
             "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
+            "generator": "Ninja Multi-Config",
             "cacheVariables": {
                 "VCPKG_TARGET_TRIPLET": "x64-linux"
             },
