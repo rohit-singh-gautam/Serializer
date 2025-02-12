@@ -54,9 +54,9 @@ add_executable(CoreSerializerTest
     ${CMAKE_BINARY_DIR}/test/enum.h
     generatedtest.cpp)
 
-include_directories(${CMAKE_SOURCE_DIR}/include ${CMAKE_BINARY_DIR}/test)
+target_compile_definitions(CoreSerializerTest PUBLIC cxx_std_20)
 
-set_property(TARGET CoreSerializerTest PROPERTY CXX_STANDARD 20)
+include_directories(${CMAKE_SOURCE_DIR}/include ${CMAKE_BINARY_DIR}/test)
 
 target_link_libraries(CoreSerializerTest PRIVATE serializerlib GTest::gtest_main)
 
