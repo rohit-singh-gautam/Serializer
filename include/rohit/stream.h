@@ -217,7 +217,7 @@ public:
     virtual inline void Reserve(const size_t len) { CheckOverflow(len); }
     inline void Reserve(const auto *_begin, const auto *_end) { 
         const size_t len = reinterpret_cast<const char *>(_end) - reinterpret_cast<const char *>(_begin);
-        CheckOverflow(len);
+        Reserve(len);
     }
     inline void Copy(const std::string_view &source) { Reserve(source.size()); _curr = std::copy(std::begin(source), std::end(source), _curr); }
     inline void Copy(const std::string &source) { Reserve(source.size()); _curr = std::copy(std::begin(source), std::end(source), _curr); }
