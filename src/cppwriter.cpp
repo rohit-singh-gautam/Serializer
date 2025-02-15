@@ -330,9 +330,9 @@ void WriteSerializerInBodyUnionKeyInteger(Stream &outStream, const Class *obj, c
 
 void WriteSerializerInBodyUnionKeyNone(Stream &outStream, const Member &member) {
     outStream.Write(
-        "\t\t\tuint32_t ", member.Name, "_type { };\n"
-        "\t\t\t", member.Name, "_type = SerializerProtocol::SerializeInVariable(stream);\n"
-        "\t\t\tthis->", member.Name, "_type = static_cast<e_", member.Name, ">(", member.Name, "_type);\n"
+        "\t\t\tuint32_t ", member.Name, "_type_local { };\n"
+        "\t\t\t", member.Name, "_type_local = SerializerProtocol::SerializeInVariable(stream);\n"
+        "\t\t\tthis->", member.Name, "_type = static_cast<e_", member.Name, ">(", member.Name, "_type_local);\n"
         "\t\t\tswitch(this->", member.Name, "_type) {\n"
     );
     for(size_t index { 0 }; index < member.typeNameList.size(); ++index) {
