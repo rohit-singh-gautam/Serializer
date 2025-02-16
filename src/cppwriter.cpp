@@ -129,7 +129,7 @@ void WriteSerializerOutBodyForParent(Stream &outStream, const Class *obj, const 
         else outStream.Write("\n\t\t\tSerializerProtocol::StructSerializeOut(stream, ");
         if (serialize_key_type == rohit::serializer::SerializeKeyType::String) {
             outStream.Write(
-                "std::make_pair(std::string_view { \"", parent.Name, "\" }, static_cast<const ", parent.Name," *>(this))"
+                "std::make_pair(std::string_view { \"", parent.displayName, "\" }, static_cast<const ", parent.Name," *>(this))"
                 ");");
         } else if (serialize_key_type == rohit::serializer::SerializeKeyType::Integer){
             outStream.Write(
@@ -229,65 +229,46 @@ void WriteSerializerInBodyForParentKeyNone(Stream &outStream, const Class *obj) 
     }
 }
 
-void WriteSerializerInBodyForParentKeyInteger(Stream &outStream, const Class *obj, bool &first) {
+void WriteSerializerInBodyForParentKeyInteger(Stream &outStream, const Class *obj) {
     for(auto &parent: obj->parentlist) {
-        if (!first) outStream.Write(",\n");
-        else first = false;
         outStream.Write(
-            "\t\t\t\tstd::pair<uint32_t, std::function<void(const rohit::FullStream &, ", obj->Name," &)>> {\n"
-            "\t\t\t\t\tstatic_cast<uint32_t>(", parent.id, "),\n"
-            "\t\t\t\t\t[](const rohit::FullStream &stream, ", obj->Name," &obj) {\n"
-            "\t\t\t\t\t\tobj.", parent.Name, "::template SerializeIn<SerializerProtocol>(stream);\n"
-            "\t\t\t\t\t}\n"
-            "\t\t\t\t}");
+            "\t\t\tcase ", parent.id, ":\n"
+            "\t\t\t\tthis->", parent.Name, "::template SerializeIn<SerializerProtocol>(stream);\n"
+            "\t\t\t\tbreak;\n");
     }
 } // WriteSerializerInBodyForParentKeyInteger
 
-void WriteSerializerInBodyForParentKeyString(Stream &outStream, const Class *obj, bool &first) {
+void WriteSerializerInBodyForParentKeyString(Stream &outStream, const Class *obj) {
     for(auto &parent: obj->parentlist) {
-        if (!first) outStream.Write(",\n");
-        else first = false;
         outStream.Write(
-            "\t\t\t\tstd::pair<std::string_view, std::function<void(const rohit::FullStream &, ", obj->Name," &)>> {\n"
-            "\t\t\t\t\tstd::string_view {\"", parent.Name, "\"},\n"
-            "\t\t\t\t\t[] (const rohit::FullStream &stream, ", obj->Name," &obj) {\n"
-            "\t\t\t\t\t\tobj.", parent.Name, "::template SerializeIn<SerializerProtocol>(stream);\n"
-            "\t\t\t\t\t}\n"
-            "\t\t\t\t}");
+            "\t\t\tcase rohit::Hash(\"", parent.displayName, "\"):\n"
+            "\t\t\t\tthis->", parent.Name, "::template SerializeIn<SerializerProtocol>(stream);\n"
+            "\t\t\t\tbreak;\n");
     }
 } // WriteSerializerInBodyForParentKeyString
 
-void WriteSerializerInBodyNonUnionKeyString(Stream &outStream, const Class *obj, const Member &member, bool &first) {
-    if (!first) outStream.Write(",\n");
-    else first = false;
+void WriteSerializerInBodyNonUnionKeyString(Stream &outStream, const Member &member) {
     if (member.typeNameList[0].type != ObjectType::Enum) {
         outStream.Write(
-            "\t\t\t\tstd::pair<std::string_view, std::function<void(const rohit::FullStream &, ", obj->Name," &)>> {"
-            "\n\t\t\t\t\tstd::string_view {\"", member.displayName, "\"}, [] (const rohit::FullStream &stream, ", obj->Name," &obj) {"
-            "\n\t\t\t\t\t\tSerializerProtocol::template SerializeIn<", GetCPPType(member),">(stream, obj.", member.Name, ");"
-            "\n\t\t\t\t\t}"
-            "\n\t\t\t\t}");
+            "\t\t\tcase rohit::Hash(\"", member.displayName, "\"):\n"
+            "\t\t\t\tSerializerProtocol::template SerializeIn<", GetCPPType(member),">(stream, this->", member.Name, ");\n"
+            "\t\t\t\tbreak;\n");
     } else {
         outStream.Write(
-            "\t\t\t\tstd::pair<std::string_view, std::function<void(const rohit::FullStream &, ", obj->Name," &)>> {"
-            "\n\t\t\t\t\tstd::string_view {\"", member.displayName, "\"}, [] (const rohit::FullStream &stream, ", obj->Name," &obj) {"
-            "\n\t\t\t\t\t\tstd::string str_", member.Name, " { };"
-            "\n\t\t\t\t\t\tSerializerProtocol::template SerializeIn<std::string>(stream, str_", member.Name, ");"
-            "\n\t\t\t\t\t\tobj.", member.Name, " = to_", member.typeNameList[0].Name,"(str_", member.Name, ");"
-            "\n\t\t\t\t\t}"
-            "\n\t\t\t\t}");
+            "\t\t\tcase rohit::Hash(\"", member.displayName, "\"): {\n"
+            "\t\t\t\tstd::string str_", member.Name, " { };\n"
+            "\t\t\t\tSerializerProtocol::template SerializeIn<std::string>(stream, str_", member.Name, ");\n"
+            "\t\t\t\tthis->", member.Name, " = to_", member.typeNameList[0].Name,"(str_", member.Name, ");\n"
+            "\t\t\t\tbreak;\n"
+            "\t\t\t}\n");
     }
 } // WriteSerializerInBodyNonUnionKeyString
 
-void WriteSerializerInBodyNonUnionKeyInteger(Stream &outStream, const Class *obj, const Member &member, bool &first) {
-    if (!first) outStream.Write(",\n");
-    else first = false;
+void WriteSerializerInBodyNonUnionKeyInteger(Stream &outStream, const Member &member) {
     outStream.Write(
-        "\t\t\t\tstd::pair<uint32_t, std::function<void(const rohit::FullStream &, ", obj->Name," &)>> {"
-        "\n\t\t\t\t\tstatic_cast<uint32_t>(", member.id, "), [] (const rohit::FullStream &stream, ", obj->Name," &obj) {"
-        "\n\t\t\t\t\t\tSerializerProtocol::template SerializeIn<", GetCPPType(member),">(stream, obj.", member.Name, ");"
-        "\n\t\t\t\t\t}"
-        "\n\t\t\t\t}");
+        "\t\t\tcase ", member.id, ":\n"
+        "\t\t\t\tSerializerProtocol::template SerializeIn<", GetCPPType(member),">(stream, this->", member.Name, ");\n"
+        "\t\t\t\tbreak;\n");
 } // WriteSerializerInBodyNonUnionKeyInteger
 
 void WriteSerializerInBodyNonUnionKeyNone(Stream &outStream, const Member &member) {
@@ -296,36 +277,29 @@ void WriteSerializerInBodyNonUnionKeyNone(Stream &outStream, const Member &membe
 } // WriteSerializerInBodyNonUnionKeyNone
 
 
-void WriteSerializerInBodyUnionKeyInteger(Stream &outStream, const Class *obj, const Member &member, bool &first) {
-    if (!first) outStream.Write(",\n");
-    else first = false;
-
+void WriteSerializerInBodyUnionKeyInteger(Stream &outStream, const Member &member) {
     outStream.Write(
-        "\t\t\t\tstd::pair<uint32_t, std::function<void(const rohit::FullStream &, ", obj->Name," &)>> {"
-        "\n\t\t\t\tstatic_cast<uint32_t>(", member.id, "), "
-    );
-
-    outStream.Write(
-        "[] (const rohit::FullStream &stream, ", obj->Name," &obj) {\n"
-        "\t\t\t\t\t\tuint32_t ", member.Name, "_type { };\n"
-        "\t\t\t\t\t\t", member.Name, "_type = SerializerProtocol::SerializeInVariable(stream);\n"
-        "\t\t\t\t\t\tobj.", member.Name, "_type = static_cast<e_", member.Name, ">(", member.Name, "_type);\n"
-        "\t\t\t\t\t\tswitch(obj.", member.Name, "_type) {\n"
+        "\t\t\tcase ", member.id, ": {\n"
+        "\t\t\t\tuint32_t ", member.Name, "_type { };\n"
+        "\t\t\t\t", member.Name, "_type = SerializerProtocol::SerializeInVariable(stream);\n"
+        "\t\t\t\tthis->", member.Name, "_type = static_cast<e_", member.Name, ">(", member.Name, "_type);\n"
+        "\t\t\t\tswitch(this->", member.Name, "_type) {\n"
     );
 
     for(size_t index { 0 }; index < member.typeNameList.size(); ++index) {
         outStream.Write(
-            "\t\t\t\t\t\t\tcase e_", member.Name, "::", member.typeNameList[index].EnumName, ":\n"
-            "\t\t\t\t\t\t\t\tSerializerProtocol::template SerializeIn(stream, obj.", member.Name,".", member.typeNameList[index].EnumName, ");\n"
-            "\t\t\t\t\t\t\t\tbreak;\n"
+            "\t\t\t\t\tcase e_", member.Name, "::", member.typeNameList[index].EnumName, ":\n"
+            "\t\t\t\t\t\tSerializerProtocol::template SerializeIn(stream, this->", member.Name,".", member.typeNameList[index].EnumName, ");\n"
+            "\t\t\t\t\t\tbreak;\n"
         );
     }
     outStream.Write(
-        "\t\t\t\t\t\t}\n"
-        "\t\t\t\t\t}\n"
+        "\t\t\t\t\tdefault:\n"
+        "\t\t\t\t\t\tthrow rohit::serializer::exception::KeyNotFound {stream, \"Bad Enum Name\"};\n"
+        "\t\t\t\t}\n"
+        "\t\t\t\tbreak;\n"
+        "\t\t\t}\n"
     );
-
-    outStream.Write("\t\t\t\t}");
 } // WriteSerializerInBodyUnionKeyInteger
 
 void WriteSerializerInBodyUnionKeyNone(Stream &outStream, const Member &member) {
@@ -346,18 +320,13 @@ void WriteSerializerInBodyUnionKeyNone(Stream &outStream, const Member &member) 
 } // WriteSerializerInBodyUnionKeyNone
 
 
-void WriteSerializerInBodyUnionKeyString(Stream &outStream, const Class *obj, const Member &member, bool &first) {
+void WriteSerializerInBodyUnionKeyString(Stream &outStream, const Member &member) {
     for(auto &typeName: member.typeNameList) {
-        if (!first) outStream.Write(",\n");
-        else first = false;
-
         outStream.Write(
-            "\t\t\t\tstd::pair<std::string_view, std::function<void(const rohit::FullStream &, ", obj->Name," &)>> {"
-            "\n\t\t\t\t\tstd::string_view {\"", member.displayName, ":", typeName.EnumName, "\"}, [] (const rohit::FullStream &stream, ", obj->Name," &obj) {"
-            "\n\t\t\t\t\t\tobj.", member.Name, "_type = e_", member.Name, "::", typeName.EnumName, ";",
-            "\n\t\t\t\t\t\tSerializerProtocol::template SerializeIn(stream, obj.", member.Name, ".", typeName.EnumName, ");"
-            "\n\t\t\t\t\t}"
-            "\n\t\t\t\t}");
+            "\t\t\tcase rohit::Hash(\"", member.displayName, ":", typeName.EnumName, "\"):\n"
+            "\t\t\t\tthis->", member.Name, "_type = e_", member.Name, "::", typeName.EnumName, ";\n",
+            "\t\t\t\tSerializerProtocol::template SerializeIn(stream, this->", member.Name, ".", typeName.EnumName, ");\n"
+            "\t\t\t\tbreak;\n");
     }
 } // WriteSerializerInBodyUnionString
 
@@ -372,56 +341,70 @@ void WriteSerializerInBodyKeyNone(Stream &outStream, const Class *obj) {
     }
 } // WriteSerializerInBodyKeyNone
 
-void WriteSerializerInBodyWithKey(Stream &outStream, const Class *obj, const rohit::serializer::SerializeKeyType serialize_key_type) {
-    bool first = true;
-    if (serialize_key_type == rohit::serializer::SerializeKeyType::Integer) {
-        outStream.Write(
-            "\t\t\tstatic const std::unordered_map<uint32_t, std::function<void(const rohit::FullStream &, ", obj->Name," &)>> memberMap {\n"
-        );
-        WriteSerializerInBodyForParentKeyInteger(outStream, obj, first);
-    } else {
-        outStream.Write(
-            "\t\t\tstatic const std::unordered_map<std::string_view, std::function<void(const rohit::FullStream &, ", obj->Name," &)>> memberMap {\n"
-        );
-        WriteSerializerInBodyForParentKeyString(outStream, obj, first);
-    }
-    if (!first) outStream.Write(",\n");
-    first = true;
+void WriteSerializerInBodyWithKeyInteger(Stream &outStream, const Class *obj) {
+    outStream.Write(
+        "\ttemplate <typename SerializerProtocol>\n"
+        "\tvoid SerializeInMemberByIdentifier(const rohit::FullStream &stream, const uint32_t identifier) {\n"
+        "\t\tswitch(identifier) {\n"
+    );
+
+    WriteSerializerInBodyForParentKeyInteger(outStream, obj);
+
     for(auto &member: obj->MemberList) {
         if (member.modifer != Member::Union) {
-            if (serialize_key_type == rohit::serializer::SerializeKeyType::Integer) {
-                WriteSerializerInBodyNonUnionKeyInteger(outStream, obj, member, first);
-            } else {
-                WriteSerializerInBodyNonUnionKeyString(outStream, obj, member, first);
-            }
+            WriteSerializerInBodyNonUnionKeyInteger(outStream, member);
         } else if (member.typeNameList.size()) {
-            if (serialize_key_type == rohit::serializer::SerializeKeyType::Integer) {
-                WriteSerializerInBodyUnionKeyInteger(outStream, obj, member, first);
-            } else {
-                WriteSerializerInBodyUnionKeyString(outStream, obj, member, first);
-            }
+            WriteSerializerInBodyUnionKeyInteger(outStream, member);
         }
     }
     
     outStream.Write(
-        "\n\t\t\t};\n\n"
-        "\t\t\tSerializerProtocol::StructSerializeIn(stream, memberMap, *this);"
+        "\t\t\tdefault:\n"
+        "\t\t\t\tthrow rohit::serializer::exception::KeyNotFound {stream, \"Bad Member Identifier\"};\n"
+        "\t\t}\n"
+        "\t}\n\n");
+}
+
+void WriteSerializerInBodyWithKeyString(Stream &outStream, const Class *obj) {
+    outStream.Write(
+        "\ttemplate <typename SerializerProtocol>\n"
+        "\tvoid SerializeInMemberByName(const rohit::FullStream &stream, const std::string_view &name) {\n"
+        "\t\tswitch(rohit::Hash(name)) {\n"
     );
+
+    WriteSerializerInBodyForParentKeyString(outStream, obj);
+
+    for(auto &member: obj->MemberList) {
+        if (member.modifer != Member::Union) {
+            WriteSerializerInBodyNonUnionKeyString(outStream, member);
+        } else if (member.typeNameList.size()) {
+            WriteSerializerInBodyUnionKeyString(outStream, member);
+        }
+    }
+    
+    outStream.Write(
+        "\t\t\tdefault:\n"
+        "\t\t\t\tthrow rohit::serializer::exception::KeyNotFound {stream, \"Bad Member Name\"};\n"
+        "\t\t}\n"
+        "\t}\n\n");
 }
 
 void WriteSerializerInBody(Stream &outStream, const Class *obj) {
+    WriteSerializerInBodyWithKeyInteger(outStream, obj);
+    WriteSerializerInBodyWithKeyString(outStream, obj);
     outStream.Write(
         "\ttemplate <typename SerializerProtocol>\n"
         "\tvoid SerializeIn(const rohit::FullStream &stream) {"
     );
-
     outStream.Write("\n\t\tif constexpr (SerializerProtocol::serialize_key_type == rohit::serializer::SerializeKeyType::None) {\n");
     WriteSerializerInBodyKeyNone(outStream, obj);
-    outStream.Write("\t\t} else if constexpr (SerializerProtocol::serialize_key_type == rohit::serializer::SerializeKeyType::Integer) {\n");
-    WriteSerializerInBodyWithKey(outStream, obj, rohit::serializer::SerializeKeyType::Integer);
-    outStream.Write("\n\t\t} else if constexpr (SerializerProtocol::serialize_key_type == rohit::serializer::SerializeKeyType::String) {\n");
-    WriteSerializerInBodyWithKey(outStream, obj, rohit::serializer::SerializeKeyType::String);
-    outStream.Write("\n\t\t} else { static_assert(true, \"Unsupported serializer type\"); }\n\t}\n");
+    outStream.Write(
+        "\t\t} else if constexpr (SerializerProtocol::serialize_key_type == rohit::serializer::SerializeKeyType::Integer ||\n"
+        "\t\t\t\t\t\tSerializerProtocol::serialize_key_type == rohit::serializer::SerializeKeyType::String) {\n"
+        "\t\t\tSerializerProtocol::template StructSerializeIn<", obj->Name,">(stream, this);\n"
+        "\t\t} else { static_assert(true, \"Unsupported serializer type\"); }\n"
+        "\t}\n"
+    );
 }
 
 void WriteSerializer(Stream &outStream, const Class *obj) {

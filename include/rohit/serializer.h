@@ -358,10 +358,7 @@ public:
     }
 
     template <typename T>
-    static void StructSerializeIn(
-        const FullStream &stream,
-        const std::unordered_map<std::string_view, std::function<void(const rohit::FullStream &, T &)>>  &membermap,
-        T &obj )
+    static void StructSerializeIn(const FullStream &stream, T *obj )
     {
         static_assert(serialize_key_type == SerializeKeyType::String, "Only String key type supported");
         SkipWhiteSpace(stream);
@@ -369,14 +366,7 @@ public:
         SkipWhiteSpace(stream);
         while(true) {
             auto key = SerializeInGetKey(stream);
-            auto itr = membermap.find(key);
-            if (itr == std::end(membermap)) {
-                std::string errorstr { "Key: " };
-                errorstr += key;
-                errorstr += " not present";
-                throw exception::KeyNotFound {stream, std::move(errorstr)};
-            }
-            itr->second(stream, obj);
+            obj->template SerializeInMemberByName<json>(stream, key);
             SkipWhiteSpace(stream);
             if (*stream == '}') break;
             CheckAndIncrease(stream, ',');
@@ -624,45 +614,23 @@ public:
     }
 
     template <typename T>
-    static void StructSerializeIn(
-        const FullStream &stream,
-        const std::unordered_map<uint32_t, std::function<void(const rohit::FullStream &, T &)>>  &membermap,
-        T &obj )
+    static void StructSerializeIn(const FullStream &stream, T *obj)
     {
-        static_assert(serialize_key_type == SerializeKeyType::Integer, "Only Integer key type supported");
-        while(true) {
-            auto key = SerializeInVariable(stream);
-            if (key == 0) break;
-            auto itr = membermap.find(key);
-            if (itr == std::end(membermap)) {
-                std::string errorstr { "Key: " };
-                errorstr += std::to_string(key);
-                errorstr += " not found";
-                throw exception::KeyNotFound {stream, std::move(errorstr)};
+        if constexpr (serialize_key_type == SerializeKeyType::Integer) {
+            while(true) {
+                auto key = SerializeInVariable(stream);
+                if (key == 0) break;
+                obj->template SerializeInMemberByIdentifier<binary<SERIALIZE_KEY_TYPE>>(stream, key);
             }
-            itr->second(stream, obj);
-        }
-    }
-
-    template <typename T>
-    static void StructSerializeIn(
-        const FullStream &stream,
-        const std::unordered_map<std::string_view, std::function<void(const rohit::FullStream &, T &)>>  &membermap,
-        T &obj )
-    {
-        static_assert(serialize_key_type == SerializeKeyType::String, "Only String key type supported");
-        while(true) {
-            std::string key { };
-            SerializeIn(stream, key);
-            if (key.empty()) break;
-            auto itr = membermap.find(key);
-            if (itr == std::end(membermap)) {
-                std::string errorstr { "Key: " };
-                errorstr += key;
-                errorstr += " not found";
-                throw exception::KeyNotFound {stream, std::move(errorstr)};
+        } else if constexpr (serialize_key_type == SerializeKeyType::String) {
+            while(true) {
+                std::string key { };
+                SerializeIn(stream, key);
+                if (key.empty()) break;
+                obj->template SerializeInMemberByName<binary<SERIALIZE_KEY_TYPE>>(stream, key);
             }
-            itr->second(stream, obj);
+        } else {
+            static_assert(true, "Only Integer and String key type supported");
         }
     }
 
