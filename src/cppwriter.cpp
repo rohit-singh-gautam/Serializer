@@ -280,9 +280,7 @@ void WriteSerializerInBodyNonUnionKeyNone(Stream &outStream, const Member &membe
 void WriteSerializerInBodyUnionKeyInteger(Stream &outStream, const Member &member) {
     outStream.Write(
         "\t\t\tcase ", member.id, ": {\n"
-        "\t\t\t\tuint32_t ", member.Name, "_type { };\n"
-        "\t\t\t\t", member.Name, "_type = SerializerProtocol::SerializeInVariable(stream);\n"
-        "\t\t\t\tthis->", member.Name, "_type = static_cast<e_", member.Name, ">(", member.Name, "_type);\n"
+        "\t\t\t\tthis->", member.Name, "_type = static_cast<e_", member.Name, ">(SerializerProtocol::SerializeInVariable(stream));\n"
         "\t\t\t\tswitch(this->", member.Name, "_type) {\n"
     );
 
