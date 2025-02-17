@@ -228,8 +228,8 @@ public:
     template <typename ValueType>
     inline void Copy(const ValueType &value) {
         if constexpr (std::is_same_v<ValueType, char>) {
-            at_unchecked() = value;
-            operator++();
+            Reserve(sizeof(value));
+            *_curr++ = value;
         } else if constexpr (std::is_integral_v<ValueType>) {
             char buffer[std::numeric_limits<ValueType>::digits10 + 3] { 0 };
             auto result = std::to_chars(std::begin(buffer), std::end(buffer), value);
