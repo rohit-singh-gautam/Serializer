@@ -275,13 +275,13 @@ void WriteSerializerInBodyNonUnionKeyString(Stream &outStream, const Member &mem
 void WriteSerializerInBodyNonUnionKeyInteger(Stream &outStream, const Member &member) {
     outStream.Write(
         "\t\t\tcase ", member.id, ":\n"
-        "\t\t\t\tserializerProtocol.template SerializeIn<", GetCPPType(member),">(this->", member.Name, ");\n"
+        "\t\t\t\tserializerProtocol.SerializeIn<", GetCPPType(member),">(this->", member.Name, ");\n"
         "\t\t\t\tbreak;\n");
 } // WriteSerializerInBodyNonUnionKeyInteger
 
 void WriteSerializerInBodyNonUnionKeyNone(Stream &outStream, const Member &member) {
     outStream.Write(
-        "\t\t\tserializerProtocol.template SerializeIn<", GetCPPType(member),">(this->", member.Name, ");\n");
+        "\t\t\tserializerProtocol.SerializeIn<", GetCPPType(member),">(this->", member.Name, ");\n");
 } // WriteSerializerInBodyNonUnionKeyNone
 
 
@@ -295,7 +295,7 @@ void WriteSerializerInBodyUnionKeyInteger(Stream &outStream, const Member &membe
     for(size_t index { 0 }; index < member.typeNameList.size(); ++index) {
         outStream.Write(
             "\t\t\t\t\tcase e_", member.Name, "::", member.typeNameList[index].EnumName, ":\n"
-            "\t\t\t\t\t\tserializerProtocol.template SerializeIn(this->", member.Name,".", member.typeNameList[index].EnumName, ");\n"
+            "\t\t\t\t\t\tserializerProtocol.SerializeIn(this->", member.Name,".", member.typeNameList[index].EnumName, ");\n"
             "\t\t\t\t\t\tbreak;\n"
         );
     }
@@ -318,7 +318,7 @@ void WriteSerializerInBodyUnionKeyNone(Stream &outStream, const Member &member) 
     for(size_t index { 0 }; index < member.typeNameList.size(); ++index) {
         outStream.Write(
             "\t\t\t\tcase e_", member.Name, "::", member.typeNameList[index].EnumName, ":\n"
-            "\t\t\t\t\tserializerProtocol.template SerializeIn(this->", member.Name,".", member.typeNameList[index].EnumName, ");\n"
+            "\t\t\t\t\tserializerProtocol.SerializeIn(this->", member.Name,".", member.typeNameList[index].EnumName, ");\n"
             "\t\t\t\t\tbreak;\n"
         );
     }
@@ -331,7 +331,7 @@ void WriteSerializerInBodyUnionKeyString(Stream &outStream, const Member &member
         outStream.Write(
             "\t\t\tcase rohit::Hash(\"", member.displayName, ":", typeName.EnumName, "\"):\n"
             "\t\t\t\tthis->", member.Name, "_type = e_", member.Name, "::", typeName.EnumName, ";\n",
-            "\t\t\t\tserializerProtocol.template SerializeIn(this->", member.Name, ".", typeName.EnumName, ");\n"
+            "\t\t\t\tserializerProtocol.SerializeIn(this->", member.Name, ".", typeName.EnumName, ");\n"
             "\t\t\t\tbreak;\n");
     }
 } // WriteSerializerInBodyUnionString
