@@ -50,23 +50,22 @@ class KeyNotFound : public BaseParser {
 public:
     using BaseParser::BaseParser;
 };
-
 } // namespace exception
 
 namespace typecheck {
 template <typename T, typename J>
-concept SerializerInEnabled = requires(T cls, Stream &stream) {
-    { cls->template SerializeIn<J>(stream) } -> std::same_as<void>;
+concept SerializerInEnabled = requires(T cls, J &serializeProtocol) {
+    { cls->template SerializeIn<J>(serializeProtocol) } -> std::same_as<void>;
 };
 
 template <typename T, typename J>
-concept SerializerOutEnabledPtr = requires(T cls, Stream &stream) {
-    { cls->template SerializeOut<J>(stream) } -> std::same_as<void>;
+concept SerializerOutEnabledPtr = requires(T cls, J &serializeProtocol) {
+    { cls->template SerializeOut<J>(serializeProtocol) } -> std::same_as<void>;
 };
 
 template <typename T, typename J>
-concept SerializerOutEnabled = requires(T cls, Stream &stream) {
-    { cls.template SerializeOut<J>(stream) } -> std::same_as<void>;
+concept SerializerOutEnabled = requires(T cls, J &serializeProtocol) {
+    { cls.template SerializeOut<J>(serializeProtocol) } -> std::same_as<void>;
 };
 
 template <typename T>
@@ -146,565 +145,706 @@ enum class SerializeKeyType {
     String
 };
 
-class json {
+enum class SerializeType {
+    In,
+    Out
+};
+
+template <SerializeType type>
+class json { };
+
+template<>
+class json<SerializeType::In> {
 public:
     constexpr static SerializeKeyType serialize_key_type = SerializeKeyType::String;
 
 private:
-    static constexpr bool IsWhiteSpace(const char val) noexcept { return val == ' ' || val == '\t' || val == '\n' || val == '\r'; }
-    static void SkipWhiteSpace(const Stream &inStream) { while(IsWhiteSpace(*inStream)) ++inStream; }
+    const Stream &inStream;
 
-    template <typename T>
-    static void SerializeOutFirst(Stream &stream, auto &name, const T &value) {
-        stream.Write('"', name, "\":");
-        SerializeOut(stream, value);
-    }
+public:
+    json(const Stream &inStream) : inStream { inStream } { }
 
-    template <typename T>
-    static void SerializeOutSecond(Stream &stream, auto &name, const T &value) {
-        stream.Write(",\"", name, "\":");
-        SerializeOut(stream, value);
-    }
+    const auto &GetStream() { return inStream; }
+    auto &GetStream() const { return inStream; }
 
-    static void CheckAndIncrease(const FullStream &stream, char value) {
-        if (*stream != value) {
+private:
+    constexpr bool IsWhiteSpace(const char val) noexcept { return val == ' ' || val == '\t' || val == '\n' || val == '\r'; }
+    void SkipWhiteSpace() { while(IsWhiteSpace(*inStream)) ++inStream; }
+
+    void CheckAndIncrease(char value) {
+        if (*inStream != value) {
             std::string errStr { "Expected " };
             errStr.push_back(value);
             errStr += " but found ";
-            errStr.push_back(*stream);
-            throw exception::BadInputData { stream , std::move(errStr) };
+            errStr.push_back(*inStream);
+            throw exception::BadInputData { inStream , std::move(errStr) };
         }
-        ++stream;
+        ++inStream;
     }
 
-    static const std::string_view SerializeInGetKey(const FullStream &stream) {
-        SkipWhiteSpace(stream);
-        CheckAndIncrease(stream, '"');
-        auto start = stream.curr();
+    const std::string_view SerializeInGetKey() {
+        SkipWhiteSpace();
+        CheckAndIncrease('"');
+        auto start = inStream.curr();
         // TODO:: Escape character
-        while(*stream != '"') ++stream;
-        auto end = stream.curr();
-        ++stream;
-        SkipWhiteSpace(stream);
-        CheckAndIncrease(stream, ':');
-        SkipWhiteSpace(stream);
+        while(*inStream != '"') ++inStream;
+        auto end = inStream.curr();
+        ++inStream;
+        SkipWhiteSpace();
+        CheckAndIncrease(':');
+        SkipWhiteSpace();
         return { reinterpret_cast<const char *>(start), reinterpret_cast<const char *>(end) };
     }
 
-    static void SerializeInBool(const FullStream &stream, bool &value) {
-        if (stream.RemainingBuffer() < 4) throw exception::BadInputData { stream };
-        auto ch = std::tolower(*stream);
+    void SerializeInBool(bool &value) {
+        if (inStream.RemainingBuffer() < 4) throw exception::BadInputData { inStream };
+        auto ch = std::tolower(*inStream);
         if (ch == 't') {
-            ++stream;
-            if (std::tolower(*stream) != 'r') throw exception::BadInputData { stream };
-            ++stream;
-            if (std::tolower(*stream) != 'u') throw exception::BadInputData { stream };
-            ++stream;
-            if (std::tolower(*stream) != 'e') throw exception::BadInputData { stream };
-            ++stream;
+            ++inStream;
+            if (std::tolower(*inStream) != 'r') throw exception::BadInputData { inStream };
+            ++inStream;
+            if (std::tolower(*inStream) != 'u') throw exception::BadInputData { inStream };
+            ++inStream;
+            if (std::tolower(*inStream) != 'e') throw exception::BadInputData { inStream };
+            ++inStream;
             value = true;
         } else if (ch == 'f') {
-            ++stream;
-            if (std::tolower(*stream) != 'a') throw exception::BadInputData { stream };
-            ++stream;
-            if (std::tolower(*stream) != 'l') throw exception::BadInputData { stream };
-            ++stream;
-            if (std::tolower(*stream) != 's') throw exception::BadInputData { stream };
-            ++stream;
-            if (stream.full()) throw exception::BadInputData { stream };
-            if (std::tolower(*stream) != 'e') throw exception::BadInputData { stream };
-            ++stream;
+            ++inStream;
+            if (std::tolower(*inStream) != 'a') throw exception::BadInputData { inStream };
+            ++inStream;
+            if (std::tolower(*inStream) != 'l') throw exception::BadInputData { inStream };
+            ++inStream;
+            if (std::tolower(*inStream) != 's') throw exception::BadInputData { inStream };
+            ++inStream;
+            if (inStream.full()) throw exception::BadInputData { inStream };
+            if (std::tolower(*inStream) != 'e') throw exception::BadInputData { inStream };
+            ++inStream;
             value = false;
         }
     }
 
-    static void SerializeInChar(const FullStream &stream, char &value) {
-        if (stream.RemainingBuffer() < 3) throw exception::BadInputData { stream };
-        if (*stream != '"') throw exception::BadInputData { stream };
-        ++stream;
-        value = *stream;
-        ++stream;
-        if (*stream != '"') throw exception::BadInputData { stream };
-        ++stream;
+    void SerializeInChar(char &value) {
+        if (inStream.RemainingBuffer() < 3) throw exception::BadInputData { inStream };
+        if (*inStream != '"') throw exception::BadInputData { inStream };
+        ++inStream;
+        value = *inStream;
+        ++inStream;
+        if (*inStream != '"') throw exception::BadInputData { inStream };
+        ++inStream;
     }
 
-    static void SerializeInUnsignedInteger(const FullStream &stream, std::unsigned_integral auto &value) {
-        if (stream.full()) throw exception::BadInputData { stream };
-        // TODO: Check out of range values
-        if (*stream < '0' || *stream > '9') throw exception::BadInputData { stream };
-        value = *stream - '0';
-        ++stream;
-        while(!stream.full()) {
-            if (*stream < '0' || *stream > '9') break;
-            value = value * 10 + *stream - '0';
-            ++stream;
+    void SerializeInUnsignedInteger(std::unsigned_integral auto &value) {
+        using ValueType = std::remove_reference_t<decltype(value)>;
+        if (inStream.full()) throw exception::BadInputData { inStream };
+        auto ch = *inStream;
+        if (ch < '0' || ch > '9') throw exception::BadInputData { inStream };
+        value = ch - '0';
+        ++inStream;
+        while(!inStream.full()) {
+            ch = *inStream;
+            if (ch < '0' || ch > '9') break;
+            constexpr ValueType check_big = std::numeric_limits<ValueType>::max() / static_cast<ValueType>(10);
+            constexpr ValueType check_big_last = std::numeric_limits<ValueType>::max() % static_cast<ValueType>(10);
+            if (value > check_big) {
+                // This will make value max
+                value = std::numeric_limits<ValueType>::max();
+                ++inStream;
+                while(!inStream.full()) {
+                    ch = *inStream;
+                    if (ch < '0' || ch > '9') break;
+                    ++inStream;
+                }
+                return;
+
+            } else if (value == check_big) {
+                ++inStream;
+                if (!inStream.full()) {
+                    auto ch1 = *inStream;
+                    if (ch1 < '0' || ch1 > '9') {
+                        if (ch < '0' + check_big_last) value = value * 10 - '0' + ch;
+                        else value = std::numeric_limits<ValueType>::max();
+                        return;
+                    }
+                    value = std::numeric_limits<ValueType>::max();
+                    ++inStream;
+                    while(!inStream.full()) {
+                        ch = *inStream;
+                        if (ch < '0' || ch > '9') break;
+                        ++inStream;
+                    }
+                    return;
+                } else {
+                    if (ch < '0' + check_big_last) value = value * 10 - '0' + ch;
+                    else value = std::numeric_limits<ValueType>::max();
+                    return;
+                }
+            }
+            value = value * 10 + *inStream - '0';
+            ++inStream;
         }
     }
 
-    static void SerializeInSignedInteger(const FullStream &stream, std::signed_integral auto &value) {
-        if (stream.full()) throw exception::BadInputData { stream };
+    void SerializeInSignedInteger(std::signed_integral auto &value) {
+        if (inStream.full()) throw exception::BadInputData { inStream };
         // TODO: Check out of range values
-        if ((*stream < '0' || *stream > '9') && *stream != '-' && *stream != '+') throw exception::BadInputData { stream };
+        if ((*inStream < '0' || *inStream > '9') && *inStream != '-' && *inStream != '+') throw exception::BadInputData { inStream };
         auto sign { static_cast<std::remove_reference_t<decltype(value)>>(1) };
-        if (*stream == '-') {
+        if (*inStream == '-') {
             sign = -1;
-            ++stream;
-        } else if (*stream == '+') ++stream;
-        value = *stream - '0';
-        ++stream;
-        while(!stream.full()) {
-            if (*stream < '0' || *stream > '9') break;
-            value = value * 10 + *stream - '0';
-            ++stream;
+            ++inStream;
+        } else if (*inStream == '+') ++inStream;
+        value = *inStream - '0';
+        ++inStream;
+        while(!inStream.full()) {
+            if (*inStream < '0' || *inStream > '9') break;
+            value = value * 10 + *inStream - '0';
+            ++inStream;
         }
         value *= sign;
     }
 
-    static void SerializeInString(const FullStream &stream, std::string &value) {
-        if (stream.RemainingBuffer() < 2) throw exception::BadInputData { stream };
-        if (*stream != '"') throw exception::BadInputData { stream };
-        ++stream;
-        while(*stream != '"') {
-            if (stream.full()) throw exception::BadInputData { stream };
-            value.push_back(*stream);
-            ++stream;
+    void SerializeInString(std::string &value) {
+        if (inStream.RemainingBuffer() < 2) throw exception::BadInputData { inStream };
+        if (*inStream != '"') throw exception::BadInputData { inStream };
+        ++inStream;
+        while(*inStream != '"') {
+            if (inStream.full()) throw exception::BadInputData { inStream };
+            value.push_back(*inStream);
+            ++inStream;
         }
-        ++stream;
+        ++inStream;
     }
 
-    static void SerializeInFloatingPoint(const FullStream &stream, std::floating_point auto &value) {
-        if (stream.full()) throw exception::BadInputData { stream };
+    void SerializeInFloatingPoint(std::floating_point auto &value) {
+        if (inStream.full()) throw exception::BadInputData { inStream };
         // TODO: Check out of range values
-        if ((*stream < '0' || *stream > '9') && *stream != '-' && *stream != '+') throw exception::BadInputData { stream };
-        auto start = stream.curr();
-        while (!stream.full() && *stream != ',' && *stream != '!' && *stream != ']' && *stream != '}' && *stream != ' ')
-            ++stream;
-        std::string number {start, stream.curr()};
+        if ((*inStream < '0' || *inStream > '9') && *inStream != '-' && *inStream != '+') throw exception::BadInputData { inStream };
+        auto start = inStream.curr();
+        while (!inStream.full() && *inStream != ',' && *inStream != '!' && *inStream != ']' && *inStream != '}' && *inStream != ' ')
+            ++inStream;
+        std::string number {start, inStream.curr()};
         if constexpr (std::is_same_v<float, std::remove_reference_t<decltype(value)>>) value = std::stof(number);
         else value = std::stod(number);
     }
 
-    static void SerializeInVector(const FullStream &stream, typecheck::vector auto &value) {
-        CheckAndIncrease(stream, '[');
-        SkipWhiteSpace(stream);
-        if (*stream != ']') {
+    void SerializeInVector(typecheck::vector auto &value) {
+        CheckAndIncrease('[');
+        SkipWhiteSpace();
+        if (*inStream != ']') {
             while(true) {
                 using value_type = std::remove_reference_t<decltype(value)>::value_type;
                 value_type valuetype { };
-                SerializeIn(stream, valuetype);
+                SerializeIn(valuetype);
                 value.emplace_back(valuetype);
-                SkipWhiteSpace(stream);
-                if (*stream == ']') break;
-                CheckAndIncrease(stream, ',');
-                SkipWhiteSpace(stream);
-                if (*stream == ']') {
-                    throw exception::BadInputData { stream, "Unexpected ',', there must be next array entry after ','" };
+                SkipWhiteSpace();
+                if (*inStream == ']') break;
+                CheckAndIncrease(',');
+                SkipWhiteSpace();
+                if (*inStream == ']') {
+                    throw exception::BadInputData { inStream, "Unexpected ',', there must be next array entry after ','" };
                 }
             }
         }
-        ++stream;
+        ++inStream;
     }
 
-    static void SerializeInMap(const FullStream &stream, typecheck::map auto &value) {
-        CheckAndIncrease(stream, '{');
-        SkipWhiteSpace(stream);
-        if (*stream != '}') {
+    void SerializeInMap(typecheck::map auto &value) {
+        CheckAndIncrease('{');
+        SkipWhiteSpace();
+        if (*inStream != '}') {
             while(true) {
                 using T = std::remove_reference_t<decltype(value)>;
                 typename T::key_type key { };
-                SerializeIn(stream, key);
-                SkipWhiteSpace(stream);
-                CheckAndIncrease(stream, ':');
-                SkipWhiteSpace(stream);
+                SerializeIn(key);
+                SkipWhiteSpace();
+                CheckAndIncrease(':');
+                SkipWhiteSpace();
                 typename T::mapped_type valuetype { };
-                SerializeIn(stream, valuetype);
+                SerializeIn(valuetype);
                 value.emplace(std::move(key), std::move(valuetype));
-                SkipWhiteSpace(stream);
-                if (*stream == '}') break;
-                CheckAndIncrease(stream, ',');
-                SkipWhiteSpace(stream);
-                if (*stream == '}') {
-                    throw exception::BadInputData { stream, "Unexpected ',', there must be next map entry after ','" };
+                SkipWhiteSpace();
+                if (*inStream == '}') break;
+                CheckAndIncrease(',');
+                SkipWhiteSpace();
+                if (*inStream == '}') {
+                    throw exception::BadInputData { inStream, "Unexpected ',', there must be next map entry after ','" };
                 }
             }
         }
-        ++stream;
+        ++inStream;
     }
 
 public:
     template <typename T>
-    static void SerializeIn(const FullStream &stream, T &value) {
+    void SerializeIn(T &value) {
         if constexpr (std::is_same_v<bool, T>) {
-            SerializeInBool(stream, value);
+            SerializeInBool(value);
         } else if constexpr (std::is_same_v<char, T>) {
-            SerializeInChar(stream, value);
+            SerializeInChar(value);
         } else if constexpr (std::unsigned_integral<T>) {
-            SerializeInUnsignedInteger(stream, value);
+            SerializeInUnsignedInteger(value);
         } else if constexpr (std::signed_integral<T>) {
-            SerializeInSignedInteger(stream, value);
+            SerializeInSignedInteger(value);
         } else if constexpr (std::is_same_v<std::string, T>) {
-            SerializeInString(stream, value);
+            SerializeInString(value);
         } else if constexpr (std::floating_point<T>) {
-            SerializeInFloatingPoint(stream, value);
+            SerializeInFloatingPoint(value);
         } else if constexpr (typecheck::SerializerOutEnabledPtr<T, json>) {
-            value->template SerializeIn<json>(stream);
+            value->SerializeIn(*this);
         } else if constexpr (typecheck::SerializerOutEnabled<T, json>) {
-            value.template SerializeIn<json>(stream);
+            value.SerializeIn(*this);
         } else if constexpr (typecheck::vector<T>) {
-            SerializeInVector(stream, value);
+            SerializeInVector(value);
         } else if constexpr (typecheck::map<T>) {
-            SerializeInMap(stream, value);
-        } else throw exception::BadType { stream };
+            SerializeInMap(value);
+        } else throw exception::BadType { inStream };
     }
 
     template <typename T>
-    static void StructSerializeIn(const FullStream &stream, T *obj )
+    void StructSerializeIn(T *obj )
     {
         static_assert(serialize_key_type == SerializeKeyType::String, "Only String key type supported");
-        SkipWhiteSpace(stream);
-        CheckAndIncrease(stream, '{');
-        SkipWhiteSpace(stream);
+        SkipWhiteSpace();
+        CheckAndIncrease('{');
+        SkipWhiteSpace();
         while(true) {
-            auto key = SerializeInGetKey(stream);
-            obj->template SerializeInMemberByName<json>(stream, key);
-            SkipWhiteSpace(stream);
-            if (*stream == '}') break;
-            CheckAndIncrease(stream, ',');
-            SkipWhiteSpace(stream);
-            if (*stream == '}') {
-                throw exception::BadInputData { stream, "Unexpected ',', there next object expected after ','" };
+            auto key = SerializeInGetKey();
+            obj->SerializeInMemberByName(*this, key);
+            SkipWhiteSpace();
+            if (*inStream == '}') break;
+            CheckAndIncrease(',');
+            SkipWhiteSpace();
+            if (*inStream == '}') {
+                throw exception::BadInputData { inStream, "Unexpected ',', there next object expected after ','" };
             }
         }
-        ++stream;
+        ++inStream;
+    }
+}; // class json<SerializeType::In>
+
+template<>
+class json<SerializeType::Out> {
+public:
+    constexpr static SerializeKeyType serialize_key_type = SerializeKeyType::String;
+
+private:
+    Stream &outStream;
+
+public:
+    json(Stream &outStream) : outStream { outStream } { }
+
+    const auto &GetStream() { return outStream; }
+    auto &GetStream() const { return outStream; }
+
+private:
+
+    template <typename T>
+    void SerializeOutFirst(auto &name, const T &value) {
+        outStream.Write('"', name, "\":");
+        SerializeOut(value);
     }
 
     template <typename T>
-    static void SerializeOut(Stream &stream, const T &value) {
-        if constexpr (typecheck::SerializerOutEnabledPtr<T, json>) {
-            value->template SerializeOut<json>(stream);
-        } else if constexpr (typecheck::SerializerOutEnabled<T, json>) {
-            value.template SerializeOut<json>(stream);
+    void SerializeOutSecond(auto &name, const T &value) {
+        outStream.Write(",\"", name, "\":");
+        SerializeOut(value);
+    }
+
+public:
+    template <typename T>
+    void SerializeOut(const T &value) {
+        if constexpr (typecheck::SerializerOutEnabledPtr<T, json<SerializeType::Out>>) {
+            value->SerializeOut(*this);
+        } else if constexpr (typecheck::SerializerOutEnabled<T, json<SerializeType::Out>>) {
+            value.SerializeOut(*this);
         } else {
-            throw exception::UnknownSerializationType {stream, "Unknown Serialization Type"};
+            throw exception::UnknownSerializationType {outStream, "Unknown Serialization Type"};
         }
     }
 
     template <typecheck::functions T>
-    static void SerializeOut(Stream &stream, const T &value) {
-        value(stream);
+    void SerializeOut(const T &value) {
+        value(outStream);
     }
 
     template <std::integral T>
-    static void SerializeOut(Stream &stream, const T &value) {
-        stream.Copy(value);
+    void SerializeOut(const T &value) {
+        outStream.Copy(value);
     }
 
     template <std::floating_point T>
-    static void SerializeOut(Stream &stream, const T &value) {
+    void SerializeOut(const T &value) {
         char buffer[std::numeric_limits<T>::digits10 + 3] { 0 };
         auto result = std::to_chars(std::begin(buffer), std::end(buffer), value);
-        stream.Copy(buffer, result.ptr);
+        outStream.Copy(buffer, result.ptr);
     }
 
     template <typecheck::vector T>
-    static void SerializeOut(Stream &stream, const T &value) {
-        stream.Write('[');
+    void SerializeOut(const T &value) {
+        outStream.Write('[');
         auto itr = std::begin(value);
         if (itr != std::end(value)) {
-            SerializeOut(stream, *itr);
+            SerializeOut(*itr);
             itr = std::next(itr);
             while(itr != std::end(value)) {
-                stream.Write(',');
-                SerializeOut(stream, *itr);
+                outStream.Write(',');
+                SerializeOut(*itr);
                 itr = std::next(itr);
             }
         }
-        stream.Write(']');
+        outStream.Write(']');
     }
 
     template <typecheck::map T>
-    static void SerializeOut(Stream &stream, const T &value) {
-        stream.Write('{');
+    void SerializeOut(const T &value) {
+        outStream.Write('{');
         auto itr = std::begin(value);
         if (itr != std::end(value)) {
-            SerializeOut(stream, itr->first);
-            stream.Write(':');
-            SerializeOut(stream, itr->second);
+            SerializeOut(itr->first);
+            outStream.Write(':');
+            SerializeOut(itr->second);
             itr = std::next(itr);
             while(itr != std::end(value)) {
-                stream.Write(',');
-                SerializeOut(stream, itr->first);
-                stream.Write(':');
-                SerializeOut(stream, itr->second);
+                outStream.Write(',');
+                SerializeOut(itr->first);
+                outStream.Write(':');
+                SerializeOut(itr->second);
                 itr = std::next(itr);
             }
         }
-        stream.Write('}');
+        outStream.Write('}');
     }
 
-    static void StructSerializeOutStart(Stream &stream, const auto &value) {
-        stream.Write('{');
-        SerializeOutFirst(stream, value.first, value.second);
+    void StructSerializeOutStart(const auto &value) {
+        outStream.Write('{');
+        SerializeOutFirst(value.first, value.second);
     }
 
-    static void StructSerializeOut(Stream &stream, const auto &value) {
-        SerializeOutSecond(stream, value.first, value.second);
+    void StructSerializeOut(const auto &value) {
+        SerializeOutSecond(value.first, value.second);
     }
 
-    static void StructSerializeOutEnd(Stream &stream) {
-        stream.Write('}');
+    void StructSerializeOutEnd() {
+        outStream.Write('}');
     }
-}; // class json
+}; // class json<SerializeType::Out>
 
 template<>
-inline void json::SerializeOut<char>(Stream &stream, const char &value) {
-    stream.Write('"', value, '"');
+inline void json<SerializeType::Out>::SerializeOut<char>(const char &value) {
+    outStream.Write('"', value, '"');
 }
 
 template<>
-inline void json::SerializeOut<bool>(Stream &stream, const bool &value) {
-    if (value) stream.Copy("TRUE");
-    else stream.Copy("FALSE");
+inline void json<SerializeType::Out>::SerializeOut<bool>(const bool &value) {
+    if (value) outStream.Copy("TRUE");
+    else outStream.Copy("FALSE");
 }
 
 template<>
-inline void json::SerializeOut<std::string>(Stream &stream, const std::string &value) {
-    stream.Write('"', value, '"');
+inline void json<SerializeType::Out>::SerializeOut<std::string>(const std::string &value) {
+    outStream.Write('"', value, '"');
 }
 
 template<>
-inline void json::SerializeOut<std::string_view>(Stream &stream, const std::string_view &value) {
-    stream.Write('"', value, '"');
+inline void json<SerializeType::Out>::SerializeOut<std::string_view>(const std::string_view &value) {
+    outStream.Write('"', value, '"');
 }
 
-template <SerializeKeyType SERIALIZE_KEY_TYPE = SerializeKeyType::Integer>
-class binary {
+template <SerializeType type, SerializeKeyType SERIALIZE_KEY_TYPE>
+class binary { };
+
+template <SerializeKeyType SERIALIZE_KEY_TYPE>
+class binaryInBase {
 public:
     constexpr static SerializeKeyType serialize_key_type = SERIALIZE_KEY_TYPE;
 
-private:
-    template <typename T>
-    static void SerializeOut(Stream &stream, const std::integral auto &id, const T &value) {
-        SerializeOutVariable(stream, id);
-        SerializeOut(stream, value);
-    }
-
-    template <typename T>
-    static void SerializeOut(Stream &stream, const std::string &name, const T &value) {
-        SerializeOut(stream, name);
-        SerializeOut(stream, value);
-    }
-
-    template <typename T>
-    static void SerializeOut(Stream &stream, const std::string_view &name, const T &value) {
-        SerializeOut(stream, name);
-        SerializeOut(stream, value);
-    }
-
-    template <typename T, typename U>
-    static void SerializeOut(Stream &stream, const std::pair<T, U> &value) {
-        SerializeOut(stream, value.first, value.second);
-    }
-
-    template <typename T>
-    static void SerializeOut(Stream &stream, const std::integral auto &id, const std::integral auto &index, const T &value) {
-        SerializeOutVariable(stream, id);
-        SerializeOutVariable(stream, index);
-        SerializeOut(stream, value);
-    }
-
-    template <typename T, typename U, typename V>
-    static void SerializeOut(Stream &stream, const std::tuple<T, U, V> &value) {
-        SerializeOut(stream, std::get<0>(value), std::get<1>(value), std::get<2>(value));
-    }
+protected:
+    const Stream &inStream;
 
 public:
-    static void SerializeOutVariable(Stream &stream, const std::integral auto id) {
-        if (id <= 0x3f) {
-            *stream++ = static_cast<uint8_t>(id);
-        } else if (id <= 0x3fff) {
-            *stream++ = static_cast<uint8_t>(((id >> 8) | 0x40));
-            *stream++ = static_cast<uint8_t>(id & 0xff);
-        } else if (id <= 0x3fffff) {
-            *stream++ = static_cast<uint8_t>(((id >> 16) | 0x80));
-            *stream++ = static_cast<uint8_t>((id >> 8) & 0xff);
-            *stream++ = static_cast<uint8_t>(id & 0xff);
-        } else if (id <= 0x3fffffff) {
-            *stream++ = static_cast<uint8_t>(((id >> 24) | 0xc0));
-            *stream++ = static_cast<uint8_t>((id >> 16) & 0xff);
-            *stream++ = static_cast<uint8_t>((id >> 8) & 0xff);
-            *stream++ = static_cast<uint8_t>(id & 0xff);
-        }
-    }
+    binaryInBase(const Stream &inStream) : inStream { inStream } { }
 
-    static uint32_t SerializeInVariable(const FullStream &stream) {
-        if (stream.full()) throw exception::BadInputData { stream };
-        const uint32_t val = *stream++;
+    const auto &GetStream() { return inStream; }
+    auto &GetStream() const { return inStream; }
+
+    uint32_t SerializeInVariable() {
+        if (inStream.full()) throw exception::BadInputData { inStream };
+        const uint32_t val = *inStream++;
         switch(val & 0xc0) {
             default:
             case 0x00: return val;
             case 0x40:
-                if (stream.full()) throw exception::BadInputData { stream };
-                return ((val & 0x3f) << 8) | *stream++;
+                if (inStream.full()) throw exception::BadInputData { inStream };
+                return ((val & 0x3f) << 8) | *inStream++;
             case 0x80: {
-                if (stream.RemainingBuffer() < 3) throw exception::BadInputData { stream };
-                const uint32_t val8 = *stream++;
-                return ((val & 0x3f) << 16) | (val8 << 8) | *stream++;
+                if (inStream.RemainingBuffer() < 3) throw exception::BadInputData { inStream };
+                const uint32_t val8 = *inStream++;
+                return ((val & 0x3f) << 16) | (val8 << 8) | *inStream++;
             }
             case 0xc0: {
-                if (stream.RemainingBuffer() < 7) throw exception::BadInputData { stream };
-                const uint32_t val16 = *stream++;
-                const uint32_t val8 = *stream++;
-                return ((val & 0x3f) << 24) | (val16 << 16) | (val8 << 8) | *stream++;
+                if (inStream.RemainingBuffer() < 7) throw exception::BadInputData { inStream };
+                const uint32_t val16 = *inStream++;
+                const uint32_t val8 = *inStream++;
+                return ((val & 0x3f) << 24) | (val16 << 16) | (val8 << 8) | *inStream++;
             }
         }
     }
 
     template <typename T>
-    static void SerializeIn(const FullStream &stream, T &value) {
+    void SerializeIn(T &value) {
         if constexpr (std::is_same_v<char, T>) {
-            if (stream.full()) throw exception::BadInputData { stream };
-            value = *stream++;
+            if (inStream.full()) throw exception::BadInputData { inStream };
+            value = *inStream++;
         } else if constexpr (std::is_same_v<bool, T>) {
-            if (stream.full()) throw exception::BadInputData { stream };
-            value = !!(*stream++);
+            if (inStream.full()) throw exception::BadInputData { inStream };
+            value = !!(*inStream++);
         } else if constexpr (std::is_enum_v<T>) {
-            auto ival = SerializeInVariable(stream);
+            auto ival = SerializeInVariable();
             value = static_cast<T>(ival);
         }
         else if constexpr (std::integral<T>) {
-            if (stream.RemainingBuffer() < sizeof(T)) throw exception::BadInputData { stream };
-            T source = *reinterpret_cast<const T *>(stream.curr());
+            if (inStream.RemainingBuffer() < sizeof(T)) throw exception::BadInputData { inStream };
+            T source = *reinterpret_cast<const T *>(inStream.curr());
             value = ChangeEndian<std::endian::big, std::endian::native>(source);
-            stream += sizeof(T);
+            inStream += sizeof(T);
         } else if constexpr (std::is_same_v<std::string, T>) {
             // variable size following string of size
-            auto size = SerializeInVariable(stream);
-            if (stream.RemainingBuffer() < size) throw exception::BadInputData { stream };
-            value = std::string { stream.curr(), stream.curr() + size };
-            stream += size;
+            auto size = SerializeInVariable();
+            if (inStream.RemainingBuffer() < size) throw exception::BadInputData { inStream };
+            value = std::string { inStream.curr(), inStream.curr() + size };
+            inStream += size;
         } else if constexpr (std::floating_point<T>) {
-            if (stream.RemainingBuffer() < sizeof(T)) throw exception::BadInputData { stream };
-            T source = *reinterpret_cast<const T *>(stream.curr());
+            if (inStream.RemainingBuffer() < sizeof(T)) throw exception::BadInputData { inStream };
+            T source = *reinterpret_cast<const T *>(inStream.curr());
             value = ChangeEndian<std::endian::big, std::endian::native>(source);
-            stream += sizeof(T);
-        } else if constexpr (typecheck::SerializerOutEnabledPtr<T, binary<SERIALIZE_KEY_TYPE>>) {
-            value->template SerializeIn<binary<SERIALIZE_KEY_TYPE>>(stream);
-        } else if constexpr (typecheck::SerializerOutEnabled<T, binary<SERIALIZE_KEY_TYPE>>) {
-            value.template SerializeIn<binary<SERIALIZE_KEY_TYPE>>(stream);
+            inStream += sizeof(T);
+        } else if constexpr (typecheck::SerializerOutEnabledPtr<T, binary<SerializeType::In, SERIALIZE_KEY_TYPE>>) {
+            value->SerializeIn(*this);
+        } else if constexpr (typecheck::SerializerOutEnabled<T, binary<SerializeType::In, SERIALIZE_KEY_TYPE>>) {
+            value.SerializeIn(*this);
         } else if constexpr (typecheck::vector<T>) {
             // variable size following vector members
-            auto size = SerializeInVariable(stream);
+            auto size = SerializeInVariable();
             for (size_t i = 0; i < size; ++i) {
                 typename T::value_type valuetype { };
-                SerializeIn(stream, valuetype);
+                SerializeIn(valuetype);
                 value.emplace_back(std::move(valuetype));
             }
         } else if constexpr (typecheck::map<T>) {
             // variable size following map members
-            auto size = SerializeInVariable(stream);
+            auto size = SerializeInVariable();
             for (size_t i = 0; i < size; ++i) {
                 typename T::key_type key { };
-                SerializeIn(stream, key);
+                SerializeIn(key);
                 typename T::mapped_type valuetype { };
-                SerializeIn(stream, valuetype);
+                SerializeIn(valuetype);
                 value.emplace(std::move(key), std::move(valuetype));
             }
-        } else throw exception::BadType { stream };
+        } else throw exception::BadType { inStream };
     }
 
     template <typename T>
-    static void StructSerializeIn(const FullStream &stream, T *obj)
+    void StructSerializeIn(T *obj)
     {
-        if constexpr (serialize_key_type == SerializeKeyType::Integer) {
+        if constexpr (SERIALIZE_KEY_TYPE == SerializeKeyType::Integer) {
             while(true) {
-                auto key = SerializeInVariable(stream);
+                auto key = SerializeInVariable();
                 if (key == 0) break;
-                obj->template SerializeInMemberByIdentifier<binary<SERIALIZE_KEY_TYPE>>(stream, key);
+                obj->SerializeInMemberByIdentifier(*this, key);
             }
-        } else if constexpr (serialize_key_type == SerializeKeyType::String) {
+        } else if constexpr (SERIALIZE_KEY_TYPE == SerializeKeyType::String) {
             while(true) {
                 std::string key { };
-                SerializeIn(stream, key);
+                SerializeIn(key);
                 if (key.empty()) break;
-                obj->template SerializeInMemberByName<binary<SERIALIZE_KEY_TYPE>>(stream, key);
+                obj->SerializeInMemberByName(*this, key);
             }
-        } else {
-            static_assert(true, "Only Integer and String key type supported");
+        }
+    }
+
+}; // class binaryInBase
+
+template <>
+class binary<SerializeType::In, SerializeKeyType::None> : public binaryInBase<SerializeKeyType::None> {
+public:
+    using binaryInBase<SerializeKeyType::None>::binaryInBase;
+}; // class binary<SerializeType::In, SerializeKeyType::None>
+
+template <>
+class binary<SerializeType::In, SerializeKeyType::Integer> : public binaryInBase<SerializeKeyType::Integer> {
+public:
+    using binaryInBase<SerializeKeyType::Integer>::binaryInBase;
+}; // class binary<SerializeType::In, SerializeKeyType::Integer>
+
+template <>
+class binary<SerializeType::In, SerializeKeyType::String> : public binaryInBase<SerializeKeyType::String> {
+public:
+    using binaryInBase<SerializeKeyType::String>::binaryInBase;
+}; // class binary<SerializeType::In, SerializeKeyType::String>
+
+template <SerializeKeyType SERIALIZE_KEY_TYPE>
+class binaryOutBase {
+public:
+    constexpr static SerializeKeyType serialize_key_type = SERIALIZE_KEY_TYPE;
+
+protected:
+    Stream &outStream;
+
+public:
+    binaryOutBase(Stream &outStream) : outStream { outStream } { }
+
+    const auto &GetStream() { return outStream; }
+    auto &GetStream() const { return outStream; }
+
+protected:
+    template <typename T>
+    void SerializeOut(const std::integral auto &id, const T &value) {
+        SerializeOutVariable(id);
+        SerializeOut(value);
+    }
+
+    template <typename T>
+    void SerializeOut(const std::string &name, const T &value) {
+        SerializeOut(name);
+        SerializeOut(value);
+    }
+
+    template <typename T>
+    void SerializeOut(const std::string_view &name, const T &value) {
+        SerializeOut(name);
+        SerializeOut(value);
+    }
+
+    template <typename T, typename U>
+    void SerializeOut(const std::pair<T, U> &value) {
+        SerializeOut(value.first, value.second);
+    }
+
+    template <typename T>
+    void SerializeOut(const std::integral auto &id, const std::integral auto &index, const T &value) {
+        SerializeOutVariable(id);
+        SerializeOutVariable(index);
+        SerializeOut(value);
+    }
+
+    template <typename T, typename U, typename V>
+    void SerializeOut(const std::tuple<T, U, V> &value) {
+        SerializeOut(std::get<0>(value), std::get<1>(value), std::get<2>(value));
+    }
+
+public:
+    void SerializeOutVariable(const std::integral auto id) {
+        if (id <= 0x3f) {
+            *outStream++ = static_cast<uint8_t>(id);
+        } else if (id <= 0x3fff) {
+            *outStream++ = static_cast<uint8_t>(((id >> 8) | 0x40));
+            *outStream++ = static_cast<uint8_t>(id & 0xff);
+        } else if (id <= 0x3fffff) {
+            *outStream++ = static_cast<uint8_t>(((id >> 16) | 0x80));
+            *outStream++ = static_cast<uint8_t>((id >> 8) & 0xff);
+            *outStream++ = static_cast<uint8_t>(id & 0xff);
+        } else if (id <= 0x3fffffff) {
+            *outStream++ = static_cast<uint8_t>(((id >> 24) | 0xc0));
+            *outStream++ = static_cast<uint8_t>((id >> 16) & 0xff);
+            *outStream++ = static_cast<uint8_t>((id >> 8) & 0xff);
+            *outStream++ = static_cast<uint8_t>(id & 0xff);
         }
     }
 
     template <typename T>
-    static void SerializeOut(Stream &stream, const T &value) {
+    void SerializeOut(const T &value) {
         if constexpr (std::is_same_v<char, T>) {
-            stream += sizeof(T);
-            *(stream.curr() - sizeof(T)) = value;
+            outStream += sizeof(T);
+            *(outStream.curr() - sizeof(T)) = value;
         } else if constexpr (std::is_same_v<bool, T>) {
-            stream += sizeof(T);
-            *(stream.curr() - sizeof(T)) = value;
+            outStream += sizeof(T);
+            *(outStream.curr() - sizeof(T)) = value;
         } else if constexpr (std::is_enum_v<T>) {
-            SerializeOutVariable(stream, static_cast<std::underlying_type_t<T>>(value));
+            SerializeOutVariable(static_cast<std::underlying_type_t<T>>(value));
         } else if constexpr (std::integral<T>) {
-            stream += sizeof(T);
-            auto dest = reinterpret_cast<T *>(stream.curr() - sizeof(T));
+            outStream += sizeof(T);
+            auto dest = reinterpret_cast<T *>(outStream.curr() - sizeof(T));
             *dest = ChangeEndian<std::endian::native, std::endian::big>(value);
         } else if constexpr (std::is_same_v<std::string, T>) {
             // variable size following string of size
-            SerializeOutVariable(stream, value.size());
-            stream.Copy(value);
+            SerializeOutVariable(value.size());
+            outStream.Copy(value);
         } else if constexpr (std::is_same_v<std::string_view, T>) {
             // variable size following string of size
-            SerializeOutVariable(stream, value.size());
-            stream.Copy(value);
+            SerializeOutVariable(value.size());
+            outStream.Copy(value);
         } else if constexpr (std::floating_point<T>) {
-            stream += sizeof(T);
-            auto dest = reinterpret_cast<T *>(stream.curr() - sizeof(T));
+            outStream += sizeof(T);
+            auto dest = reinterpret_cast<T *>(outStream.curr() - sizeof(T));
             *dest = ChangeEndian<std::endian::native, std::endian::big>(value);
-        } else if constexpr (typecheck::SerializerOutEnabledPtr<T, binary<SERIALIZE_KEY_TYPE>>) {
-            value->template SerializeOut<binary<SERIALIZE_KEY_TYPE>>(stream);
-        } else if constexpr (typecheck::SerializerOutEnabled<T, binary<SERIALIZE_KEY_TYPE>>) {
-            value.template SerializeOut<binary<SERIALIZE_KEY_TYPE>>(stream);
+        } else if constexpr (typecheck::SerializerOutEnabledPtr<T, binary<SerializeType::Out, SERIALIZE_KEY_TYPE>>) {
+            value->SerializeOut(*this);
+        } else if constexpr (typecheck::SerializerOutEnabled<T, binary<SerializeType::Out, SERIALIZE_KEY_TYPE>>) {
+            value.SerializeOut(*this);
         } else if constexpr (typecheck::vector<T>) {
-            SerializeOutVariable(stream, value.size());
+            SerializeOutVariable(value.size());
             for (const auto &item : value) {
-                SerializeOut(stream, item);
+                SerializeOut(item);
             }
         } else if constexpr (typecheck::map<T>) {
-            SerializeOutVariable(stream, value.size());
+            SerializeOutVariable(value.size());
             for (const auto &item : value) {
-                SerializeOut(stream, item.first);
-                SerializeOut(stream, item.second);
+                SerializeOut(item.first);
+                SerializeOut(item.second);
             }
         } else {
-            throw exception::BadType {stream, "Bad Type, this is internal error."};
+            throw exception::BadType {outStream, "Bad Type, this is internal error."};
         }
     }
 
     template <typecheck::functions T>
-    static void SerializeOut(Stream &stream, const T &value) {
-        value(stream);
+    void SerializeOut(const T &value) {
+        value(outStream);
     }
 
-    static void StructSerializeOutStart(Stream &stream, const auto &value) {
-        StructSerializeOut(stream, value);
+    void StructSerializeOutStart(const auto &value) {
+        StructSerializeOut(value);
     }
 
-    static void StructSerializeOut(Stream &stream, const auto &value) {
-        SerializeOut(stream, value);
+    void StructSerializeOut(const auto &value) {
+        SerializeOut(value);
     }
 
-    static void StructSerializeOutEnd(Stream &stream) {
-        if constexpr (serialize_key_type == SerializeKeyType::Integer) {
-            SerializeOutVariable(stream, 0U);
-        } else if constexpr (serialize_key_type == SerializeKeyType::String) {
+    void StructSerializeOutEnd() {
+        if constexpr (SERIALIZE_KEY_TYPE == SerializeKeyType::Integer) {
+            SerializeOutVariable(0U);
+        } else if constexpr (SERIALIZE_KEY_TYPE == SerializeKeyType::String) {
             std::string empty { };
-            SerializeOut(stream, empty);
+            SerializeOut(empty);
         }
     }
-}; // class binary
+}; // class binaryOutBase 
 
-using binary_integer = binary<SerializeKeyType::Integer>;
-using binary_string = binary<SerializeKeyType::String>;
-using binary_none = binary<SerializeKeyType::None>;
+template <>
+class binary<SerializeType::Out, SerializeKeyType::None> : public binaryOutBase<SerializeKeyType::None> {
+public:
+    using binaryOutBase<SerializeKeyType::None>::binaryOutBase;
+}; // class binary<SerializeType::Out, SerializeKeyType::None>
+
+template <>
+class binary<SerializeType::Out, SerializeKeyType::Integer> : public binaryOutBase<SerializeKeyType::Integer> {
+public:
+    using binaryOutBase<SerializeKeyType::Integer>::binaryOutBase;
+}; // class binary<SerializeType::Out, SerializeKeyType::Integer>
+
+template <>
+class binary<SerializeType::Out, SerializeKeyType::String> : public binaryOutBase<SerializeKeyType::String> {
+public:
+    using binaryOutBase<SerializeKeyType::String>::binaryOutBase;
+}; // class binary<SerializeType::Out, SerializeKeyType::String>
+
+template <SerializeType type>
+using binary_integer = binary<type, SerializeKeyType::Integer>;
+
+template <SerializeType type>
+using binary_string = binary<type, SerializeKeyType::String>;
+
+template <SerializeType type>
+using binary_none = binary<type, SerializeKeyType::None>;
 
 } // namespace rohit::serializer

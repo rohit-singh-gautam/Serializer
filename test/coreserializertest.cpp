@@ -30,7 +30,8 @@ TEST(JSONSerializer, Char) {
     for(auto &test: test_list) {
         auto stream = rohit::MakeConstantFullStream(test.first);
         decltype(test.second) value { };
-        rohit::serializer::json::SerializeIn(stream, value);
+        rohit::serializer::json<rohit::serializer::SerializeType::In> jsonIn { stream };
+        jsonIn.SerializeIn(value);
         EXPECT_EQ(test.second, value); 
     }
 }
@@ -53,7 +54,8 @@ TEST(JSONSerializer, Integer8) {
     for(auto &test: test_list) {
         auto stream = rohit::MakeConstantFullStream(test.first);
         decltype(test.second) value { };
-        rohit::serializer::json::SerializeIn(stream, value);
+        rohit::serializer::json<rohit::serializer::SerializeType::In> jsonIn { stream };
+        jsonIn.SerializeIn(value);
         EXPECT_EQ(test.second, value); 
     }
 }
@@ -77,7 +79,8 @@ TEST(JSONSerializer, Integer16) {
     for(auto &test: test_list) {
         auto stream = rohit::MakeConstantFullStream(test.first);
         decltype(test.second) value { };
-        rohit::serializer::json::SerializeIn(stream, value);
+        rohit::serializer::json<rohit::serializer::SerializeType::In> jsonIn { stream };
+        jsonIn.SerializeIn(value);
         EXPECT_EQ(test.second, value); 
     }
 }
@@ -102,7 +105,8 @@ TEST(JSONSerializer, Integer32) {
     for(auto &test: test_list) {
         auto stream = rohit::MakeConstantFullStream(test.first);
         decltype(test.second) value { };
-        rohit::serializer::json::SerializeIn(stream, value);
+        rohit::serializer::json<rohit::serializer::SerializeType::In> jsonIn { stream };
+        jsonIn.SerializeIn(value);
         EXPECT_EQ(test.second, value);
     }
 }
@@ -129,7 +133,8 @@ TEST(JSONSerializer, Integer64) {
     for(auto &test: test_list) {
         auto stream = rohit::MakeConstantFullStream(test.first);
         decltype(test.second) value { };
-        rohit::serializer::json::SerializeIn(stream, value);
+        rohit::serializer::json<rohit::serializer::SerializeType::In> jsonIn { stream };
+        jsonIn.SerializeIn(value);
         EXPECT_EQ(test.second, value);
         
     }
@@ -137,6 +142,7 @@ TEST(JSONSerializer, Integer64) {
 
 TEST(JSONSerializer, UnsignedInteger8) {
     std::vector<std::pair<std::string, uint8_t>> test_list {
+        {"255", 255},
         {"0", 0},
         {"1", 1},
         {"123", 123},
@@ -145,13 +151,13 @@ TEST(JSONSerializer, UnsignedInteger8) {
         {"89", 89},
         {"10", 10},
         {"127", 127},
-        {"255", 255}
     };
 
     for(auto &test: test_list) {
         auto stream = rohit::MakeConstantFullStream(test.first);
         decltype(test.second) value { };
-        rohit::serializer::json::SerializeIn(stream, value);
+        rohit::serializer::json<rohit::serializer::SerializeType::In> jsonIn { stream };
+        jsonIn.SerializeIn(value);
         EXPECT_EQ(test.second, value); 
     }
 }
@@ -174,7 +180,8 @@ TEST(JSONSerializer, UnsignedInteger16) {
     for(auto &test: test_list) {
         auto stream = rohit::MakeConstantFullStream(test.first);
         decltype(test.second) value { };
-        rohit::serializer::json::SerializeIn(stream, value);
+        rohit::serializer::json<rohit::serializer::SerializeType::In> jsonIn { stream };
+        jsonIn.SerializeIn(value);
         EXPECT_EQ(test.second, value); 
     }
 }
@@ -198,7 +205,8 @@ TEST(JSONSerializer, UnsignedInteger32) {
     for(auto &test: test_list) {
         auto stream = rohit::MakeConstantFullStream(test.first);
         decltype(test.second) value { };
-        rohit::serializer::json::SerializeIn(stream, value);
+        rohit::serializer::json<rohit::serializer::SerializeType::In> jsonIn { stream };
+        jsonIn.SerializeIn(value);
         EXPECT_EQ(test.second, value);
     }
 }
@@ -223,7 +231,8 @@ TEST(JSONSerializer, UnsignedInteger64) {
     for(auto &test: test_list) {
         auto stream = rohit::MakeConstantFullStream(test.first);
         decltype(test.second) value { };
-        rohit::serializer::json::SerializeIn(stream, value);
+        rohit::serializer::json<rohit::serializer::SerializeType::In> jsonIn { stream };
+        jsonIn.SerializeIn(value);
         EXPECT_EQ(test.second, value);
         
     }
@@ -251,7 +260,8 @@ TEST(JSONSerializer, Float) {
     for(auto &test: test_list) {
         auto stream = rohit::MakeConstantFullStream(test.first);
         decltype(test.second) value { };
-        rohit::serializer::json::SerializeIn(stream, value);
+        rohit::serializer::json<rohit::serializer::SerializeType::In> jsonIn { stream };
+        jsonIn.SerializeIn(value);
         EXPECT_EQ(test.second, value);
         
     }
@@ -281,7 +291,8 @@ TEST(JSONSerializer, Double) {
     for(auto &test: test_list) {
         auto stream = rohit::MakeConstantFullStream(test.first);
         decltype(test.second) value { };
-        rohit::serializer::json::SerializeIn(stream, value);
+        rohit::serializer::json<rohit::serializer::SerializeType::In> jsonIn { stream };
+        jsonIn.SerializeIn(value);
         EXPECT_EQ(test.second, value);
         
     }
@@ -304,7 +315,8 @@ TEST(JSONSerializer, Bool) {
     for(auto &test: test_list) {
         auto stream = rohit::MakeConstantFullStream(test.first);
         decltype(test.second) value { };
-        rohit::serializer::json::SerializeIn(stream, value);
+        rohit::serializer::json<rohit::serializer::SerializeType::In> jsonIn { stream };
+        jsonIn.SerializeIn(value);
         EXPECT_EQ(test.second, value); 
     }
 }
@@ -322,7 +334,8 @@ TEST(JSONSerializer, String) {
     for(auto &test: test_list) {
         auto stream = rohit::MakeConstantFullStream(test.first);
         decltype(test.second) value { };
-        rohit::serializer::json::SerializeIn(stream, value);
+        rohit::serializer::json<rohit::serializer::SerializeType::In> jsonIn { stream };
+        jsonIn.SerializeIn(value);
         EXPECT_EQ(test.second, value); 
     }
 }
@@ -348,7 +361,8 @@ TEST(BinarySerializer, Char) {
     for(auto &test: test_list) {
         auto stream = rohit::MakeConstantFullStream(test.first);
         decltype(test.second) value { };
-        rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>::SerializeIn(stream, value);
+        rohit::serializer::binary_none<rohit::serializer::SerializeType::In> binaryIn { stream };
+        binaryIn.SerializeIn(value);
         EXPECT_EQ(test.second, value); 
     }
 }
@@ -370,7 +384,8 @@ TEST(BinarySerializer, Integer8) {
     for(auto &test: test_list) {
         auto stream = rohit::MakeConstantFullStream(test.first);
         decltype(test.second) value { };
-        rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>::SerializeIn(stream, value);
+        rohit::serializer::binary_none<rohit::serializer::SerializeType::In> binaryIn { stream };
+        binaryIn.SerializeIn(value);
         EXPECT_EQ(test.second, value); 
     }
 }
@@ -394,7 +409,8 @@ TEST(BinarySerializer, Integer16) {
     for(auto &test: test_list) {
         auto stream = rohit::MakeConstantFullStream(test.first);
         decltype(test.second) value { };
-        rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>::SerializeIn(stream, value);
+        rohit::serializer::binary_none<rohit::serializer::SerializeType::In> binaryIn { stream };
+        binaryIn.SerializeIn(value);
         EXPECT_EQ(test.second, value); 
     }
 }
@@ -409,7 +425,8 @@ TEST(BinarySerializer, Integer16_Second) {
         uint8_t *end = begin + sizeof(test);
         auto stream = rohit::MakeConstantFullStream(begin, end);
         decltype(test) value { };
-        rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>::SerializeIn(stream, value);
+        rohit::serializer::binary_none<rohit::serializer::SerializeType::In> binaryIn { stream };
+        binaryIn.SerializeIn(value);
         EXPECT_EQ(test, rohit::byteswap(value)); 
     }
 }
@@ -425,7 +442,8 @@ TEST(BinarySerializer, Integer32) {
         uint8_t *end = begin + sizeof(test);
         auto stream = rohit::MakeConstantFullStream(begin, end);
         decltype(test) value { };
-        rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>::SerializeIn(stream, value);
+        rohit::serializer::binary_none<rohit::serializer::SerializeType::In> binaryIn { stream };
+        binaryIn.SerializeIn(value);
         EXPECT_EQ(test, rohit::byteswap(value)); 
     }
 }
@@ -442,7 +460,8 @@ TEST(BinarySerializer, Integer64) {
         uint8_t *end = begin + sizeof(test);
         auto stream = rohit::MakeConstantFullStream(begin, end);
         decltype(test) value { };
-        rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>::SerializeIn(stream, value);
+        rohit::serializer::binary_none<rohit::serializer::SerializeType::In> binaryIn { stream };
+        binaryIn.SerializeIn(value);
         EXPECT_EQ(test, rohit::byteswap(value)); 
     }
 }
@@ -459,9 +478,11 @@ TEST(BinarySerializer, UInteger32Variable) {
 
     for(auto test: test_list) {
         rohit::FullStreamAutoAlloc stream { 256 };
-        rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>::SerializeOutVariable(stream, test);
+        rohit::serializer::binary_none<rohit::serializer::SerializeType::Out> binaryOut { stream };
+        binaryOut.SerializeOutVariable(test);
         stream.Reset();
-        const auto value = rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>::SerializeInVariable(stream);
+        rohit::serializer::binary_none<rohit::serializer::SerializeType::In> binaryIn { stream };
+        const auto value = binaryIn.SerializeInVariable();
         EXPECT_EQ(test, value); 
     }
 }
@@ -478,7 +499,8 @@ TEST(BinarySerializer, String) {
     for(auto &test: test_list) {
         auto stream = rohit::MakeConstantFullStream(test.first);
         decltype(test.second) value { };
-        rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>::SerializeIn(stream, value);
+        rohit::serializer::binary_none<rohit::serializer::SerializeType::In> binaryIn { stream };
+        binaryIn.SerializeIn(value);
         EXPECT_EQ(test.second, value); 
     }
 }

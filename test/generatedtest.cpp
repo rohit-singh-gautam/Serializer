@@ -66,28 +66,28 @@ TEST(GeneratedTest, SerializeOut) {
     EXPECT_TRUE(result_valuesstr == valuesstr);
 
     fullstream.Reset();
-    personex.SerializeOut<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(fullstream);
+    personex.SerializeOut<rohit::serializer::binary_none>(fullstream);
     test::test1::personex personexBinaryNone { };
     fullstream.Reset();
-    personexBinaryNone.SerializeIn<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(fullstream);
+    personexBinaryNone.SerializeIn<rohit::serializer::binary_none>(fullstream);
     EXPECT_TRUE(personex.name == personexBinaryNone.name);
     EXPECT_TRUE(personex.ID == personexBinaryNone.ID);
     EXPECT_TRUE(personex.account == personexBinaryNone.account);
 
     fullstream.Reset();
-    personex.SerializeOut<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(fullstream);
+    personex.SerializeOut<rohit::serializer::binary_integer>(fullstream);
     test::test1::personex personexBinaryInteger { };
     fullstream.Reset();
-    personexBinaryInteger.SerializeIn<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(fullstream);
+    personexBinaryInteger.SerializeIn<rohit::serializer::binary_integer>(fullstream);
     EXPECT_TRUE(personex.name == personexBinaryInteger.name);
     EXPECT_TRUE(personex.ID == personexBinaryInteger.ID);
     EXPECT_TRUE(personex.account == personexBinaryInteger.account);
 
     fullstream.Reset();
-    personex.SerializeOut<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(fullstream);
+    personex.SerializeOut<rohit::serializer::binary_string>(fullstream);
     test::test1::personex personexBinaryString { };
     fullstream.Reset();
-    personexBinaryString.SerializeIn<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(fullstream);
+    personexBinaryString.SerializeIn<rohit::serializer::binary_string>(fullstream);
     EXPECT_TRUE(personex.name == personexBinaryString.name);
     EXPECT_TRUE(personex.ID == personexBinaryString.ID);
     EXPECT_TRUE(personex.account == personexBinaryString.account);
@@ -109,28 +109,28 @@ TEST(GeneratedTest, SerializeArray) {
     EXPECT_TRUE(personlist.list[0].name == personlist1.list[0].name);
 
     rohit::FullStreamAutoAlloc fullstreamBinaryNone { 256 };
-    personlist.SerializeOut<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(fullstreamBinaryNone);
+    personlist.SerializeOut<rohit::serializer::binary_none>(fullstreamBinaryNone);
     arraytest::personlist personlistBinaryNone { };
     fullstreamBinaryNone.Reset();
-    personlistBinaryNone.SerializeIn<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(fullstreamBinaryNone);
+    personlistBinaryNone.SerializeIn<rohit::serializer::binary_none>(fullstreamBinaryNone);
     EXPECT_TRUE(personlist.listid == personlistBinaryNone.listid);
     EXPECT_TRUE(personlist.list.size() == personlistBinaryNone.list.size());
     EXPECT_TRUE(personlist.list[0].name == personlistBinaryNone.list[0].name);
 
     rohit::FullStreamAutoAlloc fullstreamBinaryInteger { 256 };
-    personlist.SerializeOut<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(fullstreamBinaryInteger);
+    personlist.SerializeOut<rohit::serializer::binary_integer>(fullstreamBinaryInteger);
     arraytest::personlist personlistBinaryInteger { };
     fullstreamBinaryInteger.Reset();
-    personlistBinaryInteger.SerializeIn<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(fullstreamBinaryInteger);
+    personlistBinaryInteger.SerializeIn<rohit::serializer::binary_integer>(fullstreamBinaryInteger);
     EXPECT_TRUE(personlist.listid == personlistBinaryInteger.listid);
     EXPECT_TRUE(personlist.list.size() == personlistBinaryInteger.list.size());
     EXPECT_TRUE(personlist.list[0].name == personlistBinaryInteger.list[0].name);
 
     rohit::FullStreamAutoAlloc fullstreamBinaryString { 256 };
-    personlist.SerializeOut<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(fullstreamBinaryString);
+    personlist.SerializeOut<rohit::serializer::binary_string>(fullstreamBinaryString);
     arraytest::personlist personlistBinaryString { };
     fullstreamBinaryString.Reset();
-    personlistBinaryString.SerializeIn<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(fullstreamBinaryString);
+    personlistBinaryString.SerializeIn<rohit::serializer::binary_string>(fullstreamBinaryString);
     EXPECT_TRUE(personlist.listid == personlistBinaryString.listid);
     EXPECT_TRUE(personlist.list.size() == personlistBinaryString.list.size());
     EXPECT_TRUE(personlist.list[0].name == personlistBinaryString.list[0].name);
@@ -152,28 +152,28 @@ TEST(GeneratedTest, SerializeMap) {
     EXPECT_TRUE(personlist.list[1].name == personlist1.list[1].name);
 
     fullstream.Reset();
-    personlist.SerializeOut<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(fullstream);
+    personlist.SerializeOut<rohit::serializer::binary_none>(fullstream);
     maptest::personlist personlistBinaryNone { };
     fullstream.Reset();
-    personlistBinaryNone.SerializeIn<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(fullstream);
+    personlistBinaryNone.SerializeIn<rohit::serializer::binary_none>(fullstream);
     EXPECT_TRUE(personlist.listid == personlistBinaryNone.listid);
     EXPECT_TRUE(personlist.list.size() == personlistBinaryNone.list.size());
     EXPECT_TRUE(personlist.list[1].name == personlistBinaryNone.list[1].name);
 
     fullstream.Reset();
-    personlist.SerializeOut<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(fullstream);
+    personlist.SerializeOut<rohit::serializer::binary_integer>(fullstream);
     maptest::personlist personlistBinaryInteger { };
     fullstream.Reset();
-    personlistBinaryInteger.SerializeIn<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(fullstream);
+    personlistBinaryInteger.SerializeIn<rohit::serializer::binary_integer>(fullstream);
     EXPECT_TRUE(personlist.listid == personlistBinaryInteger.listid);
     EXPECT_TRUE(personlist.list.size() == personlistBinaryInteger.list.size());
     EXPECT_TRUE(personlist.list[1].name == personlistBinaryInteger.list[1].name);
 
     fullstream.Reset();
-    personlist.SerializeOut<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(fullstream);
+    personlist.SerializeOut<rohit::serializer::binary_string>(fullstream);
     maptest::personlist personlistBinaryString { };
     fullstream.Reset();
-    personlistBinaryString.SerializeIn<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(fullstream);
+    personlistBinaryString.SerializeIn<rohit::serializer::binary_string>(fullstream);
     EXPECT_TRUE(personlist.listid == personlistBinaryString.listid);
     EXPECT_TRUE(personlist.list.size() == personlistBinaryString.list.size());
     EXPECT_TRUE(personlist.list[1].name == personlistBinaryString.list[1].name);
@@ -197,28 +197,28 @@ TEST(GeneratedTest, SerializeUnion) {
     
 
     rohit::FullStreamAutoAlloc fullstreamBinaryNone { 256 };
-    server.SerializeOut<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(fullstreamBinaryNone);
+    server.SerializeOut<rohit::serializer::binary_none>(fullstreamBinaryNone);
     test::server1 serverBinaryNone { };
     fullstreamBinaryNone.Reset();
-    serverBinaryNone.SerializeIn<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(fullstreamBinaryNone);
+    serverBinaryNone.SerializeIn<rohit::serializer::binary_none>(fullstreamBinaryNone);
     EXPECT_TRUE(server.entry_type == serverBinaryNone.entry_type);
     EXPECT_TRUE(server.entry.cache.port == serverBinaryNone.entry.cache.port);
     EXPECT_TRUE(server.entry.cache.size == serverBinaryNone.entry.cache.size);
 
     rohit::FullStreamAutoAlloc fullstreamBinaryId { 256 };
-    server.SerializeOut<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(fullstreamBinaryId);
+    server.SerializeOut<rohit::serializer::binary_integer>(fullstreamBinaryId);
     test::server1 serverBinaryId { };
     fullstreamBinaryId.Reset();
-    serverBinaryId.SerializeIn<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(fullstreamBinaryId);
+    serverBinaryId.SerializeIn<rohit::serializer::binary_integer>(fullstreamBinaryId);
     EXPECT_TRUE(server.entry_type == serverBinaryId.entry_type);
     EXPECT_TRUE(server.entry.cache.port == serverBinaryId.entry.cache.port);
     EXPECT_TRUE(server.entry.cache.size == serverBinaryId.entry.cache.size);
 
     rohit::FullStreamAutoAlloc fullstreamBinaryName { 256 };
-    server.SerializeOut<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(fullstreamBinaryName);
+    server.SerializeOut<rohit::serializer::binary_string>(fullstreamBinaryName);
     test::server1 serverBinaryString { };
     fullstreamBinaryName.Reset();
-    serverBinaryString.SerializeIn<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(fullstreamBinaryName);
+    serverBinaryString.SerializeIn<rohit::serializer::binary_string>(fullstreamBinaryName);
     EXPECT_TRUE(server.entry_type == serverBinaryString.entry_type);
     EXPECT_TRUE(server.entry.cache.port == serverBinaryString.entry.cache.port);
     EXPECT_TRUE(server.entry.cache.size == serverBinaryString.entry.cache.size);
@@ -243,30 +243,30 @@ TEST(GeneratedTest, SerializeUnion1) {
     EXPECT_TRUE(server.entry.http.mimesize == server.entry.http.mimesize);
 
     fullstream.Reset();
-    server.SerializeOut<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(fullstream);
+    server.SerializeOut<rohit::serializer::binary_none>(fullstream);
     test::server1 serverBinaryNone { };
     fullstream.Reset();
-    serverBinaryNone.SerializeIn<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(fullstream);
+    serverBinaryNone.SerializeIn<rohit::serializer::binary_none>(fullstream);
     EXPECT_TRUE(server.entry_type == serverBinaryNone.entry_type);
     EXPECT_TRUE(server.entry.http.port == serverBinaryNone.entry.http.port);
     EXPECT_TRUE(server.entry.http.size == serverBinaryNone.entry.http.size);
     EXPECT_TRUE(server.entry.http.mimesize == serverBinaryNone.entry.http.mimesize);
 
     fullstream.Reset();
-    server.SerializeOut<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(fullstream);
+    server.SerializeOut<rohit::serializer::binary_integer>(fullstream);
     test::server1 serverBinaryInteger { };
     fullstream.Reset();
-    serverBinaryInteger.SerializeIn<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(fullstream);
+    serverBinaryInteger.SerializeIn<rohit::serializer::binary_integer>(fullstream);
     EXPECT_TRUE(server.entry_type == serverBinaryInteger.entry_type);
     EXPECT_TRUE(server.entry.http.port == serverBinaryInteger.entry.http.port);
     EXPECT_TRUE(server.entry.http.size == serverBinaryInteger.entry.http.size);
     EXPECT_TRUE(server.entry.http.mimesize == serverBinaryInteger.entry.http.mimesize);
 
     fullstream.Reset();
-    server.SerializeOut<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(fullstream);
+    server.SerializeOut<rohit::serializer::binary_string>(fullstream);
     test::server1 serverBinaryString { };
     fullstream.Reset();
-    serverBinaryString.SerializeIn<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(fullstream);
+    serverBinaryString.SerializeIn<rohit::serializer::binary_string>(fullstream);
     EXPECT_TRUE(server.entry_type == serverBinaryString.entry_type);
     EXPECT_TRUE(server.entry.http.port == serverBinaryString.entry.http.port);
     EXPECT_TRUE(server.entry.http.size == serverBinaryString.entry.http.size);
@@ -288,24 +288,24 @@ TEST(GeneratedTest, SerializeEnum) {
     EXPECT_TRUE(test1.te == test11.te);
 
     fullstream.Reset();
-    test1.SerializeOut<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(fullstream);
+    test1.SerializeOut<rohit::serializer::binary_none>(fullstream);
     enumtest::test testBinaryNone { };
     fullstream.Reset();
-    testBinaryNone.SerializeIn<rohit::serializer::binary<rohit::serializer::SerializeKeyType::None>>(fullstream);
+    testBinaryNone.SerializeIn<rohit::serializer::binary_none>(fullstream);
     EXPECT_TRUE(test1.te == testBinaryNone.te);
 
     fullstream.Reset();
-    test1.SerializeOut<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(fullstream);
+    test1.SerializeOut<rohit::serializer::binary_integer>(fullstream);
     enumtest::test testBinaryInteger { };
     fullstream.Reset();
-    testBinaryInteger.SerializeIn<rohit::serializer::binary<rohit::serializer::SerializeKeyType::Integer>>(fullstream);
+    testBinaryInteger.SerializeIn<rohit::serializer::binary_integer>(fullstream);
     EXPECT_TRUE(test1.te == testBinaryInteger.te);
 
     fullstream.Reset();
-    test1.SerializeOut<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(fullstream);
+    test1.SerializeOut<rohit::serializer::binary_string>(fullstream);
     enumtest::test testBinaryString { };
     fullstream.Reset();
-    testBinaryString.SerializeIn<rohit::serializer::binary<rohit::serializer::SerializeKeyType::String>>(fullstream);
+    testBinaryString.SerializeIn<rohit::serializer::binary_string>(fullstream);
     EXPECT_TRUE(test1.te == testBinaryString.te);
 }
 
