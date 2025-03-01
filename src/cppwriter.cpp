@@ -275,13 +275,13 @@ void WriteSerializerInBodyNonUnionKeyString(Stream &outStream, const Member &mem
 void WriteSerializerInBodyNonUnionKeyInteger(Stream &outStream, const Member &member) {
     outStream.Write(
         "\t\t\tcase ", member.id, ":\n"
-        "\t\t\t\tserializerProtocol.SerializeIn<", GetCPPType(member),">(this->", member.Name, ");\n"
+        "\t\t\t\tserializerProtocol.template SerializeIn<", GetCPPType(member),">(this->", member.Name, ");\n"
         "\t\t\t\tbreak;\n");
 } // WriteSerializerInBodyNonUnionKeyInteger
 
 void WriteSerializerInBodyNonUnionKeyNone(Stream &outStream, const Member &member) {
     outStream.Write(
-        "\t\t\tserializerProtocol.SerializeIn<", GetCPPType(member),">(this->", member.Name, ");\n");
+        "\t\t\tserializerProtocol.template SerializeIn<", GetCPPType(member),">(this->", member.Name, ");\n");
 } // WriteSerializerInBodyNonUnionKeyNone
 
 
