@@ -88,6 +88,55 @@ concept functions = requires(T t) {
 
 } // namespace typecheck
 
+struct write_format {
+    bool newline_before_braces_open { false };
+    bool newline_after_braces_open { false };
+    bool newline_before_braces_close { false };
+    bool newline_after_braces_close { false };
+    bool newline_before_bracket_open { false };
+    bool newline_after_bracket_open { false };
+    bool newline_before_bracket_close { false };
+    bool newline_after_bracket_close { false };
+    bool newline_before_object_member { false };
+    bool space_after_comma { false }; // Space will not be added if newline is enabled
+    bool newline_after_comma { false };
+    bool space_after_colon { false };
+    bool all_data_on_newline { false };
+    std::string_view intendtext { };
+};
+
+namespace format {
+static constexpr write_format compress { };
+
+static constexpr write_format beautify { 
+    .newline_after_braces_open = true,
+    .newline_before_braces_close = true,
+    .newline_before_bracket_open = true,
+    .newline_after_bracket_open = true,
+    .newline_before_bracket_close = true,
+    .newline_before_object_member = true,
+    .space_after_comma = true,
+    .space_after_colon = true,
+    .intendtext = { "  " } 
+};
+
+static constexpr write_format beautify_vertical { 
+    .newline_before_braces_open = true,
+    .newline_after_braces_open = true,
+    .newline_before_braces_close = true,
+    .newline_before_bracket_open = true,
+    .newline_after_bracket_open = true,
+    .newline_before_bracket_close = true,
+    .newline_before_object_member = true,
+    .space_after_comma = true,
+    .newline_after_comma = true,
+    .space_after_colon = true,
+    .all_data_on_newline = true,
+    .intendtext = { "  " } 
+};
+} // namespace format
+
+
 template <typename TypeEnum, typename Base, typename T0>
 auto typecast(TypeEnum type, Base *ptr) { return reinterpret_cast<T0 *>(ptr); }
 template <typename TypeEnum, typename Base, typename T0, typename T1>
@@ -158,7 +207,7 @@ class json<SerializeType::In> {
 public:
     constexpr static SerializeKeyType serialize_key_type = SerializeKeyType::String;
 
-private:
+protected:
     const Stream &inStream;
 
 public:
@@ -167,7 +216,7 @@ public:
     const auto &GetStream() { return inStream; }
     auto &GetStream() const { return inStream; }
 
-private:
+protected:
     constexpr bool IsWhiteSpace(const char val) noexcept { return val == ' ' || val == '\t' || val == '\n' || val == '\r'; }
     void SkipWhiteSpace() { while(IsWhiteSpace(*inStream)) ++inStream; }
 
@@ -422,21 +471,36 @@ public:
     }
 }; // class json<SerializeType::In>
 
-template<>
-class json<SerializeType::Out> {
+template <bool beautify>
+class json_formatter {
+protected:
+    Stream &outStream;
+public:
+    json_formatter(Stream &outStream, const write_format &) : outStream { outStream } { }
+};
+
+template <>
+class json_formatter<true> {
+protected:
+    Stream &outStream;
+    const write_format formatDefinition;
+
+public:
+    json_formatter(Stream &outStream, const write_format &formatDefinition) : outStream { outStream }, formatDefinition { formatDefinition } { }
+};
+
+
+template <bool beautify>
+class JsonOut : public json_formatter<beautify> {
 public:
     constexpr static SerializeKeyType serialize_key_type = SerializeKeyType::String;
 
-private:
-    Stream &outStream;
-
 public:
-    json(Stream &outStream) : outStream { outStream } { }
-
-    const auto &GetStream() { return outStream; }
-    auto &GetStream() const { return outStream; }
+    JsonOut(Stream &outStream) : json_formatter<beautify> { outStream, format::compress } { }
+    JsonOut(Stream &outStream, const write_format &formatDefinition) : json_formatter<beautify> { outStream, formatDefinition } { }
 
 private:
+    using json_formatter<beautify>::outStream;
 
     template <typename T>
     void SerializeOutFirst(auto &name, const T &value) {
@@ -453,7 +517,18 @@ private:
 public:
     template <typename T>
     void SerializeOut(const T &value) {
-        if constexpr (typecheck::SerializerOutEnabledPtr<T, json<SerializeType::Out>>) {
+        if constexpr (std::is_same_v<T, char>) {
+            outStream.Write('"', value, '"');
+        } else if constexpr (std::is_same_v<T, bool>) {
+            if (value) outStream.Copy("TRUE");
+            else outStream.Copy("FALSE");
+        } else if constexpr (std::integral<T>) {
+            outStream.Copy(value);
+        } else if constexpr (std::same_as<T, std::string>) {
+            outStream.Write('"', value, '"');
+        } else if constexpr (std::same_as<T, std::string_view>) { 
+            outStream.Write('"', value, '"');
+        } else if constexpr (typecheck::SerializerOutEnabledPtr<T, json<SerializeType::Out>>) {
             value->SerializeOut(*this);
         } else if constexpr (typecheck::SerializerOutEnabled<T, json<SerializeType::Out>>) {
             value.SerializeOut(*this);
@@ -465,11 +540,6 @@ public:
     template <typecheck::functions T>
     void SerializeOut(const T &value) {
         value(outStream);
-    }
-
-    template <std::integral T>
-    void SerializeOut(const T &value) {
-        outStream.Copy(value);
     }
 
     template <std::floating_point T>
@@ -527,28 +597,13 @@ public:
     void StructSerializeOutEnd() {
         outStream.Write('}');
     }
-}; // class json<SerializeType::Out>
+}; // class JsonOut<>
 
-template<>
-inline void json<SerializeType::Out>::SerializeOut<char>(const char &value) {
-    outStream.Write('"', value, '"');
-}
-
-template<>
-inline void json<SerializeType::Out>::SerializeOut<bool>(const bool &value) {
-    if (value) outStream.Copy("TRUE");
-    else outStream.Copy("FALSE");
-}
-
-template<>
-inline void json<SerializeType::Out>::SerializeOut<std::string>(const std::string &value) {
-    outStream.Write('"', value, '"');
-}
-
-template<>
-inline void json<SerializeType::Out>::SerializeOut<std::string_view>(const std::string_view &value) {
-    outStream.Write('"', value, '"');
-}
+template <>
+class json<SerializeType::Out> : public JsonOut<false> {
+public:
+    using JsonOut<false>::JsonOut;
+};
 
 template <SerializeType type, SerializeKeyType SERIALIZE_KEY_TYPE>
 class binary { };
