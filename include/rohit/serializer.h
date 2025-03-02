@@ -26,6 +26,7 @@
 #include <map>
 #include <type_traits>
 #include <stdexcept>
+#include <string_view>
 
 namespace rohit::serializer {
 namespace exception {
@@ -520,10 +521,13 @@ public:
         if constexpr (std::is_same_v<T, char>) {
             outStream.Write('"', value, '"');
         } else if constexpr (std::is_same_v<T, bool>) {
-            if (value) outStream.Copy("TRUE");
-            else outStream.Copy("FALSE");
+            if (value) outStream.Append("TRUE");
+            else outStream.Append("FALSE");
         } else if constexpr (std::integral<T>) {
-            outStream.Copy(value);
+            outStream.AppendString(value);
+        } else if constexpr (std::floating_point<T>) {
+            auto floatStr = std::to_string(value);
+            outStream.Append(floatStr);
         } else if constexpr (std::same_as<T, std::string>) {
             outStream.Write('"', value, '"');
         } else if constexpr (std::same_as<T, std::string_view>) { 
@@ -540,13 +544,6 @@ public:
     template <typecheck::functions T>
     void SerializeOut(const T &value) {
         value(outStream);
-    }
-
-    template <std::floating_point T>
-    void SerializeOut(const T &value) {
-        char buffer[std::numeric_limits<T>::digits10 + 3] { 0 };
-        auto result = std::to_chars(std::begin(buffer), std::end(buffer), value);
-        outStream.Copy(buffer, result.ptr);
     }
 
     template <typecheck::vector T>
@@ -790,19 +787,25 @@ protected:
 public:
     void SerializeOutVariable(const std::integral auto id) {
         if (id <= 0x3f) {
-            *outStream++ = static_cast<uint8_t>(id);
+            outStream.WriteRaw(static_cast<uint8_t>(id));
         } else if (id <= 0x3fff) {
-            *outStream++ = static_cast<uint8_t>(((id >> 8) | 0x40));
-            *outStream++ = static_cast<uint8_t>(id & 0xff);
+            outStream.WriteRaw(
+                static_cast<uint8_t>(((id >> 8) | 0x40)),
+                static_cast<uint8_t>(id & 0xff)
+            );
         } else if (id <= 0x3fffff) {
-            *outStream++ = static_cast<uint8_t>(((id >> 16) | 0x80));
-            *outStream++ = static_cast<uint8_t>((id >> 8) & 0xff);
-            *outStream++ = static_cast<uint8_t>(id & 0xff);
+            outStream.WriteRaw(
+                static_cast<uint8_t>(((id >> 16) | 0x80)),
+                static_cast<uint8_t>((id >> 8) & 0xff),
+                static_cast<uint8_t>(id & 0xff)
+            );
         } else if (id <= 0x3fffffff) {
-            *outStream++ = static_cast<uint8_t>(((id >> 24) | 0xc0));
-            *outStream++ = static_cast<uint8_t>((id >> 16) & 0xff);
-            *outStream++ = static_cast<uint8_t>((id >> 8) & 0xff);
-            *outStream++ = static_cast<uint8_t>(id & 0xff);
+            outStream.WriteRaw(
+                static_cast<uint8_t>(((id >> 24) | 0xc0)),
+                static_cast<uint8_t>((id >> 16) & 0xff),
+                static_cast<uint8_t>((id >> 8) & 0xff),
+                static_cast<uint8_t>(id & 0xff)
+            );
         }
     }
 
@@ -823,11 +826,11 @@ public:
         } else if constexpr (std::is_same_v<std::string, T>) {
             // variable size following string of size
             SerializeOutVariable(value.size());
-            outStream.Copy(value);
+            outStream.Append(value);
         } else if constexpr (std::is_same_v<std::string_view, T>) {
             // variable size following string of size
             SerializeOutVariable(value.size());
-            outStream.Copy(value);
+            outStream.Append(value);
         } else if constexpr (std::floating_point<T>) {
             outStream += sizeof(T);
             auto dest = reinterpret_cast<T *>(outStream.curr() - sizeof(T));

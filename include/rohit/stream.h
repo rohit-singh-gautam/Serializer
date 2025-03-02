@@ -219,40 +219,55 @@ public:
         const size_t len = reinterpret_cast<const char *>(_end) - reinterpret_cast<const char *>(_begin);
         Reserve(len);
     }
-    inline void Copy(const std::string_view &source) { Reserve(source.size()); _curr = std::copy(std::begin(source), std::end(source), _curr); }
-    inline void Copy(const std::string &source) { Reserve(source.size()); _curr = std::copy(std::begin(source), std::end(source), _curr); }
-    inline void Copy(const Stream &source) { Reserve(source.RemainingBuffer()); _curr = std::copy(source.curr(), source.end(), _curr); }
-    inline void Copy(const auto *begin, const auto *end) { Reserve(begin, end); _curr = std::copy(reinterpret_cast<const uint8_t *>(begin), reinterpret_cast<const uint8_t *>(end), _curr); }
-    inline void Copy(const auto *begin, size_t size) { Reserve(size); _curr = std::copy(reinterpret_cast<const uint8_t *>(begin), reinterpret_cast<const uint8_t *>(begin) + size, _curr); }
+    inline void Append(const std::string_view &source) { Reserve(source.size()); _curr = std::copy(std::begin(source), std::end(source), _curr); }
+    inline void Append(const std::string &source) { Reserve(source.size()); _curr = std::copy(std::begin(source), std::end(source), _curr); }
+    inline void Append(const Stream &source) { Reserve(source.RemainingBuffer()); _curr = std::copy(source.curr(), source.end(), _curr); }
+    inline void Append(const auto *begin, const auto *end) { Reserve(begin, end); _curr = std::copy(reinterpret_cast<const uint8_t *>(begin), reinterpret_cast<const uint8_t *>(end), _curr); }
+    inline void Append(const auto *begin, size_t size) { Reserve(size); _curr = std::copy(reinterpret_cast<const uint8_t *>(begin), reinterpret_cast<const uint8_t *>(begin) + size, _curr); }
+    inline void Append(const char value) { Reserve(value); *_curr++ = value; }
+    inline void Append(const uint8_t value) { Reserve(value); *_curr++ = value; }
+    template <size_t size>
+    inline void Append(const char (&value)[size]) { 
+        if constexpr (size >= 1) {
+            auto newSize = value[size - 1] ? size : size - 1;
+            if (newSize) {
+                Append(value, value + newSize);
+            }
+        }
+    }
+
+    template<typename... ValueType> 
+    inline void WriteRaw(const ValueType& ...value) {
+        ((Append(value)), ...);
+    }
 
     template <typename ValueType>
-    inline void Copy(const ValueType &value) {
+    inline void AppendString(const ValueType &value) {
         if constexpr (std::is_same_v<ValueType, char>) {
-            Reserve(sizeof(value));
-            *_curr++ = value;
+            Append(value);
         } else if constexpr (std::is_integral_v<ValueType>) {
             char buffer[std::numeric_limits<ValueType>::digits10 + 3] { 0 };
             auto result = std::to_chars(std::begin(buffer), std::end(buffer), value);
-            Copy(buffer, result.ptr);
+            Append(buffer, result.ptr);
         } else if constexpr (std::is_array_v<ValueType>) {
             if constexpr (sizeof(value[0]) == 1) {
                 constexpr auto array_size = sizeof(value)/sizeof(value[0]);
                 if constexpr (array_size >= 1) {
                     if (value[array_size - 1] == '\0')
-                        Copy(std::begin(value), array_size - 1);
-                    else Copy(std::begin(value), std::end(value));
+                        Append(std::begin(value), array_size - 1);
+                    else Append(std::begin(value), std::end(value));
                 }
             } else static_assert(false, "Unsupported type");
         } else if constexpr (std::is_same_v<ValueType, std::string>) {
-            Copy(value);
+            Append(value);
         } else if constexpr (std::is_same_v<ValueType, std::string_view>) {
-            Copy(value);
+            Append(value);
         }else static_assert(false, "Unsupported type");
     }
 
     template<typename... ValueType> 
     inline void Write(const ValueType& ...value) {
-        ((Copy(value)), ...);
+        ((AppendString(value)), ...);
     }
 }; // class Stream
 

@@ -57,11 +57,11 @@ TEST(GeneratedTest, SerializeOut) {
 
     EXPECT_TRUE(result_personex == personexstr);
     
-    test::values values { 'a', 3.14f, 3.884563, true};
+    test::values values {'a', 3.14f, 3.884563, true};
     fullstream.Reset();
     values.SerializeOut<rohit::serializer::json>(fullstream);
     std::string valuesstr {reinterpret_cast<char *>(fullstream.begin()), fullstream.CurrentOffset()};
-    std::string result_valuesstr { "{\"ch\":\"a\",\"pi\":3.14,\"t1\":3.884563,\"t2\":TRUE}" };
+    std::string result_valuesstr { "{\"ch\":\"a\",\"pi\":3.140000,\"t1\":3.884563,\"t2\":TRUE}" };
 
     EXPECT_TRUE(result_valuesstr == valuesstr);
 
