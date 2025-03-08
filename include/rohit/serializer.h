@@ -112,7 +112,6 @@ static constexpr write_format compress { };
 static constexpr write_format beautify { 
     .newline_after_braces_open = true,
     .newline_before_braces_close = true,
-    .newline_before_bracket_open = true,
     .newline_after_bracket_open = true,
     .newline_before_bracket_close = true,
     .newline_before_object_member = true,
@@ -504,10 +503,13 @@ protected:
     inline void WriteColon() {
         outStream.Write(':');
     }
+
+    inline void NewlineAdded(bool) { }
 };
 
 template <>
 class json_formatter<true> {
+    bool newlineWritten { false };
 protected:
     Stream &outStream;
     const write_format formatDefinition;
@@ -516,8 +518,10 @@ protected:
 
     inline void BeforeBraceOpen() {
         if (formatDefinition.newline_before_braces_open) {
-            outStream.Write('\n');
-            outStream.Write(tabString);
+            if (!newlineWritten) {
+                outStream.Write('\n');
+                outStream.Write(tabString);
+            }
         }
     }
 
@@ -526,6 +530,7 @@ protected:
             outStream.Write('\n');
             tabString.append(formatDefinition.intendtext);
             outStream.Write(tabString);
+            newlineWritten = true;
         }
     }
 
@@ -541,13 +546,16 @@ protected:
         if (formatDefinition.newline_after_braces_close) {
             outStream.Write('\n');
             outStream.Write(tabString);
+            newlineWritten = true;
         }
     }
 
     inline void BeforeBracketOpen() {
         if (formatDefinition.newline_before_bracket_open) {
-            outStream.Write('\n');
-            outStream.Write(tabString);
+            if (!newlineWritten) {
+                outStream.Write('\n');
+                outStream.Write(tabString);
+            }
         }
     }
 
@@ -556,6 +564,7 @@ protected:
             outStream.Write('\n');
             tabString.append(formatDefinition.intendtext);
             outStream.Write(tabString);
+            newlineWritten = true;
         }
     }
 
@@ -571,6 +580,7 @@ protected:
         if (formatDefinition.newline_after_bracket_close) {
             outStream.Write('\n');
             outStream.Write(tabString);
+            newlineWritten = true;
         }
     }
 
@@ -600,8 +610,10 @@ protected:
 
     template <bool memberObject>
     inline void WriteComma() {
-        if (formatDefinition.newline_after_comma || (memberObject && formatDefinition.newline_before_object_member)) outStream.Write(",\n", tabString);
-        else if (formatDefinition.space_after_comma) outStream.Write(", ");
+        if (formatDefinition.newline_after_comma || (memberObject && formatDefinition.newline_before_object_member)) {
+            outStream.Write(",\n", tabString);
+            newlineWritten = true;
+        } else if (formatDefinition.space_after_comma) outStream.Write(", ");
         else outStream.Write(',');
     }
 
@@ -609,6 +621,8 @@ protected:
         if (formatDefinition.space_after_colon) outStream.Write(": ");
         else outStream.Write(':');
     }
+
+    inline void NewlineAdded(bool newlineWritten) { this->newlineWritten = newlineWritten; }
 
 public:
     json_formatter(Stream &outStream, const write_format &formatDefinition) : outStream { outStream }, formatDefinition { formatDefinition } { }
@@ -632,10 +646,11 @@ private:
     using json_formatter<beautify>::WriteBracketOpen;
     using json_formatter<beautify>::WriteBracketClose;
     using json_formatter<beautify>::WriteColon;
+    using json_formatter<beautify>::NewlineAdded;
 
     template <typename T>
     void SerializeOutFirst(auto &name, const T &value) {
-        outStream.Write('"', name, "\"");
+        SerializeOut(name);
         WriteColon();
         SerializeOut(value);
     }
@@ -643,7 +658,7 @@ private:
     template <typename T>
     void SerializeOutSecond(auto &name, const T &value) {
         json_formatter<beautify>::template WriteComma<true>();
-        outStream.Write("\"", name, "\"");
+        SerializeOut(name);
         WriteColon();
         SerializeOut(value);
     }
@@ -652,18 +667,24 @@ public:
     template <typename T>
     void SerializeOut(const T &value) {
         if constexpr (std::is_same_v<T, char>) {
+            NewlineAdded(false);
             outStream.Write('"', value, '"');
         } else if constexpr (std::is_same_v<T, bool>) {
+            NewlineAdded(false);
             if (value) outStream.Append("true");
             else outStream.Append("false");
         } else if constexpr (std::integral<T>) {
+            NewlineAdded(false);
             outStream.AppendString(value);
         } else if constexpr (std::floating_point<T>) {
+            NewlineAdded(false);
             auto floatStr = std::to_string(value);
             outStream.Append(floatStr);
         } else if constexpr (std::same_as<T, std::string>) {
+            NewlineAdded(false);
             outStream.Write('"', value, '"');
         } else if constexpr (std::same_as<T, std::string_view>) { 
+            NewlineAdded(false);
             outStream.Write('"', value, '"');
         } else if constexpr (typecheck::SerializerOutEnabledPtr<T, json<SerializeType::Out>>) {
             value->SerializeOut(*this);
