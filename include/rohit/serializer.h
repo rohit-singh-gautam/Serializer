@@ -622,7 +622,7 @@ protected:
         else outStream.Write(':');
     }
 
-    inline void NewlineAdded(bool newlineWritten) { this->newlineWritten = newlineWritten; }
+    inline void NewlineAdded(bool inNewlineWritten) { newlineWritten = inNewlineWritten; }
 
 public:
     json_formatter(Stream &outStream, const write_format &formatDefinition) : outStream { outStream }, formatDefinition { formatDefinition } { }
