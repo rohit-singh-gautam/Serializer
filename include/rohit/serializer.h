@@ -478,6 +478,32 @@ protected:
     Stream &outStream;
 public:
     json_formatter(Stream &outStream, const write_format &) : outStream { outStream } { }
+
+protected:
+    inline void WriteBraceOpen() {
+        outStream.Write('{');
+    }
+
+    inline void WriteBraceClose() {
+        outStream.Write('}');
+    }
+
+    inline void WriteBracketOpen() {
+        outStream.Write('[');
+    }
+
+    inline void WriteBracketClose() {
+        outStream.Write(']');
+    }
+
+    template <bool memberObject>
+    inline void WriteComma() {
+        outStream.Write(',');
+    }
+
+    inline void WriteColon() {
+        outStream.Write(':');
+    }
 };
 
 template <>
@@ -485,6 +511,104 @@ class json_formatter<true> {
 protected:
     Stream &outStream;
     const write_format formatDefinition;
+
+    std::string tabString { };
+
+    inline void BeforeBraceOpen() {
+        if (formatDefinition.newline_before_braces_open) {
+            outStream.Write('\n');
+            outStream.Write(tabString);
+        }
+    }
+
+    inline void AfterBraceOpen() {
+        if (formatDefinition.newline_after_braces_open || formatDefinition.newline_before_object_member) {
+            outStream.Write('\n');
+            tabString.append(formatDefinition.intendtext);
+            outStream.Write(tabString);
+        }
+    }
+
+    inline void BeforeBraceClose() {
+        if (formatDefinition.newline_before_braces_close) {
+            outStream.Write('\n');
+            tabString.erase(std::end(tabString) - std::size(formatDefinition.intendtext), std::end(tabString));
+            outStream.Write(tabString);
+        }
+    }
+
+    inline void AfterBraceClose() {
+        if (formatDefinition.newline_after_braces_close) {
+            outStream.Write('\n');
+            outStream.Write(tabString);
+        }
+    }
+
+    inline void BeforeBracketOpen() {
+        if (formatDefinition.newline_before_bracket_open) {
+            outStream.Write('\n');
+            outStream.Write(tabString);
+        }
+    }
+
+    inline void AfterBracketOpen() {
+        if (formatDefinition.newline_after_bracket_open) {
+            outStream.Write('\n');
+            tabString.append(formatDefinition.intendtext);
+            outStream.Write(tabString);
+        }
+    }
+
+    inline void BeforeBracketClose() {
+        if (formatDefinition.newline_before_bracket_close) {
+            outStream.Write('\n');
+            tabString.erase(std::end(tabString) - std::size(formatDefinition.intendtext), std::end(tabString));
+            outStream.Write(tabString);
+        }
+    }
+
+    inline void AfterBracketClose() {
+        if (formatDefinition.newline_after_bracket_close) {
+            outStream.Write('\n');
+            outStream.Write(tabString);
+        }
+    }
+
+    inline void WriteBraceOpen() {
+        BeforeBraceOpen();
+        outStream.Write('{');
+        AfterBraceOpen();
+    }
+
+    inline void WriteBraceClose() {
+        BeforeBraceClose();
+        outStream.Write('}');
+        AfterBraceClose();
+    }
+
+    inline void WriteBracketOpen() {
+        BeforeBracketOpen();
+        outStream.Write('[');
+        AfterBracketOpen();
+    }
+
+    inline void WriteBracketClose() {
+        BeforeBracketClose();
+        outStream.Write(']');
+        AfterBracketClose();
+    }
+
+    template <bool memberObject>
+    inline void WriteComma() {
+        if (formatDefinition.newline_after_comma || (memberObject && formatDefinition.newline_before_object_member)) outStream.Write(",\n", tabString);
+        else if (formatDefinition.space_after_comma) outStream.Write(", ");
+        else outStream.Write(',');
+    }
+
+    inline void WriteColon() {
+        if (formatDefinition.space_after_colon) outStream.Write(": ");
+        else outStream.Write(':');
+    }
 
 public:
     json_formatter(Stream &outStream, const write_format &formatDefinition) : outStream { outStream }, formatDefinition { formatDefinition } { }
@@ -503,15 +627,24 @@ public:
 private:
     using json_formatter<beautify>::outStream;
 
+    using json_formatter<beautify>::WriteBraceOpen;
+    using json_formatter<beautify>::WriteBraceClose;
+    using json_formatter<beautify>::WriteBracketOpen;
+    using json_formatter<beautify>::WriteBracketClose;
+    using json_formatter<beautify>::WriteColon;
+
     template <typename T>
     void SerializeOutFirst(auto &name, const T &value) {
-        outStream.Write('"', name, "\":");
+        outStream.Write('"', name, "\"");
+        WriteColon();
         SerializeOut(value);
     }
 
     template <typename T>
     void SerializeOutSecond(auto &name, const T &value) {
-        outStream.Write(",\"", name, "\":");
+        json_formatter<beautify>::template WriteComma<true>();
+        outStream.Write("\"", name, "\"");
+        WriteColon();
         SerializeOut(value);
     }
 
@@ -521,8 +654,8 @@ public:
         if constexpr (std::is_same_v<T, char>) {
             outStream.Write('"', value, '"');
         } else if constexpr (std::is_same_v<T, bool>) {
-            if (value) outStream.Append("TRUE");
-            else outStream.Append("FALSE");
+            if (value) outStream.Append("true");
+            else outStream.Append("false");
         } else if constexpr (std::integral<T>) {
             outStream.AppendString(value);
         } else if constexpr (std::floating_point<T>) {
@@ -548,42 +681,42 @@ public:
 
     template <typecheck::vector T>
     void SerializeOut(const T &value) {
-        outStream.Write('[');
+        WriteBracketOpen();
         auto itr = std::begin(value);
         if (itr != std::end(value)) {
             SerializeOut(*itr);
             itr = std::next(itr);
             while(itr != std::end(value)) {
-                outStream.Write(',');
+                json_formatter<beautify>::template WriteComma<false>();
                 SerializeOut(*itr);
                 itr = std::next(itr);
             }
         }
-        outStream.Write(']');
+        WriteBracketClose();
     }
 
     template <typecheck::map T>
     void SerializeOut(const T &value) {
-        outStream.Write('{');
+        WriteBraceOpen();
         auto itr = std::begin(value);
         if (itr != std::end(value)) {
             SerializeOut(itr->first);
-            outStream.Write(':');
+            WriteColon();
             SerializeOut(itr->second);
             itr = std::next(itr);
             while(itr != std::end(value)) {
-                outStream.Write(',');
+                json_formatter<beautify>::template WriteComma<true>();
                 SerializeOut(itr->first);
-                outStream.Write(':');
+                WriteColon();
                 SerializeOut(itr->second);
                 itr = std::next(itr);
             }
         }
-        outStream.Write('}');
+        WriteBraceClose();
     }
 
     void StructSerializeOutStart(const auto &value) {
-        outStream.Write('{');
+        WriteBraceOpen();
         SerializeOutFirst(value.first, value.second);
     }
 
@@ -592,7 +725,7 @@ public:
     }
 
     void StructSerializeOutEnd() {
-        outStream.Write('}');
+        WriteBraceClose();
     }
 }; // class JsonOut<>
 
