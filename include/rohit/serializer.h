@@ -102,7 +102,6 @@ struct write_format {
     bool space_after_comma { false }; // Space will not be added if newline is enabled
     bool newline_after_comma { false };
     bool space_after_colon { false };
-    bool all_data_on_newline { false };
     std::string_view intendtext { };
 };
 
@@ -131,7 +130,6 @@ static constexpr write_format beautify_vertical {
     .space_after_comma = true,
     .newline_after_comma = true,
     .space_after_colon = true,
-    .all_data_on_newline = true,
     .intendtext = { "  " } 
 };
 } // namespace format
