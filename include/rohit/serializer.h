@@ -678,6 +678,31 @@ private:
         SerializeOut(value);
     }
 
+    void SerializeOutKeyValuePair(const auto &value) {
+        constexpr const std::string_view keyStr { "key" };
+        constexpr const std::string_view valueStr { "value" };
+        WriteBraceOpen();
+        SerializeOutFirst(keyStr, value.first);
+        SerializeOutSecond(valueStr, value.second);
+        WriteBraceClose();
+    }
+
+    template <typename T>
+    void SerializeOutList(const T &valueList, std::function<void(const typename T::value_type &)> serializeFunc) {
+        WriteBracketOpen();
+        auto itr = std::begin(valueList);
+        if (itr != std::end(valueList)) {
+            serializeFunc(*itr);
+            itr = std::next(itr);
+            while(itr != std::end(valueList)) {
+                json_formatter<beautify>::template WriteComma<false>();
+                serializeFunc(*itr);
+                itr = std::next(itr);
+            }
+        }
+        WriteBracketClose();
+    }
+
 public:
     template <typename T>
     void SerializeOut(const T &value) {
@@ -717,50 +742,12 @@ public:
 
     template <typecheck::vector T>
     void SerializeOut(const T &value) {
-        WriteBracketOpen();
-        auto itr = std::begin(value);
-        if (itr != std::end(value)) {
-            SerializeOut(*itr);
-            itr = std::next(itr);
-            while(itr != std::end(value)) {
-                json_formatter<beautify>::template WriteComma<false>();
-                SerializeOut(*itr);
-                itr = std::next(itr);
-            }
-        }
-        WriteBracketClose();
+        SerializeOutList(value, [this](const T::value_type &val) { SerializeOut(val); });
     }
 
     template <typecheck::map T>
     void SerializeOut(const T &value) {
-        WriteBracketOpen();
-        auto itr = std::begin(value);
-        if (itr != std::end(value)) {
-            WriteBraceOpen();
-            outStream.Write("\"key\"");
-            WriteColon();
-            SerializeOut(itr->first);
-            json_formatter<beautify>::template WriteComma<true>();
-            outStream.Write("\"value\"");
-            WriteColon();
-            SerializeOut(itr->second);
-            WriteBraceClose();
-            itr = std::next(itr);
-            while(itr != std::end(value)) {
-                json_formatter<beautify>::template WriteComma<false>();
-                WriteBraceOpen();
-                outStream.Write("\"key\"");
-                WriteColon();
-                SerializeOut(itr->first);
-                json_formatter<beautify>::template WriteComma<true>();
-                outStream.Write("\"value\"");
-                WriteColon();
-                SerializeOut(itr->second);
-                WriteBraceClose();
-                itr = std::next(itr);
-            }
-        }
-        WriteBracketClose();
+        SerializeOutList(value, [this](const T::value_type &val) { SerializeOutKeyValuePair(val); });
     }
 
     void StructSerializeOutStart(const auto &value) {
