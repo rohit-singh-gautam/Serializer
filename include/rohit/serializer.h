@@ -519,7 +519,6 @@ protected:
         outStream.Write(':');
     }
 
-    inline void NewlineAdded(bool) { }
     inline void BeforeData() { }
 };
 
@@ -638,9 +637,8 @@ protected:
         else outStream.Write(':');
     }
 
-    inline void NewlineAdded(bool inNewlineWritten) { newlineWritten = inNewlineWritten; }
     inline void BeforeData() {
-        NewlineAdded(false);
+        newlineWritten = false;
     }
 
 public:
