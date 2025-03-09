@@ -520,11 +520,12 @@ protected:
     }
 
     inline void NewlineAdded(bool) { }
+    inline void BeforeData() { }
 };
 
 template <>
 class json_formatter<true> {
-    bool newlineWritten { false };
+    bool newlineWritten { true };
 protected:
     Stream &outStream;
     const write_format formatDefinition;
@@ -638,6 +639,9 @@ protected:
     }
 
     inline void NewlineAdded(bool inNewlineWritten) { newlineWritten = inNewlineWritten; }
+    inline void BeforeData() {
+        NewlineAdded(false);
+    }
 
 public:
     json_formatter(Stream &outStream, const write_format &formatDefinition) : outStream { outStream }, formatDefinition { formatDefinition } { }
@@ -661,7 +665,7 @@ private:
     using json_formatter<beautify>::WriteBracketOpen;
     using json_formatter<beautify>::WriteBracketClose;
     using json_formatter<beautify>::WriteColon;
-    using json_formatter<beautify>::NewlineAdded;
+    using json_formatter<beautify>::BeforeData;
 
     template <typename T>
     void SerializeOutFirst(auto &name, const T &value) {
@@ -707,24 +711,24 @@ public:
     template <typename T>
     void SerializeOut(const T &value) {
         if constexpr (std::is_same_v<T, char>) {
-            NewlineAdded(false);
+            BeforeData();
             outStream.Write('"', value, '"');
         } else if constexpr (std::is_same_v<T, bool>) {
-            NewlineAdded(false);
+            BeforeData();
             if (value) outStream.Append("true");
             else outStream.Append("false");
         } else if constexpr (std::integral<T>) {
-            NewlineAdded(false);
+            BeforeData();
             outStream.AppendString(value);
         } else if constexpr (std::floating_point<T>) {
-            NewlineAdded(false);
+            BeforeData();
             auto floatStr = std::to_string(value);
             outStream.Append(floatStr);
         } else if constexpr (std::same_as<T, std::string>) {
-            NewlineAdded(false);
+            BeforeData();
             outStream.Write('"', value, '"');
         } else if constexpr (std::same_as<T, std::string_view>) { 
-            NewlineAdded(false);
+            BeforeData();
             outStream.Write('"', value, '"');
         } else if constexpr (typecheck::SerializerOutEnabledPtr<T, json<SerializeType::Out>>) {
             value->SerializeOut(*this);
