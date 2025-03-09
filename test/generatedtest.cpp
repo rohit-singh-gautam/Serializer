@@ -98,7 +98,7 @@ TEST(GeneratedTest, SerializeArray) {
     rohit::FullStreamAutoAlloc fullstream { 256 };
     personlist.SerializeOut<rohit::serializer::json>(fullstream);
     std::string personliststr {reinterpret_cast<char *>(fullstream.begin()), fullstream.CurrentOffset()};
-    std::string result_personliststr { "{\"listid\":556,\"check\":true,\"list\":[{\"name\":\"Rohit Jairaj Singh\",\"ID\":1},{\"name\":\"Ragini Rohit Singh\",\"ID\":2}],\"reverseListMap\":{1:0,2:1}}" };
+    std::string result_personliststr { R"({"listid":556,"check":true,"list":[{"name":"Rohit Jairaj Singh","ID":1},{"name":"Ragini Rohit Singh","ID":2}],"reverseListMap":[{"key":1,"value":0},{"key":2,"value":1}]})" };
     EXPECT_TRUE(result_personliststr == personliststr);
 
     auto fullstream1 = rohit::MakeConstantFullStream(result_personliststr);
@@ -141,7 +141,7 @@ TEST(GeneratedTest, SerializeMap) {
     rohit::FullStreamAutoAlloc fullstream { 256 };
     personlist.SerializeOut<rohit::serializer::json>(fullstream);
     std::string personliststr {reinterpret_cast<char *>(fullstream.begin()), fullstream.CurrentOffset()};
-    std::string result_personliststr { "{\"listid\":556,\"list\":{1:{\"name\":\"Rohit Jairaj Singh\",\"ID\":1},2:{\"name\":\"Ragini Rohit Singh\",\"ID\":2}}}" };
+    std::string result_personliststr { R"({"listid":556,"list":[{"key":1,"value":{"name":"Rohit Jairaj Singh","ID":1}},{"key":2,"value":{"name":"Ragini Rohit Singh","ID":2}}]})" };
     EXPECT_TRUE(result_personliststr == personliststr);
 
     auto fullstream1 = rohit::MakeConstantFullStream(result_personliststr);
@@ -331,10 +331,16 @@ R"(
                         "ID": 323
                     }
                 ],
-                "reverseListMap": {
-                    322: 0,
-                    323: 1
-                }
+                "reverseListMap": [
+                    {
+                        "key": 322,
+                        "value": 0
+                    },
+                    {
+                        "key": 323,
+                        "value": 1
+                    }
+                ]
             }
         },
         {
@@ -353,10 +359,16 @@ R"(
                         "ID": 325
                     }
                 ],
-                "reverseListMap": {
-                    324: 0,
-                    325: 1
-                }
+                "reverseListMap": [
+                    {
+                        "key": 324,
+                        "value": 0
+                    },
+                    {
+                        "key": 325,
+                        "value": 1
+                    }
+                ]
             }
         }
     ]
@@ -402,6 +414,7 @@ TEST(GeneratedTest, SerializeJSONBeautification) {
     rohit::FullStreamAutoAlloc fullstream1 { 256 };
     rohit::serializer::JsonOut<true> jsonOut { fullstream1, rohit::serializer::format::beautify };
     sessionstore.SerializeOut(jsonOut);
+    fullstream1.WriteToFileTillOffset("test.json");
     std::string result {reinterpret_cast<char *>(fullstream1.begin()), fullstream1.CurrentOffset()};
     std::string expectedBeautifyOutput {
 R"({
@@ -422,10 +435,15 @@ R"({
             "ID": 323
           }
         ],
-        "reverseListMap": {
-          322: 0,
-          323: 1
-        }
+        "reverseListMap": [
+          {
+            "key": 322,
+            "value": 0
+          }, {
+            "key": 323,
+            "value": 1
+          }
+        ]
       }
     }, {
       "name": "Second Session",
@@ -442,10 +460,15 @@ R"({
             "ID": 325
           }
         ],
-        "reverseListMap": {
-          324: 0,
-          325: 1
-        }
+        "reverseListMap": [
+          {
+            "key": 324,
+            "value": 0
+          }, {
+            "key": 325,
+            "value": 1
+          }
+        ]
       }
     }
   ]
@@ -456,7 +479,6 @@ R"({
     fullstream1.Reset();
     rohit::serializer::JsonOut<true> jsonOutVertical { fullstream1, rohit::serializer::format::beautify_vertical };
     sessionstore.SerializeOut(jsonOutVertical);
-    fullstream1.WriteToFileTillOffset("test1.json");
     std::string resultVertical {reinterpret_cast<char *>(fullstream1.begin()), fullstream1.CurrentOffset()};
     std::string expectedBeautifyVerticalOutput {
 R"(
@@ -483,10 +505,16 @@ R"(
           }
         ],
         "reverseListMap": 
-        {
-          322: 0,
-          323: 1
-        }
+        [
+          {
+            "key": 322,
+            "value": 0
+          },
+          {
+            "key": 323,
+            "value": 1
+          }
+        ]
       }
     },
     {
@@ -508,10 +536,16 @@ R"(
           }
         ],
         "reverseListMap": 
-        {
-          324: 0,
-          325: 1
-        }
+        [
+          {
+            "key": 324,
+            "value": 0
+          },
+          {
+            "key": 325,
+            "value": 1
+          }
+        ]
       }
     }
   ]
@@ -522,9 +556,10 @@ R"(
     fullstream1.Reset();
     rohit::serializer::JsonOut<true> jsonOutCompressed { fullstream1, rohit::serializer::format::compress };
     sessionstore.SerializeOut(jsonOutCompressed);
+    fullstream1.WriteToFileTillOffset("test1.json");
     std::string resultCompressed {reinterpret_cast<char *>(fullstream1.begin()), fullstream1.CurrentOffset()};
     std::string expectedCompressedOutput {
-R"({"name":"First Store","sessionlist":[{"name":"First Session","id":22,"persons":{"listid":55,"check":true,"list":[{"name":"Rohit Jairaj Singh","ID":322},{"name":"Ragini Rohit Singh","ID":323}],"reverseListMap":{322:0,323:1}}},{"name":"Second Session","id":23,"persons":{"listid":56,"check":false,"list":[{"name":"Rohit Jairaj Singh1","ID":324},{"name":"Ragini Rohit Singh2","ID":325}],"reverseListMap":{324:0,325:1}}}]})"
+R"({"name":"First Store","sessionlist":[{"name":"First Session","id":22,"persons":{"listid":55,"check":true,"list":[{"name":"Rohit Jairaj Singh","ID":322},{"name":"Ragini Rohit Singh","ID":323}],"reverseListMap":[{"key":322,"value":0},{"key":323,"value":1}]}},{"name":"Second Session","id":23,"persons":{"listid":56,"check":false,"list":[{"name":"Rohit Jairaj Singh1","ID":324},{"name":"Ragini Rohit Singh2","ID":325}],"reverseListMap":[{"key":324,"value":0},{"key":325,"value":1}]}}]})"
     };
     EXPECT_TRUE(resultCompressed == expectedCompressedOutput);
 }

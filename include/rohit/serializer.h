@@ -354,10 +354,9 @@ protected:
 
     void SerializeInString(std::string &value) {
         if (inStream.RemainingBuffer() < 2) throw exception::BadInputData { inStream };
-        if (*inStream != '"') throw exception::BadInputData { inStream };
-        ++inStream;
+        CheckAndIncrease('"');
         while(*inStream != '"') {
-            if (inStream.full()) throw exception::BadInputData { inStream };
+            if (inStream.full()) throw exception::BadInputData { inStream, "Expecting '\"'" };
             value.push_back(*inStream);
             ++inStream;
         }
@@ -398,13 +397,27 @@ protected:
     }
 
     void SerializeInMap(typecheck::map auto &value) {
-        CheckAndIncrease('{');
+        CheckAndIncrease('[');
         SkipWhiteSpace();
-        if (*inStream != '}') {
+        if (*inStream != ']') {
             while(true) {
+                CheckAndIncrease('{');
+                SkipWhiteSpace();
+                std::string temp { };
+                SerializeIn(temp);
+                if (temp != "key") throw exception::BadInputData { inStream, "Expected 'key' but found " + temp };
+                SkipWhiteSpace();
+                CheckAndIncrease(':');
+                SkipWhiteSpace();
                 using T = std::remove_reference_t<decltype(value)>;
                 typename T::key_type key { };
                 SerializeIn(key);
+                SkipWhiteSpace();
+                CheckAndIncrease(',');
+                SkipWhiteSpace();
+                std::string tempValue { };
+                SerializeIn(tempValue);
+                if (tempValue != "value") throw exception::BadInputData { inStream, "Expected 'value' but found " + temp };
                 SkipWhiteSpace();
                 CheckAndIncrease(':');
                 SkipWhiteSpace();
@@ -412,10 +425,12 @@ protected:
                 SerializeIn(valuetype);
                 value.emplace(std::move(key), std::move(valuetype));
                 SkipWhiteSpace();
-                if (*inStream == '}') break;
+                CheckAndIncrease('}');
+                SkipWhiteSpace();
+                if (*inStream == ']') break;
                 CheckAndIncrease(',');
                 SkipWhiteSpace();
-                if (*inStream == '}') {
+                if (*inStream == ']') {
                     throw exception::BadInputData { inStream, "Unexpected ',', there must be next map entry after ','" };
                 }
             }
@@ -718,22 +733,34 @@ public:
 
     template <typecheck::map T>
     void SerializeOut(const T &value) {
-        WriteBraceOpen();
+        WriteBracketOpen();
         auto itr = std::begin(value);
         if (itr != std::end(value)) {
+            WriteBraceOpen();
+            outStream.Write("\"key\"");
+            WriteColon();
             SerializeOut(itr->first);
+            json_formatter<beautify>::template WriteComma<true>();
+            outStream.Write("\"value\"");
             WriteColon();
             SerializeOut(itr->second);
+            WriteBraceClose();
             itr = std::next(itr);
             while(itr != std::end(value)) {
-                json_formatter<beautify>::template WriteComma<true>();
+                json_formatter<beautify>::template WriteComma<false>();
+                WriteBraceOpen();
+                outStream.Write("\"key\"");
+                WriteColon();
                 SerializeOut(itr->first);
+                json_formatter<beautify>::template WriteComma<true>();
+                outStream.Write("\"value\"");
                 WriteColon();
                 SerializeOut(itr->second);
+                WriteBraceClose();
                 itr = std::next(itr);
             }
         }
-        WriteBraceClose();
+        WriteBracketClose();
     }
 
     void StructSerializeOutStart(const auto &value) {
