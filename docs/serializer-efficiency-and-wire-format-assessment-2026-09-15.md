@@ -343,7 +343,7 @@ benefit of omitted validation or different precision to implementation efficienc
 
 ### Step 1: Make compile-time protocol selection explicit
 
-Implementation baseline: `fcf4f84d7a17f6628e489f881511854b72a5d8ce`.
+Implementation baseline: `da91b4d95181fded1caeb219454dc2126d4fc934`.
 
 The generator already emitted `if constexpr` branches and direct field access.
 This step tightens that existing contract in generated `serialize_out` and
@@ -363,3 +363,239 @@ no speedup or new benchmark result is claimed for this clarification.
 Only generator source is changed for this implementation step. Header regeneration,
 compilation, and all tests are deferred until requested. Future verification should
 cover each supported mode and compile-time rejection of unsupported modes.
+
+### Step 2: Harden direct, field-by-field binary output
+
+The generator already serialized fields individually, and the stream already
+stored output in contiguous memory. This step improves scalar writes within that
+existing design:
+
+- Characters and booleans append one byte through the stream's reservation policy.
+  Booleans encode as zero or one independently of the native `bool` object size.
+- Integral values convert to their unsigned representation and big-endian byte
+  order, then append their bytes without a typed store into the output buffer.
+  A field can start at an unaligned offset without requiring aligned scalar access.
+- Floating-point output bit-casts a supported 32-bit or 64-bit IEC 559 scalar into
+  a matching unsigned integer and uses the same big-endian output path. Other
+  floating-point representations are rejected at compile time.
+- Both single-byte stream append overloads reserve `sizeof(value)` bytes, fixing
+  the previous reservation based on the numeric byte value. This also affects
+  variable-length headers and JSON punctuation using those overloads.
+
+Object field order, keys, enum encoding, string lengths, and collection traversal
+remain as before. No raw whole-object copy or intermediate record buffer is added;
+only the individual converted scalar is held locally before its bytes are appended.
+The intended existing wire bytes are preserved for supported representations,
+subject to the deferred verification.
+
+The single-byte reservation issue in section 2.5 and the output-side scalar issues
+in section 4.2 are addressed by this source change. Binary input alignment and
+floating-point conversion, variable-length range/boundary handling, buffer-growth
+failure handling, and generated owning-pair copies remain for later steps.
+
+No build, header regeneration, or tests were run for this step. Future verification
+should cover exact-capacity and too-small buffers, unaligned field offsets, signed
+integer boundaries, floating-point bit patterns, and generated objects with native
+padding across all binary modes.
+
+### Step 3: Correct stream bounds, growth, ownership, and I/O
+
+Further source inspection of [stream.hpp](../include/rohit/stream.hpp) identified
+and addressed these issues:
+
+- Forward movement and dereferencing validate available bytes before access or
+  cursor mutation. Exact-end movement is permitted. Backward movement in every
+  `full_stream` variant checks the stored start, including postfix operations.
+- Capacity checks use remaining byte counts rather than forming an out-of-range
+  pointer. Empty buffers and zero-byte operations avoid null-pointer arithmetic.
+- `push` reserves before writing. Overlapping append ranges use `memmove`, and
+  owned streams rebase sources inside their allocation after successful growth.
+- Growth computes a bounded geometric capacity directly, handles zero capacity,
+  and checks arithmetic before allocation. `realloc` failure preserves the old
+  storage and cursor. Replacement-buffer allocation also commits only on success.
+- Bounded streams validate and own a snapshot of their limits, including zero
+  minimum capacity and growth up to the exact maximum.
+- Owning streams prevent accidental copies and support ownership moves. Borrowed
+  assignment updates the complete view; const cursor commits require a shared end.
+- Byte swapping handles one-byte values, uses unsigned integer operations, and
+  converts supported floating-point representations through their integer bits.
+  Unsupported-type assertions are dependent on the instantiated type for C++20.
+- Literal comparison checks the correct number of bytes, and explicit literal
+  hashing excludes the trailing terminator. Boolean text output avoids the
+  deleted `std::to_chars(bool)` overload.
+- File reads validate size, allocation, seeking, and complete reads, with owned
+  storage released on failure. File writes report open, write, and close errors.
+
+See [migration.md](../migration.md#stream-safety-and-ownership) for caller-visible
+changes. Explicit unchecked access and caller-supplied raw pointer ranges still
+require valid storage and lifetimes. These changes do not complete the separate
+binary decoder, JSON grammar, or request-wide resource-budget work.
+
+The changes have only been reviewed as source. Builds, regression tests, allocation
+failure tests, sanitizer runs, and performance measurements remain deferred at the
+user's request. Future verification should exercise every cursor overload,
+empty/exact/short buffers, overlapping append with growth, ownership transfer,
+allocation limits/failures, integer and floating-point byte swaps, literal helpers,
+and failed or short file I/O.
+
+### Step 4: Require C++20 and constrain endian conversion
+
+- CMake establishes C++20 as its minimum/default language mode while retaining a
+  caller-selected newer standard. The public `cxx_std_20` usage requirement
+  continues to propagate to consumers. A header guard rejects older language
+  modes, including MSVC configurations that report their mode via `_MSVC_LANG`.
+- For supported integral types, `rohit::byteswap` forwards directly to
+  `std::byteswap` when `__cpp_lib_byteswap >= 202110L`. Its C++20 fallback reverses
+  an object-byte array using `std::bit_cast` and constexpr `std::reverse`, avoiding
+  assumptions about native byte order. Booleans remain no-ops; supported floating
+  values pass through an integer representation and use the same integer path.
+- Shared concepts constrain both endian helpers to booleans, integers without
+  padding bits, and supported binary IEC 559 floating-point widths. Unsupported
+  types cannot bypass validation through the unchanged-value branch.
+- `change_endian` requires each byte-order argument to resolve to little or big
+  endian, rejecting mixed native order and invalid enum values at compile time.
+  Same-order, single-byte, and boolean conversions remain no-ops. Both helpers
+  are `constexpr` and `noexcept`.
+
+The constraints follow the public [standard byteswap specification](https://eel.is/c++draft/bit.byteswap)
+and [byte-order definition](https://eel.is/c++draft/bit.endian). No build,
+configuration run, generated-header regeneration, or tests were performed for this
+step. Deferred verification should cover C++20 fallback and newer-library
+forwarding, supported scalar types, and compile-time rejection of unsupported
+types and byte-order arguments.
+
+### Step 5: Separate checked operations from prevalidated batches
+
+Ordinary forward cursor operators and dereferencing retain their checks. Explicit
+nonvirtual, `noexcept` helpers provide byte access, single-byte output, range
+copying, range consumption, and cursor advancement without capacity checks or
+allocation. The caller validates the entire input range or reserves the entire
+output range before using these helpers. Their contract applies equally to
+borrowed and allocating streams.
+
+Byte-only `write_raw(...)` calls capture their arguments, reserve the complete
+batch once, and copy it directly into the stream. Binary variable-length output
+already calls this API, so its two-, three-, and four-byte cases now use one
+reservation per encoded value. Capturing arguments before reservation preserves
+references into an allocation that may move. A capacity failure writes none of
+the batch; mixed argument packs continue to append each argument separately.
+
+Binary input uses unchecked range consumption and advancement only after its
+existing length check. The three- and four-byte variable-integer cases validate
+the actual remaining payload lengths of two and three bytes, respectively.
+Other decoder issues, including typed unaligned scalar reads, remain separate.
+
+For ten byte writes, one reservation followed by unchecked stores eliminates nine
+redundant capacity checks compared with reserving each byte. This is a source-level
+comparison, not a measured machine-branch count or throughput claim. The checked
+operators remain available for operations without a prior range guarantee.
+
+No build, configuration run, header regeneration, tests, or benchmarks were run.
+Deferred verification should cover reservation counts, byte ordering, exact and
+insufficient capacity, source aliases across growth, unchanged checked-operator
+behavior, and exact/truncated variable-length input payloads.
+
+### Step 6: Simplify remaining-capacity validation
+
+`remaining_buffer()` removes the separate equal-pointer return. A combined check
+rejects mismatched null pointers and reversed ranges, while permitting two null
+pointers for an empty stream. C++20 defines their difference as zero. Runtime
+validation remains because the public API still permits direct cursor and end
+pointer mutation. Nonnull pointers must belong to the same live buffer; ordering
+checks cannot establish allocation identity.
+
+This removes a source-level conditional without claiming a measured speedup.
+Builds and tests remain deferred; verification should cover null-empty streams,
+exhausted buffers, nonempty ranges, mismatched null pointers, and reversed ranges.
+
+## 8. Follow-up optimization review of stream.hpp
+
+These are source-review findings after step 6, not implemented optimizations or
+measured speedups. The review retains checked public operations and the explicit
+unchecked helpers for previously validated batches.
+
+### 8.1 Correct byte comparisons before measuring them
+
+Both `stream::operator==` overloads compare `char` elements against `std::uint8_t`
+elements using `std::equal`. On a signed-char target, the same stored byte can
+promote to different numeric values: a character containing `0xFF` promotes to
+`-1`, while the stream byte promotes to `255`. This can reject identical byte
+sequences containing non-ASCII data.
+
+Use a byte-wise comparison, such as `std::memcmp`, after validating the prefix
+length and handling the empty case. Preserve the existing prefix semantics and
+the array overload's treatment of a final terminator. This fixes correctness
+and permits a bulk byte comparison; any performance benefit needs measurement.
+
+### 8.2 Remove redundant pointer-arithmetic special cases
+
+`advance_cursor` branches on a zero increment. `get_size_from` and
+`fixed_buffer::capacity` branch on equal pointers before subtracting. C++20
+already defines adding zero to a null pointer and subtracting two null pointers,
+so these special cases are unnecessary when their range preconditions hold.
+The analogous branches in `full_stream::capacity` and `current_offset` can be
+consolidated with their invalid-state checks, as done for `remaining_buffer`.
+Keep the checks for mismatched null pointers and reversed ranges.
+
+This reasoning applies to pointer arithmetic; it does not justify calling memory
+copy functions with null pointers. See the public [C++20 pointer-arithmetic rules](https://timsong-cpp.github.io/cppwp/n4861/expr.add).
+
+### 8.3 Reduce work when a bounded stream already has sufficient capacity
+
+`full_stream_auto_alloc_limits::check_resize` always enters `grow_storage`, even
+when no allocation is needed. That path computes a checked cursor offset,
+validates allocation-policy bounds, computes required capacity, and obtains a
+checked capacity before returning. The unbounded allocator already has a shorter
+path for a request that fits.
+
+Separate the bounded stream's common reservation path from its growth calculation,
+and reuse validated offsets and capacities rather than recomputing them. Retain
+the logical maximum check: inherited pointer constructors can adopt storage larger
+than the default maximum, so physical spare capacity alone does not authorize a
+write. Preserve allocation-failure behavior and downstream reservation overrides.
+
+### 8.4 Batch mixed text writes
+
+`write(...)` still calls `append_string` separately for every argument. For
+example, JSON output's `write('"', value, '"')` reserves three times. The generator
+also makes many mixed text writes. The byte-only optimization in `write_raw`
+does not cover these calls.
+
+Start with characters, literals, strings, and string views: calculate the total
+length with checked arithmetic, reserve once, and write the parts through the
+unchecked helpers. Handle aliased sources before growth and preserve overlapping
+source behavior. Specify that capacity failure rejects the complete batch before
+writing, consistent with byte-only `write_raw`.
+
+### 8.5 Reduce integer-formatting setup and copying
+
+`append_string` zero-initializes a temporary character array, formats the integer
+with `std::to_chars`, then appends the produced prefix. Successful conversion
+writes every byte of that prefix; clearing the unused array bytes is unnecessary.
+Retain a sufficient buffer-size bound and ensure conversion success before
+consuming the result. See the [C++20 to_chars contract](https://timsong-cpp.github.io/cppwp/n4861/charconv.to.chars).
+
+A larger change could format directly into already available output storage when
+the stream policy permits the maximum representation length. Keep the stack-buffer
+fallback when only the actual shorter representation fits: reserving the maximum
+unconditionally can reject otherwise valid writes or cause unnecessary growth.
+Measure whether the compiler already eliminates the temporary initialization.
+
+### 8.6 Reduce alias bookkeeping and virtual dispatch where proven unnecessary
+
+The pointer append path calls virtual `reserve_append`, which can perform source
+alias checks and then call virtual `reserve`. This is required for general sources
+that may reside in an allocation moved by growth. Some callers have independently
+owned sources, including formatted stack buffers and converted scalar temporaries.
+
+Such callers can use one policy-aware reservation followed by an unchecked copy,
+avoiding alias-rebasing work. A broader refactor could reserve virtual dispatch for
+growth, but it must preserve maximum-capacity policies and custom overrides.
+Do not replace general overlapping copies with `memcpy` or bypass reservation
+policies simply to shorten the call chain. Inspect optimized code before changing
+the public stream hierarchy.
+
+Suggested order: fix byte comparisons, simplify pointer helpers, improve bounded
+reservations, then batch mixed writes and evaluate direct integer formatting.
+The virtual-dispatch redesign is a later candidate. No builds, tests, header
+regeneration, or benchmarks were run for this review.
