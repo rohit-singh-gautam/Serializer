@@ -1,7 +1,8 @@
 # Serializer
 
 A C++20 schema compiler and serialization library supporting JSON and three
-binary protocols. The public API and generated methods use `snake_case` names.
+binary protocols. The runtime API and default generated code use `snake_case`
+names. C++ output profiles can select other layouts and naming conventions.
 
 **Existing callers:** follow the [migration guide](migration.md) and regenerate
 headers before compiling against the updated API.
@@ -12,7 +13,8 @@ For AI-assisted integration, use the [repository skill](#repository-agent-skill)
 
 ## Build and test
 
-With CMake, a C++20-or-newer compiler and standard library, and GoogleTest available:
+With CMake, a C++20-or-newer compiler and standard library, clang-format 19+, and
+GoogleTest available:
 
 ```sh
 cmake -S . -B build
@@ -51,6 +53,42 @@ serializer input example/config.struct output config.hpp
 
 Format C++ files with the repository's `.clang-format`; see
 [CodingStandard.md](CodingStandard.md) for naming and coding rules.
+
+### Output language and coding standard
+
+Keep target-language settings in a generator config, separate from the `.def`
+schema. Only C++ output is currently implemented:
+
+```ini
+[output]
+language = cpp
+
+[cpp]
+coding_standard = google
+naming = profile
+format = true
+```
+
+```sh
+serializer input account.def output account.hpp config serializer_output.ini
+```
+
+Supported profiles: `serializer` (default), `core`, `google`, `llvm`, `gnu`,
+`cert`, `misra`, `autosar`, and `qt`. They select presentation rules and rename
+schema-derived C++ identifiers while retaining wire names and IDs. Runtime-required
+method names remain fixed. `cpp.naming preserve` retains earlier C++ names.
+These presets do not establish full compliance with a coding standard.
+
+See [configuration and naming rules](docs/output_configuration.md) and
+[examples for every profile](example/coding_styles/README.md). Formatting runs
+at generation time; runtime consumers do not need clang-format. Config-file
+paths are relative to the config; CLI overrides take precedence. A custom
+`format_file` can supply organization-specific clang-format rules.
+
+Set `SERIALIZER_CLANG_FORMAT_EXECUTABLE` when CMake cannot find the formatter.
+The standard test build includes all profile examples; a build with tests disabled
+can opt into them with `SERIALIZER_BUILD_STYLE_EXAMPLES=ON`. Generation, builds,
+and tests for this implementation remain deferred.
 
 ## Language Construct
 

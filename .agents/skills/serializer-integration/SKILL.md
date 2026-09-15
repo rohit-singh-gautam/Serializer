@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer into C++ applications using .def schemas, generated owning classes or binary views, stable_ids, and JSON or binary codecs. Use for new integrations, schema evolution, and migrating Serializer callers."
+description: "Integrate Serializer into C++ applications using .def schemas, output coding profiles, owning classes or binary views, stable_ids, and JSON or binary codecs. Use for new integrations, schema evolution, and migrating Serializer callers."
 ---
 
 # Serializer Integration
@@ -21,6 +21,8 @@ there instead of relying on the relative links.
 - Read [README.md](../../../README.md) for supported syntax and feature status.
 - Use [docs/usage.md](../../../docs/usage.md) for the schema, CMake, and codec examples.
 - Use [docs/views.md](../../../docs/views.md) for view generation, mapping, and mutation.
+- Use [docs/output_configuration.md](../../../docs/output_configuration.md) for
+  language sections, coding profiles, naming, formatter configuration, and examples.
 - Read [docs/wire_format.md](../../../docs/wire_format.md) when choosing protocols,
   limits, failure handling, or compatibility behavior.
 - Read [migration.md](../../../migration.md) when updating older headers or APIs.
@@ -35,7 +37,8 @@ feature as a prerequisite without the user's request.
 - Use `class`, `enum`, and `namespace`. Every member needs an explicit access
   modifier and a trailing semicolon. Classes/enums have no trailing semicolon.
 - In owning representations, map `array T` to `std::vector<T>` and `map(K) T` to `std::map<K, T>`.
-  Preserve field defaults and existing schema-defined C++ names.
+  Preserve wire names and defaults. Check the output naming policy before writing
+  callers; `naming = preserve` retains existing schema-defined C++ identifiers.
 - Put class attributes after the name, before a parent list. `stable_ids` requires
   explicit IDs on every member and parent; it does not assign IDs or compare old
   schemas. For new evolving integer-key contracts, prefer this check.
@@ -87,6 +90,28 @@ Adapt the custom command in the usage guide: schema and generator dependencies,
 build-directory output, and a generated include directory for the consumer.
 Generate each shared output once when multiple targets consume it. Cross builds
 need a host-runnable generator. Do not hand-edit generated headers.
+
+Keep output settings in a generator INI config, with `[output] language = cpp`
+and a `[cpp]` section. Only C++ is implemented. Supported `coding_standard` values
+are `serializer`, `core`, `google`, `llvm`, `gnu`, `cert`, `misra`, `autosar`, and
+`qt`. These are presentation profiles, not whole-guide compliance guarantees.
+See the [profile examples](../../../example/coding_styles/README.md).
+
+Default `naming = profile` renames schema-derived C++ types, fields, enum values,
+union helpers, and view accessors. Wire names/IDs and runtime-required hooks keep
+their original spelling. Resolve generated naming collisions; do not silently
+change wire names to fix a C++ naming problem. Enum defaults referring to declared
+values are translated; opaque C++ default expressions require `naming = preserve`
+or an explicitly chosen literal/default change.
+
+Formatting requires clang-format 19+ at generation time. Pin its version and pass
+`cpp.clang_format` or set `SERIALIZER_CLANG_FORMAT_EXECUTABLE` for this repository's
+CMake rules. `format_file` can replace layout rules. Config paths are relative to
+the config; CLI paths are relative to the working directory. CLI overrides take
+precedence over config values. Add configs and custom format files to generation
+dependencies. Use `format = false` only when another pipeline formats the emitted
+source. The test build includes all profile examples; with tests disabled,
+`SERIALIZER_BUILD_STYLE_EXAMPLES=ON` enables them independently.
 
 The CLI uses named arguments:
 

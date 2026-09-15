@@ -2,7 +2,8 @@
 
 Serializer compiles a schema into a C++ header, then reads or writes generated
 objects through JSON or binary protocols. Use a C++20-or-newer compiler and
-standard library; the CMake project requires CMake 3.28 or newer.
+standard library; the CMake project requires CMake 3.28 or newer. Header generation
+uses clang-format 19+ by default. Applications using existing headers do not need it.
 
 The examples below describe the current source API. They have been reviewed
 against the source but have not been generated, compiled, or executed as part of
@@ -28,8 +29,9 @@ class person stable_ids {
 - `array T` generates `std::vector<T>`; `map(K) T` generates `std::map<K, T>`.
 - Members end with `;`. Classes and enums end with `}` without a trailing `;`.
 - Parenthesized metadata assigns a wire name and/or numeric ID. For example,
-  `public string name ("fullname", 1);` keeps `name` in C++ and uses `fullname`
-  in JSON and string-key binary.
+  `public string name ("fullname", 1);` uses `fullname` in JSON and string-key
+  binary. The default C++ profile emits `name`; other profiles can rename the
+  C++ member without changing the wire key.
 - Braced initializers supply defaults for newly constructed objects. Missing
   keyed fields retain whatever values the destination currently has.
 
@@ -69,6 +71,8 @@ project(serializer_example LANGUAGES CXX)
 
 set(SERIALIZER_BUILD_TESTS OFF CACHE BOOL "Build Serializer's own tests")
 add_subdirectory(vendor/Serializer)
+find_program(APP_CLANG_FORMAT NAMES clang-format clang-format-22 clang-format-21
+  clang-format-20 clang-format-19 REQUIRED)
 
 set(person_schema "${CMAKE_CURRENT_SOURCE_DIR}/schemas/person.def")
 set(generated_directory "${CMAKE_CURRENT_BINARY_DIR}/generated")
@@ -78,6 +82,7 @@ add_custom_command(
   OUTPUT "${person_header}"
   COMMAND "${CMAKE_COMMAND}" -E make_directory "${generated_directory}"
   COMMAND serializer input "${person_schema}" output "${person_header}"
+    cpp.clang_format "${APP_CLANG_FORMAT}"
   DEPENDS serializer "${person_schema}"
   VERBATIM
 )
@@ -92,6 +97,15 @@ headers in the build directory, and regenerate them when schemas or the generato
 change. Do not edit generated headers manually. If multiple independent targets
 need the same generated header, use one custom generation target and make the
 consumers depend on it; see [the qualification build](../qualification/CMakeLists.txt).
+
+For another C++ presentation style, add `config "${output_config}"` to the
+generation command and include that file in `DEPENDS`. If it selects a custom
+`format_file`, add that YAML file to `DEPENDS` too. See the
+[language-specific output configuration](output_configuration.md) and
+[examples for all nine profiles](../example/coding_styles/README.md).
+The default profile converts names such as `personID` to `person_id` while
+retaining their wire spellings. Use `cpp.naming preserve` when retaining an
+existing schema-derived C++ API is required.
 
 Build commands, when validation is being performed:
 

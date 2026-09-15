@@ -161,6 +161,13 @@ localized edits to existing files.
 
 ## Verification and adoption
 
+- Generated C++ defaults to this standard through the `serializer` output profile.
+  Keep its built-in formatter settings aligned with `.clang-format`. Alternative
+  output profiles and their example consumers follow the documented target rules;
+  generator/runtime implementation code continues to follow this repository's rules.
+  See [output configuration](docs/output_configuration.md). Keep wire names and IDs
+  independent of target-language naming, and validate naming collisions before emission.
+
 - Follow each repository's declared language baseline and supported platforms.
   Preserve serialized formats, diagnostics, resource limits, and public APIs during
   cleanup. Avoid disabling warnings to make a style change pass.

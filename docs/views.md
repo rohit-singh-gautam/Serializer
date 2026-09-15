@@ -1,5 +1,10 @@
 # Generated owning objects and binary views
 
+Examples here use the default Serializer naming profile. Other
+[C++ output profiles](output_configuration.md) rename schema types and field
+accessors, while `map`, storage-mode values, and inherited runtime APIs keep
+their established spellings. The profile does not change the mapped wire layout.
+
 The implementation described here has been source-reviewed. Header generation,
 compilation, tests, and performance measurements are deferred for this step.
 

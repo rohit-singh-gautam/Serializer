@@ -361,5 +361,7 @@ class server1 {
   rohit::full_stream_auto_alloc out_stream{128};
   rohit::full_stream in_stream{input.data(), input.size()};
   auto statements = rohit::serializer::parser::parse(in_stream);
-  rohit::serializer::writer::cpp::write(out_stream, statements);
+  rohit::serializer::writer::cpp_options options{};
+  options.format = false;
+  rohit::serializer::writer::cpp::write(out_stream, statements, options);
 }

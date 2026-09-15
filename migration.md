@@ -4,6 +4,31 @@ This is a breaking C++ source migration. Update callers and regenerate schema
 headers with the updated `serializer` executable before compiling. Legacy
 headers and symbol aliases are not provided.
 
+## Output profiles and generated names
+
+Generation now defaults to the repository's C++ naming and clang-format rules.
+For example, a schema field `ID` becomes the C++ member `id`, `reverseListMap`
+becomes `reverse_list_map`, and type `IP` becomes `ip`. JSON/string-key names and
+enum/union wire spellings retain their schema values. IDs, binary layout, and
+endianness are unaffected by selecting an output profile.
+
+Use `cpp.naming preserve` (or `[cpp] naming = preserve` in the output config) to
+retain previous schema-derived C++ identifiers. Otherwise update callers along
+with regenerated headers. Profiles also rename union support types, discriminator
+members, conversion helpers, and view accessors; runtime-required hooks keep their
+existing spelling. Name collisions and reserved C++ identifiers are diagnosed.
+Literal and declared-enum defaults are supported during renaming; opaque C++
+expressions require `naming = preserve` or a rewritten default.
+
+Install clang-format 19+ for generation. Set `cpp.clang_format` on the CLI or
+`SERIALIZER_CLANG_FORMAT_EXECUTABLE` for the repository's CMake generation rules
+when it is not on `PATH`. Formatting failures do not replace the destination
+header. CLI errors now return nonzero and unknown arguments are rejected.
+
+See [output configuration](docs/output_configuration.md) and the
+[profile examples](example/coding_styles/README.md). Generation, compilation,
+and regression testing for this step remain deferred.
+
 ## Generated representations and byte order
 
 Binary fixed-width integers and floating-point values now default to little-endian.

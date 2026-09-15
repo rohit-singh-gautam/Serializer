@@ -5,6 +5,7 @@ foreach(fixture IN ITEMS enum person test1 array map variable assessment views)
   add_custom_command(
     OUTPUT "${output_file}"
     COMMAND serializer input "${input_file}" output "${output_file}"
+      cpp.clang_format "${SERIALIZER_CLANG_FORMAT_EXECUTABLE}"
     DEPENDS "${input_file}" serializer
     VERBATIM
   )
@@ -18,6 +19,7 @@ add_executable(core_serializer_test
   wire_format_test.cpp
   decoder_qualification_test.cpp
   binary_view_test.cpp
+  output_options_test.cpp
   ${generated_headers}
 )
 target_link_libraries(core_serializer_test PRIVATE serializer_lib GTest::gtest_main)

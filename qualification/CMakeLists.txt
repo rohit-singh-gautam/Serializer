@@ -2,6 +2,7 @@ set(record_header "${CMAKE_CURRENT_BINARY_DIR}/records.hpp")
 add_custom_command(
   OUTPUT "${record_header}"
   COMMAND serializer input "${CMAKE_CURRENT_SOURCE_DIR}/records.def" output "${record_header}"
+    cpp.clang_format "${SERIALIZER_CLANG_FORMAT_EXECUTABLE}"
   DEPENDS serializer "${CMAKE_CURRENT_SOURCE_DIR}/records.def"
   VERBATIM
 )

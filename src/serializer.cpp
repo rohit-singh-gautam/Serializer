@@ -15,88 +15,126 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/ //
 //////////////////////////////////////////////////////////////////////////
 
-#include <rohit/serializer.hpp>
+#include <rohit/output_options.hpp>
 #include <rohit/serializer_creator.hpp>
+#include <rohit/stream.hpp>
 
 #include <exception>
 #include <filesystem>
 #include <iostream>
+#include <map>
+#include <stdexcept>
 #include <string>
-#include <vector>
+#include <string_view>
 
-// Print command usage and an optional diagnostic.
-void display_help(const std::string& err) {
-  std::cout << "Usage: Serializer input <input filename> output <output filename>" << std::endl;
-  if (!err.empty()) {
-    std::cout << "Error: " << err << std::endl;
-  }
+namespace {
+// Describe language-independent arguments and the currently implemented C++ backend options.
+void display_help() {
+  std::cout << "Usage: serializer input <schema> output <header> [config <file>] [language cpp]\n"
+               "C++ overrides (key value pairs):\n"
+               "  cpp.coding_standard serializer|core|google|llvm|gnu|cert|misra|autosar|qt\n"
+               "  cpp.naming profile|preserve\n"
+               "  cpp.format true|false\n"
+               "  cpp.clang_format <executable>\n"
+               "  cpp.format_file <.clang-format>\n"
+               "Defaults: C++20, Serializer style, profile naming, clang-format 19+ on PATH.\n"
+               "Precedence: defaults < config file < command line.\n";
 }
 
-// Write the argument list in the command diagnostic format.
-std::ostream& operator<<(std::ostream& os, const std::vector<std::string>& strings) {
-  os << "{ ";
-  for (auto& str : strings) {
-    os << str << ' ';
+// Detect aliases and hard links as well as identical normalized paths before replacing output.
+bool same_file(const std::filesystem::path& first, const std::filesystem::path& second) {
+  if (std::filesystem::exists(first) && std::filesystem::exists(second) &&
+      std::filesystem::equivalent(first, second)) {
+    return true;
   }
-  os << '}';
-  return os;
+  return std::filesystem::weakly_canonical(first) == std::filesystem::weakly_canonical(second);
 }
+} // namespace
 
+// Parse CLI overrides, emit the selected language, and write only a successfully formatted header.
 int main(const int argc, const char* argv[]) {
-  const std::vector<std::string> args{argv, argv + argc};
-  std::filesystem::path input_file{};
-  std::filesystem::path output_file{};
-  for (std::size_t argument_index{0}; argument_index < args.size(); ++argument_index) {
-    if (args[argument_index] == "input") {
-      ++argument_index;
-      if (argument_index >= args.size()) {
-        display_help("Insufficient arguments");
-        return 0;
-      }
-      input_file = std::filesystem::path{args[argument_index]};
-      if (!std::filesystem::exists(input_file)) {
-        display_help("input file does not exists");
-        return 0;
-      }
-      std::cout << "Input File: " << input_file << std::endl;
-    } else if (args[argument_index] == "output") {
-      ++argument_index;
-      if (argument_index >= args.size()) {
-        display_help("Insufficient arguments");
-        return 0;
-      }
-      output_file = std::filesystem::path{args[argument_index]};
-      std::cout << "Output File: " << output_file << std::endl;
-    }
-  }
-
-  if (input_file.empty() || output_file.empty()) {
-    display_help("Input and output both parameters are required.");
-    std::cout << "Param: " << args << std::endl;
+  using namespace rohit::serializer;
+  if (argc == 2 && std::string_view{argv[1]} == "--help") {
+    display_help();
     return 0;
   }
-
-  auto in_stream = rohit::make_stream_from_file(input_file);
-  constexpr std::size_t initial_output_capacity_bytes = 256;
-  rohit::full_stream_auto_alloc out_stream{initial_output_capacity_bytes};
-
-  const bool output_is_header = output_file.extension() == ".h" ||
-                                output_file.extension() == ".hpp" ||
-                                output_file.extension() == ".hxx";
-  if (!output_is_header) {
-    std::cout << "WARNING: Output file is designed for C++ header, output extension must be one of "
-                 ".h, .hpp or .hxx"
-              << std::endl;
-  }
-
   try {
-    auto statements = rohit::serializer::parser::parse(in_stream);
-    rohit::serializer::writer::cpp::write(out_stream, statements);
-    out_stream.write_to_file_till_offset(output_file);
-  } catch (const std::exception& e) {
-    std::cout << "Failed to parse with error:\n" << e.what() << std::endl;
+    std::map<std::string, std::string> arguments{};
+    for (int index = 1; index < argc; index += 2) {
+      const std::string key{argv[index]};
+      if (index + 1 == argc) {
+        throw std::invalid_argument{"Missing value for argument: " + key};
+      }
+      if (key != "input" && key != "output" && key != "config" && key != "language" &&
+          key != "cpp.coding_standard" && key != "cpp.naming" && key != "cpp.format" &&
+          key != "cpp.clang_format" && key != "cpp.format_file") {
+        throw std::invalid_argument{"Unknown argument: " + key};
+      }
+      if (std::string_view{argv[index + 1]}.empty() ||
+          !arguments.emplace(key, argv[index + 1]).second) {
+        throw std::invalid_argument{"Empty or repeated argument: " + key};
+      }
+    }
+    if (!arguments.contains("input") || !arguments.contains("output")) {
+      throw std::invalid_argument{"Both input and output are required; use --help for options"};
+    }
+    auto options = arguments.contains("config")
+                       ? writer::read_output_options(arguments.at("config"))
+                       : writer::output_options{};
+    if (arguments.contains("language")) {
+      options.language = arguments.at("language");
+    }
+    if (options.language != "cpp") {
+      throw std::invalid_argument{"Unsupported output language: " + options.language};
+    }
+    if (arguments.contains("cpp.coding_standard")) {
+      options.cpp.standard = writer::parse_coding_standard(arguments.at("cpp.coding_standard"));
+    }
+    if (arguments.contains("cpp.naming")) {
+      const auto& value = arguments.at("cpp.naming");
+      if (value != "profile" && value != "preserve") {
+        throw std::invalid_argument{"cpp.naming must be profile or preserve"};
+      }
+      options.cpp.rename_identifiers = value == "profile";
+    }
+    if (arguments.contains("cpp.format")) {
+      const auto& value = arguments.at("cpp.format");
+      if (value != "true" && value != "false") {
+        throw std::invalid_argument{"cpp.format must be true or false"};
+      }
+      options.cpp.format = value == "true";
+    }
+    if (arguments.contains("cpp.clang_format")) {
+      options.cpp.clang_format = arguments.at("cpp.clang_format");
+    }
+    if (arguments.contains("cpp.format_file")) {
+      options.cpp.format_file = arguments.at("cpp.format_file");
+    }
+    if (!options.cpp.format && !options.cpp.format_file.empty()) {
+      throw std::invalid_argument{"cpp.format_file requires cpp.format true"};
+    }
+    const std::filesystem::path input_file{arguments.at("input")};
+    const std::filesystem::path output_file{arguments.at("output")};
+    if (same_file(input_file, output_file) ||
+        (arguments.contains("config") && same_file(arguments.at("config"), output_file)) ||
+        (!options.cpp.format_file.empty() && same_file(options.cpp.format_file, output_file))) {
+      throw std::invalid_argument{
+          "Output must not overwrite the schema or an output configuration"};
+    }
+    const auto extension = output_file.extension();
+    if (extension != ".h" && extension != ".hpp" && extension != ".hxx") {
+      throw std::invalid_argument{"C++ output must have a .h, .hpp, or .hxx extension"};
+    }
+    const auto input = rohit::make_stream_from_file(input_file);
+    const auto statements = parser::parse(input);
+    rohit::full_stream_auto_alloc output{};
+    writer::cpp::write(output, statements, options.cpp);
+    output.write_to_file_till_offset(output_file);
+    std::cout << "Generated " << output_file << " (C++, "
+              << writer::coding_standard_name(options.cpp.standard) << ")\n";
+    return 0;
+  } catch (const std::exception& error) {
+    std::cerr << "Serializer: " << error.what() << '\n';
     return 1;
   }
-
-  return 0;
 }

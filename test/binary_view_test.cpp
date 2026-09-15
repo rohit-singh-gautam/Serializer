@@ -43,7 +43,9 @@ std::string generate(std::string_view schema) {
   const auto input = rohit::make_constant_stream(schema.data(), schema.size());
   auto statements = rohit::serializer::parser::parse(input);
   rohit::full_stream_auto_alloc output{1024};
-  rohit::serializer::writer::cpp::write(output, statements);
+  rohit::serializer::writer::cpp_options options{};
+  options.format = false;
+  rohit::serializer::writer::cpp::write(output, statements, options);
   return {reinterpret_cast<const char*>(output.begin()), output.current_offset()};
 }
 } // namespace
@@ -142,7 +144,7 @@ TEST(binary_view, schema_modes_and_diagnostics) {
   EXPECT_EQ(generate("class person {}"), generate("class person owning {}"));
   EXPECT_EQ(generate("class person view owning {}"), generate("class person owning view {}"));
   const auto single = generate("class person readonly view {}");
-  EXPECT_EQ(single.find("template <rohit::serializer::storage_mode"), std::string::npos);
+  EXPECT_EQ(single.find("template <::rohit::serializer::storage_mode"), std::string::npos);
   EXPECT_EQ(generate("class person {}").find("rohit/binary_view.hpp"), std::string::npos);
   for (const auto schema : {
       "class person readonly {}", "class person mutable {}", "class person packed view {}",

@@ -12,11 +12,16 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(SERIALIZER_BUILD_TESTS "Build Serializer's tests" ${PROJECT_IS_TOP_LEVEL})
 option(SERIALIZER_BUILD_BENCHMARKS "Build separate codec timing and allocation tools" OFF)
 option(SERIALIZER_BUILD_FUZZERS "Build the bounded Clang libFuzzer target" OFF)
+option(SERIALIZER_BUILD_STYLE_EXAMPLES "Build one example for each C++ output profile" OFF)
 
 add_library(serializer_lib
   src/parser.cpp
   src/cpp_writer.cpp
   src/cpp_type_mapping.cpp
+  src/cpp_naming.cpp
+  src/cpp_naming.hpp
+  src/output_options.cpp
+  include/rohit/output_options.hpp
   include/rohit/serializer_creator.hpp
   include/rohit/serializer.hpp
   include/rohit/decode.hpp
@@ -39,6 +44,13 @@ foreach(target IN ITEMS serializer_lib serializer)
   endif()
 endforeach()
 
+# Formatting is a generator-time dependency; runtime users do not need clang-format.
+if(SERIALIZER_BUILD_TESTS OR SERIALIZER_BUILD_BENCHMARKS OR SERIALIZER_BUILD_FUZZERS
+    OR SERIALIZER_BUILD_STYLE_EXAMPLES)
+  find_program(SERIALIZER_CLANG_FORMAT_EXECUTABLE
+    NAMES clang-format clang-format-22 clang-format-21 clang-format-20 clang-format-19 REQUIRED)
+endif()
+
 if(SERIALIZER_BUILD_TESTS)
   enable_testing()
   find_package(GTest CONFIG REQUIRED)
@@ -47,4 +59,8 @@ endif()
 
 if(SERIALIZER_BUILD_BENCHMARKS OR SERIALIZER_BUILD_FUZZERS)
   add_subdirectory(qualification)
+endif()
+
+if(SERIALIZER_BUILD_STYLE_EXAMPLES OR SERIALIZER_BUILD_TESTS)
+  add_subdirectory(example/coding_styles)
 endif()

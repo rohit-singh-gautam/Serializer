@@ -30,7 +30,7 @@ TEST(generated_test, serialize_in) {
 
   test::test1::person person{};
   person.serialize_in<rohit::serializer::json>(fullstream);
-  EXPECT_EQ(person.ID, 322);
+  EXPECT_EQ(person.id, 322);
 
   std::string valuesstr{"{\"ch\":\"a\",\"pi\":3.14,\"t1\":3.884563,\"t2\":true}"};
   test::values values{};
@@ -74,7 +74,7 @@ TEST(generated_test, serialize_out) {
   fullstream.reset();
   personex_binary_none.serialize_in<rohit::serializer::binary_none>(fullstream);
   EXPECT_TRUE(personex.name == personex_binary_none.name);
-  EXPECT_TRUE(personex.ID == personex_binary_none.ID);
+  EXPECT_TRUE(personex.id == personex_binary_none.id);
   EXPECT_TRUE(personex.account == personex_binary_none.account);
 
   fullstream.reset();
@@ -83,7 +83,7 @@ TEST(generated_test, serialize_out) {
   fullstream.reset();
   personex_binary_integer.serialize_in<rohit::serializer::binary_integer>(fullstream);
   EXPECT_TRUE(personex.name == personex_binary_integer.name);
-  EXPECT_TRUE(personex.ID == personex_binary_integer.ID);
+  EXPECT_TRUE(personex.id == personex_binary_integer.id);
   EXPECT_TRUE(personex.account == personex_binary_integer.account);
 
   fullstream.reset();
@@ -92,7 +92,7 @@ TEST(generated_test, serialize_out) {
   fullstream.reset();
   personex_binary_string.serialize_in<rohit::serializer::binary_string>(fullstream);
   EXPECT_TRUE(personex.name == personex_binary_string.name);
-  EXPECT_TRUE(personex.ID == personex_binary_string.ID);
+  EXPECT_TRUE(personex.id == personex_binary_string.id);
   EXPECT_TRUE(personex.account == personex_binary_string.account);
 }
 
@@ -412,8 +412,8 @@ TEST(generated_test, serialize_array_complete) {
               sessionstore1.sessionlist[0].persons.listid);
   EXPECT_TRUE(sessionstore.sessionlist[0].persons.list[0].name ==
               sessionstore1.sessionlist[0].persons.list[0].name);
-  EXPECT_TRUE(sessionstore.sessionlist[0].persons.list[0].ID ==
-              sessionstore1.sessionlist[0].persons.list[0].ID);
+  EXPECT_TRUE(sessionstore.sessionlist[0].persons.list[0].id ==
+              sessionstore1.sessionlist[0].persons.list[0].id);
 }
 
 TEST(generated_test, serialize_json_beautification) {

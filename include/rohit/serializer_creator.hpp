@@ -16,6 +16,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #pragma once
+#include <rohit/output_options.hpp>
 #include <rohit/serializer.hpp>
 #include <rohit/stream.hpp>
 
@@ -291,7 +292,8 @@ void parse_class_body(const stream& in_stream, class_node* obj, std::uint32_t& i
 } // namespace parser
 
 namespace writer::cpp {
-// Write the resolved schema as C++ declarations and serialization methods.
-void write(stream& out_stream, std::vector<std::unique_ptr<syntax_node>>& statements);
+// Validate names, emit C++ declarations, and apply the configured formatter before appending output.
+void write(stream& out_stream, const std::vector<std::unique_ptr<syntax_node>>& statements,
+           const cpp_options& options = {});
 } // namespace writer::cpp
 } // namespace rohit::serializer
