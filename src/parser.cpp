@@ -17,6 +17,7 @@
 
 #include <rohit/serializer_creator.hpp>
 
+#include <charconv>
 #include <concepts>
 #include <cstdint>
 #include <functional>
@@ -24,6 +25,8 @@
 #include <memory>
 #include <queue>
 #include <string>
+#include <string_view>
+#include <system_error>
 #include <type_traits>
 #include <unordered_map>
 #include <utility>
@@ -378,7 +381,17 @@ void parse_member_type_map(const stream& in_stream, namespace_node* declared_nam
   type_name_list.emplace_back(std::move(type_name), declared_namespace);
 } // parse_member_type_map
 
-// Parse name spec from the schema input; malformed input throws.
+// Reject unrepresentable field IDs and keys reserved for object terminators.
+void validate_field_key(const stream& in_stream, std::uint32_t id, std::string_view display_name) {
+  if (id == constants::binary_object_end_id || id > constants::variable_four_byte_max) {
+    throw exception::bad_member_spec{in_stream, "Field IDs must be in the range 1 to 0x3fffffff"};
+  }
+  if (display_name.empty()) {
+    throw exception::bad_member_spec{in_stream, "Field names must not be empty"};
+  }
+}
+
+// Parse a wire name and decimal ID without narrowing or overflowing the numeric token.
 void parse_name_spec(const stream& in_stream, std::uint32_t& new_id, std::string& display_name) {
   check_and_increase(in_stream, '(');
   bool string_parsed{false};
@@ -398,7 +411,13 @@ void parse_name_spec(const stream& in_stream, std::uint32_t& new_id, std::string
           throw exception::bad_member_spec{in_stream, "Only one number is allowed in member spec"};
         }
         number_parsed = true;
-        new_id = std::stoul(id);
+        std::uint32_t parsed_id{};
+        const auto result =
+            std::from_chars(id.data(), id.data() + id.size(), parsed_id, constants::decimal_radix);
+        if (result.ec != std::errc{} || result.ptr != id.data() + id.size()) {
+          throw exception::bad_member_spec{in_stream, "Invalid decimal field ID"};
+        }
+        new_id = parsed_id;
       } else {
         throw exception::bad_member_spec{in_stream, "Unknown parameter in member spec"};
       }
@@ -462,6 +481,7 @@ member parse_member(const stream& in_stream, const std::uint32_t id,
   }
   skip_whitespace_and_comment(in_stream);
   check_and_increase(in_stream, ';');
+  validate_field_key(in_stream, new_id, display_name);
   return {access, member_modifier, type_name_list, name, display_name, new_id, key, default_value};
 } // parse_member
 
@@ -514,6 +534,7 @@ parent parse_parent(const stream& in_stream, namespace_node* current_namespace,
     parse_name_spec(in_stream, new_id, display_name);
     skip_whitespace_and_comment(in_stream);
   }
+  validate_field_key(in_stream, new_id, display_name);
   return {access, full_name, display_name, new_id, current_namespace, nullptr};
 }
 

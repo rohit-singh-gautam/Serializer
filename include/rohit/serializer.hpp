@@ -49,6 +49,8 @@ inline constexpr int variable_one_byte_max = 0x3f;
 inline constexpr int variable_two_byte_max = 0x3fff;
 inline constexpr int variable_three_byte_max = 0x3fffff;
 inline constexpr int variable_four_byte_max = 0x3fffffff;
+// Integer-key objects end with ID zero; string-key objects use a zero-length name.
+inline constexpr std::uint32_t binary_object_end_id = 0;
 inline constexpr std::uint32_t wire_byte_mask = 0xffU;
 inline constexpr unsigned wire_byte_bits = 8;
 inline constexpr int decimal_radix = 10;
@@ -1122,7 +1124,7 @@ public:
     if constexpr (KeyType == serialize_key_type::integer) {
       while (true) {
         auto key = serialize_in_variable();
-        if (key == 0) {
+        if (key == constants::binary_object_end_id) {
           break;
         }
         obj->serialize_in_member_by_identifier(*this, key);
@@ -1184,23 +1186,34 @@ public:
   }
 
 protected:
-  // Encode a supported value or field through this protocol and advance the output cursor.
+  // Encode a field ID or a positional union discriminator, followed by its value.
   template <typename T>
   void serialize_out(const std::integral auto& id, const T& value) {
+    static_assert(KeyType == serialize_key_type::none || KeyType == serialize_key_type::integer,
+                  "Numeric binary keys require positional or integer-key mode");
+    if constexpr (KeyType == serialize_key_type::integer) {
+      if (id == constants::binary_object_end_id) {
+        throw std::invalid_argument{"Binary field ID zero is reserved for object termination"};
+      }
+    }
     serialize_out_variable(id);
     serialize_out(value);
   }
 
-  // Encode a supported value or field through this protocol and advance the output cursor.
+  // Borrow the field name and encode it before the field value.
   template <typename T>
   void serialize_out(const std::string& name, const T& value) {
-    serialize_out(name);
-    serialize_out(value);
+    serialize_out(std::string_view{name}, value);
   }
 
-  // Encode a supported value or field through this protocol and advance the output cursor.
+  // Preserve a nonempty wire name; an empty name is reserved for object termination.
   template <typename T>
   void serialize_out(const std::string_view& name, const T& value) {
+    static_assert(KeyType == serialize_key_type::string,
+                  "Named binary fields require string-key mode");
+    if (name.empty()) {
+      throw std::invalid_argument{"An empty binary field name is reserved for object termination"};
+    }
     serialize_out(name);
     serialize_out(value);
   }
@@ -1211,10 +1224,15 @@ protected:
     serialize_out(value.first, value.second);
   }
 
+  // Encode an integer-key union as its field ID, alternative index, and payload.
   template <typename T>
-  // Encode a supported value or field through this protocol and advance the output cursor.
   void serialize_out(const std::integral auto& id, const std::integral auto& index,
                      const T& value) {
+    static_assert(KeyType == serialize_key_type::integer,
+                  "Binary field ID and union index require integer-key mode");
+    if (id == constants::binary_object_end_id) {
+      throw std::invalid_argument{"Binary field ID zero is reserved for object termination"};
+    }
     serialize_out_variable(id);
     serialize_out_variable(index);
     serialize_out(value);
@@ -1227,8 +1245,13 @@ protected:
   }
 
 public:
-  // Encode an integer in the established one-to-four-byte representation.
+  // Encode a nonnegative 30-bit integer in one to four bytes; reject invalid values before writing.
   void serialize_out_variable(const std::integral auto id) {
+    if constexpr (std::is_signed_v<decltype(id)>) {
+      if (id < 0) {
+        throw std::out_of_range{"Binary variable integers must be nonnegative"};
+      }
+    }
     if (id <= constants::variable_one_byte_max) {
       out_stream.write_raw(static_cast<std::uint8_t>(id));
     } else if (id <= constants::variable_two_byte_max) {
@@ -1249,6 +1272,8 @@ public:
                                     constants::wire_byte_mask),
           static_cast<std::uint8_t>((id >> constants::wire_byte_bits) & constants::wire_byte_mask),
           static_cast<std::uint8_t>(id & constants::wire_byte_mask));
+    } else {
+      throw std::out_of_range{"Binary variable integer exceeds the 30-bit wire range"};
     }
   }
 
@@ -1322,13 +1347,10 @@ public:
     serialize_out(value);
   }
 
-  // Finish an object using the protocol closing delimiter or sentinel.
+  // Positional objects need no terminator; keyed objects end with a zero ID or name length.
   void struct_serialize_out_end() {
-    if constexpr (KeyType == serialize_key_type::integer) {
-      serialize_out_variable(0U);
-    } else if constexpr (KeyType == serialize_key_type::string) {
-      std::string empty{};
-      serialize_out(empty);
+    if constexpr (KeyType == serialize_key_type::integer || KeyType == serialize_key_type::string) {
+      serialize_out_variable(constants::binary_object_end_id);
     }
   }
 }; // class binary_out_base

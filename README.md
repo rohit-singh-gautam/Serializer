@@ -123,23 +123,47 @@ There are three predefined format
 
 More can be generated using structure ```cpp rohit::serializer::write_format ```
 
-Positional binary, there will be no indexing either by ID or name.
+Positional binary writes fields in schema order without field IDs, names, or an
+object terminator. Both ends must agree on field order and types. Unions still
+write an alternative index before their payload.
+
 ```cpp
 pr.serialize_out<rohit::serializer::binary_none>(stream);
 pr.serialize_in<rohit::serializer::binary_none>(stream);
 ```
 
-Binary serialization with Index by ID, currently ID is positional it will allowed to set in future.
+Integer-key binary writes a compact numeric ID before each field and ID zero
+after each object. IDs occupy one to four bytes and must be in `1..0x3fffffff`.
+Schema declarations can specify an ID, for example `public uint8 count (3);`.
+
 ```cpp
 pr.serialize_out<rohit::serializer::binary_integer>(stream);
 pr.serialize_in<rohit::serializer::binary_integer>(stream);
 ```
 
-Binary serialization with String ID. Currently string ID is name of member variable, it will be allowed to be custom in future.
+String-key binary writes a length-prefixed wire name before each field and an
+empty-name terminator after each object. The wire name defaults to the member
+name; a declaration such as `public uint8 count ("total", 3);` overrides both its
+wire name and numeric ID. Empty wire names are rejected. Union names include the
+selected alternative as `field:alternative`.
+
 ```cpp
 pr.serialize_out<rohit::serializer::binary_string>(stream);
 pr.serialize_in<rohit::serializer::binary_string>(stream);
 ```
+
+For one `uint8` field with value `7`, numeric ID `3`, and wire name `total`:
+
+| Mode | Encoded bytes (hex) |
+| --- | --- |
+| Positional | `07` |
+| Integer-key | `03 07 00` |
+| String-key | `05 74 6f 74 61 6c 07 00` |
+
+Only IDs, lengths, numeric enum values, and union indices use the compact integer
+encoding. Ordinary integer fields retain their declared byte width. Negative
+compact integers and values above `0x3fffffff` throw `std::out_of_range` before
+writing that integer.
 
 ## Example
 ### Simple class

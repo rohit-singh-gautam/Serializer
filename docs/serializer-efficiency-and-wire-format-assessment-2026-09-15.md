@@ -553,6 +553,47 @@ reservations against oversized adopted storage, allocation failures, one
 reservation per text batch, overlapping text sources before and after growth,
 custom reservation overrides, and integer boundary formatting.
 
+### Step 8: Enforce the existing binary field-key contract
+
+Source review confirmed that generated output and input already implement the
+three modes described in section 1:
+
+- Positional binary writes and reads fields in schema order with no field IDs,
+  field names, or object terminator. Union alternative indices remain necessary
+  to select the payload type; they are not field identifiers.
+- Integer-key binary writes one-to-four-byte field IDs and a zero-ID terminator.
+- String-key binary preserves each configured wire name with a compact length
+  prefix and an empty-name terminator. Union keys retain `field:alternative`.
+
+This step closes validation gaps without changing representable wire values:
+
+- The compact integer writer rejects negative values and values above
+  `0x3fffffff` before writing that integer. Previously, negative values could emit
+  an invalid first byte and oversized values could silently emit nothing. The
+  same validation covers lengths, enum values, and union indices.
+- Integer-key field output rejects ID zero. String-key field output rejects
+  empty names. Numeric/named field overloads reject incompatible key modes at
+  compile time; positional union index zero remains valid.
+- Schema fields and parents require IDs in `1..0x3fffffff` and nonempty wire
+  names. Decimal ID parsing uses `std::from_chars` to reject conversion overflow
+  instead of narrowing `std::stoul` results. Valid explicit metadata and default
+  ID assignment remain unchanged.
+- Both keyed terminators write the existing zero byte directly. Ordinary scalar
+  integers retain their declared width and signed-value support.
+
+The README now documents the existing ID/name override syntax and shows exact
+bytes for the same field in each mode. The migration guide records the newly
+rejected inputs and exceptions. These updates resolve the output-range gap
+identified in section 4.1; unrelated decoder and schema-evolution work remains
+outside this step.
+
+No builds, configuration runs, generated-header regeneration, tests, or
+benchmarks were run. Deferred verification should cover the existing wire
+snapshots for all modes, compact integer width boundaries, negative/oversized
+values, zero field IDs versus zero union indices, explicit parent/field metadata,
+empty names, and malformed or oversized decimal ID tokens. Rejection of a value
+does not roll back previously emitted fields or prefixes.
+
 ## 8. Follow-up optimization review of stream.hpp
 
 These findings describe the source after step 6. Step 7 records the implementation

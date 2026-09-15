@@ -74,6 +74,32 @@ For custom protocols, `key_type` must be a static constant expression set to
 `none`, `integer`, or `string`. Generated methods select the field operations with
 `if constexpr` and reject unsupported modes at compile time.
 
+## Binary field keys
+
+The three existing binary modes retain their wire encodings:
+
+- `binary_none` writes field values in schema order without field identifiers or
+  an object terminator. Unions retain a compact alternative index, including zero.
+- `binary_integer` writes compact field IDs and ends each object with ID zero.
+- `binary_string` writes length-prefixed wire names and ends each object with an
+  empty name. Union keys retain the `field:alternative` spelling.
+
+Schema parsing now rejects field and parent IDs outside `1..0x3fffffff` and empty
+wire names. Decimal IDs are parsed without narrowing; excessively large tokens
+raise `bad_member_spec` instead of overflowing or truncating. Existing default
+ID assignment and explicit valid ID/name overrides remain unchanged.
+
+For handwritten serializers, integer-key fields reject ID zero and string-key
+fields reject empty names with `std::invalid_argument`. Numeric and named field
+overloads now reject incompatible key modes at compile time. Positional union
+discriminators still use the numeric pair overload, where zero is valid.
+
+`serialize_out_variable` now throws `std::out_of_range` for negative values and
+values above `0x3fffffff`, before writing any bytes for that integer. This also
+applies to lengths, enum values, and union indices that use the same encoding.
+Failures do not roll back previously written fields or prefixes. Ordinary
+fixed-width signed integer fields continue to support negative values.
+
 ## Stream safety and ownership
 
 Owning `stream_auto_free` and `full_stream_auto_alloc` objects are now move-only;
