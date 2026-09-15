@@ -2,6 +2,13 @@ cmake_minimum_required(VERSION 3.28)
 
 project(serializer LANGUAGES CXX)
 
+# Require at least C++20 while preserving a caller's newer language mode.
+if(NOT DEFINED CMAKE_CXX_STANDARD OR CMAKE_CXX_STANDARD LESS 20)
+  set(CMAKE_CXX_STANDARD 20)
+endif()
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
 option(SERIALIZER_BUILD_TESTS "Build Serializer's tests" ${PROJECT_IS_TOP_LEVEL})
 
 add_library(serializer_lib

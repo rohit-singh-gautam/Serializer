@@ -18,6 +18,7 @@
 #pragma once
 #include <rohit/stream.hpp>
 
+#include <bit>
 #include <cctype>
 #include <concepts>
 #include <cstddef>
@@ -1012,7 +1013,7 @@ public:
     if (in_stream.full()) {
       throw exception::bad_input_data{in_stream};
     }
-    const std::uint32_t val = *in_stream++;
+    const std::uint32_t val = *in_stream.get_curr_and_increase_unchecked(1);
     switch (val & constants::variable_tag_mask) {
     default:
     case 0x00:
@@ -1021,24 +1022,29 @@ public:
       if (in_stream.full()) {
         throw exception::bad_input_data{in_stream};
       }
-      return ((val & constants::variable_payload_mask) << constants::wire_byte_bits) | *in_stream++;
+      return ((val & constants::variable_payload_mask) << constants::wire_byte_bits) |
+             *in_stream.get_curr_and_increase_unchecked(1);
     case constants::variable_three_byte_tag: {
-      if (in_stream.remaining_buffer() < 3) {
+      constexpr std::size_t payload_bytes = 2;
+      if (in_stream.remaining_buffer() < payload_bytes) {
         throw exception::bad_input_data{in_stream};
       }
-      const std::uint32_t val8 = *in_stream++;
+      const auto* payload = in_stream.get_curr_and_increase_unchecked(payload_bytes);
+      const std::uint32_t val8 = payload[0];
       return ((val & constants::variable_payload_mask) << (2 * constants::wire_byte_bits)) |
-             (val8 << constants::wire_byte_bits) | *in_stream++;
+             (val8 << constants::wire_byte_bits) | payload[1];
     }
     case constants::variable_four_byte_tag: {
-      if (in_stream.remaining_buffer() < 7) {
+      constexpr std::size_t payload_bytes = 3;
+      if (in_stream.remaining_buffer() < payload_bytes) {
         throw exception::bad_input_data{in_stream};
       }
-      const std::uint32_t val16 = *in_stream++;
-      const std::uint32_t val8 = *in_stream++;
+      const auto* payload = in_stream.get_curr_and_increase_unchecked(payload_bytes);
+      const std::uint32_t val16 = payload[0];
+      const std::uint32_t val8 = payload[1];
       return ((val & constants::variable_payload_mask) << (3 * constants::wire_byte_bits)) |
              (val16 << (2 * constants::wire_byte_bits)) | (val8 << constants::wire_byte_bits) |
-             *in_stream++;
+             payload[2];
     }
     }
   }
@@ -1050,12 +1056,12 @@ public:
       if (in_stream.full()) {
         throw exception::bad_input_data{in_stream};
       }
-      value = *in_stream++;
+      value = *in_stream.get_curr_and_increase_unchecked(1);
     } else if constexpr (std::is_same_v<bool, T>) {
       if (in_stream.full()) {
         throw exception::bad_input_data{in_stream};
       }
-      value = !!(*in_stream++);
+      value = !!(*in_stream.get_curr_and_increase_unchecked(1));
     } else if constexpr (std::is_enum_v<T>) {
       auto ival = serialize_in_variable();
       value = static_cast<T>(ival);
@@ -1065,7 +1071,7 @@ public:
       }
       T source = *reinterpret_cast<const T*>(in_stream.curr());
       value = change_endian<std::endian::big, std::endian::native>(source);
-      in_stream += sizeof(T);
+      in_stream.advance_unchecked(sizeof(T));
     } else if constexpr (std::is_same_v<std::string, T>) {
       // variable size following string of size
       auto size = serialize_in_variable();
@@ -1073,14 +1079,14 @@ public:
         throw exception::bad_input_data{in_stream};
       }
       value = std::string{in_stream.curr(), in_stream.curr() + size};
-      in_stream += size;
+      in_stream.advance_unchecked(size);
     } else if constexpr (std::floating_point<T>) {
       if (in_stream.remaining_buffer() < sizeof(T)) {
         throw exception::bad_input_data{in_stream};
       }
       T source = *reinterpret_cast<const T*>(in_stream.curr());
       value = change_endian<std::endian::big, std::endian::native>(source);
-      in_stream += sizeof(T);
+      in_stream.advance_unchecked(sizeof(T));
     } else if constexpr (type_check::serializer_out_enabled_ptr<
                              T, binary<serialize_type::in, KeyType>>) {
       value->serialize_in(*this);
@@ -1246,21 +1252,20 @@ public:
     }
   }
 
-  // Encode a supported value or field through this protocol and advance the output cursor.
+  // Append encoded fields to the contiguous stream; never copy an aggregate object layout.
+  // Byte writes follow the stream reservation policy; later failures can leave prior output.
   template <typename T>
   void serialize_out(const T& value) {
-    if constexpr (std::is_same_v<char, T>) {
-      out_stream += sizeof(T);
-      *(out_stream.curr() - sizeof(T)) = value;
-    } else if constexpr (std::is_same_v<bool, T>) {
-      out_stream += sizeof(T);
-      *(out_stream.curr() - sizeof(T)) = value;
+    if constexpr (std::is_same_v<char, T> || std::is_same_v<bool, T>) {
+      out_stream.append(static_cast<std::uint8_t>(value));
     } else if constexpr (std::is_enum_v<T>) {
       serialize_out_variable(static_cast<std::underlying_type_t<T>>(value));
     } else if constexpr (std::integral<T>) {
-      out_stream += sizeof(T);
-      auto dest = reinterpret_cast<T*>(out_stream.curr() - sizeof(T));
-      *dest = change_endian<std::endian::native, std::endian::big>(value);
+      using wire_type = std::make_unsigned_t<T>;
+      const auto wire_value = change_endian<std::endian::native, std::endian::big>(
+          static_cast<wire_type>(value));
+      // Byte copying does not require the stream cursor to be aligned for wire_type.
+      out_stream.append(&wire_value, sizeof(wire_value));
     } else if constexpr (std::is_same_v<std::string, T>) {
       // variable size following string of size
       serialize_out_variable(value.size());
@@ -1270,9 +1275,15 @@ public:
       serialize_out_variable(value.size());
       out_stream.append(value);
     } else if constexpr (std::floating_point<T>) {
-      out_stream += sizeof(T);
-      auto dest = reinterpret_cast<T*>(out_stream.curr() - sizeof(T));
-      *dest = change_endian<std::endian::native, std::endian::big>(value);
+      static_assert(std::numeric_limits<T>::is_iec559 &&
+                        (sizeof(T) == sizeof(std::uint32_t) || sizeof(T) == sizeof(std::uint64_t)),
+                    "Binary floating-point output requires a 32-bit or 64-bit IEC 559 representation");
+      // Preserve the scalar bits, then use the integer path for big-endian byte output.
+      if constexpr (sizeof(T) == sizeof(std::uint32_t)) {
+        serialize_out(std::bit_cast<std::uint32_t>(value));
+      } else if constexpr (sizeof(T) == sizeof(std::uint64_t)) {
+        serialize_out(std::bit_cast<std::uint64_t>(value));
+      }
     } else if constexpr (type_check::serializer_out_enabled_ptr<
                              T, binary<serialize_type::out, KeyType>>) {
       value->serialize_out(*this);

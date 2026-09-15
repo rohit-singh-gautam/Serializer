@@ -8,7 +8,7 @@ headers before compiling against the updated API.
 
 ## Build and test
 
-With CMake, a C++20 compiler, and GoogleTest available:
+With CMake, a C++20-or-newer compiler and standard library, and GoogleTest available:
 
 ```sh
 cmake -S . -B build
@@ -27,6 +27,17 @@ ctest --test-dir out/build/DebugWindows -C Debug --output-on-failure
 When embedding the library, add this repository with `add_subdirectory` and link
 to `serializer_lib`. It supplies the public include path and C++20 requirement.
 Use `-DSERIALIZER_BUILD_TESTS=OFF` for a standalone build without GoogleTest.
+
+C++20 is the minimum language mode and the build default. A newer mode selected
+with `CMAKE_CXX_STANDARD`, such as `-DCMAKE_CXX_STANDARD=23`, is preserved. Public
+headers also check the language mode when used outside CMake.
+
+The `rohit::byteswap` helper forwards supported integers directly to
+`std::byteswap` when `__cpp_lib_byteswap >= 202110L`; otherwise it uses a constexpr
+C++20 fallback. Supported floating-point values are converted through their
+integer bit representations. `rohit::change_endian` accepts supported scalar
+types and little/big byte orders, with compile-time rejection of unsupported
+types and mixed native byte order. Booleans are unchanged.
 
 Generate a header by running the built executable:
 

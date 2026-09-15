@@ -20,6 +20,20 @@ inherit the include directory and C++20 requirement. Tests are enabled by defaul
 for a standalone build and disabled by default when included as a subdirectory;
 set `SERIALIZER_BUILD_TESTS` explicitly to override this.
 
+The minimum language mode is C++20. CMake defaults to at least that version,
+requires the selected standard, and disables compiler extensions for this
+project's targets. Higher `CMAKE_CXX_STANDARD` settings remain effective. Direct
+header users must also enable C++20 or later; the header check uses `_MSVC_LANG`
+on MSVC to accommodate its default `__cplusplus` reporting.
+
+`byteswap` and `change_endian` now share scalar constraints: booleans, integers
+without padding bits, and supported 32-bit/64-bit binary IEC 559 floating-point
+representations. Other types are rejected even when source and destination byte
+orders match. `change_endian` accepts only little/big byte orders; `native` is
+accepted when it aliases one of those orders. Both helpers are `constexpr` and
+`noexcept`. Integers forward directly to `std::byteswap` when the feature is
+available, with a C++20 fallback otherwise.
+
 ## Public C++ names
 
 Namespaces remain rooted at `rohit`. Library-owned names use `snake_case`.
@@ -56,6 +70,56 @@ types, for example `BadInputData` becomes `bad_input_data`. The protocol templat
 `json`, `binary_none`, `binary_integer`, and `binary_string` retain their names.
 Custom serializer protocols and handwritten serializable types must implement
 the renamed methods and expose `key_type` with the new enum type.
+For custom protocols, `key_type` must be a static constant expression set to
+`none`, `integer`, or `string`. Generated methods select the field operations with
+`if constexpr` and reject unsupported modes at compile time.
+
+## Stream safety and ownership
+
+Owning `stream_auto_free` and `full_stream_auto_alloc` objects are now move-only;
+`full_stream_auto_alloc_limits` remains noncopyable and supports ownership moves.
+Use `std::move` to transfer ownership or a borrowed stream view to share access.
+Pointer-taking owning constructors still require exclusively owned,
+malloc-compatible storage. `fixed_buffer` also supports move assignment.
+
+Forward cursor movement and dereferencing now reject exhausted buffers before
+changing state; reaching the end exactly is allowed. All `full_stream` variants
+check backward movement. `at_unchecked()`, direct pointer mutation, and backward
+movement on a base `stream` retain caller-validated preconditions. Borrowed stream
+assignment copies the complete view; assignment through a const base view only
+commits a cursor sharing the same buffer end.
+
+For a batch, validate or reserve the complete byte count once, then use the
+nonvirtual `push_unchecked`, `append_unchecked`, `advance_unchecked`,
+`get_curr_and_increase_unchecked`, or existing `at_unchecked` helpers. They do not
+check bounds or allocate, including on an allocating stream. The caller must keep
+all accesses within the validated range; growth invalidates borrowed pointers.
+
+```cpp
+// data is a byte array whose storage is independent of output's allocation.
+output.reserve(data.size());
+for (const auto byte : data) {
+  output.push_unchecked(byte);
+}
+```
+
+Byte-only `write_raw(...)` calls now reserve once for the whole argument pack.
+Their bytes are captured before reservation, so byte arguments may refer to the
+output allocation even if it grows. Insufficient capacity rejects the batch
+before writing any of its bytes. Mixed argument packs retain per-argument appends.
+Binary input uses unchecked consumption after its existing range validation;
+three- and four-byte variable integers now require exactly two and three bytes
+after their first byte, correcting the previous oversized remaining-byte checks.
+
+Bounded allocating streams copy their supplied limits; callers no longer need to
+keep the limits object alive, and later edits to that object do not alter an
+existing stream. Invalid policies are rejected. Zero-capacity streams allocate
+lazily, and zero-byte operations on empty storage are valid.
+
+File helpers now throw on failed or incomplete I/O instead of returning partial
+input or silently accepting failed output. Literal comparison and explicit
+literal hashing exclude the final string terminator. These corrections require
+the deferred build and regression verification before release.
 
 ## Parser and writer API
 

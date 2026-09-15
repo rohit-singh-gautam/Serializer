@@ -254,22 +254,26 @@ void write_serializer_out_body(stream& out_stream, const class_node* obj,
   out_stream.write("\n      serializer_protocol.struct_serialize_out_end();");
 }
 
-// Emit C++ serializer out body for the parsed schema.
+// Emit direct field writes selected at compile time by the output protocol type.
 void write_serializer_out_body(stream& out_stream, const class_node* obj) {
-  out_stream.write("  // Encode this object using the supplied output protocol.\n  template "
+  out_stream.write("  // Encode fields directly using the protocol's compile-time key mode.\n  template "
                    "<typename SerializeOutProtocol>\n"
-                   "  void serialize_out(SerializeOutProtocol& serializer_protocol) const {");
-  out_stream.write("\n    if constexpr (serializer_protocol.key_type == "
+                   "  void serialize_out(SerializeOutProtocol& serializer_protocol) const {\n"
+                   "    static_assert(\n"
+                   "        SerializeOutProtocol::key_type == rohit::serializer::serialize_key_type::none ||\n"
+                   "        SerializeOutProtocol::key_type == rohit::serializer::serialize_key_type::integer ||\n"
+                   "        SerializeOutProtocol::key_type == rohit::serializer::serialize_key_type::string,\n"
+                   "        \"Unsupported serializer key type\");");
+  out_stream.write("\n    if constexpr (SerializeOutProtocol::key_type == "
                    "rohit::serializer::serialize_key_type::none) {");
   write_serializer_out_body(out_stream, obj, rohit::serializer::serialize_key_type::none);
-  out_stream.write("\n    } else if constexpr (serializer_protocol.key_type == "
+  out_stream.write("\n    } else if constexpr (SerializeOutProtocol::key_type == "
                    "rohit::serializer::serialize_key_type::integer) {");
   write_serializer_out_body(out_stream, obj, rohit::serializer::serialize_key_type::integer);
-  out_stream.write("\n    } else if constexpr (serializer_protocol.key_type == "
+  out_stream.write("\n    } else if constexpr (SerializeOutProtocol::key_type == "
                    "rohit::serializer::serialize_key_type::string) {");
   write_serializer_out_body(out_stream, obj, rohit::serializer::serialize_key_type::string);
-  out_stream.write(
-      "\n    } else { static_assert(true, \"Unsupported serializer type\"); }\n  }\n\n");
+  out_stream.write("\n    }\n  }\n\n");
   out_stream.write(
       "  template <template<rohit::serializer::serialize_type> class SerializerProtocol>\n"
       "  // Construct the requested protocol and write this object.\n  void "
@@ -477,25 +481,30 @@ void write_serializer_in_body_with_key_string(stream& out_stream, const class_no
                    "  }\n\n");
 }
 
-// Emit C++ serializer in body for the parsed schema.
+// Emit field reads selected at compile time, retaining keyed input dispatch where needed.
 void write_serializer_in_body(stream& out_stream, const class_node* obj) {
   write_serializer_in_body_with_key_integer(out_stream, obj);
   write_serializer_in_body_with_key_string(out_stream, obj);
-  out_stream.write("  // Decode this object using the supplied input protocol.\n  template "
+  out_stream.write("  // Decode fields using the protocol's compile-time key mode.\n  template "
                    "<typename SerializeInProtocol>\n"
-                   "  void serialize_in(SerializeInProtocol& serializer_protocol) {");
-  out_stream.write("\n    if constexpr (serializer_protocol.key_type == "
+                   "  void serialize_in(SerializeInProtocol& serializer_protocol) {\n"
+                   "    static_assert(\n"
+                   "        SerializeInProtocol::key_type == rohit::serializer::serialize_key_type::none ||\n"
+                   "        SerializeInProtocol::key_type == rohit::serializer::serialize_key_type::integer ||\n"
+                   "        SerializeInProtocol::key_type == rohit::serializer::serialize_key_type::string,\n"
+                   "        \"Unsupported serializer key type\");");
+  out_stream.write("\n    if constexpr (SerializeInProtocol::key_type == "
                    "rohit::serializer::serialize_key_type::none) {\n");
   write_serializer_in_body_key_none(out_stream, obj);
   out_stream.write(
-      "    } else if constexpr (serializer_protocol.key_type == "
+      "    } else if constexpr (SerializeInProtocol::key_type == "
       "rohit::serializer::serialize_key_type::integer ||\n"
-      "            serializer_protocol.key_type == rohit::serializer::serialize_key_type::string) "
+      "            SerializeInProtocol::key_type == rohit::serializer::serialize_key_type::string) "
       "{\n"
       "      serializer_protocol.template struct_serialize_in<",
       obj->name,
       ">(this);\n"
-      "    } else { static_assert(true, \"Unsupported serializer type\"); }\n"
+      "    }\n"
       "  }\n\n"
       "  template <template<rohit::serializer::serialize_type> class SerializerProtocol>\n"
       "  // Construct the requested protocol and read this object.\n  void serialize_in(const "
