@@ -41,9 +41,11 @@
 #include <functional>
 #include <iterator>
 #include <limits>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <type_traits>
 #include <utility>
 
@@ -59,6 +61,23 @@ inline constexpr std::size_t maximum_buffer_bytes =
     static_cast<std::size_t>(std::numeric_limits<std::ptrdiff_t>::max());
 template <typename>
 inline constexpr bool unsupported_type = false;
+
+// Describe one text argument without owning or copying its character sequence.
+struct write_fragment {
+  const std::uint8_t* data{};
+  std::size_t size{};
+  std::size_t source_offset{};
+  std::uint8_t byte{};
+  bool is_byte{};
+  bool aliased{};
+};
+
+// These text arguments have a known encoded length without numeric formatting.
+template <typename T>
+concept text_fragment_value =
+    std::same_as<T, char> || std::same_as<T, bool> || std::same_as<T, std::string> ||
+    std::same_as<T, std::string_view> ||
+    (std::is_array_v<T> && std::same_as<std::remove_extent_t<T>, char>);
 
 // Integral byte swapping requires every object bit to participate in its value representation.
 template <typename T>
@@ -203,17 +222,41 @@ protected:
     }
   }
 
-  // Advance a validated range without performing arithmetic on a null empty cursor.
+  // Advance a validated range; C++20 also permits adding zero to a null empty cursor.
   void advance_cursor(std::size_t len) const noexcept {
-    if (len != 0) {
-      current_data += len;
-    }
+    current_data += len;
   }
 
   // Reserve an append range; owning streams also rebase sources that alias their storage.
   virtual void reserve_append(const std::uint8_t*& source, std::size_t size) {
     static_cast<void>(source);
     reserve(size);
+  }
+
+  // Reserve a text batch; allocating streams also rebase any internal source pointers.
+  virtual void reserve_fragments(std::span<detail::write_fragment> fragments, std::size_t size) {
+    static_cast<void>(fragments);
+    reserve(size);
+  }
+
+  // Capture a scalar byte or borrow a text range before reservation can move its storage.
+  template <detail::text_fragment_value T>
+  static detail::write_fragment make_write_fragment(const T& value) {
+    if constexpr (std::same_as<T, char>) {
+      return {.size = sizeof(std::uint8_t),
+              .byte = static_cast<std::uint8_t>(value),
+              .is_byte = true};
+    } else if constexpr (std::same_as<T, bool>) {
+      return {.size = sizeof(std::uint8_t),
+              .byte = static_cast<std::uint8_t>(value ? '1' : '0'),
+              .is_byte = true};
+    } else if constexpr (std::is_array_v<T>) {
+      constexpr auto extent = std::extent_v<T>;
+      const auto size = value[extent - 1] == '\0' ? extent - 1 : extent;
+      return {.data = reinterpret_cast<const std::uint8_t*>(value), .size = size};
+    } else {
+      return {.data = reinterpret_cast<const std::uint8_t*>(value.data()), .size = value.size()};
+    }
   }
 
   // Initialize this object from the supplied storage or value state.
@@ -265,22 +308,22 @@ public:
     return stream{current_data, end_data};
   }
 
-  // Compare a character array prefix, excluding only a final string terminator.
+  // Compare prefix bytes regardless of char signedness, excluding only a final terminator.
   template <std::size_t Size>
   bool operator==(const char (&data)[Size]) const {
     const auto length = data[Size - 1] == '\0' ? Size - 1 : Size;
     if (remaining_buffer() < length) {
       return false;
     }
-    return length == 0 || std::equal(data, data + length, current_data);
+    return length == 0 || std::memcmp(data, current_data, length) == 0;
   }
 
-  // Compare the supplied prefix; a string_view length does not include a terminator.
+  // Compare prefix bytes regardless of char signedness; string_view supplies the exact length.
   bool operator==(const std::string_view& text) const {
     if (remaining_buffer() < text.size()) {
       return false;
     }
-    return text.empty() || std::equal(std::begin(text), std::end(text), current_data);
+    return text.empty() || std::memcmp(text.data(), current_data, text.size()) == 0;
   }
 
   // Assign the documented view or value state from the source object.
@@ -407,9 +450,6 @@ public:
 
   // Measure consumed bytes from a pointer within this buffer.
   std::size_t get_size_from(const auto* start) const {
-    if (current_data == reinterpret_cast<const std::uint8_t*>(start)) {
-      return 0;
-    }
     return static_cast<std::size_t>(current_data - reinterpret_cast<const std::uint8_t*>(start));
   }
 
@@ -553,6 +593,18 @@ public:
     reserve_append(source, size);
     append_unchecked(source, size);
   }
+  // Append an independent source in one reservation; it must not overlap this stream's storage.
+  inline void append_external(const auto* source, std::size_t size) {
+    if (size == 0) {
+      return;
+    }
+    if (source == nullptr || size > detail::maximum_buffer_bytes) {
+      throw std::invalid_argument{"Invalid append source"};
+    }
+    reserve(size);
+    std::memcpy(current_data, source, size);
+    advance_cursor(size);
+  }
   // Append raw bytes and advance the cursor; capacity failures follow the stream policy.
   inline void append(const char value) {
     reserve(sizeof(value));
@@ -600,9 +652,12 @@ public:
     } else if constexpr (std::is_integral_v<ValueType>) {
       // Allow one extra decimal digit, a sign, and the existing spare byte.
       constexpr std::size_t decimal_format_extra_bytes = 3;
-      char buffer[std::numeric_limits<ValueType>::digits10 + decimal_format_extra_bytes]{};
-      auto result = std::to_chars(std::begin(buffer), std::end(buffer), value);
-      append(buffer, result.ptr);
+      char buffer[std::numeric_limits<ValueType>::digits10 + decimal_format_extra_bytes];
+      const auto result = std::to_chars(std::begin(buffer), std::end(buffer), value);
+      if (result.ec != std::errc{}) {
+        throw std::runtime_error{"Unable to format integer"};
+      }
+      append_external(buffer, static_cast<std::size_t>(result.ptr - std::begin(buffer)));
     } else if constexpr (std::is_array_v<ValueType>) {
       if constexpr (sizeof(value[0]) == 1) {
         constexpr auto array_size = std::extent_v<ValueType>;
@@ -625,10 +680,38 @@ public:
     }
   }
 
-  // Append each supported argument as text in argument order.
+  // Reserve known-length text batches once; numeric mixtures retain per-argument formatting.
   template <typename... ValueType>
   inline void write(const ValueType&... value) {
-    ((append_string(value)), ...);
+    if constexpr (sizeof...(ValueType) > 1 && (std::same_as<ValueType, char> && ...)) {
+      write_raw(value...);
+    } else if constexpr (sizeof...(ValueType) > 1 &&
+                         (detail::text_fragment_value<ValueType> && ...)) {
+      std::array fragments{make_write_fragment(value)...};
+      std::size_t total_bytes{};
+      for (const auto& fragment : fragments) {
+        if (fragment.size > detail::maximum_buffer_bytes - total_bytes) {
+          throw exception::stream_overflow_exception{};
+        }
+        if (!fragment.is_byte && fragment.size != 0 && fragment.data == nullptr) {
+          throw std::invalid_argument{"Invalid text source"};
+        }
+        total_bytes += fragment.size;
+      }
+      if (total_bytes == 0) {
+        return;
+      }
+      reserve_fragments(fragments, total_bytes);
+      for (const auto& fragment : fragments) {
+        if (fragment.is_byte) {
+          push_unchecked(fragment.byte);
+        } else {
+          append_unchecked(fragment.data, fragment.size);
+        }
+      }
+    } else {
+      ((append_string(value)), ...);
+    }
   }
 }; // class stream
 
@@ -661,18 +744,11 @@ protected:
     return allocation;
   }
 
-  // Grow malloc-owned storage transactionally; reject size overflow before doing arithmetic.
-  void grow_storage(std::size_t len, std::size_t minimum_capacity, std::size_t maximum_capacity) {
-    const auto offset = current_offset();
-    if (maximum_capacity > detail::maximum_buffer_bytes || minimum_capacity > maximum_capacity ||
-        offset > maximum_capacity || len > maximum_capacity - offset) {
-      throw exception::stream_overflow_exception{};
-    }
-    const auto required_capacity = offset + len;
-    const auto old_capacity = capacity();
-    if (required_capacity <= old_capacity) {
-      return;
-    }
+  // Grow a validated range transactionally; require offset <= old < required <= maximum
+  // and minimum <= maximum <= maximum_buffer_bytes.
+  void grow_storage_to(std::size_t required_capacity, std::size_t offset,
+                       std::size_t old_capacity, std::size_t minimum_capacity,
+                       std::size_t maximum_capacity) {
     const auto doubled_capacity = old_capacity > maximum_capacity / detail::buffer_growth_factor
                                       ? maximum_capacity
                                       : old_capacity * detail::buffer_growth_factor;
@@ -684,6 +760,21 @@ protected:
     begin_data = allocation;
     current_data = allocation + offset;
     end_data = allocation + new_capacity;
+  }
+
+  // Validate a growth request and reserve enough storage without repeating range validation.
+  void grow_storage(std::size_t len, std::size_t minimum_capacity, std::size_t maximum_capacity) {
+    const auto offset = current_offset();
+    if (maximum_capacity > detail::maximum_buffer_bytes || minimum_capacity > maximum_capacity ||
+        offset > maximum_capacity || len > maximum_capacity - offset) {
+      throw exception::stream_overflow_exception{};
+    }
+    const auto required_capacity = offset + len;
+    // current_offset() has validated the complete begin/cursor/end ordering.
+    const auto old_capacity = static_cast<std::size_t>(end_data - begin_data);
+    if (required_capacity > old_capacity) {
+      grow_storage_to(required_capacity, offset, old_capacity, minimum_capacity, maximum_capacity);
+    }
   }
 
   // Rebase an aliased append source after successful growth; external sources retain their address.
@@ -701,6 +792,30 @@ protected:
     reserve_bytes();
     if (aliased) {
       source = begin_data + source_offset;
+    }
+  }
+
+  // Reserve a batch once and restore internal sources after growth; copying stays in argument order.
+  void reserve_rebased_fragments(std::span<detail::write_fragment> fragments, std::size_t size) {
+    const auto less = std::less<const std::uint8_t*>{};
+    for (auto& fragment : fragments) {
+      if (fragment.is_byte || fragment.size == 0) {
+        continue;
+      }
+      fragment.aliased = begin_data != nullptr && !less(fragment.data, begin_data) &&
+                         less(fragment.data, end_data);
+      if (fragment.aliased) {
+        if (fragment.size > static_cast<std::size_t>(end_data - fragment.data)) {
+          throw exception::stream_overflow_exception{};
+        }
+        fragment.source_offset = static_cast<std::size_t>(fragment.data - begin_data);
+      }
+    }
+    reserve(size);
+    for (auto& fragment : fragments) {
+      if (fragment.aliased) {
+        fragment.data = begin_data + fragment.source_offset;
+      }
     }
   }
 
@@ -798,10 +913,7 @@ public:
 
   // Report the cursor offset in bytes from the buffer start.
   auto current_offset() const {
-    if (current_data == begin_data) {
-      return std::size_t{0};
-    }
-    if (begin_data == nullptr || current_data == nullptr ||
+    if ((begin_data == nullptr) != (current_data == nullptr) ||
         std::less<const std::uint8_t*>{}(current_data, begin_data)) {
       throw exception::stream_underflow_exception{};
     }
@@ -810,10 +922,7 @@ public:
   }
   // Report the complete buffer capacity in bytes.
   auto capacity() const {
-    if (end_data == begin_data) {
-      return std::size_t{0};
-    }
-    if (begin_data == nullptr || end_data == nullptr ||
+    if ((begin_data == nullptr) != (end_data == nullptr) ||
         std::less<const std::uint8_t*>{}(end_data, begin_data)) {
       throw exception::stream_overflow_exception{};
     }
@@ -889,7 +998,8 @@ class full_stream_auto_alloc : public full_stream {
   // Reserve enough space before moving or writing; a failure leaves allocation and cursor intact.
   void check_resize(std::size_t len = 1) {
     if (len > remaining_buffer()) {
-      const auto minimum_capacity = capacity() == 0 ? detail::default_minimum_read_buffer_bytes : 0;
+      const auto minimum_capacity =
+          begin_data == end_data ? detail::default_minimum_read_buffer_bytes : 0;
       grow_storage(len, minimum_capacity, detail::maximum_buffer_bytes);
     }
   }
@@ -898,6 +1008,11 @@ protected:
   // Preserve append sources inside the buffer when realloc moves the allocation.
   void reserve_append(const std::uint8_t*& source, std::size_t size) override {
     reserve_rebased_append(source, size, [this, size] { reserve(size); });
+  }
+
+  // Preserve every source in a mixed text batch across one policy-aware reservation.
+  void reserve_fragments(std::span<detail::write_fragment> fragments, std::size_t size) override {
+    reserve_rebased_fragments(fragments, size);
   }
 
 public:
@@ -1007,13 +1122,29 @@ class full_stream_auto_alloc_limits : public full_stream {
 
   // Enforce the maximum on the requested range and clamp geometric growth to that maximum.
   void check_resize(std::size_t len = 1) {
-    grow_storage(len, limits.min_read_buffer_bytes, limits.max_read_buffer_bytes);
+    const auto offset = current_offset();
+    // Physical spare capacity can exceed the logical maximum in an adopted allocation.
+    if (offset > limits.max_read_buffer_bytes || len > limits.max_read_buffer_bytes - offset) {
+      throw exception::stream_overflow_exception{};
+    }
+    const auto old_capacity = static_cast<std::size_t>(end_data - begin_data);
+    const auto required_capacity = offset + len;
+    if (required_capacity > old_capacity) {
+      // Limits were validated when copied, and current_offset() validated the storage range.
+      grow_storage_to(required_capacity, offset, old_capacity, limits.min_read_buffer_bytes,
+                      limits.max_read_buffer_bytes);
+    }
   }
 
 protected:
   // Preserve append sources inside the buffer when realloc moves the allocation.
   void reserve_append(const std::uint8_t*& source, std::size_t size) override {
     reserve_rebased_append(source, size, [this, size] { reserve(size); });
+  }
+
+  // Preserve every source in a mixed text batch across one bounded reservation.
+  void reserve_fragments(std::span<detail::write_fragment> fragments, std::size_t size) override {
+    reserve_rebased_fragments(fragments, size);
   }
 
 public:
@@ -1191,9 +1322,6 @@ public:
 
   // Report the complete buffer capacity in bytes.
   auto capacity() const {
-    if (begin_data == end_data) {
-      return std::size_t{0};
-    }
     return static_cast<std::size_t>(end_data - begin_data);
   }
 };

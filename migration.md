@@ -111,10 +111,40 @@ Binary input uses unchecked consumption after its existing range validation;
 three- and four-byte variable integers now require exactly two and three bytes
 after their first byte, correcting the previous oversized remaining-byte checks.
 
+`write(...)` now batches multiple characters, booleans, character arrays, strings,
+and string views into one reservation. For example, `write('"', value, '"')`
+reserves the complete quoted text. Boolean text remains `1` or `0`. Numeric
+mixtures and single arguments retain their existing formatting paths. Lengths
+and scalar bytes are captured first; text ranges are copied in argument order
+with overlap support. The built-in allocating streams rebase internal sources
+after growth. A length, source-range, or reservation failure occurs before the
+batch writes any bytes.
+
+The protected `reserve_fragments` hook handles batched source rebasing. Custom
+streams that relocate storage must handle this hook as well as `reserve_append`;
+the built-in allocating streams provide both. Each batch still invokes virtual
+`reserve` once so custom limits remain effective. Recompile consumers after this
+addition to the virtual interface.
+
+`append_external(source, size)` skips source-alias bookkeeping for independently
+owned data. The source must not overlap the stream's backing storage or become
+invalid during reservation. General `append` retains rebasing and overlap support.
+Integer text output and binary scalar output use the independent-source path;
+integer text still reserves only its actual formatted size.
+
+Prefix comparisons now compare bytes consistently on signed-char platforms,
+including bytes above `0x7F`. Empty prefixes and literal terminators retain their
+existing behavior. Pointer helpers rely on the C++20 rules for null-plus-zero and
+null-pointer subtraction while retaining invalid-range checks.
+
 Bounded allocating streams copy their supplied limits; callers no longer need to
 keep the limits object alive, and later edits to that object do not alter an
 existing stream. Invalid policies are rejected. Zero-capacity streams allocate
 lazily, and zero-byte operations on empty storage are valid.
+
+Bounded reservations reuse the validated cursor offset and capacity and perform
+growth calculations only when necessary. Adopted storage can be larger than the
+logical maximum; reservations still enforce that maximum.
 
 File helpers now throw on failed or incomplete I/O instead of returning partial
 input or silently accepting failed output. Literal comparison and explicit

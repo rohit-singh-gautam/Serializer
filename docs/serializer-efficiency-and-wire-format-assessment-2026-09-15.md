@@ -508,11 +508,58 @@ This removes a source-level conditional without claiming a measured speedup.
 Builds and tests remain deferred; verification should cover null-empty streams,
 exhausted buffers, nonempty ranges, mismatched null pointers, and reversed ranges.
 
+### Step 7: Apply the stream optimization review
+
+- Prefix equality uses `std::memcmp` for nonempty validated ranges, fixing
+  comparisons of identical bytes above `0x7F` on signed-char targets. Empty
+  prefixes and the array overload's final-terminator handling are preserved.
+- Cursor advancement and consumed-size helpers no longer branch for zero
+  increments or equal pointers. Capacity and offset accessors consolidate their
+  null-state checks; offset validation now also runs when the cursor equals the
+  buffer start. Invalid ranges still throw in checked accessors.
+- Bounded reservations compute the validated offset and capacity once, enforce
+  the logical maximum, and enter the growth calculation only when required.
+  Growth remains transactional and retains geometric sizing and allocation
+  limits, including for adopted buffers larger than the logical maximum.
+- `write(...)` batches multiple characters, booleans, character arrays, strings,
+  and string views. It validates the total length, captures scalar bytes and text
+  lengths, reserves once, then copies parts in argument order. A fixed-size stack
+  array holds descriptors, not copies of the text. Internal text sources are
+  rebased after growth, and range copies retain overlap support. Character-only
+  batches reuse the existing byte-pack path. Numeric mixtures and single arguments
+  retain their existing paths.
+- `append_external` reserves once and copies an independently owned source without
+  alias bookkeeping. Integer formatting and binary scalar output use this path.
+  General appends retain alias rebasing and `memmove`. The numeric conversion
+  buffer is no longer zero-initialized; conversion success is checked before its
+  produced prefix is appended. Only the actual formatted length is reserved.
+
+The new protected `reserve_fragments` hook supports source rebasing for batches.
+The built-in allocating streams implement it and still call virtual `reserve`
+once per batch. Custom relocating streams need the equivalent hook; consumers
+must be recompiled after changes to the virtual interface. Batch capacity failure
+writes none of that batch, consistent with byte-only `write_raw`.
+
+Direct-to-output numeric formatting and a wider virtual-dispatch redesign remain
+evaluation candidates: they need a policy-aware way to use existing capacity
+without rejecting exact-fit output or bypassing custom reservation limits.
+No measured performance improvement is claimed. In particular, descriptor setup
+for short mixed writes must be included in future measurements.
+
+No builds, configuration runs, generated-header regeneration, or tests were run.
+Deferred verification should cover signed/unsigned-char prefix comparisons,
+null-empty and invalid pointer states, exact/insufficient capacity, bounded
+reservations against oversized adopted storage, allocation failures, one
+reservation per text batch, overlapping text sources before and after growth,
+custom reservation overrides, and integer boundary formatting.
+
 ## 8. Follow-up optimization review of stream.hpp
 
-These are source-review findings after step 6, not implemented optimizations or
-measured speedups. The review retains checked public operations and the explicit
-unchecked helpers for previously validated batches.
+These findings describe the source after step 6. Step 7 records the implementation
+status; direct-to-output numeric formatting and the broader virtual-dispatch
+redesign remain candidates. The review retains checked public operations and
+the explicit unchecked helpers for previously validated batches. No measured
+speedup is claimed.
 
 ### 8.1 Correct byte comparisons before measuring them
 

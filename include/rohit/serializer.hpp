@@ -1265,7 +1265,7 @@ public:
       const auto wire_value = change_endian<std::endian::native, std::endian::big>(
           static_cast<wire_type>(value));
       // Byte copying does not require the stream cursor to be aligned for wire_type.
-      out_stream.append(&wire_value, sizeof(wire_value));
+      out_stream.append_external(&wire_value, sizeof(wire_value));
     } else if constexpr (std::is_same_v<std::string, T>) {
       // variable size following string of size
       serialize_out_variable(value.size());
