@@ -60,6 +60,23 @@
 - Preserve serialization hot-path efficiency during cleanup, including CPU,
   memory, and encoded size.
 
+## Usage documentation and repository skill
+
+- Always keep [README.md](README.md) and the
+  [Serializer integration skill](.agents/skills/serializer-integration/SKILL.md)
+  current. Review both for every change; update both in the same change whenever
+  schema syntax, supported features, public APIs, protocol behavior, build steps,
+  or recommended usage changes.
+- Update their linked [usage guide](docs/usage.md), wire-format contract, migration
+  notes, and skill metadata where affected. Keep detailed examples in the usage
+  guide and task instructions in the skill, with working links between them.
+- Document implemented behavior separately from proposals. Include relevant
+  limitations and verification status; do not present deferred builds or tests
+  as completed.
+- Keep the skill in `.agents/skills/serializer-integration/` with Agent Skills
+  `SKILL.md` frontmatter. Its hyphenated folder/name follows the skill format;
+  C++ identifiers and file names continue to follow this repository's conventions.
+
 ## Commit comments
 
 - When the user says exactly `show commit comment`, inspect the active Git worktree and any changed nested Git repositories or submodules before composing the response.

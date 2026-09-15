@@ -309,6 +309,9 @@ enum class serialize_key_type { none, integer, string };
 
 enum class serialize_type { in, out };
 
+// Select the generated object's storage; values also form a generator mode mask.
+enum class storage_mode : std::uint8_t { owning = 1, read_only_view = 2, mutable_view = 4 };
+
 template <serialize_type type>
 class json {};
 
@@ -1041,13 +1044,19 @@ public:
   using json_out<false>::json_out;
 };
 
-template <serialize_type type, serialize_key_type KeyType>
+template <serialize_type type, serialize_key_type KeyType,
+          std::endian WireEndian = std::endian::little>
 class binary {};
 
-template <serialize_key_type KeyType>
+template <serialize_key_type KeyType, std::endian WireEndian = std::endian::little>
 class binary_in_base : public detail::decoder_input {
 public:
   constexpr static serialize_key_type key_type = KeyType;
+  constexpr static std::endian wire_endian = WireEndian;
+  static_assert(KeyType == serialize_key_type::none || KeyType == serialize_key_type::integer ||
+                KeyType == serialize_key_type::string, "Unsupported binary key mode");
+  static_assert(WireEndian == std::endian::little || WireEndian == std::endian::big,
+                "Binary storage requires little-endian or big-endian byte order");
   using detail::decoder_input::decoder_input;
 
   // Decode a complete one-to-four-byte compact integer with one cursor update.
@@ -1117,7 +1126,7 @@ public:
       wire_type source;
       const auto* bytes = read_bytes(sizeof(source));
       std::memcpy(&source, bytes, sizeof(source));
-      source = change_endian<std::endian::big, std::endian::native>(source);
+      source = change_endian<WireEndian, std::endian::native>(source);
       value = std::bit_cast<T>(source);
     } else if constexpr (std::floating_point<T>) {
       static_assert(rohit::detail::endian_floating_point<T>,
@@ -1125,7 +1134,7 @@ public:
       using wire_type = std::conditional_t<sizeof(T) == sizeof(std::uint32_t), std::uint32_t, std::uint64_t>;
       wire_type source;
       std::memcpy(&source, read_bytes(sizeof(source)), sizeof(source));
-      value = std::bit_cast<T>(change_endian<std::endian::big, std::endian::native>(source));
+      value = std::bit_cast<T>(change_endian<WireEndian, std::endian::native>(source));
     } else if constexpr (std::same_as<T, std::string>) {
       const auto size = serialize_in_variable();
       require_input(size);
@@ -1215,31 +1224,22 @@ public:
   }
 }; // class binary_in_base
 
-template <>
-class binary<serialize_type::in, serialize_key_type::none>
-    : public binary_in_base<serialize_key_type::none> {
+template <serialize_key_type KeyType, std::endian WireEndian>
+class binary<serialize_type::in, KeyType, WireEndian>
+    : public binary_in_base<KeyType, WireEndian> {
 public:
-  using binary_in_base<serialize_key_type::none>::binary_in_base;
-}; // class binary<serialize_type::in, serialize_key_type::none>
+  using binary_in_base<KeyType, WireEndian>::binary_in_base;
+};
 
-template <>
-class binary<serialize_type::in, serialize_key_type::integer>
-    : public binary_in_base<serialize_key_type::integer> {
-public:
-  using binary_in_base<serialize_key_type::integer>::binary_in_base;
-}; // class binary<serialize_type::in, serialize_key_type::integer>
-
-template <>
-class binary<serialize_type::in, serialize_key_type::string>
-    : public binary_in_base<serialize_key_type::string> {
-public:
-  using binary_in_base<serialize_key_type::string>::binary_in_base;
-}; // class binary<serialize_type::in, serialize_key_type::string>
-
-template <serialize_key_type KeyType>
+template <serialize_key_type KeyType, std::endian WireEndian = std::endian::little>
 class binary_out_base {
 public:
   constexpr static serialize_key_type key_type = KeyType;
+  constexpr static std::endian wire_endian = WireEndian;
+  static_assert(KeyType == serialize_key_type::none || KeyType == serialize_key_type::integer ||
+                KeyType == serialize_key_type::string, "Unsupported binary key mode");
+  static_assert(WireEndian == std::endian::little || WireEndian == std::endian::big,
+                "Binary storage requires little-endian or big-endian byte order");
 
 protected:
   stream& out_stream;
@@ -1365,7 +1365,7 @@ public:
     } else if constexpr (std::integral<T>) {
       static_assert(rohit::detail::endian_integer<T>, "Binary integers must have no padding bits");
       using wire_type = std::make_unsigned_t<T>;
-      const auto wire_value = change_endian<std::endian::native, std::endian::big>(
+      const auto wire_value = change_endian<std::endian::native, WireEndian>(
           static_cast<wire_type>(value));
       // Byte copying does not require the stream cursor to be aligned for wire_type.
       out_stream.append_external(&wire_value, sizeof(wire_value));
@@ -1380,18 +1380,18 @@ public:
     } else if constexpr (std::floating_point<T>) {
       static_assert(rohit::detail::endian_floating_point<T>,
                     "Binary floating-point output requires a 32-bit or 64-bit IEC 559 representation");
-      // Preserve the scalar bits, then use the integer path for big-endian byte output.
+      // Preserve scalar bits, then use the integer path for the selected wire byte order.
       if constexpr (sizeof(T) == sizeof(std::uint32_t)) {
         serialize_out(std::bit_cast<std::uint32_t>(value));
       } else if constexpr (sizeof(T) == sizeof(std::uint64_t)) {
         serialize_out(std::bit_cast<std::uint64_t>(value));
       }
     } else if constexpr (type_check::serializer_out_enabled_ptr<
-                             T, binary<serialize_type::out, KeyType>>) {
+                             T, binary<serialize_type::out, KeyType, WireEndian>>) {
       if (!value) { throw std::invalid_argument{"Null source object"}; }
       value->serialize_out(*this);
     } else if constexpr (type_check::serializer_out_enabled<T,
-                                                            binary<serialize_type::out, KeyType>>) {
+                                                            binary<serialize_type::out, KeyType, WireEndian>>) {
       value.serialize_out(*this);
     } else if constexpr (type_check::vector<T>) {
       serialize_out_variable(value.size());
@@ -1438,26 +1438,12 @@ public:
   }
 }; // class binary_out_base
 
-template <>
-class binary<serialize_type::out, serialize_key_type::none>
-    : public binary_out_base<serialize_key_type::none> {
+template <serialize_key_type KeyType, std::endian WireEndian>
+class binary<serialize_type::out, KeyType, WireEndian>
+    : public binary_out_base<KeyType, WireEndian> {
 public:
-  using binary_out_base<serialize_key_type::none>::binary_out_base;
-}; // class binary<serialize_type::out, serialize_key_type::none>
-
-template <>
-class binary<serialize_type::out, serialize_key_type::integer>
-    : public binary_out_base<serialize_key_type::integer> {
-public:
-  using binary_out_base<serialize_key_type::integer>::binary_out_base;
-}; // class binary<serialize_type::out, serialize_key_type::integer>
-
-template <>
-class binary<serialize_type::out, serialize_key_type::string>
-    : public binary_out_base<serialize_key_type::string> {
-public:
-  using binary_out_base<serialize_key_type::string>::binary_out_base;
-}; // class binary<serialize_type::out, serialize_key_type::string>
+  using binary_out_base<KeyType, WireEndian>::binary_out_base;
+};
 
 template <serialize_type type>
 using binary_integer = binary<type, serialize_key_type::integer>;

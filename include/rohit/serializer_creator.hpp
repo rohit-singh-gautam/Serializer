@@ -150,7 +150,7 @@ struct type_name {
   // Initialize this object from the supplied storage or value state.
   type_name(const type_name& rhs)
       : name{rhs.name}, enum_name{rhs.enum_name}, declared_namespace{rhs.declared_namespace},
-        defined_namespace{rhs.defined_namespace}, type{rhs.type} {}
+        defined_namespace{rhs.defined_namespace}, type{rhs.type}, resolved_node{rhs.resolved_node} {}
   // Assign the documented view or value state from the source object.
   type_name& operator=(const type_name& rhs) {
     name = rhs.name;
@@ -158,6 +158,7 @@ struct type_name {
     declared_namespace = rhs.declared_namespace;
     defined_namespace = rhs.defined_namespace;
     type = rhs.type;
+    resolved_node = rhs.resolved_node;
     return *this;
   }
 
@@ -166,9 +167,11 @@ struct type_name {
   namespace_node* declared_namespace;
   namespace_node* defined_namespace{};
   object_type type{object_type::unresolved};
+  const syntax_node* resolved_node{};
 
   // Resolve this syntax node name relative to its containing namespace.
   std::string get_full_name() const {
+    if (resolved_node) { return resolved_node->get_full_name(); }
     std::string full_name{};
     if (defined_namespace) {
       full_name = get_full_name_for_namespace(defined_namespace);
@@ -197,6 +200,8 @@ struct member {
   std::string default_value;
   bool explicit_id{false};
 
+  const syntax_node* key_node{};
+
   // Compare the relevant values without modifying either operand.
   bool operator==(const member& rhs) const {
     return access == rhs.access && modifier == rhs.modifier &&
@@ -216,9 +221,10 @@ struct parent {
   bool explicit_id{false};
 };
 
-// TODO: Verify parent and its namespace
+// A resolved class schema with the requested C++ storage representations.
 struct class_node : public syntax_node {
   class_attributes attributes{};
+  std::uint8_t storage_modes{static_cast<std::uint8_t>(storage_mode::owning)};
   std::vector<parent> parents;
   std::vector<member> member_list{};
   // Initialize this object from the supplied storage or value state.
@@ -228,8 +234,17 @@ struct class_node : public syntax_node {
         parents{std::move(parents)} {}
   // Initialize this object from the supplied storage or value state.
   class_node(class_node&& rhs)
-      : syntax_node{std::move(rhs)}, attributes{rhs.attributes}, parents{std::move(rhs.parents)},
+      : syntax_node{std::move(rhs)}, attributes{rhs.attributes}, storage_modes{rhs.storage_modes},
+        parents{std::move(rhs.parents)},
         member_list{std::move(rhs.member_list)} {}
+  // Report whether this schema requests a particular generated representation.
+  bool has_mode(storage_mode mode) const {
+    return (storage_modes & static_cast<std::uint8_t>(mode)) != 0;
+  }
+  // A single representation is emitted as a concrete class, with no mode template.
+  bool multiple_modes() const {
+    return (storage_modes & (storage_modes - 1)) != 0;
+  }
   // Initialize this object from the supplied storage or value state.
   class_node(const class_node&) = delete;
   // Assign the documented view or value state from the source object.

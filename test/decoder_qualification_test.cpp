@@ -144,7 +144,7 @@ TEST(decoder_qualification, binary_scalars_and_exact_boundaries) {
   encoder.serialize_out(1.0f);
   encoder.serialize_out(-2.0);
   constexpr std::array<std::uint8_t, 13> expected{
-      'x', 0x3f, 0x80, 0, 0, 0xc0, 0, 0, 0, 0, 0, 0, 0};
+      'x', 0, 0, 0x80, 0x3f, 0, 0, 0, 0, 0, 0, 0, 0xc0};
   ASSERT_EQ(output.current_offset(), expected.size());
   EXPECT_TRUE(std::equal(expected.begin(), expected.end(), output.begin()));
   const auto input = rohit::make_constant_full_stream(output.begin(), output.current_offset());

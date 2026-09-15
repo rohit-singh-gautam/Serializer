@@ -20,6 +20,7 @@ add_library(serializer_lib
   include/rohit/serializer_creator.hpp
   include/rohit/serializer.hpp
   include/rohit/decode.hpp
+  include/rohit/binary_view.hpp
   include/rohit/json_text.hpp
   include/rohit/stream.hpp
 )

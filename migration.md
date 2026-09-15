@@ -4,6 +4,21 @@ This is a breaking C++ source migration. Update callers and regenerate schema
 headers with the updated `serializer` executable before compiling. Legacy
 headers and symbol aliases are not provided.
 
+## Generated representations and byte order
+
+Binary fixed-width integers and floating-point values now default to little-endian.
+Compact prefixes retain their existing encoding. This is an intentional wire
+change with no compatibility aliases or automatic fallback. Applications that
+require a specific byte order can set the third `binary` template parameter and
+inspect `wire_endian`; see [the wire contract](docs/wire_format.md#byte-order).
+
+Schemas can request `view`, restrict it with `readonly`/`mutable`, and add `owning`.
+One mode retains a concrete class name; multiple modes require `person<storage_mode>`.
+Owning nested fields and parents select the owning specialization. Nested types
+must enable the modes requested by their owners. Views map little-endian positional
+binary and expose size-preserving getters/setters. See [views.md](docs/views.md).
+These source changes have not yet been generated, built, or tested for this step.
+
 ## Headers and build targets
 
 | Previous | Current |
@@ -76,7 +91,8 @@ For custom protocols, `key_type` must be a static constant expression set to
 
 ## Binary field keys
 
-The three existing binary modes retain their wire encodings:
+The three binary modes retain their field-key encodings, with fixed-width values
+using the byte order described above:
 
 - `binary_none` writes field values in schema order without field identifiers or
   an object terminator. Unions retain a compact alternative index, including zero.

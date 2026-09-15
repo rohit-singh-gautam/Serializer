@@ -1,5 +1,5 @@
 set(generated_headers)
-foreach(fixture IN ITEMS enum person test1 array map variable assessment)
+foreach(fixture IN ITEMS enum person test1 array map variable assessment views)
   set(input_file "${CMAKE_CURRENT_SOURCE_DIR}/resources/${fixture}.def")
   set(output_file "${CMAKE_CURRENT_BINARY_DIR}/${fixture}.hpp")
   add_custom_command(
@@ -17,6 +17,7 @@ add_executable(core_serializer_test
   generated_test.cpp
   wire_format_test.cpp
   decoder_qualification_test.cpp
+  binary_view_test.cpp
   ${generated_headers}
 )
 target_link_libraries(core_serializer_test PRIVATE serializer_lib GTest::gtest_main)

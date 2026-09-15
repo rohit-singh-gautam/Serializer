@@ -17,6 +17,7 @@
 
 #include <gtest/gtest.h>
 #include <rohit/serializer.hpp>
+#include <bit>
 #include <vector>
 
 TEST(json_serializer, char) {
@@ -304,9 +305,9 @@ TEST(binary_serializer, integer8) {
 
 TEST(binary_serializer, integer16) {
   std::vector<std::pair<std::string, std::int16_t>> test_list{
-      {"\x89\xab", -30293}, {"\xcc\xff", -13057}, {"\x56\x48", 22088}, {"\xff\xff", -1},
-      {"\x7f\xff", 32767},  {"\x01\x23", 291},    {"\x45\x67", 17767}, {"\x12\x34", 4660},
-      {"\x9a\xbc", -25924}, {"\xde\xa8", -8536},  {"\x7f\xff", 32767}, {"\xff\xff", -1}};
+      {"\xab\x89", -30293}, {"\xff\xcc", -13057}, {"\x48\x56", 22088}, {"\xff\xff", -1},
+      {"\xff\x7f", 32767},  {"\x23\x01", 291},    {"\x67\x45", 17767}, {"\x34\x12", 4660},
+      {"\xbc\x9a", -25924}, {"\xa8\xde", -8536},  {"\xff\x7f", 32767}, {"\xff\xff", -1}};
 
   for (auto& test : test_list) {
     auto stream = rohit::make_constant_full_stream(test.first);
@@ -329,7 +330,7 @@ TEST(binary_serializer, integer16_second) {
     decltype(test) value{};
     rohit::serializer::binary_none<rohit::serializer::serialize_type::in> binary_in{stream};
     binary_in.serialize_in(value);
-    EXPECT_EQ(test, rohit::byteswap(value));
+    EXPECT_EQ(test, (rohit::change_endian<std::endian::little, std::endian::native>(value)));
   }
 }
 
@@ -346,7 +347,7 @@ TEST(binary_serializer, integer32) {
     decltype(test) value{};
     rohit::serializer::binary_none<rohit::serializer::serialize_type::in> binary_in{stream};
     binary_in.serialize_in(value);
-    EXPECT_EQ(test, rohit::byteswap(value));
+    EXPECT_EQ(test, (rohit::change_endian<std::endian::little, std::endian::native>(value)));
   }
 }
 
@@ -386,7 +387,7 @@ TEST(binary_serializer, integer64) {
     decltype(test) value{};
     rohit::serializer::binary_none<rohit::serializer::serialize_type::in> binary_in{stream};
     binary_in.serialize_in(value);
-    EXPECT_EQ(test, rohit::byteswap(value));
+    EXPECT_EQ(test, (rohit::change_endian<std::endian::little, std::endian::native>(value)));
   }
 }
 

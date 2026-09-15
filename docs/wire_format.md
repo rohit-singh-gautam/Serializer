@@ -13,8 +13,8 @@ and protocol. Values are emitted field by field into the output stream.
 | --- | --- |
 | `char` | One byte |
 | `bool` | One byte, `00` or `01`; other input values are rejected |
-| Fixed-width integer | Declared width, most significant byte first; signed integers preserve their C++20 two's-complement representation |
-| `float`, `double` | Supported binary IEC 559 32-bit or 64-bit representation, most significant byte first; bit-preserving conversion through an unsigned integer |
+| Fixed-width integer | Declared width, least significant byte first by default; signed integers preserve their C++20 two's-complement representation |
+| `float`, `double` | Supported binary IEC 559 32-bit or 64-bit representation, least significant byte first by default; bit-preserving conversion through an unsigned integer |
 | String | Compact byte length followed by those bytes; binary string contents need not be UTF-8 |
 | Vector | Compact element count followed by recursively encoded elements |
 | Map | Compact entry count followed by each key and value; output follows `std::map` order |
@@ -36,6 +36,36 @@ to accept longer representations of the same value for compatibility. A failed
 compact read leaves its cursor unchanged. Other failures can leave earlier
 prefixes or values consumed or written.
 
+### Byte order
+
+`binary_none`, `binary_integer`, and `binary_string` default to **little-endian**
+fixed-width integers and floating-point values on every supported host CPU.
+For example, `uint32_t{0x12345678}` is stored as `78 56 34 12`, and `float{1.0}`
+as `00 00 80 3f`. CPU-native byte order does not change this contract.
+
+Each binary input/output protocol exposes `static constexpr std::endian wire_endian`.
+An application that requires another byte order selects it at compile time:
+
+```cpp
+using big_endian_binary_out = rohit::serializer::binary<
+    rohit::serializer::serialize_type::out,
+    rohit::serializer::serialize_key_type::none,
+    std::endian::big>;
+static_assert(big_endian_binary_out::wire_endian == std::endian::big);
+```
+
+Only `std::endian::little` and `std::endian::big` are supported. This parameter
+affects fixed-width scalars throughout nested objects and containers. Compact
+lengths, counts, IDs, enum values, and union discriminators always use the compact
+encoding described above, independently of fixed-width byte order. Strings remain
+byte sequences; JSON has no numeric byte-order setting.
+
+There is no implicit endian marker or auto-detection. Both endpoints must agree
+on protocol, byte order, and schema. Applications requiring self-describing files
+or messages must put that information in their own envelope. The public defaults
+are intentionally changed to little-endian; no compatibility aliases or automatic
+fallback decoding are provided.
+
 ### Object modes
 
 - **Positional (`binary_none`):** base objects and fields follow schema order.
@@ -52,6 +82,20 @@ prefixes or values consumed or written.
 Field/parent IDs must be in `1..0x3fffffff`; wire names must be nonempty. Key
 overloads reject incompatible modes at compile time. General binary skipping is
 unsupported: an unknown field's key provides neither its type nor its byte extent.
+
+### Generated views
+
+`view`, `readonly`, `mutable`, and `owning` select generated representations.
+One enabled representation produces a concrete class; multiple representations
+produce a template with the enabled `storage_mode` specializations.
+
+Views map **little-endian `binary_none`** only. `map(span, limits)` validates an
+exact message and records inline field offsets. Getters return scalar values,
+borrowed strings, or nested views. Mutable setters preserve field and collection
+extents; changing a string length, compact width, entry count, or active union
+alternative requires rebuilding. No native C++ object layout is overlaid on bytes.
+View map entries retain wire order and duplicate keys; keys remain immutable.
+See [views.md](views.md) for API, lifetime, visibility, and nested-mode details.
 
 ## JSON representation
 

@@ -379,11 +379,11 @@ existing design:
 
 - Characters and booleans append one byte through the stream's reservation policy.
   Booleans encode as zero or one independently of the native `bool` object size.
-- Integral values convert to their unsigned representation and big-endian byte
+- Integral values convert to their unsigned representation and selected byte
   order, then append their bytes without a typed store into the output buffer.
   A field can start at an unaligned offset without requiring aligned scalar access.
 - Floating-point output bit-casts a supported 32-bit or 64-bit IEC 559 scalar into
-  a matching unsigned integer and uses the same big-endian output path. Other
+  a matching unsigned integer and uses the same selected-endian output path. Other
   floating-point representations are rejected at compile time.
 - Both single-byte stream append overloads reserve `sizeof(value)` bytes, fixing
   the previous reservation based on the numeric byte value. This also affects
@@ -392,8 +392,11 @@ existing design:
 Object field order, keys, enum encoding, string lengths, and collection traversal
 remain as before. No raw whole-object copy or intermediate record buffer is added;
 only the individual converted scalar is held locally before its bytes are appended.
-The intended existing wire bytes are preserved for supported representations,
-subject to the deferred verification.
+Fixed-width scalars now default to little-endian, an intentional wire change in
+the subsequent view implementation. Compact prefixes retain their encoding.
+The codecs expose `wire_endian` and an explicit byte-order template argument.
+See [the wire contract](wire_format.md#byte-order) and [view guide](views.md).
+Generation, builds, and tests remain deferred for this implementation step.
 
 The single-byte reservation issue in section 2.5 and the output-side scalar issues
 in section 4.2 are addressed by this source change. Binary input alignment and

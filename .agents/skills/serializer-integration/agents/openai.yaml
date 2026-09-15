@@ -1,0 +1,3 @@
+interface:
+  display_name: "Serializer Integration"
+  short_description: "Integrate Serializer schemas and C++ codecs"

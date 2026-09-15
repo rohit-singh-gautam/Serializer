@@ -6,6 +6,10 @@ binary protocols. The public API and generated methods use `snake_case` names.
 **Existing callers:** follow the [migration guide](migration.md) and regenerate
 headers before compiling against the updated API.
 
+**Getting started:** the [usage guide](docs/usage.md) covers schema authoring,
+automatic header generation with CMake, and decoding an exact message with limits.
+For AI-assisted integration, use the [repository skill](#repository-agent-skill).
+
 ## Build and test
 
 With CMake, a C++20-or-newer compiler and standard library, and GoogleTest available:
@@ -49,25 +53,116 @@ Format C++ files with the repository's `.clang-format`; see
 [CodingStandard.md](CodingStandard.md) for naming and coding rules.
 
 ## Language Construct
+
 ### Namespace
 This directly maps to C++ name space this can be hierarchical. This can be similar to C++ syntax like "A::B::C".
 ```
-namespace A { namepace B { } }
+namespace A { namespace B { } }
 ```
 is equivalent to
 ```
 namespace A::B { }
 ```
 
-### Struct
-By default all the members are public.
+### Class
 
-Syntax:
+Use `class` in schema files. Every member explicitly states `public`, `protected`,
+or `private`. Members end with a semicolon; class and enum declarations do not.
+
+```text
+class person {
+  public string name;
+  public uint32 age;
+}
 ```
-struct <name> packed : <public|private|protected> <parent> {
-<public|private|protected> [array|map] <type> <variable>;
-};
+
+Class attributes go after the class name and before an optional parent list.
+Implemented attributes are `stable_ids`, `packed`, `owning`, `view`, `readonly`,
+and `mutable`. Their order does not matter. `packed` controls generated native
+C++ layout, depends on compiler support, and cannot be combined with `view`.
+Binary serialization always encodes fields individually.
+
+### Owning objects and buffer views
+
+| Class header | Generated modes | Class template |
+| --- | --- | --- |
+| `class person` or `class person owning` | Owning | No |
+| `class person view` | Read-only and mutable views | Yes |
+| `class person view readonly` | Read-only view | No |
+| `class person view mutable` | Mutable view | No |
+| `class person view mutable readonly` | Both views | Yes |
+| `class person view owning` | Owning and both views | Yes |
+| `class person view owning readonly` | Owning and read-only view | Yes |
+| `class person owning mutable view` | Owning and mutable view | Yes |
+
+`readonly` and `mutable` require `view`; either restricts the enabled view modes.
+With multiple modes, select `person<rohit::serializer::storage_mode::owning>`,
+`person<rohit::serializer::storage_mode::read_only_view>`, or
+`person<rohit::serializer::storage_mode::mutable_view>`. Only requested modes exist.
+With one mode, use `person` directly.
+
+Generated views map **little-endian positional binary (`binary_none`)** through
+`person::map(span, limits)`. Getters access mapped fields; mutable setters update
+existing bytes without changing field sizes. Strings require the same byte length.
+Arrays, maps, nested objects, and active union alternatives have borrowed accessors.
+See [the view usage guide](docs/views.md) for examples, nested-mode requirements,
+lifetimes, mutation limits, and compilation costs.
+
+All binary codecs default to **little-endian** fixed-width integers and floating
+point. Inspect `Protocol::wire_endian` or `View::wire_endian` in C++; views also
+expose `key_type`. Explicit codec byte-order selection is documented in
+[the wire-format contract](docs/wire_format.md#byte-order).
+Messages contain no automatic byte-order marker. Both endpoints must agree on it.
+
+These changes are implemented in source; generation, builds, and tests remain
+deferred for this step.
+
+### Explicit field IDs with `stable_ids`
+
+`stable_ids` tells the generator: **every field and parent must have an explicit
+numeric ID**. It is useful for schemas that evolve while using integer-key binary.
+
+Without explicit IDs, numbers follow declaration order: `name` above gets ID 1
+and `age` gets ID 2. Inserting a field before them changes those implicit IDs.
+Assigning IDs explicitly preserves their identity when declarations move:
+
+```text
+class person stable_ids {
+  public string name (1);
+  public uint32 age (2);
+}
 ```
+
+Adding `public string country;` to that class fails generation with
+`stable_ids requires explicit field and parent IDs`. Assign a new unused ID:
+
+```text
+public string country (3);
+```
+
+Explicit IDs already work without the keyword; `stable_ids` prevents accidentally
+omitting one. Adding the keyword to an existing schema should preserve its current
+IDs, including any previously implicit IDs. It does not compare schema history or
+prevent a person from manually changing or reusing an ID.
+
+Parents and members share the containing class's ID space. A parent's own fields
+have their own ID space:
+
+```text
+class employee stable_ids : public person ("person", 1) {
+  public uint64 employee_id (2);
+}
+```
+
+IDs must be unique within that class and in `1..0x3fffffff`; zero ends an
+integer-key object. JSON and string-key binary identify fields by their wire
+names. Positional binary still depends on declaration order even with explicit IDs.
+Keyed readers reject unknown fields, so stable IDs alone do not make old readers
+accept added fields. See [schema evolution](docs/wire_format.md#schema-evolution).
+
+`stable_ids` is independent of `view` and is not required for mapping buffers.
+Views use positional binary, so field order and types must still match.
+`inplace` and `simd` are not implemented schema keywords.
 
 ### Datatypes
 |Type|C++ Type|Size byte|Common name|
@@ -384,3 +479,43 @@ class person {
 1. Check for validity for default value.
 1. Store position of member variable in input stream.
 1. Bit field.
+
+## Repository agent skill
+
+The [serializer-integration skill](.agents/skills/serializer-integration/SKILL.md)
+guides an agent through using this library in a C++ application: schema design,
+`stable_ids` adoption, generated headers, protocol selection, and bounded input.
+
+It follows the open [Agent Skills format](https://agentskills.io/specification):
+a folder with a `SKILL.md` containing YAML `name` and `description`, followed by
+Markdown instructions. Repository discovery locations are host-specific. This
+repository uses Codex's `.agents/skills` convention:
+
+```text
+.agents/skills/serializer-integration/
+  SKILL.md
+  agents/openai.yaml
+```
+
+The YAML file under `agents/` supplies optional Codex UI metadata. Codex discovers
+repository skills from the working directory through the repository root. In the
+CLI or IDE extension, select this skill with `$serializer-integration` or `/skills`.
+See [Codex skill discovery](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills).
+
+Example request:
+
+```text
+Use $serializer-integration to add Serializer to my C++ application,
+define a person schema with stable_ids, and decode integer-key binary
+messages with explicit resource limits.
+```
+
+When Serializer is a nested dependency, its skill is not automatically discovered
+from the consuming project's root. Copy the complete skill folder into that
+project's `.agents/skills`, or explicitly ask the agent to read the dependency's
+`SKILL.md`. Keep the matching Serializer checkout available for the linked docs;
+the skill explains how to locate it when copied. Other compatible agents use the
+same skill format with their own discovery and invocation rules.
+
+[AGENTS.md](AGENTS.md#usage-documentation-and-repository-skill) requires changes to
+keep this README and the skill current together.

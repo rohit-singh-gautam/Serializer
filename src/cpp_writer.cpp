@@ -21,11 +21,33 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <vector>
 
 namespace rohit::serializer::writer::cpp {
+
+// Return the public enumerator spelling used in generated mode selections.
+std::string storage_mode_name(storage_mode mode) {
+  switch (mode) {
+  case storage_mode::owning: return "rohit::serializer::storage_mode::owning";
+  case storage_mode::read_only_view: return "rohit::serializer::storage_mode::read_only_view";
+  case storage_mode::mutable_view: return "rohit::serializer::storage_mode::mutable_view";
+  }
+  throw std::invalid_argument{"Unknown generated storage mode"};
+}
+
+// Select a nested class's concrete declaration or enabled template specialization.
+std::string storage_type_name(const std::string& name, const syntax_node* node,
+                              storage_mode mode = storage_mode::owning) {
+  if (!node) { return serializer::get_cpp_type(name); }
+  auto result = node->get_full_name();
+  if (node->type == object_type::class_type && static_cast<const class_node*>(node)->multiple_modes()) {
+    result += "<" + storage_mode_name(mode) + ">";
+  }
+  return result;
+}
 
 // Emit union storage plus exact alternative-name conversion without hash-only matches.
 std::string get_cpp_type_support_union(const member& member) {
@@ -35,7 +57,7 @@ std::string get_cpp_type_support_union(const member& member) {
   }
   result += "  };\n  union u_" + member.name + " {\n";
   for (const auto& type : member.type_name_list) {
-    result += "    " + serializer::get_cpp_type(type.name) + " " + type.enum_name + ";\n";
+    result += "    " + storage_type_name(type.name, type.resolved_node) + " " + type.enum_name + ";\n";
   }
   result += "  };\n  static_assert(std::is_trivially_destructible_v<u_" + member.name +
             ">, \"Raw union payloads must be trivially destructible\");\n"
@@ -77,13 +99,14 @@ std::string get_cpp_type(const member& member) {
   default:
   case member::modifier_type::none:
     // TODO: Range check
-    return serializer::get_cpp_type(member.type_name_list[0].name);
+    return storage_type_name(member.type_name_list[0].name, member.type_name_list[0].resolved_node);
   case member::modifier_type::array:
-    return std::string("std::vector<") + serializer::get_cpp_type(member.type_name_list[0].name) +
+    return std::string("std::vector<") + storage_type_name(member.type_name_list[0].name,
+                                                          member.type_name_list[0].resolved_node) +
            ">";
   case member::modifier_type::map:
-    return std::string("std::map<") + serializer::get_cpp_type(member.key) + "," +
-           serializer::get_cpp_type(member.type_name_list[0].name) + ">";
+    return std::string("std::map<") + storage_type_name(member.key, member.key_node) + "," +
+           storage_type_name(member.type_name_list[0].name, member.type_name_list[0].resolved_node) + ">";
   case member::modifier_type::variant:
     return "e_" + member.name + " " + member.name + "_type { };\n  " + "u_" + member.name;
   }
@@ -117,7 +140,7 @@ void write_parent_list(stream& out_stream, const std::vector<parent>& parents) {
       out_stream.write(", ");
     }
     write_access_type(out_stream, parent.access);
-    out_stream.write(' ', parent.name);
+    out_stream.write(' ', storage_type_name(parent.name, parent.parent_class));
   }
 }
 
@@ -157,16 +180,16 @@ void write_serializer_out_body_for_parent(stream& out_stream, const class_node* 
     }
     if (key_type == rohit::serializer::serialize_key_type::string) {
       out_stream.write("std::make_pair(std::string_view { \"", parent.display_name,
-                       "\" }, static_cast<const ", parent.name,
+                       "\" }, static_cast<const ", storage_type_name(parent.name, parent.parent_class),
                        " *>(this))"
                        ");");
     } else if (key_type == rohit::serializer::serialize_key_type::integer) {
       out_stream.write("std::make_pair(static_cast<std::uint32_t>(", parent.id,
-                       "), static_cast<const ", parent.name,
+                       "), static_cast<const ", storage_type_name(parent.name, parent.parent_class),
                        " *>(this))"
                        ");");
     } else {
-      out_stream.write("static_cast<const ", parent.name,
+      out_stream.write("static_cast<const ", storage_type_name(parent.name, parent.parent_class),
                        " *>(this)"
                        ");");
     }
@@ -287,7 +310,8 @@ void write_serializer_out_body(stream& out_stream, const class_node* obj) {
 // Emit C++ serializer in body for parent key none for the parsed schema.
 void write_serializer_in_body_for_parent_key_none(stream& out_stream, const class_node* obj) {
   for (const auto& parent : obj->parents) {
-    out_stream.write("      this->", parent.name, "::serialize_in(serializer_protocol);\n");
+    out_stream.write("      this->", storage_type_name(parent.name, parent.parent_class),
+                     "::serialize_in(serializer_protocol);\n");
   }
 }
 
@@ -297,7 +321,7 @@ void write_serializer_in_body_for_parent_key_integer(stream& out_stream, const c
     out_stream.write("      case ", parent.id,
                      ":\n"
                      "        this->",
-                     parent.name,
+                     storage_type_name(parent.name, parent.parent_class),
                      "::serialize_in(serializer_protocol);\n"
                      "        break;\n");
   }
@@ -445,7 +469,8 @@ void write_serializer_in_body_with_key_string(stream& out_stream, const class_no
     for (const auto& item : entries) {
       out_stream.write("        if (name == \"", item.name, "\") {\n");
       if (item.base) {
-        out_stream.write("          this->", item.base->name, "::serialize_in(serializer_protocol);\n");
+        out_stream.write("          this->", storage_type_name(item.base->name, item.base->parent_class),
+                         "::serialize_in(serializer_protocol);\n");
       } else if (item.alternative) {
         out_stream.write("          this->", item.field->name, "_type = e_", item.field->name, "::",
                          item.alternative->enum_name, ";\n"
@@ -509,13 +534,125 @@ void write_serializer(stream& out_stream, const class_node* obj) {
   write_serializer_in_body(out_stream, obj);
 }
 
-// Emit C++ class for the parsed schema.
-void write_class(stream& out_stream, const class_node* obj) {
+// Build a typed view codec expression without introducing a runtime field descriptor table.
+std::string view_codec_name(const std::string& name, const syntax_node* node, storage_mode mode) {
+  const std::string prefix{"rohit::serializer::detail::"};
+  if (!node && name == "string") { return prefix + "string_view_codec"; }
+  const auto type = storage_type_name(name, node, mode);
+  return prefix + (node && node->type == object_type::class_type ? "object_view_codec<" :
+                                                                       "scalar_view_codec<") + type + ">";
+}
+
+// Compose collection and union codecs from their statically resolved element types.
+std::string view_codec_name(const member& field, storage_mode mode) {
+  const auto& type = field.type_name_list.front();
+  auto codec = view_codec_name(type.name, type.resolved_node, mode);
+  const std::string prefix{"rohit::serializer::detail::"};
+  switch (field.modifier) {
+  case member::modifier_type::none: return codec;
+  case member::modifier_type::array: return prefix + "array_view_codec<" + codec + ">";
+  case member::modifier_type::map:
+    return prefix + "map_view_codec<" +
+        view_codec_name(field.key, field.key_node, storage_mode::read_only_view) + ", " + codec + ">";
+  case member::modifier_type::variant:
+    codec = prefix + "variant_view_codec<";
+    for (std::size_t index = 0; index < field.type_name_list.size(); ++index) {
+      const auto& alternative = field.type_name_list[index];
+      if (index != 0) { codec += ", "; }
+      codec += view_codec_name(alternative.name, alternative.resolved_node, mode);
+    }
+    return codec + ">";
+  }
+  throw std::invalid_argument{"Unknown view field modifier"};
+}
+
+// Emit a constant-offset getter; access follows the schema field or parent's visibility.
+void write_view_getter(stream& output, const std::string& name, std::size_t index,
+                       access_type access) {
+  write_access_type(output, access);
+  output.write(":\n  // Read this field or borrow its nested view from the mapped buffer.\n"
+               "  auto ", name, "() const {\n"
+               "    return serializer_view_field_", index, "::read(this->template field_bytes<", index,
+               ">(), this->view_limits);\n  }\n");
+}
+
+// Emit one concrete view representation with validated mapping and size-preserving mutation.
+void write_view_class(stream& output, const class_node* obj, storage_mode mode) {
+  const auto count = obj->parents.size() + obj->member_list.size();
+  const std::string byte_type = mode == storage_mode::read_only_view ? "const std::uint8_t" :
+                                                                       "std::uint8_t";
+  const auto base = "rohit::serializer::detail::binary_view_base<" + byte_type + ", " +
+                    std::to_string(count) + ">";
+  if (obj->multiple_modes()) { output.write("template <>\n"); }
+  output.write("class ", obj->name);
+  if (obj->multiple_modes()) { output.write("<", storage_mode_name(mode), ">"); }
+  output.write(" : public ", base, " {\n"
+               "  using view_base = ", base, ";\n"
+               "  using view_byte = ", byte_type, ";\n");
+  std::size_t index{};
+  for (const auto& parent : obj->parents) {
+    output.write("  using serializer_view_field_", index++, " = ",
+                 view_codec_name(parent.name, parent.parent_class, mode), ";\n");
+  }
+  for (const auto& field : obj->member_list) {
+    output.write("  using serializer_view_field_", index++, " = ", view_codec_name(field, mode), ";\n");
+  }
+  output.write("  // Construct only through map(), validating before exposing the object.\n"
+               "  explicit ", obj->name, "(std::span<view_byte> bytes, rohit::serializer::decode_limits limits)\n"
+               "      : view_base{bytes, limits, serializer_scan} {}\n"
+               "public:\n"
+               "  // Borrow an exact little-endian positional message; its storage must outlive all views.\n"
+               "  static ", obj->name, " map(std::span<view_byte> bytes,\n"
+               "                    rohit::serializer::decode_limits limits = {}) {\n"
+               "    return ", obj->name, "{bytes, limits};\n  }\n"
+               "  // Internal schema traversal: share nested budgets and optionally record field offsets.\n"
+               "  static void serializer_scan(rohit::serializer::detail::view_scanner& scanner,\n"
+               "                              std::size_t* offsets) {\n"
+               "    auto nesting = scanner.enter_object();\n");
+  for (index = 0; index < count; ++index) {
+    output.write("    if (offsets) { offsets[", index, "] = scanner.position(); }\n"
+                 "    serializer_view_field_", index, "::scan(scanner);\n");
+  }
+  output.write("    if (offsets) { offsets[", count, "] = scanner.position(); }\n  }\n");
+  index = 0;
+  for (const auto& parent : obj->parents) {
+    write_view_getter(output, "get_base_" + std::to_string(parent.id), index++, parent.access);
+  }
+  for (const auto& field : obj->member_list) {
+    write_view_getter(output, "get_" + field.name, index, field.access);
+    if (field.modifier == member::modifier_type::variant) {
+      output.write("  enum class e_", field.name, " {\n");
+      for (const auto& alternative : field.type_name_list) {
+        output.write("    ", alternative.enum_name, ",\n");
+      }
+      output.write("  };\n"
+                   "  // Return the active alternative using the schema's symbolic names.\n"
+                   "  e_", field.name, " get_", field.name, "_type() const {\n"
+                   "    return static_cast<e_", field.name, ">(get_", field.name, "().index());\n  }\n");
+    } else if (mode == storage_mode::mutable_view && field.modifier == member::modifier_type::none &&
+               field.type_name_list.front().type != object_type::class_type) {
+      const auto& type = field.type_name_list.front();
+      const auto value_type = type.name == "string" ? "std::string_view" :
+          storage_type_name(type.name, type.resolved_node);
+      output.write("  // Update existing bytes; a size-changing replacement throws before mutation.\n"
+                   "  void set_", field.name, "(", value_type, " value) {\n"
+                   "    serializer_view_field_", index, "::write(this->template field_bytes<", index,
+                   ">(), value);\n  }\n");
+    }
+    ++index;
+  }
+  output.write("}; // view ", obj->name, "\n\n");
+}
+
+// Emit the existing owning API, selecting owning specializations for nested classes.
+void write_owning_class(stream& out_stream, const class_node* obj) {
+  if (obj->multiple_modes()) { out_stream.write("template <>\n"); }
   if ((obj->attributes & class_attributes::packed) == class_attributes::packed) {
     out_stream.write("class __attribute__ ((__packed__)) ", obj->name);
   } else {
     out_stream.write("class ", obj->name);
   }
+  if (obj->multiple_modes()) { out_stream.write("<", storage_mode_name(storage_mode::owning), ">"); }
 
   if (!obj->parents.empty()) {
     out_stream.write(" : ");
@@ -529,6 +666,33 @@ void write_class(stream& out_stream, const class_node* obj) {
   write_serializer(out_stream, obj);
 
   out_stream.write("}; // class ", obj->name, "\n\n");
+}
+
+// Emit only requested modes; a single mode has no class template declaration.
+void write_class(stream& output, const class_node* obj) {
+  if (obj->multiple_modes()) {
+    output.write("template <rohit::serializer::storage_mode Mode>\nclass ", obj->name, ";\n\n");
+  }
+  if (obj->has_mode(storage_mode::owning)) { write_owning_class(output, obj); }
+  for (const auto mode : {storage_mode::read_only_view, storage_mode::mutable_view}) {
+    if (obj->has_mode(mode)) { write_view_class(output, obj, mode); }
+  }
+}
+
+// Keep view helpers out of generated headers whose schemas request only owning objects.
+bool contains_views(const std::vector<std::unique_ptr<syntax_node>>& statements) {
+  for (const auto& statement : statements) {
+    if (statement->type == object_type::class_type) {
+      const auto* obj = static_cast<const class_node*>(statement.get());
+      if (obj->has_mode(storage_mode::read_only_view) || obj->has_mode(storage_mode::mutable_view)) {
+        return true;
+      }
+    } else if (statement->type == object_type::namespace_type &&
+               contains_views(static_cast<const namespace_node*>(statement.get())->statements)) {
+      return true;
+    }
+  }
+  return false;
 }
 
 // Emit enum values, allocation-free spellings, and collision-aware name conversion.
@@ -644,6 +808,10 @@ void write(stream& out_stream, std::vector<std::unique_ptr<syntax_node>>& statem
                    "#include <type_traits>\n"
                    "#include <utility>\n"
                    "#include <vector>\n\n");
+  if (contains_views(statements)) {
+    out_stream.write("#include <rohit/binary_view.hpp>\n"
+                     "#include <cstddef>\n#include <span>\n\n");
+  }
   write_statement_list(out_stream, statements);
 }
 

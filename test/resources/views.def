@@ -1,0 +1,43 @@
+namespace view_test {
+  enum phase { idle, active }
+
+  class child view owning {
+    public uint32 code;
+    public string label;
+  }
+
+  class record view owning stable_ids : public child (1) {
+    public bool enabled (2);
+    public float score (3);
+    public array uint16 values (4);
+    public map(uint32) string labels (5);
+    public child nested (6);
+    public array child children (7);
+    public union(uint32 = number, float = real) payload (8);
+    public phase status (9);
+  }
+
+  class readonly_record view readonly {
+    public uint32 value;
+  }
+  class mutable_record mutable view {
+    public uint32 value;
+  }
+  class both_views view mutable readonly {
+    public uint32 value;
+  }
+  class owning_readonly readonly owning view {
+    public uint32 value;
+  }
+  class owning_mutable mutable owning view {
+    public uint32 value;
+  }
+  class empty view readonly {}
+  class recursive view readonly {
+    public array recursive children;
+  }
+}
+
+class global_view view readonly {
+  public view_test::readonly_record child;
+}

@@ -562,15 +562,33 @@ parse_class_header(const stream& in_stream, namespace_node* current_namespace, s
   auto name = parse_identifier(in_stream);
   skip_whitespace_and_comment(in_stream);
   auto attributes{class_attributes::none};
-  space_separated_identifier(in_stream, [&attributes, &in_stream](std::string&& value) {
+  bool view{}, owning{}, readonly{}, mutable_view{};
+  space_separated_identifier(in_stream, [&](std::string&& value) {
     if (value == "packed") {
       attributes |= class_attributes::packed;
     } else if (value == "stable_ids") {
       attributes |= class_attributes::stable_ids;
+    } else if (value == "view") {
+      view = true;
+    } else if (value == "owning") {
+      owning = true;
+    } else if (value == "readonly") {
+      readonly = true;
+    } else if (value == "mutable") {
+      mutable_view = true;
     } else {
       throw exception::bad_class{in_stream, "Unknown class attribute"};
     }
   });
+  if (!view && (readonly || mutable_view)) {
+    throw exception::bad_class{in_stream, "readonly and mutable require view"};
+  }
+  if (view && !readonly && !mutable_view) {
+    readonly = mutable_view = true;
+  }
+  if (view && (attributes & class_attributes::packed) == class_attributes::packed) {
+    throw exception::bad_class{in_stream, "packed cannot be combined with view"};
+  }
   std::vector<parent> parents;
   // At this point all whitespace is skipped
   if (*in_stream == ':') {
@@ -580,8 +598,13 @@ parse_class_header(const stream& in_stream, namespace_node* current_namespace, s
     std::swap(parents, parsed_parents);
   }
 
-  return std::make_unique<class_node>(object_type::class_type, std::move(name), current_namespace,
-                                      attributes, std::move(parents));
+  auto result = std::make_unique<class_node>(object_type::class_type, std::move(name), current_namespace,
+                                           attributes, std::move(parents));
+  result->storage_modes = static_cast<std::uint8_t>(
+      ((!view || owning) ? static_cast<unsigned>(storage_mode::owning) : 0u) |
+      (readonly ? static_cast<unsigned>(storage_mode::read_only_view) : 0u) |
+      (mutable_view ? static_cast<unsigned>(storage_mode::mutable_view) : 0u));
+  return result;
 }
 
 // Reject ambiguous field identity, including collisions between explicit and implicit IDs.
@@ -750,35 +773,78 @@ void check_member_type_for_primitive(const stream& in_stream, type_name& type_na
   type_name.type = object_type::primitive;
 }
 
-// Resolve member types against the discovered namespace and type declarations.
-void resolve_member(const stream& in_stream, member& member,
-                    const std::unordered_map<std::string, object_type>& variable_type_map) {
-  for (auto& type_name : member.type_name_list) {
-    std::queue<namespace_node*> namespace_stack{};
-    namespace_node* current_namespace = type_name.declared_namespace;
-    while (current_namespace) {
-      namespace_stack.push(current_namespace);
-      current_namespace = current_namespace->parent_namespace;
+// Resolve a declared type from the nearest namespace through global scope.
+syntax_node* find_declared_type(const std::string& name, namespace_node* current_namespace,
+                               const std::unordered_map<std::string, syntax_node*>& types) {
+  auto scope = current_namespace ? current_namespace->get_full_name() : std::string{};
+  while (!scope.empty()) {
+    const auto found = types.find(scope + "::" + name);
+    if (found != types.end()) { return found->second; }
+    const auto parent_separator = scope.rfind("::");
+    if (parent_separator == std::string::npos) { break; }
+    scope.resize(parent_separator);
+  }
+  const auto found = types.find(name);
+  return found == types.end() ? nullptr : found->second;
+}
+
+// Preserve resolved declaration identity so generated nested classes select the correct mode.
+void resolve_type(const stream& input, type_name& type,
+                  const std::unordered_map<std::string, syntax_node*>& types) {
+  if (auto* node = find_declared_type(type.name, type.declared_namespace, types)) {
+    type.resolved_node = node;
+    type.type = node->type;
+    type.defined_namespace = node->parent_namespace;
+  }
+  check_member_type_for_primitive(input, type);
+}
+
+// Require every nested class to provide the representation used by its containing class.
+void validate_nested_modes(const stream& input, const class_node& owner,
+                           const syntax_node* node, bool map_key = false) {
+  if (!node || node->type != object_type::class_type) { return; }
+  const auto& nested = static_cast<const class_node&>(*node);
+  for (const auto mode : {storage_mode::owning, storage_mode::read_only_view, storage_mode::mutable_view}) {
+    const auto required = map_key && mode != storage_mode::owning ? storage_mode::read_only_view : mode;
+    if (owner.has_mode(mode) && !nested.has_mode(required)) {
+      throw exception::bad_class{input, "Nested class " + nested.get_full_name() +
+          " does not enable a storage mode required by " + owner.get_full_name()};
     }
-    while (!namespace_stack.empty()) {
-      current_namespace = namespace_stack.front();
-      namespace_stack.pop();
-      auto candidate_full_name = current_namespace->get_full_name() + "::" + type_name.name;
-      auto type_iterator = variable_type_map.find(candidate_full_name);
-      if (type_iterator != std::end(variable_type_map)) {
-        type_name.type = type_iterator->second;
-        type_name.defined_namespace = current_namespace;
-        break;
-      }
+  }
+}
+
+// Reject generated view accessors that would collide with each other or the mapping API.
+void validate_view_names(const stream& input, const class_node& obj) {
+  if (obj.storage_modes == static_cast<std::uint8_t>(storage_mode::owning)) { return; }
+  std::unordered_set<std::string> names{"map", "serializer_scan", "serialized_bytes",
+      "serialize_out", "wire_endian", "key_type", "view_base", "view_byte", "view_limits"};
+  const auto add = [&](std::string name) {
+    if (!names.insert(name).second) {
+      throw exception::bad_class{input, "Generated view name collision: " + name};
     }
-    check_member_type_for_primitive(in_stream, type_name);
+  };
+  add(obj.name);
+  if (obj.name.starts_with("serializer_view_field_")) {
+    throw exception::bad_class{input, "View class name uses the generated field-codec prefix"};
+  }
+  for (const auto& base : obj.parents) { add("get_base_" + std::to_string(base.id)); }
+  for (const auto& field : obj.member_list) {
+    add("get_" + field.name);
+    if (field.modifier == member::modifier_type::variant) {
+      add("e_" + field.name);
+      add("get_" + field.name + "_type");
+    } else if (obj.has_mode(storage_mode::mutable_view) &&
+               field.modifier == member::modifier_type::none &&
+               field.type_name_list[0].type != object_type::class_type) {
+      add("set_" + field.name);
+    }
   }
 }
 
 // Resolve member types against the discovered namespace and type declarations.
 void resolve_member(const stream& in_stream,
                     std::vector<std::unique_ptr<rohit::serializer::syntax_node>>& statements,
-                    std::unordered_map<std::string, object_type>& variable_type_map) {
+                    std::unordered_map<std::string, syntax_node*>& variable_type_map) {
   for (auto& statement : statements) {
     switch (statement->type) {
     case object_type::namespace_type: {
@@ -787,15 +853,33 @@ void resolve_member(const stream& in_stream,
     } break;
 
     case object_type::class_type: {
-      variable_type_map.insert({statement->get_full_name(), object_type::class_type});
+      variable_type_map.insert({statement->get_full_name(), statement.get()});
       auto class_ptr = dynamic_cast<class_node*>(statement.get());
-      for (auto& member : class_ptr->member_list) {
-        resolve_member(in_stream, member, variable_type_map);
+      for (auto& base : class_ptr->parents) {
+        auto* node = find_declared_type(base.name, base.current_namespace, variable_type_map);
+        if (!node || node == class_ptr || node->type != object_type::class_type) {
+          throw exception::bad_class{in_stream, "Parent must name a previously declared class"};
+        }
+        base.parent_class = static_cast<class_node*>(node);
+        validate_nested_modes(in_stream, *class_ptr, node);
       }
+      for (auto& member : class_ptr->member_list) {
+        for (auto& type : member.type_name_list) {
+          resolve_type(in_stream, type, variable_type_map);
+          validate_nested_modes(in_stream, *class_ptr, type.resolved_node);
+        }
+        if (member.modifier == member::modifier_type::map) {
+          type_name key{std::string{member.key}, class_ptr->parent_namespace};
+          resolve_type(in_stream, key, variable_type_map);
+          member.key_node = key.resolved_node;
+          validate_nested_modes(in_stream, *class_ptr, member.key_node, true);
+        }
+      }
+      validate_view_names(in_stream, *class_ptr);
     } break;
 
     case object_type::enum_type:
-      variable_type_map.insert({statement->get_full_name(), object_type::enum_type});
+      variable_type_map.insert({statement->get_full_name(), statement.get()});
       break;
 
     default:
@@ -810,7 +894,7 @@ std::vector<std::unique_ptr<syntax_node>> parse(const stream& in_stream) {
   if (!in_stream.full()) {
     throw exception::bad_input_data{in_stream, "Unexpected trailing schema input"};
   }
-  std::unordered_map<std::string, object_type> variable_type_map;
+  std::unordered_map<std::string, syntax_node*> variable_type_map;
   resolve_member(in_stream, statements, variable_type_map);
   return statements;
 }
