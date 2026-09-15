@@ -1,6 +1,7 @@
 cmake_minimum_required(VERSION 3.28)
 
 project(serializer LANGUAGES CXX)
+include(GNUInstallDirs)
 
 # Require at least C++20 while preserving a caller's newer language mode.
 if(NOT DEFINED CMAKE_CXX_STANDARD OR CMAKE_CXX_STANDARD LESS 20)
@@ -13,6 +14,7 @@ option(SERIALIZER_BUILD_TESTS "Build Serializer's tests" ${PROJECT_IS_TOP_LEVEL}
 option(SERIALIZER_BUILD_BENCHMARKS "Build separate codec timing and allocation tools" OFF)
 option(SERIALIZER_BUILD_FUZZERS "Build the bounded Clang libFuzzer target" OFF)
 option(SERIALIZER_BUILD_STYLE_EXAMPLES "Build one example for each C++ output profile" OFF)
+option(SERIALIZER_INSTALL "Install the library, compiler, and CMake integration" ${PROJECT_IS_TOP_LEVEL})
 
 add_library(serializer_lib
   src/parser.cpp
@@ -29,11 +31,40 @@ add_library(serializer_lib
   include/rohit/json_text.hpp
   include/rohit/stream.hpp
 )
-target_include_directories(serializer_lib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_include_directories(serializer_lib PUBLIC
+  "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+  "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
+)
 target_compile_features(serializer_lib PUBLIC cxx_std_20)
+add_library(Serializer::serializer_lib ALIAS serializer_lib)
 
 add_executable(serializer src/serializer.cpp)
 target_link_libraries(serializer PRIVATE serializer_lib)
+add_executable(Serializer::serializer ALIAS serializer)
+
+# The same generation API is available from add_subdirectory and the installed package.
+include(cmake/serializer_generate.cmake)
+
+if(SERIALIZER_INSTALL)
+  include(CMakePackageConfigHelpers)
+  set(serializer_package_directory "${CMAKE_INSTALL_LIBDIR}/cmake/Serializer")
+  configure_package_config_file(cmake/serializer_config.cmake.in
+    "${CMAKE_CURRENT_BINARY_DIR}/SerializerConfig.cmake"
+    INSTALL_DESTINATION "${serializer_package_directory}"
+  )
+  install(TARGETS serializer_lib serializer EXPORT SerializerTargets
+    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
+    LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+    ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+  )
+  install(DIRECTORY include/rohit DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
+    FILES_MATCHING PATTERN "*.hpp")
+  install(EXPORT SerializerTargets NAMESPACE Serializer::
+    DESTINATION "${serializer_package_directory}")
+  install(FILES "${CMAKE_CURRENT_BINARY_DIR}/SerializerConfig.cmake"
+    cmake/serializer_generate.cmake DESTINATION "${serializer_package_directory}")
+  install(FILES LICENSE DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/Serializer")
+endif()
 
 # Keep this project's warnings local when consumed through add_subdirectory.
 foreach(target IN ITEMS serializer_lib serializer)

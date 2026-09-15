@@ -20,6 +20,17 @@ and layouts; the wire contract is identical.
 See [output configuration](../../docs/output_configuration.md) for the precise
 scope of these presentation profiles and their compliance limitations.
 
+## IntelliSense without building the example programs
+
+Each `account.hpp` is generated into its profile's own build directory. If VS Code
+reports it as missing, follow the [IntelliSense guide](../../docs/intellisense.md).
+These examples use the shipped [CMake helper](../../docs/cmake_integration.md).
+After configuring the selected preset, build `serializer_generated_headers` to
+refresh enabled headers without compiling the examples or running tests. For one
+profile, build `serializer_style_<profile>_serializer_headers`. The generator is
+built when needed. A normal example build also generates its header automatically;
+no VS Code task or tracked `.vscode` configuration is required.
+
 ## Generate one example
 
 From the repository root, after building `serializer` and installing clang-format 19+:

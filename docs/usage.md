@@ -71,36 +71,33 @@ project(serializer_example LANGUAGES CXX)
 
 set(SERIALIZER_BUILD_TESTS OFF CACHE BOOL "Build Serializer's own tests")
 add_subdirectory(vendor/Serializer)
-find_program(APP_CLANG_FORMAT NAMES clang-format clang-format-22 clang-format-21
-  clang-format-20 clang-format-19 REQUIRED)
 
-set(person_schema "${CMAKE_CURRENT_SOURCE_DIR}/schemas/person.def")
-set(generated_directory "${CMAKE_CURRENT_BINARY_DIR}/generated")
-set(person_header "${generated_directory}/person.hpp")
-
-add_custom_command(
-  OUTPUT "${person_header}"
-  COMMAND "${CMAKE_COMMAND}" -E make_directory "${generated_directory}"
-  COMMAND serializer input "${person_schema}" output "${person_header}"
-    cpp.clang_format "${APP_CLANG_FORMAT}"
-  DEPENDS serializer "${person_schema}"
-  VERBATIM
-)
-
-add_executable(serializer_example main.cpp "${person_header}")
-target_link_libraries(serializer_example PRIVATE serializer_lib)
-target_include_directories(serializer_example PRIVATE "${generated_directory}")
+add_executable(serializer_example main.cpp)
+serializer_generate(TARGET serializer_example SCHEMAS schemas/person.def)
 ```
 
-`serializer_lib` supplies the include directory and C++20 minimum. Keep generated
-headers in the build directory, and regenerate them when schemas or the generator
-change. Do not edit generated headers manually. If multiple independent targets
-need the same generated header, use one custom generation target and make the
-consumers depend on it; see [the qualification build](../qualification/CMakeLists.txt).
+The helper ships with Serializer and is also available through an installed
+`find_package(Serializer CONFIG REQUIRED)` package. It generates
+`build/generated/serializer_example/person.hpp` before compiling the application,
+adds its include directory, and links `Serializer::serializer_lib`, which supplies
+the C++20 minimum. A newer language mode is preserved. Schema, config, and
+generator dependencies drive regeneration; do not edit generated headers manually.
+The default formatter must be available as `clang-format` on `PATH`; pass
+`CLANG_FORMAT "/path/to/clang-format"` when using another location.
 
-For another C++ presentation style, add `config "${output_config}"` to the
-generation command and include that file in `DEPENDS`. If it selects a custom
-`format_file`, add that YAML file to `DEPENDS` too. See the
+For multiple consumers of one schema, generate it on a shared interface library
+and link that target from each consumer. See the [CMake integration guide](cmake_integration.md)
+for this pattern, package installation, and the complete helper API.
+
+Building `serializer_generated_headers` generates registered headers and builds
+the generator if necessary, without building the consuming application. In VS Code,
+use CMake Tools as the C/C++ configuration provider. No custom task is required;
+the [IntelliSense guide](intellisense.md) explains the initial generation step.
+
+For another C++ presentation style, add `CONFIG output.ini` to `serializer_generate`.
+The helper tracks that file as a dependency. If it selects a custom `format_file`,
+pass that YAML file through `DEPENDS` too, or use the helper's `FORMAT_FILE` option
+to select and track it directly. See the
 [language-specific output configuration](output_configuration.md) and
 [examples for all nine profiles](../example/coding_styles/README.md).
 The default profile converts names such as `personID` to `person_id` while
@@ -122,7 +119,7 @@ serializer input schemas/person.def output person.hpp
 
 Use the executable's actual path if it is not on `PATH`. In a cross-compilation
 build, generation requires a compiler executable built for the host machine;
-adapt the custom command to use that executable rather than a target-only binary.
+pass its path through the helper's `GENERATOR` option.
 
 ## 3. Encode and decode an exact message
 
@@ -230,5 +227,8 @@ Unicode/numeric rules, limit defaults, duplicates, and union restrictions. Use
 ## Agent-assisted integration
 
 Use the [Serializer integration skill](../.agents/skills/serializer-integration/SKILL.md)
-to apply this workflow to an existing application. The
-[README](../README.md#repository-agent-skill) explains discovery and invocation.
+to apply this workflow to an existing application. When supplying a Serializer
+checkout to an agent, give it that file's path directly; skill installation is
+not required for direct use. The [README](../README.md#integrate-with-a-coding-agent)
+provides a copyable request, and its [discovery guide](../README.md#repository-agent-skill)
+explains automatic selection and use from a consuming project's root.

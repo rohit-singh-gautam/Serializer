@@ -1,4 +1,18 @@
-# Serializer Codex Instructions
+# Serializer Agent Instructions
+
+## Integrating Serializer into an application
+
+- When asked to integrate this repository into another C++ project or update that
+  project's Serializer usage, read and apply the
+  [Serializer integration skill](.agents/skills/serializer-integration/SKILL.md).
+  This path is relative to this `AGENTS.md`, including when the checkout is a
+  nested dependency. Read the file directly if it is absent from your skill list.
+- Start with the skill's schema, CMake, and codec workflow and follow its links
+  for the requested features. Apply the consuming project's local instructions
+  to its files; the coding rules below govern changes to Serializer itself.
+- Keep the canonical skill in `.agents/skills/serializer-integration/` and its
+  direct entry link near the top of `README.md`. The directory is tracked source;
+  preserve it when distributing the source repository.
 
 ## File naming and coding conventions
 

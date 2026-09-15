@@ -9,7 +9,21 @@ headers before compiling against the updated API.
 
 **Getting started:** the [usage guide](docs/usage.md) covers schema authoring,
 automatic header generation with CMake, and decoding an exact message with limits.
-For AI-assisted integration, use the [repository skill](#repository-agent-skill).
+
+## Integrate with a coding agent
+
+**Agent entry point: [Serializer integration skill](.agents/skills/serializer-integration/SKILL.md).**
+When this repository is supplied for integration, read that file for schema,
+CMake, generated-code, and codec instructions. [AGENTS.md](AGENTS.md) also directs
+agents to it. Users can give their agent this request, adapting the checkout path:
+
+```text
+Read vendor/Serializer/.agents/skills/serializer-integration/SKILL.md
+and use it to integrate Serializer into this application's CMake build.
+```
+
+This works by providing the file directly, including from another project's root.
+For skill discovery and invocation, see [repository agent skill](#repository-agent-skill).
 
 ## Build and test
 
@@ -31,7 +45,10 @@ ctest --test-dir out/build/DebugWindows -C Debug --output-on-failure
 ```
 
 When embedding the library, add this repository with `add_subdirectory` and link
-to `serializer_lib`. It supplies the public include path and C++20 requirement.
+to `Serializer::serializer_lib`. It supplies the public include path and C++20
+requirement. The `serializer_generate` helper below handles that linkage for
+schema consumers. Installed packages expose the same targets and helper through
+`find_package(Serializer CONFIG REQUIRED)`.
 Use `-DSERIALIZER_BUILD_TESTS=OFF` for a standalone build without GoogleTest.
 
 C++20 is the minimum language mode and the build default. A newer mode selected
@@ -89,6 +106,37 @@ Set `SERIALIZER_CLANG_FORMAT_EXECUTABLE` when CMake cannot find the formatter.
 The standard test build includes all profile examples; a build with tests disabled
 can opt into them with `SERIALIZER_BUILD_STYLE_EXAMPLES=ON`. Generation, builds,
 and tests for this implementation remain deferred.
+
+### CMake consumer integration
+
+Serializer ships its generation helper in [cmake/serializer_generate.cmake](cmake/serializer_generate.cmake).
+After adding Serializer as a dependency, a consumer needs:
+
+```cmake
+add_executable(my_app main.cpp)
+serializer_generate(TARGET my_app SCHEMAS schemas/account.def)
+```
+
+A normal build of `my_app` builds the generator when using the source dependency,
+generates `account.hpp`, and supplies the generated include directory, runtime
+library, and C++20 requirement. Schema and generator changes trigger regeneration.
+Use `CONFIG output.ini` to select output profiles. See the
+[CMake integration guide](docs/cmake_integration.md) for complete source-dependency
+and installed-package examples, options, and shared schemas.
+
+This integration works independently of editor settings. `.vscode/*` remains
+ignored. For VS Code, select CMake Tools as the C/C++ configuration provider so it
+receives the consumer's include paths. The real header must also exist: configure
+and build once, or generate just the headers in an already configured build:
+
+```sh
+cmake --build build --config Debug --target serializer_generated_headers
+```
+
+No custom VS Code task or Serializer IntelliSense extension is required. See the
+[IntelliSense guide](docs/intellisense.md) for the repository presets and
+profile-specific includes. CMake configuration, generation, builds, package
+installation, and editor verification remain deferred for this change.
 
 ## Language Construct
 
@@ -524,6 +572,14 @@ The [serializer-integration skill](.agents/skills/serializer-integration/SKILL.m
 guides an agent through using this library in a C++ application: schema design,
 `stable_ids` adoption, generated headers, protocol selection, and bounded input.
 
+### Why the directory starts with a dot
+
+A leading `.` is a hidden-directory convention, not a Git ignore rule. This skill
+is tracked in Git and included with the source repository. The repository's
+`.gitignore` excludes `.vscode/*` but does not exclude `.agents/`. Keep `.agents`
+when copying or packaging the checkout; some file browsers and shell wildcards
+omit hidden entries.
+
 It follows the open [Agent Skills format](https://agentskills.io/specification):
 a folder with a `SKILL.md` containing YAML `name` and `description`, followed by
 Markdown instructions. Repository discovery locations are host-specific. This
@@ -535,7 +591,10 @@ repository uses Codex's `.agents/skills` convention:
   agents/openai.yaml
 ```
 
-The YAML file under `agents/` supplies optional Codex UI metadata. Codex discovers
+### Automatic discovery and explicit use
+
+The YAML file under `agents/` supplies Codex UI metadata and permits automatic
+invocation when an integration task matches the skill description. Codex discovers
 repository skills from the working directory through the repository root. In the
 CLI or IDE extension, select this skill with `$serializer-integration` or `/skills`.
 See [Codex skill discovery](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills).
@@ -548,12 +607,24 @@ define a person schema with stable_ids, and decode integer-key binary
 messages with explicit resource limits.
 ```
 
-When Serializer is a nested dependency, its skill is not automatically discovered
-from the consuming project's root. Copy the complete skill folder into that
-project's `.agents/skills`, or explicitly ask the agent to read the dependency's
-`SKILL.md`. Keep the matching Serializer checkout available for the linked docs;
-the skill explains how to locate it when copied. Other compatible agents use the
-same skill format with their own discovery and invocation rules.
+### Use from a consuming project
+
+Codex's ancestor-directory scan does not automatically load a nested dependency's
+skill from the consuming project's root. Use the direct-path request above, or
+add this instruction to the application's own `AGENTS.md`, adapting the path:
+
+```markdown
+When integrating or changing Serializer usage, read and follow
+vendor/Serializer/.agents/skills/serializer-integration/SKILL.md.
+```
+
+For skill-selector discovery in that project, copy the complete
+`serializer-integration` folder into its `.agents/skills/`. Keep that copy aligned
+with the Serializer version in use and retain the matching checkout for linked
+documentation. Other agents have their own discovery rules; providing the direct
+file path lets them read the same instructions without relying on automatic scanning.
+These instructions accompany the source checkout; the CMake binary installation
+does not currently install the skill or its documentation.
 
 [AGENTS.md](AGENTS.md#usage-documentation-and-repository-skill) requires changes to
 keep this README and the skill current together.

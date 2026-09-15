@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer into C++ applications using .def schemas, output coding profiles, owning classes or binary views, stable_ids, and JSON or binary codecs. Use for new integrations, schema evolution, and migrating Serializer callers."
+description: "Integrate Serializer into C++ applications from a provided repository or existing dependency. Use for .def schemas, CMake generation, coding profiles, owning classes or binary views, stable_ids, JSON or binary codecs, and schema migration."
 ---
 
 # Serializer Integration
@@ -8,6 +8,10 @@ description: "Integrate Serializer into C++ applications using .def schemas, out
 Implement the user's requested Serializer integration using the version present
 in their project. Preserve established wire IDs, names, protocol choices, and
 application ownership requirements.
+
+This is the canonical integration entry point linked from the repository's README
+and AGENTS.md. Apply it when loaded as a skill or read directly from a supplied
+checkout; direct use does not require copying the skill into the consuming project.
 
 ## Locate the library and the requested work
 
@@ -20,9 +24,13 @@ there instead of relying on the relative links.
 
 - Read [README.md](../../../README.md) for supported syntax and feature status.
 - Use [docs/usage.md](../../../docs/usage.md) for the schema, CMake, and codec examples.
+- Use [docs/cmake_integration.md](../../../docs/cmake_integration.md) for the shipped
+  generation helper, source dependencies, installed packages, and shared schemas.
 - Use [docs/views.md](../../../docs/views.md) for view generation, mapping, and mutation.
 - Use [docs/output_configuration.md](../../../docs/output_configuration.md) for
   language sections, coding profiles, naming, formatter configuration, and examples.
+- Use [docs/intellisense.md](../../../docs/intellisense.md) for generated include
+  errors, editor configuration, and generating headers without compiling consumers.
 - Read [docs/wire_format.md](../../../docs/wire_format.md) when choosing protocols,
   limits, failure handling, or compatibility behavior.
 - Read [migration.md](../../../migration.md) when updating older headers or APIs.
@@ -82,14 +90,33 @@ an unused ID. Existing explicit IDs work even without `stable_ids`.
 ## Integrate generated headers
 
 Use the consuming project's existing dependency mechanism. When using CMake,
-`add_subdirectory` exposes `serializer_lib` and the `serializer` generator target.
-The library supplies the include path and C++20 minimum; its CMake project needs
-3.28 or newer. Keep a newer language mode if the application already uses one.
+`add_subdirectory` and installed `find_package(Serializer CONFIG REQUIRED)` expose
+`Serializer::serializer_lib`, `Serializer::serializer`, and `serializer_generate`.
+Use `serializer_generate(TARGET app SCHEMAS schemas/person.def)` after creating the
+consumer. It supplies generation dependencies, the generated include directory,
+runtime linkage, and the C++20 minimum. CMake 3.28+ is required; keep a newer C++
+mode if the application already uses one. Source dependencies build the generator
+as needed; installed packages use their installed executable. `SERIALIZER_INSTALL`
+controls installation and defaults off when Serializer is embedded.
 
-Adapt the custom command in the usage guide: schema and generator dependencies,
-build-directory output, and a generated include directory for the consumer.
-Generate each shared output once when multiple targets consume it. Cross builds
-need a host-runnable generator. Do not hand-edit generated headers.
+Call the helper once per target with all its schemas. For a shared generated API,
+use an interface library and link consumers to it so one target owns generation.
+Keep outputs in the build tree. Add custom format files selected indirectly by
+configs to `DEPENDS`, or use `FORMAT_FILE` to select and track them. Cross builds
+need a host-runnable executable passed through `GENERATOR`. Do not hand-edit
+generated headers. Consult the CMake guide for options and public-header installation.
+
+For IntelliSense include errors, check both the real generated header's existence
+and the source target's include directories. In VS Code, use CMake Tools as the
+C/C++ configuration provider; different profile headers share filenames and must
+retain per-target include paths. A normal build generates headers automatically.
+For generation without compiling consumers, build `<target>_serializer_headers`
+or the aggregate `serializer_generated_headers` target. Configuration alone does
+not create headers. No custom VS Code task or Serializer editor extension is
+required, and `.vscode/*` remains ignored. Editor provider settings may be user-level.
+These targets still build the generator when needed and perform real generation:
+honor any instruction to defer configuration, generation, or builds. Install/package
+consumption and editor verification also remain deferred for the current step.
 
 Keep output settings in a generator INI config, with `[output] language = cpp`
 and a `[cpp]` section. Only C++ is implemented. Supported `coding_standard` values
@@ -106,7 +133,8 @@ or an explicitly chosen literal/default change.
 
 Formatting requires clang-format 19+ at generation time. Pin its version and pass
 `cpp.clang_format` or set `SERIALIZER_CLANG_FORMAT_EXECUTABLE` for this repository's
-CMake rules. `format_file` can replace layout rules. Config paths are relative to
+CMake rules; the shipped helper also accepts `CLANG_FORMAT`. `format_file` can
+replace layout rules. Config paths are relative to
 the config; CLI paths are relative to the working directory. CLI overrides take
 precedence over config values. Add configs and custom format files to generation
 dependencies. Use `format = false` only when another pipeline formats the emitted
