@@ -16,17 +16,15 @@
 //////////////////////////////////////////////////////////////////////////
 
 #pragma once
+#include <rohit/serializer.hpp>
 #include <rohit/stream.hpp>
-#include <string.h>
-#include <stack>
-#include <vector>
-#include <queue>
+
+#include <cstdint>
 #include <functional>
 #include <memory>
-#include <filesystem>
-#include <iostream>
-#include <exception>
-#include <rohit/serializer.hpp>
+#include <string>
+#include <utility>
+#include <vector>
 
 // Gramar
 // STRUCTFILE: statementlist
@@ -50,209 +48,232 @@
 
 namespace rohit::serializer {
 namespace exception {
-class BadIdentifier : public rohit::exception::BaseParser {
+class bad_identifier : public rohit::exception::base_parser {
 public:
-    using rohit::exception::BaseParser::BaseParser;
+  using rohit::exception::base_parser::base_parser;
 };
 
-class BadMemberSpec : public rohit::exception::BaseParser {
+class bad_member_spec : public rohit::exception::base_parser {
 public:
-    using rohit::exception::BaseParser::BaseParser;
+  using rohit::exception::base_parser::base_parser;
 };
 
-class BadAccessType : public rohit::exception::BaseParser {
+class bad_access_type : public rohit::exception::base_parser {
 public:
-    using rohit::exception::BaseParser::BaseParser;
+  using rohit::exception::base_parser::base_parser;
 };
 
-class BadObjectType : public rohit::exception::BaseParser {
+class bad_object_type : public rohit::exception::base_parser {
 public:
-    using rohit::exception::BaseParser::BaseParser;
+  using rohit::exception::base_parser::base_parser;
 };
 
-class BadClassMember : public rohit::exception::BaseParser {
+class bad_class_member : public rohit::exception::base_parser {
 public:
-    using rohit::exception::BaseParser::BaseParser;
+  using rohit::exception::base_parser::base_parser;
 };
 
-class BadMemberType : public rohit::exception::BaseParser {
+class bad_member_type : public rohit::exception::base_parser {
 public:
-    using rohit::exception::BaseParser::BaseParser;
+  using rohit::exception::base_parser::base_parser;
 };
 
-class BadClass : public rohit::exception::BaseParser {
+class bad_class : public rohit::exception::base_parser {
 public:
-    using rohit::exception::BaseParser::BaseParser;
+  using rohit::exception::base_parser::base_parser;
 };
 
-class BadNamespace : public rohit::exception::BaseParser {
+class bad_namespace : public rohit::exception::base_parser {
 public:
-    using rohit::exception::BaseParser::BaseParser;
+  using rohit::exception::base_parser::base_parser;
 };
 
 } // namespace exception
 
-void tolower_inplace(std::string &value);
+// Convert ASCII uppercase letters to lowercase without changing other bytes.
+void to_lower_in_place(std::string& value);
 
-enum class AccessType {
-    Error,
-    Private,
-    Protected,
-    Public
-};
+enum class access_type { error, private_access, protected_access, public_access };
 
-enum class ObjectType {
-    Unresolved,
-    Namespace,
-    Class,
-    Enum,
-    Primitive
-};
+enum class object_type { unresolved, namespace_type, class_type, enum_type, primitive };
 
-enum class ClassAtributes : uint8_t {
-    None = 0x00,
-    Packed = 0x01
-};
+enum class class_attributes : std::uint8_t { none = 0x00, packed = 0x01 };
 
-struct Namespace;
+struct namespace_node;
 
-std::string GetFullNameForNamespace(const Namespace *nameSpace);
+// Return the qualified name of the supplied non-null namespace node.
+std::string get_full_name_for_namespace(const namespace_node* namespace_ptr);
 
-struct Base {
-    ObjectType type;
-    std::string Name;
-    Namespace *parentNamespace { nullptr };
-    Base(ObjectType type, std::string &&Name, Namespace *parentNamespace) : type { type }, Name { std::move(Name) },
-        parentNamespace { parentNamespace } { }
-    Base(Base &&base) : type { base.type }, Name { std::move(base.Name) },
-        parentNamespace { base.parentNamespace } { }
-    virtual ~Base() = default;
-    Base(const Base &base) = delete;
-    Base &operator=(const Base &) = delete;
-    std::string GetFullName() const {
-        std::string fullName { };
-        if (parentNamespace) {
-            fullName = GetFullNameForNamespace(parentNamespace);
-            fullName += "::";
-        }
-        fullName += Name;
-        return fullName;
+struct syntax_node {
+  object_type type;
+  std::string name;
+  namespace_node* parent_namespace{nullptr};
+  // Initialize this object from the supplied storage or value state.
+  syntax_node(object_type type, std::string&& name, namespace_node* parent_namespace)
+      : type{type}, name{std::move(name)}, parent_namespace{parent_namespace} {}
+  // Initialize this object from the supplied storage or value state.
+  syntax_node(syntax_node&& base)
+      : type{base.type}, name{std::move(base.name)}, parent_namespace{base.parent_namespace} {}
+  // Release resources owned by this object.
+  virtual ~syntax_node() = default;
+  // Initialize this object from the supplied storage or value state.
+  syntax_node(const syntax_node& base) = delete;
+  // Assign the documented view or value state from the source object.
+  syntax_node& operator=(const syntax_node&) = delete;
+  // Resolve this syntax node name relative to its containing namespace.
+  std::string get_full_name() const {
+    std::string full_name{};
+    if (parent_namespace) {
+      full_name = get_full_name_for_namespace(parent_namespace);
+      full_name += "::";
     }
+    full_name += name;
+    return full_name;
+  }
 };
 
-struct Namespace : public Base {
-    std::vector<std::unique_ptr<Base>> statementlist { };
-    Namespace(ObjectType type, std::string &&Name,
-        Namespace *parentNamespace) :
-            Base { type, std::move(Name), parentNamespace }
-                {}
+struct namespace_node : public syntax_node {
+  std::vector<std::unique_ptr<syntax_node>> statements{};
+  // Initialize this object from the supplied storage or value state.
+  namespace_node(object_type type, std::string&& name, namespace_node* parent_namespace)
+      : syntax_node{type, std::move(name), parent_namespace} {}
 };
 
-struct TypeName {
-    TypeName(std::string &&Name, Namespace *declaredNameSpace) : Name { std::move(Name) }, EnumName { }, declaredNameSpace { declaredNameSpace } { }
-    TypeName(std::string &&Name, std::string &&EnumName, Namespace *declaredNameSpace) : Name { std::move(Name) }, EnumName { std::move(EnumName) }, declaredNameSpace { declaredNameSpace } { }
-    TypeName(const TypeName &rhs) : Name { rhs.Name }, EnumName { rhs.EnumName }, declaredNameSpace { rhs.declaredNameSpace }, definedNameSpace { definedNameSpace } { }
-    TypeName &operator=(const TypeName &rhs) {
-        Name = rhs.Name;
-        EnumName = rhs.EnumName;
-        declaredNameSpace = rhs.declaredNameSpace;
-        definedNameSpace = rhs.definedNameSpace;
-        return *this;
+struct type_name {
+  // Initialize this object from the supplied storage or value state.
+  type_name(std::string&& name, namespace_node* declared_namespace)
+      : name{std::move(name)}, enum_name{}, declared_namespace{declared_namespace} {}
+  // Initialize this object from the supplied storage or value state.
+  type_name(std::string&& name, std::string&& enum_name, namespace_node* declared_namespace)
+      : name{std::move(name)}, enum_name{std::move(enum_name)},
+        declared_namespace{declared_namespace} {}
+  // Initialize this object from the supplied storage or value state.
+  type_name(const type_name& rhs)
+      : name{rhs.name}, enum_name{rhs.enum_name}, declared_namespace{rhs.declared_namespace},
+        defined_namespace{defined_namespace} {}
+  // Assign the documented view or value state from the source object.
+  type_name& operator=(const type_name& rhs) {
+    name = rhs.name;
+    enum_name = rhs.enum_name;
+    declared_namespace = rhs.declared_namespace;
+    defined_namespace = rhs.defined_namespace;
+    return *this;
+  }
+
+  std::string name;
+  std::string enum_name;
+  namespace_node* declared_namespace;
+  namespace_node* defined_namespace{};
+  object_type type{object_type::unresolved};
+
+  // Resolve this syntax node name relative to its containing namespace.
+  std::string get_full_name() const {
+    std::string full_name{};
+    if (defined_namespace) {
+      full_name = get_full_name_for_namespace(defined_namespace);
+      full_name += "::";
     }
+    full_name += name;
+    return full_name;
+  }
 
-    std::string Name;
-    std::string EnumName;
-    Namespace *declaredNameSpace;
-    Namespace *definedNameSpace { };
-    ObjectType type { ObjectType::Unresolved };
-
-    std::string GetFullName() const {
-        std::string fullName { };
-        if (definedNameSpace) {
-            fullName = GetFullNameForNamespace(definedNameSpace);
-            fullName += "::";
-        }
-        fullName += Name;
-        return fullName;
-    }
-
-    bool operator==(const TypeName &rhs) const { return Name == rhs.Name && EnumName == rhs.EnumName && declaredNameSpace == rhs.declaredNameSpace; }
+  // Compare the relevant values without modifying either operand.
+  bool operator==(const type_name& rhs) const {
+    return name == rhs.name && enum_name == rhs.enum_name &&
+           declared_namespace == rhs.declared_namespace;
+  }
 };
 
-struct Member {
-    enum ModifierType {
-        none,
-        array,
-        map,
-        Union
-    };
-    AccessType access;
-    ModifierType modifer;
-    std::vector<TypeName> typeNameList;
-    std::string Name;
-    std::string displayName;
-    uint32_t id;
-    std::string Key; // Optional parameter
-    std::string defaultValue;
+struct member {
+  enum class modifier_type { none, array, map, variant };
+  access_type access;
+  modifier_type modifier;
+  std::vector<type_name> type_name_list;
+  std::string name;
+  std::string display_name;
+  std::uint32_t id;
+  std::string key; // Optional parameter
+  std::string default_value;
 
-    bool operator==(const Member &rhs) const { return access == rhs.access && modifer == rhs.modifer && typeNameList == rhs.typeNameList && Name == rhs.Name; }
+  // Compare the relevant values without modifying either operand.
+  bool operator==(const member& rhs) const {
+    return access == rhs.access && modifier == rhs.modifier &&
+           type_name_list == rhs.type_name_list && name == rhs.name;
+  }
 };
 
-struct Class;
+struct class_node;
 
-struct Parent {
-    AccessType access { };
-    std::string Name { };
-    std::string displayName { };
-    uint32_t id { };
-    Namespace *currentNameSpace { };
-    Class *parentClass { nullptr }; // This will be filled in later
+struct parent {
+  access_type access{};
+  std::string name{};
+  std::string display_name{};
+  std::uint32_t id{};
+  namespace_node* current_namespace{};
+  class_node* parent_class{nullptr}; // This will be filled in later
 };
 
 // TODO: Verify parent and its namespace
-struct Class : public Base {
-    ClassAtributes attributes { };
-    std::vector<Parent> parentlist;
-    std::vector<Member> MemberList { };
-    Class(ObjectType type, std::string &&Name,
-        Namespace *parentNamespace, ClassAtributes attributes,
-        std::vector<Parent> &&parentlist) : Base { type, std::move(Name), parentNamespace },
-            attributes { attributes }, parentlist { std::move(parentlist) } { }
-    Class(Class &&rhs) : Base { std::move(rhs) },
-        attributes { rhs.attributes }, parentlist { std::move(rhs.parentlist) },
-        MemberList { std::move(rhs.MemberList) } { }
-    Class(const Class&) = delete;
-    Class &operator=(const Class&) = delete;
+struct class_node : public syntax_node {
+  class_attributes attributes{};
+  std::vector<parent> parents;
+  std::vector<member> member_list{};
+  // Initialize this object from the supplied storage or value state.
+  class_node(object_type type, std::string&& name, namespace_node* parent_namespace,
+             class_attributes attributes, std::vector<parent>&& parents)
+      : syntax_node{type, std::move(name), parent_namespace}, attributes{attributes},
+        parents{std::move(parents)} {}
+  // Initialize this object from the supplied storage or value state.
+  class_node(class_node&& rhs)
+      : syntax_node{std::move(rhs)}, attributes{rhs.attributes}, parents{std::move(rhs.parents)},
+        member_list{std::move(rhs.member_list)} {}
+  // Initialize this object from the supplied storage or value state.
+  class_node(const class_node&) = delete;
+  // Assign the documented view or value state from the source object.
+  class_node& operator=(const class_node&) = delete;
 };
 
-struct Enum : public Base {
-    Enum(ObjectType type, std::string &&Name,
-        Namespace *parentNamespace,
-        std::vector<std::string> &&enumNameList) : 
-                Base { type, std::move(Name), parentNamespace }, enumNameList { std::move(enumNameList) } { }
-    
-    std::vector<std::string> enumNameList { };
+struct enum_node : public syntax_node {
+  // Initialize this object from the supplied storage or value state.
+  enum_node(object_type type, std::string&& name, namespace_node* parent_namespace,
+            std::vector<std::string>&& enum_name_list)
+      : syntax_node{type, std::move(name), parent_namespace},
+        enum_name_list{std::move(enum_name_list)} {}
+
+  std::vector<std::string> enum_name_list{};
 };
 
-ClassAtributes &operator|=(ClassAtributes &lhs, const ClassAtributes &rhs);
-ClassAtributes operator&(const ClassAtributes &lhs, const ClassAtributes &rhs);
+// Combine the supplied attribute flags into the left operand.
+class_attributes& operator|=(class_attributes& lhs, const class_attributes& rhs);
+class_attributes operator&(const class_attributes& lhs, const class_attributes& rhs);
 
-const std::string &GetCPPTypeOrEmpty(const std::string &type);
-const std::string &GetCPPType(const std::string &type);
+// Look up a schema primitive and return an empty string for unknown types.
+const std::string& get_cpp_type_or_empty(const std::string& type);
+// Return the mapped C++ type, preserving user-defined type names.
+const std::string& get_cpp_type(const std::string& type);
 
-namespace Parser {
-std::vector<std::unique_ptr<Base>> Parse(const Stream &inStream);
-#ifdef ENABLE_GTEST
-std::string ParseIdentifier(const Stream &inStream);
-std::string ParseHierarchicalIdentifier(const Stream &inStream);
-void SpaceSeparatedIdentifier(const Stream &inStream, std::function<void(std::string &&)> fn);
-AccessType ParseAccessType(const Stream &inStream);
-Member ParseMember(const Stream &inStream, const uint32_t id, Namespace *declaredNameSpace);
-void ParseClassBody(const Stream &inStream, Class *obj, uint32_t &id);
+namespace parser {
+// Parse schema declarations and resolve their member types; malformed input throws.
+std::vector<std::unique_ptr<syntax_node>> parse(const stream& in_stream);
+#ifdef ROHIT_SERIALIZER_ENABLE_GTEST
+// Parse identifier from the schema input; malformed input throws.
+std::string parse_identifier(const stream& in_stream);
+// Parse hierarchical identifier from the schema input; malformed input throws.
+std::string parse_hierarchical_identifier(const stream& in_stream);
+// Invoke the callback for each whitespace-separated identifier.
+void space_separated_identifier(const stream& in_stream, std::function<void(std::string&&)> fn);
+// Read a schema access keyword; reject unknown or incorrectly cased spellings.
+access_type parse_access_type(const stream& in_stream);
+// Read one member declaration and retain its wire name and identifier.
+member parse_member(const stream& in_stream, const std::uint32_t id,
+                    namespace_node* declared_namespace);
+// Parse class body from the schema input; malformed input throws.
+void parse_class_body(const stream& in_stream, class_node* obj, std::uint32_t& id);
 #endif
-} // namespace Parser
+} // namespace parser
 
-namespace Writer::CPP {
-void Write(Stream &outStream, std::vector<std::unique_ptr<Base>> &statementlist);
-} // namespace Writer::CPP
+namespace writer::cpp {
+// Write the resolved schema as C++ declarations and serialization methods.
+void write(stream& out_stream, std::vector<std::unique_ptr<syntax_node>>& statements);
+} // namespace writer::cpp
 } // namespace rohit::serializer

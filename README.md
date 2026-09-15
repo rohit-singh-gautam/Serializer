@@ -1,7 +1,41 @@
 # Serializer
 
-C++ Serializer that utilized C++ language construct so that it can create simple class and template serializerm with limited data types supported.
-This will be extended to other languages in future.
+A C++20 schema compiler and serialization library supporting JSON and three
+binary protocols. The public API and generated methods use `snake_case` names.
+
+**Existing callers:** follow the [migration guide](migration.md) and regenerate
+headers before compiling against the updated API.
+
+## Build and test
+
+With CMake, a C++20 compiler, and GoogleTest available:
+
+```sh
+cmake -S . -B build
+cmake --build build --config Debug
+ctest --test-dir build -C Debug --output-on-failure
+```
+
+The existing platform presets use vcpkg through `VCPKG_ROOT`. On Windows:
+
+```sh
+cmake --preset DebugWindows
+cmake --build --preset DebugWindows
+ctest --test-dir out/build/DebugWindows -C Debug --output-on-failure
+```
+
+When embedding the library, add this repository with `add_subdirectory` and link
+to `serializer_lib`. It supplies the public include path and C++20 requirement.
+Use `-DSERIALIZER_BUILD_TESTS=OFF` for a standalone build without GoogleTest.
+
+Generate a header by running the built executable:
+
+```sh
+serializer input example/config.struct output config.hpp
+```
+
+Format C++ files with the repository's `.clang-format`; see
+[CodingStandard.md](CodingStandard.md) for naming and coding rules.
 
 ## Language Construct
 ### Namespace
@@ -53,22 +87,22 @@ Following collecting types are supported
 Output is template based, hence one of following serializer can be used:
 1. JSON
 1. Binary
-	1. Positional Binary
-	1. ID based indexing
-	1. String based indexing
+  1. Positional Binary
+  1. ID based indexing
+  1. String based indexing
 
 if ```cpp test::person pr``` is name of your class different serializer can be applied as follows:
 
 JSON Serializer support.
 ```cpp
-pr.SerializeOut<rohit::serializer::json>(stream);
-pr.SerializeIn<rohit::serializer::json>(stream);
+pr.serialize_out<rohit::serializer::json>(stream);
+pr.serialize_in<rohit::serializer::json>(stream);
 ```
 
 JSON Output Serializer support with beautification
 ```cpp
-rohit::serializer::JsonOut<true> jsonOut { fullstream1, rohit::serializer::format::beautify };
-pr.SerializeOut(jsonOut);
+rohit::serializer::json_out<true> json_out { fullstream1, rohit::serializer::format::beautify };
+pr.serialize_out(json_out);
 ```
 
 There are three predefined format
@@ -80,20 +114,20 @@ More can be generated using structure ```cpp rohit::serializer::write_format ```
 
 Positional binary, there will be no indexing either by ID or name.
 ```cpp
-pr.SerializeOut<rohit::serializer::binary_none>(stream);
-pr.SerializeIn<rohit::serializer::binary_none>(stream);
+pr.serialize_out<rohit::serializer::binary_none>(stream);
+pr.serialize_in<rohit::serializer::binary_none>(stream);
 ```
 
 Binary serialization with Index by ID, currently ID is positional it will allowed to set in future.
 ```cpp
-pr.SerializeOut<rohit::serializer::binary_integer>(stream);
-pr.SerializeIn<rohit::serializer::binary_integer>(stream);
+pr.serialize_out<rohit::serializer::binary_integer>(stream);
+pr.serialize_in<rohit::serializer::binary_integer>(stream);
 ```
 
 Binary serialization with String ID. Currently string ID is name of member variable, it will be allowed to be custom in future.
 ```cpp
-pr.SerializeOut<rohit::serializer::binary_string>(stream);
-pr.SerializeIn<rohit::serializer::binary_string>(stream);
+pr.serialize_out<rohit::serializer::binary_string>(stream);
+pr.serialize_in<rohit::serializer::binary_string>(stream);
 ```
 
 ## Example
@@ -120,17 +154,17 @@ This will result in:
 namespace test {
 class person {
 public:
-	std::string name { };
-	uint64_t ID { };
+  std::string name { };
+  std::uint64_t ID { };
 
-	template <typename SerializeOutProtocol>
-	void SerializeOut(SerializeOutProtocol &serializerProtocol) const;
-	template <template<rohit::serializer::SerializeType> class SerializerProtocol>
-	void SerializeOut(rohit::Stream &stream) const;
-	template <typename SerializeInProtocol>
-	void SerializeIn(SerializeInProtocol &serializerProtocol);
-	template <template<rohit::serializer::SerializeType> class SerializerProtocol>
-	void SerializeIn(const rohit::Stream &stream);
+  template <typename SerializeOutProtocol>
+  void serialize_out(SerializeOutProtocol& serializer_protocol) const;
+  template <template<rohit::serializer::serialize_type> class SerializerProtocol>
+  void serialize_out(rohit::stream& stream) const;
+  template <typename SerializeInProtocol>
+  void serialize_in(SerializeInProtocol& serializer_protocol);
+  template <template<rohit::serializer::serialize_type> class SerializerProtocol>
+  void serialize_in(const rohit::stream& stream);
 }; // class person
 }
 ```
@@ -163,32 +197,32 @@ Above input will generate:
 namespace arraytest {
 class person {
 public:
-	std::string name { };
-	uint64_t ID { };
+  std::string name { };
+  std::uint64_t ID { };
 
-	template <typename SerializeOutProtocol>
-	void SerializeOut(SerializeOutProtocol &serializerProtocol) const;
-	template <template<rohit::serializer::SerializeType> class SerializerProtocol>
-	void SerializeOut(rohit::Stream &stream) const;
-	template <typename SerializeInProtocol>
-	void SerializeIn(SerializeInProtocol &serializerProtocol);
-	template <template<rohit::serializer::SerializeType> class SerializerProtocol>
-	void SerializeIn(const rohit::Stream &stream);
+  template <typename SerializeOutProtocol>
+  void serialize_out(SerializeOutProtocol& serializer_protocol) const;
+  template <template<rohit::serializer::serialize_type> class SerializerProtocol>
+  void serialize_out(rohit::stream& stream) const;
+  template <typename SerializeInProtocol>
+  void serialize_in(SerializeInProtocol& serializer_protocol);
+  template <template<rohit::serializer::serialize_type> class SerializerProtocol>
+  void serialize_in(const rohit::stream& stream);
 }; // class person
 
 class personlist {
 public:
-	uint64_t listid { };
-	std::vector<person> list { };
+  std::uint64_t listid { };
+  std::vector<person> list { };
 
-	template <typename SerializeOutProtocol>
-	void SerializeOut(SerializeOutProtocol &serializerProtocol) const;
-	template <template<rohit::serializer::SerializeType> class SerializerProtocol>
-	void SerializeOut(rohit::Stream &stream) const;
-	template <typename SerializeInProtocol>
-	void SerializeIn(SerializeInProtocol &serializerProtocol);
-	template <template<rohit::serializer::SerializeType> class SerializerProtocol>
-	void SerializeIn(const rohit::Stream &stream);
+  template <typename SerializeOutProtocol>
+  void serialize_out(SerializeOutProtocol& serializer_protocol) const;
+  template <template<rohit::serializer::serialize_type> class SerializerProtocol>
+  void serialize_out(rohit::stream& stream) const;
+  template <typename SerializeInProtocol>
+  void serialize_in(SerializeInProtocol& serializer_protocol);
+  template <template<rohit::serializer::serialize_type> class SerializerProtocol>
+  void serialize_in(const rohit::stream& stream);
 }; // class personlist
 
 } // namespace arraytest
@@ -221,32 +255,32 @@ Above code will result in below C++ code
 namespace maptest {
 class person {
 public:
-	std::string name { };
-	uint64_t ID { };
+  std::string name { };
+  std::uint64_t ID { };
 
-	template <typename SerializeOutProtocol>
-	void SerializeOut(SerializeOutProtocol &serializerProtocol) const;
-	template <template<rohit::serializer::SerializeType> class SerializerProtocol>
-	void SerializeOut(rohit::Stream &stream) const;
-	template <typename SerializeInProtocol>
-	void SerializeIn(SerializeInProtocol &serializerProtocol);
-	template <template<rohit::serializer::SerializeType> class SerializerProtocol>
-	void SerializeIn(const rohit::Stream &stream);
+  template <typename SerializeOutProtocol>
+  void serialize_out(SerializeOutProtocol& serializer_protocol) const;
+  template <template<rohit::serializer::serialize_type> class SerializerProtocol>
+  void serialize_out(rohit::stream& stream) const;
+  template <typename SerializeInProtocol>
+  void serialize_in(SerializeInProtocol& serializer_protocol);
+  template <template<rohit::serializer::serialize_type> class SerializerProtocol>
+  void serialize_in(const rohit::stream& stream);
 }; // class person
 
 class personlist {
 public:
-	uint64_t listid { };
-	std::map<uint64_t,person> list { };
+  std::uint64_t listid { };
+  std::map<std::uint64_t, person> list { };
 
-	template <typename SerializeOutProtocol>
-	void SerializeOut(SerializeOutProtocol &serializerProtocol) const;
-	template <template<rohit::serializer::SerializeType> class SerializerProtocol>
-	void SerializeOut(rohit::Stream &stream) const;
-	template <typename SerializeInProtocol>
-	void SerializeIn(SerializeInProtocol &serializerProtocol);
-	template <template<rohit::serializer::SerializeType> class SerializerProtocol>
-	void SerializeIn(const rohit::Stream &stream);
+  template <typename SerializeOutProtocol>
+  void serialize_out(SerializeOutProtocol& serializer_protocol) const;
+  template <template<rohit::serializer::serialize_type> class SerializerProtocol>
+  void serialize_out(rohit::stream& stream) const;
+  template <typename SerializeInProtocol>
+  void serialize_in(SerializeInProtocol& serializer_protocol);
+  template <template<rohit::serializer::serialize_type> class SerializerProtocol>
+  void serialize_in(const rohit::stream& stream);
 }; // class personlist
 
 } // namespace maptest

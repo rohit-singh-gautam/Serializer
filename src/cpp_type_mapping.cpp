@@ -17,38 +17,46 @@
 
 #include <rohit/serializer_creator.hpp>
 
+#include <iterator>
+#include <string>
+#include <unordered_map>
+
 namespace rohit {
 
 namespace serializer {
-const std::string &GetCPPTypeOrEmpty(const std::string &type) {
-    static const std::unordered_map<std::string, std::string> CPPTypeMap {
-        {"char", "char"},
-        {"int8", "int8_t"},
-        {"int16", "int16_t"},
-        {"int8", "int8_t"},
-        {"int32", "int32_t"},
-        {"int64", "int64_t"},
-        {"uint8", "uint8_t"},
-        {"uint16", "uint16_t"},
-        {"uint32", "uint32_t"},
-        {"uint64", "uint64_t"},
-        {"float", "float"},
-        {"double", "double"},
-        {"bool", "bool"},
-        {"string", "std::string"}
-    };
+// Look up a schema primitive and return an empty string for unknown types.
+const std::string& get_cpp_type_or_empty(const std::string& type) {
+  static const std::unordered_map<std::string, std::string> cpp_type_map{
+      {"char", "char"},
+      {"int8", "std::int8_t"},
+      {"int16", "std::int16_t"},
+      {"int32", "std::int32_t"},
+      {"int64", "std::int64_t"},
+      {"uint8", "std::uint8_t"},
+      {"uint16", "std::uint16_t"},
+      {"uint32", "std::uint32_t"},
+      {"uint64", "std::uint64_t"},
+      {"float", "float"},
+      {"double", "double"},
+      {"bool", "bool"},
+      {"string", "std::string"}};
 
-    static const std::string empty { };
+  static const std::string empty{};
 
-    auto itr = CPPTypeMap.find(type);
-    if (itr != std::end(CPPTypeMap)) return itr->second;
-    return empty;
+  const auto itr = cpp_type_map.find(type);
+  if (itr != std::end(cpp_type_map)) {
+    return itr->second;
+  }
+  return empty;
 }
 
-const std::string &GetCPPType(const std::string &type) {
-    auto &ret = GetCPPTypeOrEmpty(type);
-    if (!ret.empty()) return ret;
-    return type;
+// Return the mapped C++ type, preserving user-defined type names.
+const std::string& get_cpp_type(const std::string& type) {
+  const auto& ret = get_cpp_type_or_empty(type);
+  if (!ret.empty()) {
+    return ret;
+  }
+  return type;
 }
 } // namespace serializer
 

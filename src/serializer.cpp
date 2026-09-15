@@ -17,73 +17,85 @@
 
 #include <rohit/serializer.hpp>
 #include <rohit/serializer_creator.hpp>
-#include <fstream>
 
-void DisplayHelp(const std::string &err) {
-    std::cout << "Usage: Serializer input <input filename> output <output filename>" << std::endl;
-    if (!err.empty()) {
-        std::cout << "Error: " << err << std::endl;
-    }
+#include <exception>
+#include <filesystem>
+#include <iostream>
+#include <string>
+#include <vector>
+
+// Print command usage and an optional diagnostic.
+void display_help(const std::string& err) {
+  std::cout << "Usage: Serializer input <input filename> output <output filename>" << std::endl;
+  if (!err.empty()) {
+    std::cout << "Error: " << err << std::endl;
+  }
 }
 
-std::ostream &operator<<(std::ostream &os, const std::vector<std::string> &strlist) {
-    os << "{ ";
-    for(auto &str: strlist) {
-        os << str << ' ';
-    }
-    os << '}';
-    return os;
+// Write the argument list in the command diagnostic format.
+std::ostream& operator<<(std::ostream& os, const std::vector<std::string>& strings) {
+  os << "{ ";
+  for (auto& str : strings) {
+    os << str << ' ';
+  }
+  os << '}';
+  return os;
 }
 
-int main(const int argc, const char *argv[]) {
-    const std::vector<std::string> args {argv, argv + argc};
-    std::filesystem::path input_file { };
-    std::filesystem::path output_file { };
-    for(size_t argi { 0 }; argi < args.size(); ++argi) {
-        if (args[argi] == "input") {
-            ++argi;
-            if (argi >= args.size()) {
-                DisplayHelp("Insufficient arguments");
-                return 0;
-            }
-            input_file = std::filesystem::path { args[argi] };
-            if (!std::filesystem::exists(input_file)) {
-                DisplayHelp("input file does not exists");
-                return 0;
-            }
-            std::cout << "Input File: " << input_file << std::endl;
-        } else if (args[argi] == "output") {
-            ++argi;
-            if (argi >= args.size()) {
-                DisplayHelp("Insufficient arguments");
-                return 0;
-            }
-            output_file = std::filesystem::path { args[argi] };
-            std::cout << "Output File: " << output_file << std::endl;
-        }
-    }
-
-    if (input_file.empty() || output_file.empty()) {
-        DisplayHelp("Input and output both parameters are required.");
-        std::cout << "Param: " << args << std::endl;
+int main(const int argc, const char* argv[]) {
+  const std::vector<std::string> args{argv, argv + argc};
+  std::filesystem::path input_file{};
+  std::filesystem::path output_file{};
+  for (std::size_t argument_index{0}; argument_index < args.size(); ++argument_index) {
+    if (args[argument_index] == "input") {
+      ++argument_index;
+      if (argument_index >= args.size()) {
+        display_help("Insufficient arguments");
         return 0;
+      }
+      input_file = std::filesystem::path{args[argument_index]};
+      if (!std::filesystem::exists(input_file)) {
+        display_help("input file does not exists");
+        return 0;
+      }
+      std::cout << "Input File: " << input_file << std::endl;
+    } else if (args[argument_index] == "output") {
+      ++argument_index;
+      if (argument_index >= args.size()) {
+        display_help("Insufficient arguments");
+        return 0;
+      }
+      output_file = std::filesystem::path{args[argument_index]};
+      std::cout << "Output File: " << output_file << std::endl;
     }
+  }
 
-    auto inStream = rohit::MakeStreamFromFile(input_file);
-    rohit::FullStreamAutoAlloc outStream {256};
-
-    bool OutputIsHeader = output_file.extension() == ".h" || output_file.extension() == ".hpp" || output_file.extension() == ".hxx";
-    if (!OutputIsHeader) {
-        std::cout << "WARNING: Output file is designed for C++ header, output extension must be one of .h, .hpp or .hxx" << std::endl;
-    }
-
-    try {
-        auto statementlist = rohit::serializer::Parser::Parse(inStream);
-        rohit::serializer::Writer::CPP::Write(outStream, statementlist);
-        outStream.WriteToFileTillOffset(output_file);
-    } catch(const std::exception &e) {
-        std::cout << "Failed to parse with error:\n" << e.what() << std::endl;
-    }
-
+  if (input_file.empty() || output_file.empty()) {
+    display_help("Input and output both parameters are required.");
+    std::cout << "Param: " << args << std::endl;
     return 0;
+  }
+
+  auto in_stream = rohit::make_stream_from_file(input_file);
+  constexpr std::size_t initial_output_capacity_bytes = 256;
+  rohit::full_stream_auto_alloc out_stream{initial_output_capacity_bytes};
+
+  const bool output_is_header = output_file.extension() == ".h" ||
+                                output_file.extension() == ".hpp" ||
+                                output_file.extension() == ".hxx";
+  if (!output_is_header) {
+    std::cout << "WARNING: Output file is designed for C++ header, output extension must be one of "
+                 ".h, .hpp or .hxx"
+              << std::endl;
+  }
+
+  try {
+    auto statements = rohit::serializer::parser::parse(in_stream);
+    rohit::serializer::writer::cpp::write(out_stream, statements);
+    out_stream.write_to_file_till_offset(output_file);
+  } catch (const std::exception& e) {
+    std::cout << "Failed to parse with error:\n" << e.what() << std::endl;
+  }
+
+  return 0;
 }

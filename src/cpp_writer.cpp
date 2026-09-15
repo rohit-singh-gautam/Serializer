@@ -17,506 +17,621 @@
 
 #include <rohit/serializer_creator.hpp>
 
-namespace rohit::serializer::Writer::CPP {
+#include <cstddef>
+#include <cstdint>
+#include <memory>
+#include <string>
+#include <vector>
 
-const std::string GetCPPTypeSupportUnion(const Member &member) {
-    std::string retUnion { "\tenum class e_" };
-    retUnion += member.Name;
-    retUnion += " {\n";
-    for(auto &typeName: member.typeNameList) {
-        retUnion += "\t\t" + typeName.EnumName + ",\n";
-    }
-    retUnion += "\t};\n\tunion u_" + member.Name + " {\n";
-    for(size_t index { 0 }; index < member.typeNameList.size(); ++index) {
-        retUnion += "\t\t" + member.typeNameList[index].Name + " " + member.typeNameList[index].EnumName + ";\n";
-    }
-    retUnion += "\t};\n\tstatic std::string to_string(const e_" + member.Name + " v) {\n\t\tswitch(v) {\n\t\t\tdefault:";
-    for(auto &typeName: member.typeNameList) {
-        retUnion += "\n\t\t\tcase e_" + member.Name + "::" + typeName.EnumName + ": return {\"" + typeName.EnumName + "\"}; ";
-    }
-    retUnion += "\n\t\t}\n\t};\n\tstatic e_" + member.Name + " to_e_" + member.Name + "(const auto &v) {"
-                "\n\t\tswitch(rohit::Hash(v)) {";
-    for(auto &typeName: member.typeNameList) {
-        retUnion += "\n\t\t\tcase rohit::Hash(\"" + typeName.EnumName + "\"): return e_" + member.Name + "::" + typeName.EnumName + ";";
-    }
-    retUnion += "\n\t\t\tdefault: throw std::runtime_error(\"Bad Enum Name\");"
-                "\n\t\t}"
-                "\n\t}";
-    return retUnion;
+namespace rohit::serializer::writer::cpp {
+
+// Emit C++ support union for the parsed schema.
+std::string get_cpp_type_support_union(const member& member) {
+  std::string ret_union{"  enum class e_"};
+  ret_union += member.name;
+  ret_union += " {\n";
+  for (const auto& type_name : member.type_name_list) {
+    ret_union += "    " + type_name.enum_name + ",\n";
+  }
+  ret_union += "  };\n  union u_" + member.name + " {\n";
+  for (std::size_t index{0}; index < member.type_name_list.size(); ++index) {
+    ret_union += "    " + member.type_name_list[index].name + " " +
+                 member.type_name_list[index].enum_name + ";\n";
+  }
+  ret_union += "  };\n  // Return the schema spelling for a union alternative.\n  static "
+               "std::string to_string(const e_" +
+               member.name + " v) {\n    switch (v) {\n      default:";
+  for (const auto& type_name : member.type_name_list) {
+    ret_union += "\n      case e_" + member.name + "::" + type_name.enum_name + ": return {\"" +
+                 type_name.enum_name + "\"}; ";
+  }
+  ret_union +=
+      "\n    }\n  };\n  // Resolve a union alternative from its schema spelling.\n  static e_" +
+      member.name + " to_e_" + member.name +
+      "(const auto& v) {"
+      "\n    switch (rohit::hash(v)) {";
+  for (const auto& type_name : member.type_name_list) {
+    ret_union += "\n      case rohit::hash(\"" + type_name.enum_name + "\"): return e_" +
+                 member.name + "::" + type_name.enum_name + ";";
+  }
+  ret_union += "\n      default: throw std::runtime_error(\"Bad Enum Name\");"
+               "\n    }"
+               "\n  }";
+  return ret_union;
 }
 
-const std::string GetCPPTypeSupport(const Member &member) {
-    switch(member.modifer) {
-    default:
-    case Member::none:
-        return { };
-    case Member::array:
-        return { };
-    case Member::map:
-        return { };
-    case Member::Union:
-        return GetCPPTypeSupportUnion(member);
-    }
+// Emit C++ support for the parsed schema.
+std::string get_cpp_type_support(const member& member) {
+  switch (member.modifier) {
+  default:
+  case member::modifier_type::none:
+    return {};
+  case member::modifier_type::array:
+    return {};
+  case member::modifier_type::map:
+    return {};
+  case member::modifier_type::variant:
+    return get_cpp_type_support_union(member);
+  }
 }
 
-const std::string GetCPPType(const Member &member) {
-    switch(member.modifer) {
-    default:
-    case Member::none:
-        // TODO: Range check
-        return serializer::GetCPPType(member.typeNameList[0].Name);
-    case Member::array:
-        return std::string("std::vector<") + serializer::GetCPPType(member.typeNameList[0].Name) + ">";
-    case Member::map:
-        return std::string("std::map<") + serializer::GetCPPType(member.Key) + "," + serializer::GetCPPType(member.typeNameList[0].Name) + ">";
-    case Member::Union:
-        return "e_" + member.Name + " " + member.Name + "_type { };\n\t" + "u_" + member.Name;
-    }
+// Return the mapped C++ type, preserving user-defined type names.
+std::string get_cpp_type(const member& member) {
+  switch (member.modifier) {
+  default:
+  case member::modifier_type::none:
+    // TODO: Range check
+    return serializer::get_cpp_type(member.type_name_list[0].name);
+  case member::modifier_type::array:
+    return std::string("std::vector<") + serializer::get_cpp_type(member.type_name_list[0].name) +
+           ">";
+  case member::modifier_type::map:
+    return std::string("std::map<") + serializer::get_cpp_type(member.key) + "," +
+           serializer::get_cpp_type(member.type_name_list[0].name) + ">";
+  case member::modifier_type::variant:
+    return "e_" + member.name + " " + member.name + "_type { };\n  " + "u_" + member.name;
+  }
 }
 
-void WriteAccessType(Stream &outStream, const AccessType access) {
-    switch(access) {
-        default:
-        case AccessType::Public:
-            outStream.Write("public");
-            break;
-        
-        case AccessType::Protected:
-            outStream.Write("protected");
-            break;
-        
-        case AccessType::Private:
-            outStream.Write("private");
-            break;
-    }
+// Emit C++ access type for the parsed schema.
+void write_access_type(stream& out_stream, const access_type access) {
+  switch (access) {
+  default:
+  case access_type::public_access:
+    out_stream.write("public");
+    break;
+
+  case access_type::protected_access:
+    out_stream.write("protected");
+    break;
+
+  case access_type::private_access:
+    out_stream.write("private");
+    break;
+  }
 }
 
-void WriteParentList(Stream &outStream, const std::vector<Parent> &parents) {
-    bool first { true };
-    for(auto &parent: parents) {
-        if (first) first = false;
-        else outStream.Write(", ");
-        WriteAccessType(outStream, parent.access);
-        outStream.Write(' ', parent.Name);
-    }
-}
-
-void WriteMemberList(Stream &outStream, const std::vector<Member> &members) {
-    AccessType lastaccess { AccessType::Private };
-
-    for(auto &member: members) {
-        if (member.access != lastaccess) {
-            outStream.Write('\n');
-            WriteAccessType(outStream, member.access);
-            outStream.Write(":\n");
-            lastaccess = member.access;
-        }
-        auto support = GetCPPTypeSupport(member);
-        if (!support.empty()) outStream.Write(support, '\n');
-        outStream.Write('\t', GetCPPType(member), ' ', member.Name, " { ");
-        if (!member.defaultValue.empty()) outStream.Write(member.defaultValue, ' ');
-        outStream.Write("};\n");
-        
-    }
-}
-
-void WriteSerializerOutBodyForParent(Stream &outStream, const Class *obj, const rohit::serializer::SerializeKeyType serialize_key_type, bool &first) {
-    for(auto &parent: obj->parentlist) {
-        if (first) {
-            first = false;
-            outStream.Write("\n\t\t\tserializerProtocol.StructSerializeOutStart(");
-        }
-        else outStream.Write("\n\t\t\tserializerProtocol.StructSerializeOut(");
-        if (serialize_key_type == rohit::serializer::SerializeKeyType::String) {
-            outStream.Write(
-                "std::make_pair(std::string_view { \"", parent.displayName, "\" }, static_cast<const ", parent.Name," *>(this))"
-                ");");
-        } else if (serialize_key_type == rohit::serializer::SerializeKeyType::Integer){
-            outStream.Write(
-                "std::make_pair(static_cast<uint32_t>(", parent.id,"), static_cast<const ", parent.Name," *>(this))"
-                ");");
-        } else {
-            outStream.Write(
-                "static_cast<const ", parent.Name," *>(this)"
-                ");");
-        }
-    }
-}
-
-void WriteSerializerOutBodyNonUnion(Stream &outStream, const Member &member, const rohit::serializer::SerializeKeyType serialize_key_type, bool &first) {
+// Emit C++ parent list for the parsed schema.
+void write_parent_list(stream& out_stream, const std::vector<parent>& parents) {
+  bool first{true};
+  for (const auto& parent : parents) {
     if (first) {
-        first = false;
-        outStream.Write("\n\t\t\tserializerProtocol.StructSerializeOutStart(");
-    }
-    else outStream.Write("\n\t\t\tserializerProtocol.StructSerializeOut(");
-    if (serialize_key_type == rohit::serializer::SerializeKeyType::String) {
-        if (member.typeNameList[0].type != ObjectType::Enum) {
-            outStream.Write(
-                "std::make_pair(std::string_view { \"", member.displayName, "\" }, ", member.Name,")"
-                ");");
-        } else {
-            outStream.Write(
-                "std::make_pair(std::string_view { \"", member.displayName, "\" }, ", member.typeNameList[0].declaredNameSpace->GetFullName() , "::to_string(", member.Name,"))"
-                ");");
-        }
-    } else if (serialize_key_type == rohit::serializer::SerializeKeyType::Integer){
-        outStream.Write(
-            "std::make_pair(static_cast<uint32_t>(", member.id,"), ", member.Name,")"
-            ");");
+      first = false;
     } else {
-        outStream.Write(
-            member.Name, ");");
+      out_stream.write(", ");
     }
+    write_access_type(out_stream, parent.access);
+    out_stream.write(' ', parent.name);
+  }
 }
 
-void WriteSerializerOutBodyUnion(Stream &outStream, const Member &member, const rohit::serializer::SerializeKeyType serialize_key_type, bool &first) {
-    outStream.Write("\n\t\t\tswitch(", member.Name, "_type) {");
-    for(size_t index { 0 }; index < member.typeNameList.size(); ++index) {
-        outStream.Write("\n\t\t\t\tcase e_", member.Name, "::", member.typeNameList[index].EnumName, ":");
-        if (first) {
-            outStream.Write("\n\t\t\t\t\tserializerProtocol.StructSerializeOutStart(");
-        }
-        else outStream.Write("\n\t\t\t\t\tserializerProtocol.StructSerializeOut(");
-        if (serialize_key_type == rohit::serializer::SerializeKeyType::String) {
-            outStream.Write("std::make_pair( std::string_view {\"", member.displayName, ":", member.typeNameList[index].EnumName, "\"}, ",
-                member.Name, ".", member.typeNameList[index].EnumName, "));",
-                "\n\t\t\t\t\tbreak;");
-        } else if (serialize_key_type == rohit::serializer::SerializeKeyType::Integer) {
-            outStream.Write("std::make_tuple(static_cast<uint32_t>(", member.id, "), static_cast<uint32_t>(", index, "), ",
-                member.Name, ".", member.typeNameList[index].EnumName, "));",
-                "\n\t\t\t\t\tbreak;");
-        } else {
-            outStream.Write("std::make_pair(static_cast<uint32_t>(", index, "), ",
-                member.Name, ".", member.typeNameList[index].EnumName, "));",
-                "\n\t\t\t\t\tbreak;");
-        }
+// Emit C++ member list for the parsed schema.
+void write_member_list(stream& out_stream, const std::vector<member>& members) {
+  access_type last_access{access_type::private_access};
+
+  for (const auto& member : members) {
+    if (member.access != last_access) {
+      out_stream.write('\n');
+      write_access_type(out_stream, member.access);
+      out_stream.write(":\n");
+      last_access = member.access;
     }
+    auto support = get_cpp_type_support(member);
+    if (!support.empty()) {
+      out_stream.write(support, '\n');
+    }
+    out_stream.write("  ", get_cpp_type(member), ' ', member.name, " { ");
+    if (!member.default_value.empty()) {
+      out_stream.write(member.default_value, ' ');
+    }
+    out_stream.write("};\n");
+  }
+}
+
+// Emit C++ serializer out body for parent for the parsed schema.
+void write_serializer_out_body_for_parent(stream& out_stream, const class_node* obj,
+                                          const rohit::serializer::serialize_key_type key_type,
+                                          bool& first) {
+  for (const auto& parent : obj->parents) {
+    if (first) {
+      first = false;
+      out_stream.write("\n      serializer_protocol.struct_serialize_out_start(");
+    } else {
+      out_stream.write("\n      serializer_protocol.struct_serialize_out(");
+    }
+    if (key_type == rohit::serializer::serialize_key_type::string) {
+      out_stream.write("std::make_pair(std::string_view { \"", parent.display_name,
+                       "\" }, static_cast<const ", parent.name,
+                       " *>(this))"
+                       ");");
+    } else if (key_type == rohit::serializer::serialize_key_type::integer) {
+      out_stream.write("std::make_pair(static_cast<std::uint32_t>(", parent.id,
+                       "), static_cast<const ", parent.name,
+                       " *>(this))"
+                       ");");
+    } else {
+      out_stream.write("static_cast<const ", parent.name,
+                       " *>(this)"
+                       ");");
+    }
+  }
+}
+
+// Emit C++ serializer out body non union for the parsed schema.
+void write_serializer_out_body_non_union(stream& out_stream, const member& member,
+                                         const rohit::serializer::serialize_key_type key_type,
+                                         bool& first) {
+  if (first) {
     first = false;
-    outStream.Write("\n\t\t\t}");
-}
-
-void WriteSerializerOutBody(Stream &outStream, const Class *obj, const rohit::serializer::SerializeKeyType serialize_key_type) {
-    bool first = true;
-    WriteSerializerOutBodyForParent(outStream, obj, serialize_key_type, first);
-    for(auto &member: obj->MemberList) {
-        if (member.modifer != Member::Union) {
-            WriteSerializerOutBodyNonUnion(outStream, member, serialize_key_type, first);
-        }
-        else {
-            WriteSerializerOutBodyUnion(outStream, member, serialize_key_type, first);
-        }
-    }
-    outStream.Write("\n\t\t\tserializerProtocol.StructSerializeOutEnd();");
-}
-
-void WriteSerializerOutBody(Stream &outStream, const Class *obj) {
-    outStream.Write(
-        "\ttemplate <typename SerializeOutProtocol>\n"
-        "\tvoid SerializeOut(SerializeOutProtocol &serializerProtocol) const {"
-    );
-    outStream.Write("\n\t\tif constexpr (serializerProtocol.serialize_key_type == rohit::serializer::SerializeKeyType::None) {");
-    WriteSerializerOutBody(outStream, obj, rohit::serializer::SerializeKeyType::None);
-    outStream.Write("\n\t\t} else if constexpr (serializerProtocol.serialize_key_type == rohit::serializer::SerializeKeyType::Integer) {");
-    WriteSerializerOutBody(outStream, obj, rohit::serializer::SerializeKeyType::Integer);
-    outStream.Write("\n\t\t} else if constexpr (serializerProtocol.serialize_key_type == rohit::serializer::SerializeKeyType::String) {");
-    WriteSerializerOutBody(outStream, obj, rohit::serializer::SerializeKeyType::String);
-    outStream.Write("\n\t\t} else { static_assert(true, \"Unsupported serializer type\"); }\n\t}\n\n");
-    outStream.Write(
-        "\ttemplate <template<rohit::serializer::SerializeType> class SerializerProtocol>\n"
-        "\tvoid SerializeOut(rohit::Stream &stream) const {\n"
-        "\t\tusing SerializerOutProtocol = SerializerProtocol<rohit::serializer::SerializeType::Out>;\n"
-        "\t\tSerializerOutProtocol serializerProtocol { stream };\n"
-        "\t\tSerializeOut(serializerProtocol);\n"
-        "\t}\n\n"
-    );
-}
-
-void WriteSerializerInBodyForParentKeyNone(Stream &outStream, const Class *obj) {
-    for(auto &parent: obj->parentlist) {
-        outStream.Write("\t\t\tthis->", parent.Name, "::SerializeIn(serializerProtocol);\n");
-    }
-}
-
-void WriteSerializerInBodyForParentKeyInteger(Stream &outStream, const Class *obj) {
-    for(auto &parent: obj->parentlist) {
-        outStream.Write(
-            "\t\t\tcase ", parent.id, ":\n"
-            "\t\t\t\tthis->", parent.Name, "::SerializeIn(serializerProtocol);\n"
-            "\t\t\t\tbreak;\n");
-    }
-} // WriteSerializerInBodyForParentKeyInteger
-
-void WriteSerializerInBodyForParentKeyString(Stream &outStream, const Class *obj) {
-    for(auto &parent: obj->parentlist) {
-        outStream.Write(
-            "\t\t\tcase rohit::Hash(\"", parent.displayName, "\"):\n"
-            "\t\t\t\tthis->", parent.Name, "::SerializeIn(serializerProtocol);\n"
-            "\t\t\t\tbreak;\n");
-    }
-} // WriteSerializerInBodyForParentKeyString
-
-void WriteSerializerInBodyNonUnionKeyString(Stream &outStream, const Member &member) {
-    if (member.typeNameList[0].type != ObjectType::Enum) {
-        outStream.Write(
-            "\t\t\tcase rohit::Hash(\"", member.displayName, "\"):\n"
-            "\t\t\t\tserializerProtocol.template SerializeIn<", GetCPPType(member),">(this->", member.Name, ");\n"
-            "\t\t\t\tbreak;\n");
+    out_stream.write("\n      serializer_protocol.struct_serialize_out_start(");
+  } else {
+    out_stream.write("\n      serializer_protocol.struct_serialize_out(");
+  }
+  if (key_type == rohit::serializer::serialize_key_type::string) {
+    if (member.type_name_list[0].type != object_type::enum_type) {
+      out_stream.write("std::make_pair(std::string_view { \"", member.display_name, "\" }, ",
+                       member.name,
+                       ")"
+                       ");");
     } else {
-        outStream.Write(
-            "\t\t\tcase rohit::Hash(\"", member.displayName, "\"): {\n"
-            "\t\t\t\tstd::string str_", member.Name, " { };\n"
-            "\t\t\t\tserializerProtocol.template SerializeIn<std::string>(str_", member.Name, ");\n"
-            "\t\t\t\tthis->", member.Name, " = to_", member.typeNameList[0].Name,"(str_", member.Name, ");\n"
-            "\t\t\t\tbreak;\n"
-            "\t\t\t}\n");
+      out_stream.write("std::make_pair(std::string_view { \"", member.display_name, "\" }, ",
+                       member.type_name_list[0].declared_namespace->get_full_name(), "::to_string(",
+                       member.name,
+                       "))"
+                       ");");
     }
-} // WriteSerializerInBodyNonUnionKeyString
-
-void WriteSerializerInBodyNonUnionKeyInteger(Stream &outStream, const Member &member) {
-    outStream.Write(
-        "\t\t\tcase ", member.id, ":\n"
-        "\t\t\t\tserializerProtocol.template SerializeIn<", GetCPPType(member),">(this->", member.Name, ");\n"
-        "\t\t\t\tbreak;\n");
-} // WriteSerializerInBodyNonUnionKeyInteger
-
-void WriteSerializerInBodyNonUnionKeyNone(Stream &outStream, const Member &member) {
-    outStream.Write(
-        "\t\t\tserializerProtocol.template SerializeIn<", GetCPPType(member),">(this->", member.Name, ");\n");
-} // WriteSerializerInBodyNonUnionKeyNone
-
-
-void WriteSerializerInBodyUnionKeyInteger(Stream &outStream, const Member &member) {
-    outStream.Write(
-        "\t\t\tcase ", member.id, ": {\n"
-        "\t\t\t\tthis->", member.Name, "_type = static_cast<e_", member.Name, ">(serializerProtocol.SerializeInVariable());\n"
-        "\t\t\t\tswitch(this->", member.Name, "_type) {\n"
-    );
-
-    for(size_t index { 0 }; index < member.typeNameList.size(); ++index) {
-        outStream.Write(
-            "\t\t\t\t\tcase e_", member.Name, "::", member.typeNameList[index].EnumName, ":\n"
-            "\t\t\t\t\t\tserializerProtocol.SerializeIn(this->", member.Name,".", member.typeNameList[index].EnumName, ");\n"
-            "\t\t\t\t\t\tbreak;\n"
-        );
-    }
-    outStream.Write(
-        "\t\t\t\t\tdefault:\n"
-        "\t\t\t\t\t\tthrow rohit::serializer::exception::KeyNotFound {serializerProtocol.GetStream(), \"Bad Enum Name\"};\n"
-        "\t\t\t\t}\n"
-        "\t\t\t\tbreak;\n"
-        "\t\t\t}\n"
-    );
-} // WriteSerializerInBodyUnionKeyInteger
-
-void WriteSerializerInBodyUnionKeyNone(Stream &outStream, const Member &member) {
-    outStream.Write(
-        "\t\t\tuint32_t ", member.Name, "_type_local { };\n"
-        "\t\t\t", member.Name, "_type_local = serializerProtocol.SerializeInVariable();\n"
-        "\t\t\tthis->", member.Name, "_type = static_cast<e_", member.Name, ">(", member.Name, "_type_local);\n"
-        "\t\t\tswitch(this->", member.Name, "_type) {\n"
-    );
-    for(size_t index { 0 }; index < member.typeNameList.size(); ++index) {
-        outStream.Write(
-            "\t\t\t\tcase e_", member.Name, "::", member.typeNameList[index].EnumName, ":\n"
-            "\t\t\t\t\tserializerProtocol.SerializeIn(this->", member.Name,".", member.typeNameList[index].EnumName, ");\n"
-            "\t\t\t\t\tbreak;\n"
-        );
-    }
-    outStream.Write("\t\t\t}\n");
-} // WriteSerializerInBodyUnionKeyNone
-
-
-void WriteSerializerInBodyUnionKeyString(Stream &outStream, const Member &member) {
-    for(auto &typeName: member.typeNameList) {
-        outStream.Write(
-            "\t\t\tcase rohit::Hash(\"", member.displayName, ":", typeName.EnumName, "\"):\n"
-            "\t\t\t\tthis->", member.Name, "_type = e_", member.Name, "::", typeName.EnumName, ";\n",
-            "\t\t\t\tserializerProtocol.SerializeIn(this->", member.Name, ".", typeName.EnumName, ");\n"
-            "\t\t\t\tbreak;\n");
-    }
-} // WriteSerializerInBodyUnionString
-
-void WriteSerializerInBodyKeyNone(Stream &outStream, const Class *obj) {
-    WriteSerializerInBodyForParentKeyNone(outStream, obj);
-    for(auto &member: obj->MemberList) {
-        if (member.modifer != Member::Union) {
-            WriteSerializerInBodyNonUnionKeyNone(outStream, member);
-        } else if (member.typeNameList.size()) {
-            WriteSerializerInBodyUnionKeyNone(outStream, member);
-        }
-    }
-} // WriteSerializerInBodyKeyNone
-
-void WriteSerializerInBodyWithKeyInteger(Stream &outStream, const Class *obj) {
-    outStream.Write(
-        "\tvoid SerializeInMemberByIdentifier(auto &serializerProtocol, const uint32_t identifier) {\n"
-        "\t\tswitch(identifier) {\n"
-    );
-
-    WriteSerializerInBodyForParentKeyInteger(outStream, obj);
-
-    for(auto &member: obj->MemberList) {
-        if (member.modifer != Member::Union) {
-            WriteSerializerInBodyNonUnionKeyInteger(outStream, member);
-        } else if (member.typeNameList.size()) {
-            WriteSerializerInBodyUnionKeyInteger(outStream, member);
-        }
-    }
-    
-    outStream.Write(
-        "\t\t\tdefault:\n"
-        "\t\t\t\tthrow rohit::serializer::exception::KeyNotFound {serializerProtocol.GetStream(), \"Bad Member Identifier\"};\n"
-        "\t\t}\n"
-        "\t}\n\n");
+  } else if (key_type == rohit::serializer::serialize_key_type::integer) {
+    out_stream.write("std::make_pair(static_cast<std::uint32_t>(", member.id, "), ", member.name,
+                     ")"
+                     ");");
+  } else {
+    out_stream.write(member.name, ");");
+  }
 }
 
-void WriteSerializerInBodyWithKeyString(Stream &outStream, const Class *obj) {
-    outStream.Write(
-        "\tvoid SerializeInMemberByName(auto &serializerProtocol, const std::string_view &name) {\n"
-        "\t\tswitch(rohit::Hash(name)) {\n"
-    );
-
-    WriteSerializerInBodyForParentKeyString(outStream, obj);
-
-    for(auto &member: obj->MemberList) {
-        if (member.modifer != Member::Union) {
-            WriteSerializerInBodyNonUnionKeyString(outStream, member);
-        } else if (member.typeNameList.size()) {
-            WriteSerializerInBodyUnionKeyString(outStream, member);
-        }
+// Emit C++ serializer out body union for the parsed schema.
+void write_serializer_out_body_union(stream& out_stream, const member& member,
+                                     const rohit::serializer::serialize_key_type key_type,
+                                     bool& first) {
+  out_stream.write("\n      switch (", member.name, "_type) {");
+  for (std::size_t index{0}; index < member.type_name_list.size(); ++index) {
+    out_stream.write("\n        case e_", member.name, "::", member.type_name_list[index].enum_name,
+                     ":");
+    if (first) {
+      out_stream.write("\n          serializer_protocol.struct_serialize_out_start(");
+    } else {
+      out_stream.write("\n          serializer_protocol.struct_serialize_out(");
     }
-    
-    outStream.Write(
-        "\t\t\tdefault:\n"
-        "\t\t\t\tthrow rohit::serializer::exception::KeyNotFound {serializerProtocol.GetStream(), \"Bad Member Name\"};\n"
-        "\t\t}\n"
-        "\t}\n\n");
-}
-
-void WriteSerializerInBody(Stream &outStream, const Class *obj) {
-    WriteSerializerInBodyWithKeyInteger(outStream, obj);
-    WriteSerializerInBodyWithKeyString(outStream, obj);
-    outStream.Write(
-        "\ttemplate <typename SerializeInProtocol>\n"
-        "\tvoid SerializeIn(SerializeInProtocol &serializerProtocol) {"
-    );
-    outStream.Write("\n\t\tif constexpr (serializerProtocol.serialize_key_type == rohit::serializer::SerializeKeyType::None) {\n");
-    WriteSerializerInBodyKeyNone(outStream, obj);
-    outStream.Write(
-        "\t\t} else if constexpr (serializerProtocol.serialize_key_type == rohit::serializer::SerializeKeyType::Integer ||\n"
-        "\t\t\t\t\t\tserializerProtocol.serialize_key_type == rohit::serializer::SerializeKeyType::String) {\n"
-        "\t\t\tserializerProtocol.template StructSerializeIn<", obj->Name,">(this);\n"
-        "\t\t} else { static_assert(true, \"Unsupported serializer type\"); }\n"
-        "\t}\n\n"
-        "\ttemplate <template<rohit::serializer::SerializeType> class SerializerProtocol>\n"
-        "\tvoid SerializeIn(const rohit::Stream &stream) {\n"
-        "\t\tusing SerializerInProtocol = SerializerProtocol<rohit::serializer::SerializeType::In>;\n"
-        "\t\tSerializerInProtocol serializerProtocol { stream };\n"
-        "\t\tSerializeIn(serializerProtocol);\n"
-        "\t}\n\t"
-    );
-}
-
-void WriteSerializer(Stream &outStream, const Class *obj) {
-    WriteSerializerOutBody(outStream, obj);
-    WriteSerializerInBody(outStream, obj);
-}
-
-void WriteClass(Stream &outStream, const Class *obj) {
-    if ((obj->attributes & ClassAtributes::Packed) == ClassAtributes::Packed)
-        outStream.Write("class __attribute__ ((__packed__)) ", obj->Name);
-    else outStream.Write("class ", obj->Name);
-
-    if (!obj->parentlist.empty()) {
-        outStream.Write(" : ");
-        WriteParentList(outStream, obj->parentlist);
+    if (key_type == rohit::serializer::serialize_key_type::string) {
+      out_stream.write("std::make_pair( std::string_view {\"", member.display_name, ":",
+                       member.type_name_list[index].enum_name, "\"}, ", member.name, ".",
+                       member.type_name_list[index].enum_name, "));", "\n          break;");
+    } else if (key_type == rohit::serializer::serialize_key_type::integer) {
+      out_stream.write("std::make_tuple(static_cast<std::uint32_t>(", member.id,
+                       "), static_cast<std::uint32_t>(", index, "), ", member.name, ".",
+                       member.type_name_list[index].enum_name, "));", "\n          break;");
+    } else {
+      out_stream.write("std::make_pair(static_cast<std::uint32_t>(", index, "), ", member.name, ".",
+                       member.type_name_list[index].enum_name, "));", "\n          break;");
     }
-
-    outStream.Write(" {\n");
-    WriteMemberList(outStream, obj->MemberList);
-
-    outStream.Write('\n');
-    WriteSerializer(outStream, obj);
-
-    outStream.Write("}; // class ", obj->Name, "\n\n");
+  }
+  first = false;
+  out_stream.write("\n      }");
 }
 
-void WriteEnum(Stream &outStream, const Enum *enumptr) {
-    outStream.Write("enum class ", enumptr->Name, " {\n");
-    for(auto &enumName: enumptr->enumNameList) {
-        outStream.Write("\t", enumName, ",\n");
+// Emit C++ serializer out body for the parsed schema.
+void write_serializer_out_body(stream& out_stream, const class_node* obj,
+                               const rohit::serializer::serialize_key_type key_type) {
+  bool first = true;
+  write_serializer_out_body_for_parent(out_stream, obj, key_type, first);
+  for (const auto& member : obj->member_list) {
+    if (member.modifier != member::modifier_type::variant) {
+      write_serializer_out_body_non_union(out_stream, member, key_type, first);
+    } else {
+      write_serializer_out_body_union(out_stream, member, key_type, first);
     }
-    outStream.Write("}; // enum class ", enumptr->Name, "\n\n");
-
-    outStream.Write("constexpr inline std::string to_string(const ", enumptr->Name, " v) {\n");
-    outStream.Write("\tswitch(v) {\n");
-    for(auto &enumName: enumptr->enumNameList) {
-        outStream.Write("\t\tcase ", enumptr->Name, "::", enumName, ": return {\"", enumName, "\"};\n");
-    }
-    outStream.Write("\t\tdefault: throw std::runtime_error(\"Bad Enum Name\");\n");
-    outStream.Write("\t}\n");
-    outStream.Write("};\n\n");
-
-    outStream.Write("constexpr inline ", enumptr->Name, " to_", enumptr->Name, "(const auto &v) {\n");
-    outStream.Write("\tswitch(rohit::Hash(v)) {\n");
-    for(auto &enumName: enumptr->enumNameList) {
-        outStream.Write("\t\tcase rohit::Hash(\"", enumName, "\"): return ", enumptr->Name, "::", enumName, ";\n");
-    }
-    outStream.Write("\t\tdefault: throw std::runtime_error(\"Bad Enum Name\");\n");
-    outStream.Write("\t}\n");
-    outStream.Write("};\n\n");
+  }
+  out_stream.write("\n      serializer_protocol.struct_serialize_out_end();");
 }
 
-void WriteStatementList(Stream &outStream, const std::vector<std::unique_ptr<Base>> &statementlist);
+// Emit C++ serializer out body for the parsed schema.
+void write_serializer_out_body(stream& out_stream, const class_node* obj) {
+  out_stream.write("  // Encode this object using the supplied output protocol.\n  template "
+                   "<typename SerializeOutProtocol>\n"
+                   "  void serialize_out(SerializeOutProtocol& serializer_protocol) const {");
+  out_stream.write("\n    if constexpr (serializer_protocol.key_type == "
+                   "rohit::serializer::serialize_key_type::none) {");
+  write_serializer_out_body(out_stream, obj, rohit::serializer::serialize_key_type::none);
+  out_stream.write("\n    } else if constexpr (serializer_protocol.key_type == "
+                   "rohit::serializer::serialize_key_type::integer) {");
+  write_serializer_out_body(out_stream, obj, rohit::serializer::serialize_key_type::integer);
+  out_stream.write("\n    } else if constexpr (serializer_protocol.key_type == "
+                   "rohit::serializer::serialize_key_type::string) {");
+  write_serializer_out_body(out_stream, obj, rohit::serializer::serialize_key_type::string);
+  out_stream.write(
+      "\n    } else { static_assert(true, \"Unsupported serializer type\"); }\n  }\n\n");
+  out_stream.write(
+      "  template <template<rohit::serializer::serialize_type> class SerializerProtocol>\n"
+      "  // Construct the requested protocol and write this object.\n  void "
+      "serialize_out(rohit::stream& stream) const {\n"
+      "    using serializer_out_protocol = "
+      "SerializerProtocol<rohit::serializer::serialize_type::out>;\n"
+      "    serializer_out_protocol serializer_protocol { stream };\n"
+      "    serialize_out(serializer_protocol);\n"
+      "  }\n\n");
+}
 
-void WriteNamespace(Stream &outStream, const Namespace *namespaceptr) {
-    std::string completename = namespaceptr->Name;
-    while (namespaceptr->statementlist.size() == 1 && namespaceptr->statementlist.back()->type == ObjectType::Namespace) {
-        namespaceptr = dynamic_cast<Namespace *>(namespaceptr->statementlist.back().get());
-        completename += "::";
-        completename += namespaceptr->Name;
+// Emit C++ serializer in body for parent key none for the parsed schema.
+void write_serializer_in_body_for_parent_key_none(stream& out_stream, const class_node* obj) {
+  for (const auto& parent : obj->parents) {
+    out_stream.write("      this->", parent.name, "::serialize_in(serializer_protocol);\n");
+  }
+}
+
+// Emit C++ serializer in body for parent key integer for the parsed schema.
+void write_serializer_in_body_for_parent_key_integer(stream& out_stream, const class_node* obj) {
+  for (const auto& parent : obj->parents) {
+    out_stream.write("      case ", parent.id,
+                     ":\n"
+                     "        this->",
+                     parent.name,
+                     "::serialize_in(serializer_protocol);\n"
+                     "        break;\n");
+  }
+} // write_serializer_in_body_for_parent_key_integer
+
+// Emit C++ serializer in body for parent key string for the parsed schema.
+void write_serializer_in_body_for_parent_key_string(stream& out_stream, const class_node* obj) {
+  for (const auto& parent : obj->parents) {
+    out_stream.write("      case rohit::hash(\"", parent.display_name,
+                     "\"):\n"
+                     "        this->",
+                     parent.name,
+                     "::serialize_in(serializer_protocol);\n"
+                     "        break;\n");
+  }
+} // write_serializer_in_body_for_parent_key_string
+
+// Emit C++ serializer in body non union key string for the parsed schema.
+void write_serializer_in_body_non_union_key_string(stream& out_stream, const member& member) {
+  if (member.type_name_list[0].type != object_type::enum_type) {
+    out_stream.write("      case rohit::hash(\"", member.display_name,
+                     "\"):\n"
+                     "        serializer_protocol.template serialize_in<",
+                     get_cpp_type(member), ">(this->", member.name,
+                     ");\n"
+                     "        break;\n");
+  } else {
+    out_stream.write("      case rohit::hash(\"", member.display_name,
+                     "\"): {\n"
+                     "        std::string str_",
+                     member.name,
+                     " { };\n"
+                     "        serializer_protocol.template serialize_in<std::string>(str_",
+                     member.name,
+                     ");\n"
+                     "        this->",
+                     member.name, " = to_", member.type_name_list[0].name, "(str_", member.name,
+                     ");\n"
+                     "        break;\n"
+                     "      }\n");
+  }
+} // write_serializer_in_body_non_union_key_string
+
+// Emit C++ serializer in body non union key integer for the parsed schema.
+void write_serializer_in_body_non_union_key_integer(stream& out_stream, const member& member) {
+  out_stream.write("      case ", member.id,
+                   ":\n"
+                   "        serializer_protocol.template serialize_in<",
+                   get_cpp_type(member), ">(this->", member.name,
+                   ");\n"
+                   "        break;\n");
+} // write_serializer_in_body_non_union_key_integer
+
+// Emit C++ serializer in body non union key none for the parsed schema.
+void write_serializer_in_body_non_union_key_none(stream& out_stream, const member& member) {
+  out_stream.write("      serializer_protocol.template serialize_in<", get_cpp_type(member),
+                   ">(this->", member.name, ");\n");
+} // write_serializer_in_body_non_union_key_none
+
+// Emit C++ serializer in body union key integer for the parsed schema.
+void write_serializer_in_body_union_key_integer(stream& out_stream, const member& member) {
+  out_stream.write("      case ", member.id,
+                   ": {\n"
+                   "        this->",
+                   member.name, "_type = static_cast<e_", member.name,
+                   ">(serializer_protocol.serialize_in_variable());\n"
+                   "        switch (this->",
+                   member.name, "_type) {\n");
+
+  for (std::size_t index{0}; index < member.type_name_list.size(); ++index) {
+    out_stream.write("          case e_", member.name, "::", member.type_name_list[index].enum_name,
+                     ":\n"
+                     "            serializer_protocol.serialize_in(this->",
+                     member.name, ".", member.type_name_list[index].enum_name,
+                     ");\n"
+                     "            break;\n");
+  }
+  out_stream.write("          default:\n"
+                   "            throw rohit::serializer::exception::key_not_found "
+                   "{serializer_protocol.get_stream(), \"Bad Enum Name\"};\n"
+                   "        }\n"
+                   "        break;\n"
+                   "      }\n");
+} // write_serializer_in_body_union_key_integer
+
+// Emit C++ serializer in body union key none for the parsed schema.
+void write_serializer_in_body_union_key_none(stream& out_stream, const member& member) {
+  out_stream.write("      std::uint32_t ", member.name,
+                   "_type_local { };\n"
+                   "      ",
+                   member.name,
+                   "_type_local = serializer_protocol.serialize_in_variable();\n"
+                   "      this->",
+                   member.name, "_type = static_cast<e_", member.name, ">(", member.name,
+                   "_type_local);\n"
+                   "      switch (this->",
+                   member.name, "_type) {\n");
+  for (std::size_t index{0}; index < member.type_name_list.size(); ++index) {
+    out_stream.write("        case e_", member.name, "::", member.type_name_list[index].enum_name,
+                     ":\n"
+                     "          serializer_protocol.serialize_in(this->",
+                     member.name, ".", member.type_name_list[index].enum_name,
+                     ");\n"
+                     "          break;\n");
+  }
+  out_stream.write("      }\n");
+} // write_serializer_in_body_union_key_none
+
+// Emit C++ serializer in body union key string for the parsed schema.
+void write_serializer_in_body_union_key_string(stream& out_stream, const member& member) {
+  for (const auto& type_name : member.type_name_list) {
+    out_stream.write("      case rohit::hash(\"", member.display_name, ":", type_name.enum_name,
+                     "\"):\n"
+                     "        this->",
+                     member.name, "_type = e_", member.name, "::", type_name.enum_name, ";\n",
+                     "        serializer_protocol.serialize_in(this->", member.name, ".",
+                     type_name.enum_name,
+                     ");\n"
+                     "        break;\n");
+  }
+} // write_serializer_in_body_union_key_string
+
+// Emit C++ serializer in body key none for the parsed schema.
+void write_serializer_in_body_key_none(stream& out_stream, const class_node* obj) {
+  write_serializer_in_body_for_parent_key_none(out_stream, obj);
+  for (const auto& member : obj->member_list) {
+    if (member.modifier != member::modifier_type::variant) {
+      write_serializer_in_body_non_union_key_none(out_stream, member);
+    } else if (member.type_name_list.size()) {
+      write_serializer_in_body_union_key_none(out_stream, member);
     }
-    outStream.Write("namespace ", completename, " {\n");
-    WriteStatementList(outStream, namespaceptr->statementlist);
-    outStream.Write("} // namespace ", completename,"\n\n");
-}
+  }
+} // write_serializer_in_body_key_none
 
-void WriteStatementList(Stream &outStream, const std::vector<std::unique_ptr<Base>> &statementlist) {
-    if (statementlist.empty()) return;
+// Emit C++ serializer in body with key integer for the parsed schema.
+void write_serializer_in_body_with_key_integer(stream& out_stream, const class_node* obj) {
+  out_stream.write("  // Decode the member selected by its numeric wire identifier.\n  void "
+                   "serialize_in_member_by_identifier(auto& serializer_protocol, const "
+                   "std::uint32_t identifier) {\n"
+                   "    switch (identifier) {\n");
 
-    for(auto &statement: statementlist) {
-        switch (statement->type)
-        {
-        case ObjectType::Namespace:
-            WriteNamespace(outStream, dynamic_cast<const Namespace *>(statement.get()));
-            break;
+  write_serializer_in_body_for_parent_key_integer(out_stream, obj);
 
-        case ObjectType::Class:
-            WriteClass(outStream, dynamic_cast<const Class *>(statement.get()));
-            break;
-
-        case ObjectType::Enum:
-            WriteEnum(outStream, dynamic_cast<const Enum *>(statement.get()));
-            break;
-        
-        default:
-            break;
-        }
+  for (const auto& member : obj->member_list) {
+    if (member.modifier != member::modifier_type::variant) {
+      write_serializer_in_body_non_union_key_integer(out_stream, member);
+    } else if (member.type_name_list.size()) {
+      write_serializer_in_body_union_key_integer(out_stream, member);
     }
+  }
+
+  out_stream.write("      default:\n"
+                   "        throw rohit::serializer::exception::key_not_found "
+                   "{serializer_protocol.get_stream(), \"Bad member identifier\"};\n"
+                   "    }\n"
+                   "  }\n\n");
 }
 
-void Write(Stream &outStream, std::vector<std::unique_ptr<Base>> &statementlist) {
-    outStream.Write(
-        "/////////////////////////////////////////////////////////\n"
-        "// This is auto genarated file using serializer. Must  //\n"
-        "// not be manually edited. For more information refer  //\n"
-        "// to https://github.com/rohit-singh-gautam/Serializer //\n"
-        "/////////////////////////////////////////////////////////\n"
-        "\n"
-        "#pragma once\n"
-        "#include <rohit/serializer.hpp>\n\n"
-    );
-    WriteStatementList(outStream, statementlist);
+// Emit C++ serializer in body with key string for the parsed schema.
+void write_serializer_in_body_with_key_string(stream& out_stream, const class_node* obj) {
+  out_stream.write("  // Decode the member selected by its unchanged wire name.\n  void "
+                   "serialize_in_member_by_name(auto& serializer_protocol, const "
+                   "std::string_view& name) {\n"
+                   "    switch (rohit::hash(name)) {\n");
+
+  write_serializer_in_body_for_parent_key_string(out_stream, obj);
+
+  for (const auto& member : obj->member_list) {
+    if (member.modifier != member::modifier_type::variant) {
+      write_serializer_in_body_non_union_key_string(out_stream, member);
+    } else if (member.type_name_list.size()) {
+      write_serializer_in_body_union_key_string(out_stream, member);
+    }
+  }
+
+  out_stream.write("      default:\n"
+                   "        throw rohit::serializer::exception::key_not_found "
+                   "{serializer_protocol.get_stream(), \"Bad member Name\"};\n"
+                   "    }\n"
+                   "  }\n\n");
 }
 
-} // namespace rohit::serializer::Writer::CPP
+// Emit C++ serializer in body for the parsed schema.
+void write_serializer_in_body(stream& out_stream, const class_node* obj) {
+  write_serializer_in_body_with_key_integer(out_stream, obj);
+  write_serializer_in_body_with_key_string(out_stream, obj);
+  out_stream.write("  // Decode this object using the supplied input protocol.\n  template "
+                   "<typename SerializeInProtocol>\n"
+                   "  void serialize_in(SerializeInProtocol& serializer_protocol) {");
+  out_stream.write("\n    if constexpr (serializer_protocol.key_type == "
+                   "rohit::serializer::serialize_key_type::none) {\n");
+  write_serializer_in_body_key_none(out_stream, obj);
+  out_stream.write(
+      "    } else if constexpr (serializer_protocol.key_type == "
+      "rohit::serializer::serialize_key_type::integer ||\n"
+      "            serializer_protocol.key_type == rohit::serializer::serialize_key_type::string) "
+      "{\n"
+      "      serializer_protocol.template struct_serialize_in<",
+      obj->name,
+      ">(this);\n"
+      "    } else { static_assert(true, \"Unsupported serializer type\"); }\n"
+      "  }\n\n"
+      "  template <template<rohit::serializer::serialize_type> class SerializerProtocol>\n"
+      "  // Construct the requested protocol and read this object.\n  void serialize_in(const "
+      "rohit::stream& stream) {\n"
+      "    using serializer_in_protocol = "
+      "SerializerProtocol<rohit::serializer::serialize_type::in>;\n"
+      "    serializer_in_protocol serializer_protocol { stream };\n"
+      "    serialize_in(serializer_protocol);\n"
+      "  }\n  ");
+}
+
+// Emit C++ serializer for the parsed schema.
+void write_serializer(stream& out_stream, const class_node* obj) {
+  write_serializer_out_body(out_stream, obj);
+  write_serializer_in_body(out_stream, obj);
+}
+
+// Emit C++ class for the parsed schema.
+void write_class(stream& out_stream, const class_node* obj) {
+  if ((obj->attributes & class_attributes::packed) == class_attributes::packed) {
+    out_stream.write("class __attribute__ ((__packed__)) ", obj->name);
+  } else {
+    out_stream.write("class ", obj->name);
+  }
+
+  if (!obj->parents.empty()) {
+    out_stream.write(" : ");
+    write_parent_list(out_stream, obj->parents);
+  }
+
+  out_stream.write(" {\n");
+  write_member_list(out_stream, obj->member_list);
+
+  out_stream.write('\n');
+  write_serializer(out_stream, obj);
+
+  out_stream.write("}; // class ", obj->name, "\n\n");
+}
+
+// Emit C++ enum for the parsed schema.
+void write_enum(stream& out_stream, const enum_node* enum_ptr) {
+  out_stream.write("enum class ", enum_ptr->name, " {\n");
+  for (const auto& enum_name : enum_ptr->enum_name_list) {
+    out_stream.write("  ", enum_name, ",\n");
+  }
+  out_stream.write("}; // enum class ", enum_ptr->name, "\n\n");
+
+  out_stream.write("// Return the schema spelling for this enum value.\nconstexpr inline "
+                   "std::string to_string(const ",
+                   enum_ptr->name, " v) {\n");
+  out_stream.write("  switch (v) {\n");
+  for (const auto& enum_name : enum_ptr->enum_name_list) {
+    out_stream.write("    case ", enum_ptr->name, "::", enum_name, ": return {\"", enum_name,
+                     "\"};\n");
+  }
+  out_stream.write("    default: throw std::runtime_error(\"Bad Enum Name\");\n");
+  out_stream.write("  }\n");
+  out_stream.write("};\n\n");
+
+  out_stream.write(
+      "// Resolve a schema spelling or throw for an unknown enum value.\nconstexpr inline ",
+      enum_ptr->name, " to_", enum_ptr->name, "(const auto& v) {\n");
+  out_stream.write("  switch (rohit::hash(v)) {\n");
+  for (const auto& enum_name : enum_ptr->enum_name_list) {
+    out_stream.write("    case rohit::hash(\"", enum_name, "\"): return ", enum_ptr->name,
+                     "::", enum_name, ";\n");
+  }
+  out_stream.write("    default: throw std::runtime_error(\"Bad Enum Name\");\n");
+  out_stream.write("  }\n");
+  out_stream.write("};\n\n");
+}
+
+// Emit C++ statement list for the parsed schema.
+void write_statement_list(stream& out_stream,
+                          const std::vector<std::unique_ptr<syntax_node>>& statements);
+
+// Emit C++ namespace for the parsed schema.
+void write_namespace(stream& out_stream, const namespace_node* namespace_ptr) {
+  std::string full_name = namespace_ptr->name;
+  while (namespace_ptr->statements.size() == 1 &&
+         namespace_ptr->statements.back()->type == object_type::namespace_type) {
+    namespace_ptr = dynamic_cast<namespace_node*>(namespace_ptr->statements.back().get());
+    full_name += "::";
+    full_name += namespace_ptr->name;
+  }
+  out_stream.write("namespace ", full_name, " {\n");
+  write_statement_list(out_stream, namespace_ptr->statements);
+  out_stream.write("} // namespace ", full_name, "\n\n");
+}
+
+// Emit C++ statement list for the parsed schema.
+void write_statement_list(stream& out_stream,
+                          const std::vector<std::unique_ptr<syntax_node>>& statements) {
+  if (statements.empty()) {
+    return;
+  }
+
+  for (const auto& statement : statements) {
+    switch (statement->type) {
+    case object_type::namespace_type:
+      write_namespace(out_stream, dynamic_cast<const namespace_node*>(statement.get()));
+      break;
+
+    case object_type::class_type:
+      write_class(out_stream, dynamic_cast<const class_node*>(statement.get()));
+      break;
+
+    case object_type::enum_type:
+      write_enum(out_stream, dynamic_cast<const enum_node*>(statement.get()));
+      break;
+
+    default:
+      break;
+    }
+  }
+}
+
+// Generate a complete C++ header from the resolved schema without rewriting its names.
+void write(stream& out_stream, std::vector<std::unique_ptr<syntax_node>>& statements) {
+  out_stream.write("/////////////////////////////////////////////////////////\n"
+                   "// This is auto genarated file using serializer. Must  //\n"
+                   "// not be manually edited. For more information refer  //\n"
+                   "// to https://github.com/rohit-singh-gautam/Serializer //\n"
+                   "/////////////////////////////////////////////////////////\n"
+                   "\n"
+                   "#pragma once\n"
+                   "#include <rohit/serializer.hpp>\n\n"
+                   "#include <cstdint>\n"
+                   "#include <map>\n"
+                   "#include <stdexcept>\n"
+                   "#include <string>\n"
+                   "#include <string_view>\n"
+                   "#include <tuple>\n"
+                   "#include <utility>\n"
+                   "#include <vector>\n\n");
+  write_statement_list(out_stream, statements);
+}
+
+} // namespace rohit::serializer::writer::cpp

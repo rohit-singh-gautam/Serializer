@@ -1,29 +1,34 @@
 cmake_minimum_required(VERSION 3.28)
 
-if(${CMAKE_CURRENT_SOURCE_DIR} STREQUAL ${CMAKE_SOURCE_DIR})
-project(serializer)
-# find_package must be after project
-find_package(GTest CONFIG REQUIRED)
-endif()
+project(serializer LANGUAGES CXX)
 
-if (UNIX)
-add_compile_options(-Wall -Werror -Wpedantic -Wextra -Weffc++ -Wsuggest-override) # -fanalyzer
-elseif (MSVC)
-add_compile_options(/W4 /WX)
-endif()
+option(SERIALIZER_BUILD_TESTS "Build Serializer's tests" ${PROJECT_IS_TOP_LEVEL})
 
-add_library(serializerlib src/parser.cpp src/cpp_writer.cpp src/cpp_type_mapping.cpp include/rohit/serializer_creator.hpp include/rohit/serializer.hpp include/rohit/stream.hpp)
+add_library(serializer_lib
+  src/parser.cpp
+  src/cpp_writer.cpp
+  src/cpp_type_mapping.cpp
+  include/rohit/serializer_creator.hpp
+  include/rohit/serializer.hpp
+  include/rohit/stream.hpp
+)
+target_include_directories(serializer_lib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
+target_compile_features(serializer_lib PUBLIC cxx_std_20)
 
 add_executable(serializer src/serializer.cpp)
+target_link_libraries(serializer PRIVATE serializer_lib)
 
-target_link_libraries(serializer serializerlib)
+# Keep this project's warnings local when consumed through add_subdirectory.
+foreach(target IN ITEMS serializer_lib serializer)
+  if(MSVC)
+    target_compile_options(${target} PRIVATE /W4 /WX)
+  elseif(UNIX)
+    target_compile_options(${target} PRIVATE -Wall -Werror -Wpedantic -Wextra -Weffc++ -Wsuggest-override)
+  endif()
+endforeach()
 
-include_directories(include)
-
-target_compile_features(serializer PUBLIC cxx_std_20)
-target_compile_features(serializerlib PUBLIC cxx_std_20)
-
-if(${CMAKE_CURRENT_SOURCE_DIR} STREQUAL ${CMAKE_SOURCE_DIR})
-    enable_testing()
-    add_subdirectory(test)
+if(SERIALIZER_BUILD_TESTS)
+  enable_testing()
+  find_package(GTest CONFIG REQUIRED)
+  add_subdirectory(test)
 endif()

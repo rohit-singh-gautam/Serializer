@@ -1,67 +1,30 @@
-cmake_minimum_required(VERSION 3.28)
-
-add_custom_command(
-    OUTPUT ${CMAKE_BINARY_DIR}/test/enum.hpp
-    COMMAND serializer input ${CMAKE_SOURCE_DIR}/test/resources/enum.def output ${CMAKE_BINARY_DIR}/test/enum.hpp
-    DEPENDS ${CMAKE_SOURCE_DIR}/test/resources/enum.def serializer
+set(generated_headers)
+foreach(fixture IN ITEMS enum person test1 array map variable)
+  set(input_file "${CMAKE_CURRENT_SOURCE_DIR}/resources/${fixture}.def")
+  set(output_file "${CMAKE_CURRENT_BINARY_DIR}/${fixture}.hpp")
+  add_custom_command(
+    OUTPUT "${output_file}"
+    COMMAND serializer input "${input_file}" output "${output_file}"
+    DEPENDS "${input_file}" serializer
     VERBATIM
+  )
+  list(APPEND generated_headers "${output_file}")
+endforeach()
+
+add_executable(core_serializer_test
+  core_serializer_test.cpp
+  serializer_parser_test.cpp
+  generated_test.cpp
+  wire_format_test.cpp
+  ${generated_headers}
 )
+target_link_libraries(core_serializer_test PRIVATE serializer_lib GTest::gtest_main)
+target_include_directories(core_serializer_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+target_compile_definitions(core_serializer_test PRIVATE ROHIT_SERIALIZER_ENABLE_GTEST)
+if(MSVC)
+  target_compile_options(core_serializer_test PRIVATE /W4 /WX)
+elseif(UNIX)
+  target_compile_options(core_serializer_test PRIVATE -Wall -Werror -Wpedantic -Wextra -Weffc++ -Wsuggest-override)
+endif()
 
-add_custom_command(
-    OUTPUT ${CMAKE_BINARY_DIR}/test/person.hpp
-    COMMAND serializer input ${CMAKE_SOURCE_DIR}/test/resources/person.def output ${CMAKE_BINARY_DIR}/test/person.hpp
-    DEPENDS ${CMAKE_SOURCE_DIR}/test/resources/person.def serializer
-    VERBATIM
-)
-
-
-add_custom_command(
-    OUTPUT ${CMAKE_BINARY_DIR}/test/test1.hpp
-    COMMAND serializer input ${CMAKE_SOURCE_DIR}/test/resources/test1.def output ${CMAKE_BINARY_DIR}/test/test1.hpp
-    DEPENDS ${CMAKE_SOURCE_DIR}/test/resources/test1.def serializer
-    VERBATIM
-)
-
-add_custom_command(
-    OUTPUT ${CMAKE_BINARY_DIR}/test/array.hpp
-    COMMAND serializer input ${CMAKE_SOURCE_DIR}/test/resources/array.def output ${CMAKE_BINARY_DIR}/test/array.hpp
-    DEPENDS ${CMAKE_SOURCE_DIR}/test/resources/array.def serializer
-    VERBATIM
-)
-
-add_custom_command(
-    OUTPUT ${CMAKE_BINARY_DIR}/test/map.hpp
-    COMMAND serializer input ${CMAKE_SOURCE_DIR}/test/resources/map.def output ${CMAKE_BINARY_DIR}/test/map.hpp
-    DEPENDS ${CMAKE_SOURCE_DIR}/test/resources/map.def serializer
-    VERBATIM
-)
-
-add_custom_command(
-    OUTPUT ${CMAKE_BINARY_DIR}/test/variable.hpp
-    COMMAND serializer input ${CMAKE_SOURCE_DIR}/test/resources/variable.def output ${CMAKE_BINARY_DIR}/test/variable.hpp
-    DEPENDS ${CMAKE_SOURCE_DIR}/test/resources/variable.def serializer
-    VERBATIM
-)
-
-add_executable(CoreSerializerTest
-    core_serializer_test.cpp
-    serializer_parser_test.cpp
-    ${CMAKE_BINARY_DIR}/test/person.hpp
-    ${CMAKE_BINARY_DIR}/test/test1.hpp
-    ${CMAKE_BINARY_DIR}/test/array.hpp
-    ${CMAKE_BINARY_DIR}/test/map.hpp
-    ${CMAKE_BINARY_DIR}/test/variable.hpp
-    ${CMAKE_BINARY_DIR}/test/enum.hpp
-    generated_test.cpp)
-
-target_compile_definitions(CoreSerializerTest PUBLIC cxx_std_20)
-
-include_directories(${CMAKE_SOURCE_DIR}/include ${CMAKE_BINARY_DIR}/test)
-
-target_link_libraries(CoreSerializerTest PRIVATE serializerlib GTest::gtest_main)
-
-target_compile_definitions(CoreSerializerTest PUBLIC ENABLE_GTEST)
-
-add_dependencies(CoreSerializerTest serializer)
-
-add_test(CoreSerializerTest CoreSerializerTest)
+add_test(NAME core_serializer_test COMMAND core_serializer_test)

@@ -18,215 +18,256 @@
 #include <gtest/gtest.h>
 #include <rohit/serializer_creator.hpp>
 
-TEST(SerializeParser, Identifier) {
-    std::vector<std::tuple<std::string, std::string, bool>> test_list {
-        {"a   ", "a", false},
-        {"b\"   ", "b", false},
-        {"_Test   ", "_Test", false},
-        {"9Test   ", "9Test", true},
-        {"T39cc03_232_;", "T39cc03_232_", false},
-        {"#T39cc03_232_", "#T39cc03_232_", true},
-        {"", "_Test", true},
-    };
+TEST(serialize_parser, identifier) {
+  std::vector<std::tuple<std::string, std::string, bool>> test_list{
+      {"a   ", "a", false},
+      {"b\"   ", "b", false},
+      {"_Test   ", "_Test", false},
+      {"9Test   ", "9Test", true},
+      {"T39cc03_232_;", "T39cc03_232_", false},
+      {"#T39cc03_232_", "#T39cc03_232_", true},
+      {"", "_Test", true},
+  };
 
-    for(auto &test: test_list) {
-        auto &[input, output, negativetest ] = test;
-        rohit::FullStream inStream { input.data(), input.size() };
-        if (!negativetest) {
-            auto parsedstring = rohit::serializer::Parser::ParseIdentifier(inStream);
-            EXPECT_EQ(parsedstring, output);
-        } else {
-            EXPECT_THROW(rohit::serializer::Parser::ParseIdentifier(inStream), rohit::serializer::exception::BadIdentifier);
-        }
+  for (auto& test : test_list) {
+    auto& [input, output, negative_test] = test;
+    rohit::full_stream in_stream{input.data(), input.size()};
+    if (!negative_test) {
+      auto parsed_string = rohit::serializer::parser::parse_identifier(in_stream);
+      EXPECT_EQ(parsed_string, output);
+    } else {
+      EXPECT_THROW(rohit::serializer::parser::parse_identifier(in_stream),
+                   rohit::serializer::exception::bad_identifier);
     }
+  }
 }
 
-TEST(SerializeParser, HierarchicalIdentifier) {
-    std::vector<std::tuple<std::string, std::string, bool>> test_list {
-        {"_Test   ", "_Test", false},
-        {"9Test   ", "9Test", true},
-        {"T39cc03_232_;", "T39cc03_232_", false},
-        {"#T39cc03_232_", "#T39cc03_232_", true},
-        {"", "_Test", true},
-        {"rohit::_Test   ", "rohit::_Test", false},
-        {"rohit::9Test   ", "rohit::_Test", true},
-        {"a::b::c::d::e::fast::_Test   ", "a::b::c::d::e::fast::_Test", false},
-    };
+TEST(serialize_parser, hierarchical_identifier) {
+  std::vector<std::tuple<std::string, std::string, bool>> test_list{
+      {"_Test   ", "_Test", false},
+      {"9Test   ", "9Test", true},
+      {"T39cc03_232_;", "T39cc03_232_", false},
+      {"#T39cc03_232_", "#T39cc03_232_", true},
+      {"", "_Test", true},
+      {"rohit::_Test   ", "rohit::_Test", false},
+      {"rohit::9Test   ", "rohit::_Test", true},
+      {"a::b::c::d::e::fast::_Test   ", "a::b::c::d::e::fast::_Test", false},
+  };
 
-    for(auto &test: test_list) {
-        auto &[input, output, negativetest ] = test;
-        rohit::FullStream inStream { input.data(), input.size() };
-        if (!negativetest) {
-            auto parsedstring = rohit::serializer::Parser::ParseHierarchicalIdentifier(inStream);
-            EXPECT_EQ(parsedstring, output);
-        } else {
-            EXPECT_THROW(rohit::serializer::Parser::ParseHierarchicalIdentifier(inStream), rohit::serializer::exception::BadIdentifier);
-        }
+  for (auto& test : test_list) {
+    auto& [input, output, negative_test] = test;
+    rohit::full_stream in_stream{input.data(), input.size()};
+    if (!negative_test) {
+      auto parsed_string = rohit::serializer::parser::parse_hierarchical_identifier(in_stream);
+      EXPECT_EQ(parsed_string, output);
+    } else {
+      EXPECT_THROW(rohit::serializer::parser::parse_hierarchical_identifier(in_stream),
+                   rohit::serializer::exception::bad_identifier);
     }
+  }
 }
 
-TEST(SerializeParser, SpaceSeparatedIdentifier) {
-    std::vector<std::tuple<std::string, std::string>> test_list {
-        {"test test1 test2   ", "test test1 test2 "},
-        {"9Test   ", ""},
-        {"T39cc03_232_;", "T39cc03_232_ "},
-        {"#T39cc03_232_", ""},
-        {"", ""}
-    };
+TEST(serialize_parser, space_separated_identifier) {
+  std::vector<std::tuple<std::string, std::string>> test_list{
+      {"test test1 test2   ", "test test1 test2 "},
+      {"9Test   ", ""},
+      {"T39cc03_232_;", "T39cc03_232_ "},
+      {"#T39cc03_232_", ""},
+      {"", ""}};
 
-    for(auto &test: test_list) {
-        std::string parsedstring { };
-        auto resultfn = [&parsedstring](std::string &&value) {
-            parsedstring += value;
-            parsedstring += ' ';  
-        };
-        auto &[input, output ] = test;
-        rohit::FullStream inStream { input.data(), input.size() };
-        rohit::serializer::Parser::SpaceSeparatedIdentifier(inStream, resultfn);
-        EXPECT_EQ(parsedstring, output);
+  for (auto& test : test_list) {
+    std::string parsed_string{};
+    auto on_identifier = [&parsed_string](std::string&& value) {
+      parsed_string += value;
+      parsed_string += ' ';
+    };
+    auto& [input, output] = test;
+    rohit::full_stream in_stream{input.data(), input.size()};
+    rohit::serializer::parser::space_separated_identifier(in_stream, on_identifier);
+    EXPECT_EQ(parsed_string, output);
+  }
+}
+
+TEST(serialize_parser, access_type) {
+  std::vector<std::tuple<std::string, rohit::serializer::access_type>> test_list{
+      {"public", rohit::serializer::access_type::public_access},
+      {"protected", rohit::serializer::access_type::protected_access},
+      {"private", rohit::serializer::access_type::private_access},
+      {"Public", rohit::serializer::access_type::error},
+      {"Protected", rohit::serializer::access_type::error},
+      {"Private", rohit::serializer::access_type::error},
+      {"", rohit::serializer::access_type::error},
+      {"_", rohit::serializer::access_type::error},
+      {"public1", rohit::serializer::access_type::error},
+      {"protected ", rohit::serializer::access_type::protected_access},
+  };
+
+  for (auto& test : test_list) {
+    auto& [input, output] = test;
+    rohit::full_stream in_stream{input.data(), input.size()};
+    if (output != rohit::serializer::access_type::error) {
+      auto parsed_string = rohit::serializer::parser::parse_access_type(in_stream);
+      EXPECT_EQ(parsed_string, output);
+    } else {
+      EXPECT_THROW(rohit::serializer::parser::parse_access_type(in_stream),
+                   rohit::exception::base_parser);
     }
+  }
 }
 
-TEST(SerializeParser, AccessType) {
-    std::vector<std::tuple<std::string, rohit::serializer::AccessType>> test_list {
-        {"public", rohit::serializer::AccessType::Public},
-        {"protected", rohit::serializer::AccessType::Protected},
-        {"private", rohit::serializer::AccessType::Private},
-        {"Public", rohit::serializer::AccessType::Error},
-        {"Protected", rohit::serializer::AccessType::Error},
-        {"Private", rohit::serializer::AccessType::Error},
-        {"", rohit::serializer::AccessType::Error},
-        {"_", rohit::serializer::AccessType::Error},
-        {"public1", rohit::serializer::AccessType::Error},
-        {"protected ", rohit::serializer::AccessType::Protected},
-    };
+TEST(serialize_parser, member) {
+  // tuple list are: source, Member, is negative test
+  std::vector<std::tuple<std::string, rohit::serializer::member, bool>> test_list{
+      {"private \r\n array \r\n\t uint8\t_test\r\n;",
+       {rohit::serializer::access_type::private_access,
+        rohit::serializer::member::modifier_type::array,
+        {{"uint8", nullptr}},
+        "_test",
+        "_test",
+        1,
+        {},
+        {}},
+       false},
+      {"public uint8 test;",
+       {rohit::serializer::access_type::public_access,
+        rohit::serializer::member::modifier_type::none,
+        {{"uint8", nullptr}},
+        "test",
+        "test",
+        2,
+        {},
+        {}},
+       false},
+      {"protected \r\n uint8\ttest;",
+       {rohit::serializer::access_type::protected_access,
+        rohit::serializer::member::modifier_type::none,
+        {{"uint8", nullptr}},
+        "test",
+        "test",
+        3,
+        {},
+        {}},
+       false},
+      {"private \r\n newtest\t_test\r\n;",
+       {rohit::serializer::access_type::private_access,
+        rohit::serializer::member::modifier_type::none,
+        {{"newtest", nullptr}},
+        "_test",
+        "_test",
+        4,
+        {},
+        {}},
+       false},
+      {"private \r\n 9newtest\t_test\r\n;",
+       {rohit::serializer::access_type::private_access,
+        rohit::serializer::member::modifier_type::none,
+        {{"uint8", nullptr}},
+        "_test",
+        "_test",
+        5,
+        {},
+        {}},
+       true},
+  };
 
-    for(auto &test: test_list) {
-        auto &[input, output ] = test;
-        rohit::FullStream inStream { input.data(), input.size() };
-        if (output != rohit::serializer::AccessType::Error) {
-            auto parsedstring = rohit::serializer::Parser::ParseAccessType(inStream);
-            EXPECT_EQ(parsedstring, output);
-        } else {
-            EXPECT_THROW(rohit::serializer::Parser::ParseAccessType(inStream), rohit::exception::BaseParser);
-        }
+  for (auto& test : test_list) {
+    auto& [input, output, negative_test] = test;
+    rohit::full_stream in_stream{input.data(), input.size()};
+    if (!negative_test) {
+      auto parsed_member = rohit::serializer::parser::parse_member(in_stream, output.id, nullptr);
+      EXPECT_EQ(parsed_member, output);
+    } else {
+      EXPECT_THROW(rohit::serializer::parser::parse_member(in_stream, output.id, nullptr),
+                   rohit::serializer::exception::bad_identifier);
     }
+  }
 }
 
-TEST(SerializeParser, Member) {
-    // tuple list are: source, Member, is negative test
-    std::vector<std::tuple<std::string, rohit::serializer::Member, bool>> test_list {
-        {"private \r\n array \r\n\t uint8\t_test\r\n;", {rohit::serializer::AccessType::Private, rohit::serializer::Member::array, { {"uint8", nullptr} }, "_test", "_test", 1, {}, {}}, false},
-        {"public uint8 test;", {rohit::serializer::AccessType::Public, rohit::serializer::Member::none, { {"uint8", nullptr} }, "test", "test", 2, {}, {}}, false},
-        {"protected \r\n uint8\ttest;", {rohit::serializer::AccessType::Protected, rohit::serializer::Member::none, { {"uint8", nullptr} }, "test", "test", 3, {}, {}}, false},
-        {"private \r\n newtest\t_test\r\n;", {rohit::serializer::AccessType::Private, rohit::serializer::Member::none, { {"newtest", nullptr} }, "_test", "_test", 4, {}, {}}, false},
-        {"private \r\n 9newtest\t_test\r\n;", {rohit::serializer::AccessType::Private, rohit::serializer::Member::none, { {"uint8", nullptr} }, "_test", "_test", 5, {}, {}}, true},
-    };
+TEST(serialize_parser, class_body) {
+  std::string input{"{\n"
+                    "public string name {\"None\"}(\"Name\"); "
+                    "public uint64 ID (\"id\", 3) { 1 };\t"
+                    "}"};
 
-    for(auto &test: test_list) {
-        auto &[input, output, negativetest ] = test;
-        rohit::FullStream inStream { input.data(), input.size() };
-        if (!negativetest) {
-            auto parsedmember = rohit::serializer::Parser::ParseMember(inStream, output.id, nullptr);
-            EXPECT_EQ(parsedmember, output);
-        } else {
-            EXPECT_THROW(rohit::serializer::Parser::ParseMember(inStream, output.id, nullptr), rohit::serializer::exception::BadIdentifier);
-        }
-    }
+  rohit::full_stream in_stream{input.data(), input.size()};
+  std::string name{"person"};
+  std::vector<rohit::serializer::parent> parent{};
+  rohit::serializer::class_node obj{rohit::serializer::object_type::class_type, std::move(name),
+                                    nullptr, rohit::serializer::class_attributes::none,
+                                    std::move(parent)};
+  std::uint32_t id{1};
+  rohit::serializer::parser::parse_class_body(in_stream, &obj, id);
+  EXPECT_EQ(obj.member_list.size(), 2);
+  EXPECT_EQ(obj.member_list[0].name, "name");
+  EXPECT_EQ(obj.member_list[0].display_name, "Name");
+  EXPECT_EQ(obj.member_list[0].id, 1);
+  EXPECT_EQ(obj.member_list[0].default_value, "\"None\"");
+  EXPECT_EQ(obj.member_list[1].default_value, "1");
+  EXPECT_EQ(obj.member_list[1].name, "ID");
+  EXPECT_EQ(obj.member_list[1].display_name, "id");
+  EXPECT_EQ(obj.member_list[1].id, 3);
 }
 
-TEST(SerializeParser, ClassBody) {
-    std::string input {
-        "{\n"
-        "public string name {\"None\"}(\"Name\"); "
-        "public uint64 ID (\"id\", 3) { 1 };\t"
-        "}"
-    };
+TEST(serialize_parser, complete_struct) {
+  std::string input{"namespace test {\r\n"
+                    "class person packed {\n"
+                    "/*Name of the person*/"
+                    "public string name; "
+                    "public uint64 ID;\t"
+                    "}"
+                    "}"};
 
-    rohit::FullStream inStream { input.data(), input.size() };
-    std::string name { "person" };
-    std::vector<rohit::serializer::Parent> parent { };
-    rohit::serializer::Class obj {rohit::serializer::ObjectType::Class, std::move(name), nullptr, rohit::serializer::ClassAtributes::None, std::move(parent)};
-    uint32_t id { 1 };
-    rohit::serializer::Parser::ParseClassBody(inStream, &obj, id);
-    EXPECT_EQ(obj.MemberList.size(), 2);
-    EXPECT_EQ(obj.MemberList[0].Name, "name");
-    EXPECT_EQ(obj.MemberList[0].displayName, "Name");
-    EXPECT_EQ(obj.MemberList[0].id, 1);
-    EXPECT_EQ(obj.MemberList[0].defaultValue, "\"None\"");
-    EXPECT_EQ(obj.MemberList[1].defaultValue, "1");
-    EXPECT_EQ(obj.MemberList[1].Name, "ID");
-    EXPECT_EQ(obj.MemberList[1].displayName, "id");
-    EXPECT_EQ(obj.MemberList[1].id, 3);
+  rohit::full_stream in_stream{input.data(), input.size()};
+  auto parsed = rohit::serializer::parser::parse(in_stream);
+  EXPECT_EQ(parsed.size(), 1);
 }
 
-TEST(SerializeParser, CompleteStruct) {
-    std::string input {
-        "namespace test {\r\n"
-        "class person packed {\n"
-        "/*Name of the person*/"
-        "public string name; "
-        "public uint64 ID;\t"
-        "}"
-        "}"
-    };
+TEST(serialize_parser, complete_struct_with_map) {
+  std::string input{"namespace arraytest {"
+                    "class person {"
+                    "public string name;"
+                    "public uint64 ID;}"
+                    "class personlist {"
+                    "public uint64 listid;"
+                    "public map(uint64) person list;}}"};
 
-    rohit::FullStream inStream { input.data(), input.size() };
-    auto parsed = rohit::serializer::Parser::Parse(inStream);
-    EXPECT_EQ(parsed.size(), 1);
+  rohit::full_stream in_stream{input.data(), input.size()};
+  auto parsed = rohit::serializer::parser::parse(in_stream);
+  EXPECT_EQ(parsed.size(), 1);
 }
 
-TEST(SerializeParser, CompleteStructWithMap) {
-    std::string input {
-        "namespace arraytest {"
-        "class person {"
-        "public string name;"
-        "public uint64 ID;}"
-        "class personlist {"
-        "public uint64 listid;"
-        "public map(uint64) person list;}}"
-    };
+TEST(serialize_parser, bad_struct_with_map) {
+  std::string input{"namespace arraytest {"
+                    "class person {"
+                    "public string name;"
+                    "public uint64 ID;}"
+                    "class personlist {"
+                    "public uint64 listid;"
+                    "public map(uint64) person;}}"};
 
-    rohit::FullStream inStream { input.data(), input.size() };
-    auto parsed = rohit::serializer::Parser::Parse(inStream);
-    EXPECT_EQ(parsed.size(), 1);
+  rohit::full_stream in_stream{input.data(), input.size()};
+  EXPECT_THROW(rohit::serializer::parser::parse(in_stream),
+               rohit::serializer::exception::bad_identifier);
 }
 
-TEST(SerializeParser, BadStructWithMap) {
-    std::string input {
-        "namespace arraytest {"
-        "class person {"
-        "public string name;"
-        "public uint64 ID;}"
-        "class personlist {"
-        "public uint64 listid;"
-        "public map(uint64) person;}}"
-    };
+TEST(serialize_parser, bad_test) {
+  std::string input{"namespace enumtest {"
+                    "enum test {"
+                    "\ttest1,"
+                    "\ttest2,"
+                    "\ttest3,"
+                    "\ttest4,"
+                    "\ttest5,"
+                    "}}"};
 
-    rohit::FullStream inStream { input.data(), input.size() };
-    EXPECT_THROW(rohit::serializer::Parser::Parse(inStream), rohit::serializer::exception::BadIdentifier);
+  rohit::full_stream in_stream{input.data(), input.size()};
+  auto parsed = rohit::serializer::parser::parse(in_stream);
+  EXPECT_EQ(parsed.size(), 1);
 }
 
-TEST(SerializeParser, BadTest) {
-    std::string input {
-        "namespace enumtest {"
-        "enum test {"
-        "\ttest1,"
-        "\ttest2,"
-        "\ttest3,"
-        "\ttest4,"
-        "\ttest5,"
-        "}}"
-    };
-
-    rohit::FullStream inStream { input.data(), input.size() };
-    auto parsed = rohit::serializer::Parser::Parse(inStream);
-    EXPECT_EQ(parsed.size(), 1);
-}
-
-TEST(SerializeParser, VariableMember) {
-    std::string input {
-        R"(
+TEST(serialize_parser, variable_member) {
+  std::string input{
+      R"(
 namespace test {
 class IP {
     public uint8 a;
@@ -263,17 +304,16 @@ class server1 {
 }
 
 } // namespace test
-)"
-    };
+)"};
 
-    rohit::FullStream inStream { input.data(), input.size() };
-    auto parsed = rohit::serializer::Parser::Parse(inStream);
-    EXPECT_EQ(parsed.size(), 1);
+  rohit::full_stream in_stream{input.data(), input.size()};
+  auto parsed = rohit::serializer::parser::parse(in_stream);
+  EXPECT_EQ(parsed.size(), 1);
 }
 
-TEST(SerializeParser, CompleteEnumTest) {
-    std::string input {
-        R"(
+TEST(serialize_parser, complete_enum_test) {
+  std::string input{
+      R"(
 namespace test {
 class IP {
     public uint8 a;
@@ -316,12 +356,10 @@ class server1 {
 }
 
 } // namespace test
-)"
-    };
+)"};
 
-    rohit::FullStreamAutoAlloc outStream {128};
-    rohit::FullStream inStream { input.data(), input.size() };
-    auto statementlist = rohit::serializer::Parser::Parse(inStream);
-    rohit::serializer::Writer::CPP::Write(outStream, statementlist);
+  rohit::full_stream_auto_alloc out_stream{128};
+  rohit::full_stream in_stream{input.data(), input.size()};
+  auto statements = rohit::serializer::parser::parse(in_stream);
+  rohit::serializer::writer::cpp::write(out_stream, statements);
 }
-
