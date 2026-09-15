@@ -15,8 +15,8 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/ //
 //////////////////////////////////////////////////////////////////////////
 
-#include <rohit/serializer.h>
-#include <rohit/serializercreator.h>
+#include <rohit/serializer.hpp>
+#include <rohit/serializer_creator.hpp>
 #include <fstream>
 
 void DisplayHelp(const std::string &err) {

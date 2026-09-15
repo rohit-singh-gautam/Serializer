@@ -16,7 +16,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #pragma once
-#include <rohit/stream.h>
+#include <rohit/stream.hpp>
 #include <concepts>
 #include <type_traits>
 #include <cstdint>

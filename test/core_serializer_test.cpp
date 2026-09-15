@@ -16,7 +16,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include <gtest/gtest.h>
-#include <rohit/serializer.h>
+#include <rohit/serializer.hpp>
 #include <vector>
 
 TEST(JSONSerializer, Char) {

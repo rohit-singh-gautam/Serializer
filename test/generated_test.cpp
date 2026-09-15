@@ -16,13 +16,13 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include <gtest/gtest.h>
-#include <person.h>
-#include <test1.h>
-#include <array.h>
-#include <variable.h>
-#include <map.h>
+#include <person.hpp>
+#include <test1.hpp>
+#include <array.hpp>
+#include <variable.hpp>
+#include <map.hpp>
 #include <string>
-#include <enum.h>
+#include <enum.hpp>
 
 TEST(GeneratedTest, SerializeIn) {
     const std::string personstr {"{\"fullname\":\"Rohit Jairaj Singh\",\"ID\":322}"};

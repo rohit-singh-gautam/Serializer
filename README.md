@@ -115,7 +115,7 @@ This will result in:
 // to https://github.com/rohit-singh-gautam/Serializer //
 /////////////////////////////////////////////////////////
 #pragma once
-#include <rohit/serializer.h>
+#include <rohit/serializer.hpp>
 
 namespace test {
 class person {
@@ -158,7 +158,7 @@ Above input will generate:
 // to https://github.com/rohit-singh-gautam/Serializer //
 /////////////////////////////////////////////////////////
 #pragma once
-#include <rohit/serializer.h>
+#include <rohit/serializer.hpp>
 
 namespace arraytest {
 class person {
@@ -216,7 +216,7 @@ Above code will result in below C++ code
 // to https://github.com/rohit-singh-gautam/Serializer //
 /////////////////////////////////////////////////////////
 #pragma once
-#include <rohit/serializer.h>
+#include <rohit/serializer.hpp>
 
 namespace maptest {
 class person {

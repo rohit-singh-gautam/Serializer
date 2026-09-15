@@ -16,7 +16,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include <gtest/gtest.h>
-#include <rohit/serializercreator.h>
+#include <rohit/serializer_creator.hpp>
 
 TEST(SerializeParser, Identifier) {
     std::vector<std::tuple<std::string, std::string, bool>> test_list {

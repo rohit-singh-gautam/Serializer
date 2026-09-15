@@ -16,7 +16,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #pragma once
-#include <rohit/stream.h>
+#include <rohit/stream.hpp>
 #include <string.h>
 #include <stack>
 #include <vector>
@@ -26,7 +26,7 @@
 #include <filesystem>
 #include <iostream>
 #include <exception>
-#include <rohit/serializer.h>
+#include <rohit/serializer.hpp>
 
 // Gramar
 // STRUCTFILE: statementlist

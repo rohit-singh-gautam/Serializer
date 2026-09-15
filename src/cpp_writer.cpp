@@ -15,7 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/ //
 //////////////////////////////////////////////////////////////////////////
 
-#include <rohit/serializercreator.h>
+#include <rohit/serializer_creator.hpp>
 
 namespace rohit::serializer::Writer::CPP {
 
@@ -514,7 +514,7 @@ void Write(Stream &outStream, std::vector<std::unique_ptr<Base>> &statementlist)
         "/////////////////////////////////////////////////////////\n"
         "\n"
         "#pragma once\n"
-        "#include <rohit/serializer.h>\n\n"
+        "#include <rohit/serializer.hpp>\n\n"
     );
     WriteStatementList(outStream, statementlist);
 }
