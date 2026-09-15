@@ -100,6 +100,63 @@ applies to lengths, enum values, and union indices that use the same encoding.
 Failures do not roll back previously written fields or prefixes. Ordinary
 fixed-width signed integer fields continue to support negative values.
 
+## Decoder, JSON, and generator qualification changes
+
+Generated keyed fields and union payloads now hold references in their temporary
+pairs/tuples. Serialization does not copy or move the source field. Generated
+enum output borrows its spelling; the existing owning `to_string` API remains.
+Regenerate headers through the generator when the build pass is authorized.
+Custom output protocols need `struct_serialize_out_empty()` for empty generated
+objects. Named enum input can optionally provide `serialize_in_named_enum(value)`;
+custom protocols without it retain the owning-string fallback.
+
+Binary scalar input now copies bytes into aligned storage and converts byte order
+through unsigned representations. String-key input borrows field names during
+dispatch. Binary vectors validate their count and storage budget before one
+reservation, and strings assign directly from validated input spans.
+
+Strings, vectors, and maps now **replace** existing contents on input. Vectors
+move decoded elements and reuse capacity; maps retain ordered semantics and use
+the last complete duplicate-key entry. Objects remain partial updates: missing
+fields retain their destination values, and repeated fields apply in order.
+Failures retain earlier writes, consumed prefixes, completed fields/entries, and
+budget charges. This is not whole-object atomic decoding.
+
+Both input protocols accept `decode_limits` as a second constructor argument and
+share its accounting through nested values. Defaults bound consumed bytes, string
+length, collection/object counts, nesting depth, accounted storage, and work.
+Protocols are noncopyable; use a reference for nesting and a new protocol per new
+message budget. `finish()` opts into exact-message validation. Generated stream
+convenience overloads continue to read one value without requiring end-of-input.
+Input bytes must remain independent of mutable destination storage.
+
+JSON now validates strings, escapes, Unicode, punctuation, number grammar, and
+range. Mixed-case booleans, leading plus signs/zeroes, trailing commas, invalid
+UTF-8, unpaired surrogates, numeric overflow, and malformed suffixes are rejected.
+Output escapes names/strings. Floating output uses shortest general-format
+`std::to_chars`, so text such as `3.140000` becomes `3.14`; non-finite values are
+rejected. Empty objects and `std::nullptr_t` values are supported. JSON map wire
+shape remains an array of `key`/`value` entries.
+
+Schema parsing rejects duplicate IDs/names, explicit/implicit ID collisions,
+duplicate enum/union alternatives, and unknown class attributes. `stable_ids`
+requires explicit IDs for every member and parent in that class. Generated name
+dispatch groups hash collisions and checks full equality. Numeric enum input
+checks generated enum membership. Union readers validate alternatives and begin
+the selected member's lifetime before decoding; raw union payloads must be
+trivially destructible. Generated serializer methods are public even when a
+class is empty or its last data member is private. The generator exits with a
+failure status when schema parsing or writing fails.
+
+Parser exceptions expose a structured `code()` and omit input excerpts by default.
+Use `diagnostic_options` or `decode_limits::diagnostics` for bounded, escaped,
+opt-in excerpts. `format::compress` means whitespace suppression, not compression.
+Recompile consumers after these decoder and exception-interface changes.
+
+See [the wire-format contract](docs/wire_format.md) for exact limits, exception
+categories, lifetime rules, and schema-evolution requirements, and
+[qualification tools](qualification/README.md) for the prepared validation pass.
+
 ## Stream safety and ownership
 
 Owning `stream_auto_free` and `full_stream_auto_alloc` objects are now move-only;
@@ -201,10 +258,11 @@ still generates a member named `ID`. The generator does not silently rewrite
 user-defined classes, enum values, JSON keys, custom member names, or numeric IDs.
 The existing fixtures deliberately retain mixed-case names to test that contract.
 
-JSON output, binary layouts, field order, discriminator values, and identifier
-hashing are preserved by this migration. Renaming a schema member itself may
-change its default wire name; retain an explicit name modifier when preserving
-that external contract.
+The API renaming alone preserves JSON output, binary layouts, field order, and
+discriminator values. The later qualification changes above intentionally update
+JSON formatting/parsing and internal name dispatch while preserving valid binary
+wire representations. Renaming a schema member itself may change its default
+wire name; retain an explicit name modifier when preserving that external contract.
 
 ```cpp
 #include <rohit/serializer.hpp>

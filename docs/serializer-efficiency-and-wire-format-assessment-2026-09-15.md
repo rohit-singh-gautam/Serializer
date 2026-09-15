@@ -26,6 +26,13 @@ changes unless marked in the implementation record below.
 
 ## 1. Efficient design choices to preserve
 
+**Current implementation status:** Steps 1-9 below record the changes after this
+historical assessment. The concrete correctness, allocation, JSON, diagnostics,
+and schema-validation recommendations are implemented in source. New regression,
+fuzz, timing, and allocation-profile targets are prepared but have not been run.
+Measurement-dependent API/format experiments remain conditional; see step 9 and
+[the qualification guide](../qualification/README.md).
+
 - Generated serializers select protocol behavior with `if constexpr`; ordinary
   field access does not require runtime reflection or metadata lookup. This is an
   existing design choice. Keyed input still dispatches on IDs or names read from
@@ -593,6 +600,58 @@ snapshots for all modes, compact integer width boundaries, negative/oversized
 values, zero field IDs versus zero union indices, explicit parent/field metadata,
 empty names, and malformed or oversized decimal ID tokens. Rejection of a value
 does not roll back previously emitted fields or prefixes.
+
+### Step 9: Complete the concrete assessment recommendations
+
+| Assessment area | Source implementation |
+| --- | --- |
+| 2.1 Generated copies | Keyed fields and all union payloads use `std::cref` in reference-bearing pairs/tuples. Enum field names use borrowed views; source objects are neither copied nor moved. |
+| 2.2 Destination reuse | Strings/vectors/maps have explicit replacement semantics. Binary vectors reserve once after count/storage validation, JSON vectors move temporaries and validate growth, binary strings assign ranges directly, and binary field names borrow bounded views. |
+| 2.3 Runtime callbacks/scanning | JSON collection callbacks are templates. Whitespace, number, and string scans use bounded local spans and commit cursor changes in runs. |
+| 2.4 Floating text | Bounded `from_chars` parsing and shortest general-format `to_chars` output replace owning conversion strings. Range and non-finite behavior are explicit. |
+| 2.5 / 8.1-8.6 Stream fixes | Prior steps retain checked operators, transactional growth, batching, byte comparisons, independent-source copying, and reduced reservation work. |
+| 4.1 Compact integers | The reader validates the full tagged extent before a single cursor update. Tests use actual encoded lengths, including every truncated prefix at width boundaries. Writer range checks remain in place. |
+| 4.2 Scalar portability | Binary input uses `memcpy` into aligned unsigned storage and bit-preserving integer/floating conversion. No typed scalar loads from byte buffers remain. |
+| 4.3 Bounded decoding | A shared, noncopyable decoder session tracks byte, string, collection, depth, storage, and work limits. Strict JSON strings/Unicode, numbers, punctuation, literals, and empty objects are implemented. Replacement and partial-failure behavior are documented. |
+| 4.4 Schema identity | ID/name uniqueness and explicit/implicit collisions are validated. `stable_ids` requires explicit member/parent IDs. Hash groups check full name equality. Enum/union values are validated and selected raw union members are constructed before input. |
+| 4.5 Diagnostics/compression | Structured exception categories and bounded opt-in excerpts replace automatic payload excerpts. Documentation distinguishes compact JSON from compression. |
+| 6 Verification/measurement | Regression cases and optional generated-record fuzz, timing, and allocation-profile targets are added for later execution. |
+
+The binary representation for valid existing values remains unchanged. JSON
+escaping and shortest floating-point text are intentional output changes, and
+strict parsing rejects previously accepted malformed values. Collections replace
+existing contents; generated objects retain partial updates and missing-field
+defaults from their destination. Raw union payloads must be trivially destructible.
+See [migration](../migration.md) and [the wire specification](wire_format.md).
+
+Additional source integration fixes make these paths usable: input capability
+checks now check `serialize_in`, formatter indentation has balanced push/pop
+behavior, empty/private-ended classes expose public serialization methods,
+type-resolution copies retain resolved metadata, schema EOF/comment handling is
+bounded, and schema parsing/generation exceptions return a nonzero exit status.
+
+The following assessment items explicitly depend on measurement or a separate
+API/format decision and are **not unconditional implementation recommendations**:
+
+- Direct integer formatting into output storage and a public stream-hierarchy
+  redesign: retain exact-length stack formatting and custom reservation policies
+  until profiling demonstrates a benefit and a compatible policy contract.
+- Sorted-map insertion hints/alternative containers: preserve arbitrary incoming
+  order and `std::map` behavior; evaluate separately with workload evidence.
+- Ordinary-integer variable encoding, unknown-field framing, compression, and
+  new language backends: introduce none without a versioned contract and measured
+  justification. The document explicitly proposes no compression codec here.
+
+Prepared tests cover exact/truncated binary inputs, odd-offset float/double bytes,
+strict JSON grammar/Unicode and round trips, destination reuse and failure, resource
+limits, generated modes and enum collections, schema identity, and diagnostics.
+Timing and allocation profiling are separate executables to keep instrumentation
+out of codec timing. Allocation peaks report requested incremental storage, not
+allocator/RSS measurements; their scope is documented in the qualification guide.
+
+No builds, configuration runs, generated-header regeneration, tests, fuzzing, or
+benchmarks were run in this implementation step, as requested. Source/whitespace
+review is not runtime, portability, or performance qualification.
 
 ## 8. Follow-up optimization review of stream.hpp
 

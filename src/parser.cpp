@@ -29,6 +29,7 @@
 #include <system_error>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -91,27 +92,27 @@ constexpr bool is_identifier(const char val) noexcept {
 }
 // Test for the ASCII whitespace characters accepted by the parser.
 bool is_whitespace(const stream& in_stream) {
-  return is_whitespace(*in_stream);
+  return !in_stream.full() && is_whitespace(*in_stream);
 }
 // Test whether a character is an ASCII decimal digit.
 bool is_number(const stream& in_stream) {
-  return is_number(*in_stream);
+  return !in_stream.full() && is_number(*in_stream);
 }
 // Test whether a character is an ASCII lowercase letter.
 bool is_small_alphabet(const stream& in_stream) {
-  return is_small_alphabet(*in_stream);
+  return !in_stream.full() && is_small_alphabet(*in_stream);
 }
 // Test whether a character is an ASCII uppercase letter.
 bool is_capital_alphabet(const stream& in_stream) {
-  return is_capital_alphabet(*in_stream);
+  return !in_stream.full() && is_capital_alphabet(*in_stream);
 }
 // Test whether a character can begin a schema identifier.
 bool is_first_identifier(const stream& in_stream) {
-  return is_first_identifier(*in_stream);
+  return !in_stream.full() && is_first_identifier(*in_stream);
 }
 // Test whether a character can continue a schema identifier.
 bool is_identifier(const stream& in_stream) {
-  return is_identifier(*in_stream);
+  return !in_stream.full() && is_identifier(*in_stream);
 }
 // Advance past whitespace before the next token.
 void skip_whitespace(const stream& in_stream) {
@@ -150,47 +151,38 @@ auto get_member_spec_token(const stream& in_stream) {
   return std::make_pair(token, is_string);
 }
 
-// Consume whitespace and line or block comments before the next token.
-void skip_whitespace_and_comment(const stream& in_stream) {
-  for (;;) {
-    auto ch = *in_stream;
-    if (is_whitespace(ch)) {
-      ++in_stream;
+// Consume complete whitespace and comment spans, including a final line comment at EOF.
+void skip_whitespace_and_comment(const stream& input) {
+  while (!input.full()) {
+    if (is_whitespace(*input)) {
+      ++input;
       continue;
     }
-    if (ch == '/') {
-      ++in_stream;
-      auto ch1 = *in_stream;
-      if (ch1 == '/') {
-        // Skip till new line
-        ++in_stream;
-        while (*in_stream && *in_stream != '\n') {
-          ++in_stream;
-        }
-        continue;
-      }
-      if (ch1 == '*') {
-        // Skip till */
-        ++in_stream;
-        for (;;) {
-          const auto ch2 = *in_stream;
-          if (ch2 == '*') {
-            ++in_stream;
-            const auto ch3 = *in_stream;
-            if (ch3 == '/') {
-              ++in_stream;
-              break;
-            }
-          }
-          ++in_stream;
-        }
-        continue;
-      }
+    if (*input != '/') { return; }
+    if (input.remaining_buffer() < 2) {
+      throw exception::bad_input_data{input, "Incomplete schema comment"};
     }
-    break;
+    const auto kind = input.curr()[1];
+    if (kind != '/' && kind != '*') {
+      throw exception::bad_input_data{input, "Invalid schema comment"};
+    }
+    input.advance_unchecked(2);
+    if (kind == '/') {
+      while (!input.full() && *input != '\n') { ++input; }
+    } else {
+      bool closed{};
+      while (input.remaining_buffer() >= 2) {
+        if (input.curr()[0] == '*' && input.curr()[1] == '/') {
+          input.advance_unchecked(2);
+          closed = true;
+          break;
+        }
+        ++input;
+      }
+      if (!closed) { throw exception::bad_input_data{input, "Unterminated schema comment"}; }
+    }
   }
-} // skip_whitespace_and_comment
-
+}
 // Read the initializer text inside a schema default-value clause.
 std::string get_default_value(const stream& in_stream) {
   std::string default_value{};
@@ -245,7 +237,7 @@ std::string parse_identifier(const stream& in_stream) {
   }
   identifier.push_back(ch);
   ++in_stream;
-  while (is_identifier(*in_stream)) {
+  while (!in_stream.full() && is_identifier(*in_stream)) {
     identifier.push_back(*in_stream);
     ++in_stream;
   }
@@ -263,7 +255,7 @@ std::string parse_hierarchical_identifier(const stream& in_stream) {
     }
     identifier.push_back(*in_stream);
     ++in_stream;
-    while (is_identifier(*in_stream)) {
+    while (!in_stream.full() && is_identifier(*in_stream)) {
       identifier.push_back(*in_stream);
       ++in_stream;
     }
@@ -392,7 +384,8 @@ void validate_field_key(const stream& in_stream, std::uint32_t id, std::string_v
 }
 
 // Parse a wire name and decimal ID without narrowing or overflowing the numeric token.
-void parse_name_spec(const stream& in_stream, std::uint32_t& new_id, std::string& display_name) {
+void parse_name_spec(const stream& in_stream, std::uint32_t& new_id, std::string& display_name,
+                     bool& explicit_id) {
   check_and_increase(in_stream, '(');
   bool string_parsed{false};
   bool number_parsed{false};
@@ -418,6 +411,7 @@ void parse_name_spec(const stream& in_stream, std::uint32_t& new_id, std::string
           throw exception::bad_member_spec{in_stream, "Invalid decimal field ID"};
         }
         new_id = parsed_id;
+        explicit_id = true;
       } else {
         throw exception::bad_member_spec{in_stream, "Unknown parameter in member spec"};
       }
@@ -459,6 +453,7 @@ member parse_member(const stream& in_stream, const std::uint32_t id,
   auto display_name = name;
   std::uint32_t new_id{id};
   bool parsed_member_spec{false};
+  bool explicit_id{false};
   bool parsed_default_value{false};
   std::string default_value{};
   while (true) {
@@ -468,7 +463,7 @@ member parse_member(const stream& in_stream, const std::uint32_t id,
         throw exception::bad_member_spec{in_stream, "Only one member spec is allowed"};
       }
       parsed_member_spec = true;
-      parse_name_spec(in_stream, new_id, display_name);
+      parse_name_spec(in_stream, new_id, display_name, explicit_id);
     } else if (*in_stream == '{') {
       if (parsed_default_value) {
         throw exception::bad_member_spec{in_stream, "Only one default value is allowed"};
@@ -482,7 +477,8 @@ member parse_member(const stream& in_stream, const std::uint32_t id,
   skip_whitespace_and_comment(in_stream);
   check_and_increase(in_stream, ';');
   validate_field_key(in_stream, new_id, display_name);
-  return {access, member_modifier, type_name_list, name, display_name, new_id, key, default_value};
+  return {access, member_modifier, type_name_list, name, display_name, new_id, key, default_value,
+          explicit_id};
 } // parse_member
 
 object_type parse_object_type(const stream& in_stream) {
@@ -517,7 +513,7 @@ void parse_class_body(const stream& in_stream, class_node* obj, std::uint32_t& i
     skip_whitespace_and_comment(in_stream);
   }
   ++in_stream;
-  if (*in_stream == ';') {
+  if (!in_stream.full() && *in_stream == ';') {
     throw exception::bad_class{in_stream, {"Semicolon is not expected at the end of a class"}};
   }
 }
@@ -529,13 +525,14 @@ parent parse_parent(const stream& in_stream, namespace_node* current_namespace,
   auto full_name = parse_hierarchical_identifier(in_stream);
   std::string display_name = full_name;
   std::uint32_t new_id = id;
+  bool explicit_id{false};
   skip_whitespace_and_comment(in_stream);
   if (*in_stream == '(') {
-    parse_name_spec(in_stream, new_id, display_name);
+    parse_name_spec(in_stream, new_id, display_name, explicit_id);
     skip_whitespace_and_comment(in_stream);
   }
   validate_field_key(in_stream, new_id, display_name);
-  return {access, full_name, display_name, new_id, current_namespace, nullptr};
+  return {access, full_name, display_name, new_id, current_namespace, nullptr, explicit_id};
 }
 
 // Parse parent list from the schema input; malformed input throws.
@@ -565,9 +562,13 @@ parse_class_header(const stream& in_stream, namespace_node* current_namespace, s
   auto name = parse_identifier(in_stream);
   skip_whitespace_and_comment(in_stream);
   auto attributes{class_attributes::none};
-  space_separated_identifier(in_stream, [&attributes](std::string&& value) {
+  space_separated_identifier(in_stream, [&attributes, &in_stream](std::string&& value) {
     if (value == "packed") {
       attributes |= class_attributes::packed;
+    } else if (value == "stable_ids") {
+      attributes |= class_attributes::stable_ids;
+    } else {
+      throw exception::bad_class{in_stream, "Unknown class attribute"};
     }
   });
   std::vector<parent> parents;
@@ -583,6 +584,44 @@ parse_class_header(const stream& in_stream, namespace_node* current_namespace, s
                                       attributes, std::move(parents));
 }
 
+// Reject ambiguous field identity, including collisions between explicit and implicit IDs.
+void validate_class_keys(const stream& input, const class_node& obj) {
+  std::unordered_set<std::uint32_t> ids;
+  std::unordered_set<std::string> names;
+  const bool stable = (obj.attributes & class_attributes::stable_ids) == class_attributes::stable_ids;
+  const auto add_id = [&](std::uint32_t id, bool explicit_id) {
+    if (stable && !explicit_id) {
+      throw exception::bad_member_spec{input, "stable_ids requires explicit field and parent IDs"};
+    }
+    if (!ids.insert(id).second) {
+      throw exception::bad_member_spec{input, "Duplicate field or parent ID"};
+    }
+  };
+  const auto add_name = [&](const std::string& name) {
+    if (!names.insert(name).second) {
+      throw exception::bad_member_spec{input, "Duplicate field or parent wire name"};
+    }
+  };
+  for (const auto& base : obj.parents) {
+    add_id(base.id, base.explicit_id);
+    add_name(base.display_name);
+  }
+  for (const auto& field : obj.member_list) {
+    add_id(field.id, field.explicit_id);
+    if (field.modifier == member::modifier_type::variant) {
+      std::unordered_set<std::string> alternatives;
+      for (const auto& alternative : field.type_name_list) {
+        if (!alternatives.insert(alternative.enum_name).second) {
+          throw exception::bad_member_spec{input, "Duplicate union alternative name"};
+        }
+        add_name(field.display_name + ":" + alternative.enum_name);
+      }
+    } else {
+      add_name(field.display_name);
+    }
+  }
+}
+
 // Parse class from the schema input; malformed input throws.
 std::unique_ptr<class_node> parse_class(const stream& in_stream,
                                         namespace_node* current_namespace) {
@@ -590,6 +629,7 @@ std::unique_ptr<class_node> parse_class(const stream& in_stream,
   auto obj = parse_class_header(in_stream, current_namespace, id);
   // At this point all whitespace is skipped
   parse_class_body(in_stream, obj.get(), id);
+  validate_class_keys(in_stream, *obj);
   return obj;
 }
 
@@ -606,9 +646,13 @@ std::unique_ptr<enum_node> parse_enum(const stream& in_stream, namespace_node* c
   ++in_stream;
   skip_whitespace_and_comment(in_stream);
   std::vector<std::string> enum_name_list{};
+  std::unordered_set<std::string> enum_names;
   if (*in_stream != '}') {
     while (true) {
       auto name = parse_identifier(in_stream);
+      if (!enum_names.insert(name).second) {
+        throw exception::bad_member_spec{in_stream, "Duplicate enum name"};
+      }
       enum_name_list.push_back(name);
       skip_whitespace_and_comment(in_stream);
       if (*in_stream != ',') {
@@ -627,7 +671,7 @@ std::unique_ptr<enum_node> parse_enum(const stream& in_stream, namespace_node* c
     }
   }
   ++in_stream;
-  if (*in_stream == ';') {
+  if (!in_stream.full() && *in_stream == ';') {
     throw exception::bad_class{in_stream, {"Semicolon is not expected at the end of a class"}};
   }
   auto ret = std::make_unique<enum_node>(object_type::enum_type, std::move(enum_name),
@@ -645,7 +689,7 @@ std::vector<std::unique_ptr<syntax_node>> parse_statement_list(const stream& in_
   std::vector<std::unique_ptr<syntax_node>> statements{};
   while (true) {
     skip_whitespace_and_comment(in_stream);
-    if (in_stream.full() || *in_stream == '}' || *in_stream == 0xcd || *in_stream == 0x00) {
+    if (in_stream.full() || *in_stream == '}') {
       break;
     }
     auto object_type = parse_object_type(in_stream);
@@ -763,6 +807,9 @@ void resolve_member(const stream& in_stream,
 // Parse schema declarations and resolve their member types; malformed input throws.
 std::vector<std::unique_ptr<syntax_node>> parse(const stream& in_stream) {
   auto statements = parse_statement_list(in_stream, nullptr);
+  if (!in_stream.full()) {
+    throw exception::bad_input_data{in_stream, "Unexpected trailing schema input"};
+  }
   std::unordered_map<std::string, object_type> variable_type_map;
   resolve_member(in_stream, statements, variable_type_map);
   return statements;

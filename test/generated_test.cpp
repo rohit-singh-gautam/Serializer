@@ -32,7 +32,7 @@ TEST(generated_test, serialize_in) {
   person.serialize_in<rohit::serializer::json>(fullstream);
   EXPECT_EQ(person.ID, 322);
 
-  std::string valuesstr{"{\"ch\":\"a\",\"pi\":3.14,\"t1\":3.884563,\"t2\":TRUE}"};
+  std::string valuesstr{"{\"ch\":\"a\",\"pi\":3.14,\"t1\":3.884563,\"t2\":true}"};
   test::values values{};
   auto fullstream1 = rohit::make_constant_full_stream(valuesstr);
   values.serialize_in<rohit::serializer::json>(fullstream1);
@@ -64,7 +64,7 @@ TEST(generated_test, serialize_out) {
   fullstream.reset();
   values.serialize_out<rohit::serializer::json>(fullstream);
   std::string valuesstr{reinterpret_cast<char*>(fullstream.begin()), fullstream.current_offset()};
-  std::string result_valuesstr{"{\"ch\":\"a\",\"pi\":3.140000,\"t1\":3.884563,\"t2\":true}"};
+  std::string result_valuesstr{"{\"ch\":\"a\",\"pi\":3.14,\"t1\":3.884563,\"t2\":true}"};
 
   EXPECT_TRUE(result_valuesstr == valuesstr);
 

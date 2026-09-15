@@ -1,0 +1,20 @@
+namespace qualification {
+class scalars stable_ids {
+  public uint64 sequence (1);
+  public int32 signed_value (2);
+  public float single_value (3);
+  public double double_value (4);
+  public bool enabled (5);
+}
+class first_option stable_ids { public uint32 value (1); }
+class second_option stable_ids { public double value (1); }
+class record stable_ids {
+  public scalars header (1);
+  public string text (2);
+  public array uint64 integers (3);
+  public array double floats (4);
+  public array scalars objects (5);
+  public map(uint32) scalars lookup (6);
+  public union(first_option = first, second_option = second) payload (7);
+}
+}

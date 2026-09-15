@@ -10,6 +10,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(SERIALIZER_BUILD_TESTS "Build Serializer's tests" ${PROJECT_IS_TOP_LEVEL})
+option(SERIALIZER_BUILD_BENCHMARKS "Build separate codec timing and allocation tools" OFF)
+option(SERIALIZER_BUILD_FUZZERS "Build the bounded Clang libFuzzer target" OFF)
 
 add_library(serializer_lib
   src/parser.cpp
@@ -17,6 +19,8 @@ add_library(serializer_lib
   src/cpp_type_mapping.cpp
   include/rohit/serializer_creator.hpp
   include/rohit/serializer.hpp
+  include/rohit/decode.hpp
+  include/rohit/json_text.hpp
   include/rohit/stream.hpp
 )
 target_include_directories(serializer_lib PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}/include")
@@ -38,4 +42,8 @@ if(SERIALIZER_BUILD_TESTS)
   enable_testing()
   find_package(GTest CONFIG REQUIRED)
   add_subdirectory(test)
+endif()
+
+if(SERIALIZER_BUILD_BENCHMARKS OR SERIALIZER_BUILD_FUZZERS)
+  add_subdirectory(qualification)
 endif()

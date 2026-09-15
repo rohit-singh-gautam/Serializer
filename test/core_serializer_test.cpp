@@ -49,8 +49,8 @@ TEST(json_serializer, integer8) {
 TEST(json_serializer, integer16) {
   std::vector<std::pair<std::string, std::int16_t>> test_list{
       {"0", 0},       {"1", 1},         {"-1", -1},       {"10", 10},
-      {"0124", 124},  {"12345", 12345}, {"56789", 56789}, {"39558", 39558},
-      {"2933", 2933}, {"55443", 55443}, {"32767", 32767}, {"-32768", -32768}};
+      {"124", 124},  {"12345", 12345}, {"16789", 16789}, {"19558", 19558},
+      {"2933", 2933}, {"25443", 25443}, {"32767", 32767}, {"-32768", -32768}};
 
   for (auto& test : test_list) {
     auto stream = rohit::make_constant_full_stream(test.first);
@@ -67,7 +67,7 @@ TEST(json_serializer, integer32) {
       {"1", 1},
       {"-1", -1},
       {"10", 10},
-      {"0124", 124},
+      {"124", 124},
       {"12340", 12340},
       {"56789", 56789},
       {"39558", 39558},
@@ -92,7 +92,7 @@ TEST(json_serializer, integer64) {
       {"1", 1},
       {"-1", -1},
       {"10", 10},
-      {"0124", 124},
+      {"124", 124},
       {"12340", 12340},
       {"56789", 56789},
       {"39558", 39558},
@@ -130,7 +130,7 @@ TEST(json_serializer, unsigned_integer8) {
 
 TEST(json_serializer, unsigned_integer16) {
   std::vector<std::pair<std::string, std::uint16_t>> test_list{
-      {"0", 0},         {"1", 1},         {"10", 10},       {"0124", 124},
+      {"0", 0},         {"1", 1},         {"10", 10},       {"124", 124},
       {"12345", 12345}, {"56789", 56789}, {"39558", 39558}, {"2933", 2933},
       {"55443", 55443}, {"32767", 32767}, {"65535", 65535}};
 
@@ -148,7 +148,7 @@ TEST(json_serializer, unsigned_integer32) {
       {"0", 0},
       {"1", 1},
       {"10", 10},
-      {"0124", 124},
+      {"124", 124},
       {"12340", 12340},
       {"56789", 56789},
       {"39558", 39558},
@@ -172,7 +172,7 @@ TEST(json_serializer, unsigned_integer64) {
       {"0", 0},
       {"1", 1},
       {"10", 10},
-      {"0124", 124},
+      {"124", 124},
       {"12340", 12340},
       {"56789", 56789},
       {"39558", 39558},
@@ -198,7 +198,7 @@ TEST(json_serializer, float) {
       {"1", 1.0f},
       {"-1", -1.0f},
       {"10", 10.0f},
-      {"0124", 124.0f},
+      {"124", 124.0f},
       {"12340", 12340.0f},
       {"-56789", -56789.0f},
       {"39558", 39558.0f},
@@ -225,7 +225,7 @@ TEST(json_serializer, double) {
       {"1", 1},
       {"-1", -1},
       {"10", 10},
-      {"0124", 124},
+      {"124", 124},
       {"12340", 12340},
       {"-56789", -56789},
       {"39558", 39558},
@@ -249,10 +249,7 @@ TEST(json_serializer, double) {
 }
 
 TEST(json_serializer, bool) {
-  std::vector<std::pair<std::string, bool>> test_list{
-      {"False", false}, {"True", true},   {"false", false}, {"true", true},   {"fAlse", false},
-      {"tRue", true},   {"FALSE", false}, {"TRUE", true},   {"FalsE", false}, {"TruE", true},
-  };
+  std::vector<std::pair<std::string, bool>> test_list{{"false", false}, {"true", true}};
 
   for (auto& test : test_list) {
     auto stream = rohit::make_constant_full_stream(test.first);
@@ -403,8 +400,8 @@ TEST(binary_serializer, u_integer32_variable) {
     rohit::full_stream_auto_alloc stream{256};
     rohit::serializer::binary_none<rohit::serializer::serialize_type::out> binary_out{stream};
     binary_out.serialize_out_variable(test);
-    stream.reset();
-    rohit::serializer::binary_none<rohit::serializer::serialize_type::in> binary_in{stream};
+    const auto input = rohit::make_constant_full_stream(stream.begin(), stream.current_offset());
+    rohit::serializer::binary_none<rohit::serializer::serialize_type::in> binary_in{input};
     const auto value = binary_in.serialize_in_variable();
     EXPECT_EQ(test, value);
   }

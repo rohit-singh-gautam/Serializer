@@ -97,7 +97,7 @@ enum class access_type { error, private_access, protected_access, public_access 
 
 enum class object_type { unresolved, namespace_type, class_type, enum_type, primitive };
 
-enum class class_attributes : std::uint8_t { none = 0x00, packed = 0x01 };
+enum class class_attributes : std::uint8_t { none = 0x00, packed = 0x01, stable_ids = 0x02 };
 
 struct namespace_node;
 
@@ -150,13 +150,14 @@ struct type_name {
   // Initialize this object from the supplied storage or value state.
   type_name(const type_name& rhs)
       : name{rhs.name}, enum_name{rhs.enum_name}, declared_namespace{rhs.declared_namespace},
-        defined_namespace{defined_namespace} {}
+        defined_namespace{rhs.defined_namespace}, type{rhs.type} {}
   // Assign the documented view or value state from the source object.
   type_name& operator=(const type_name& rhs) {
     name = rhs.name;
     enum_name = rhs.enum_name;
     declared_namespace = rhs.declared_namespace;
     defined_namespace = rhs.defined_namespace;
+    type = rhs.type;
     return *this;
   }
 
@@ -194,6 +195,7 @@ struct member {
   std::uint32_t id;
   std::string key; // Optional parameter
   std::string default_value;
+  bool explicit_id{false};
 
   // Compare the relevant values without modifying either operand.
   bool operator==(const member& rhs) const {
@@ -211,6 +213,7 @@ struct parent {
   std::uint32_t id{};
   namespace_node* current_namespace{};
   class_node* parent_class{nullptr}; // This will be filled in later
+  bool explicit_id{false};
 };
 
 // TODO: Verify parent and its namespace

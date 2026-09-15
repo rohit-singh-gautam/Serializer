@@ -123,6 +123,11 @@ There are three predefined format
 
 More can be generated using structure ```cpp rohit::serializer::write_format ```
 
+`format::compress` selects compact JSON formatting; it does not compress data.
+For wire details, schema evolution, decoder limits, and failure behavior, see
+[the wire-format contract](docs/wire_format.md). Optional timing, allocation,
+and fuzz targets are described in [qualification](qualification/README.md).
+
 Positional binary writes fields in schema order without field IDs, names, or an
 object terminator. Both ends must agree on field order and types. Unions still
 write an alternative index before their payload.

@@ -95,6 +95,7 @@ int main(const int argc, const char* argv[]) {
     out_stream.write_to_file_till_offset(output_file);
   } catch (const std::exception& e) {
     std::cout << "Failed to parse with error:\n" << e.what() << std::endl;
+    return 1;
   }
 
   return 0;

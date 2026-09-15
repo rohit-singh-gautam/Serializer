@@ -16,13 +16,18 @@
 //////////////////////////////////////////////////////////////////////////
 
 #pragma once
+#include <rohit/decode.hpp>
+#include <rohit/json_text.hpp>
 #include <rohit/stream.hpp>
 
+#include <algorithm>
 #include <bit>
-#include <cctype>
+#include <charconv>
+#include <cmath>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <functional>
 #include <iterator>
 #include <limits>
@@ -30,6 +35,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <system_error>
 #include <tuple>
 #include <type_traits>
 #include <utility>
@@ -59,27 +65,70 @@ inline constexpr std::string_view map_value_name = "value";
 static_assert(variable_payload_mask == variable_one_byte_max);
 static_assert((variable_tag_mask & variable_payload_mask) == 0);
 } // namespace constants
+
+namespace detail {
+// Use a fixed-width hash for generated lookup groups, followed by exact name equality.
+constexpr std::uint64_t field_name_hash(std::string_view name) noexcept {
+  constexpr std::uint64_t hash_seed = 100000000003ULL;
+  constexpr unsigned hash_shift_bits = 9;
+  auto result = hash_seed;
+  for (const auto ch : name) {
+    result = ((result << hash_shift_bits) + result) ^ static_cast<unsigned char>(ch);
+  }
+  return result;
+}
+
+// Find a generated enum's borrowed wire spelling through argument-dependent lookup.
+template <typename T>
+constexpr std::string_view enum_name(T value) {
+  return serializer_enum_name(value);
+}
+
+// Decode a generated named enum through its namespace's mapping, preserving custom protocols.
+template <typename Protocol, typename T>
+void read_named_enum(Protocol& protocol, T& value) {
+  if constexpr (requires { protocol.serialize_in_named_enum(value); }) {
+    protocol.serialize_in_named_enum(value);
+  } else {
+    std::string name;
+    protocol.serialize_in(name);
+    try {
+      serializer_enum_from_name(value, std::string_view{name});
+    } catch (const std::invalid_argument&) {
+      throw exception::bad_input_data{protocol.get_stream(), "Unknown enum name"};
+    }
+  }
+}
+} // namespace detail
+
 namespace exception {
 using rohit::exception::base_parser;
-
-class bad_input_data : public base_parser {
-public:
-  using base_parser::base_parser;
-};
 
 class bad_type : public base_parser {
 public:
   using base_parser::base_parser;
+  // Identify an unsupported source or destination type.
+  rohit::exception::parser_error_code code() const noexcept override {
+    return rohit::exception::parser_error_code::invalid_type;
+  }
 };
 
 class unknown_serialization_type : public base_parser {
 public:
   using base_parser::base_parser;
+  // Identify an unsupported protocol value type.
+  rohit::exception::parser_error_code code() const noexcept override {
+    return rohit::exception::parser_error_code::invalid_type;
+  }
 };
 
 class key_not_found : public base_parser {
 public:
   using base_parser::base_parser;
+  // Identify a field absent from the selected schema.
+  rohit::exception::parser_error_code code() const noexcept override {
+    return rohit::exception::parser_error_code::unknown_field;
+  }
 };
 } // namespace exception
 
@@ -87,6 +136,16 @@ namespace type_check {
 template <typename T, typename J>
 concept serializer_in_enabled = requires(T cls, J& serialize_protocol) {
   { cls->template serialize_in<J>(serialize_protocol) } -> std::same_as<void>;
+};
+
+template <typename T, typename J>
+concept serializer_in_enabled_ptr = requires(T cls, J& protocol) {
+  { cls->serialize_in(protocol) } -> std::same_as<void>;
+};
+
+template <typename T, typename J>
+concept serializer_in_enabled_value = requires(T cls, J& protocol) {
+  { cls.serialize_in(protocol) } -> std::same_as<void>;
 };
 
 template <typename T, typename J>
@@ -254,395 +313,355 @@ template <serialize_type type>
 class json {};
 
 template <>
-class json<serialize_type::in> {
+class json<serialize_type::in> : public detail::decoder_input {
 public:
   constexpr static serialize_key_type key_type = serialize_key_type::string;
+  using detail::decoder_input::decoder_input;
 
 protected:
-  const stream& in_stream;
-
-public:
-  // Initialize this object from the supplied storage or value state.
-  json(const stream& in_stream) : in_stream{in_stream} {}
-
-  // Borrow the protocol stream without transferring ownership.
-  const auto& get_stream() {
-    return in_stream;
-  }
-  // Borrow the protocol stream without transferring ownership.
-  auto& get_stream() const {
-    return in_stream;
+  // Report malformed JSON without echoing payload data by default.
+  [[noreturn]] void fail(const char* message) const {
+    throw exception::bad_input_data{in_stream, message, limits.diagnostics};
   }
 
-protected:
-  // Test for the ASCII whitespace characters accepted by the parser.
-  constexpr bool is_whitespace(const char val) noexcept {
-    return val == ' ' || val == '\t' || val == '\n' || val == '\r';
+  // Recognize only the whitespace permitted by JSON.
+  static constexpr bool is_whitespace(std::uint8_t ch) noexcept {
+    return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r';
   }
-  // Advance past whitespace before the next token.
+
+  // Recognize the end of a scalar token without accepting a prefix of another token.
+  static constexpr bool is_boundary(std::uint8_t ch) noexcept {
+    return is_whitespace(ch) || ch == ',' || ch == ']' || ch == '}';
+  }
+
+  // Advance a whole whitespace run with one cursor update.
   void skip_whitespace() {
-    while (is_whitespace(*in_stream)) {
-      ++in_stream;
+    const auto bytes = available_input();
+    std::size_t size{};
+    while (size < bytes.size() && is_whitespace(bytes[size])) {
+      ++size;
+    }
+    read_bytes(size);
+    if (size == bytes.size() && !in_stream.full()) {
+      require_input(1);
     }
   }
 
-  // Consume the expected character or throw a parser diagnostic.
-  void check_and_increase(char value) {
-    if (*in_stream != value) {
-      std::string error_text{"Expected "};
-      error_text.push_back(value);
-      error_text += " but found ";
-      error_text.push_back(*in_stream);
-      throw exception::bad_input_data{in_stream, std::move(error_text)};
-    }
-    ++in_stream;
+  // Read one byte only after both the input range and budgets permit it.
+  std::uint8_t peek() const {
+    require_input(1);
+    return *in_stream.curr();
   }
 
-  // Borrow the next JSON member name and consume its colon separator.
-  const std::string_view serialize_in_get_key() {
+  // Consume one expected punctuation byte.
+  void check_and_increase(char expected) {
+    if (peek() != static_cast<std::uint8_t>(expected)) {
+      fail("Unexpected JSON punctuation");
+    }
+    read_bytes(1);
+  }
+
+  // Validate a string before replacing storage; ordinary keys borrow the input only until dispatch.
+  std::string_view read_string(std::string& destination, bool borrow) {
+    const auto bytes = available_input();
+    detail::json_string_range range;
+    try {
+      range = detail::scan_json_string(bytes);
+    } catch (const std::invalid_argument& error) {
+      if (bytes.size() < in_stream.remaining_buffer()) {
+        fail_limit("String scan exceeded input or work limit");
+      }
+      fail(error.what());
+    }
+    check_string(range.text_bytes, !borrow || range.escaped);
+    if (borrow && !range.escaped) {
+      const auto* start = read_bytes(range.wire_bytes);
+      return {reinterpret_cast<const char*>(start + 1), range.text_bytes};
+    }
+    if (range.text_bytes > destination.max_size()) {
+      fail_limit("String exceeds destination capacity limit");
+    }
+    detail::assign_json_string(destination, bytes, range);
+    read_bytes(range.wire_bytes);
+    return destination;
+  }
+
+  // Read a wire name, decoding escapes into caller-owned scratch storage when necessary.
+  std::string_view serialize_in_get_key(std::string& scratch) {
     skip_whitespace();
-    check_and_increase('"');
-    auto start = in_stream.curr();
-    // TODO:: Escape character
-    while (*in_stream != '"') {
-      ++in_stream;
-    }
-    auto end = in_stream.curr();
-    ++in_stream;
+    const auto key = read_string(scratch, true);
     skip_whitespace();
     check_and_increase(':');
     skip_whitespace();
-    return {reinterpret_cast<const char*>(start), reinterpret_cast<const char*>(end)};
+    return key;
   }
 
-  // Read a JSON boolean and advance past its spelling.
-  void serialize_in_bool(bool& value) {
-    if (in_stream.remaining_buffer() < 4) {
-      throw exception::bad_input_data{in_stream};
+  // Validate JSON number grammar in a bounded span before numeric conversion.
+  std::string_view number_token() const {
+    const auto bytes = available_input();
+    if (bytes.empty()) { require_input(1); }
+    std::size_t index{};
+    const auto digit = [](std::uint8_t ch) { return ch >= '0' && ch <= '9'; };
+    if (index < bytes.size() && bytes[index] == '-') {
+      ++index;
     }
-    auto ch = std::tolower(*in_stream);
-    if (ch == 't') {
-      ++in_stream;
-      if (std::tolower(*in_stream) != 'r') {
-        throw exception::bad_input_data{in_stream};
-      }
-      ++in_stream;
-      if (std::tolower(*in_stream) != 'u') {
-        throw exception::bad_input_data{in_stream};
-      }
-      ++in_stream;
-      if (std::tolower(*in_stream) != 'e') {
-        throw exception::bad_input_data{in_stream};
-      }
-      ++in_stream;
-      value = true;
-    } else if (ch == 'f') {
-      ++in_stream;
-      if (std::tolower(*in_stream) != 'a') {
-        throw exception::bad_input_data{in_stream};
-      }
-      ++in_stream;
-      if (std::tolower(*in_stream) != 'l') {
-        throw exception::bad_input_data{in_stream};
-      }
-      ++in_stream;
-      if (std::tolower(*in_stream) != 's') {
-        throw exception::bad_input_data{in_stream};
-      }
-      ++in_stream;
-      if (in_stream.full()) {
-        throw exception::bad_input_data{in_stream};
-      }
-      if (std::tolower(*in_stream) != 'e') {
-        throw exception::bad_input_data{in_stream};
-      }
-      ++in_stream;
-      value = false;
+    if (index == bytes.size()) {
+      if (bytes.size() < in_stream.remaining_buffer()) { fail_limit("Number scan limit exceeded"); }
+      fail("Incomplete JSON number");
     }
-  }
-
-  // Read the character inside a quoted JSON character value.
-  void serialize_in_char(char& value) {
-    if (in_stream.remaining_buffer() < 3) {
-      throw exception::bad_input_data{in_stream};
-    }
-    if (*in_stream != '"') {
-      throw exception::bad_input_data{in_stream};
-    }
-    ++in_stream;
-    value = *in_stream;
-    ++in_stream;
-    if (*in_stream != '"') {
-      throw exception::bad_input_data{in_stream};
-    }
-    ++in_stream;
-  }
-
-  // Read decimal digits, saturating at the unsigned destination limit.
-  void serialize_in_unsigned_integer(std::unsigned_integral auto& value) {
-    using ValueType = std::remove_reference_t<decltype(value)>;
-    if (in_stream.full()) {
-      throw exception::bad_input_data{in_stream};
-    }
-    auto ch = *in_stream;
-    if (ch < '0' || ch > '9') {
-      throw exception::bad_input_data{in_stream};
-    }
-    value = ch - '0';
-    ++in_stream;
-    while (!in_stream.full()) {
-      ch = *in_stream;
-      if (ch < '0' || ch > '9') {
-        break;
-      }
-      constexpr ValueType check_big =
-          std::numeric_limits<ValueType>::max() / static_cast<ValueType>(constants::decimal_radix);
-      constexpr ValueType check_big_last =
-          std::numeric_limits<ValueType>::max() % static_cast<ValueType>(constants::decimal_radix);
-      if (value > check_big) {
-        // This will make value max
-        value = std::numeric_limits<ValueType>::max();
-        ++in_stream;
-        while (!in_stream.full()) {
-          ch = *in_stream;
-          if (ch < '0' || ch > '9') {
-            break;
-          }
-          ++in_stream;
-        }
-        return;
-
-      } else if (value == check_big) {
-        ++in_stream;
-        if (!in_stream.full()) {
-          auto ch1 = *in_stream;
-          if (ch1 < '0' || ch1 > '9') {
-            if (ch < '0' + check_big_last) {
-              value = value * constants::decimal_radix - '0' + ch;
-            } else {
-              value = std::numeric_limits<ValueType>::max();
-            }
-            return;
-          }
-          value = std::numeric_limits<ValueType>::max();
-          ++in_stream;
-          while (!in_stream.full()) {
-            ch = *in_stream;
-            if (ch < '0' || ch > '9') {
-              break;
-            }
-            ++in_stream;
-          }
-          return;
-        } else {
-          if (ch < '0' + check_big_last) {
-            value = value * constants::decimal_radix - '0' + ch;
-          } else {
-            value = std::numeric_limits<ValueType>::max();
-          }
-          return;
-        }
-      }
-      value = value * constants::decimal_radix + *in_stream - '0';
-      ++in_stream;
-    }
-  }
-
-  // Read a signed decimal integer using the existing conversion rules.
-  void serialize_in_signed_integer(std::signed_integral auto& value) {
-    if (in_stream.full()) {
-      throw exception::bad_input_data{in_stream};
-    }
-    // TODO: Check out of range values
-    if ((*in_stream < '0' || *in_stream > '9') && *in_stream != '-' && *in_stream != '+') {
-      throw exception::bad_input_data{in_stream};
-    }
-    auto sign{static_cast<std::remove_reference_t<decltype(value)>>(1)};
-    if (*in_stream == '-') {
-      sign = -1;
-      ++in_stream;
-    } else if (*in_stream == '+') {
-      ++in_stream;
-    }
-    value = *in_stream - '0';
-    ++in_stream;
-    while (!in_stream.full()) {
-      if (*in_stream < '0' || *in_stream > '9') {
-        break;
-      }
-      value = value * constants::decimal_radix + *in_stream - '0';
-      ++in_stream;
-    }
-    value *= sign;
-  }
-
-  // Append the contents of a quoted JSON string to the destination.
-  void serialize_in_string(std::string& value) {
-    if (in_stream.remaining_buffer() < 2) {
-      throw exception::bad_input_data{in_stream};
-    }
-    check_and_increase('"');
-    while (*in_stream != '"') {
-      if (in_stream.full()) {
-        throw exception::bad_input_data{in_stream, "Expecting '\"'"};
-      }
-      value.push_back(*in_stream);
-      ++in_stream;
-    }
-    ++in_stream;
-  }
-
-  // Read a numeric token and convert it to the requested floating-point type.
-  void serialize_in_floating_point(std::floating_point auto& value) {
-    if (in_stream.full()) {
-      throw exception::bad_input_data{in_stream};
-    }
-    // TODO: Check out of range values
-    if ((*in_stream < '0' || *in_stream > '9') && *in_stream != '-' && *in_stream != '+') {
-      throw exception::bad_input_data{in_stream};
-    }
-    auto start = in_stream.curr();
-    while (!in_stream.full() && *in_stream != ',' && *in_stream != '!' && *in_stream != ']' &&
-           *in_stream != '}' && *in_stream != ' ') {
-      ++in_stream;
-    }
-    std::string number{start, in_stream.curr()};
-    if constexpr (std::is_same_v<float, std::remove_reference_t<decltype(value)>>) {
-      value = std::stof(number);
+    if (bytes[index] == '0') {
+      ++index;
+    } else if (bytes[index] >= '1' && bytes[index] <= '9') {
+      do { ++index; } while (index < bytes.size() && digit(bytes[index]));
     } else {
-      value = std::stod(number);
+      fail("Invalid JSON number");
     }
+    if (index < bytes.size() && bytes[index] == '.') {
+      const auto start = ++index;
+      while (index < bytes.size() && digit(bytes[index])) { ++index; }
+      if (index == start) {
+        if (index == bytes.size() && bytes.size() < in_stream.remaining_buffer()) {
+          fail_limit("Number scan exceeded input or work limit");
+        }
+        fail("Missing JSON fractional digits");
+      }
+    }
+    if (index < bytes.size() && (bytes[index] == 'e' || bytes[index] == 'E')) {
+      ++index;
+      if (index < bytes.size() && (bytes[index] == '+' || bytes[index] == '-')) { ++index; }
+      const auto start = index;
+      while (index < bytes.size() && digit(bytes[index])) { ++index; }
+      if (index == start) {
+        if (index == bytes.size() && bytes.size() < in_stream.remaining_buffer()) {
+          fail_limit("Number scan exceeded input or work limit");
+        }
+        fail("Missing JSON exponent digits");
+      }
+    }
+    if (index < bytes.size() && !is_boundary(bytes[index])) {
+      fail("Invalid JSON number suffix");
+    }
+    if (index == bytes.size() && bytes.size() < in_stream.remaining_buffer()) {
+      fail_limit("Number scan exceeded input or work limit");
+    }
+    return {reinterpret_cast<const char*>(bytes.data()), index};
   }
 
-  // Read a JSON array and append its decoded elements to the destination.
-  void serialize_in_vector(type_check::vector auto& value) {
+  // Parse directly from the token; range failures leave the scalar unchanged.
+  template <typename T>
+  void read_number(T& value) {
+    const auto token = number_token();
+    if constexpr (std::unsigned_integral<T>) {
+      if (token.front() == '-') {
+        throw exception::numeric_range{in_stream, "Negative JSON number for an unsigned destination", limits.diagnostics};
+      }
+    }
+    T parsed{};
+    const auto result = [&] {
+      if constexpr (std::floating_point<T>) {
+        return std::from_chars(token.data(), token.data() + token.size(), parsed,
+                               std::chars_format::general);
+      } else {
+        return std::from_chars(token.data(), token.data() + token.size(), parsed);
+      }
+    }();
+    if (result.ec == std::errc::result_out_of_range) {
+      throw exception::numeric_range{in_stream, "JSON number is out of range", limits.diagnostics};
+    }
+    if (result.ec != std::errc{} || result.ptr != token.data() + token.size()) {
+      fail("JSON number does not match the destination type");
+    }
+    if constexpr (std::floating_point<T>) {
+      if (!std::isfinite(parsed)) { fail("Non-finite JSON number"); }
+    }
+    read_bytes(token.size());
+    value = parsed;
+  }
+
+  // Read a lowercase JSON literal and reject suffixes such as truex.
+  void read_bool(bool& value) {
+    const auto literal = peek() == 't' ? std::string_view{"true"} : std::string_view{"false"};
+    require_input(literal.size());
+    if (std::memcmp(in_stream.curr(), literal.data(), literal.size()) != 0) {
+      fail("Invalid JSON boolean");
+    }
+    const auto bytes = available_input();
+    if (bytes.size() > literal.size() && !is_boundary(bytes[literal.size()])) {
+      fail("Invalid JSON boolean suffix");
+    }
+    if (bytes.size() == literal.size() && bytes.size() < in_stream.remaining_buffer()) {
+      fail_limit("Boolean scan exceeded input or work limit");
+    }
+    read_bytes(literal.size());
+    value = literal == "true";
+  }
+
+  // Replace a vector, move parsed elements, and account for capacity before growing it.
+  void read_vector(type_check::vector auto& value) {
+    auto nesting = enter_object();
     check_and_increase('[');
+    value.clear();
     skip_whitespace();
-    if (*in_stream != ']') {
+    std::size_t count{};
+    std::size_t accounted_capacity{};
+    if (peek() != ']') {
       while (true) {
-        using value_type = std::remove_reference_t<decltype(value)>::value_type;
+        if (count >= limits.max_collection_elements || count >= value.max_size()) {
+          fail_limit("Collection element limit exceeded");
+        }
+        ++count;
+        using value_type = typename std::remove_reference_t<decltype(value)>::value_type;
+        if (count > accounted_capacity) {
+          const auto maximum = std::min(limits.max_collection_elements, value.max_size());
+          const auto requested = count <= value.capacity() ? count :
+              std::max(count, value.capacity() > maximum / 2 ? maximum : value.capacity() * 2);
+          charge_allocation(requested - accounted_capacity, sizeof(value_type));
+          if (requested > value.capacity()) { value.reserve(requested); }
+          accounted_capacity = requested;
+        }
         value_type element{};
         serialize_in(element);
-        value.emplace_back(element);
+        value.emplace_back(std::move(element));
         skip_whitespace();
-        if (*in_stream == ']') {
-          break;
-        }
+        if (peek() == ']') { break; }
         check_and_increase(',');
         skip_whitespace();
-        if (*in_stream == ']') {
-          throw exception::bad_input_data{
-              in_stream, "Unexpected ',', there must be next array entry after ','"};
-        }
       }
     }
-    ++in_stream;
+    check_and_increase(']');
   }
 
-  // Read the JSON key/value-entry array and insert decoded pairs.
-  void serialize_in_map(type_check::map auto& value) {
+  // Replace an ordered map; duplicate keys use the last complete entry.
+  void read_map(type_check::map auto& value) {
+    auto nesting = enter_object();
     check_and_increase('[');
+    value.clear();
     skip_whitespace();
-    if (*in_stream != ']') {
+    std::size_t count{};
+    if (peek() != ']') {
       while (true) {
-        check_and_increase('{');
-        skip_whitespace();
-        std::string temp{};
-        serialize_in(temp);
-        if (temp != constants::map_key_name) {
-          throw exception::bad_input_data{in_stream, "Expected 'key' but found " + temp};
+        if (count >= limits.max_collection_elements || count >= value.max_size()) {
+          fail_limit("Collection element limit exceeded");
         }
-        skip_whitespace();
-        check_and_increase(':');
-        skip_whitespace();
+        ++count;
         using T = std::remove_reference_t<decltype(value)>;
+        // Include a conservative node-link allowance; allocator overhead is implementation-specific.
+        charge_allocation(1, sizeof(typename T::value_type) + 4 * sizeof(void*));
+        auto entry_nesting = enter_object();
+        check_and_increase('{');
+        std::string scratch;
+        if (serialize_in_get_key(scratch) != constants::map_key_name) { fail("Expected map key"); }
         typename T::key_type key{};
         serialize_in(key);
         skip_whitespace();
         check_and_increase(',');
-        skip_whitespace();
-        std::string temp_value{};
-        serialize_in(temp_value);
-        if (temp_value != constants::map_value_name) {
-          throw exception::bad_input_data{in_stream, "Expected 'value' but found " + temp};
-        }
-        skip_whitespace();
-        check_and_increase(':');
-        skip_whitespace();
+        if (serialize_in_get_key(scratch) != constants::map_value_name) { fail("Expected map value"); }
         typename T::mapped_type element{};
         serialize_in(element);
-        value.emplace(std::move(key), std::move(element));
         skip_whitespace();
         check_and_increase('}');
+        value.insert_or_assign(std::move(key), std::move(element));
         skip_whitespace();
-        if (*in_stream == ']') {
-          break;
-        }
+        if (peek() == ']') { break; }
         check_and_increase(',');
         skip_whitespace();
-        if (*in_stream == ']') {
-          throw exception::bad_input_data{in_stream,
-                                          "Unexpected ',', there must be next map entry after ','"};
-        }
       }
     }
-    ++in_stream;
+    check_and_increase(']');
   }
 
 public:
-  // Decode a supported value and advance the input cursor; invalid input may throw.
+  // Reuse the borrowed-name path for generated ordinary enum fields.
+  template <typename T>
+  void serialize_in_named_enum(T& value) {
+    static_assert(std::is_enum_v<T>);
+    serialize_in(value);
+  }
+
+  // Decode one value; completed fields and consumed input remain committed on later failure.
   template <typename T>
   void serialize_in(T& value) {
-    if constexpr (std::is_same_v<bool, T>) {
-      serialize_in_bool(value);
-    } else if constexpr (std::is_same_v<char, T>) {
-      serialize_in_char(value);
-    } else if constexpr (std::unsigned_integral<T>) {
-      serialize_in_unsigned_integer(value);
-    } else if constexpr (std::signed_integral<T>) {
-      serialize_in_signed_integer(value);
-    } else if constexpr (std::is_same_v<std::string, T>) {
-      serialize_in_string(value);
-    } else if constexpr (std::floating_point<T>) {
-      serialize_in_floating_point(value);
-    } else if constexpr (type_check::serializer_out_enabled_ptr<T, json>) {
+    charge_work();
+    skip_whitespace();
+    if constexpr (std::same_as<T, std::nullptr_t>) {
+      constexpr std::string_view literal = "null";
+      require_input(literal.size());
+      if (std::memcmp(in_stream.curr(), literal.data(), literal.size()) != 0) { fail("Invalid JSON null"); }
+      const auto bytes = available_input();
+      if (bytes.size() > literal.size() && !is_boundary(bytes[literal.size()])) { fail("Invalid JSON null suffix"); }
+      if (bytes.size() == literal.size() && bytes.size() < in_stream.remaining_buffer()) {
+        fail_limit("Null scan exceeded input or work limit");
+      }
+      read_bytes(literal.size());
+      value = nullptr;
+    } else if constexpr (std::same_as<T, bool>) {
+      read_bool(value);
+    } else if constexpr (std::same_as<T, char>) {
+      std::string character;
+      read_string(character, false);
+      if (character.size() != sizeof(char)) { fail("Expected one byte for a char value"); }
+      value = character[0];
+    } else if constexpr (std::integral<T> || std::floating_point<T>) {
+      read_number(value);
+    } else if constexpr (std::same_as<T, std::string>) {
+      read_string(value, false);
+    } else if constexpr (std::is_enum_v<T>) {
+      std::string scratch;
+      const auto name = read_string(scratch, true);
+      if constexpr (requires { serializer_enum_from_name(value, name); }) {
+        try {
+          serializer_enum_from_name(value, name);
+        } catch (const std::invalid_argument&) {
+          fail("Unknown enum name");
+        }
+      } else {
+        throw exception::bad_type{in_stream, "Enum has no JSON name mapping", limits.diagnostics};
+      }
+    } else if constexpr (type_check::serializer_in_enabled_ptr<T, json>) {
+      if (!value) { fail("Null destination object"); }
       value->serialize_in(*this);
-    } else if constexpr (type_check::serializer_out_enabled<T, json>) {
+    } else if constexpr (type_check::serializer_in_enabled_value<T, json>) {
       value.serialize_in(*this);
     } else if constexpr (type_check::vector<T>) {
-      serialize_in_vector(value);
+      read_vector(value);
     } else if constexpr (type_check::map<T>) {
-      serialize_in_map(value);
+      read_map(value);
     } else {
-      throw exception::bad_type{in_stream};
+      throw exception::bad_type{in_stream, "Unsupported JSON destination", limits.diagnostics};
     }
   }
 
-  // Dispatch serialized object members to the generated input callbacks.
+  // Decode an object, including an empty object; duplicate fields apply in input order.
   template <typename T>
   void struct_serialize_in(T* obj) {
-    static_assert(key_type == serialize_key_type::string, "Only String key type supported");
+    auto nesting = enter_object();
     skip_whitespace();
     check_and_increase('{');
     skip_whitespace();
-    while (true) {
-      auto key = serialize_in_get_key();
-      obj->serialize_in_member_by_name(*this, key);
-      skip_whitespace();
-      if (*in_stream == '}') {
-        break;
-      }
-      check_and_increase(',');
-      skip_whitespace();
-      if (*in_stream == '}') {
-        throw exception::bad_input_data{in_stream,
-                                        "Unexpected ',', there next object expected after ','"};
+    std::size_t count{};
+    if (peek() != '}') {
+      std::string scratch;
+      while (true) {
+        if (count >= limits.max_collection_elements) { fail_limit("Object field limit exceeded"); }
+        ++count;
+        charge_work();
+        const auto key = serialize_in_get_key(scratch);
+        obj->serialize_in_member_by_name(*this, key);
+        skip_whitespace();
+        if (peek() == '}') { break; }
+        check_and_increase(',');
+        skip_whitespace();
       }
     }
-    ++in_stream;
+    check_and_increase('}');
+  }
+
+  // Require an exact JSON message after decoding, allowing trailing JSON whitespace.
+  void finish() {
+    skip_whitespace();
+    if (!in_stream.full()) { fail("Trailing data after JSON value"); }
   }
 }; // class json<serialize_type::in>
-
 template <bool beautify>
 class json_formatter {
 protected:
@@ -710,10 +729,10 @@ protected:
 
   // Update formatting state after an object opening brace.
   inline void after_brace_open() {
+    tab_string.append(format_definition.indent_text);
     if (format_definition.newline_after_braces_open ||
         format_definition.newline_before_object_member) {
       out_stream.write('\n');
-      tab_string.append(format_definition.indent_text);
       out_stream.write(tab_string);
       newline_written = true;
     }
@@ -721,11 +740,12 @@ protected:
 
   // Apply configured whitespace before an object closing brace.
   inline void before_brace_close() {
+    if (tab_string.size() < format_definition.indent_text.size()) {
+      throw std::logic_error{"Unbalanced JSON formatter braces"};
+    }
+    tab_string.resize(tab_string.size() - format_definition.indent_text.size());
     if (format_definition.newline_before_braces_close) {
       out_stream.write('\n');
-      tab_string.erase(std::end(tab_string) - std::size(format_definition.indent_text),
-                       // Expose the buffer end; the returned pointer does not own storage.
-                       std::end(tab_string));
       out_stream.write(tab_string);
     }
   }
@@ -751,9 +771,9 @@ protected:
 
   // Update formatting state after an array opening bracket.
   inline void after_bracket_open() {
+    tab_string.append(format_definition.indent_text);
     if (format_definition.newline_after_bracket_open) {
       out_stream.write('\n');
-      tab_string.append(format_definition.indent_text);
       out_stream.write(tab_string);
       newline_written = true;
     }
@@ -761,11 +781,12 @@ protected:
 
   // Apply configured whitespace before an array closing bracket.
   inline void before_bracket_close() {
+    if (tab_string.size() < format_definition.indent_text.size()) {
+      throw std::logic_error{"Unbalanced JSON formatter brackets"};
+    }
+    tab_string.resize(tab_string.size() - format_definition.indent_text.size());
     if (format_definition.newline_before_bracket_close) {
       out_stream.write('\n');
-      tab_string.erase(std::end(tab_string) - std::size(format_definition.indent_text),
-                       // Expose the buffer end; the returned pointer does not own storage.
-                       std::end(tab_string));
       out_stream.write(tab_string);
     }
   }
@@ -890,10 +911,9 @@ private:
     write_brace_close();
   }
 
-  template <typename T>
   // Write collection elements in iteration order.
-  void serialize_out_list(const T& value_list,
-                          std::function<void(const typename T::value_type&)> serialize_func) {
+  template <typename T, typename Serialize>
+  void serialize_out_list(const T& value_list, Serialize&& serialize_func) {
     write_bracket_open();
     auto itr = std::begin(value_list);
     if (itr != std::end(value_list)) {
@@ -908,13 +928,27 @@ private:
     write_bracket_close();
   }
 
+  // Validate and quote UTF-8, retaining the allocation-free path for ordinary text.
+  void write_string(std::string_view text) {
+    const auto encoded_size = detail::json_escaped_size(text);
+    before_data();
+    if (encoded_size == text.size()) {
+      out_stream.write('"', text, '"');
+    } else {
+      const auto escaped = detail::escape_json_string(text, encoded_size);
+      out_stream.write('"', escaped, '"');
+    }
+  }
+
 public:
   // Encode a supported value or field through this protocol and advance the output cursor.
   template <typename T>
   void serialize_out(const T& value) {
-    if constexpr (std::is_same_v<T, char>) {
+    if constexpr (std::same_as<T, std::nullptr_t>) {
       before_data();
-      out_stream.write('"', value, '"');
+      out_stream.append("null");
+    } else if constexpr (std::is_same_v<T, char>) {
+      write_string(std::string_view{&value, sizeof(value)});
     } else if constexpr (std::is_same_v<T, bool>) {
       before_data();
       if (value) {
@@ -926,16 +960,31 @@ public:
       before_data();
       out_stream.append_string(value);
     } else if constexpr (std::floating_point<T>) {
+      if (!std::isfinite(value)) {
+        throw std::invalid_argument{"JSON cannot encode non-finite floating-point values"};
+      }
+      // Shortest general-format output round-trips to the same floating-point value.
+      constexpr std::size_t exponent_sign_and_punctuation_bytes = 16;
+      char buffer[std::numeric_limits<T>::max_digits10 + exponent_sign_and_punctuation_bytes];
+      const auto result = std::to_chars(std::begin(buffer), std::end(buffer), value,
+                                        std::chars_format::general);
+      if (result.ec != std::errc{}) {
+        throw std::runtime_error{"Unable to format JSON floating-point value"};
+      }
       before_data();
-      auto float_str = std::to_string(value);
-      out_stream.append(float_str);
+      out_stream.append_external(buffer, static_cast<std::size_t>(result.ptr - buffer));
     } else if constexpr (std::same_as<T, std::string>) {
-      before_data();
-      out_stream.write('"', value, '"');
+      write_string(value);
     } else if constexpr (std::same_as<T, std::string_view>) {
-      before_data();
-      out_stream.write('"', value, '"');
+      write_string(value);
+    } else if constexpr (std::is_array_v<T> &&
+                         std::same_as<std::remove_extent_t<T>, char>) {
+      constexpr auto extent = std::extent_v<T>;
+      write_string(std::string_view{value, value[extent - 1] == '\0' ? extent - 1 : extent});
+    } else if constexpr (std::is_enum_v<T>) {
+      write_string(detail::enum_name(value));
     } else if constexpr (type_check::serializer_out_enabled_ptr<T, json<serialize_type::out>>) {
+      if (!value) { throw std::invalid_argument{"Null source object"}; }
       value->serialize_out(*this);
     } else if constexpr (type_check::serializer_out_enabled<T, json<serialize_type::out>>) {
       value.serialize_out(*this);
@@ -978,6 +1027,12 @@ public:
   void struct_serialize_out_end() {
     write_brace_close();
   }
+
+  // Encode an object with no fields using both braces.
+  void struct_serialize_out_empty() {
+    write_brace_open();
+    write_brace_close();
+  }
 }; // class json_out<>
 
 template <>
@@ -990,157 +1045,174 @@ template <serialize_type type, serialize_key_type KeyType>
 class binary {};
 
 template <serialize_key_type KeyType>
-class binary_in_base {
+class binary_in_base : public detail::decoder_input {
 public:
   constexpr static serialize_key_type key_type = KeyType;
+  using detail::decoder_input::decoder_input;
 
-protected:
-  const stream& in_stream;
-
-public:
-  // Initialize this object from the supplied storage or value state.
-  binary_in_base(const stream& in_stream) : in_stream{in_stream} {}
-
-  // Borrow the protocol stream without transferring ownership.
-  const auto& get_stream() {
-    return in_stream;
-  }
-  // Borrow the protocol stream without transferring ownership.
-  auto& get_stream() const {
-    return in_stream;
-  }
-
-  // Decode the established one-to-four-byte unsigned integer representation.
+  // Decode a complete one-to-four-byte compact integer with one cursor update.
   std::uint32_t serialize_in_variable() {
-    if (in_stream.full()) {
-      throw exception::bad_input_data{in_stream};
+    require_input(1);
+    const auto first = *in_stream.curr();
+    constexpr unsigned length_tag_shift = 6;
+    const auto size = static_cast<std::size_t>((first & constants::variable_tag_mask) >> length_tag_shift) + 1;
+    const auto* bytes = read_bytes(size);
+    std::uint32_t value = first & constants::variable_payload_mask;
+    for (std::size_t index = 1; index < size; ++index) {
+      value = (value << constants::wire_byte_bits) | bytes[index];
     }
-    const std::uint32_t val = *in_stream.get_curr_and_increase_unchecked(1);
-    switch (val & constants::variable_tag_mask) {
-    default:
-    case 0x00:
-      return val;
-    case constants::variable_two_byte_tag:
-      if (in_stream.full()) {
-        throw exception::bad_input_data{in_stream};
-      }
-      return ((val & constants::variable_payload_mask) << constants::wire_byte_bits) |
-             *in_stream.get_curr_and_increase_unchecked(1);
-    case constants::variable_three_byte_tag: {
-      constexpr std::size_t payload_bytes = 2;
-      if (in_stream.remaining_buffer() < payload_bytes) {
-        throw exception::bad_input_data{in_stream};
-      }
-      const auto* payload = in_stream.get_curr_and_increase_unchecked(payload_bytes);
-      const std::uint32_t val8 = payload[0];
-      return ((val & constants::variable_payload_mask) << (2 * constants::wire_byte_bits)) |
-             (val8 << constants::wire_byte_bits) | payload[1];
-    }
-    case constants::variable_four_byte_tag: {
-      constexpr std::size_t payload_bytes = 3;
-      if (in_stream.remaining_buffer() < payload_bytes) {
-        throw exception::bad_input_data{in_stream};
-      }
-      const auto* payload = in_stream.get_curr_and_increase_unchecked(payload_bytes);
-      const std::uint32_t val16 = payload[0];
-      const std::uint32_t val8 = payload[1];
-      return ((val & constants::variable_payload_mask) << (3 * constants::wire_byte_bits)) |
-             (val16 << (2 * constants::wire_byte_bits)) | (val8 << constants::wire_byte_bits) |
-             payload[2];
-    }
+    return value;
+  }
+
+  // Borrow a length-prefixed name for immediate dispatch; callers must retain the input storage.
+  std::string_view serialize_in_name() {
+    const auto size = serialize_in_variable();
+    check_string(size, false);
+    const auto* bytes = read_bytes(size);
+    return size == 0 ? std::string_view{} :
+        std::string_view{reinterpret_cast<const char*>(bytes), size};
+  }
+
+  // Decode a string-key enum field without allocating an owning name.
+  template <typename T>
+  void serialize_in_named_enum(T& value) {
+    static_assert(KeyType == serialize_key_type::string && std::is_enum_v<T>);
+    charge_work();
+    const auto name = serialize_in_name();
+    try {
+      serializer_enum_from_name(value, name);
+    } catch (const std::invalid_argument&) {
+      throw exception::bad_input_data{in_stream, "Unknown enum name", limits.diagnostics};
     }
   }
 
-  // Decode a supported value and advance the input cursor; invalid input may throw.
+  // Decode a scalar without unaligned typed access, or replace a validated collection.
   template <typename T>
   void serialize_in(T& value) {
-    if constexpr (std::is_same_v<char, T>) {
-      if (in_stream.full()) {
-        throw exception::bad_input_data{in_stream};
+    charge_work();
+    if constexpr (std::same_as<T, char>) {
+      value = static_cast<char>(*read_bytes(sizeof(char)));
+    } else if constexpr (std::same_as<T, bool>) {
+      require_input(1);
+      if (*in_stream.curr() > 1) {
+        throw exception::bad_input_data{in_stream, "Invalid binary boolean", limits.diagnostics};
       }
-      value = *in_stream.get_curr_and_increase_unchecked(1);
-    } else if constexpr (std::is_same_v<bool, T>) {
-      if (in_stream.full()) {
-        throw exception::bad_input_data{in_stream};
-      }
-      value = !!(*in_stream.get_curr_and_increase_unchecked(1));
+      value = *read_bytes(1) != 0;
     } else if constexpr (std::is_enum_v<T>) {
-      auto ival = serialize_in_variable();
-      value = static_cast<T>(ival);
+      const auto encoded = serialize_in_variable();
+      using underlying_type = std::underlying_type_t<T>;
+      if (encoded > static_cast<std::uintmax_t>(std::numeric_limits<underlying_type>::max())) {
+        throw exception::numeric_range{in_stream, "Binary enum exceeds its underlying type", limits.diagnostics};
+      }
+      const auto candidate = static_cast<T>(encoded);
+      if constexpr (requires { serializer_enum_valid(candidate); }) {
+        if (!serializer_enum_valid(candidate)) {
+          throw exception::bad_input_data{in_stream, "Unknown binary enum value", limits.diagnostics};
+        }
+      }
+      value = candidate;
     } else if constexpr (std::integral<T>) {
-      if (in_stream.remaining_buffer() < sizeof(T)) {
-        throw exception::bad_input_data{in_stream};
-      }
-      T source = *reinterpret_cast<const T*>(in_stream.curr());
-      value = change_endian<std::endian::big, std::endian::native>(source);
-      in_stream.advance_unchecked(sizeof(T));
-    } else if constexpr (std::is_same_v<std::string, T>) {
-      // variable size following string of size
-      auto size = serialize_in_variable();
-      if (in_stream.remaining_buffer() < size) {
-        throw exception::bad_input_data{in_stream};
-      }
-      value = std::string{in_stream.curr(), in_stream.curr() + size};
-      in_stream.advance_unchecked(size);
+      static_assert(rohit::detail::endian_integer<T>, "Binary integers must have no padding bits");
+      using wire_type = std::make_unsigned_t<T>;
+      wire_type source;
+      const auto* bytes = read_bytes(sizeof(source));
+      std::memcpy(&source, bytes, sizeof(source));
+      source = change_endian<std::endian::big, std::endian::native>(source);
+      value = std::bit_cast<T>(source);
     } else if constexpr (std::floating_point<T>) {
-      if (in_stream.remaining_buffer() < sizeof(T)) {
-        throw exception::bad_input_data{in_stream};
+      static_assert(rohit::detail::endian_floating_point<T>,
+                    "Binary floats require 32-bit or 64-bit binary IEC 559 storage");
+      using wire_type = std::conditional_t<sizeof(T) == sizeof(std::uint32_t), std::uint32_t, std::uint64_t>;
+      wire_type source;
+      std::memcpy(&source, read_bytes(sizeof(source)), sizeof(source));
+      value = std::bit_cast<T>(change_endian<std::endian::big, std::endian::native>(source));
+    } else if constexpr (std::same_as<T, std::string>) {
+      const auto size = serialize_in_variable();
+      require_input(size);
+      check_string(size);
+      if (size > value.max_size()) { fail_limit("String exceeds destination capacity limit"); }
+      if (size == 0) {
+        value.clear();
+      } else {
+        value.assign(reinterpret_cast<const char*>(in_stream.curr()), size);
       }
-      T source = *reinterpret_cast<const T*>(in_stream.curr());
-      value = change_endian<std::endian::big, std::endian::native>(source);
-      in_stream.advance_unchecked(sizeof(T));
-    } else if constexpr (type_check::serializer_out_enabled_ptr<
-                             T, binary<serialize_type::in, KeyType>>) {
+      read_bytes(size);
+    } else if constexpr (type_check::serializer_in_enabled_ptr<T, binary_in_base>) {
+      if (!value) { throw exception::bad_input_data{in_stream, "Null destination object", limits.diagnostics}; }
       value->serialize_in(*this);
-    } else if constexpr (type_check::serializer_out_enabled<T,
-                                                            binary<serialize_type::in, KeyType>>) {
+    } else if constexpr (type_check::serializer_in_enabled_value<T, binary_in_base>) {
       value.serialize_in(*this);
     } else if constexpr (type_check::vector<T>) {
-      // variable size following vector members
-      auto size = serialize_in_variable();
-      for (std::size_t i = 0; i < size; ++i) {
-        typename T::value_type element{};
+      auto nesting = enter_object();
+      const auto count = serialize_in_variable();
+      if (count > value.max_size()) { fail_limit("Vector exceeds destination capacity limit"); }
+      using value_type = typename T::value_type;
+      check_collection(count, sizeof(value_type));
+      // Fixed-width primitives also permit a byte-range check before any allocation.
+      if constexpr (std::integral<value_type> || std::floating_point<value_type>) {
+        constexpr std::size_t wire_element_bytes = std::same_as<value_type, bool> ? 1 : sizeof(value_type);
+        if (count > in_stream.remaining_buffer() / wire_element_bytes) {
+          throw exception::bad_input_data{in_stream, "Truncated binary vector", limits.diagnostics};
+        }
+        require_input(static_cast<std::size_t>(count) * wire_element_bytes);
+      }
+      value.clear();
+      value.reserve(count);
+      for (std::size_t index = 0; index < count; ++index) {
+        value_type element{};
         serialize_in(element);
         value.emplace_back(std::move(element));
       }
     } else if constexpr (type_check::map<T>) {
-      // variable size following map members
-      auto size = serialize_in_variable();
-      for (std::size_t i = 0; i < size; ++i) {
+      auto nesting = enter_object();
+      const auto count = serialize_in_variable();
+      if (count > value.max_size()) { fail_limit("Map exceeds destination capacity limit"); }
+      check_collection(count, sizeof(typename T::value_type) + 4 * sizeof(void*));
+      value.clear();
+      for (std::size_t index = 0; index < count; ++index) {
         typename T::key_type key{};
-        serialize_in(key);
         typename T::mapped_type element{};
+        serialize_in(key);
         serialize_in(element);
-        value.emplace(std::move(key), std::move(element));
+        value.insert_or_assign(std::move(key), std::move(element));
       }
     } else {
-      throw exception::bad_type{in_stream};
+      throw exception::bad_type{in_stream, "Unsupported binary destination", limits.diagnostics};
     }
   }
 
-  // Dispatch serialized object members to the generated input callbacks.
+  // Dispatch keyed fields without owning names; unknown fields are rejected by the generated schema.
   template <typename T>
   void struct_serialize_in(T* obj) {
-    if constexpr (KeyType == serialize_key_type::integer) {
-      while (true) {
-        auto key = serialize_in_variable();
-        if (key == constants::binary_object_end_id) {
-          break;
-        }
+    static_assert(KeyType != serialize_key_type::none,
+                  "Positional objects must read their fields in schema order");
+    auto nesting = enter_object();
+    std::size_t count{};
+    while (true) {
+      if constexpr (KeyType == serialize_key_type::integer) {
+        const auto key = serialize_in_variable();
+        if (key == constants::binary_object_end_id) { break; }
+        if (count >= limits.max_collection_elements) { fail_limit("Object field limit exceeded"); }
+        ++count;
+        charge_work();
         obj->serialize_in_member_by_identifier(*this, key);
-      }
-    } else if constexpr (KeyType == serialize_key_type::string) {
-      while (true) {
-        std::string key{};
-        serialize_in(key);
-        if (key.empty()) {
-          break;
-        }
+      } else {
+        const auto key = serialize_in_name();
+        if (key.empty()) { break; }
+        if (count >= limits.max_collection_elements) { fail_limit("Object field limit exceeded"); }
+        ++count;
+        charge_work();
         obj->serialize_in_member_by_name(*this, key);
       }
     }
   }
 
+  // Require an exact binary message after decoding.
+  void finish() const {
+    if (!in_stream.full()) {
+      throw exception::bad_input_data{in_stream, "Trailing binary data", limits.diagnostics};
+    }
+  }
 }; // class binary_in_base
 
 template <>
@@ -1284,8 +1356,14 @@ public:
     if constexpr (std::is_same_v<char, T> || std::is_same_v<bool, T>) {
       out_stream.append(static_cast<std::uint8_t>(value));
     } else if constexpr (std::is_enum_v<T>) {
+      if constexpr (requires { serializer_enum_valid(value); }) {
+        if (!serializer_enum_valid(value)) {
+          throw std::invalid_argument{"Unknown binary enum value"};
+        }
+      }
       serialize_out_variable(static_cast<std::underlying_type_t<T>>(value));
     } else if constexpr (std::integral<T>) {
+      static_assert(rohit::detail::endian_integer<T>, "Binary integers must have no padding bits");
       using wire_type = std::make_unsigned_t<T>;
       const auto wire_value = change_endian<std::endian::native, std::endian::big>(
           static_cast<wire_type>(value));
@@ -1300,8 +1378,7 @@ public:
       serialize_out_variable(value.size());
       out_stream.append(value);
     } else if constexpr (std::floating_point<T>) {
-      static_assert(std::numeric_limits<T>::is_iec559 &&
-                        (sizeof(T) == sizeof(std::uint32_t) || sizeof(T) == sizeof(std::uint64_t)),
+      static_assert(rohit::detail::endian_floating_point<T>,
                     "Binary floating-point output requires a 32-bit or 64-bit IEC 559 representation");
       // Preserve the scalar bits, then use the integer path for big-endian byte output.
       if constexpr (sizeof(T) == sizeof(std::uint32_t)) {
@@ -1311,6 +1388,7 @@ public:
       }
     } else if constexpr (type_check::serializer_out_enabled_ptr<
                              T, binary<serialize_type::out, KeyType>>) {
+      if (!value) { throw std::invalid_argument{"Null source object"}; }
       value->serialize_out(*this);
     } else if constexpr (type_check::serializer_out_enabled<T,
                                                             binary<serialize_type::out, KeyType>>) {
@@ -1352,6 +1430,11 @@ public:
     if constexpr (KeyType == serialize_key_type::integer || KeyType == serialize_key_type::string) {
       serialize_out_variable(constants::binary_object_end_id);
     }
+  }
+
+  // Empty binary objects use the same terminator as any other object in their mode.
+  void struct_serialize_out_empty() {
+    struct_serialize_out_end();
   }
 }; // class binary_out_base
 

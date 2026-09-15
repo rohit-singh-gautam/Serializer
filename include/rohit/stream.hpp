@@ -1427,84 +1427,57 @@ inline const stream_auto_free make_stream_from_file(const std::filesystem::path&
 }
 
 namespace exception {
+
+// Stable categories for programmatic handling without parsing diagnostic text.
+enum class parser_error_code { invalid_input, invalid_type, unknown_field, numeric_range, resource_limit };
+
+struct diagnostic_options {
+  bool include_input_excerpt{false};
+  std::size_t maximum_excerpt_bytes{64};
+};
+
 class base_parser : public std::exception {
 protected:
   const std::string message;
 
-  // Build a diagnostic with bounded context around the failing cursor.
-  static const auto create_what_string(const stream& stream, const std::string& error_text) {
-    constexpr std::size_t preceding_context_bytes = 160;
-    constexpr std::size_t preceding_context_threshold_bytes = 168;
-    constexpr std::size_t following_context_bytes = 80;
-    constexpr unsigned char first_printable_character = 32;
-    std::string message{"Error: "};
-
-    const full_stream* fullstream = dynamic_cast<const full_stream*>(&stream);
-
-    if (fullstream) {
-      message += " - Location: ";
-      if (fullstream->current_offset() >= preceding_context_threshold_bytes) {
-        std::string_view second{reinterpret_cast<const char*>(fullstream->curr()) -
-                                    preceding_context_bytes,
-                                preceding_context_bytes};
-        for (auto& current_ch : second) {
-          if ((current_ch >= first_printable_character) || current_ch == '\n' ||
-              current_ch == '\r' || current_ch == '\t') {
-            message.push_back(current_ch);
-          } else {
-            message.push_back('#');
-          }
-        }
-      } else {
-        std::string_view initial{reinterpret_cast<const char*>(fullstream->begin()),
-                                 fullstream->current_offset()};
-        for (auto& current_ch : initial) {
-          if ((current_ch >= first_printable_character) || current_ch == '\n' ||
-              current_ch == '\r' || current_ch == '\t') {
-            message.push_back(current_ch);
-          } else {
-            message.push_back('#');
-          }
+  // Include payload bytes only when explicitly requested, bounded and escaped for one-line logging.
+  static std::string create_what_string(const stream& input, const std::string& error_text,
+                                        diagnostic_options options) {
+    std::string result{"Error: "};
+    result += error_text.empty() ? "Invalid input" : error_text;
+    if (options.include_input_excerpt) {
+      constexpr std::size_t maximum_diagnostic_bytes = 256;
+      constexpr std::string_view hex_digits = "0123456789abcdef";
+      const auto size = std::min({input.remaining_buffer(), options.maximum_excerpt_bytes,
+                                 maximum_diagnostic_bytes});
+      result += " [input: ";
+      for (std::size_t index = 0; index < size; ++index) {
+        const auto byte = input.curr()[index];
+        if (byte >= ' ' && byte <= '~' && byte != '\\' && byte != ']') {
+          result.push_back(static_cast<char>(byte));
+        } else {
+          result += "\\x";
+          result.push_back(hex_digits[byte >> 4]);
+          result.push_back(hex_digits[byte & 0x0f]);
         }
       }
-      message += " <-- failed here with error ";
-      message += error_text;
-      message += " --| ";
-    } else {
-      message += "Failed with error: ";
-      message += error_text;
-      message += " --- ";
+      result += ']';
     }
-
-    std::string_view last{
-        reinterpret_cast<const char*>(stream.curr()),
-        // Report the number of bytes between the cursor and the buffer end.
-        std::min<std::size_t>(following_context_bytes, stream.remaining_buffer())};
-    for (auto& current_ch : last) {
-      if ((current_ch >= first_printable_character) || current_ch == '\n' || current_ch == '\r' ||
-          current_ch == '\t') {
-        message.push_back(current_ch);
-      } else {
-        message.push_back('#');
-      }
-    }
-    if (stream.remaining_buffer() > following_context_bytes) {
-      message += " ... more ";
-      message += std::to_string(stream.remaining_buffer() - following_context_bytes);
-      message += " characters.";
-    }
-
-    return message;
+    return result;
   }
 
 public:
-  // Initialize this object from the supplied storage or value state.
-  base_parser(const stream& stream, const std::string& error_text)
-      : message{create_what_string(stream, error_text)} {}
-  // Initialize this object from the supplied storage or value state.
-  base_parser(const stream& stream) : message{create_what_string(stream, {})} {}
+  // Capture a diagnostic; input excerpts are disabled by default.
+  base_parser(const stream& input, const std::string& error_text = {},
+              diagnostic_options options = {})
+      : message{create_what_string(input, error_text, options)} {}
 
-  // Return the exception message; the pointer remains valid for this exception lifetime.
+  // Report the failure category independently of its human-readable message.
+  virtual parser_error_code code() const noexcept {
+    return parser_error_code::invalid_input;
+  }
+
+  // Return text valid for this exception's lifetime.
   const char* what() const noexcept override {
     return message.c_str();
   }
