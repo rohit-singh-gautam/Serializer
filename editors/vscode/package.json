@@ -3,7 +3,7 @@
   "displayName": "Rohit Serializer",
   "icon": "dist/serializer_logo.png",
   "description": "Syntax highlighting and CMake generated-header assistance for Serializer schemas.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "publisher": "rohitjairajsingh",
   "author": {
     "name": "Rohit Jairaj Singh",
@@ -144,7 +144,7 @@
     "test": "npm run compile && node --test test/*.test.cjs",
     "test:integration": "npm run build && node test/run.cjs",
     "vscode:prepublish": "npm run build",
-    "package": "vsce package --no-dependencies --out ../../out/extensions/serializer-vscode-1.0.0.vsix"
+    "package": "vsce package --no-dependencies --out ../../out/extensions/serializer-vscode-1.0.1.vsix"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

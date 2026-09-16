@@ -1,6 +1,6 @@
 # Rohit Serializer for Visual Studio
 
-Version **1.0.0** adds `.serializer` syntax highlighting and basic editing support
+Version **1.0.1** adds `.serializer` syntax highlighting and basic editing support
 to **Visual Studio 2022 and Visual Studio 2026 on Windows x64**. It registers the
 shared TextMate grammar and language configuration for comment toggling, bracket
 pairs, quote completion, and indentation. Schemas begin with `serializer version 1;`.
@@ -31,10 +31,11 @@ It uses Visual Studio's full-framework MSBuild, not `dotnet build`.
 Output:
 
 ```text
-out/extensions/serializer-visual-studio-1.0.0.vsix
+out/extensions/serializer-visual-studio-1.0.1.vsix
 ```
 
-The script validates the package's identity, installation target, registration,
+The script rebuilds package intermediates to refresh version metadata, then
+validates the package's identity, installation target, registration,
 and exact copies of the shared assets. It does not install the extension.
 
 ## Install and use

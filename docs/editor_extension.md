@@ -7,7 +7,7 @@ to the VS Code extension. For the Visual Studio VSIX, see
 
 ## VS Code
 
-The [Rohit Serializer extension](../editors/vscode/README.md), version **1.0.0**, provides `.serializer`
+The [Rohit Serializer extension](../editors/vscode/README.md), version **1.0.1**, provides `.serializer`
 syntax highlighting, snippets, and CMake generated-header commands. Schemas use
 the current `serializer version 1;` header. Legacy `.def` and `.struct` names are
 not registered. C++/Java generation remains owned by the project's build rules;
@@ -46,13 +46,13 @@ Packaging compiles and bundles TypeScript, copies the canonical grammar, logo,
 and repository license into the extension, and writes:
 
 ```text
-out/extensions/serializer-vscode-1.0.0.vsix
+out/extensions/serializer-vscode-1.0.1.vsix
 ```
 
 From the repository root, install it with:
 
 ```sh
-code --install-extension out/extensions/serializer-vscode-1.0.0.vsix
+code --install-extension out/extensions/serializer-vscode-1.0.1.vsix
 ```
 
 Alternatively run **Extensions: Install from VSIX** and select the file. The
@@ -165,7 +165,7 @@ outside this extension's implementation.
 ## Visual Studio extension
 
 The separate [Visual Studio package](../editors/visual_studio/README.md), version
-**1.0.0**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
+**1.0.1**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
 grammar, shared language configuration, repository license, and logo. The grammar's
 `fileTypes` associates `.serializer` files; a `.pkgdef` registers the grammar and
 its editing configuration. It contains no compiled extension code.
@@ -176,8 +176,8 @@ Build and validate with Windows PowerShell 5.1+ and Visual Studio's MSBuild:
 ./editors/visual_studio/build.ps1
 ```
 
-The script restores locked NuGet dependencies and writes
-`out/extensions/serializer-visual-studio-1.0.0.vsix`. Close Visual Studio,
+The script restores locked NuGet dependencies, rebuilds package intermediates, and writes
+`out/extensions/serializer-visual-studio-1.0.1.vsix`. Close Visual Studio,
 double-click this VSIX, install into the desired instance, and restart Visual
 Studio. The root `install_extension.ps1` remains the VS Code installer.
 

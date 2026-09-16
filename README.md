@@ -23,7 +23,7 @@ automatic header generation with CMake, and decoding an exact message with limit
 generated-header navigation, and missing-include assistance. Run
 `./install_extension.ps1` from PowerShell to build and install the local extension
 (Node.js 22+, npm, and the VS Code CLI are required). Marketplace publication is pending.
-The extension version is **1.0.0**, with ID `rohitjairajsingh.serializer-language`
+The extension version is **1.0.1**, with ID `rohitjairajsingh.serializer-language`
 (Rohit Jairaj Singh). Its release version is independent of the compiler version.
 It also supplies a dedicated 32×32 icon for `.serializer` files in Explorer and
 editor tabs when supported by the selected file icon theme.
@@ -31,7 +31,7 @@ editor tabs when supported by the selected file icon theme.
 **Visual Studio:** a separate [Rohit Serializer VSIX](editors/visual_studio/README.md)
 packages the same grammar and basic editing configuration for Visual Studio 2022/2026
 on Windows x64. Build it with `./editors/visual_studio/build.ps1`, then install
-`out/extensions/serializer-visual-studio-1.0.0.vsix` with Visual Studio's VSIX Installer.
+`out/extensions/serializer-visual-studio-1.0.1.vsix` with Visual Studio's VSIX Installer.
 It supplies lexical editing; use existing CMake targets for generation. Native IDE
 installation and interactive editing verification remain pending.
 

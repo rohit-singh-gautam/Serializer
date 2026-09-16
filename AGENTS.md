@@ -91,6 +91,19 @@
   `SKILL.md` frontmatter. Its hyphenated folder/name follows the skill format;
   C++ identifiers and file names continue to follow this repository's conventions.
 
+## Extension versioning
+
+- Every extension-related change must increment the affected extension's version
+  in the same change, including code, grammar, snippets, icons, metadata,
+  documentation, tests, and build or packaging scripts. Documentation-only and
+  behavior-preserving changes are not exempt; use at least a patch increment.
+- Changes to shared assets or tooling used by both the VS Code and Visual Studio
+  extensions must increment both extension versions. Keep extension IDs stable.
+- Update the affected manifests, lockfiles where applicable, changelogs, package
+  output filenames, and current-version documentation together. Rebuild and
+  validate affected packages before distribution; do not reuse an earlier
+  version number for changed content.
+
 ## Commit comments
 
 - When the user says exactly `show commit comment`, inspect the active Git worktree and any changed nested Git repositories or submodules before composing the response.

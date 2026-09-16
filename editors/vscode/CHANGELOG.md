@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.1
+
+- Include the shared grammar's explicit `.serializer` file association.
+- Link the separate Visual Studio extension from the limitations documentation.
+- Update the package version and installation references; VS Code commands and
+  highlighting rules retain their existing behavior.
+
 ## 1.0.0
 
 - Use the Marketplace display name "Rohit Serializer".

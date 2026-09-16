@@ -27,7 +27,8 @@ if (-not $MSBuildPath) {
 }
 
 $msbuild = Get-Command -Name $MSBuildPath -CommandType Application -ErrorAction Stop
-& $msbuild.Source (Join-Path $PSScriptRoot 'serializer_language.csproj') /restore /t:Build `
+# Regenerate cached VSIX metadata so a version change cannot retain the previous identity.
+& $msbuild.Source (Join-Path $PSScriptRoot 'serializer_language.csproj') /restore /t:Rebuild `
   /p:Configuration=Release /p:RestoreLockedMode=true /v:minimal /nologo
 if ($LASTEXITCODE -ne 0) {
   throw "Visual Studio extension build failed with exit code $LASTEXITCODE."
