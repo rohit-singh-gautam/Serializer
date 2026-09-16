@@ -414,6 +414,61 @@ wire aliases, compact-length boundaries, batch and isolated reservation counts,
 custom-protocol fallback, and fixed/custom stream failures. Generation,
 compilation, test execution, and benchmarks remain deferred for this step.
 
+### Reduce repeated JSON scans
+
+C++ JSON string input/output reuses information from the full validation pass.
+The scanner records the first escape and the end of the last escape in addition
+to the decoded or encoded byte count. For a string containing a long ordinary
+prefix, one newline escape, and a long ordinary suffix:
+
+```text
+Validation:  [check prefix][check escape][check suffix]
+Copy:        [bulk copy]  [convert]     [bulk copy]
+```
+
+Previously, input scanned ordinary strings once to validate them and again while
+copying. It now copies validated unescaped input directly into the destination,
+reusing its capacity. Plain object keys continue borrowing the validated input;
+escaped keys use the same optimized copying into caller-owned scratch storage.
+
+For escaped input and output, known plain prefixes and suffixes are copied without
+another character-classification scan. The remaining transformation covers only
+the interval between the first and last escapes. Multiple separated escapes
+still require scanning ordinary spans inside that interval, and input escapes
+are parsed again during conversion. This does not make every string operation
+single-pass: validation and copying remain separate, and bytes still have to be
+copied to their destination. Unescaped direct JSON output already used a bulk
+copy after validation; that path is retained.
+
+The full string is always validated, including malformed UTF-8 or escapes in its
+suffix. Input string validation and limit checks finish before the destination
+changes. Existing byte, value-work, allocation, and string-length charges remain
+unchanged. Output still validates before its single reservation and writes only
+after the reservation succeeds. `append_transformed` keeps its source rebasing
+and overlap snapshot behavior; saved byte offsets remain valid after rebasing.
+Input bytes must remain independent of decoded destination storage as before.
+
+Metadata has fixed size and adds no per-string heap allocation. There is no
+message cache, trusted-string mode, schema keyword, or new output configuration.
+Recompile consumers with the updated runtime headers when building; generated
+headers do not need regeneration for this optimization. Both scalar and SIMD
+builds use the same reuse path, with bounded SIMD scanning still available for
+the regions that require inspection.
+
+Shared helpers also serve ProtoJSON string input and ProtoJSON/TextProto quoted
+output, so those calls inherit the optimization without changing Protobuf
+mapping or formatting. TextProto's separate input parser, JSON numbers, native
+binary codecs, views, and Java retain their existing algorithms. Pre-encoded
+constant field names continue using their separate compile-time path.
+
+Prepared coverage in `test/json_scan_reuse_test.cpp` includes empty/plain strings,
+Unicode, surrogate pairs, escape positions around scan-block boundaries, exact
+and unaligned buffers, truncated/malformed suffixes, resource limits and cumulative
+charges, borrowed keys, destination reuse, overlapping/growing output, and custom
+reservation rejection. Existing runtime SIMD tests cover the shared helpers
+across JSON formatting modes. Builds, tests, sanitizer runs, and performance
+measurements remain deferred. No measured speedup is claimed.
+
 ## Agent-assisted integration
 
 Use the [Serializer integration skill](../.agents/skills/serializer-integration/SKILL.md)

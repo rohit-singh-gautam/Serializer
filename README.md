@@ -184,6 +184,20 @@ work; it does not shrink messages or add storage to each object. See
 failure behavior, and examples. Tests are prepared; generation, builds, test
 execution, and performance measurements remain deferred.
 
+### Reducing repeated JSON string scans
+
+C++ JSON string helpers retain escape boundaries from their validation pass.
+Unescaped input copies directly into reusable destination storage; escaped input
+and output copy known plain prefixes/suffixes without scanning them again. Only
+the region between the first and last escapes needs further escape processing.
+All UTF-8, escape, resource-limit, and output-reservation checks remain active.
+
+This is automatic with the updated runtime headers and needs no regenerated schema
+code or option. It works with SIMD enabled or disabled and adds no per-string
+allocation for scan metadata. See [JSON scan reuse](docs/usage.md#reduce-repeated-json-scans)
+for scope and remaining passes. Focused tests are prepared; builds, test execution,
+sanitizers, and benchmarks remain deferred.
+
 ### Output language and coding standard
 
 Keep target-language settings in a generator config, separate from the `.serializer`

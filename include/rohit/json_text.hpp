@@ -2,6 +2,7 @@
 
 #include <rohit/runtime_simd.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -117,6 +118,9 @@ struct json_string_range {
   std::size_t wire_bytes{};
   std::size_t text_bytes{};
   bool escaped{};
+  // Offsets are relative to the opening quote; defaults retain the full-span helper path.
+  std::size_t first_escape{1};
+  std::size_t last_escape_end{std::numeric_limits<std::size_t>::max()};
 };
 
 // Validate one quoted string in a bounded span, including its Unicode and escape grammar.
@@ -143,9 +147,13 @@ inline json_string_range scan_json_string(std::span<const std::uint8_t> bytes) {
       throw std::invalid_argument{"Unescaped JSON control character"};
     }
     if (ch == '\\') {
+      if (!result.escaped) {
+        result.first_escape = index;
+      }
       result.escaped = true;
       ++index;
       result.text_bytes += utf8_code_point_size(read_json_escape(bytes, index));
+      result.last_escape_end = index;
     } else {
       const auto size = utf8_sequence_size(bytes.subspan(index));
       index += size;
@@ -155,13 +163,21 @@ inline json_string_range scan_json_string(std::span<const std::uint8_t> bytes) {
   throw std::invalid_argument{"Unterminated JSON string"};
 }
 
-// Replace a destination from a validated string, copying ordinary text in runs.
+// Replace from a fully validated range; input must remain alive and disjoint from output storage.
+// Copy known plain spans directly and rescan only between the first and last escapes.
 inline void assign_json_string(std::string& output, std::span<const std::uint8_t> bytes,
                                json_string_range range) {
   output.clear();
   output.reserve(range.text_bytes);
-  std::size_t index = 1;
-  const auto end = range.wire_bytes - 1;
+  if (!range.escaped) {
+    output.append(reinterpret_cast<const char*>(bytes.data() + 1), range.text_bytes);
+    return;
+  }
+  output.append(reinterpret_cast<const char*>(bytes.data() + 1), range.first_escape - 1);
+  std::size_t index = range.first_escape;
+  const auto text_end = range.wire_bytes - 1;
+  // A manually supplied three-member range retains its original full-span behavior.
+  const auto end = std::min(range.last_escape_end, text_end);
   while (index < end) {
     const auto start = index;
     // This range was validated; only a backslash can stop an unescaped span here.
@@ -172,12 +188,20 @@ inline void assign_json_string(std::string& output, std::span<const std::uint8_t
       append_utf8(output, read_json_escape(bytes, index));
     }
   }
+  output.append(reinterpret_cast<const char*>(bytes.data() + end), text_end - end);
 }
 
-// Validate UTF-8 and measure escaping without changing the output stream.
-inline std::size_t json_escaped_size(std::string_view text) {
+struct json_escape_analysis {
+  std::size_t encoded_bytes{};
+  // Offsets bound the raw bytes needing escaping; both equal input size when there are none.
+  std::size_t first_escape{};
+  std::size_t last_escape_end{};
+};
+
+// Validate the whole UTF-8 string and retain escape boundaries alongside its exact encoded size.
+inline json_escape_analysis analyze_json_escaping(std::string_view text) {
   const auto bytes = std::span{reinterpret_cast<const std::uint8_t*>(text.data()), text.size()};
-  std::size_t result = text.size();
+  json_escape_analysis result{text.size(), text.size(), text.size()};
   for (std::size_t index = 0; index < bytes.size();) {
     index += scan_json_prefix<json_scan_kind::ascii>(bytes.data() + index, bytes.size() - index);
     if (index == bytes.size()) {
@@ -188,13 +212,24 @@ inline std::size_t json_escaped_size(std::string_view text) {
     const auto encoded = ch < 0x20 ? std::size_t{6} :
         ch == '"' || ch == '\\' ? std::size_t{2} : size;
     const auto extra = encoded - size;
-    if (extra > std::numeric_limits<std::size_t>::max() - result) {
+    if (extra > std::numeric_limits<std::size_t>::max() - result.encoded_bytes) {
       throw std::length_error{"Escaped JSON string is too large"};
     }
-    result += extra;
+    if (extra != 0) {
+      if (result.first_escape == text.size()) {
+        result.first_escape = index;
+      }
+      result.last_escape_end = index + size;
+    }
+    result.encoded_bytes += extra;
     index += size;
   }
   return result;
+}
+
+// Retain size-only callers and their validation/errors without requiring them to keep scan metadata.
+inline std::size_t json_escaped_size(std::string_view text) {
+  return analyze_json_escaping(text).encoded_bytes;
 }
 
 // Write validated UTF-8 into exactly json_escaped_size(text) writable bytes without allocating.
@@ -227,13 +262,32 @@ inline void write_json_escaped(std::uint8_t* output, const std::uint8_t* input,
   }
 }
 
+// Write with analysis from the same unchanged input; reserve analysis.encoded_bytes first.
+// Input/output must be disjoint. Offsets survive source rebasing by a stream reservation.
+inline void write_json_escaped(std::uint8_t* output, const std::uint8_t* input, std::size_t size,
+                               const json_escape_analysis& analysis) noexcept {
+  if (analysis.first_escape != 0) {
+    std::memcpy(output, input, analysis.first_escape);
+  }
+  if (analysis.first_escape != analysis.last_escape_end) {
+    write_json_escaped(output + analysis.first_escape, input + analysis.first_escape,
+                       analysis.last_escape_end - analysis.first_escape);
+  }
+  const auto tail_bytes = size - analysis.last_escape_end;
+  if (tail_bytes != 0) {
+    std::memcpy(output + analysis.encoded_bytes - tail_bytes, input + analysis.last_escape_end,
+                tail_bytes);
+  }
+}
+
 // Retain the owning helper; treat the supplied size as a reservation hint, never as a write bound.
 inline std::string escape_json_string(std::string_view text, std::size_t encoded_size) {
   std::string result;
   result.reserve(encoded_size);
-  result.resize(json_escaped_size(text));
+  const auto analysis = analyze_json_escaping(text);
+  result.resize(analysis.encoded_bytes);
   write_json_escaped(reinterpret_cast<std::uint8_t*>(result.data()),
-                     reinterpret_cast<const std::uint8_t*>(text.data()), text.size());
+                     reinterpret_cast<const std::uint8_t*>(text.data()), text.size(), analysis);
   return result;
 }
 

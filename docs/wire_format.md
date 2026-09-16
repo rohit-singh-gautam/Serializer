@@ -147,6 +147,13 @@ UTF-8, unpaired surrogates, and unescaped controls. Ordinary unescaped names are
 borrowed from the input for dispatch; escaped names use local scratch storage.
 Names are compared as decoded bytes without Unicode normalization.
 
+C++ JSON string helpers reuse escape boundaries from the full validation pass to
+copy known plain spans without rescanning them. UTF-8/escape validation, emitted
+bytes, string replacement, cursor updates, and resource charges remain unchanged.
+The shared ProtoJSON input and Protobuf text quoting helpers use the same paths.
+See [JSON scan reuse](usage.md#reduce-repeated-json-scans) for scope and deferred
+verification. No new wire representation or trusted-input mode is introduced.
+
 Numbers follow JSON grammar: no leading plus, leading zeroes, missing fractional
 or exponent digits, `NaN`, or infinity. Booleans are lowercase. `std::nullptr_t`
 represents `null`; a `char` represents a string containing one decoded byte.

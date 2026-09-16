@@ -1,5 +1,15 @@
 # Migrating to the snake_case Serializer API
 
+## Reused JSON string scan results
+
+Recompile consumers with the updated runtime headers to reuse JSON validation
+results during string copying and escaping. Regenerating schema headers is not
+required. Existing API calls, wire bytes, formatting, validation, limits, and
+failure behavior remain unchanged; there is no new option or trusted-string mode.
+The shared ProtoJSON input and ProtoJSON/TextProto quoting helpers benefit too.
+See [JSON scan reuse](docs/usage.md#reduce-repeated-json-scans) for remaining scans
+and prepared coverage. Builds, tests, sanitizers, and benchmarks remain deferred.
+
 ## Pre-encoded constant field names
 
 Regenerate C++ owning headers to use compile-time name tokens for native JSON

@@ -1283,26 +1283,20 @@ private:
     write_bracket_close();
   }
 
-  // Validate and quote UTF-8, retaining the allocation-free path for ordinary text.
+  // Validate UTF-8 once and retain escape boundaries for the reserved, alias-safe write.
   void write_string(std::string_view text) {
-    const auto encoded_size = detail::json_escaped_size(text);
+    const auto analysis = detail::analyze_json_escaping(text);
     constexpr std::size_t quote_bytes = 2;
-    if (encoded_size > rohit::detail::maximum_buffer_bytes - quote_bytes) {
+    if (analysis.encoded_bytes > rohit::detail::maximum_buffer_bytes - quote_bytes) {
       throw rohit::exception::stream_overflow_exception{};
     }
     before_data();
     out_stream.append_transformed(
-        text.data(), text.size(), encoded_size + quote_bytes,
-        [encoded_size](std::uint8_t* output, const std::uint8_t* input, std::size_t size) noexcept {
+        text.data(), text.size(), analysis.encoded_bytes + quote_bytes,
+        [analysis](std::uint8_t* output, const std::uint8_t* input, std::size_t size) noexcept {
           output[0] = '"';
-          if (encoded_size == size) {
-            if (size != 0) {
-              std::memcpy(output + 1, input, size);
-            }
-          } else {
-            detail::write_json_escaped(output + 1, input, size);
-          }
-          output[encoded_size + 1] = '"';
+          detail::write_json_escaped(output + 1, input, size, analysis);
+          output[analysis.encoded_bytes + 1] = '"';
         });
   }
 

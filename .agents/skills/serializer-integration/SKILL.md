@@ -322,6 +322,17 @@ user instruction to defer generation/builds/tests and report what remains unveri
   for details and prepared tests; generation/build/test execution and benchmarks
   remain deferred.
 
+- Use the updated runtime headers for JSON string scan reuse; schema regeneration
+  and new options are unnecessary. Validated plain strings copy directly, while
+  escaped input/output reuse boundaries to skip rescanning plain prefixes/suffixes.
+  Full validation, resource charges, destination reuse, and stream alias/failure
+  behavior remain unchanged. Input still must not overlap decoded storage. Shared
+  ProtoJSON input and ProtoJSON/TextProto quoted output benefit; separate parsers
+  and other codecs retain their existing algorithms. See
+  [JSON scan reuse](../../../docs/usage.md#reduce-repeated-json-scans) for remaining
+  passes and prepared coverage. Builds/tests/sanitizers/benchmarks remain deferred;
+  do not claim measured performance gains.
+
 ## Map generated views
 
 Use `View::map(span, limits)` with the exact little-endian `binary_none` message.

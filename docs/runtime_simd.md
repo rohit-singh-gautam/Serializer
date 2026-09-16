@@ -28,6 +28,18 @@ JSON number formatting, individual scalar fields, and compact binary prefixes
 retain their scalar implementations. SIMD availability does not imply every
 operation benefits from vector instructions.
 
+## Reusing JSON string scan results
+
+Validation retains the boundaries of the escaped region. Plain decoded strings
+copy directly after validation; escaped input/output copy known plain prefixes
+and suffixes without rescanning them. SIMD remains available for validation and
+the ordinary spans between escapes inside the remaining interval. The complete
+UTF-8 and escape grammar is still checked before committing a string, and output
+keeps its single reservation and overlap handling. Scan metadata has fixed size
+and requires no heap allocation. This optimization also applies with explicit
+SIMD disabled; see [JSON scan reuse](usage.md#reduce-repeated-json-scans) for scope,
+remaining passes, resource accounting, and the prepared focused tests.
+
 ## Bulk binary-array decoding
 
 C++ binary input checks the declared count, destination capacity limit, allocation
