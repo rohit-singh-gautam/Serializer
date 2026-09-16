@@ -51,6 +51,7 @@ values, and repeated non-repeatable options are errors.
 | `--cpp.coding_standard` | | `serializer`, `core`, `google`, `llvm`, `gnu`, `cert`, `misra`, `autosar`, `qt` |
 | `--cpp.naming` | | `profile` or `preserve` |
 | `--cpp.format` | | `true` or `false` |
+| `--cpp.protobuf` | | `true` or `false`; enable compile-time [Protobuf codecs](protobuf.md) |
 | `--cpp.clang_format` | | clang-format 19+ executable |
 | `--cpp.format_file` | | Custom layout file; `--cpp.format_file=` clears a configured file |
 | `--java.coding_standard` | | `serializer`, `google`, `oracle` |

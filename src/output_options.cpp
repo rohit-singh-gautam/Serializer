@@ -263,6 +263,8 @@ output_options read_output_options(const std::filesystem::path& file) {
       if (section == "output" && key == "language") {
         result.language = value;
         parse_output_languages(value);
+      } else if (section == "cpp" && key == "protobuf") {
+        result.cpp.protobuf = read_bool(value);
       } else if (section == "java" && key == "coding_standard") {
         result.java.standard = parse_java_coding_standard(value);
       } else if (section == "java" && key == "package") {

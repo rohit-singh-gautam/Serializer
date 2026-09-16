@@ -40,6 +40,7 @@ short options, version reporting, and required `.serializer` version headers.
 | `[output] language` | `cpp` | Select `cpp`, `java`, or `cpp,java`; CLI spelling is `--language`. |
 | `[cpp] coding_standard` | `serializer` | Select a profile from the table below. |
 | `[cpp] naming` | `profile` | Rename target identifiers; `preserve` retains schema spellings. |
+| `[cpp] protobuf` | `false` | Generate direct Protobuf binary, ProtoJSON, and TextProto codecs; validate the [compatible schema subset](protobuf.md). |
 | `[cpp] format` | `true` | Run `clang-format`; `false` emits intermediate source for a caller-managed formatting pipeline. |
 | `[cpp] clang_format` | `clang-format` | Executable name on `PATH`, or a path to the executable. |
 | `[cpp] format_file` | Unset | Use a custom clang-format YAML file in place of the profile's layout. |

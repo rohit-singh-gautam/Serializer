@@ -2,6 +2,9 @@
 
 A C++20 schema compiler with C++ and pure Java output supporting JSON and three
 binary protocols. The C++ runtime API and default generated C++ use `snake_case`.
+Opt-in C++ codecs also support **Protobuf binary, ProtoJSON, and TextProto** through
+compile-time protocol templates, for both encoding and decoding. See
+[Protobuf codecs](docs/protobuf.md) for generation, schema mappings, and limitations.
 Language-specific output profiles select layouts and naming conventions.
 Schemas use `.serializer` and begin with `serializer version 1;`.
 Run `serializer --version` for compiler version **0.1.0** and supported schema versions.

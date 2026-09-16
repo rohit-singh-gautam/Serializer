@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer into C++ or Java applications from a provided repository or existing dependency. Use for .serializer schemas, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, JSON or binary codecs, and schema migration."
+description: "Integrate Serializer into C++ or Java applications from a provided repository or existing dependency. Use for .serializer schemas, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, JSON or binary codecs, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
 ---
 
 # Serializer Integration
@@ -241,6 +241,19 @@ user instruction to defer generation/builds/tests and report what remains unveri
   interoperability, including exact binary bytes. Do not claim benchmark results.
 
 ## Implement the C++ codec calls
+
+- For Protobuf binary, ProtoJSON, or TextProto, read
+  [the Protobuf guide](../../../docs/protobuf.md). Enable `[cpp] protobuf = true`
+  or `--cpp.protobuf true`, regenerate, and select `protobuf_binary`, `protojson`,
+  or `textproto` with the existing compile-time protocol-template calls. No
+  external Protobuf runtime or `.proto` export is required. These codecs currently
+  support C++ owning objects only; Java retains its four established protocols.
+  Match the documented schema mapping with the peer, including union wrapper
+  messages, field-number limits, map keys, and the absence of a `bytes` schema type.
+  Input uses Protobuf defaults and commits a replacement object only after exact
+  decoding succeeds. Unknown binary fields are skipped and discarded; unknown
+  named fields/enums fail. Do not promise preservation of field/union presence,
+  unknown fields, well-known-type mappings, or arbitrary Protobuf schemas.
 
 - Select `json`, `binary_none`, `binary_integer`, or `binary_string` according to
   the agreed message contract. Do not silently change protocols to improve size

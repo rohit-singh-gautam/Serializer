@@ -16,6 +16,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include "cpp_naming.hpp"
+#include "protobuf_schema.hpp"
 
 #include <rohit/serializer_creator.hpp>
 
@@ -32,9 +33,10 @@ namespace rohit::serializer::writer::cpp {
 namespace {
 // Emit one schema using an isolated naming policy; the parsed schema is never rewritten.
 class emitter : private naming {
+  bool protobuf_enabled{false};
 public:
   // Bind the per-output C++ naming policy.
-  explicit emitter(const cpp_options& options) : naming{options} {}
+  explicit emitter(const cpp_options& options) : naming{options}, protobuf_enabled{options.protobuf} {}
 
   // Return the public enumerator spelling used in generated mode selections.
   std::string storage_mode_name(storage_mode mode) {
@@ -348,6 +350,11 @@ public:
          "SerializeOutProtocol::key_type == ::rohit::serializer::serialize_key_type::string,\n     "
          "  "
          " \"Unsupported serializer key type\");"));
+    if (protobuf_enabled) {
+      out_stream.write("\n    if constexpr (requires { ", local_name("serializer_protocol"),
+                       ".protobuf_object(*this); }) {\n      ", local_name("serializer_protocol"),
+                       ".protobuf_object(*this);\n    } else ");
+    }
     out_stream.write("\n    if constexpr (SerializeOutProtocol::key_type == "
                      "::rohit::serializer::serialize_key_type::none) {");
     write_serializer_out_body(out_stream, obj, rohit::serializer::serialize_key_type::none);
@@ -581,6 +588,11 @@ public:
         "SerializeInProtocol::key_type "
         "== ::rohit::serializer::serialize_key_type::string,\n        \"Unsupported serializer key "
         "type\");"));
+    if (protobuf_enabled) {
+      out_stream.write("\n    if constexpr (requires { ", local_name("serializer_protocol"),
+                       ".protobuf_object(*this); }) {\n      ", local_name("serializer_protocol"),
+                       ".protobuf_object(*this);\n    } else ");
+    }
     out_stream.write("\n    if constexpr (SerializeInProtocol::key_type == "
                      "::rohit::serializer::serialize_key_type::none) {\n");
     write_serializer_in_body_key_none(out_stream, obj);
@@ -605,6 +617,121 @@ public:
   void write_serializer(stream& out_stream, const class_node* obj) {
     write_serializer_out_body(out_stream, obj);
     write_serializer_in_body(out_stream, obj);
+    if (protobuf_enabled) { write_protobuf(out_stream, *obj); }
+  }
+
+  // Convert a validated wire identifier to Protobuf's standard JSON spelling.
+  std::string protobuf_json_name(std::string_view value) {
+    std::string result;
+    bool uppercase = false;
+    for (const auto character : value) {
+      if (character == '_') { uppercase = true; }
+      else {
+        result += uppercase && character >= 'a' && character <= 'z'
+                    ? static_cast<char>(character - 'a' + 'A') : character;
+        uppercase = false;
+      }
+    }
+    return result;
+  }
+
+  // Emit direct typed Protobuf traversal; field IDs remain template arguments in all formats.
+  void write_protobuf(stream& output, const class_node& object) {
+    const auto protocol = local_name("serializer_protocol");
+    output.write("\n  // Reset every field to the standard Protobuf default.\n"
+                 "  void serializer_protobuf_reset() {\n");
+    for (const auto& base : object.parents) {
+      output.write("    static_cast<", storage_type_name(base.name, base.parent_class),
+                   "*>(this)->serializer_protobuf_reset();\n");
+    }
+    for (const auto& item : object.member_list) {
+      if (item.modifier == member::modifier_type::variant) {
+        const auto& alternative = item.type_name_list.front();
+        output.write("    this->", union_tag_name(item), " = ", union_enum_name(item), "::",
+                     enum_name(alternative.enum_name), ";\n    ::std::construct_at(&this->",
+                     field_name(item.name), ".", field_name(alternative.enum_name), ");\n");
+        output.write("    ::rohit::serializer::detail::protobuf_reset(this->", field_name(item.name),
+                     ".", field_name(alternative.enum_name), ");\n");
+      } else {
+        output.write("    ::rohit::serializer::detail::protobuf_reset(this->", field_name(item.name), ");\n");
+      }
+    }
+    output.write("  }\n\n  // Encode statically typed fields through the selected Protobuf protocol.\n"
+                 "  template <typename ProtobufProtocol>\n  void serializer_protobuf_write([[maybe_unused]] ProtobufProtocol& ",
+                 protocol, ") const {\n");
+    for (const auto& base : object.parents) {
+      output.write("    ", protocol, ".template field<", base.id, ">(\"", base.display_name,
+                   "\", \"", protobuf_json_name(base.display_name), "\", *static_cast<const ",
+                   storage_type_name(base.name, base.parent_class), "*>(this));\n");
+    }
+    for (const auto& item : object.member_list) {
+      const auto names = "\"" + item.display_name + "\", \"" + protobuf_json_name(item.display_name) + "\"";
+      if (item.modifier == member::modifier_type::variant) {
+        output.write("    ", protocol, ".template message_field<", item.id, ">(", names,
+                     ", [&](auto& nested) {\n      switch (this->", union_tag_name(item), ") {\n");
+        for (std::size_t index = 0; index < item.type_name_list.size(); ++index) {
+          const auto& alternative = item.type_name_list[index];
+          output.write("      case ", union_enum_name(item), "::", enum_name(alternative.enum_name),
+                       ": nested.template field<", index + 1, ">(\"", alternative.enum_name,
+                       "\", \"", protobuf_json_name(alternative.enum_name), "\", this->",
+                       field_name(item.name), ".", field_name(alternative.enum_name), "); break;\n");
+        }
+        output.write("      default: throw ::std::invalid_argument{\"Invalid union discriminator\"};\n"
+                     "      }\n    });\n");
+      } else {
+        output.write("    ", protocol, ".template field<", item.id, ">(", names, ", this->",
+                     field_name(item.name), ");\n");
+      }
+    }
+    output.write("  }\n\n  // Dispatch known Protobuf fields directly; the protocol handles unknown fields.\n"
+                 "  template <typename ProtobufProtocol>\n  void serializer_protobuf_read(ProtobufProtocol& ",
+                 protocol, ") {\n");
+    for (const auto& base : object.parents) {
+      output.write("    bool protobuf_seen_", base.id, "{};\n");
+    }
+    for (const auto& item : object.member_list) {
+      output.write("    bool protobuf_seen_", item.id, "{};\n");
+    }
+    output.write("    while (", protocol, ".next_field()) {\n");
+    for (const auto& base : object.parents) {
+      output.write("      if (", protocol, ".template match<", base.id, ">(\"", base.display_name,
+                   "\", \"", protobuf_json_name(base.display_name), "\")) {\n        ", protocol,
+                   ".template occurrence<false>(protobuf_seen_", base.id, ");\n        ", protocol,
+                   ".field(*static_cast<", storage_type_name(base.name, base.parent_class),
+                   "*>(this));\n        continue;\n      }\n");
+    }
+    for (const auto& item : object.member_list) {
+      output.write("      if (", protocol, ".template match<", item.id, ">(\"", item.display_name,
+                   "\", \"", protobuf_json_name(item.display_name), "\")) {\n");
+      output.write("        ", protocol, ".template occurrence<",
+                   std::string_view{item.modifier == member::modifier_type::array ||
+                   item.modifier == member::modifier_type::map ? "true" : "false"},
+                   ">(protobuf_seen_", item.id, ");\n");
+      if (item.modifier == member::modifier_type::variant) {
+        output.write("        if (", protocol, ".null_value()) { continue; }\n        ", protocol,
+                     ".message([&](auto& nested) {\n          int protobuf_selected = -1;\n"
+                     "          while (nested.next_field()) {\n");
+        for (std::size_t index = 0; index < item.type_name_list.size(); ++index) {
+          const auto& alternative = item.type_name_list[index];
+          const auto payload = "this->" + field_name(item.name) + "." + field_name(alternative.enum_name);
+          const auto tag = union_enum_name(item) + "::" + enum_name(alternative.enum_name);
+          output.write("            if (nested.template match<", index + 1, ">(\"", alternative.enum_name,
+                       "\", \"", protobuf_json_name(alternative.enum_name), "\")) {\n"
+                       "              if (nested.null_value()) { continue; }\n"
+                       "              nested.oneof(protobuf_selected, ", index, ");\n"
+                       "              if (this->", union_tag_name(item), " != ", tag, ") {\n"
+                       "                ::std::construct_at(&", payload, ");\n"
+                       "                ::rohit::serializer::detail::protobuf_reset(", payload, ");\n"
+                       "                this->", union_tag_name(item), " = ", tag, ";\n              }\n"
+                       "              nested.field(", payload, ");\n              continue;\n            }\n");
+        }
+        output.write("            nested.unknown();\n          }\n        });\n");
+      } else {
+        output.write("        ", protocol, ".field(this->", field_name(item.name), ");\n");
+      }
+      output.write("        continue;\n      }\n");
+    }
+    output.write("      ", protocol, ".unknown();\n    }\n  }\n");
   }
 
   // Build a typed view codec expression without introducing a runtime field descriptor table.
@@ -927,12 +1054,14 @@ public:
 
   // Generate a complete C++ header while retaining the parsed schema and original wire names.
   void emit(stream& out_stream, const std::vector<std::unique_ptr<syntax_node>>& statements) {
+    if (protobuf_enabled) { validate_protobuf_schema(statements); }
     validate_names(statements);
     const bool has_views = contains_views(statements);
     out_stream.write("// Generated by Serializer. Do not edit this file manually.\n"
                      "// https://github.com/rohit-singh-gautam/Serializer\n\n"
                      "#pragma once\n\n"
                      "#include <rohit/serializer.hpp>\n");
+    if (protobuf_enabled) { out_stream.write("#include <rohit/protobuf.hpp>\n"); }
     if (has_views) {
       out_stream.write("#include <rohit/binary_view.hpp>\n");
     }

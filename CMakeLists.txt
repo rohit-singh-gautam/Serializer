@@ -12,6 +12,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(SERIALIZER_BUILD_TESTS "Build Serializer's tests" ${PROJECT_IS_TOP_LEVEL})
+option(SERIALIZER_BUILD_PROTOBUF_INTEROP_TESTS "Verify codecs against the official Protobuf runtime" OFF)
 option(SERIALIZER_BUILD_BENCHMARKS "Build separate codec timing and allocation tools" OFF)
 option(SERIALIZER_BUILD_FUZZERS "Build the bounded Clang libFuzzer target" OFF)
 option(SERIALIZER_BUILD_STYLE_EXAMPLES "Build one example for each C++ output profile" OFF)
@@ -33,9 +34,12 @@ add_library(serializer_lib
   src/cpp_naming.cpp
   src/cpp_naming.hpp
   src/output_options.cpp
+  src/protobuf_schema.cpp
+  src/protobuf_schema.hpp
   include/rohit/output_options.hpp
   include/rohit/serializer_creator.hpp
   include/rohit/serializer.hpp
+  include/rohit/protobuf.hpp
   include/rohit/decode.hpp
   include/rohit/binary_view.hpp
   include/rohit/json_text.hpp

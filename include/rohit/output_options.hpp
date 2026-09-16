@@ -16,6 +16,7 @@ struct cpp_options {
   bool format{true};
   std::filesystem::path clang_format{"clang-format"};
   std::filesystem::path format_file{};
+  bool protobuf{false};
 };
 
 enum class java_coding_standard { serializer, google, oracle };

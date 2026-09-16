@@ -29,6 +29,37 @@ elseif(UNIX)
 endif()
 
 add_test(NAME core_serializer_test COMMAND core_serializer_test)
+
+add_executable(protobuf_codec_test protobuf_codec_test.cpp)
+serializer_generate(TARGET protobuf_codec_test SCHEMAS resources/protobuf.serializer
+  CONFIG protobuf.ini OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/protobuf")
+target_link_libraries(protobuf_codec_test PRIVATE GTest::gtest_main)
+add_test(NAME protobuf_codec_test COMMAND protobuf_codec_test)
+if(MSVC)
+  target_compile_options(protobuf_codec_test PRIVATE /W4 /WX)
+else()
+  target_compile_options(protobuf_codec_test PRIVATE -Wall -Wextra -Werror -Wpedantic)
+endif()
+if(SERIALIZER_BUILD_PROTOBUF_INTEROP_TESTS)
+  find_package(protobuf CONFIG REQUIRED)
+  set(protobuf_reference_directory "${CMAKE_CURRENT_BINARY_DIR}/protobuf_reference")
+  file(MAKE_DIRECTORY "${protobuf_reference_directory}")
+  add_custom_command(
+    OUTPUT "${protobuf_reference_directory}/protobuf_reference.pb.cc"
+      "${protobuf_reference_directory}/protobuf_reference.pb.h"
+    COMMAND protobuf::protoc "--cpp_out=${protobuf_reference_directory}"
+      "--proto_path=${CMAKE_CURRENT_SOURCE_DIR}/resources"
+      "${CMAKE_CURRENT_SOURCE_DIR}/resources/protobuf_reference.proto"
+    DEPENDS resources/protobuf_reference.proto protobuf::protoc VERBATIM)
+  target_sources(protobuf_codec_test PRIVATE protobuf_interop_test.cpp
+    "${protobuf_reference_directory}/protobuf_reference.pb.cc")
+  target_include_directories(protobuf_codec_test SYSTEM PRIVATE "${protobuf_reference_directory}")
+  target_link_libraries(protobuf_codec_test PRIVATE protobuf::libprotobuf)
+  if(WIN32)
+    set_tests_properties(protobuf_codec_test PROPERTIES ENVIRONMENT_MODIFICATION
+      "PATH=path_list_prepend:$<TARGET_FILE_DIR:protobuf::libprotobuf>")
+  endif()
+endif()
 add_test(NAME serializer_compiler_cli
   COMMAND "${CMAKE_COMMAND}" "-DGENERATOR=$<TARGET_FILE:serializer>"
     "-DVERSION=${PROJECT_VERSION}" "-DDIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/compiler_cli"

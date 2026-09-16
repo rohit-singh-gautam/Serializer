@@ -1,5 +1,14 @@
 # Migrating to the snake_case Serializer API
 
+## Optional Protobuf protocols
+
+Regenerate C++ headers with `--cpp.protobuf true` (or `[cpp] protobuf = true`) to
+use `protobuf_binary`, `protojson`, or `textproto` through the existing protocol
+template API. Existing protocol aliases and wire formats are unchanged. Protobuf
+input uses standard defaults for absent fields, not schema member initializers;
+field IDs, maps, names, and union mappings have additional restrictions. Review
+[the Protobuf contract](docs/protobuf.md) before changing an application's protocol.
+
 ## Versioned schema files and compiler options
 
 Rename `.def` and `.struct` schemas to `.serializer` and add `serializer version 1;`

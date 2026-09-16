@@ -50,6 +50,7 @@ constexpr rohit::serializer::cli::commandline_option command_options[] = {
      "serializer|core|google|llvm|gnu|cert|misra|autosar|qt"},
     {'\0', "cpp.naming", "profile|preserve", "C++ identifier naming policy."},
     {'\0', "cpp.format", "true|false", "Run clang-format (default true)."},
+    {'\0', "cpp.protobuf", "true|false", "Generate direct Protobuf binary, ProtoJSON, and TextProto codecs."},
     {'\0', "cpp.clang_format", "executable", "clang-format 19+ executable (default clang-format)."},
     {'\0', "cpp.format_file", "file", "Custom layout; --cpp.format_file= clears it.", false, true},
     {'\0', "java.coding_standard", "profile", "serializer|google|oracle"},
@@ -126,6 +127,13 @@ int main(const int argc, const char* argv[]) {
         throw std::invalid_argument{"cpp.naming must be profile or preserve"};
       }
       options.cpp.rename_identifiers = value == "profile";
+    }
+    if (arguments.contains("cpp.protobuf")) {
+      const auto& value = arguments.at("cpp.protobuf");
+      if (value != "true" && value != "false") {
+        throw std::invalid_argument{"cpp.protobuf must be true or false"};
+      }
+      options.cpp.protobuf = value == "true";
     }
     if (arguments.contains("cpp.format")) {
       const auto& value = arguments.at("cpp.format");

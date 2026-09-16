@@ -312,13 +312,17 @@ void naming::validate_names(const std::vector<std::unique_ptr<syntax_node>>& sta
         }
       } else if (node.type == object_type::class_type) {
         const auto& object = static_cast<const class_node&>(node);
-        std::set<std::string> owning{"serialize_in",
+          std::set<std::string> owning{"serialize_in",
                                      "serialize_out",
                                      "serialize_in_member_by_identifier",
                                      "serialize_in_member_by_name",
                                      "SerializeInProtocol",
                                      "SerializeOutProtocol",
-                                     "Protocol"};
+                                       "Protocol"};
+          if (options.protobuf) {
+            owning.insert({"serializer_protobuf_write", "serializer_protobuf_read",
+                           "serializer_protobuf_reset", "ProtobufProtocol"});
+          }
         std::set<std::string> views{"map",           "serializer_scan", "serialized_bytes",
                                     "serialize_out", "wire_endian",     "key_type",
                                     "view_limits",   "field_bytes"};

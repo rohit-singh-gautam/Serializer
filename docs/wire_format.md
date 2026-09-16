@@ -1,5 +1,10 @@
 # Wire format and decoding contract
 
+The opt-in C++ `protobuf_binary`, `protojson`, and `textproto` protocols have a
+separate [Protobuf mapping and decoding contract](protobuf.md). They do not use
+the custom binary layouts or ordinary JSON mapping documented below. Java
+currently supports only the four original protocols described here.
+
 The `.serializer` source header `serializer version 1;` selects the schema
 language. It is independent of the compiler release and is not emitted into
 messages. This change leaves the wire formats below unchanged; see
