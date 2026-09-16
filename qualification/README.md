@@ -6,7 +6,7 @@ configured, built, or run as part of the assessment implementation.
 ## Regression tests
 
 The ordinary `core_serializer_test` target includes `decoder_qualification_test.cpp`
-and a generated `assessment.def` fixture. Added cases cover exact/truncated compact
+and a generated `assessment.serializer` fixture. Added cases cover exact/truncated compact
 integers, odd-offset scalar reads, float/double wire bytes, JSON grammar and Unicode,
 replacement/failure behavior, cumulative limits, old/new schemas, enum fields and
 collections, escaped field names, empty objects, and diagnostics. Existing tests

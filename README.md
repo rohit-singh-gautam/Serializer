@@ -3,6 +3,9 @@
 A C++20 schema compiler with C++ and pure Java output supporting JSON and three
 binary protocols. The C++ runtime API and default generated C++ use `snake_case`.
 Language-specific output profiles select layouts and naming conventions.
+Schemas use `.serializer` and begin with `serializer version 1;`.
+Run `serializer --version` for compiler version **0.1.0** and supported schema versions.
+See [command-line options](docs/command_line.md) for multi-language generation and overrides.
 See [Java output](docs/java.md) for dependency-free Java 17+ codecs and
 [all examples](example/README.md) for self-contained example folders.
 
@@ -67,7 +70,7 @@ types and mixed native byte order. Booleans are unchanged.
 Generate a header by running the built executable:
 
 ```sh
-serializer input example/config/config.struct output config.hpp
+serializer --input example/config/config.serializer --output config.hpp
 ```
 
 Format C++ files with the repository's `.clang-format`; see
@@ -75,7 +78,7 @@ Format C++ files with the repository's `.clang-format`; see
 
 ### SIMD in the schema compiler
 
-`SERIALIZER_ENABLE_SIMD=ON` is the build default. The `.def` parser scans whitespace,
+`SERIALIZER_ENABLE_SIMD=ON` is the build default. The `.serializer` parser scans whitespace,
 comments, and identifier spans in blocks, then constructs each identifier string
 once. On x64, the baseline scanner uses 16-byte SSE2 blocks; supported MSVC, GCC,
 and Clang builds also include a separately compiled 32-byte AVX2 scanner selected
@@ -119,7 +122,7 @@ the prepared validation matrix. Builds, tests, and benchmarks remain deferred.
 
 ### Output language and coding standard
 
-Keep target-language settings in a generator config, separate from the `.def`
+Keep target-language settings in a generator config, separate from the `.serializer`
 schema. Both C++ and Java output are implemented. For C++:
 
 ```ini
@@ -133,13 +136,13 @@ format = true
 ```
 
 ```sh
-serializer input account.def output account.hpp config serializer_output.ini
+serializer --input account.serializer --output account.hpp --config serializer_output.ini
 ```
 
 Supported profiles: `serializer` (default), `core`, `google`, `llvm`, `gnu`,
 `cert`, `misra`, `autosar`, and `qt`. They select presentation rules and rename
 schema-derived C++ identifiers while retaining wire names and IDs. Runtime-required
-method names remain fixed. `cpp.naming preserve` retains earlier C++ names.
+method names remain fixed. `--cpp.naming preserve` retains earlier C++ names.
 These presets do not establish full compliance with a coding standard.
 
 See [configuration and naming rules](docs/output_configuration.md) and
@@ -159,11 +162,11 @@ see [verification scope and outstanding suite failures](docs/java.md#verificatio
 Generate owning Java classes and direct codecs with no native runtime dependency:
 
 ```sh
-serializer input example/java/round_trip/account.def output AccountSchema.java config example/java/round_trip/java.ini
+serializer --input example/java/round_trip/account.serializer --output AccountSchema.java --config example/java/round_trip/java.ini
 ```
 
 Java profiles are `serializer`, `google`, and `oracle`, selected with
-`java.coding_standard`. They use conventional Java naming; `java.naming preserve`
+`--java.coding_standard`. They use conventional Java naming; `--java.naming preserve`
 retains valid schema identifiers. These are presentation presets, not full guide
 compliance. Java supports owning objects, enums, arrays, maps, unions, and parent
 composition across all four protocols. Views and packed layout are rejected.
@@ -181,7 +184,7 @@ After adding Serializer as a dependency, a consumer needs:
 
 ```cmake
 add_executable(my_app main.cpp)
-serializer_generate(TARGET my_app SCHEMAS schemas/account.def)
+serializer_generate(TARGET my_app SCHEMAS schemas/account.serializer)
 ```
 
 A normal build of `my_app` builds the generator when using the source dependency,
@@ -202,10 +205,15 @@ cmake --build build --config Debug --target serializer_generated_headers
 
 No custom VS Code task or Serializer IntelliSense extension is required. See the
 [IntelliSense guide](docs/intellisense.md) for the repository presets and
-profile-specific includes. CMake configuration, generation, builds, package
-installation, and editor verification remain deferred for this change.
+profile-specific includes. Source builds and installed-package generation have
+been checked on Windows; see [compiler verification](docs/command_line.md#verification).
+Editor verification remains deferred.
 
 ## Language Construct
+
+Every `.serializer` file starts with `serializer version 1;` before declarations.
+The declaration snippets below omit this header. Complete files in `example/`
+include it. See [schema versioning](docs/command_line.md#schema-files).
 
 ### Namespace
 This directly maps to C++ name space this can be hierarchical. This can be similar to C++ syntax like "A::B::C".

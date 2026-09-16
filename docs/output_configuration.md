@@ -1,6 +1,6 @@
 # Output languages and coding profiles
 
-Keep output choices in the **generator configuration**, separate from `.def` schemas.
+Keep output choices in the **generator configuration**, separate from `.serializer` schemas.
 Schemas define names, IDs, types, defaults, and representations. Each application can
 select a language backend and its presentation rules without changing that contract.
 The **C++ and Java backends** are implemented. Other language names and sections
@@ -24,28 +24,31 @@ clang_format = clang-format
 ```
 
 ```sh
-serializer input account.def output account.hpp config serializer_output.ini
-serializer input account.def output account.hpp config serializer_output.ini cpp.coding_standard google
+serializer --input account.serializer --output account.hpp --config serializer_output.ini
+serializer --input account.serializer --output account.hpp --config serializer_output.ini --cpp.coding_standard google
 ```
 
 Precedence is **built-in defaults, configuration file, command-line overrides**.
-The position of `config` among the command-line arguments does not affect precedence.
-The existing `input <schema> output <header>` invocation still works, now with
-Serializer naming and formatting enabled by default.
+The position of `--config` among the command-line arguments does not affect precedence.
+Options now require leading dashes. Use `--language cpp,java` with `--cpp.output`
+and `--java.output` to generate both backends in one run; `[output] language = cpp,java`
+also selects both. See [the full command-line contract](command_line.md), including
+short options, version reporting, and required `.serializer` version headers.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `[output] language` | `cpp` | Select `cpp` or `java`; CLI spelling is `language`. |
+| `[output] language` | `cpp` | Select `cpp`, `java`, or `cpp,java`; CLI spelling is `--language`. |
 | `[cpp] coding_standard` | `serializer` | Select a profile from the table below. |
 | `[cpp] naming` | `profile` | Rename target identifiers; `preserve` retains schema spellings. |
 | `[cpp] format` | `true` | Run `clang-format`; `false` emits intermediate source for a caller-managed formatting pipeline. |
 | `[cpp] clang_format` | `clang-format` | Executable name on `PATH`, or a path to the executable. |
 | `[cpp] format_file` | Unset | Use a custom clang-format YAML file in place of the profile's layout. |
 
-C++ CLI overrides use `cpp.` plus the setting name, for example
-`cpp.naming preserve` or `cpp.clang_format "C:/Tools/LLVM/bin/clang-format.exe"`.
+C++ CLI overrides use `--cpp.` plus the setting name, for example
+`--cpp.naming preserve` or `--cpp.clang_format "C:/Tools/LLVM/bin/clang-format.exe"`.
+Use `--cpp.format_file=` to clear an inherited custom format file.
 Output filenames must end in `.h`, `.hpp`, or `.hxx`; `.hpp` is the repository default convention.
-`serializer --help` lists the arguments. Unknown/repeated arguments, unsupported
+`serializer --help` lists the arguments. Unknown/repeated scalar arguments, unsupported
 settings, malformed configurations, and failed generation return a nonzero exit code.
 
 INI keys, section names, profile names, and boolean values are case-sensitive.

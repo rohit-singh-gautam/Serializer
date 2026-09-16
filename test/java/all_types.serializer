@@ -1,3 +1,5 @@
+serializer version 1;
+
 namespace coverage {
 enum choice { first_value, second_value }
 class empty {}

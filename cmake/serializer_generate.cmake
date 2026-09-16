@@ -75,24 +75,24 @@ function(serializer_generate)
     if(NOT EXISTS "${config}" OR IS_DIRECTORY "${config}")
       message(FATAL_ERROR "serializer_generate cannot find CONFIG: ${config}")
     endif()
-    list(APPEND arguments config "${config}")
+    list(APPEND arguments --config "${config}")
     list(APPEND dependencies "${config}")
   endif()
   if(arg_CODING_STANDARD)
-    list(APPEND arguments cpp.coding_standard "${arg_CODING_STANDARD}")
+    list(APPEND arguments --cpp.coding_standard "${arg_CODING_STANDARD}")
   endif()
   if(arg_FORMAT_FILE)
     get_filename_component(format_file "${arg_FORMAT_FILE}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
     if(NOT EXISTS "${format_file}" OR IS_DIRECTORY "${format_file}")
       message(FATAL_ERROR "serializer_generate cannot find FORMAT_FILE: ${format_file}")
     endif()
-    list(APPEND arguments cpp.format_file "${format_file}")
+    list(APPEND arguments --cpp.format_file "${format_file}")
     list(APPEND dependencies "${format_file}")
   endif()
   if(arg_CLANG_FORMAT)
-    list(APPEND arguments cpp.clang_format "${arg_CLANG_FORMAT}")
+    list(APPEND arguments --cpp.clang_format "${arg_CLANG_FORMAT}")
   elseif(SERIALIZER_CLANG_FORMAT_EXECUTABLE)
-    list(APPEND arguments cpp.clang_format "${SERIALIZER_CLANG_FORMAT_EXECUTABLE}")
+    list(APPEND arguments --cpp.clang_format "${SERIALIZER_CLANG_FORMAT_EXECUTABLE}")
   endif()
 
   set(headers)
@@ -118,7 +118,7 @@ function(serializer_generate)
     add_custom_command(
       OUTPUT "${header}"
       COMMAND "${CMAKE_COMMAND}" -E make_directory "${output_directory}"
-      COMMAND "${compiler}" input "${input}" output "${header}" ${arguments}
+      COMMAND "${compiler}" --input "${input}" --output "${header}" --language cpp ${arguments}
       DEPENDS "${input}" ${dependencies}
       COMMENT "Generating Serializer header ${stem}.hpp for ${arg_TARGET}"
       VERBATIM

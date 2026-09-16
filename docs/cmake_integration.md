@@ -4,6 +4,11 @@ For Java source generation, use `serializer_generate_java(TARGET name SCHEMA fil
 OUTPUT Schema.java CONFIG java.ini)`. This creates a generation target without
 linking a C++ runtime into the application. See [Java CMake usage](java.md#cmake-and-verification).
 The `serializer_generate` helper documented below remains C++-specific.
+Each helper explicitly selects its own backend, so both may share a configuration
+with `[output] language = cpp,java`. Schema paths use `.serializer`, and every
+schema starts with `serializer version 1;`. The installed package supports
+`find_package(Serializer 0.1.0 EXACT CONFIG REQUIRED)`; see
+[compiler and schema versioning](command_line.md).
 
 Serializer ships a `serializer_generate` function with both its source tree and
 its installable CMake package. Use CMake 3.28+, a C++20 compiler and standard
@@ -22,7 +27,7 @@ set(SERIALIZER_BUILD_TESTS OFF CACHE BOOL "Build Serializer's own tests")
 add_subdirectory(vendor/Serializer)
 
 add_executable(my_app main.cpp)
-serializer_generate(TARGET my_app SCHEMAS schemas/account.def)
+serializer_generate(TARGET my_app SCHEMAS schemas/account.serializer)
 ```
 
 The same helper is available after bringing in the source with CMake's
@@ -85,7 +90,7 @@ project(my_app LANGUAGES CXX)
 
 find_package(Serializer CONFIG REQUIRED)
 add_executable(my_app main.cpp)
-serializer_generate(TARGET my_app SCHEMAS schemas/account.def)
+serializer_generate(TARGET my_app SCHEMAS schemas/account.serializer)
 ```
 
 ```sh
@@ -105,7 +110,7 @@ Call `serializer_generate` once per target and list all its schemas together:
 
 ```cmake
 serializer_generate(TARGET my_app
-  SCHEMAS schemas/account.def schemas/address.def
+  SCHEMAS schemas/account.serializer schemas/address.serializer
   CONFIG serializer_output.ini
   OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated/my_app")
 ```
@@ -147,7 +152,7 @@ Generate once on an interface library and link consumers to it:
 
 ```cmake
 add_library(app_models INTERFACE)
-serializer_generate(TARGET app_models SCHEMAS schemas/account.def)
+serializer_generate(TARGET app_models SCHEMAS schemas/account.serializer)
 
 add_executable(client client.cpp)
 add_executable(server server.cpp)

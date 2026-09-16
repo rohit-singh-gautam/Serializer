@@ -1,6 +1,6 @@
 # C++ coding-style examples
 
-Every profile has its own folder containing `account.def`, its configuration, and
+Every profile has its own folder containing `account.serializer`, its configuration, and
 its C++ consumer. Each program writes an owning
 object, changes its account ID through a mutable view, decodes it, and checks the
 original JSON field and enum names. The configurations select different C++ names
@@ -8,15 +8,15 @@ and layouts; the wire contract is identical.
 
 | Profile | Schema | Configuration | C++ consumer |
 | --- | --- | --- | --- |
-| Serializer | [account.def](serializer/account.def) | [serializer.ini](serializer/serializer.ini) | [serializer.cpp](serializer/serializer.cpp) |
-| C++ Core Guidelines | [account.def](core/account.def) | [core.ini](core/core.ini) | [core.cpp](core/core.cpp) |
-| Google | [account.def](google/account.def) | [google.ini](google/google.ini) | [google.cpp](google/google.cpp) |
-| LLVM | [account.def](llvm/account.def) | [llvm.ini](llvm/llvm.ini) | [llvm.cpp](llvm/llvm.cpp) |
-| GNU | [account.def](gnu/account.def) | [gnu.ini](gnu/gnu.ini) | [gnu.cpp](gnu/gnu.cpp) |
-| SEI CERT | [account.def](cert/account.def) | [cert.ini](cert/cert.ini) | [cert.cpp](cert/cert.cpp) |
-| MISRA | [account.def](misra/account.def) | [misra.ini](misra/misra.ini) | [misra.cpp](misra/misra.cpp) |
-| AUTOSAR | [account.def](autosar/account.def) | [autosar.ini](autosar/autosar.ini) | [autosar.cpp](autosar/autosar.cpp) |
-| Qt | [account.def](qt/account.def) | [qt.ini](qt/qt.ini) | [qt.cpp](qt/qt.cpp) |
+| Serializer | [account.serializer](serializer/account.serializer) | [serializer.ini](serializer/serializer.ini) | [serializer.cpp](serializer/serializer.cpp) |
+| C++ Core Guidelines | [account.serializer](core/account.serializer) | [core.ini](core/core.ini) | [core.cpp](core/core.cpp) |
+| Google | [account.serializer](google/account.serializer) | [google.ini](google/google.ini) | [google.cpp](google/google.cpp) |
+| LLVM | [account.serializer](llvm/account.serializer) | [llvm.ini](llvm/llvm.ini) | [llvm.cpp](llvm/llvm.cpp) |
+| GNU | [account.serializer](gnu/account.serializer) | [gnu.ini](gnu/gnu.ini) | [gnu.cpp](gnu/gnu.cpp) |
+| SEI CERT | [account.serializer](cert/account.serializer) | [cert.ini](cert/cert.ini) | [cert.cpp](cert/cert.cpp) |
+| MISRA | [account.serializer](misra/account.serializer) | [misra.ini](misra/misra.ini) | [misra.cpp](misra/misra.cpp) |
+| AUTOSAR | [account.serializer](autosar/account.serializer) | [autosar.ini](autosar/autosar.ini) | [autosar.cpp](autosar/autosar.cpp) |
+| Qt | [account.serializer](qt/account.serializer) | [qt.ini](qt/qt.ini) | [qt.cpp](qt/qt.cpp) |
 
 See [output configuration](../../docs/output_configuration.md) for the precise
 scope of these presentation profiles and their compliance limitations.
@@ -38,7 +38,7 @@ From the repository root, after building `serializer` and installing clang-forma
 
 ```sh
 mkdir build/example-google
-serializer input example/coding_styles/google/account.def output build/example-google/account.hpp config example/coding_styles/google/google.ini
+serializer --input example/coding_styles/google/account.serializer --output build/example-google/account.hpp --config example/coding_styles/google/google.ini
 ```
 
 Compile [google.cpp](google/google.cpp) with this generated header directory and the

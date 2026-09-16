@@ -272,8 +272,11 @@ const std::string& get_cpp_type_or_empty(const std::string& type);
 const std::string& get_cpp_type(const std::string& type);
 
 namespace parser {
-// Parse schema declarations and resolve their member types; malformed input throws.
+// Parse declarations and resolve member types; malformed or unsupported versions throw.
+// Library callers may omit the version header for legacy fragments.
 std::vector<std::unique_ptr<syntax_node>> parse(const stream& in_stream);
+// Require the first version statement when require_version is true, as the compiler does.
+std::vector<std::unique_ptr<syntax_node>> parse(const stream& in_stream, bool require_version);
 #ifdef ROHIT_SERIALIZER_ENABLE_GTEST
 // Parse identifier from the schema input; malformed input throws.
 std::string parse_identifier(const stream& in_stream);

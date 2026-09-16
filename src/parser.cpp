@@ -16,6 +16,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include <rohit/serializer_creator.hpp>
+#include <rohit/version.hpp>
 
 #include "schema_scan.hpp"
 
@@ -893,8 +894,50 @@ void resolve_member(const stream& in_stream,
   }
 }
 
+// Consume the leading version statement before any declarations; comments may precede it.
+// Bound every read so incomplete headers report schema errors instead of stream overflow.
+void parse_version_header(const stream& input, bool required) {
+  skip_whitespace_and_comment(input);
+  if (!(input == "serializer")) {
+    if (required) {
+      throw exception::bad_input_data{input, "Expected first statement: serializer version 1;"};
+    }
+    return;
+  }
+  for (const auto token : {std::string_view{"serializer"}, std::string_view{"version"}}) {
+    if (!(input == token)) {
+      throw exception::bad_input_data{input, "Expected header: serializer version 1;"};
+    }
+    input += token.size();
+    if (!input.full() && is_identifier(*input)) {
+      throw exception::bad_input_data{input, "Expected separated header tokens"};
+    }
+    skip_whitespace_and_comment(input);
+  }
+  const auto* begin = reinterpret_cast<const char*>(input.curr());
+  std::size_t digits{};
+  while (!input.full() && is_number(*input)) {
+    ++input;
+    ++digits;
+  }
+  unsigned version{};
+  if (digits == 0) {
+    throw exception::bad_input_data{input, "Expected decimal schema language version"};
+  }
+  const auto converted = std::from_chars(begin, begin + digits, version);
+  if (converted.ec != std::errc{} || version != schema_language_version) {
+    throw exception::bad_input_data{input, "Unsupported schema language version; supported: 1"};
+  }
+  skip_whitespace_and_comment(input);
+  if (input.full() || *input != ';') {
+    throw exception::bad_input_data{input, "Expected ';' after schema language version"};
+  }
+  ++input;
+}
+
 // Parse schema declarations and resolve their member types; malformed input throws.
-std::vector<std::unique_ptr<syntax_node>> parse(const stream& in_stream) {
+std::vector<std::unique_ptr<syntax_node>> parse(const stream& in_stream, bool require_version) {
+  parse_version_header(in_stream, require_version);
   auto statements = parse_statement_list(in_stream, nullptr);
   if (!in_stream.full()) {
     throw exception::bad_input_data{in_stream, "Unexpected trailing schema input"};
@@ -902,6 +945,11 @@ std::vector<std::unique_ptr<syntax_node>> parse(const stream& in_stream) {
   std::unordered_map<std::string, syntax_node*> variable_type_map;
   resolve_member(in_stream, statements, variable_type_map);
   return statements;
+}
+
+// Preserve the library's fragment-parsing entry point while validating any supplied header.
+std::vector<std::unique_ptr<syntax_node>> parse(const stream& in_stream) {
+  return parse(in_stream, false);
 }
 
 } // namespace parser

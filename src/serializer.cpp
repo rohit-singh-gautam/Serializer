@@ -18,33 +18,44 @@
 #include <rohit/output_options.hpp>
 #include <rohit/serializer_creator.hpp>
 #include <rohit/stream.hpp>
+#include <rohit/version.hpp>
 
+#include "command_line.hpp"
+
+#include <algorithm>
 #include <exception>
 #include <filesystem>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
-// Describe language-independent arguments and supported backend options.
-void display_help() {
-  std::cout
-      << "Usage: serializer input <schema> output <file> [config <file>] [language cpp|java]\n"
-         "C++ overrides (key value pairs):\n"
-         "  cpp.coding_standard serializer|core|google|llvm|gnu|cert|misra|autosar|qt\n"
-         "  cpp.naming profile|preserve\n"
-         "  cpp.format true|false\n"
-         "  cpp.clang_format <executable>\n"
-         "  cpp.format_file <.clang-format>\n"
-         "Java overrides (Java 17+, no formatter dependency):\n"
-         "  java.coding_standard serializer|google|oracle\n"
-         "  java.naming profile|preserve\n"
-         "  java.package <package.name>\n"
-         "Defaults: C++20, Serializer style, profile naming, clang-format 19+ on PATH.\n"
-         "Precedence: defaults < config file < command line.\n";
-}
+// Shared descriptors implement the Chaturanga-style short/long command-line interface.
+constexpr rohit::serializer::cli::commandline_option command_options[] = {
+    {'h', "help", "", "Display this help."},
+    {'v', "version", "", "Display compiler and supported schema language versions."},
+    {'i', "input", "schema.serializer", "Input with a serializer version 1; header."},
+    {'o', "output", "file", "Output path when selecting exactly one language."},
+    {'c', "config", "file.ini", "Generator configuration; CLI options override its values."},
+    {'l', "language", "cpp|java", "Select output languages; repeat or comma-separate values.",
+     true},
+    {'\0', "cpp.output", "file.hpp", "C++ output path; required for multi-language generation."},
+    {'\0', "java.output", "ClassName.java",
+     "Java output path; required for multi-language generation."},
+    {'\0', "cpp.coding_standard", "profile",
+     "serializer|core|google|llvm|gnu|cert|misra|autosar|qt"},
+    {'\0', "cpp.naming", "profile|preserve", "C++ identifier naming policy."},
+    {'\0', "cpp.format", "true|false", "Run clang-format (default true)."},
+    {'\0', "cpp.clang_format", "executable", "clang-format 19+ executable (default clang-format)."},
+    {'\0', "cpp.format_file", "file", "Custom layout; --cpp.format_file= clears it.", false, true},
+    {'\0', "java.coding_standard", "profile", "serializer|google|oracle"},
+    {'\0', "java.naming", "profile|preserve", "Java identifier naming policy."},
+    {'\0', "java.package", "package.name", "Java package; --java.package= clears it.", false, true},
+};
 
 // Detect aliases and hard links as well as identical normalized paths before replacing output.
 bool same_file(const std::filesystem::path& first, const std::filesystem::path& second) {
@@ -56,43 +67,42 @@ bool same_file(const std::filesystem::path& first, const std::filesystem::path& 
 }
 } // namespace
 
-// Parse CLI overrides, emit the selected language, and write only a successfully formatted header.
+// Validate all destinations and generate every backend before replacing any output files.
 int main(const int argc, const char* argv[]) {
   using namespace rohit::serializer;
-  if (argc == 2 && std::string_view{argv[1]} == "--help") {
-    display_help();
-    return 0;
-  }
   try {
-    std::map<std::string, std::string> arguments{};
-    for (int index = 1; index < argc; index += 2) {
-      const std::string key{argv[index]};
-      if (index + 1 == argc) {
-        throw std::invalid_argument{"Missing value for argument: " + key};
-      }
-      if (key != "input" && key != "output" && key != "config" && key != "language" &&
-          key != "cpp.coding_standard" && key != "cpp.naming" && key != "cpp.format" &&
-          key != "cpp.clang_format" && key != "cpp.format_file" && key != "java.coding_standard" &&
-          key != "java.naming" && key != "java.package") {
-        throw std::invalid_argument{"Unknown argument: " + key};
-      }
-      if (std::string_view{argv[index + 1]}.empty() ||
-          !arguments.emplace(key, argv[index + 1]).second) {
-        throw std::invalid_argument{"Empty or repeated argument: " + key};
-      }
+    const auto parsed = cli::parse(argc, argv, command_options);
+    if (parsed.contains("help")) {
+      std::cout << cli::usage(command_options)
+                << "Defaults: C++20, Serializer style, profile naming, clang-format 19+.\n"
+                   "Precedence: defaults < config file < command line.\n";
+      return 0;
     }
-    if (!arguments.contains("input") || !arguments.contains("output")) {
-      throw std::invalid_argument{"Both input and output are required; use --help for options"};
+    if (parsed.contains("version")) {
+      std::cout << "Serializer compiler " << compiler_version
+                << "\nSupported schema language version: " << schema_language_version << '\n';
+      return 0;
+    }
+    std::map<std::string, std::string> arguments{};
+    for (const auto& [key, values] : parsed) {
+      arguments.emplace(key, values.front());
+    }
+    if (!arguments.contains("input")) {
+      throw std::invalid_argument{"--input is required; use --help for options"};
     }
     auto options = arguments.contains("config")
                        ? writer::read_output_options(arguments.at("config"))
                        : writer::output_options{};
-    if (arguments.contains("language")) {
-      options.language = arguments.at("language");
+    if (parsed.contains("language")) {
+      options.language.clear();
+      for (const auto& value : parsed.at("language")) {
+        if (!options.language.empty()) {
+          options.language += ',';
+        }
+        options.language += value;
+      }
     }
-    if (options.language != "cpp" && options.language != "java") {
-      throw std::invalid_argument{"Unsupported output language: " + options.language};
-    }
+    const auto languages = writer::parse_output_languages(options.language);
     if (arguments.contains("java.coding_standard")) {
       options.java.standard =
           writer::parse_java_coding_standard(arguments.at("java.coding_standard"));
@@ -134,35 +144,79 @@ int main(const int argc, const char* argv[]) {
       throw std::invalid_argument{"cpp.format_file requires cpp.format true"};
     }
     const std::filesystem::path input_file{arguments.at("input")};
-    const std::filesystem::path output_file{arguments.at("output")};
-    if (same_file(input_file, output_file) ||
-        (arguments.contains("config") && same_file(arguments.at("config"), output_file)) ||
-        (!options.cpp.format_file.empty() && same_file(options.cpp.format_file, output_file))) {
+    if (input_file.extension() != ".serializer") {
       throw std::invalid_argument{
-          "Output must not overwrite the schema or an output configuration"};
+          "Input must use .serializer; rename the schema and add serializer version 1;"};
     }
-    const auto extension = output_file.extension();
-    if (options.language == "cpp" && extension != ".h" && extension != ".hpp" &&
-        extension != ".hxx") {
-      throw std::invalid_argument{"C++ output must have a .h, .hpp, or .hxx extension"};
+    if (arguments.contains("output") && languages.size() != 1) {
+      throw std::invalid_argument{"Use --cpp.output and --java.output for multiple languages"};
     }
-    if (options.language == "java" && extension != ".java") {
-      throw std::invalid_argument{"Java output must have a .java extension"};
+    for (const auto language : {"cpp", "java"}) {
+      if (arguments.contains(std::string{language} + ".output") &&
+          std::find(languages.begin(), languages.end(), language) == languages.end()) {
+        throw std::invalid_argument{"Output path supplied for unselected language: " +
+                                    std::string{language}};
+      }
+    }
+    std::vector<std::filesystem::path> destinations{};
+    for (const auto& language : languages) {
+      const auto key = language + ".output";
+      if (arguments.contains("output") && arguments.contains(key)) {
+        throw std::invalid_argument{"Specify only one of --output and --" + key};
+      }
+      if (!arguments.contains("output") && !arguments.contains(key)) {
+        throw std::invalid_argument{"Missing output path: --" + key};
+      }
+      const std::filesystem::path output_file{
+          arguments.at(arguments.contains("output") ? "output" : key)};
+      if (same_file(input_file, output_file) ||
+          (arguments.contains("config") && same_file(arguments.at("config"), output_file)) ||
+          (!options.cpp.format_file.empty() && same_file(options.cpp.format_file, output_file))) {
+        throw std::invalid_argument{
+            "Output must not overwrite the schema or an output configuration"};
+      }
+      for (const auto& previous : destinations) {
+        if (same_file(previous, output_file)) {
+          throw std::invalid_argument{"Output paths must identify distinct files"};
+        }
+      }
+      const auto extension = output_file.extension();
+      if (language == "cpp" && extension != ".h" && extension != ".hpp" && extension != ".hxx") {
+        throw std::invalid_argument{"C++ output must have a .h, .hpp, or .hxx extension"};
+      }
+      if (language == "java" && extension != ".java") {
+        throw std::invalid_argument{"Java output must have a .java extension"};
+      }
+      const auto parent = output_file.parent_path();
+      if ((!parent.empty() && !std::filesystem::is_directory(parent)) ||
+          std::filesystem::is_directory(output_file)) {
+        throw std::invalid_argument{
+            "Output requires an existing parent directory and a file path: " +
+            output_file.string()};
+      }
+      destinations.push_back(output_file);
     }
     const auto input = rohit::make_stream_from_file(input_file);
-    const auto statements = parser::parse(input);
-    rohit::full_stream_auto_alloc output{};
-    if (options.language == "java") {
-      writer::java::write(output, statements, output_file.stem().string(), options.java);
-    } else {
-      writer::cpp::write(output, statements, options.cpp);
+    const auto statements = parser::parse(input, true);
+    std::vector<std::unique_ptr<rohit::full_stream_auto_alloc>> outputs{};
+    for (std::size_t index = 0; index < languages.size(); ++index) {
+      auto output = std::make_unique<rohit::full_stream_auto_alloc>();
+      if (languages[index] == "java") {
+        writer::java::write(*output, statements, destinations[index].stem().string(), options.java);
+      } else {
+        writer::cpp::write(*output, statements, options.cpp);
+      }
+      outputs.push_back(std::move(output));
     }
-    output.write_to_file_till_offset(output_file);
-    std::cout << "Generated " << output_file << " (" << options.language << ", "
-              << (options.language == "java"
-                      ? writer::java_coding_standard_name(options.java.standard)
-                      : writer::coding_standard_name(options.cpp.standard))
-              << ")\n";
+    // Backend/formatter failures leave all destinations intact. Filesystem writes can still fail.
+    for (std::size_t index = 0; index < languages.size(); ++index) {
+      outputs[index]->write_to_file_till_offset(destinations[index]);
+      std::cout << "Generated " << destinations[index] << " (" << languages[index] << ", "
+                << (languages[index] == "java"
+                        ? writer::java_coding_standard_name(options.java.standard)
+                        : writer::coding_standard_name(options.cpp.standard))
+                << ")\n";
+    }
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "Serializer: " << error.what() << '\n';

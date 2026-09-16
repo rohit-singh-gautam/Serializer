@@ -11,6 +11,8 @@ compilation, tests, and performance measurements are deferred for this step.
 ## Select representations in the schema
 
 ```text
+serializer version 1;
+
 namespace example {
   class person view owning {
     public string name;

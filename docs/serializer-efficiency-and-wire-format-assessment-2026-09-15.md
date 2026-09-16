@@ -278,7 +278,7 @@ collision-aware generation and equality validation before trusting a hash match
 as a field identity.
 
 Evidence: [parser.cpp](../src/parser.cpp), lines 270-302, 325-351, and 381-400;
-[person.def](../test/resources/person.def);
+[person.serializer](../test/resources/person.serializer);
 [cppwriter.cpp](../src/cpp_writer.cpp), lines 350-393.
 
 ### 4.5 Document diagnostics and compression accurately

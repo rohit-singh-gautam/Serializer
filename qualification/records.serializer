@@ -1,3 +1,5 @@
+serializer version 1;
+
 namespace qualification {
 class scalars stable_ids {
   public uint64 sequence (1);

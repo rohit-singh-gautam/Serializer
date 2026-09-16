@@ -195,6 +195,27 @@ std::string_view java_coding_standard_name(java_coding_standard standard) {
   throw std::invalid_argument{"Unknown Java coding standard"};
 }
 
+// Preserve selection order while rejecting empty entries, duplicates, and unsupported backends.
+std::vector<std::string> parse_output_languages(std::string_view names) {
+  std::vector<std::string> result{};
+  std::set<std::string> seen{};
+  while (true) {
+    const auto separator = names.find(',');
+    const std::string name{trim(names.substr(0, separator))};
+    if (name != "cpp" && name != "java") {
+      throw std::invalid_argument{"Unsupported output language: " + name};
+    }
+    if (!seen.insert(name).second) {
+      throw std::invalid_argument{"Repeated output language: " + name};
+    }
+    result.push_back(name);
+    if (separator == std::string_view::npos) {
+      return result;
+    }
+    names.remove_prefix(separator + 1);
+  }
+}
+
 // Parse the documented small INI grammar and report the line responsible for invalid input.
 output_options read_output_options(const std::filesystem::path& file) {
   std::ifstream input{file};
@@ -241,9 +262,7 @@ output_options read_output_options(const std::filesystem::path& file) {
       }
       if (section == "output" && key == "language") {
         result.language = value;
-        if (value != "cpp" && value != "java") {
-          throw std::invalid_argument{"Unsupported output language: " + std::string{value}};
-        }
+        parse_output_languages(value);
       } else if (section == "java" && key == "coding_standard") {
         result.java.standard = parse_java_coding_standard(value);
       } else if (section == "java" && key == "package") {

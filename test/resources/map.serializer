@@ -1,3 +1,5 @@
+serializer version 1;
+
 //////////////////////////////////////////////////////////////////////////
 // Copyright (C) 2024  Rohit Jairaj Singh (rohit@singh.org.in)          //
 //                                                                      //
@@ -15,18 +17,14 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/>//
 //////////////////////////////////////////////////////////////////////////
 
-namespace test {
-enum testenum {
-    test1,
-    test2,
-    test3,
-    test4
+namespace maptest {
+class person {
+    public string name;
+    public uint64 ID;
 }
 
-class values {
-    public char ch;
-    public float pi;
-    public double t1;
-    public bool t2;
+class personlist {
+    public uint64 listid;
+    public map(uint64) person list;
 }
 }

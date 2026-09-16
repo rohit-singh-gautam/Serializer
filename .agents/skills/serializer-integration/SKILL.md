@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer into C++ or Java applications from a provided repository or existing dependency. Use for .def schemas, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, JSON or binary codecs, and schema migration."
+description: "Integrate Serializer into C++ or Java applications from a provided repository or existing dependency. Use for .serializer schemas, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, JSON or binary codecs, and schema migration."
 ---
 
 # Serializer Integration
@@ -44,6 +44,12 @@ feature as a prerequisite without the user's request.
 
 ## Author or evolve the schema
 
+- Use `.serializer` files beginning with `serializer version 1;`, before declarations
+  (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
+  build references. The compiler requires this header; library fragment parsing
+  remains available through `parser::parse(input)`. Schema language version 1 is
+  independent of compiler release 0.1.0 and wire protocols. Use `serializer --version`
+  to inspect both; see [CLI and versioning](../../../docs/command_line.md).
 - Use `class`, `enum`, and `namespace`. Every member needs an explicit access
   modifier and a trailing semicolon. Classes/enums have no trailing semicolon.
 - In owning representations, map `array T` to `std::vector<T>` and `map(K) T` to `std::map<K, T>`.
@@ -80,6 +86,8 @@ feature as a prerequisite without the user's request.
 For a new schema, a minimal explicit-ID example is:
 
 ```text
+serializer version 1;
+
 class person stable_ids {
   public string name (1);
   public uint32 age (2);
@@ -94,7 +102,7 @@ an unused ID. Existing explicit IDs work even without `stable_ids`.
 Use the consuming project's existing dependency mechanism. When using CMake,
 `add_subdirectory` and installed `find_package(Serializer CONFIG REQUIRED)` expose
 `Serializer::serializer_lib`, `Serializer::serializer`, and `serializer_generate`.
-Use `serializer_generate(TARGET app SCHEMAS schemas/person.def)` after creating the
+Use `serializer_generate(TARGET app SCHEMAS schemas/person.serializer)` after creating the
 consumer. It supplies generation dependencies, the generated include directory,
 runtime linkage, and the C++20 minimum. CMake 3.28+ is required; keep a newer C++
 mode if the application already uses one. Source dependencies build the generator
@@ -132,7 +140,8 @@ not create headers. No custom VS Code task or Serializer editor extension is
 required, and `.vscode/*` remains ignored. Editor provider settings may be user-level.
 These targets still build the generator when needed and perform real generation:
 honor any instruction to defer configuration, generation, or builds. Install/package
-consumption and editor verification also remain deferred for the current step.
+consumption has been smoke-tested on Windows for compiler 0.1.0, including versioned
+package discovery and both generation helpers; editor verification remains deferred.
 
 Keep output settings in a generator INI config, with `[output] language = cpp`
 and a `[cpp]` section. Java uses its own section as described below. C++ `coding_standard` values
@@ -148,7 +157,7 @@ values are translated; opaque C++ default expressions require `naming = preserve
 or an explicitly chosen literal/default change.
 
 Formatting requires clang-format 19+ at generation time. Pin its version and pass
-`cpp.clang_format` or set `SERIALIZER_CLANG_FORMAT_EXECUTABLE` for this repository's
+`--cpp.clang_format` or set `SERIALIZER_CLANG_FORMAT_EXECUTABLE` for this repository's
 CMake rules; the shipped helper also accepts `CLANG_FORMAT`. `format_file` can
 replace layout rules. Config paths are relative to
 the config; CLI paths are relative to the working directory. CLI overrides take
@@ -157,11 +166,19 @@ dependencies. Use `format = false` only when another pipeline formats the emitte
 source. The test build includes all profile examples; with tests disabled,
 `SERIALIZER_BUILD_STYLE_EXAMPLES=ON` enables them independently.
 
-The CLI uses named arguments:
+The CLI uses short/long options (`-i`/`--input`, `-o`/`--output`, `-c`/`--config`,
+`-l`/`--language`); bare argument names are no longer supported:
 
 ```sh
-serializer input schemas/person.def output person.hpp
+serializer --input schemas/person.serializer --output person.hpp
 ```
+
+Repeat `--language cpp --language java` or use `--language cpp,java` to generate
+both backends. Supply `--cpp.output person.hpp --java.output PersonSchema.java`
+instead of `--output` for multiple languages. Prefix backend overrides with `--`,
+such as `--cpp.coding_standard google --java.coding_standard oracle` and
+`--java.package app.models`. All backend config settings have CLI overrides.
+`--java.package=` and `--cpp.format_file=` clear configured optional values.
 
 Use the actual built executable path when it is not on `PATH`. Regenerate through
 the real build pipeline when execution is part of the task; preserve an explicit
@@ -174,7 +191,7 @@ user instruction to defer generation/builds/tests and report what remains unveri
   uses four-space indentation and the other two use two spaces. They are limited
   presentation profiles, not full compliance tools. `naming = preserve` keeps
   valid schema identifiers. `package` optionally selects a Java package.
-- Run `serializer input account.def output AccountSchema.java config java.ini`.
+- Run `serializer --input account.serializer --output AccountSchema.java --config java.ini`.
   The output filename supplies the public outer class. Schema namespaces become
   static nested namespace containers. Each generated file includes its own codec
   helpers and needs only Java 17+, with no JNI, reflection, or third-party runtime.

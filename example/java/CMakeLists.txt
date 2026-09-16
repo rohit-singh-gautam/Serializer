@@ -5,7 +5,7 @@ function(serializer_java_example target folder config)
   set(generated "${CMAKE_CURRENT_BINARY_DIR}/${target}/AccountSchema.java")
   set(classes "${CMAKE_CURRENT_BINARY_DIR}/${target}/classes")
   serializer_generate_java(TARGET "${target}_sources"
-    SCHEMA "${folder}/account.def" OUTPUT "${generated}" CONFIG "${folder}/${config}")
+    SCHEMA "${folder}/account.serializer" OUTPUT "${generated}" CONFIG "${folder}/${config}")
   set(stamp "${CMAKE_CURRENT_BINARY_DIR}/${target}/compiled.stamp")
   add_custom_command(OUTPUT "${stamp}"
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${classes}"

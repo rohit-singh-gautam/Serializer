@@ -11,7 +11,7 @@ From the repository root, with the built `serializer` executable on `PATH`:
 
 ```sh
 mkdir -p build/java/classes
-serializer input example/java/round_trip/account.def output build/java/AccountSchema.java config example/java/round_trip/java.ini
+serializer --input example/java/round_trip/account.serializer --output build/java/AccountSchema.java --config example/java/round_trip/java.ini
 javac --release 17 -encoding UTF-8 -d build/java/classes build/java/AccountSchema.java example/java/round_trip/Main.java
 java -cp build/java/classes serializer.example.Main
 ```
@@ -31,8 +31,11 @@ package = serializer.example
 ```
 
 `java.package` is optional; omitting it uses the unnamed package. The CLI accepts
-`language java`, `java.coding_standard`, `java.naming`, and `java.package` overrides.
+`--language java`, `--java.coding_standard`, `--java.naming`, and `--java.package` overrides.
 Precedence is defaults, config, then CLI. Output must end in `.java`.
+Use `--java.package=` to clear a configured package. Schema files begin with
+`serializer version 1;`. See [the CLI guide](command_line.md) for generating C++
+and Java together with independent settings and output paths.
 
 ## API and storage
 
@@ -151,7 +154,7 @@ For consumers using CMake:
 
 ```cmake
 serializer_generate_java(TARGET account_java
-  SCHEMA schemas/account.def
+  SCHEMA schemas/account.serializer
   OUTPUT generated/AccountSchema.java
   CONFIG java.ini)
 ```

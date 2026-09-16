@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace rohit::serializer::writer {
 
@@ -26,10 +27,14 @@ struct java_options {
 };
 
 struct output_options {
+  // One language or a comma-separated list, validated by parse_output_languages.
   std::string language{"cpp"};
   cpp_options cpp{};
   java_options java{};
 };
+
+// Parse a nonempty comma-separated language list; reject unknown, empty, or repeated names.
+std::vector<std::string> parse_output_languages(std::string_view names);
 
 // Resolve a Java presentation profile, rejecting unknown spellings.
 java_coding_standard parse_java_coding_standard(std::string_view name);

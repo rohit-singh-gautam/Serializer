@@ -1,3 +1,5 @@
+serializer version 1;
+
 namespace test {
 namespace test1 {
 class person {

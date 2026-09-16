@@ -1,14 +1,14 @@
 # Pure Java examples
 
-Every example has its own `account.def`, `java.ini`, and `Main.java`.
+Every example has its own `account.serializer`, `java.ini`, and `Main.java`.
 Generated `AccountSchema.java` and `.class` files belong in separate build folders.
 
 | Example | Schema | Config | Consumer |
 | --- | --- | --- | --- |
-| Round trip | [account.def](round_trip/account.def) | [java.ini](round_trip/java.ini) | [Main.java](round_trip/Main.java) |
-| Serializer style | [account.def](coding_styles/serializer/account.def) | [java.ini](coding_styles/serializer/java.ini) | [Main.java](coding_styles/serializer/Main.java) |
-| Google style | [account.def](coding_styles/google/account.def) | [java.ini](coding_styles/google/java.ini) | [Main.java](coding_styles/google/Main.java) |
-| Oracle style | [account.def](coding_styles/oracle/account.def) | [java.ini](coding_styles/oracle/java.ini) | [Main.java](coding_styles/oracle/Main.java) |
+| Round trip | [account.serializer](round_trip/account.serializer) | [java.ini](round_trip/java.ini) | [Main.java](round_trip/Main.java) |
+| Serializer style | [account.serializer](coding_styles/serializer/account.serializer) | [java.ini](coding_styles/serializer/java.ini) | [Main.java](coding_styles/serializer/Main.java) |
+| Google style | [account.serializer](coding_styles/google/account.serializer) | [java.ini](coding_styles/google/java.ini) | [Main.java](coding_styles/google/Main.java) |
+| Oracle style | [account.serializer](coding_styles/oracle/account.serializer) | [java.ini](coding_styles/oracle/java.ini) | [Main.java](coding_styles/oracle/Main.java) |
 
 Each consumer exercises all four protocols, unsigned values, UTF-8 text, arrays,
 maps, enums, and union alternatives. The schemas deliberately share a wire

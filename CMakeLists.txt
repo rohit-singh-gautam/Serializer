@@ -1,7 +1,8 @@
 cmake_minimum_required(VERSION 3.28)
 
-project(serializer LANGUAGES CXX)
+project(serializer VERSION 0.1.0 LANGUAGES CXX)
 include(GNUInstallDirs)
+configure_file(cmake/version.hpp.in generated/include/rohit/version.hpp @ONLY)
 
 # Require at least C++20 while preserving a caller's newer language mode.
 if(NOT DEFINED CMAKE_CXX_STANDARD OR CMAKE_CXX_STANDARD LESS 20)
@@ -43,6 +44,7 @@ add_library(serializer_lib
 )
 target_include_directories(serializer_lib PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
+  "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated/include>"
   "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
 )
 target_compile_features(serializer_lib PUBLIC cxx_std_20)
@@ -80,7 +82,7 @@ endif()
 
 add_library(Serializer::serializer_lib ALIAS serializer_lib)
 
-add_executable(serializer src/serializer.cpp)
+add_executable(serializer src/serializer.cpp src/command_line.hpp)
 target_link_libraries(serializer PRIVATE serializer_lib)
 add_executable(Serializer::serializer ALIAS serializer)
 
@@ -95,6 +97,8 @@ if(SERIALIZER_INSTALL)
     "${CMAKE_CURRENT_BINARY_DIR}/SerializerConfig.cmake"
     INSTALL_DESTINATION "${serializer_package_directory}"
   )
+  write_basic_package_version_file("${CMAKE_CURRENT_BINARY_DIR}/SerializerConfigVersion.cmake"
+    VERSION "${PROJECT_VERSION}" COMPATIBILITY SameMinorVersion)
   install(TARGETS serializer_lib serializer EXPORT SerializerTargets
     RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
     LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
@@ -102,9 +106,12 @@ if(SERIALIZER_INSTALL)
   )
   install(DIRECTORY include/rohit DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
     FILES_MATCHING PATTERN "*.hpp")
+  install(FILES "${CMAKE_CURRENT_BINARY_DIR}/generated/include/rohit/version.hpp"
+    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/rohit")
   install(EXPORT SerializerTargets NAMESPACE Serializer::
     DESTINATION "${serializer_package_directory}")
   install(FILES "${CMAKE_CURRENT_BINARY_DIR}/SerializerConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/SerializerConfigVersion.cmake"
     cmake/serializer_generate.cmake cmake/serializer_generate_java.cmake
     DESTINATION "${serializer_package_directory}")
   install(FILES LICENSE DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/Serializer")

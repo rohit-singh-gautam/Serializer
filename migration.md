@@ -1,14 +1,31 @@
 # Migrating to the snake_case Serializer API
 
+## Versioned schema files and compiler options
+
+Rename `.def` and `.struct` schemas to `.serializer` and add `serializer version 1;`
+as the first statement. Update schema paths in scripts and CMake. All repository
+examples and fixtures use this format. Legacy file extensions and headerless files
+are rejected by the executable; the library parser still accepts headerless fragments
+unless called as `parser::parse(input, true)`.
+
+Replace bare CLI keys with long options: `input` becomes `--input`, `output` becomes
+`--output`, `config` becomes `--config`, and `cpp.naming` becomes `--cpp.naming`.
+The CMake helpers already use the updated interface. For both languages, pass
+`--language cpp,java --cpp.output account.hpp --java.output AccountSchema.java`.
+Each backend's settings can be overridden independently on the command line.
+`serializer --version` reports compiler release 0.1.0 and schema language version 1.
+These are separate version domains; neither changes wire bytes. See
+[the complete CLI contract](docs/command_line.md).
+
 ## Java output and example folders
 
-Java generation is an opt-in backend (`language java`) and does not change the
+Java generation is an opt-in backend (`--language java`) and does not change the
 default C++ API or wire layout. See [Java output](docs/java.md) for supported
 features, Java naming, parent composition, and differences from C++ ownership.
 
-The configuration schema moved to `example/config/config.struct`. C++ coding-style
+The configuration schema moved to `example/config/config.serializer`. C++ coding-style
 examples now live in `example/coding_styles/<profile>/`, each with its own
-`account.def`, `<profile>.ini`, and `<profile>.cpp`. Java examples live in
+`account.serializer`, `<profile>.ini`, and `<profile>.cpp`. Java examples live in
 `example/java/`, with a separate folder for the round trip and each Java profile.
 Update scripts that referenced the earlier shared schema or flat example paths.
 
@@ -26,7 +43,7 @@ becomes `reverse_list_map`, and type `IP` becomes `ip`. JSON/string-key names an
 enum/union wire spellings retain their schema values. IDs, binary layout, and
 endianness are unaffected by selecting an output profile.
 
-Use `cpp.naming preserve` (or `[cpp] naming = preserve` in the output config) to
+Use `--cpp.naming preserve` (or `[cpp] naming = preserve` in the output config) to
 retain previous schema-derived C++ identifiers. Otherwise update callers along
 with regenerated headers. Profiles also rename union support types, discriminator
 members, conversion helpers, and view accessors; runtime-required hooks keep their
@@ -34,7 +51,7 @@ existing spelling. Name collisions and reserved C++ identifiers are diagnosed.
 Literal and declared-enum defaults are supported during renaming; opaque C++
 expressions require `naming = preserve` or a rewritten default.
 
-Install clang-format 19+ for generation. Set `cpp.clang_format` on the CLI or
+Install clang-format 19+ for generation. Set `--cpp.clang_format` on the CLI or
 `SERIALIZER_CLANG_FORMAT_EXECUTABLE` for the repository's CMake generation rules
 when it is not on `PATH`. Formatting failures do not replace the destination
 header. CLI errors now return nonzero and unknown arguments are rejected.

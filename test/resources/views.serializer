@@ -1,3 +1,5 @@
+serializer version 1;
+
 namespace view_test {
   enum phase { idle, active }
 

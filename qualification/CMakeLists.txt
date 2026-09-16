@@ -1,7 +1,7 @@
 # Share one generated schema and its build dependency across qualification consumers.
 add_library(serializer_qualification_models INTERFACE)
 serializer_generate(TARGET serializer_qualification_models
-  SCHEMAS records.def
+  SCHEMAS records.serializer
   OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 
 if(SERIALIZER_BUILD_BENCHMARKS)

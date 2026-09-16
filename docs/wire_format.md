@@ -1,5 +1,10 @@
 # Wire format and decoding contract
 
+The `.serializer` source header `serializer version 1;` selects the schema
+language. It is independent of the compiler release and is not emitted into
+messages. This change leaves the wire formats below unchanged; see
+[compiler and schema versions](command_line.md).
+
 The pure Java backend implements the same four protocols for its supported
 owning types. Binary fixed-width values are little-endian, IDs and compact
 prefixes are unchanged, and Java retains original enum/wire names. Java strings

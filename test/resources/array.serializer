@@ -1,3 +1,5 @@
+serializer version 1;
+
 //////////////////////////////////////////////////////////////////////////
 // Copyright (C) 2024  Rohit Jairaj Singh (rohit@singh.org.in)          //
 //                                                                      //
@@ -14,19 +16,29 @@
 // You should have received a copy of the GNU General Public License    //
 // along with this program.  If not, see <https://www.gnu.org/licenses/>//
 //////////////////////////////////////////////////////////////////////////
-
-namespace enumtest {
-enum testenum {
-    test1,
-    test2,
-    test3,
-    test4,
-    test5,
-    test6
+namespace arraytest {
+class person {
+    // This is name
+    public string name;
+    /* This is ID */
+    public uint64 ID;
 }
 
-class test {
-    public testenum te;
+class personlist {
+    public uint64 listid;
+    public bool check;
+    public array person list;
+    public map(uint32) uint32 reverseListMap;
 }
 
+class session {
+    public string name;
+    public uint64 id;
+    public personlist persons;
 }
+
+class sessionstore {
+    public string name;
+    public array session sessionlist;
+}
+} // namespace arraytest 

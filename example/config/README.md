@@ -1,10 +1,10 @@
 # Configuration schema
 
-`config.struct` demonstrates namespaces, owning records, and inheritance.
+`config.serializer` demonstrates namespaces, owning records, and inheritance.
 From the repository root:
 
 ```sh
-serializer input example/config/config.struct output config.hpp
+serializer --input example/config/config.serializer --output config.hpp
 ```
 
 The default C++ profile requires clang-format at generation time. See the

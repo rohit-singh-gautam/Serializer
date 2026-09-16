@@ -9,7 +9,7 @@ standard library; the CMake project requires CMake 3.28 or newer. Header generat
 uses clang-format 19+ by default. Applications using existing headers do not need it.
 
 The schema compiler enables bounded SIMD scanning on supported x64 builds, with
-scalar fallbacks. This is automatic and needs no `.def` keyword; see
+scalar fallbacks. This is automatic and needs no additional schema keyword; see
 [schema-scanner configuration](cmake_integration.md#schema-scanner-configuration)
 for the `SERIALIZER_ENABLE_SIMD` source-build option.
 The same option also controls [runtime SIMD](runtime_simd.md): JSON string
@@ -23,9 +23,11 @@ the deferred validation work.
 
 ## 1. Define a schema
 
-Save this as `schemas/person.def` in your application:
+Save this as `schemas/person.serializer` in your application:
 
 ```text
+serializer version 1;
+
 namespace demo {
 class person stable_ids {
   public string name (1) { "Unknown" };
@@ -36,6 +38,9 @@ class person stable_ids {
 ```
 
 - Use `class`, `enum`, and `namespace`; schema declarations are not C++ source.
+- Start every `.serializer` file with `serializer version 1;` before declarations.
+  See [compiler options and versioning](command_line.md) for the file contract,
+  compiler version, and generating C++ and Java together.
 - Write an access modifier on every member, followed by its schema type and name.
 - `array T` generates `std::vector<T>`; `map(K) T` generates `std::map<K, T>`.
 - Members end with `;`. Classes and enums end with `}` without a trailing `;`.
@@ -84,7 +89,7 @@ set(SERIALIZER_BUILD_TESTS OFF CACHE BOOL "Build Serializer's own tests")
 add_subdirectory(vendor/Serializer)
 
 add_executable(serializer_example main.cpp)
-serializer_generate(TARGET serializer_example SCHEMAS schemas/person.def)
+serializer_generate(TARGET serializer_example SCHEMAS schemas/person.serializer)
 ```
 
 The helper ships with Serializer and is also available through an installed
@@ -112,7 +117,7 @@ to select and track it directly. See the
 [language-specific output configuration](output_configuration.md) and
 [examples for all nine profiles](../example/coding_styles/README.md).
 The default profile converts names such as `personID` to `person_id` while
-retaining their wire spellings. Use `cpp.naming preserve` when retaining an
+retaining their wire spellings. Use `--cpp.naming preserve` when retaining an
 existing schema-derived C++ API is required.
 
 Build commands, when validation is being performed:
@@ -125,7 +130,7 @@ cmake --build build --config Debug
 You can also invoke an already-built generator directly:
 
 ```sh
-serializer input schemas/person.def output person.hpp
+serializer --input schemas/person.serializer --output person.hpp
 ```
 
 Use the executable's actual path if it is not on `PATH`. In a cross-compilation

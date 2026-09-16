@@ -14,7 +14,7 @@ Use the shipped [CMake integration](cmake_integration.md):
 ```cmake
 # After add_subdirectory(vendor/Serializer) or find_package(Serializer CONFIG REQUIRED):
 add_executable(my_app main.cpp)
-serializer_generate(TARGET my_app SCHEMAS schemas/account.def)
+serializer_generate(TARGET my_app SCHEMAS schemas/account.serializer)
 ```
 
 An ordinary build generates `account.hpp` before compiling the consumer and sets

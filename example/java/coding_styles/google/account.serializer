@@ -1,3 +1,5 @@
+serializer version 1;
+
 namespace demo {
 enum account_state { waiting_for_review, active }
 class base_record stable_ids {

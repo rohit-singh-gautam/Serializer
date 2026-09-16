@@ -1,0 +1,11 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+#pragma once
+
+#include <string_view>
+
+namespace rohit::serializer {
+inline constexpr std::string_view compiler_version{"@PROJECT_VERSION@"};
+// Schema language versions are independent of compiler releases and wire encoding.
+inline constexpr unsigned schema_language_version = 1;
+} // namespace rohit::serializer
