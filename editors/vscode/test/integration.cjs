@@ -2,12 +2,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const vscode = require('vscode');
+const manifest = require('../package.json');
 
 /** Exercise the installed editor APIs and real Serializer CMake generation end to end. */
 async function runSuite() {
   const workspace = process.env.SERIALIZER_TEST_WORKSPACE;
   const schema = vscode.Uri.file(path.join(workspace, 'account.serializer'));
-  const extension = vscode.extensions.getExtension('rohit-singh-gautam.serializer-language');
+  const extension = vscode.extensions.getExtension(`${manifest.publisher}.${manifest.name}`);
   assert.ok(extension, 'development extension is available');
   await extension.activate();
   const document = await vscode.workspace.openTextDocument(schema);

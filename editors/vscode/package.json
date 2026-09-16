@@ -1,42 +1,140 @@
 {
   "name": "serializer-language",
   "displayName": "Serializer",
+  "icon": "dist/serializer_logo.png",
   "description": "Syntax highlighting and CMake generated-header assistance for Serializer schemas.",
-  "version": "0.1.0",
-  "publisher": "rohit-singh-gautam",
+  "version": "1.0.0",
+  "publisher": "rohitjairajsingh",
+  "author": {
+    "name": "Rohit Jairaj Singh",
+    "url": "https://www.linkedin.com/in/trjs"
+  },
   "license": "SEE LICENSE IN LICENSE",
-  "repository": { "type": "git", "url": "https://github.com/rohit-singh-gautam/Serializer.git", "directory": "editors/vscode" },
-  "engines": { "vscode": "^1.96.0" },
-  "categories": ["Programming Languages", "Other"],
-  "keywords": ["serializer", "schema", "CMake", "C++", "Java"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rohit-singh-gautam/Serializer.git",
+    "directory": "editors/vscode"
+  },
+  "homepage": "https://github.com/rohit-singh-gautam/Serializer/blob/main/editors/vscode/README.md",
+  "bugs": {
+    "url": "https://github.com/rohit-singh-gautam/Serializer/issues"
+  },
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "serializer",
+    "schema",
+    "CMake",
+    "C++",
+    "Java"
+  ],
   "main": "./dist/extension.js",
-  "activationEvents": ["onLanguage:cpp", "onLanguage:c"],
-  "extensionKind": ["workspace"],
+  "activationEvents": [
+    "onLanguage:cpp",
+    "onLanguage:c"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
   "capabilities": {
-    "untrustedWorkspaces": { "supported": "limited", "description": "Highlighting and snippets work; build commands require a trusted workspace." },
-    "virtualWorkspaces": { "supported": false }
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Highlighting and snippets work; build commands require a trusted workspace."
+    },
+    "virtualWorkspaces": {
+      "supported": false
+    }
   },
   "contributes": {
-    "languages": [{ "id": "serializer", "aliases": ["Serializer", "serializer"], "extensions": [".serializer"], "configuration": "./language-configuration.json" }],
-    "grammars": [{ "language": "serializer", "scopeName": "source.serializer", "path": "./syntaxes/serializer.tmLanguage.json" }],
-    "snippets": [{ "language": "serializer", "path": "./snippets/serializer.json" }],
+    "languages": [
+      {
+        "id": "serializer",
+        "aliases": [
+          "Serializer",
+          "serializer"
+        ],
+        "extensions": [
+          ".serializer"
+        ],
+        "configuration": "./language-configuration.json",
+        "icon": {
+          "light": "./dist/serializer_icon_32x32.png",
+          "dark": "./dist/serializer_icon_32x32.png"
+        }
+      }
+    ],
+    "grammars": [
+      {
+        "language": "serializer",
+        "scopeName": "source.serializer",
+        "path": "./syntaxes/serializer.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "serializer",
+        "path": "./snippets/serializer.json"
+      }
+    ],
     "commands": [
-      { "command": "serializer.generateHeaders", "title": "Generate Headers", "category": "Serializer", "enablement": "isWorkspaceTrusted" },
-      { "command": "serializer.diagnoseHeader", "title": "Diagnose Missing Header", "category": "Serializer", "enablement": "isWorkspaceTrusted" },
-      { "command": "serializer.openGeneratedHeader", "title": "Open Generated Header", "category": "Serializer", "enablement": "isWorkspaceTrusted" },
-      { "command": "serializer.configureIntelliSense", "title": "Use CMake Tools for C/C++ IntelliSense", "category": "Serializer", "enablement": "isWorkspaceTrusted" }
+      {
+        "command": "serializer.generateHeaders",
+        "title": "Generate Headers",
+        "category": "Serializer",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "serializer.diagnoseHeader",
+        "title": "Diagnose Missing Header",
+        "category": "Serializer",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "serializer.openGeneratedHeader",
+        "title": "Open Generated Header",
+        "category": "Serializer",
+        "enablement": "isWorkspaceTrusted"
+      },
+      {
+        "command": "serializer.configureIntelliSense",
+        "title": "Use CMake Tools for C/C++ IntelliSense",
+        "category": "Serializer",
+        "enablement": "isWorkspaceTrusted"
+      }
     ],
     "menus": {
       "editor/context": [
-        { "command": "serializer.generateHeaders", "when": "editorLangId == serializer", "group": "serializer" },
-        { "command": "serializer.openGeneratedHeader", "when": "editorLangId == serializer", "group": "serializer" },
-        { "command": "serializer.diagnoseHeader", "when": "editorLangId == cpp || editorLangId == c", "group": "serializer" }
+        {
+          "command": "serializer.generateHeaders",
+          "when": "editorLangId == serializer",
+          "group": "serializer"
+        },
+        {
+          "command": "serializer.openGeneratedHeader",
+          "when": "editorLangId == serializer",
+          "group": "serializer"
+        },
+        {
+          "command": "serializer.diagnoseHeader",
+          "when": "editorLangId == cpp || editorLangId == c",
+          "group": "serializer"
+        }
       ]
     },
     "configuration": {
       "title": "Serializer",
       "properties": {
-        "serializer.headersTarget": { "type": "string", "default": "serializer_generated_headers", "scope": "resource", "description": "CMake header generation target. Set <consumer>_serializer_headers to generate only one consumer's headers." }
+        "serializer.headersTarget": {
+          "type": "string",
+          "default": "serializer_generated_headers",
+          "scope": "resource",
+          "description": "CMake header generation target. Set <consumer>_serializer_headers to generate only one consumer's headers."
+        }
       }
     }
   },
@@ -46,7 +144,7 @@
     "test": "npm run compile && node --test test/*.test.cjs",
     "test:integration": "npm run build && node test/run.cjs",
     "vscode:prepublish": "npm run build",
-    "package": "vsce package --no-dependencies --out ../../out/extensions/serializer-vscode-0.1.0.vsix"
+    "package": "vsce package --no-dependencies --out ../../out/extensions/serializer-vscode-1.0.0.vsix"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

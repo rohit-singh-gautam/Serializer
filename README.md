@@ -24,6 +24,10 @@ generated-header navigation, and missing-include assistance. Run
 `./install_extension.ps1` from PowerShell to build and install the local extension
 (Node.js 22+, npm, and the VS Code CLI are required). Marketplace publication and
 Visual Studio support are pending.
+The extension version is **1.0.0**, with ID `rohitjairajsingh.serializer-language`
+(Rohit Jairaj Singh). Its release version is independent of the compiler version.
+It also supplies a dedicated 32×32 icon for `.serializer` files in Explorer and
+editor tabs when supported by the selected file icon theme.
 
 ## Integrate with a coding agent
 

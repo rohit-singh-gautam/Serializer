@@ -1,6 +1,6 @@
 # VS Code extension
 
-The [Serializer extension](../editors/vscode/README.md) provides `.serializer`
+The [Serializer extension](../editors/vscode/README.md), version **1.0.0**, provides `.serializer`
 syntax highlighting, snippets, and CMake generated-header commands. Schemas use
 the current `serializer version 1;` header. Legacy `.def` and `.struct` names are
 not registered. C++/Java generation remains owned by the project's build rules;
@@ -35,22 +35,24 @@ npm test
 npm run package
 ```
 
-Packaging compiles and bundles TypeScript, copies the canonical grammar and
-repository license into the extension, and writes:
+Packaging compiles and bundles TypeScript, copies the canonical grammar, logo,
+and repository license into the extension, and writes:
 
 ```text
-out/extensions/serializer-vscode-0.1.0.vsix
+out/extensions/serializer-vscode-1.0.0.vsix
 ```
 
 From the repository root, install it with:
 
 ```sh
-code --install-extension out/extensions/serializer-vscode-0.1.0.vsix
+code --install-extension out/extensions/serializer-vscode-1.0.0.vsix
 ```
 
 Alternatively run **Extensions: Install from VSIX** and select the file. The
-package is for VS Code, not Visual Studio. The publisher identifier in the local
-manifest is not evidence of Marketplace registration or ownership.
+package is for VS Code, not Visual Studio. The extension ID is
+`rohitjairajsingh.serializer-language`, using Rohit Jairaj Singh's Marketplace
+publisher ID. The manifest's `author.url` links to his LinkedIn profile; `homepage`,
+`repository`, and `bugs` link to the extension documentation, source, and issue tracker.
 
 ## Generate and resolve headers
 
@@ -81,6 +83,30 @@ See [IntelliSense troubleshooting](intellisense.md) for the underlying integrati
 
 The canonical TextMate grammar is `editors/serializer.tmLanguage.json`. Do not
 edit the ignored copy under `editors/vscode/syntaxes`; packaging refreshes it.
+
+The extension icon comes from `logo/serializer_logo_128x128.png`. Packaging copies
+it to the ignored `editors/vscode/dist/serializer_logo.png`, referenced by `icon`
+in the extension's `package.json`. Replace the source logo and rebuild the VSIX
+to update the icon in VS Code and the Marketplace listing. The existing 128×128
+PNG meets the [extension icon requirement](https://code.visualstudio.com/api/references/extension-manifest);
+the larger `logo/serializer_logo.png` remains available as the source artwork.
+
+File and editor-tab icons use `logo/serializer_icon_32x32.png`, copied to
+`editors/vscode/dist/serializer_icon_32x32.png` and referenced by both light/dark
+icons under `contributes.languages`. This keeps the file icon separate from the
+128×128 Marketplace logo. VS Code scales the image for display; the language
+contribution takes one image per light/dark theme, not a resolution set. The
+16×16 and 64×64 variants remain in `logo/` for other uses.
+
+The language icon appears beside `.serializer` files in Explorer and editor tabs
+when the selected file icon theme supports language defaults and does not
+override this file type. Themes can suppress language icons; the extension cannot
+force its icon across all file icon themes. If the logo is not
+visible after reinstalling and running **Developer: Reload Window**, select
+**Seti (Visual Studio Code)** using **Preferences: File Icon Theme**. See
+[language default icons](https://code.visualstudio.com/api/extension-guides/file-icon-theme#language-default-icons)
+for the theme precedence rules.
+
 The extension uses the public `vscode-cmake-tools` API. Keep compiler generation
 and include directories on CMake targets rather than maintaining editor-only rules.
 
@@ -111,16 +137,16 @@ passed the end-to-end consumer checks above, including an expected failed build
 for an unsupported schema version. Native Visual Studio, Linux/macOS hosts,
 remote workspaces, and live C/C++ IntelliSense reparsing were not exercised.
 
-The root installer was checked from outside the repository with an isolated
-extension directory containing spaces: a full build/install passed, and a
+The root installer was checked for the initial 0.1.0 package from outside the
+repository with an isolated extension directory containing spaces: a full build/install passed, and a
 Windows PowerShell 5.1 `-SkipBuild` reinstall passed with an explicit CLI path.
 VS Code's extension listing confirmed `serializer-language@0.1.0` was installed.
 
 ## Publishing
 
 The local VSIX can be distributed before Marketplace publication. To publish,
-register a Marketplace publisher you control, update `publisher` in `package.json`
-if needed, and keep the extension ID stable thereafter. Increment the extension
+use the registered `rohitjairajsingh` Marketplace publisher, matching `publisher`
+in `package.json`, and keep the extension ID stable thereafter. Increment the extension
 version and update the package output name for each release. Review packaged files,
 license, README, and changelog, then follow Microsoft's
 [VS Code publishing workflow](https://code.visualstudio.com/api/working-with-extensions/publishing-extension).

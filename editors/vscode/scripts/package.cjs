@@ -21,3 +21,7 @@ esbuild.buildSync({
 });
 fs.copyFileSync(path.join(root, 'node_modules/vscode-cmake-tools/LICENSE'),
   path.join(root, 'dist/CMAKE_TOOLS_LICENSE'));
+fs.copyFileSync(path.join(root, '../../logo/serializer_logo_128x128.png'),
+  path.join(root, 'dist/serializer_logo.png'));
+fs.copyFileSync(path.join(root, '../../logo/serializer_icon_32x32.png'),
+  path.join(root, 'dist/serializer_icon_32x32.png'));

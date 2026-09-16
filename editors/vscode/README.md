@@ -23,6 +23,12 @@ Install the packaged VSIX through **Extensions: Install from VSIX**. The extensi
 supports VS Code 1.96+ on desktop and remote extension hosts. Highlighting and
 snippets work without CMake Tools and in Restricted Mode.
 
+The dedicated 32×32 Serializer icon is registered for `.serializer` files in
+Explorer and editor tabs, for both light and dark themes. The selected file icon theme can
+override or hide language icons; use **Preferences: File Icon Theme** to select
+**Seti (Visual Studio Code)** if your current theme does not display it.
+The extension cannot force this icon over every file icon theme.
+
 For build commands, install Microsoft **CMake Tools**, trust the workspace, select
 its configure/build presets or kit, and run **CMake: Configure**. Use Serializer's
 existing helper in the consuming project:
