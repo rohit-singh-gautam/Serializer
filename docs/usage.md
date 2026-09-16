@@ -1,5 +1,8 @@
 # Using Serializer in a C++ application
 
+For pure Java generation and runtime usage, see [Java output](java.md) and the
+[Java examples](../example/java/README.md). The workflow below is for C++.
+
 Serializer compiles a schema into a C++ header, then reads or writes generated
 objects through JSON or binary protocols. Use a C++20-or-newer compiler and
 standard library; the CMake project requires CMake 3.28 or newer. Header generation

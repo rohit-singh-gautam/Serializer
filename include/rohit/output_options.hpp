@@ -17,16 +17,30 @@ struct cpp_options {
   std::filesystem::path format_file{};
 };
 
+enum class java_coding_standard { serializer, google, oracle };
+
+struct java_options {
+  java_coding_standard standard{java_coding_standard::serializer};
+  bool rename_identifiers{true};
+  std::string package_name{};
+};
+
 struct output_options {
   std::string language{"cpp"};
   cpp_options cpp{};
+  java_options java{};
 };
+
+// Resolve a Java presentation profile, rejecting unknown spellings.
+java_coding_standard parse_java_coding_standard(std::string_view name);
+// Return the stable Java profile configuration spelling.
+std::string_view java_coding_standard_name(java_coding_standard standard);
 
 // Resolve an exact profile name; reject misspellings instead of silently choosing a default.
 coding_standard parse_coding_standard(std::string_view name);
 // Return the stable configuration spelling for a known profile.
 std::string_view coding_standard_name(coding_standard standard);
-// Read strict INI sections [output] and [cpp]; resolve file paths relative to the config file.
+// Read strict language sections; resolve file paths relative to the config file.
 output_options read_output_options(const std::filesystem::path& file);
 // Return a standalone clang-format configuration for the selected presentation profile.
 std::string cpp_format_style(coding_standard standard);

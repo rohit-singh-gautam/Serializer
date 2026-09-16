@@ -14,6 +14,7 @@ option(SERIALIZER_BUILD_TESTS "Build Serializer's tests" ${PROJECT_IS_TOP_LEVEL}
 option(SERIALIZER_BUILD_BENCHMARKS "Build separate codec timing and allocation tools" OFF)
 option(SERIALIZER_BUILD_FUZZERS "Build the bounded Clang libFuzzer target" OFF)
 option(SERIALIZER_BUILD_STYLE_EXAMPLES "Build one example for each C++ output profile" OFF)
+option(SERIALIZER_BUILD_JAVA_EXAMPLES "Generate and compile pure Java examples (JDK 17+)" OFF)
 option(SERIALIZER_INSTALL "Install the library, compiler, and CMake integration" ${PROJECT_IS_TOP_LEVEL})
 option(SERIALIZER_ENABLE_SIMD "Accelerate schema scanning and runtime codecs on supported CPUs" ON)
 
@@ -25,6 +26,8 @@ add_library(serializer_lib
   src/simd_dispatch.hpp
   src/runtime_simd.cpp
   src/cpp_writer.cpp
+  src/java_writer.cpp
+  src/java_runtime.inc
   src/cpp_type_mapping.cpp
   src/cpp_naming.cpp
   src/cpp_naming.hpp
@@ -83,6 +86,7 @@ add_executable(Serializer::serializer ALIAS serializer)
 
 # The same generation API is available from add_subdirectory and the installed package.
 include(cmake/serializer_generate.cmake)
+include(cmake/serializer_generate_java.cmake)
 
 if(SERIALIZER_INSTALL)
   include(CMakePackageConfigHelpers)
@@ -101,7 +105,8 @@ if(SERIALIZER_INSTALL)
   install(EXPORT SerializerTargets NAMESPACE Serializer::
     DESTINATION "${serializer_package_directory}")
   install(FILES "${CMAKE_CURRENT_BINARY_DIR}/SerializerConfig.cmake"
-    cmake/serializer_generate.cmake DESTINATION "${serializer_package_directory}")
+    cmake/serializer_generate.cmake cmake/serializer_generate_java.cmake
+    DESTINATION "${serializer_package_directory}")
   install(FILES LICENSE DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/Serializer")
 endif()
 
@@ -133,4 +138,8 @@ endif()
 
 if(SERIALIZER_BUILD_STYLE_EXAMPLES OR SERIALIZER_BUILD_TESTS)
   add_subdirectory(example/coding_styles)
+endif()
+
+if(SERIALIZER_BUILD_JAVA_EXAMPLES)
+  add_subdirectory(example/java)
 endif()

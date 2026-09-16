@@ -28,17 +28,22 @@
 #include <string_view>
 
 namespace {
-// Describe language-independent arguments and the currently implemented C++ backend options.
+// Describe language-independent arguments and supported backend options.
 void display_help() {
-  std::cout << "Usage: serializer input <schema> output <header> [config <file>] [language cpp]\n"
-               "C++ overrides (key value pairs):\n"
-               "  cpp.coding_standard serializer|core|google|llvm|gnu|cert|misra|autosar|qt\n"
-               "  cpp.naming profile|preserve\n"
-               "  cpp.format true|false\n"
-               "  cpp.clang_format <executable>\n"
-               "  cpp.format_file <.clang-format>\n"
-               "Defaults: C++20, Serializer style, profile naming, clang-format 19+ on PATH.\n"
-               "Precedence: defaults < config file < command line.\n";
+  std::cout
+      << "Usage: serializer input <schema> output <file> [config <file>] [language cpp|java]\n"
+         "C++ overrides (key value pairs):\n"
+         "  cpp.coding_standard serializer|core|google|llvm|gnu|cert|misra|autosar|qt\n"
+         "  cpp.naming profile|preserve\n"
+         "  cpp.format true|false\n"
+         "  cpp.clang_format <executable>\n"
+         "  cpp.format_file <.clang-format>\n"
+         "Java overrides (Java 17+, no formatter dependency):\n"
+         "  java.coding_standard serializer|google|oracle\n"
+         "  java.naming profile|preserve\n"
+         "  java.package <package.name>\n"
+         "Defaults: C++20, Serializer style, profile naming, clang-format 19+ on PATH.\n"
+         "Precedence: defaults < config file < command line.\n";
 }
 
 // Detect aliases and hard links as well as identical normalized paths before replacing output.
@@ -67,7 +72,8 @@ int main(const int argc, const char* argv[]) {
       }
       if (key != "input" && key != "output" && key != "config" && key != "language" &&
           key != "cpp.coding_standard" && key != "cpp.naming" && key != "cpp.format" &&
-          key != "cpp.clang_format" && key != "cpp.format_file") {
+          key != "cpp.clang_format" && key != "cpp.format_file" && key != "java.coding_standard" &&
+          key != "java.naming" && key != "java.package") {
         throw std::invalid_argument{"Unknown argument: " + key};
       }
       if (std::string_view{argv[index + 1]}.empty() ||
@@ -84,8 +90,22 @@ int main(const int argc, const char* argv[]) {
     if (arguments.contains("language")) {
       options.language = arguments.at("language");
     }
-    if (options.language != "cpp") {
+    if (options.language != "cpp" && options.language != "java") {
       throw std::invalid_argument{"Unsupported output language: " + options.language};
+    }
+    if (arguments.contains("java.coding_standard")) {
+      options.java.standard =
+          writer::parse_java_coding_standard(arguments.at("java.coding_standard"));
+    }
+    if (arguments.contains("java.package")) {
+      options.java.package_name = arguments.at("java.package");
+    }
+    if (arguments.contains("java.naming")) {
+      const auto& value = arguments.at("java.naming");
+      if (value != "profile" && value != "preserve") {
+        throw std::invalid_argument{"java.naming must be profile or preserve"};
+      }
+      options.java.rename_identifiers = value == "profile";
     }
     if (arguments.contains("cpp.coding_standard")) {
       options.cpp.standard = writer::parse_coding_standard(arguments.at("cpp.coding_standard"));
@@ -122,16 +142,27 @@ int main(const int argc, const char* argv[]) {
           "Output must not overwrite the schema or an output configuration"};
     }
     const auto extension = output_file.extension();
-    if (extension != ".h" && extension != ".hpp" && extension != ".hxx") {
+    if (options.language == "cpp" && extension != ".h" && extension != ".hpp" &&
+        extension != ".hxx") {
       throw std::invalid_argument{"C++ output must have a .h, .hpp, or .hxx extension"};
+    }
+    if (options.language == "java" && extension != ".java") {
+      throw std::invalid_argument{"Java output must have a .java extension"};
     }
     const auto input = rohit::make_stream_from_file(input_file);
     const auto statements = parser::parse(input);
     rohit::full_stream_auto_alloc output{};
-    writer::cpp::write(output, statements, options.cpp);
+    if (options.language == "java") {
+      writer::java::write(output, statements, output_file.stem().string(), options.java);
+    } else {
+      writer::cpp::write(output, statements, options.cpp);
+    }
     output.write_to_file_till_offset(output_file);
-    std::cout << "Generated " << output_file << " (C++, "
-              << writer::coding_standard_name(options.cpp.standard) << ")\n";
+    std::cout << "Generated " << output_file << " (" << options.language << ", "
+              << (options.language == "java"
+                      ? writer::java_coding_standard_name(options.java.standard)
+                      : writer::coding_standard_name(options.cpp.standard))
+              << ")\n";
     return 0;
   } catch (const std::exception& error) {
     std::cerr << "Serializer: " << error.what() << '\n';

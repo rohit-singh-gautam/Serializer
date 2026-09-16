@@ -1,5 +1,10 @@
 # CMake integration for consumers
 
+For Java source generation, use `serializer_generate_java(TARGET name SCHEMA file
+OUTPUT Schema.java CONFIG java.ini)`. This creates a generation target without
+linking a C++ runtime into the application. See [Java CMake usage](java.md#cmake-and-verification).
+The `serializer_generate` helper documented below remains C++-specific.
+
 Serializer ships a `serializer_generate` function with both its source tree and
 its installable CMake package. Use CMake 3.28+, a C++20 compiler and standard
 library, and clang-format 19+ for the default output formatting. The integration

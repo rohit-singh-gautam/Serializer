@@ -1,8 +1,10 @@
 # Serializer
 
-A C++20 schema compiler and serialization library supporting JSON and three
-binary protocols. The runtime API and default generated code use `snake_case`
-names. C++ output profiles can select other layouts and naming conventions.
+A C++20 schema compiler with C++ and pure Java output supporting JSON and three
+binary protocols. The C++ runtime API and default generated C++ use `snake_case`.
+Language-specific output profiles select layouts and naming conventions.
+See [Java output](docs/java.md) for dependency-free Java 17+ codecs and
+[all examples](example/README.md) for self-contained example folders.
 
 **Existing callers:** follow the [migration guide](migration.md) and regenerate
 headers before compiling against the updated API.
@@ -65,7 +67,7 @@ types and mixed native byte order. Booleans are unchanged.
 Generate a header by running the built executable:
 
 ```sh
-serializer input example/config.struct output config.hpp
+serializer input example/config/config.struct output config.hpp
 ```
 
 Format C++ files with the repository's `.clang-format`; see
@@ -118,7 +120,7 @@ the prepared validation matrix. Builds, tests, and benchmarks remain deferred.
 ### Output language and coding standard
 
 Keep target-language settings in a generator config, separate from the `.def`
-schema. Only C++ output is currently implemented:
+schema. Both C++ and Java output are implemented. For C++:
 
 ```ini
 [output]
@@ -148,8 +150,29 @@ paths are relative to the config; CLI overrides take precedence. A custom
 
 Set `SERIALIZER_CLANG_FORMAT_EXECUTABLE` when CMake cannot find the formatter.
 The standard test build includes all profile examples; a build with tests disabled
-can opt into them with `SERIALIZER_BUILD_STYLE_EXAMPLES=ON`. Generation, builds,
-and tests for this implementation remain deferred.
+can opt into them with `SERIALIZER_BUILD_STYLE_EXAMPLES=ON`. All nine C++ style
+examples were generated, built, and run on Windows during Java backend validation;
+see [verification scope and outstanding suite failures](docs/java.md#verification-performed-for-this-implementation).
+
+### Pure Java output
+
+Generate owning Java classes and direct codecs with no native runtime dependency:
+
+```sh
+serializer input example/java/round_trip/account.def output AccountSchema.java config example/java/round_trip/java.ini
+```
+
+Java profiles are `serializer`, `google`, and `oracle`, selected with
+`java.coding_standard`. They use conventional Java naming; `java.naming preserve`
+retains valid schema identifiers. These are presentation presets, not full guide
+compliance. Java supports owning objects, enums, arrays, maps, unions, and parent
+composition across all four protocols. Views and packed layout are rejected.
+See [Java usage, limits, and compatibility](docs/java.md).
+
+Enable `SERIALIZER_BUILD_JAVA_EXAMPLES=ON` to generate and compile the
+[Java examples](example/java/README.md) with JDK 17+. With tests enabled, CTest
+also runs malformed-input and two-way C++/Java compatibility checks. Every C++
+and Java style example has its own schema, config, and consumer folder.
 
 ### CMake consumer integration
 

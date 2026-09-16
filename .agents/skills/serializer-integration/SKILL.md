@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer into C++ applications from a provided repository or existing dependency. Use for .def schemas, CMake generation, coding profiles, owning classes or binary views, stable_ids, JSON or binary codecs, and schema migration."
+description: "Integrate Serializer into C++ or Java applications from a provided repository or existing dependency. Use for .def schemas, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, JSON or binary codecs, and schema migration."
 ---
 
 # Serializer Integration
@@ -24,6 +24,8 @@ there instead of relying on the relative links.
 
 - Read [README.md](../../../README.md) for supported syntax and feature status.
 - Use [docs/usage.md](../../../docs/usage.md) for the schema, CMake, and codec examples.
+- Use [docs/java.md](../../../docs/java.md) for pure Java 17+ generation, profiles,
+  type mappings, supported schema features, limits, and protocol compatibility.
 - Use [docs/cmake_integration.md](../../../docs/cmake_integration.md) for the shipped
   generation helper, source dependencies, installed packages, and shared schemas.
 - Use [docs/views.md](../../../docs/views.md) for view generation, mapping, and mutation.
@@ -133,7 +135,7 @@ honor any instruction to defer configuration, generation, or builds. Install/pac
 consumption and editor verification also remain deferred for the current step.
 
 Keep output settings in a generator INI config, with `[output] language = cpp`
-and a `[cpp]` section. Only C++ is implemented. Supported `coding_standard` values
+and a `[cpp]` section. Java uses its own section as described below. C++ `coding_standard` values
 are `serializer`, `core`, `google`, `llvm`, `gnu`, `cert`, `misra`, `autosar`, and
 `qt`. These are presentation profiles, not whole-guide compliance guarantees.
 See the [profile examples](../../../example/coding_styles/README.md).
@@ -165,7 +167,44 @@ Use the actual built executable path when it is not on `PATH`. Regenerate throug
 the real build pipeline when execution is part of the task; preserve an explicit
 user instruction to defer generation/builds/tests and report what remains unverified.
 
-## Implement the codec calls
+## Integrate pure Java output
+
+- Select `[output] language = java`, with `[java] coding_standard = serializer`,
+  `google`, or `oracle`. All use conventional Java type/field/enum naming; Oracle
+  uses four-space indentation and the other two use two spaces. They are limited
+  presentation profiles, not full compliance tools. `naming = preserve` keeps
+  valid schema identifiers. `package` optionally selects a Java package.
+- Run `serializer input account.def output AccountSchema.java config java.ini`.
+  The output filename supplies the public outer class. Schema namespaces become
+  static nested namespace containers. Each generated file includes its own codec
+  helpers and needs only Java 17+, with no JNI, reflection, or third-party runtime.
+- Compile with `javac --release 17 -encoding UTF-8 -d classes AccountSchema.java`.
+  For CMake source/installed dependencies, `serializer_generate_java(TARGET name
+  SCHEMA file OUTPUT Schema.java CONFIG java.ini)` creates a generation target;
+  `serializer_generated_java` builds all registered Java outputs. Attach Java
+  compilation in the consumer. Track custom dependencies with `DEPENDS` and use
+  a host `GENERATOR` for cross builds. Java examples are opt-in through
+  `SERIALIZER_BUILD_JAVA_EXAMPLES`; every example has its own input folder.
+- Generate owning schemas only. Reject view/packed requests rather than promising
+  Java buffer views. Parents use `base0`, `base1`, ... composition, not subtyping.
+  Arrays use Java arrays; maps use ordered maps and box primitive keys/values.
+  Unsigned scalars retain their bits in Java signed primitives. Preserve generated
+  map ordering. Object/floating-point keys and opaque C++ defaults are unsupported.
+- Call `value.encode(Schema.Protocol.BINARY_INTEGER)` and
+  `Schema.Namespace.Type.decode(bytes, protocol[, limits])`. All four protocols
+  are implemented; decode validates an exact message before returning a fresh
+  object. JSON uses UTF-8, and binary scalars are little-endian. Java strings
+  reject invalid UTF-8 byte sequences; no arbitrary byte-string compatibility is
+  promised. See the Java guide before mapping unusual defaults or union payloads.
+- Use the generated `Limits` to bound message bytes, string bytes, cumulative
+  collection entries, and nesting. Unknown fields and malformed values fail with
+  `IllegalArgumentException`. Do not share mutable input/object storage across
+  concurrent codec calls. No explicit SIMD or native acceleration is implemented.
+- Keep Java runtime/build verification distinct from C++ source-only status notes.
+  With tests and Java examples enabled, CTest exercises compiled Java and two-way
+  interoperability, including exact binary bytes. Do not claim benchmark results.
+
+## Implement the C++ codec calls
 
 - Select `json`, `binary_none`, `binary_integer`, or `binary_string` according to
   the agreed message contract. Do not silently change protocols to improve size

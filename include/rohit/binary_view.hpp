@@ -165,16 +165,17 @@ class binary_array_view {
       const auto [count, prefix] = view_compact(storage);
       if (index >= count) { throw std::out_of_range{"View array index"}; }
       return storage.subspan(prefix + index * Element::fixed_size, Element::fixed_size);
+    } else {
+      const auto input = make_constant_stream(storage.data(), storage.size());
+      view_scanner scanner{input, limits};
+      auto nesting = scanner.enter_object();
+      const auto count = scanner.collection_size();
+      if (index >= count) { throw std::out_of_range{"View array index"}; }
+      for (std::size_t current = 0; current < index; ++current) { Element::scan(scanner); }
+      const auto start = scanner.position();
+      Element::scan(scanner);
+      return storage.subspan(start, scanner.position() - start);
     }
-    const auto input = make_constant_stream(storage.data(), storage.size());
-    view_scanner scanner{input, limits};
-    auto nesting = scanner.enter_object();
-    const auto count = scanner.collection_size();
-    if (index >= count) { throw std::out_of_range{"View array index"}; }
-    for (std::size_t current = 0; current < index; ++current) { Element::scan(scanner); }
-    const auto start = scanner.position();
-    Element::scan(scanner);
-    return storage.subspan(start, scanner.position() - start);
   }
 public:
   // Return the validated element count, with no traversal or allocation.

@@ -1,5 +1,14 @@
 # Wire format and decoding contract
 
+The pure Java backend implements the same four protocols for its supported
+owning types. Binary fixed-width values are little-endian, IDs and compact
+prefixes are unchanged, and Java retains original enum/wire names. Java strings
+require valid UTF-8; Java does not provide C++ binary byte-string or view semantics.
+See [Java mappings, limits, and restrictions](java.md). JSON whitespace, escaping,
+and floating-point spelling may differ while representing the same value. Named
+enum fields use names in string-key binary; enum collection elements and union
+payloads use compact numeric values. JSON always uses enum names.
+
 This describes Serializer's C++20 codecs after the efficiency-assessment changes.
 Implementation and prepared tests have not yet been built or run for this step.
 

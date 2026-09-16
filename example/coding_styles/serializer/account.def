@@ -1,0 +1,16 @@
+namespace StyleDemo {
+enum AccountState { WaitingForReview, Active }
+
+class BaseRecord view owning stable_ids {
+  public uint32 recordID (1);
+}
+
+class AccountRecord view owning stable_ids : public BaseRecord ("base", 1) {
+  public uint32 accountID (2);
+  public AccountState currentState (3) { AccountState::WaitingForReview };
+  public string displayName ("name", 4) { "Ada" };
+  public union(uint32 = IntegerValue, float = FloatValue) payload (5);
+  public array BaseRecord records (6);
+  public map(uint32) BaseRecord lookup (7);
+}
+}

@@ -97,7 +97,7 @@ TEST(binary_view, edits_preserve_the_encoded_layout) {
   EXPECT_THROW(editor.get_base_1().set_label("too long"), std::length_error);
   EXPECT_THROW(editor.get_payload().set<1>(1.0f), std::invalid_argument);
   EXPECT_THROW(editor.set_status(static_cast<view_test::phase>(7)), std::invalid_argument);
-  EXPECT_THROW(editor.get_values().set(2, 3), std::out_of_range);
+  EXPECT_THROW(editor.get_values().set(2, std::uint16_t{3}), std::out_of_range);
   EXPECT_TRUE(std::equal(before.begin(), before.end(), bytes.begin()));
 
   owning_record decoded{};

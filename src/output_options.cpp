@@ -177,6 +177,24 @@ std::string_view coding_standard_name(coding_standard standard) {
   return profile_names.at(static_cast<std::size_t>(standard));
 }
 
+// Keep Java profile parsing independent from C++ presentation rules.
+java_coding_standard parse_java_coding_standard(std::string_view name) {
+  if (name == "serializer") { return java_coding_standard::serializer; }
+  if (name == "google") { return java_coding_standard::google; }
+  if (name == "oracle") { return java_coding_standard::oracle; }
+  throw std::invalid_argument{"Unknown Java coding standard: " + std::string{name}};
+}
+
+// Reject invalid profile values supplied by library callers.
+std::string_view java_coding_standard_name(java_coding_standard standard) {
+  switch (standard) {
+  case java_coding_standard::serializer: return "serializer";
+  case java_coding_standard::google: return "google";
+  case java_coding_standard::oracle: return "oracle";
+  }
+  throw std::invalid_argument{"Unknown Java coding standard"};
+}
+
 // Parse the documented small INI grammar and report the line responsible for invalid input.
 output_options read_output_options(const std::filesystem::path& file) {
   std::ifstream input{file};
@@ -198,7 +216,7 @@ output_options read_output_options(const std::filesystem::path& file) {
       }
       if (text.front() == '[' && text.back() == ']') {
         section = trim(text.substr(1, text.size() - 2));
-        if ((section != "output" && section != "cpp") || !sections.insert(section).second) {
+        if ((section != "output" && section != "cpp" && section != "java") || !sections.insert(section).second) {
           throw std::invalid_argument{"Unknown or repeated section: " + section};
         }
         continue;
@@ -223,9 +241,18 @@ output_options read_output_options(const std::filesystem::path& file) {
       }
       if (section == "output" && key == "language") {
         result.language = value;
-        if (value != "cpp") {
+        if (value != "cpp" && value != "java") {
           throw std::invalid_argument{"Unsupported output language: " + std::string{value}};
         }
+      } else if (section == "java" && key == "coding_standard") {
+        result.java.standard = parse_java_coding_standard(value);
+      } else if (section == "java" && key == "package") {
+        result.java.package_name = value;
+      } else if (section == "java" && key == "naming") {
+        if (value != "profile" && value != "preserve") {
+          throw std::invalid_argument{"Expected naming = profile or preserve"};
+        }
+        result.java.rename_identifiers = value == "profile";
       } else if (section == "cpp" && key == "coding_standard") {
         result.cpp.standard = parse_coding_standard(value);
       } else if (section == "cpp" && key == "naming") {

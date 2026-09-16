@@ -168,6 +168,25 @@ TEST(output_options, configuration_and_diagnostics) {
 }
 
 // All advertised profiles must have a real formatter mapping and round-trip configuration name.
+TEST(output_options, java_configuration_and_diagnostics) {
+  configuration_file temporary{};
+  const auto options = writer::read_output_options(temporary.write(
+      "[output]\nlanguage = java\n[java]\ncoding_standard = oracle\n"
+      "naming = preserve\npackage = serializer.example\n"));
+  EXPECT_EQ(options.language, "java");
+  EXPECT_EQ(options.java.standard, writer::java_coding_standard::oracle);
+  EXPECT_FALSE(options.java.rename_identifiers);
+  EXPECT_EQ(options.java.package_name, "serializer.example");
+  for (const auto profile : {"serializer", "google", "oracle"}) {
+    EXPECT_EQ(writer::java_coding_standard_name(writer::parse_java_coding_standard(profile)), profile);
+  }
+  for (const auto invalid : {"[java]\ncoding_standard = llvm\n", "[java]\nnaming = guess\n",
+                            "[java]\nformat = true\n", "[java]\npackage = a\npackage = b\n"}) {
+    EXPECT_THROW(writer::read_output_options(temporary.write(invalid)), std::invalid_argument);
+  }
+}
+
+// All advertised C++ profiles must have a real formatter mapping and stable configuration name.
 TEST(output_options, formatter_mappings) {
   for (const auto profile :
        {"serializer", "core", "google", "llvm", "gnu", "cert", "misra", "autosar", "qt"}) {

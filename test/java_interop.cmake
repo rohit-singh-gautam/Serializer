@@ -1,0 +1,13 @@
+# Execute both directions as one test so generated fixture files cannot race.
+execute_process(COMMAND "${CPP}" "${FIXTURES}" emit RESULT_VARIABLE result)
+if(NOT result EQUAL 0)
+  message(FATAL_ERROR "C++ fixture generation failed: ${result}")
+endif()
+execute_process(COMMAND "${JAVA}" -cp "${CLASSES}" CodecTest "${FIXTURES}" RESULT_VARIABLE result)
+if(NOT result EQUAL 0)
+  message(FATAL_ERROR "Java codec checks failed: ${result}")
+endif()
+execute_process(COMMAND "${CPP}" "${FIXTURES}" verify RESULT_VARIABLE result)
+if(NOT result EQUAL 0)
+  message(FATAL_ERROR "C++ verification of Java output failed: ${result}")
+endif()

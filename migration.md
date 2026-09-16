@@ -1,5 +1,19 @@
 # Migrating to the snake_case Serializer API
 
+## Java output and example folders
+
+Java generation is an opt-in backend (`language java`) and does not change the
+default C++ API or wire layout. See [Java output](docs/java.md) for supported
+features, Java naming, parent composition, and differences from C++ ownership.
+
+The configuration schema moved to `example/config/config.struct`. C++ coding-style
+examples now live in `example/coding_styles/<profile>/`, each with its own
+`account.def`, `<profile>.ini`, and `<profile>.cpp`. Java examples live in
+`example/java/`, with a separate folder for the round trip and each Java profile.
+Update scripts that referenced the earlier shared schema or flat example paths.
+
+## C++ source migration
+
 This is a breaking C++ source migration. Update callers and regenerate schema
 headers with the updated `serializer` executable before compiling. Legacy
 headers and symbol aliases are not provided.

@@ -1,0 +1,41 @@
+# Exercise CLI precedence and protect existing output on a rejected Java configuration.
+file(MAKE_DIRECTORY "${DIRECTORY}")
+set(output "${DIRECTORY}/CliSchema.java")
+file(WRITE "${DIRECTORY}/output.ini" "[output]\nlanguage = cpp\n[java]\ncoding_standard = google\npackage = serializer.cli\n")
+execute_process(COMMAND "${GENERATOR}" input "${SCHEMA}" output "${output}"
+  config "${DIRECTORY}/output.ini" language java java.coding_standard oracle RESULT_VARIABLE result)
+if(NOT result EQUAL 0)
+  message(FATAL_ERROR "Java CLI generation failed")
+endif()
+file(READ "${output}" source)
+if(NOT source MATCHES "package serializer.cli;" OR NOT source MATCHES "    public static final class Demo")
+  message(FATAL_ERROR "CLI precedence did not apply Java package/profile")
+endif()
+file(SHA256 "${output}" before)
+foreach(argument IN ITEMS java.naming java.coding_standard java.package)
+  execute_process(COMMAND "${GENERATOR}" input "${SCHEMA}" output "${output}"
+    language java "${argument}" "not-valid" RESULT_VARIABLE result)
+  if(result EQUAL 0)
+    message(FATAL_ERROR "Invalid Java option was accepted: ${argument}")
+  endif()
+  file(SHA256 "${output}" after)
+  if(NOT before STREQUAL after)
+    message(FATAL_ERROR "Rejected generation modified existing output")
+  endif()
+endforeach()
+execute_process(COMMAND "${JAVAC}" --release 17 -encoding UTF-8 -Xlint:all -Werror
+  -d "${DIRECTORY}/classes" "${output}" RESULT_VARIABLE result)
+if(NOT result EQUAL 0)
+  message(FATAL_ERROR "CLI-generated Java did not compile")
+endif()
+
+execute_process(COMMAND "${GENERATOR}" input "${SCHEMA}" output "${DIRECTORY}/Preserved.java"
+  language java java.naming preserve RESULT_VARIABLE result)
+if(NOT result EQUAL 0)
+  message(FATAL_ERROR "Preserved Java naming generation failed")
+endif()
+execute_process(COMMAND "${JAVAC}" --release 17 -encoding UTF-8 -Xlint:all -Werror
+  -d "${DIRECTORY}/classes" "${DIRECTORY}/Preserved.java" RESULT_VARIABLE result)
+if(NOT result EQUAL 0)
+  message(FATAL_ERROR "Preserved Java naming did not compile")
+endif()

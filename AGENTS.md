@@ -2,7 +2,7 @@
 
 ## Integrating Serializer into an application
 
-- When asked to integrate this repository into another C++ project or update that
+- When asked to integrate this repository into another C++ or Java project or update that
   project's Serializer usage, read and apply the
   [Serializer integration skill](.agents/skills/serializer-integration/SKILL.md).
   This path is relative to this `AGENTS.md`, including when the checkout is a

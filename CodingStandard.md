@@ -45,6 +45,11 @@ repository's `AGENTS.md` and README.
 
 ## C++ identifier naming
 
+Java source and generated Java use Java-specific presentation profiles rather than
+the C++ identifier rules below. Use UpperCamelCase types, lowerCamelCase fields and
+methods, and UPPER_SNAKE_CASE constants in maintained Java code. See
+[Java profiles](docs/java.md#java-coding-styles) for generated layout options.
+
 Use names consistent with Serializer's public API and generated protocol methods.
 
 | Entity | Convention | Examples |

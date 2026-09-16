@@ -1,10 +1,12 @@
-# Output languages and C++ coding profiles
+# Output languages and coding profiles
 
 Keep output choices in the **generator configuration**, separate from `.def` schemas.
 Schemas define names, IDs, types, defaults, and representations. Each application can
 select a language backend and its presentation rules without changing that contract.
-Only the **C++ backend** is implemented. Other language names and sections are rejected
-until their backends exist.
+The **C++ and Java backends** are implemented. Other language names and sections
+are rejected. Java has independent `serializer`, `google`, and `oracle` profiles;
+see [Java configuration and profile scope](java.md#java-coding-styles). The C++
+configuration below remains the default.
 
 ## Configuration and command line
 
@@ -33,7 +35,7 @@ Serializer naming and formatting enabled by default.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `[output] language` | `cpp` | Select the backend; CLI spelling is `language`. |
+| `[output] language` | `cpp` | Select `cpp` or `java`; CLI spelling is `language`. |
 | `[cpp] coding_standard` | `serializer` | Select a profile from the table below. |
 | `[cpp] naming` | `profile` | Rename target identifiers; `preserve` retains schema spellings. |
 | `[cpp] format` | `true` | Run `clang-format`; `false` emits intermediate source for a caller-managed formatting pipeline. |
@@ -177,12 +179,14 @@ rohit::serializer::writer::cpp::write(output, statements, options);
 ## Examples for every profile
 
 The [coding-style examples](../example/coding_styles/README.md) contain one
-configuration and a C++ consumer for each profile. They share a mixed-case schema
-with owning classes, both views, inheritance, enums, unions, arrays, and maps.
+configuration, local schema, and C++ consumer in each profile's own folder.
+Their schemas describe the same mixed-case contract with owning classes, both
+views, inheritance, enums, unions, arrays, and maps.
 Generated headers belong in the build directory and are produced by the real
 generator. They are not checked in as manually maintained examples.
 
-**Validation status:** examples and tests are prepared. Header generation,
-compilation, execution, and regression testing remain deferred at the user's
-request. Source formatting and whitespace review do not establish C++ correctness
-or standard compliance.
+**Validation status:** all nine C++ profiles and all three Java profiles were
+generated, compiled, and executed on Windows during Java backend verification.
+Generator/configuration tests passed. The full C++ unit suite still has four
+failures; see the [verification notes](java.md#verification-performed-for-this-implementation).
+These checks do not establish whole-standard compliance or benchmark performance.

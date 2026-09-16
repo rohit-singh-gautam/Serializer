@@ -296,4 +296,9 @@ namespace writer::cpp {
 void write(stream& out_stream, const std::vector<std::unique_ptr<syntax_node>>& statements,
            const cpp_options& options = {});
 } // namespace writer::cpp
+namespace writer::java {
+// Emit one self-contained Java 17 source file; validate before appending any output.
+void write(stream& out_stream, const std::vector<std::unique_ptr<syntax_node>>& statements,
+           std::string_view outer_class, const java_options& options = {});
+} // namespace writer::java
 } // namespace rohit::serializer

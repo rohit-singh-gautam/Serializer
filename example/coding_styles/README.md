@@ -1,21 +1,22 @@
 # C++ coding-style examples
 
-Every profile uses [account.def](account.def). Each program writes an owning
+Every profile has its own folder containing `account.def`, its configuration, and
+its C++ consumer. Each program writes an owning
 object, changes its account ID through a mutable view, decodes it, and checks the
 original JSON field and enum names. The configurations select different C++ names
 and layouts; the wire contract is identical.
 
-| Profile | Configuration | C++ consumer |
-| --- | --- | --- |
-| Serializer | [serializer.ini](serializer.ini) | [serializer.cpp](serializer.cpp) |
-| C++ Core Guidelines | [core.ini](core.ini) | [core.cpp](core.cpp) |
-| Google | [google.ini](google.ini) | [google.cpp](google.cpp) |
-| LLVM | [llvm.ini](llvm.ini) | [llvm.cpp](llvm.cpp) |
-| GNU | [gnu.ini](gnu.ini) | [gnu.cpp](gnu.cpp) |
-| SEI CERT | [cert.ini](cert.ini) | [cert.cpp](cert.cpp) |
-| MISRA | [misra.ini](misra.ini) | [misra.cpp](misra.cpp) |
-| AUTOSAR | [autosar.ini](autosar.ini) | [autosar.cpp](autosar.cpp) |
-| Qt | [qt.ini](qt.ini) | [qt.cpp](qt.cpp) |
+| Profile | Schema | Configuration | C++ consumer |
+| --- | --- | --- | --- |
+| Serializer | [account.def](serializer/account.def) | [serializer.ini](serializer/serializer.ini) | [serializer.cpp](serializer/serializer.cpp) |
+| C++ Core Guidelines | [account.def](core/account.def) | [core.ini](core/core.ini) | [core.cpp](core/core.cpp) |
+| Google | [account.def](google/account.def) | [google.ini](google/google.ini) | [google.cpp](google/google.cpp) |
+| LLVM | [account.def](llvm/account.def) | [llvm.ini](llvm/llvm.ini) | [llvm.cpp](llvm/llvm.cpp) |
+| GNU | [account.def](gnu/account.def) | [gnu.ini](gnu/gnu.ini) | [gnu.cpp](gnu/gnu.cpp) |
+| SEI CERT | [account.def](cert/account.def) | [cert.ini](cert/cert.ini) | [cert.cpp](cert/cert.cpp) |
+| MISRA | [account.def](misra/account.def) | [misra.ini](misra/misra.ini) | [misra.cpp](misra/misra.cpp) |
+| AUTOSAR | [account.def](autosar/account.def) | [autosar.ini](autosar/autosar.ini) | [autosar.cpp](autosar/autosar.cpp) |
+| Qt | [account.def](qt/account.def) | [qt.ini](qt/qt.ini) | [qt.cpp](qt/qt.cpp) |
 
 See [output configuration](../../docs/output_configuration.md) for the precise
 scope of these presentation profiles and their compliance limitations.
@@ -37,10 +38,10 @@ From the repository root, after building `serializer` and installing clang-forma
 
 ```sh
 mkdir build/example-google
-serializer input example/coding_styles/account.def output build/example-google/account.hpp config example/coding_styles/google.ini
+serializer input example/coding_styles/google/account.def output build/example-google/account.hpp config example/coding_styles/google/google.ini
 ```
 
-Compile [google.cpp](google.cpp) with this generated header directory and the
+Compile [google.cpp](google/google.cpp) with this generated header directory and the
 repository's `include` directory on its include path. Use C++20 or newer.
 For another profile, select its `.ini` and corresponding `.cpp` from the table.
 Keep headers for different profiles in separate directories and executables;
@@ -48,8 +49,8 @@ they define alternative C++ APIs for the same schema.
 
 ## Build all examples
 
-The following commands are provided for the later validation step; they have
-**not been run** for this change:
+Use the following commands to build every profile; each executable runs its checks.
+
 
 ```sh
 cmake -S . -B build/styles -DSERIALIZER_BUILD_TESTS=OFF -DSERIALIZER_BUILD_STYLE_EXAMPLES=ON
@@ -62,5 +63,6 @@ its matching config. Each executable is named `serializer_style_<profile>` and
 returns zero when the checks succeed. It does not need GoogleTest.
 
 With `SERIALIZER_BUILD_TESTS=ON`, all nine examples are built and registered with
-CTest alongside the library tests. Header generation, compilation, and execution
-remain deferred for this implementation step.
+CTest alongside the library tests. The Java backend change also validates all nine C++ examples.
+
+For Java style profiles, see [Java examples](../java/README.md).

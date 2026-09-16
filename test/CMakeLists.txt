@@ -13,6 +13,7 @@ add_executable(core_serializer_test
   decoder_qualification_test.cpp
   binary_view_test.cpp
   output_options_test.cpp
+  java_writer_test.cpp
 )
 serializer_generate(TARGET core_serializer_test
   SCHEMAS ${schemas}
@@ -26,3 +27,7 @@ elseif(UNIX)
 endif()
 
 add_test(NAME core_serializer_test COMMAND core_serializer_test)
+
+if(SERIALIZER_BUILD_JAVA_EXAMPLES)
+  include(java_tests.cmake)
+endif()

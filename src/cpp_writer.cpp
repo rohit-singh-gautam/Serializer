@@ -494,6 +494,17 @@ public:
       const serializer::type_name* alternative{};
     };
     std::map<std::uint64_t, std::vector<entry>> groups;
+    if (obj->parents.empty() && obj->member_list.empty()) {
+      // Empty classes have no hash cases; avoid a default-only switch under MSVC /W4.
+      out_stream.write("  // Reject every named field for an empty schema.\n"
+                       "  void serialize_in_member_by_name(auto& ",
+                       local_name("serializer_protocol"),
+                       ", ::std::string_view) {\n"
+                       "    throw ::rohit::serializer::exception::key_not_found{",
+                       local_name("serializer_protocol"),
+                       ".get_stream(), \"Unknown field name\"};\n  }\n\n");
+      return;
+    }
     for (const auto& base : obj->parents) {
       groups[detail::field_name_hash(base.display_name)].push_back({base.display_name, &base});
     }
