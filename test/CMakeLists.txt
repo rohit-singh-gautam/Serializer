@@ -6,6 +6,7 @@ endforeach()
 add_executable(core_serializer_test
   core_serializer_test.cpp
   serializer_parser_test.cpp
+  schema_scan_test.cpp
   generated_test.cpp
   wire_format_test.cpp
   decoder_qualification_test.cpp

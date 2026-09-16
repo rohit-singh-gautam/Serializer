@@ -15,9 +15,12 @@ option(SERIALIZER_BUILD_BENCHMARKS "Build separate codec timing and allocation t
 option(SERIALIZER_BUILD_FUZZERS "Build the bounded Clang libFuzzer target" OFF)
 option(SERIALIZER_BUILD_STYLE_EXAMPLES "Build one example for each C++ output profile" OFF)
 option(SERIALIZER_INSTALL "Install the library, compiler, and CMake integration" ${PROJECT_IS_TOP_LEVEL})
+option(SERIALIZER_ENABLE_SIMD "Accelerate schema scanning on supported CPUs" ON)
 
 add_library(serializer_lib
   src/parser.cpp
+  src/schema_scan.cpp
+  src/schema_scan.hpp
   src/cpp_writer.cpp
   src/cpp_type_mapping.cpp
   src/cpp_naming.cpp
@@ -36,6 +39,37 @@ target_include_directories(serializer_lib PUBLIC
   "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
 )
 target_compile_features(serializer_lib PUBLIC cxx_std_20)
+target_compile_definitions(serializer_lib PRIVATE
+  SERIALIZER_ENABLE_SIMD=$<BOOL:${SERIALIZER_ENABLE_SIMD}>)
+
+# Keep AVX2 flags off the dispatcher and consumers, including in unity builds.
+set(serializer_x64 FALSE)
+if(MSVC)
+  if(CMAKE_CXX_COMPILER_ARCHITECTURE_ID STREQUAL "x64")
+    set(serializer_x64 TRUE)
+  endif()
+elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
+  string(TOLOWER "${CMAKE_SYSTEM_PROCESSOR}" serializer_processor)
+  if(serializer_processor MATCHES "^(x86_64|amd64|x64)$")
+    set(serializer_x64 TRUE)
+  endif()
+  # A source-specific -mavx2 flag cannot be shared with an ARM slice of a universal binary.
+  if(APPLE AND CMAKE_OSX_ARCHITECTURES AND NOT CMAKE_OSX_ARCHITECTURES STREQUAL "x86_64")
+    set(serializer_x64 FALSE)
+  endif()
+endif()
+if(SERIALIZER_ENABLE_SIMD AND serializer_x64 AND
+    CMAKE_CXX_COMPILER_ID MATCHES "^(MSVC|GNU|Clang|AppleClang)$")
+  target_sources(serializer_lib PRIVATE src/schema_scan_avx2.cpp)
+  target_compile_definitions(serializer_lib PRIVATE SERIALIZER_HAS_AVX2_SCANNER=1)
+  if(MSVC)
+    set_source_files_properties(src/schema_scan_avx2.cpp PROPERTIES COMPILE_OPTIONS /arch:AVX2)
+  else()
+    set_source_files_properties(src/schema_scan_avx2.cpp PROPERTIES COMPILE_OPTIONS -mavx2)
+  endif()
+  set_source_files_properties(src/schema_scan_avx2.cpp PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE)
+endif()
+
 add_library(Serializer::serializer_lib ALIAS serializer_lib)
 
 add_executable(serializer src/serializer.cpp)

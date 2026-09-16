@@ -17,6 +17,20 @@ Run the normal supported-platform build/test matrix when validation is authorize
 Also run optimized and address/undefined-sanitized builds, and C++20/C++23 builds
 to cover the byte-swap fallback and standard-library paths.
 
+### Schema scanner validation
+
+`schema_scan_test.cpp` prepares checks for all byte values, unaligned starts,
+exact-size input allocations, empty input, scalar/vector transitions, identifier
+delimiters, qualified names, comment boundaries, and unterminated-comment cursors.
+It exercises the baseline scanner, the CPU-selected scanner, and short-token dispatch.
+
+When testing is authorized, run with `SERIALIZER_ENABLE_SIMD=ON` and `OFF`, on x64
+with and without AVX2 available, and on a platform using the scalar fallback.
+Include address-sanitized runs to catch reads beyond unpadded input. These cases
+have not been compiled or executed. Measure parsing separately from C++ emission,
+formatter startup, and file I/O before reporting an end-to-end generator speedup;
+the existing codec benchmarks do not measure schema compilation.
+
 ## Timing and allocations
 
 Configure `SERIALIZER_BUILD_BENCHMARKS=ON` to add:

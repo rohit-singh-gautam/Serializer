@@ -99,6 +99,14 @@ mode if the application already uses one. Source dependencies build the generato
 as needed; installed packages use their installed executable. `SERIALIZER_INSTALL`
 controls installation and defaults off when Serializer is embedded.
 
+Schema scanning enables internal SIMD by default through `SERIALIZER_ENABLE_SIMD`.
+Supported x64 builds use SSE2 and select an isolated AVX2 backend after CPU/OS checks;
+short spans and other architectures retain scalar scanning. Set this CMake option
+to `OFF` before adding the source dependency when explicit SIMD must be disabled.
+An installed generator retains its build-time choice. This changes neither schema
+syntax nor generated codec behavior; do not add a `simd` keyword or promise a
+measured speedup. SIMD builds, boundary tests, and benchmarks remain deferred.
+
 Call the helper once per target with all its schemas. For a shared generated API,
 use an interface library and link consumers to it so one target owns generation.
 Keep outputs in the build tree. Add custom format files selected indirectly by

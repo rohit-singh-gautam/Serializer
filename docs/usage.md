@@ -5,6 +5,11 @@ objects through JSON or binary protocols. Use a C++20-or-newer compiler and
 standard library; the CMake project requires CMake 3.28 or newer. Header generation
 uses clang-format 19+ by default. Applications using existing headers do not need it.
 
+The schema compiler enables bounded SIMD scanning on supported x64 builds, with
+scalar fallbacks. This is automatic and needs no `.def` keyword; see
+[schema-scanner configuration](cmake_integration.md#schema-scanner-configuration)
+for the `SERIALIZER_ENABLE_SIMD` source-build option.
+
 The examples below describe the current source API. They have been reviewed
 against the source but have not been generated, compiled, or executed as part of
 this documentation change. See [qualification](../qualification/README.md) for

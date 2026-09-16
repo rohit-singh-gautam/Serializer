@@ -71,6 +71,23 @@ serializer input example/config.struct output config.hpp
 Format C++ files with the repository's `.clang-format`; see
 [CodingStandard.md](CodingStandard.md) for naming and coding rules.
 
+### SIMD in the schema compiler
+
+`SERIALIZER_ENABLE_SIMD=ON` is the build default. The `.def` parser scans whitespace,
+comments, and identifier spans in blocks, then constructs each identifier string
+once. On x64, the baseline scanner uses 16-byte SSE2 blocks; supported MSVC, GCC,
+and Clang builds also include a separately compiled 32-byte AVX2 scanner selected
+after CPU/OS checks. Short spans and other architectures use scalar scanning.
+Vector loads stay within the input bounds and require no trailing padding.
+
+This is an internal schema-compiler optimization. No `simd` schema keyword or
+output-profile setting is needed; it does not add SIMD to generated codec methods.
+Use `-DSERIALIZER_ENABLE_SIMD=OFF` when configuring a source build to disable the
+explicit SIMD scanners. See [CMake integration](docs/cmake_integration.md) for
+consumer configuration and [qualification](qualification/README.md#schema-scanner-validation)
+for the prepared boundary cases. Configuration, compilation, tests, and timing
+comparisons remain deferred; no measured speedup is claimed.
+
 ### Output language and coding standard
 
 Keep target-language settings in a generator config, separate from the `.def`

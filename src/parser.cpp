@@ -17,6 +17,8 @@
 
 #include <rohit/serializer_creator.hpp>
 
+#include "schema_scan.hpp"
+
 #include <charconv>
 #include <concepts>
 #include <cstdint>
@@ -116,9 +118,9 @@ bool is_identifier(const stream& in_stream) {
 }
 // Advance past whitespace before the next token.
 void skip_whitespace(const stream& in_stream) {
-  while (is_whitespace(in_stream)) {
-    ++in_stream;
-  }
+  const auto size = detail::scan_prefix<detail::scan_kind::whitespace>(
+      in_stream.curr(), in_stream.remaining_buffer());
+  in_stream.advance_unchecked(size);
 }
 // Test whether every character belongs to a decimal integer token.
 bool check_number(const std::string& number_text) {
@@ -132,30 +134,29 @@ bool check_number(const std::string& number_text) {
 
 // Read an identifier or quoted spelling from a member specification.
 auto get_member_spec_token(const stream& in_stream) {
-  std::string token{};
   bool is_string{false};
   if (*in_stream == '"') {
     is_string = true;
     ++in_stream;
   }
-  while (is_identifier(in_stream)) {
-    token.push_back(*in_stream);
-    ++in_stream;
-  }
+  const auto size = detail::scan_prefix<detail::scan_kind::identifier>(
+      in_stream.curr(), in_stream.remaining_buffer());
+  std::string token{reinterpret_cast<const char*>(in_stream.curr()), size};
+  in_stream.advance_unchecked(size);
   if (is_string) {
     if (*in_stream != '"') {
       throw exception::bad_member_spec{in_stream, "String must be enclosed in double quotes"};
     }
     ++in_stream;
   }
-  return std::make_pair(token, is_string);
+  return std::make_pair(std::move(token), is_string);
 }
 
 // Consume complete whitespace and comment spans, including a final line comment at EOF.
 void skip_whitespace_and_comment(const stream& input) {
   while (!input.full()) {
     if (is_whitespace(*input)) {
-      ++input;
+      skip_whitespace(input);
       continue;
     }
     if (*input != '/') { return; }
@@ -168,16 +169,26 @@ void skip_whitespace_and_comment(const stream& input) {
     }
     input.advance_unchecked(2);
     if (kind == '/') {
-      while (!input.full() && *input != '\n') { ++input; }
+      const auto size = detail::scan_prefix<detail::scan_kind::line_comment>(
+          input.curr(), input.remaining_buffer());
+      input.advance_unchecked(size);
     } else {
       bool closed{};
       while (input.remaining_buffer() >= 2) {
-        if (input.curr()[0] == '*' && input.curr()[1] == '/') {
+        // Leave the last byte unread unless it belongs to a complete terminator.
+        // This also preserves the diagnostic cursor for an unterminated comment.
+        const auto size = detail::scan_prefix<detail::scan_kind::block_comment>(
+            input.curr(), input.remaining_buffer() - 1);
+        input.advance_unchecked(size);
+        if (input.remaining_buffer() < 2) {
+          break;
+        }
+        if (input.curr()[1] == '/') {
           input.advance_unchecked(2);
           closed = true;
           break;
         }
-        ++input;
+        input.advance_unchecked(1);
       }
       if (!closed) { throw exception::bad_input_data{input, "Unterminated schema comment"}; }
     }
@@ -228,37 +239,32 @@ T parse_number(const stream& in_stream) {
 
 // Parse identifier from the schema input; malformed input throws.
 std::string parse_identifier(const stream& in_stream) {
-  std::string identifier{};
   auto ch = *in_stream;
   if (!is_first_identifier(ch)) {
     std::string error_text{"Identifier can start with '_' or alphabet only it cannot start with: "};
     error_text.push_back(ch);
     throw exception::bad_identifier{in_stream, error_text};
   }
-  identifier.push_back(ch);
-  ++in_stream;
-  while (!in_stream.full() && is_identifier(*in_stream)) {
-    identifier.push_back(*in_stream);
-    ++in_stream;
-  }
+  const auto size = detail::scan_prefix<detail::scan_kind::identifier>(
+      in_stream.curr(), in_stream.remaining_buffer());
+  std::string identifier{reinterpret_cast<const char*>(in_stream.curr()), size};
+  in_stream.advance_unchecked(size);
   return identifier;
 } // parse_identifier
 
 // Parse hierarchical identifier from the schema input; malformed input throws.
 std::string parse_hierarchical_identifier(const stream& in_stream) {
-  std::string identifier{};
+  const auto* begin = in_stream.curr();
+  const auto available = in_stream.remaining_buffer();
   while (true) {
     if (!is_first_identifier(*in_stream)) {
       std::string error_text{"Identifier cannot start with "};
       error_text.push_back(*in_stream);
       throw exception::bad_identifier{in_stream, error_text};
     }
-    identifier.push_back(*in_stream);
-    ++in_stream;
-    while (!in_stream.full() && is_identifier(*in_stream)) {
-      identifier.push_back(*in_stream);
-      ++in_stream;
-    }
+    const auto size = detail::scan_prefix<detail::scan_kind::identifier>(
+        in_stream.curr(), in_stream.remaining_buffer());
+    in_stream.advance_unchecked(size);
     if (in_stream.remaining_buffer() < 2) {
       break;
     }
@@ -272,14 +278,13 @@ std::string parse_hierarchical_identifier(const stream& in_stream) {
           {"Namespace and identifier must be separated by '::', only one ':' is unsupported "}};
     }
     ++in_stream;
-    identifier.push_back(':');
-    identifier.push_back(':');
     if (in_stream.full()) {
       throw exception::bad_identifier{in_stream,
                                       {"Atleast one characted is require for identifier"}};
     }
   }
-  return identifier;
+  // The cursor only advances within the original range, including namespace separators.
+  return {reinterpret_cast<const char*>(begin), available - in_stream.remaining_buffer()};
 } // parse_hierarchical_identifier
 
 // Invoke the callback for each whitespace-separated identifier.

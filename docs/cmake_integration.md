@@ -38,6 +38,20 @@ write `#include <account.hpp>`; the helper supplies its include directory, links
 language modes are preserved. Editing the schema, generator, or tracked output
 configuration makes the next build regenerate the header.
 
+### Schema-scanner configuration
+
+`SERIALIZER_ENABLE_SIMD` defaults to `ON`. Supported x64 builds provide an SSE2
+scanner and an isolated AVX2 backend selected after CPU/OS checks. Short spans and
+other architectures use scalar code; universal macOS builds use the baseline
+scanner for each architecture. The AVX2 compiler flags apply only to its source
+file and are not propagated to applications.
+
+Set `SERIALIZER_ENABLE_SIMD=OFF` in the CMake cache before adding Serializer to
+disable its explicit SIMD scanners. Installed generators retain the choice made
+when they were built; `serializer_generate` does not change it. This is separate
+from output coding profiles and requires no schema syntax changes. See the
+[README](../README.md#simd-in-the-schema-compiler) for scope and validation status.
+
 ## Use an installed package
 
 To prepare an installation from a Serializer checkout:
