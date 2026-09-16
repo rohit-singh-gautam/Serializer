@@ -38,6 +38,12 @@ TEST(java_writer, naming_profiles_and_wire_contract) {
   EXPECT_NE(source.find("int account_id"), std::string::npos);
 }
 
+// Emit literal spaces without replacing them with escapes or trimming the string contents.
+TEST(java_writer, preserves_spaces_in_string_defaults) {
+  const auto source = emit_java(R"(class record { public string label { "  schema default  " }; })");
+  EXPECT_NE(source.find(R"("  schema default  ")"), std::string::npos);
+}
+
 // Invalid Java output must be rejected before a destination can be overwritten.
 TEST(java_writer, rejects_unsupported_and_colliding_declarations) {
   for (const auto schema :

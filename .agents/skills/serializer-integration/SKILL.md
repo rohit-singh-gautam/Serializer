@@ -57,6 +57,8 @@ feature as a prerequisite without the user's request.
 - Use `class`, `enum`, and `namespace`. Every member needs an explicit access
   modifier and a trailing semicolon. Classes/enums have no trailing semicolon.
 - In owning representations, map `array T` to `std::vector<T>` and `map(K) T` to `std::map<K, T>`.
+- Keep literal spaces in quoted defaults, such as `public string label { "schema default" };`.
+  The parser preserves quoted whitespace, escapes, and braces without rewriting the literal.
   Preserve wire names and defaults. Check the output naming policy before writing
   callers; `naming = preserve` retains existing schema-defined C++ identifiers.
 - Put class attributes after the name, before a parent list. `stable_ids` requires
@@ -112,6 +114,24 @@ runtime linkage, and the C++20 minimum. CMake 3.28+ is required; keep a newer C+
 mode if the application already uses one. Source dependencies build the generator
 as needed; installed packages use their installed executable. `SERIALIZER_INSTALL`
 controls installation and defaults off when Serializer is embedded.
+
+For this repository's own build, run `make all` / `make test` on Linux or
+`./make.ps1 all` / `./make.ps1 test` on Windows. Both wrappers default to Release,
+build all enabled CMake targets, and use the `VCPKG_ROOT` toolchain when set.
+The test target builds before running CTest. They require the same compiler,
+GoogleTest, and clang-format dependencies as direct CMake; Java, benchmarks, and
+fuzzers remain opt-in. See [wrapper options](../../../docs/cmake_integration.md#build-this-repository)
+for configurations, separate build directories, and CMake overrides.
+
+Use a revision with the explicit stream-offset return type, warning-clean pointer
+accessors, and native-width identifier hash seed for GCC, Clang, and 32-bit MSVC
+builds. Regenerate LLVM-profile headers after the storage-donor naming fix; only
+generated local names change, with public APIs and wire data preserved.
+Updated runtime headers support `binary_none` encoder `serialize_out(view)`
+dispatch for mapped views; keyed/JSON protocols remain unsupported for views.
+The default C++ CTest targets have passed on Linux x64 (GCC and Clang) and Windows
+x64 (MSVC), with separate Windows x86 package/consumer checks. Native macOS,
+Android, and ARM Linux verification remains pending; see the README for versions.
 
 Schema scanning and runtime codecs enable SIMD by default through `SERIALIZER_ENABLE_SIMD`.
 Supported x64 builds use SSE2 and select isolated AVX2 backends after CPU/OS checks;

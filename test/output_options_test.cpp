@@ -114,6 +114,15 @@ TEST(output_options, profiles_preserve_wire_names) {
   }
 }
 
+// Preserve the exact quoted default in both snake-case and LLVM-profile output.
+TEST(output_options, preserves_spaces_in_string_defaults) {
+  for (const auto standard : {writer::coding_standard::serializer, writer::coding_standard::llvm}) {
+    const auto source = emit(R"(class record { public string label { "  schema default  " }; })",
+                             standard);
+    EXPECT_NE(source.find(R"("  schema default  ")"), std::string::npos);
+  }
+}
+
 // Detect naming collisions, keyword conversion, and generated helper conflicts before emission.
 TEST(output_options, rejects_collisions_and_keywords) {
   for (const auto schema :

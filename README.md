@@ -7,6 +7,8 @@ compile-time protocol templates, for both encoding and decoding. See
 [Protobuf codecs](docs/protobuf.md) for generation, schema mappings, and limitations.
 Language-specific output profiles select layouts and naming conventions.
 Schemas use `.serializer` and begin with `serializer version 1;`.
+Quoted defaults preserve literal spaces, for example
+`public string label { "schema default" };`; escaping the space is unnecessary.
 Run `serializer --version` for compiler version **1.0.0** and supported schema versions.
 See [command-line options](docs/command_line.md) for multi-language generation and overrides.
 See [Java output](docs/java.md) for dependency-free Java 17+ codecs and
@@ -56,6 +58,28 @@ With CMake, a C++20-or-newer compiler and standard library, clang-format 19+, an
 GoogleTest available:
 
 ```sh
+# Linux (GNU Make)
+make all
+make test
+```
+
+```powershell
+# Windows (PowerShell; GNU Make is not required)
+./make.ps1 all
+./make.ps1 test
+```
+
+Both wrappers default to Release and configure/build all enabled CMake targets,
+including tests and C++ style examples on a fresh cache. `test` builds first and
+runs CTest; `configure` only configures. Set `VCPKG_ROOT` to use its toolchain for
+GoogleTest, or provide an installed GoogleTest package through CMake. The wrappers
+do not install a compiler or clang-format. Java, benchmarks, and fuzzers remain
+opt-in. See [build wrapper options](docs/cmake_integration.md#build-this-repository)
+for build directories, configurations, and additional CMake settings.
+
+The equivalent direct CMake commands are:
+
+```sh
 cmake -S . -B build
 cmake --build build --config Debug
 ctest --test-dir build -C Debug --output-on-failure
@@ -79,6 +103,19 @@ Use `-DSERIALIZER_BUILD_TESTS=OFF` for a standalone build without GoogleTest.
 C++20 is the minimum language mode and the build default. A newer mode selected
 with `CMAKE_CXX_STANDARD`, such as `-DCMAKE_CXX_STANDARD=23`, is preserved. Public
 headers also check the language mode when used outside CMake.
+
+Regenerate LLVM-profile headers after updating to the storage-donor naming fix.
+This prevents a parameter/template-type collision and changes local names only,
+not APIs or wire data.
+The runtime also accepts mapped views through a little-endian `binary_none`
+encoder's `serialize_out(view)` call. Empty identifier input reports a schema
+diagnostic before attempting to read the stream.
+
+Portability verification: the default 13 CTest targets pass on Linux x64 with
+GCC 15.2 and Clang 21.1, and Windows x64 with MSVC 19.51. The Windows x86 vcpkg
+package and installed-consumer round trips have also been checked. Native macOS,
+Android, and ARM Linux builds still require their CI runners; these local checks
+do not establish support for every vcpkg triplet.
 
 The `rohit::byteswap` helper forwards supported integers directly to
 `std::byteswap` when `__cpp_lib_byteswap >= 202110L`; otherwise it uses a constexpr

@@ -450,7 +450,7 @@ public:
                  local_name("serializer_protocol"), ");\n", indent, "} else {\n", indent,
                  "  static_cast<", base_type, "*>(this)->serialize_in(",
                  local_name("serializer_protocol"), ", static_cast<", base_type, "*>(",
-                 local_name("storage_source"), "));\n", indent, "}\n");
+                 local_name("storage_donor"), "));\n", indent, "}\n");
   }
 
   // Donate a present field's storage; absent keyed fields retain the fresh candidate's defaults.
@@ -470,7 +470,7 @@ public:
           indent, "if constexpr (::std::is_same_v<StorageSource, ::std::nullptr_t>) {\n", indent,
           "  ", read, indent, "} else {\n", indent, "  ::rohit::serializer::detail::read_reusing(",
           local_name("serializer_protocol"), ", this->", field_name(field.name), ", ",
-          local_name("storage_source"), "->", field_name(field.name), ");\n", indent, "}\n");
+          local_name("storage_donor"), "->", field_name(field.name), ");\n", indent, "}\n");
     } else {
       output.write(indent, read);
     }
@@ -595,7 +595,7 @@ public:
                      "  void serialize_in_member_by_identifier(SerializeInProtocol& "} +
          local_name("serializer_protocol") +
          (std::string{", const ::std::uint32_t "} + local_name("identifier") +
-          ", [[maybe_unused]] StorageSource " + local_name("storage_source") + ") {\n    switch (" +
+          ", [[maybe_unused]] StorageSource " + local_name("storage_donor") + ") {\n    switch (" +
           local_name("identifier") + ") {\n")));
 
     write_serializer_in_body_for_parent_key_integer(out_stream, obj);
@@ -632,7 +632,7 @@ public:
           "  template <typename SerializeInProtocol, typename StorageSource>\n"
           "  void serialize_in_member_by_name(SerializeInProtocol& ",
           local_name("serializer_protocol"),
-          ", ::std::string_view, [[maybe_unused]] StorageSource ", local_name("storage_source"),
+          ", ::std::string_view, [[maybe_unused]] StorageSource ", local_name("storage_donor"),
           ") {\n"
           "    throw ::rohit::serializer::exception::key_not_found{",
           local_name("serializer_protocol"), ".get_stream(), \"Unknown field name\"};\n  }\n\n");
@@ -658,7 +658,7 @@ public:
                                   "serialize_in_member_by_name(SerializeInProtocol& "} +
                       local_name("serializer_protocol") +
                       (std::string{", ::std::string_view "} + local_name("name") +
-                       ", [[maybe_unused]] StorageSource " + local_name("storage_source") +
+                       ", [[maybe_unused]] StorageSource " + local_name("storage_donor") +
                        ") {\n    switch (::rohit::serializer::detail::field_name_hash(" +
                        local_name("name") + ")) {\n")));
     for (const auto& [hash_value, entries] : groups) {
@@ -713,7 +713,7 @@ public:
             "  template <typename SerializeInProtocol, typename StorageSource>\n"
             "  void serialize_in(SerializeInProtocol& "} +
         local_name("serializer_protocol") + ", [[maybe_unused]] StorageSource " +
-        local_name("storage_source") +
+        local_name("storage_donor") +
         ") {\n    static_assert(\n        SerializeInProtocol::key_type == "
         "::rohit::serializer::serialize_key_type::none ||\n        SerializeInProtocol::key_type "
         "== "
@@ -740,7 +740,7 @@ public:
         type_name(obj->name),
         ">(this);\n      } else {\n        ::rohit::serializer::detail::reused_object_reader<",
         type_name(obj->name), "> ", local_name("storage_reader"), "{*this, *",
-        local_name("storage_source"), "};\n        ", local_name("serializer_protocol"),
+        local_name("storage_donor"), "};\n        ", local_name("serializer_protocol"),
         ".struct_serialize_in(&", local_name("storage_reader"), ");\n      }",
         (std::string{"\n    }\n  }\n\n  // Construct the requested protocol and read this "
                      "object.\n  template <template <::rohit::serializer::serialize_type> class "

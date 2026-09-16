@@ -5,8 +5,9 @@ Examples here use the default Serializer naming profile. Other
 accessors, while `map`, storage-mode values, and inherited runtime APIs keep
 their established spellings. The profile does not change the mapped wire layout.
 
-The implementation described here has been source-reviewed. Header generation,
-compilation, tests, and performance measurements are deferred for this step.
+The default C++ suite, including generated view tests, passes on Linux x64 with
+GCC and Clang and Windows x64 with MSVC. Native macOS/Android/ARM Linux validation
+and performance measurements remain pending.
 
 ## Select representations in the schema
 
@@ -247,7 +248,10 @@ from one mode to multiple modes changes `person` to `person<mode>` at call sites
 - Read-only means that this view cannot write. Another mutable alias can update
   the observed values. Synchronization between threads is the caller's responsibility.
 - `serialized_bytes()` returns a read-only span of the exact message. Appending
-  a view into its own growable owner can invalidate that view if storage moves;
+  a mapped view through a little-endian `binary_none` encoder's
+  `serialize_out(view)` copies these same bytes using the stream's reservation policy.
+  JSON, keyed binary, and big-endian output remain unsupported for mapped views.
+  Appending a view into its own growable owner can invalidate that view if storage moves;
   create a new mapping before accessing it again.
 - Single-mode classes avoid a class-mode template. Multi-mode headers contain
   concrete specializations for each selected mode, all of which must be parsed

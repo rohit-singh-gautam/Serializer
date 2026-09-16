@@ -33,6 +33,12 @@ static_assert(has_value_setter<view_test::mutable_record>);
 static_assert(maps_const_bytes<readonly_record>);
 static_assert(!maps_const_bytes<mutable_record>);
 static_assert(readonly_record::wire_endian == std::endian::little);
+static_assert(rohit::serializer::type_check::serializer_out_enabled<
+              readonly_record, rohit::serializer::binary_none<serialize_type::out>>);
+static_assert(!rohit::serializer::type_check::serializer_out_enabled<
+              readonly_record, rohit::serializer::binary_integer<serialize_type::out>>);
+static_assert(!rohit::serializer::type_check::serializer_out_enabled<
+              readonly_record, rohit::serializer::json<serialize_type::out>>);
 static_assert(std::is_default_constructible_v<view_test::owning_readonly<storage_mode::owning>>);
 static_assert(std::is_default_constructible_v<view_test::owning_mutable<storage_mode::owning>>);
 static_assert(has_value_setter<view_test::both_views<storage_mode::mutable_view>>);

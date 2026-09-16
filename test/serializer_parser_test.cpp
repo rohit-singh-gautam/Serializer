@@ -18,6 +18,38 @@
 #include <gtest/gtest.h>
 #include <rohit/serializer_creator.hpp>
 
+#include <string>
+#include <string_view>
+
+// Keep literal spaces and quoted delimiters unchanged in schema defaults.
+TEST(serialize_parser, quoted_defaults_preserve_spelling) {
+  for (const std::string_view literal : {
+           R"("schema default")", R"("  leading  and trailing  ")", R"("}")",
+           R"("a \"quoted value\" and \\ path")", R"("/* literal comment */")", R"(' ')",
+           R"('\'')", R"('}')", R"(1'000)"}) {
+    SCOPED_TRACE(literal);
+    const std::string source = "public string label { " + std::string{literal} + " };";
+    const auto input = rohit::make_constant_stream(source.data(), source.size());
+    const auto field = rohit::serializer::parser::parse_member(input, 1, nullptr);
+    EXPECT_EQ(field.default_value, literal);
+    EXPECT_TRUE(input.full());
+  }
+}
+
+// Reject truncated quotes, dangling escapes, and missing closing braces with schema diagnostics.
+TEST(serialize_parser, malformed_quoted_defaults) {
+  for (const std::string_view source : {
+           R"(public string label { "unfinished space)",
+           R"(public string label { "unfinished \)",
+           R"(public string label { "closed" )",
+           R"(public char label { ' )"}) {
+    SCOPED_TRACE(source);
+    const auto input = rohit::make_constant_stream(source.data(), source.size());
+    EXPECT_THROW(rohit::serializer::parser::parse_member(input, 1, nullptr),
+                 rohit::serializer::exception::bad_member_spec);
+  }
+}
+
 TEST(serialize_parser, identifier) {
   std::vector<std::tuple<std::string, std::string, bool>> test_list{
       {"a   ", "a", false},

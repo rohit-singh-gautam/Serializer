@@ -15,6 +15,41 @@ its installable CMake package. Use CMake 3.28+, a C++20 compiler and standard
 library, and clang-format 19+ for the default output formatting. The integration
 has no editor dependency and requires no `.vscode` files.
 
+## Build this repository
+
+The root wrappers forward to CMake and preserve its incremental build and schema
+generation rules. On a fresh build, tests and all C++ style examples are enabled;
+GoogleTest and clang-format 19+ must be available. `all` configures and builds,
+`test` also runs CTest, and `configure` stops after configuration.
+
+```sh
+make all
+make test CONFIG=Debug JOBS=8
+make all BUILD_DIR=out/build/minimal CMAKE_ARGS='-DSERIALIZER_BUILD_TESTS=OFF'
+```
+
+On Windows, use PowerShell without installing GNU Make:
+
+```powershell
+./make.ps1 all
+./make.ps1 test -Configuration Debug -Jobs 8
+./make.ps1 all -BuildDirectory out/build/minimal -CMakeArgs '-DSERIALIZER_BUILD_TESTS=OFF'
+```
+
+Both default to Release, four build jobs, and `out/build/make-Release`; changing
+configuration changes the default directory. Relative PowerShell build paths are
+resolved against the repository root, and the script can be invoked from another
+directory. Run GNU Make from the repository root (or use `make -C`).
+
+Set `VCPKG_ROOT` to enable its CMake toolchain. Without it, CMake searches for
+installed dependencies normally. PowerShell also accepts `-VcpkgRoot` (pass an
+empty string to disable automatic toolchain selection on a fresh cache).
+Use `CMAKE_ARGS` on Linux or the `-CMakeArgs` string array on Windows for package
+paths, compiler/generator selection, or optional Java/benchmark/fuzzer settings.
+Use separate build directories when changing compilers, architectures, or
+toolchains. Existing cache options are retained unless explicitly overridden.
+Every wrapper stops on a failed configure, build, or test command.
+
 ## Use a source dependency
 
 With a Serializer checkout at `vendor/Serializer`, a complete consumer build is:

@@ -20,6 +20,22 @@
 #include <bit>
 #include <vector>
 
+// Preserve native-width identifier hashes across the compile-time and runtime overloads.
+TEST(serializer_hash, native_width_compatibility) {
+  constexpr auto expected_empty = static_cast<std::size_t>(100000000003ULL);
+  constexpr auto expected_name = static_cast<std::size_t>(8263228680977031684ULL);
+  constexpr auto expected_person = static_cast<std::size_t>(12757084172225996310ULL);
+  static_assert(rohit::hash("") == expected_empty);
+  static_assert(rohit::hash("name") == expected_name);
+  static_assert(rohit::hash("person") == expected_person);
+
+  const std::string name{"name"};
+  const std::string person{"person"};
+  EXPECT_EQ(rohit::hash(name), expected_name);
+  EXPECT_EQ(rohit::hash(name.c_str()), expected_name);
+  EXPECT_EQ(rohit::hash(std::string_view{person}), expected_person);
+}
+
 TEST(json_serializer, char) {
   std::vector<std::pair<std::string, char>> test_list{
       {"\"0\"", '0'}, {"\"1\"", '1'}, {"\"a\"", 'a'}, {"\"z\"", 'z'}};

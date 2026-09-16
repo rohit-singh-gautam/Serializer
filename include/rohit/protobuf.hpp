@@ -787,6 +787,11 @@ public:
       : base{input, policy},
         message_end{input.curr() == nullptr ? nullptr : input.curr() + input.remaining_buffer()} {}
 
+  // Decoder sessions share a cursor and budget and cannot be duplicated.
+  protobuf_codec(const protobuf_codec&) = delete;
+  // Keep the inherited noncopyable decoder contract explicit for warning checks.
+  protobuf_codec& operator=(const protobuf_codec&) = delete;
+
   // Match a generated field without reflection; JSON accepts both original and lowerCamel names.
   template <std::uint32_t Id>
   bool match(std::string_view name, std::string_view json_name) const {

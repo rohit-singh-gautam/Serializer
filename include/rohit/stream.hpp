@@ -52,7 +52,8 @@
 namespace rohit {
 
 namespace detail {
-inline constexpr std::size_t identifier_hash_seed = 100000000003ULL;
+// Hash arithmetic uses native size_t width, including modulo truncation on 32-bit targets.
+inline constexpr std::size_t identifier_hash_seed = static_cast<std::size_t>(100000000003ULL);
 inline constexpr unsigned identifier_hash_shift_bits = 9;
 inline constexpr std::size_t buffer_growth_factor = 2;
 inline constexpr std::size_t default_minimum_read_buffer_bytes = 1024;
@@ -938,7 +939,7 @@ public:
 #endif
 
   // Expose the buffer start; the returned pointer does not own storage.
-  const auto begin() const {
+  auto begin() const {
     return begin_data;
   }
   // Expose the buffer start; the returned pointer does not own storage.
@@ -1333,7 +1334,7 @@ public:
     return begin_data;
   }
   // Expose the buffer start; the returned pointer does not own storage.
-  const auto begin() const {
+  auto begin() const {
     return begin_data;
   }
 
@@ -1342,7 +1343,7 @@ public:
     return begin_data;
   }
   // Expose the current cursor; the returned pointer does not own storage.
-  const auto curr() const {
+  auto curr() const {
     return begin_data;
   }
 
@@ -1351,7 +1352,7 @@ public:
     return end_data;
   }
   // Expose the buffer end; the returned pointer does not own storage.
-  const auto end() const {
+  auto end() const {
     return end_data;
   }
 

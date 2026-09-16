@@ -49,7 +49,7 @@ TEST(generated_test, serialize_out) {
   std::string personstr{"{\"fullname\":\"Rohit Jairaj Singh\",\"ID\":322}"};
   EXPECT_TRUE(result_person == personstr);
 
-  test::test1::personex personex{"Rohit Jairaj Singh", 322, 122};
+  test::test1::personex personex{{"Rohit Jairaj Singh", 322}, 122};
   fullstream.reset();
   personex.serialize_out<rohit::serializer::json>(fullstream);
   std::string result_personex{reinterpret_cast<char*>(fullstream.begin()),
@@ -192,7 +192,7 @@ TEST(generated_test, serialize_map) {
 }
 
 TEST(generated_test, serialize_union) {
-  test::cacheserver cacheserver{10, 10, 10, 10, 2010, 10240};
+  test::cacheserver cacheserver{{{10, 10, 10, 10}, 2010}, 10240};
   test::server1 server{test::server1::e_entry::cache, {.cache = cacheserver}, test::test112::em2};
   rohit::full_stream_auto_alloc fullstream{256};
   server.serialize_out<rohit::serializer::json>(fullstream);
@@ -240,7 +240,7 @@ TEST(generated_test, serialize_union) {
 TEST(generated_test, serialize_union1) {
   constexpr auto enumval = test::to_test112("em3");
   test::server1 server{
-      test::server1::e_entry::http, {.http = {10, 10, 10, 10, 2010, 10240, 5021}}, enumval};
+      test::server1::e_entry::http, {.http = {{{10, 10, 10, 10}, 2010}, 10240, 5021}}, enumval};
   rohit::full_stream_auto_alloc fullstream{256};
   server.serialize_out<rohit::serializer::json>(fullstream);
   std::string serverstr{reinterpret_cast<char*>(fullstream.begin()), fullstream.current_offset()};

@@ -64,6 +64,9 @@ class person stable_ids {
   C++ member without changing the wire key.
 - Braced initializers supply defaults for newly constructed objects. Missing
   keyed fields retain whatever values the destination currently has.
+  Quoted defaults may contain literal spaces: `public string label { "schema default" };`.
+  Spaces, escaped quotes, and braces within quotes are preserved exactly; a quoted
+  `}` does not end the initializer. Unclosed quotes or braces are schema errors.
 
 ### When to use `stable_ids`
 
@@ -289,6 +292,8 @@ top-level object update still retains its existing values for missing fields.
 Donor selection uses typed generated code with `if constexpr`, without runtime
 reflection or field metadata lookup. Keep using the existing one-argument input
 methods; the additional generated donor parameter is internal runtime support.
+Regenerate LLVM-profile output after the donor naming fix to avoid a local
+parameter colliding with its template type. Public hooks and wire bytes are unchanged.
 
 Reuse is limited to supported owning types with nonthrowing move assignment; map
 node reuse also requires nonthrowing key assignment. Other/custom types retain

@@ -563,7 +563,7 @@ static constexpr write_format beautify_vertical{.newline_before_braces_open = tr
 
 template <typename TypeEnum, typename BaseType, typename T0>
 // Select the concrete pointer type associated with the supplied discriminator.
-auto type_cast(TypeEnum type, BaseType* ptr) {
+auto type_cast(TypeEnum, BaseType* ptr) {
   return reinterpret_cast<T0*>(ptr);
 }
 template <typename TypeEnum, typename BaseType, typename T0, typename T1>
@@ -1660,8 +1660,8 @@ public:
   // Initialize this object from the supplied storage or value state.
   binary_out_base(stream& out_stream) : out_stream{out_stream} {}
 
-  // Borrow the protocol stream without transferring ownership.
-  const auto& get_stream() {
+  // Borrow writable output storage without transferring ownership.
+  auto& get_stream() {
     return out_stream;
   }
   // Borrow the protocol stream without transferring ownership.

@@ -4,6 +4,7 @@
 
 #include <array>
 #include <bit>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -534,6 +535,12 @@ public:
   void serialize_out(stream& output) const { output.append(storage.data(), storage.size()); }
   // Append to a positional protocol; keyed and JSON protocols intentionally have no overload.
   void serialize_out(binary_out_base<serialize_key_type::none, std::endian::little>& protocol) const {
+    serialize_out(protocol.get_stream());
+  }
+  // Match the runtime's explicit template probe without enabling incompatible protocols.
+  template <typename Protocol>
+    requires std::same_as<Protocol, binary_none<serialize_type::out>>
+  void serialize_out(Protocol& protocol) const {
     serialize_out(protocol.get_stream());
   }
   // Support the existing explicit-protocol convenience syntax for positional binary only.

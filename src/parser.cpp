@@ -195,20 +195,44 @@ void skip_whitespace_and_comment(const stream& input) {
     }
   }
 }
-// Read the initializer text inside a schema default-value clause.
+// Preserve initializer spelling, including whitespace and braces inside quoted literals.
 std::string get_default_value(const stream& in_stream) {
   std::string default_value{};
-  if (*in_stream != '{') {
+  if (in_stream.full() || *in_stream != '{') {
     return default_value;
   }
   ++in_stream;
   skip_whitespace_and_comment(in_stream);
-  while (*in_stream != '}' && !is_whitespace(in_stream)) {
-    default_value.push_back(*in_stream);
+  char quote{};
+  bool escaped{};
+  while (!in_stream.full()) {
+    const auto character = static_cast<char>(*in_stream);
+    if (quote == 0 && (character == '}' || is_whitespace(in_stream))) {
+      break;
+    }
+    default_value.push_back(character);
     ++in_stream;
+    if (quote != 0) {
+      if (escaped) {
+        escaped = false;
+      } else if (character == '\\') {
+        escaped = true;
+      } else if (character == quote) {
+        quote = 0;
+      }
+    } else if (character == '"' ||
+               (character == '\'' &&
+                (default_value.size() == 1 || default_value == "u'" || default_value == "U'" ||
+                 default_value == "L'" || default_value == "u8'"))) {
+      // Apostrophes inside numeric tokens are digit separators, not character literals.
+      quote = character;
+    }
+  }
+  if (quote != 0) {
+    throw exception::bad_member_spec{in_stream, "Unterminated quoted default value"};
   }
   skip_whitespace_and_comment(in_stream);
-  if (*in_stream != '}') {
+  if (in_stream.full() || *in_stream != '}') {
     throw exception::bad_member_spec{in_stream, "Default value must be enclosed in curly braces"};
   }
   ++in_stream;
@@ -240,6 +264,9 @@ T parse_number(const stream& in_stream) {
 
 // Parse identifier from the schema input; malformed input throws.
 std::string parse_identifier(const stream& in_stream) {
+  if (in_stream.full()) {
+    throw exception::bad_identifier{in_stream, "Expected an identifier before end of input"};
+  }
   auto ch = *in_stream;
   if (!is_first_identifier(ch)) {
     std::string error_text{"Identifier can start with '_' or alphabet only it cannot start with: "};
@@ -255,6 +282,9 @@ std::string parse_identifier(const stream& in_stream) {
 
 // Parse hierarchical identifier from the schema input; malformed input throws.
 std::string parse_hierarchical_identifier(const stream& in_stream) {
+  if (in_stream.full()) {
+    throw exception::bad_identifier{in_stream, "Expected an identifier before end of input"};
+  }
   const auto* begin = in_stream.curr();
   const auto available = in_stream.remaining_buffer();
   while (true) {

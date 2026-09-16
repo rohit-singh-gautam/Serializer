@@ -1,5 +1,22 @@
 # Migrating to the snake_case Serializer API
 
+## Build portability and quoted defaults
+
+Rebuild with the updated runtime headers for GCC/Clang and 32-bit MSVC fixes.
+Identifier hashes retain their existing native-width arithmetic. Regenerate
+LLVM-profile headers to avoid the storage-donor parameter/template-type collision.
+Mapped views can be passed to a little-endian `binary_none` encoder's
+`serialize_out(view)` with the updated runtime; their wire representation is unchanged.
+
+Quoted schema defaults now preserve literal spaces, escaped quotes, and braces
+inside the quotes. Keep defaults such as `"schema default"` unchanged; no escape
+substitution or schema-version change is needed. Empty identifier input and
+unterminated quoted defaults produce schema diagnostics.
+
+The root `make all` (Linux) and `./make.ps1 all` (Windows) wrappers configure and
+build enabled targets. Use `test` instead of `all` to run CTest after the build.
+See [CMake wrapper options](docs/cmake_integration.md#build-this-repository).
+
 ## SIMD JSON whitespace scanning
 
 Rebuild `Serializer::serializer_lib` and consumers with matching updated runtime

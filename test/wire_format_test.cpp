@@ -52,7 +52,7 @@ TEST(wire_format, member_names_and_identifiers) {
 
 // Encode inherited members with the same byte order as their containing object.
 TEST(wire_format, inherited_members) {
-  const auto value = test::test1::personex{"Ada", 322, 122};
+  const auto value = test::test1::personex{{"Ada", 322}, 122};
   expect_all_formats(
       value,
       {
@@ -91,7 +91,7 @@ TEST(wire_format, arrays_and_maps) {
 // Keep compact discriminators and enum values independent of scalar byte order.
 TEST(wire_format, unions_and_enums) {
   const auto value = test::server1{test::server1::e_entry::http,
-                                   {.http = {10, 10, 10, 10, 2010, 10240, 5021}},
+                                   {.http = {{{10, 10, 10, 10}, 2010}, 10240, 5021}},
                                    test::test112::em3};
   expect_all_formats(
       value,
