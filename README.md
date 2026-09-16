@@ -17,8 +17,10 @@ automatic header generation with CMake, and decoding an exact message with limit
 
 **VS Code:** the [Serializer extension](docs/editor_extension.md) highlights
 `.serializer` files, supplies snippets, and provides CMake header-generation,
-generated-header navigation, and missing-include assistance. Build a local VSIX
-from `editors/vscode`; Marketplace publication and Visual Studio support are pending.
+generated-header navigation, and missing-include assistance. Run
+`./install_extension.ps1` from PowerShell to build and install the local extension
+(Node.js 22+, npm, and the VS Code CLI are required). Marketplace publication and
+Visual Studio support are pending.
 
 ## Integrate with a coding agent
 

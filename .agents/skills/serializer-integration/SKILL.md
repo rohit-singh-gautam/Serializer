@@ -145,7 +145,10 @@ or the aggregate `serializer_generated_headers` target. Configuration alone does
 not create headers. No custom VS Code task or Serializer editor extension is
 required, and `.vscode/*` remains ignored. Editor provider settings may be user-level.
 The optional extension in `editors/vscode` highlights `.serializer`, offers
-versioned snippets, and invokes the same targets through CMake Tools. Configure
+versioned snippets, and invokes the same targets through CMake Tools. Run the root
+`install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
+install it; `-SkipBuild` installs an existing VSIX. This installs the editor
+extension only; application dependencies remain managed by the consumer. Configure
 the consumer first, then use `Serializer: Generate Headers` or `Serializer:
 Diagnose Missing Header`. Set `serializer.headersTarget` for one consumer; keep
 profile include paths separate. Its IntelliSense command explicitly updates the

@@ -8,7 +8,25 @@ this initial extension's generated-file commands target C++ headers.
 
 ## Build and install locally
 
-Use Node.js 22+ and npm. From the repository root:
+Use Node.js 22+, npm, and VS Code's `code` CLI. From PowerShell at the repository
+root, build and install with:
+
+```powershell
+./install_extension.ps1
+```
+
+The script restores locked dependencies with `npm ci`, builds a VSIX using the
+version in the extension manifest, and installs it with `--force` so rerunning
+also replaces an installed copy of that version. It works from other directories
+when invoked by its path and stops on build or installation failures.
+
+Use `-SkipBuild` to install the existing VSIX without Node.js/npm, or
+`-CodeCommand code-insiders` (or a full CLI path) for a different editor install.
+`-ExtensionsDirectory <path>` selects a separate extension directory for testing;
+relative paths are resolved from the caller's directory. It does not install
+CMake Tools or Microsoft C/C++.
+
+For the individual development commands, start from the repository root:
 
 ```sh
 cd editors/vscode
@@ -92,6 +110,11 @@ VS Code host with CMake Tools 1.24.42 and the Visual Studio 18 2026 CMake genera
 passed the end-to-end consumer checks above, including an expected failed build
 for an unsupported schema version. Native Visual Studio, Linux/macOS hosts,
 remote workspaces, and live C/C++ IntelliSense reparsing were not exercised.
+
+The root installer was checked from outside the repository with an isolated
+extension directory containing spaces: a full build/install passed, and a
+Windows PowerShell 5.1 `-SkipBuild` reinstall passed with an explicit CLI path.
+VS Code's extension listing confirmed `serializer-language@0.1.0` was installed.
 
 ## Publishing
 
