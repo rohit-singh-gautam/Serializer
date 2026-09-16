@@ -153,14 +153,23 @@ compression codec. No binary compression or new framing layer is introduced.
 
 ## Replacement and failure behavior
 
-- Strings, vectors, and maps replace their previous contents. String/vector
-  capacity is reused. Eligible C++ binary numeric vectors clear and resize before
-  a bulk copy or byte swap; other vector paths append decoded temporaries after clearing.
-  Maps retain ordered semantics; duplicate keys keep the last complete entry.
+- Strings, vectors, and maps replace their previous contents. C++ JSON/native
+  binary can reuse string/vector capacity, nested owning buffers, and old map
+  nodes. Each incoming collection element is decoded into a fresh candidate;
+  eligible old elements donate storage only for values present in the input.
+  Unused old entries are destroyed. Eligible binary numeric vectors retain their
+  clear/resize bulk copy or byte-swap path. Maps retain ordered semantics;
+  duplicate keys keep the last complete entry, never a partially decoded candidate.
 - Generated objects update fields in input order. Missing fields retain their
   destination values, so fresh construction supplies schema defaults. Duplicate
   fields apply again in order. A selected union alternative is default-constructed
   before decoding it; raw union alternatives must be trivially destructible.
+- Objects inside replacement collections start from fresh schema defaults even
+  when old storage is reused. Regenerated owning headers propagate typed donors
+  through nested fields and parents without changing field selection or budgets.
+  See [destination reuse](usage.md#reuse-destination-storage) for eligibility,
+  memory tradeoffs, and deferred verification. Java and the optional Protobuf
+  codecs retain their separately documented replacement implementations.
 - Decoding is **partial on failure**. Earlier fields, completed collection
   entries, consumed prefixes, and resource charges remain committed. A malformed
   scalar or JSON string is validated before assigning its destination, but memory
@@ -202,7 +211,8 @@ Storage accounting covers decoded strings, vector element storage (including
 requested JSON growth slack), and map values plus a node-link allowance. It is
 charged even for logical storage that reuses existing capacity. It is not an
 exact heap/RSS limit: allocator metadata, allocator over-allocation, stack objects,
-and custom user types require separate application accounting. JSON string scans
+custom user types, and old storage retained temporarily as donors require separate
+application accounting. JSON string scans
 are bounded by the remaining input and work limits before any allocation.
 
 ```cpp

@@ -1,5 +1,5 @@
 set(schemas)
-foreach(fixture IN ITEMS enum person test1 array map variable assessment views)
+foreach(fixture IN ITEMS enum person test1 array map variable assessment views storage_reuse)
   list(APPEND schemas "${CMAKE_CURRENT_SOURCE_DIR}/resources/${fixture}.serializer")
 endforeach()
 
@@ -10,6 +10,7 @@ add_executable(core_serializer_test
   schema_scan_test.cpp
   runtime_simd_test.cpp
   binary_array_decode_test.cpp
+  nested_storage_reuse_test.cpp
   generated_test.cpp
   wire_format_test.cpp
   decoder_qualification_test.cpp

@@ -120,12 +120,15 @@ TEST(output_options, rejects_collisions_and_keywords) {
         "class HTTPServer {} class HttpServer {}", "class record { public uint32 Class; }",
         "class ViewBase view readonly {}", "enum State { ReadyNow, ready_now }",
         "enum State { Ready } class ToState {}",
+        "class record { public uint32 serializer_reuses_storage; }",
         "class record { public union(uint32 = someValue, float = some_value) payload; }"}) {
     EXPECT_THROW(emit(schema, writer::coding_standard::serializer), std::invalid_argument)
         << schema;
   }
   EXPECT_THROW(emit("class record { public uint32 mode { unknownValue }; }",
                     writer::coding_standard::google),
+               std::invalid_argument);
+  EXPECT_THROW(emit("class StorageSource {}", writer::coding_standard::google),
                std::invalid_argument);
   const auto preserved =
       emit("class UserRecord { public uint32 userID; }", writer::coding_standard::google, false);

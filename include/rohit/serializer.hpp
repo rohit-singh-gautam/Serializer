@@ -33,6 +33,7 @@
 #include <iterator>
 #include <limits>
 #include <map>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -185,6 +186,155 @@ concept functions = requires(T t) {
 };
 
 } // namespace type_check
+
+namespace detail {
+// Generated owning classes opt in to typed storage donation while retaining fresh field defaults.
+template <typename T, typename Protocol>
+concept reusable_object = requires(T& value, T& previous, Protocol& protocol) {
+  requires T::serializer_reuses_storage;
+  value.serialize_in(protocol, &previous);
+};
+
+// Only reuse collection slots whose assignment cannot throw after decoding succeeds.
+// Vector growth retains the standard reserve guarantees for these copyable owning values.
+template <typename T, typename Protocol>
+concept reusable_storage = std::is_nothrow_move_assignable_v<T> &&
+                           (std::same_as<T, std::string> || type_check::vector<T> ||
+                            type_check::map<T> || reusable_object<T, Protocol>);
+
+// Carry a donor through generated keyed dispatch without sharing or forking decoder accounting.
+template <typename T>
+struct reused_object_reader {
+  T& value;
+  T& previous;
+  // Decode with the same generated schema and a separate source of reusable field buffers.
+  void serialize_in(auto& protocol) {
+    value.serialize_in(protocol, &previous);
+  }
+  // Forward a numeric field selection with its storage donor.
+  void serialize_in_member_by_identifier(auto& protocol, std::uint32_t key) {
+    value.serialize_in_member_by_identifier(protocol, key, &previous);
+  }
+  // Forward a named field selection with its storage donor.
+  void serialize_in_member_by_name(auto& protocol, std::string_view key) {
+    value.serialize_in_member_by_name(protocol, key, &previous);
+  }
+};
+
+// Donate replaceable storage only when a value is actually present in the input.
+// The donor belongs to an old, uncommitted collection entry and may be consumed on failure.
+template <typename Protocol, typename T>
+void read_reusing(Protocol& protocol, T& value, T& previous) {
+  if constexpr (reusable_storage<T, Protocol>) {
+    if constexpr (reusable_object<T, Protocol>) {
+      reused_object_reader<T> reader{value, previous};
+      protocol.serialize_in(reader);
+    } else {
+      value.swap(previous);
+      protocol.serialize_in(value);
+    }
+  } else {
+    protocol.serialize_in(value);
+  }
+}
+
+// Keep old nested allocations until their slot is consumed, then expose only completed elements.
+template <typename Vector, typename Protocol>
+class vector_replacement {
+  using value_type = typename Vector::value_type;
+  Vector& destination;
+  std::size_t completed{};
+
+public:
+  // Scalar and custom element types retain their original clear-and-append path.
+  explicit vector_replacement(Vector& value) : destination{value} {
+    if constexpr (!reusable_storage<value_type, Protocol>) {
+      destination.clear();
+    }
+  }
+  // Each replacement operation has one cleanup owner.
+  vector_replacement(const vector_replacement&) = delete;
+  // Do not rebind an active replacement or its completed prefix.
+  vector_replacement& operator=(const vector_replacement&) = delete;
+  // Remove unused old slots and any uncommitted element on success or exception.
+  ~vector_replacement() {
+    if constexpr (reusable_storage<value_type, Protocol>) {
+      while (destination.size() > completed) {
+        destination.pop_back();
+      }
+    }
+  }
+  // Decode from fresh defaults using a prior slot's storage, committing only a complete value.
+  void read(Protocol& protocol) {
+    value_type element{};
+    if constexpr (reusable_storage<value_type, Protocol>) {
+      if (completed < destination.size()) {
+        read_reusing(protocol, element, destination[completed]);
+        destination[completed] = std::move(element);
+      } else {
+        protocol.serialize_in(element);
+        destination.emplace_back(std::move(element));
+      }
+      ++completed;
+    } else {
+      protocol.serialize_in(element);
+      destination.emplace_back(std::move(element));
+    }
+  }
+};
+
+// Recycle old map nodes while keeping completed incoming duplicates isolated from pending reads.
+template <typename Map, typename Protocol>
+class map_replacement {
+  static constexpr bool can_reuse_nodes =
+      std::is_nothrow_move_assignable_v<typename Map::key_type> &&
+      std::is_nothrow_move_assignable_v<typename Map::mapped_type>;
+  Map& destination;
+  std::optional<Map> previous{};
+  typename Map::node_type pending{};
+
+public:
+  // A donor bank is needed only for a nonempty map with nonthrowing node-value commits.
+  explicit map_replacement(Map& value) : destination{value} {
+    if constexpr (can_reuse_nodes) {
+      if (!destination.empty()) {
+        previous.emplace();
+        previous->swap(destination);
+      }
+    } else {
+      destination.clear();
+    }
+  }
+  // Each pending node and donor bank must have a single owner.
+  map_replacement(const map_replacement&) = delete;
+  // Do not rebind a replacement in progress.
+  map_replacement& operator=(const map_replacement&) = delete;
+  // Decode using an old node when available; never borrow from completed incoming entries.
+  void read(Protocol& protocol, typename Map::mapped_type& value) {
+    if (previous && !previous->empty()) {
+      pending = previous->extract(previous->begin());
+      read_reusing(protocol, value, pending.mapped());
+    } else {
+      protocol.serialize_in(value);
+    }
+  }
+  // Publish a complete entry, preserving the first key and last complete value for duplicates.
+  void commit(typename Map::key_type&& key, typename Map::mapped_type&& value) {
+    if constexpr (can_reuse_nodes) {
+      if (!pending.empty()) {
+        pending.key() = std::move(key);
+        pending.mapped() = std::move(value);
+        auto result = destination.insert(std::move(pending));
+        if (!result.inserted) {
+          result.position->second = std::move(result.node.mapped());
+        }
+        return;
+      }
+    }
+    destination.insert_or_assign(std::move(key), std::move(value));
+  }
+};
+} // namespace detail
 
 struct write_format {
   bool newline_before_braces_open{false};
@@ -506,11 +656,12 @@ protected:
     value = literal == "true";
   }
 
-  // Replace a vector, move parsed elements, and account for capacity before growing it.
+  // Replace a vector, reuse eligible nested buffers, and account for capacity before growing it.
   void read_vector(type_check::vector auto& value) {
     auto nesting = enter_object();
     check_and_increase('[');
-    value.clear();
+    using vector_type = std::remove_reference_t<decltype(value)>;
+    detail::vector_replacement<vector_type, json> replacement{value};
     skip_whitespace();
     std::size_t count{};
     std::size_t accounted_capacity{};
@@ -529,9 +680,7 @@ protected:
           if (requested > value.capacity()) { value.reserve(requested); }
           accounted_capacity = requested;
         }
-        value_type element{};
-        serialize_in(element);
-        value.emplace_back(std::move(element));
+        replacement.read(*this);
         skip_whitespace();
         if (peek() == ']') { break; }
         check_and_increase(',');
@@ -545,7 +694,8 @@ protected:
   void read_map(type_check::map auto& value) {
     auto nesting = enter_object();
     check_and_increase('[');
-    value.clear();
+    using map_type = std::remove_reference_t<decltype(value)>;
+    detail::map_replacement<map_type, json> replacement{value};
     skip_whitespace();
     std::size_t count{};
     if (peek() != ']') {
@@ -567,10 +717,10 @@ protected:
         check_and_increase(',');
         if (serialize_in_get_key(scratch) != constants::map_value_name) { fail("Expected map value"); }
         typename T::mapped_type element{};
-        serialize_in(element);
+        replacement.read(*this, element);
         skip_whitespace();
         check_and_increase('}');
-        value.insert_or_assign(std::move(key), std::move(element));
+        replacement.commit(std::move(key), std::move(element));
         skip_whitespace();
         if (peek() == ']') { break; }
         check_and_increase(',');
@@ -1183,7 +1333,7 @@ public:
         }
         require_input(static_cast<std::size_t>(count) * wire_element_bytes);
       }
-      value.clear();
+      detail::vector_replacement<T, binary_in_base> replacement{value};
       value.reserve(count);
       if constexpr (detail::binary_array_scalar<value_type>) {
         static_assert(std::endian::native == std::endian::little ||
@@ -1209,22 +1359,20 @@ public:
         // Preserve the scalar decoder's partial result, cursor, and charges on work exhaustion.
       }
       for (std::size_t index = 0; index < count; ++index) {
-        value_type element{};
-        serialize_in(element);
-        value.emplace_back(std::move(element));
+        replacement.read(*this);
       }
     } else if constexpr (type_check::map<T>) {
       auto nesting = enter_object();
       const auto count = serialize_in_variable();
       if (count > value.max_size()) { fail_limit("Map exceeds destination capacity limit"); }
       check_collection(count, sizeof(typename T::value_type) + 4 * sizeof(void*));
-      value.clear();
+      detail::map_replacement<T, binary_in_base> replacement{value};
       for (std::size_t index = 0; index < count; ++index) {
         typename T::key_type key{};
         typename T::mapped_type element{};
         serialize_in(key);
-        serialize_in(element);
-        value.insert_or_assign(std::move(key), std::move(element));
+        replacement.read(*this, element);
+        replacement.commit(std::move(key), std::move(element));
       }
     } else {
       throw exception::bad_type{in_stream, "Unsupported binary destination", limits.diagnostics};

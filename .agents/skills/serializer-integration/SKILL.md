@@ -281,6 +281,18 @@ user instruction to defer generation/builds/tests and report what remains unveri
 - Strings/vectors/maps replace contents. Missing keyed fields retain destination
   values; duplicate fields apply in order and maps keep the last complete duplicate
   entry. Decode failure can leave partial updates and consumed input.
+- Reuse an owning destination across messages when useful: native C++ JSON and all
+  three binary key modes recycle eligible nested buffers and map nodes automatically.
+  Regenerate owning headers for typed storage donation inside generated collection
+  elements and parents; no schema option or explicit donor argument is needed.
+  Incoming elements still start from fresh schema defaults, including missing
+  keyed fields. Shorter/empty collections discard removed elements; custom or
+  throwing-assignment types retain fresh decoding. Reused storage remains subject
+  to logical resource accounting and may increase temporary retained memory.
+  Java and Protobuf codecs keep their existing replacement paths. Consult
+  [destination reuse](../../../docs/usage.md#reuse-destination-storage) for scope
+  and limitations; generation, builds, focused test execution, and performance
+  measurements for this optimization remain deferred.
 - When the application requires atomic replacement, decode/finish a temporary
   object before committing it. Keep structured parse error handling at the message
   boundary and leave payload excerpts disabled unless the task needs them.

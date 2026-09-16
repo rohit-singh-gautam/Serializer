@@ -239,8 +239,8 @@ See [views.md](views.md) for a complete example and collection/nested-type rules
 - `finish()` rejects trailing binary data; JSON permits trailing whitespace.
   The generated `object.serialize_in<Protocol>(input)` convenience call uses
   default limits and does not perform this final exact-message check.
-- Strings, vectors, and maps replace old contents. String/vector capacity can be
-  reused; nested element allocations and map nodes may still be rebuilt.
+- Strings, vectors, and maps replace old contents. C++ native codecs can reuse
+  nested buffers and map nodes as described below; resource accounting still applies.
 - Decoding can leave partial changes on failure. Catch
   `rohit::exception::base_parser` for codec parse errors and inspect `code()`.
   Allocation failures can also propagate as standard C++ exceptions.
@@ -253,6 +253,54 @@ See [views.md](views.md) for a complete example and collection/nested-type rules
 See [the wire-format contract](wire_format.md) for exact binary representations,
 Unicode/numeric rules, limit defaults, duplicates, and union restrictions. Use
 [migration.md](../migration.md) when adapting older generated headers or callers.
+
+### Reuse destination storage
+
+Keep an owning destination between messages to reuse its allocations. Construct a
+fresh decoder over each exact message so budgets restart:
+
+```cpp
+std::vector<std::string> names; // Keep this outside the application's receive loop.
+
+// For each message, while its independently owned input bytes remain alive:
+const auto input = rohit::make_constant_full_stream(message.data(), message.size());
+rohit::serializer::binary_none<rohit::serializer::serialize_type::in> decoder{input};
+decoder.serialize_in(names);
+decoder.finish();
+```
+
+This works automatically for C++ JSON and positional, integer-key, and string-key
+binary, including either configured byte order. Existing vector slots can donate
+string and nested container storage. Maps can recycle old nodes, replacing their
+keys and values only after each complete incoming entry. A donor node need not have
+the same old key; map key parsing still uses a fresh key temporary. Completed
+incoming map entries never become donors for later entries, so an incomplete
+duplicate leaves the last complete value intact.
+
+Regenerate owning headers to reuse fields inside collection elements, including
+parents and nested generated classes. Each element is freshly constructed; only
+fields actually present in the message take storage from the old element. Missing
+keyed fields therefore retain schema defaults inside collections. An ordinary
+top-level object update still retains its existing values for missing fields.
+Donor selection uses typed generated code with `if constexpr`, without runtime
+reflection or field metadata lookup. Keep using the existing one-argument input
+methods; the additional generated donor parameter is internal runtime support.
+
+Reuse is limited to supported owning types with nonthrowing move assignment; map
+node reuse also requires nonthrowing key assignment. Other/custom types retain
+fresh-element decoding. Scalar vectors keep their existing scalar or bulk paths.
+Shorter collections destroy unused old entries; decoding an empty collection does
+not cache its removed elements. Retaining capacity does not guarantee zero
+allocations: growth, default initializers, map bookkeeping, and fresh keys can
+allocate. Old donor storage stays alive until consumed or discarded, which can
+increase temporary memory usage. Storage and work limits still apply to logical
+decoded data, including reused storage; allocation accounting is not a heap limit.
+
+Wire bytes and replacement/failure contracts are unchanged. Input must remain
+independent of destination storage. Java and Protobuf/ProtoJSON/TextProto keep their
+existing decode paths. Focused reuse/defaults/duplicate/failure/limit tests are
+included in the normal C++ test target; generation, compilation, test execution,
+and allocation/performance measurements remain deferred for this implementation.
 
 ## Agent-assisted integration
 

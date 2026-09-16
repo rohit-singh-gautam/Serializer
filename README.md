@@ -137,6 +137,20 @@ Short inputs and unsupported architectures use scalar fallbacks. No input/output
 padding is required. See [runtime SIMD details](docs/runtime_simd.md), including
 the prepared validation matrix. Builds, tests, and benchmarks remain deferred.
 
+### Reusing destination storage
+
+C++ JSON and all three native binary codecs reuse eligible nested string/vector
+buffers and map nodes when decoding into an existing collection. Regenerated
+owning classes pass storage donors through typed field access, while each incoming
+element still starts with fresh schema defaults. Collection replacement, duplicate
+map keys, resource limits, and partial-failure behavior remain unchanged.
+
+Reuse the destination across messages and create a fresh decoder for each message's
+budget. No schema keyword or caller opt-in is needed. Java and the optional Protobuf
+codecs retain their existing replacement paths. See [destination reuse](docs/usage.md#reuse-destination-storage)
+for limitations and an example. Focused tests are added; generation, builds, test
+execution, and performance measurements remain deferred.
+
 ### Output language and coding standard
 
 Keep target-language settings in a generator config, separate from the `.serializer`

@@ -1,5 +1,19 @@
 # Migrating to the snake_case Serializer API
 
+## Nested destination storage reuse
+
+Regenerate C++ owning headers with the updated compiler to reuse buffers in
+generated objects inside arrays and maps. Existing input calls and schema syntax
+remain valid; native JSON/binary wire bytes are unchanged. The runtime uses typed
+generated donor support internally. Older headers continue decoding through the
+fresh-element fallback, while direct string/container reuse is runtime-provided.
+The generator reserves `serializer_reuses_storage` and `StorageSource` for its
+support declarations; conflicting generated C++ names are diagnosed. Collection
+elements still use schema defaults for missing fields. Review
+[reuse and failure behavior](docs/usage.md#reuse-destination-storage) before relying
+on retained capacity or partial updates. Generation/build/test execution for this
+optimization remains deferred.
+
 ## Optional Protobuf protocols
 
 Regenerate C++ headers with `--cpp.protobuf true` (or `[cpp] protobuf = true`) to

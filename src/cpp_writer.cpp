@@ -376,42 +376,66 @@ public:
          ");\n  }\n\n"));
   }
 
+  // Pass a matching base donor without adding a protocol value charge for the parent.
+  void write_parent_input(stream& output, const parent& base, std::string_view indent) {
+    const auto base_type = storage_type_name(base.name, base.parent_class);
+    output.write(indent, "if constexpr (::std::is_same_v<StorageSource, ::std::nullptr_t>) {\n",
+                 indent, "  static_cast<", base_type, "*>(this)->serialize_in(",
+                 local_name("serializer_protocol"), ");\n", indent, "} else {\n", indent,
+                 "  static_cast<", base_type, "*>(this)->serialize_in(",
+                 local_name("serializer_protocol"), ", static_cast<", base_type, "*>(",
+                 local_name("storage_source"), "));\n", indent, "}\n");
+  }
+
+  // Donate a present field's storage; absent keyed fields retain the fresh candidate's defaults.
+  void write_field_input(stream& output, const member& field, std::string_view indent,
+                         bool explicit_type = true) {
+    const auto cpp_type = get_cpp_type(field);
+    const bool has_storage = field.modifier == member::modifier_type::array ||
+                             field.modifier == member::modifier_type::map ||
+                             cpp_type == "::std::string" ||
+                             field.type_name_list[0].type == object_type::class_type;
+    const auto read =
+        local_name("serializer_protocol") +
+        (explicit_type ? ".template serialize_in<" + cpp_type + ">" : ".serialize_in") + "(this->" +
+        field_name(field.name) + ");\n";
+    if (has_storage) {
+      output.write(
+          indent, "if constexpr (::std::is_same_v<StorageSource, ::std::nullptr_t>) {\n", indent,
+          "  ", read, indent, "} else {\n", indent, "  ::rohit::serializer::detail::read_reusing(",
+          local_name("serializer_protocol"), ", this->", field_name(field.name), ", ",
+          local_name("storage_source"), "->", field_name(field.name), ");\n", indent, "}\n");
+    } else {
+      output.write(indent, read);
+    }
+  }
+
   // Emit C++ serializer in body for parent key none for the parsed schema.
   void write_serializer_in_body_for_parent_key_none(stream& out_stream, const class_node* obj) {
     for (const auto& parent : obj->parents) {
-      out_stream.write(
-          "      static_cast<", storage_type_name(parent.name, parent.parent_class),
-          (std::string{"*>(this)->serialize_in("} + local_name("serializer_protocol") + ");\n"));
+      write_parent_input(out_stream, parent, "      ");
     }
   }
 
   // Emit C++ serializer in body for parent key integer for the parsed schema.
   void write_serializer_in_body_for_parent_key_integer(stream& out_stream, const class_node* obj) {
     for (const auto& parent : obj->parents) {
-      out_stream.write("      case ", parent.id,
-                       ":\n"
-                       "        static_cast<",
-                       storage_type_name(parent.name, parent.parent_class),
-                       (std::string{"*>(this)->serialize_in("} + local_name("serializer_protocol") +
-                        ");\n        break;\n"));
+      out_stream.write("      case ", parent.id, ":\n");
+      write_parent_input(out_stream, parent, "        ");
+      out_stream.write("        break;\n");
     }
   } // write_serializer_in_body_for_parent_key_integer
 
   // Emit C++ serializer in body non union key integer for the parsed schema.
   void write_serializer_in_body_non_union_key_integer(stream& out_stream, const member& member) {
-    out_stream.write("      case ", member.id,
-                     (std::string{":\n        "} + local_name("serializer_protocol") +
-                      ".template serialize_in<"),
-                     get_cpp_type(member), ">(this->", field_name(member.name),
-                     ");\n"
-                     "        break;\n");
+    out_stream.write("      case ", member.id, ":\n");
+    write_field_input(out_stream, member, "        ");
+    out_stream.write("        break;\n");
   } // write_serializer_in_body_non_union_key_integer
 
   // Emit C++ serializer in body non union key none for the parsed schema.
   void write_serializer_in_body_non_union_key_none(stream& out_stream, const member& member) {
-    out_stream.write(
-        (std::string{"      "} + local_name("serializer_protocol") + ".template serialize_in<"),
-        get_cpp_type(member), ">(this->", field_name(member.name), ");\n");
+    write_field_input(out_stream, member, "      ");
   } // write_serializer_in_body_non_union_key_none
 
   // Decode one active union value through its correctly renamed discriminator and storage member.
@@ -467,13 +491,31 @@ public:
     }
   } // write_serializer_in_body_key_none
 
+  // Retain the original field hook signature while forwarding to the typed donor implementation.
+  void write_member_input_forwarder(stream& output, bool by_name) {
+    const auto method =
+        by_name ? "serialize_in_member_by_name" : "serialize_in_member_by_identifier";
+    const auto key_type = by_name ? "::std::string_view" : "::std::uint32_t";
+    const auto key = local_name(by_name ? "name" : "identifier");
+    output.write("  // Decode one selected field without an external storage donor.\n"
+                 "  template <typename SerializeInProtocol>\n  void ",
+                 method, "(SerializeInProtocol& ", local_name("serializer_protocol"), ", ",
+                 key_type, " ", key, ") {\n    ", method, "(", local_name("serializer_protocol"),
+                 ", ", key, ", nullptr);\n  }\n\n");
+  }
+
   // Emit C++ serializer in body with key integer for the parsed schema.
   void write_serializer_in_body_with_key_integer(stream& out_stream, const class_node* obj) {
-    out_stream.write((std::string{"  // Decode the member selected by its numeric wire "
-                                  "identifier.\n  void serialize_in_member_by_identifier(auto& "} +
-                      local_name("serializer_protocol") +
-                      (std::string{", const ::std::uint32_t "} + local_name("identifier") +
-                       ") {\n    switch (" + local_name("identifier") + ") {\n")));
+    write_member_input_forwarder(out_stream, false);
+    out_stream.write(
+        (std::string{"  // Decode the member selected by its numeric wire "
+                     "identifier.\n  template <typename SerializeInProtocol, typename "
+                     "StorageSource>\n"
+                     "  void serialize_in_member_by_identifier(SerializeInProtocol& "} +
+         local_name("serializer_protocol") +
+         (std::string{", const ::std::uint32_t "} + local_name("identifier") +
+          ", [[maybe_unused]] StorageSource " + local_name("storage_source") + ") {\n    switch (" +
+          local_name("identifier") + ") {\n")));
 
     write_serializer_in_body_for_parent_key_integer(out_stream, obj);
 
@@ -494,6 +536,7 @@ public:
 
   // Collect actual wire names so hash collisions share a case and always require full equality.
   void write_serializer_in_body_with_key_string(stream& out_stream, const class_node* obj) {
+    write_member_input_forwarder(out_stream, true);
     struct entry {
       std::string name;
       const parent* base{};
@@ -503,13 +546,15 @@ public:
     std::map<std::uint64_t, std::vector<entry>> groups;
     if (obj->parents.empty() && obj->member_list.empty()) {
       // Empty classes have no hash cases; avoid a default-only switch under MSVC /W4.
-      out_stream.write("  // Reject every named field for an empty schema.\n"
-                       "  void serialize_in_member_by_name(auto& ",
-                       local_name("serializer_protocol"),
-                       ", ::std::string_view) {\n"
-                       "    throw ::rohit::serializer::exception::key_not_found{",
-                       local_name("serializer_protocol"),
-                       ".get_stream(), \"Unknown field name\"};\n  }\n\n");
+      out_stream.write(
+          "  // Reject every named field for an empty schema.\n"
+          "  template <typename SerializeInProtocol, typename StorageSource>\n"
+          "  void serialize_in_member_by_name(SerializeInProtocol& ",
+          local_name("serializer_protocol"),
+          ", ::std::string_view, [[maybe_unused]] StorageSource ", local_name("storage_source"),
+          ") {\n"
+          "    throw ::rohit::serializer::exception::key_not_found{",
+          local_name("serializer_protocol"), ".get_stream(), \"Unknown field name\"};\n  }\n\n");
       return;
     }
     for (const auto& base : obj->parents) {
@@ -526,10 +571,13 @@ public:
             {field.display_name, nullptr, &field});
       }
     }
-    out_stream.write((std::string{"  // Match a wire name exactly within its hash group.\n  void "
-                                  "serialize_in_member_by_name(auto& "} +
+    out_stream.write((std::string{"  // Match a wire name exactly within its hash group.\n"
+                                  "  template <typename SerializeInProtocol, typename "
+                                  "StorageSource>\n  void "
+                                  "serialize_in_member_by_name(SerializeInProtocol& "} +
                       local_name("serializer_protocol") +
                       (std::string{", ::std::string_view "} + local_name("name") +
+                       ", [[maybe_unused]] StorageSource " + local_name("storage_source") +
                        ") {\n    switch (::rohit::serializer::detail::field_name_hash(" +
                        local_name("name") + ")) {\n")));
     for (const auto& [hash_value, entries] : groups) {
@@ -540,10 +588,7 @@ public:
         out_stream.write((std::string{"        if ("} + local_name("name") + " == \""), item.name,
                          "\") {\n");
         if (item.base) {
-          out_stream.write("          static_cast<",
-                           storage_type_name(item.base->name, item.base->parent_class),
-                           (std::string{"*>(this)->serialize_in("} +
-                            local_name("serializer_protocol") + ");\n"));
+          write_parent_input(out_stream, *item.base, "          ");
         } else if (item.alternative) {
           out_stream.write(
               "          this->", union_tag_name(*item.field), " = ", union_enum_name(*item.field),
@@ -560,9 +605,7 @@ public:
                             local_name("serializer_protocol") + ", this->"),
                            field_name(item.field->name), ");\n");
         } else {
-          out_stream.write((std::string{"          "} + local_name("serializer_protocol") +
-                            ".serialize_in(this->"),
-                           field_name(item.field->name), ");\n");
+          write_field_input(out_stream, *item.field, "          ", false);
         }
         out_stream.write("          return;\n        }\n");
       }
@@ -577,10 +620,19 @@ public:
   void write_serializer_in_body(stream& out_stream, const class_node* obj) {
     write_serializer_in_body_with_key_integer(out_stream, obj);
     write_serializer_in_body_with_key_string(out_stream, obj);
+    out_stream.write("  // Decode this object using the protocol's compile-time key mode.\n"
+                     "  template <typename SerializeInProtocol>\n"
+                     "  void serialize_in(SerializeInProtocol& ",
+                     local_name("serializer_protocol"), ") {\n    serialize_in(",
+                     local_name("serializer_protocol"), ", nullptr);\n  }\n\n");
     out_stream.write((
-        std::string{"  // Decode fields using the protocol's compile-time key mode.\n  template "
-                    "<typename SerializeInProtocol>\n  void serialize_in(SerializeInProtocol& "} +
-        local_name("serializer_protocol") +
+        std::string{
+            "  // Decode fields; an internal donor supplies storage only for present fields.\n"
+            "  // A supplied donor must be a distinct, non-null object and may be consumed.\n"
+            "  template <typename SerializeInProtocol, typename StorageSource>\n"
+            "  void serialize_in(SerializeInProtocol& "} +
+        local_name("serializer_protocol") + ", [[maybe_unused]] StorageSource " +
+        local_name("storage_source") +
         ") {\n    static_assert(\n        SerializeInProtocol::key_type == "
         "::rohit::serializer::serialize_key_type::none ||\n        SerializeInProtocol::key_type "
         "== "
@@ -597,13 +649,19 @@ public:
                      "::rohit::serializer::serialize_key_type::none) {\n");
     write_serializer_in_body_key_none(out_stream, obj);
     out_stream.write(
-        (std::string{"    } else if constexpr (SerializeInProtocol::key_type == "
-                     "::rohit::serializer::serialize_key_type::integer ||\n            "
-                     "SerializeInProtocol::key_type == "
-                     "::rohit::serializer::serialize_key_type::string) {\n      "} +
+        (std::string{
+             "    } else if constexpr (SerializeInProtocol::key_type == "
+             "::rohit::serializer::serialize_key_type::integer ||\n            "
+             "SerializeInProtocol::key_type == "
+             "::rohit::serializer::serialize_key_type::string) {\n"
+             "      if constexpr (::std::is_same_v<StorageSource, ::std::nullptr_t>) {\n        "} +
          local_name("serializer_protocol") + ".template struct_serialize_in<"),
         type_name(obj->name),
-        (std::string{">(this);\n    }\n  }\n\n  // Construct the requested protocol and read this "
+        ">(this);\n      } else {\n        ::rohit::serializer::detail::reused_object_reader<",
+        type_name(obj->name), "> ", local_name("storage_reader"), "{*this, *",
+        local_name("storage_source"), "};\n        ", local_name("serializer_protocol"),
+        ".struct_serialize_in(&", local_name("storage_reader"), ");\n      }",
+        (std::string{"\n    }\n  }\n\n  // Construct the requested protocol and read this "
                      "object.\n  template <template <::rohit::serializer::serialize_type> class "
                      "Protocol>\n  void serialize_in(const ::rohit::stream& "} +
          local_name("stream") + ") {\n    using " + type_name("serializer_in_protocol") +
@@ -908,7 +966,8 @@ public:
     out_stream.write(" {\n");
     write_member_list(out_stream, obj->member_list);
 
-    out_stream.write("\npublic:\n");
+    out_stream.write("\npublic:\n"
+                     "  static constexpr bool serializer_reuses_storage = true;\n\n");
     write_serializer(out_stream, obj);
 
     out_stream.write("}; // class ", type_name(obj->name), "\n\n");
@@ -1065,9 +1124,9 @@ public:
     if (has_views) {
       out_stream.write("#include <rohit/binary_view.hpp>\n");
     }
-    out_stream.write('\n');
+    out_stream.write("\n#include <cstddef>\n");
     if (has_views) {
-      out_stream.write("#include <cstddef>\n#include <span>\n");
+      out_stream.write("#include <span>\n");
     }
     out_stream.write("#include <cstdint>\n"
                      "#include <functional>\n"

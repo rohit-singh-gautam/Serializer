@@ -1,0 +1,29 @@
+serializer version 1;
+
+namespace storage_reuse {
+  enum phase { idle, active }
+
+  class base stable_ids {
+    public string inherited (1);
+  }
+
+  class item stable_ids {
+    public string label (1) { "schema default" };
+    public array uint32 numbers (2);
+    public uint32 revision (3) { 7 };
+  }
+
+  class record stable_ids : public base (1) {
+    public item child (2);
+    public array item children (3);
+    public map(uint32) item entries (4);
+    public map(uint32) string labels (5);
+    public union(uint32 = number, float = real) payload (6);
+    public phase status (7);
+  }
+
+  // A keyed peer may omit fields that the current schema knows about.
+  class sparse_item stable_ids {
+    public string label (1);
+  }
+}
