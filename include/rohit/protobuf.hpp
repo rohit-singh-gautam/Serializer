@@ -382,21 +382,21 @@ class protobuf_codec<serialize_type::in, Format> : public json<serialize_type::i
       if (count == size && remaining() != 0) {
         require_input(1);
       }
-      return;
-    }
-    while (remaining() != 0) {
-      const auto byte = peek();
-      if (base::is_whitespace(byte)) {
-        take(1);
-      } else if constexpr (Format == protobuf_format::text) {
-        if (byte != '#') {
+    } else {
+      while (remaining() != 0) {
+        const auto byte = peek();
+        if (base::is_whitespace(byte)) {
+          take(1);
+        } else if constexpr (Format == protobuf_format::text) {
+          if (byte != '#') {
+            break;
+          }
+          while (remaining() != 0 && peek() != '\n') {
+            take(1);
+          }
+        } else {
           break;
         }
-        while (remaining() != 0 && peek() != '\n') {
-          take(1);
-        }
-      } else {
-        break;
       }
     }
   }

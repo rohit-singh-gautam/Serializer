@@ -26,7 +26,7 @@ GoogleTest and clang-format 19+ must be available. `all` configures and builds,
 | --- | --- |
 | CMake 3.28+ | Every source build; CTest is included with CMake. |
 | C++20 compiler and standard library | Library, schema compiler, and C++ consumers; the selected compiler must support the target architecture. |
-| Native build tool | GNU Make for `make all`; Ninja for the Linux presets; MSBuild/Visual Studio C++ tools or another configured generator on Windows. |
+| Native build tool | GNU Make for `make all`; Ninja for the Linux and Windows presets; MSBuild/Visual Studio C++ tools or another configured generator for the Windows wrapper. |
 | PowerShell | Windows `make.ps1` wrapper. |
 | Git, HTTPS certificates, curl, zip, unzip, tar | Obtaining sources and bootstrapping/downloading vcpkg dependencies; the Linux setup installs these tools. |
 | GoogleTest CMake package | `SERIALIZER_BUILD_TESTS=ON`; supplied by this checkout's vcpkg manifest or an existing installation. |
@@ -68,6 +68,36 @@ paths, compiler/generator selection, or optional Java/benchmark/fuzzer settings.
 Use separate build directories when changing compilers, architectures, or
 toolchains. Existing cache options are retained unless explicitly overridden.
 Every wrapper stops on a failed configure, build, or test command.
+
+### Visual Studio folder builds
+
+Install Visual Studio's **Desktop development with C++** workload, including the
+MSVC compiler, Windows SDK, and C++ CMake tools for Windows. The repository needs
+CMake 3.28+ and clang-format 19+ for its default tests/examples; see
+[formatter setup](#formatter-setup). Set `VCPKG_ROOT` to a vcpkg installation
+before launching Visual Studio so the presets can load its toolchain and obtain
+GoogleTest from the repository manifest.
+
+Open the repository with **File > Open > Folder** and select `DebugWindows` or
+`ReleaseWindows`. Both inherit the Ninja generator and an x64 architecture with
+`strategy: external`. Visual Studio uses that architecture to initialize the MSVC
+environment without passing a generator platform to CMake. Command-line preset
+builds need an x64 Native Tools Command Prompt with Ninja on `PATH`:
+
+```sh
+cmake --preset DebugWindows
+cmake --build --preset DebugWindows
+ctest --test-dir out/build/DebugWindows -C Debug --output-on-failure
+```
+
+If an older configuration reports `Ninja does not support platform specification`
+for `x64`, delete the CMake cache and reconfigure in Visual Studio. The previous
+Windows preset used `strategy: set` without selecting a generator, so Visual
+Studio's default Ninja generator received an unsupported platform argument.
+`CMAKE_CXX_COMPILER not set, after EnableLanguage` can follow that failure even
+when MSVC is installed. Do not pass `-A x64` to Ninja; the compiler environment
+selects its target architecture. See Microsoft's
+[CMake preset documentation](https://learn.microsoft.com/en-us/cpp/build/cmake-presets-vs).
 
 ### Formatter setup
 

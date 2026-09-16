@@ -15,6 +15,9 @@ standard library; the CMake project requires CMake 3.28 or newer. Header generat
 uses clang-format 19+ by default. Applications using existing headers do not need it.
 When building this repository's tests/examples with `make all` or `./make.ps1 all`,
 install that host tool first; see [formatter setup](cmake_integration.md#formatter-setup).
+To open this repository in Visual Studio, select a Windows CMake preset and follow
+[Visual Studio folder builds](cmake_integration.md#visual-studio-folder-builds)
+for compiler environment setup and clearing an older Ninja/platform cache.
 
 The schema compiler enables bounded SIMD scanning on supported x64 builds, with
 scalar fallbacks. This is automatic and needs no additional schema keyword; see

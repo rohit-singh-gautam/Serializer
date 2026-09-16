@@ -123,6 +123,13 @@ GoogleTest, and clang-format dependencies as direct CMake; Java, benchmarks, and
 fuzzers remain opt-in. See [wrapper options](../../../docs/cmake_integration.md#build-this-repository)
 for configurations, separate build directories, and CMake overrides.
 
+The repository's Windows presets explicitly use Ninja and x64 architecture with
+`strategy: external`. Visual Studio supplies the compiler environment; command-line
+preset builds require an x64 developer environment and Ninja on `PATH`, plus
+`VCPKG_ROOT`. Do not pass `-A x64` to Ninja or change the architecture strategy to
+`set`. Clear an older CMake cache before reconfiguring after a generator/platform
+change. See [Visual Studio folder builds](../../../docs/cmake_integration.md#visual-studio-folder-builds).
+
 If the default build reports missing clang-format, install a host clang-format
 19+ and rerun configuration; vcpkg's GoogleTest dependency does not supply it.
 On Ubuntu/Debian with the package available, use `sudo apt install clang-format-19`.

@@ -94,13 +94,21 @@ cmake --build build --config Debug
 ctest --test-dir build -C Debug --output-on-failure
 ```
 
-The existing platform presets use vcpkg through `VCPKG_ROOT`. On Windows:
+The existing platform presets use vcpkg through `VCPKG_ROOT`. Windows presets
+use Ninja with an externally selected x64 compiler environment. Visual Studio
+sets up that environment when opening the folder; for command-line builds, run
+these commands in an x64 Native Tools Command Prompt with Ninja on `PATH`:
 
 ```sh
 cmake --preset DebugWindows
 cmake --build --preset DebugWindows
 ctest --test-dir out/build/DebugWindows -C Debug --output-on-failure
 ```
+
+After updating an older Windows preset, delete the CMake cache and reconfigure
+in Visual Studio to clear any cached platform setting. See
+[Visual Studio folder builds](docs/cmake_integration.md#visual-studio-folder-builds)
+for setup and the Ninja/platform error explanation.
 
 When embedding the library, add this repository with `add_subdirectory` and link
 to `Serializer::serializer_lib`. It supplies the public include path and C++20

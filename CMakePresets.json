@@ -48,13 +48,14 @@
             "name": "BaseWindows",
             "displayName": "BaseWindows",
             "hidden": true,
+            "generator": "Ninja",
             "toolchainFile": "$env{VCPKG_ROOT}/scripts/buildsystems/vcpkg.cmake",
             "cacheVariables": {
                 "VCPKG_TARGET_TRIPLET": "x64-windows"
             },
             "architecture": {
                 "value": "x64",
-                "strategy": "set"
+                "strategy": "external"
             },
             "condition": {
                 "type": "equals",
