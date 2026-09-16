@@ -574,9 +574,9 @@ public:
 
   // Retain the original field hook signature while forwarding to the typed donor implementation.
   void write_member_input_forwarder(stream& output, bool by_name) {
-    const auto method =
+    const std::string_view method =
         by_name ? "serialize_in_member_by_name" : "serialize_in_member_by_identifier";
-    const auto key_type = by_name ? "::std::string_view" : "::std::uint32_t";
+    const std::string_view key_type = by_name ? "::std::string_view" : "::std::uint32_t";
     const auto key = local_name(by_name ? "name" : "identifier");
     output.write("  // Decode one selected field without an external storage donor.\n"
                  "  template <typename SerializeInProtocol>\n  void ",
