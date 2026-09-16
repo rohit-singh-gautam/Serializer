@@ -60,6 +60,13 @@ inherit the include directory and C++20 requirement. Tests are enabled by defaul
 for a standalone build and disabled by default when included as a subdirectory;
 set `SERIALIZER_BUILD_TESTS` explicitly to override this.
 
+Runtime JSON scanning and binary array conversion now call compiled helpers.
+Applications that previously included runtime headers without linking Serializer
+must link `Serializer::serializer_lib`, even when using pre-generated headers or
+building with `SERIALIZER_ENABLE_SIMD=OFF`. The shipped `serializer_generate`
+helper already supplies this dependency. SIMD preserves wire bytes and requires
+no schema or output-profile changes; see [runtime SIMD](docs/runtime_simd.md).
+
 The minimum language mode is C++20. CMake defaults to at least that version,
 requires the selected standard, and disables compiler extensions for this
 project's targets. Higher `CMAKE_CXX_STANDARD` settings remain effective. Direct

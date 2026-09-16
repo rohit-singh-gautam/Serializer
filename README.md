@@ -81,12 +81,39 @@ after CPU/OS checks. Short spans and other architectures use scalar scanning.
 Vector loads stay within the input bounds and require no trailing padding.
 
 This is an internal schema-compiler optimization. No `simd` schema keyword or
-output-profile setting is needed; it does not add SIMD to generated codec methods.
+output-profile setting is needed. The same build option also controls the shared
+runtime optimizations below; generated methods call these helpers normally.
 Use `-DSERIALIZER_ENABLE_SIMD=OFF` when configuring a source build to disable the
 explicit SIMD scanners. See [CMake integration](docs/cmake_integration.md) for
 consumer configuration and [qualification](qualification/README.md#schema-scanner-validation)
 for the prepared boundary cases. Configuration, compilation, tests, and timing
 comparisons remain deferred; no measured speedup is claimed.
+
+### SIMD in runtime serialization
+
+All output protocols use the shared runtime paths automatically:
+
+- Compact and formatted JSON scan ordinary string spans with SSE2/AVX2 on supported
+  x64 CPUs. UTF-8 validation and escaping rules remain unchanged. Escaped strings
+  write directly into reserved stream storage, with a source snapshot only when
+  expanding output overlaps its input. JSON input uses the same bounded scanners.
+- Positional, integer-key, and string-key binary output write eligible contiguous
+  integer and floating-point arrays in one payload reservation. Matching byte
+  order uses a bulk copy; differing byte order uses SIMD swaps with scalar tails.
+  The count prefix, keys, scalar bits, and wire bytes are unchanged.
+- Nested objects, maps, and unions use these paths for their contained strings
+  and arrays. Individual scalars, compact integers, enums, and packed boolean
+  vectors retain their existing encoding. JSON numeric formatting still uses
+  scalar conversion. Binary views already copy their encoded bytes in bulk;
+  individual view setters retain scalar updates.
+
+Link consumers to `Serializer::serializer_lib`, including users of pre-generated
+headers. CPU dispatch and vector instructions live in compiled helpers, keeping
+ISA flags out of consumer code. `SERIALIZER_ENABLE_SIMD=OFF` disables the explicit
+schema and runtime SIMD backends; bulk writes and direct JSON output remain.
+Short inputs and unsupported architectures use scalar fallbacks. No input/output
+padding is required. See [runtime SIMD details](docs/runtime_simd.md), including
+the prepared validation matrix. Builds, tests, and benchmarks remain deferred.
 
 ### Output language and coding standard
 

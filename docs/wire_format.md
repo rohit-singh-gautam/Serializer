@@ -20,6 +20,12 @@ and protocol. Values are emitted field by field into the output stream.
 | Map | Compact entry count followed by each key and value; output follows `std::map` order |
 | Numeric enum | Compact nonnegative underlying value; generated enum input/output rejects undeclared values |
 
+Runtime SIMD and bulk array writes preserve these exact representations. Eligible
+fixed-width numeric arrays are copied or byte-swapped in blocks after the same
+compact count prefix; JSON string scanning preserves validation and escaping.
+SIMD introduces no padding, alignment, flags, or protocol marker. See
+[runtime SIMD](runtime_simd.md) for coverage and deferred validation.
+
 Compact integers use the established two-bit length tag and six payload bits in
 the first byte, followed by zero to three full payload bytes in big-endian order.
 

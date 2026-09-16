@@ -18,6 +18,7 @@
 #pragma once
 #include <rohit/decode.hpp>
 #include <rohit/json_text.hpp>
+#include <rohit/runtime_simd.hpp>
 #include <rohit/stream.hpp>
 
 #include <algorithm>
@@ -934,13 +935,24 @@ private:
   // Validate and quote UTF-8, retaining the allocation-free path for ordinary text.
   void write_string(std::string_view text) {
     const auto encoded_size = detail::json_escaped_size(text);
-    before_data();
-    if (encoded_size == text.size()) {
-      out_stream.write('"', text, '"');
-    } else {
-      const auto escaped = detail::escape_json_string(text, encoded_size);
-      out_stream.write('"', escaped, '"');
+    constexpr std::size_t quote_bytes = 2;
+    if (encoded_size > rohit::detail::maximum_buffer_bytes - quote_bytes) {
+      throw rohit::exception::stream_overflow_exception{};
     }
+    before_data();
+    out_stream.append_transformed(
+        text.data(), text.size(), encoded_size + quote_bytes,
+        [encoded_size](std::uint8_t* output, const std::uint8_t* input, std::size_t size) noexcept {
+          output[0] = '"';
+          if (encoded_size == size) {
+            if (size != 0) {
+              std::memcpy(output + 1, input, size);
+            }
+          } else {
+            detail::write_json_escaped(output + 1, input, size);
+          }
+          output[encoded_size + 1] = '"';
+        });
   }
 
 public:
@@ -1395,8 +1407,32 @@ public:
       value.serialize_out(*this);
     } else if constexpr (type_check::vector<T>) {
       serialize_out_variable(value.size());
-      for (const auto& item : value) {
-        serialize_out(item);
+      using element_type = typename T::value_type;
+      if constexpr ((rohit::detail::endian_integer<element_type> ||
+                     rohit::detail::endian_floating_point<element_type>) &&
+                    (sizeof(element_type) == 1 || sizeof(element_type) == 2 ||
+                     sizeof(element_type) == 4 || sizeof(element_type) == 8)) {
+        static_assert(std::endian::native == std::endian::little ||
+                          std::endian::native == std::endian::big,
+                      "Mixed-endian scalars are unsupported");
+        if (value.size() > rohit::detail::maximum_buffer_bytes / sizeof(element_type)) {
+          throw rohit::exception::stream_overflow_exception{};
+        }
+        const auto bytes = value.size() * sizeof(element_type);
+        if constexpr (sizeof(element_type) == 1 || WireEndian == std::endian::native) {
+          // Only padding-free scalar arrays match the wire representation; never copy classes.
+          out_stream.append(value.data(), bytes);
+        } else {
+          out_stream.append_transformed(
+              value.data(), bytes, bytes,
+              [](std::uint8_t* output, const std::uint8_t* input, std::size_t size) noexcept {
+                detail::copy_swapped(output, input, size, sizeof(element_type));
+              });
+        }
+      } else {
+        for (const auto& item : value) {
+          serialize_out(item);
+        }
       }
     } else if constexpr (type_check::map<T>) {
       serialize_out_variable(value.size());

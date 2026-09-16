@@ -9,6 +9,9 @@ The schema compiler enables bounded SIMD scanning on supported x64 builds, with
 scalar fallbacks. This is automatic and needs no `.def` keyword; see
 [schema-scanner configuration](cmake_integration.md#schema-scanner-configuration)
 for the `SERIALIZER_ENABLE_SIMD` source-build option.
+The same option also controls [runtime SIMD](runtime_simd.md): JSON string
+scanning and endian conversion of binary numeric arrays across all key modes.
+Link `Serializer::serializer_lib` even when using pre-generated headers.
 
 The examples below describe the current source API. They have been reviewed
 against the source but have not been generated, compiled, or executed as part of

@@ -605,6 +605,41 @@ public:
     std::memcpy(current_data, source, size);
     advance_cursor(size);
   }
+
+  // Transform a valid source into exactly output_size bytes after one reservation.
+  // The noexcept writer receives (destination, rebased source, source_size); it must stay
+  // within those ranges. Overlapping input is snapshotted before any output mutation.
+  template <typename Writer>
+  void append_transformed(const void* source, std::size_t source_size, std::size_t output_size,
+                          Writer&& writer) {
+    static_assert(
+        std::is_nothrow_invocable_v<Writer, std::uint8_t*, const std::uint8_t*, std::size_t>);
+    if (source_size > detail::maximum_buffer_bytes || output_size > detail::maximum_buffer_bytes) {
+      throw exception::stream_overflow_exception{};
+    }
+    if (source_size != 0 && source == nullptr) {
+      throw std::invalid_argument{"Invalid transform source"};
+    }
+    if (output_size == 0) {
+      return;
+    }
+    const auto* input = static_cast<const std::uint8_t*>(source);
+    std::string snapshot;
+    const auto less = std::less<const std::uint8_t*>{};
+    const auto existing_output_size = std::min(output_size, remaining_buffer());
+    if (source_size != 0 && existing_output_size != 0 &&
+        less(input, current_data + existing_output_size) &&
+        less(current_data, input + source_size)) {
+      snapshot.assign(reinterpret_cast<const char*>(input), source_size);
+      input = reinterpret_cast<const std::uint8_t*>(snapshot.data());
+    }
+    // Fragment reservation validates and rebases aliases of a growable stream, even when
+    // the encoded extent differs from the source extent.
+    std::array fragments{detail::write_fragment{.data = input, .size = source_size}};
+    reserve_fragments(fragments, output_size);
+    std::forward<Writer>(writer)(current_data, fragments[0].data, source_size);
+    advance_cursor(output_size);
+  }
   // Append raw bytes and advance the cursor; capacity failures follow the stream policy.
   inline void append(const char value) {
     reserve(sizeof(value));

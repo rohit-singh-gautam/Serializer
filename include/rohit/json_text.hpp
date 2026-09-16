@@ -1,7 +1,10 @@
 #pragma once
 
+#include <rohit/runtime_simd.hpp>
+
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <limits>
 #include <span>
 #include <stdexcept>
@@ -124,6 +127,13 @@ inline json_string_range scan_json_string(std::span<const std::uint8_t> bytes) {
   json_string_range result{};
   std::size_t index = 1;
   while (index < bytes.size()) {
+    const auto plain =
+        scan_json_prefix<json_scan_kind::ascii>(bytes.data() + index, bytes.size() - index);
+    index += plain;
+    result.text_bytes += plain;
+    if (index == bytes.size()) {
+      break;
+    }
     const auto ch = bytes[index];
     if (ch == '"') {
       result.wire_bytes = index + 1;
@@ -154,9 +164,8 @@ inline void assign_json_string(std::string& output, std::span<const std::uint8_t
   const auto end = range.wire_bytes - 1;
   while (index < end) {
     const auto start = index;
-    while (index < end && bytes[index] != '\\') {
-      ++index;
-    }
+    // This range was validated; only a backslash can stop an unescaped span here.
+    index += scan_json_prefix<json_scan_kind::unescaped>(bytes.data() + index, end - index);
     output.append(reinterpret_cast<const char*>(bytes.data() + start), index - start);
     if (index < end) {
       ++index;
@@ -168,44 +177,63 @@ inline void assign_json_string(std::string& output, std::span<const std::uint8_t
 // Validate UTF-8 and measure escaping without changing the output stream.
 inline std::size_t json_escaped_size(std::string_view text) {
   const auto bytes = std::span{reinterpret_cast<const std::uint8_t*>(text.data()), text.size()};
-  std::size_t result{};
+  std::size_t result = text.size();
   for (std::size_t index = 0; index < bytes.size();) {
+    index += scan_json_prefix<json_scan_kind::ascii>(bytes.data() + index, bytes.size() - index);
+    if (index == bytes.size()) {
+      break;
+    }
     const auto ch = bytes[index];
     const auto size = utf8_sequence_size(bytes.subspan(index));
     const auto encoded = ch < 0x20 ? std::size_t{6} :
         ch == '"' || ch == '\\' ? std::size_t{2} : size;
-    if (encoded > std::numeric_limits<std::size_t>::max() - result) {
+    const auto extra = encoded - size;
+    if (extra > std::numeric_limits<std::size_t>::max() - result) {
       throw std::length_error{"Escaped JSON string is too large"};
     }
-    result += encoded;
+    result += extra;
     index += size;
   }
   return result;
 }
 
-// Escape only strings that need it; validated ordinary UTF-8 can use the direct stream batch path.
-inline std::string escape_json_string(std::string_view text, std::size_t encoded_size) {
+// Write validated UTF-8 into exactly json_escaped_size(text) writable bytes without allocating.
+// Input and output must be disjoint; the caller reserves storage and resolves aliases first.
+inline void write_json_escaped(std::uint8_t* output, const std::uint8_t* input,
+                               std::size_t size) noexcept {
   constexpr std::string_view hex_digits = "0123456789abcdef";
+  std::size_t written{};
+  for (std::size_t index = 0; index < size;) {
+    const auto plain = scan_json_prefix<json_scan_kind::unescaped>(input + index, size - index);
+    if (plain != 0) {
+      std::memcpy(output + written, input + index, plain);
+      written += plain;
+      index += plain;
+    }
+    if (index == size) {
+      break;
+    }
+    const auto ch = input[index++];
+    output[written++] = '\\';
+    if (ch < 0x20) {
+      output[written++] = 'u';
+      output[written++] = '0';
+      output[written++] = '0';
+      output[written++] = static_cast<std::uint8_t>(hex_digits[ch >> 4]);
+      output[written++] = static_cast<std::uint8_t>(hex_digits[ch & 0x0f]);
+    } else {
+      output[written++] = ch;
+    }
+  }
+}
+
+// Retain the owning helper; treat the supplied size as a reservation hint, never as a write bound.
+inline std::string escape_json_string(std::string_view text, std::size_t encoded_size) {
   std::string result;
   result.reserve(encoded_size);
-  std::size_t start{};
-  for (std::size_t index = 0; index < text.size(); ++index) {
-    const auto ch = static_cast<unsigned char>(text[index]);
-    if (ch >= 0x20 && ch != '"' && ch != '\\') {
-      continue;
-    }
-    result.append(text.substr(start, index - start));
-    if (ch < 0x20) {
-      result += "\\u00";
-      result.push_back(hex_digits[ch >> 4]);
-      result.push_back(hex_digits[ch & 0x0f]);
-    } else {
-      result.push_back('\\');
-      result.push_back(static_cast<char>(ch));
-    }
-    start = index + 1;
-  }
-  result.append(text.substr(start));
+  result.resize(json_escaped_size(text));
+  write_json_escaped(reinterpret_cast<std::uint8_t*>(result.data()),
+                     reinterpret_cast<const std::uint8_t*>(text.data()), text.size());
   return result;
 }
 

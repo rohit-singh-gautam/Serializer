@@ -40,16 +40,20 @@ configuration makes the next build regenerate the header.
 
 ### Schema-scanner configuration
 
-`SERIALIZER_ENABLE_SIMD` defaults to `ON`. Supported x64 builds provide an SSE2
-scanner and an isolated AVX2 backend selected after CPU/OS checks. Short spans and
+`SERIALIZER_ENABLE_SIMD` defaults to `ON` and controls both schema scanning and
+runtime JSON scanning/binary array byte swapping. Supported x64 builds provide
+SSE2 and isolated AVX2 backends selected after CPU/OS checks. Short spans and
 other architectures use scalar code; universal macOS builds use the baseline
 scanner for each architecture. The AVX2 compiler flags apply only to its source
-file and are not propagated to applications.
+files and are not propagated to applications.
 
 Set `SERIALIZER_ENABLE_SIMD=OFF` in the CMake cache before adding Serializer to
-disable its explicit SIMD scanners. Installed generators retain the choice made
-when they were built; `serializer_generate` does not change it. This is separate
-from output coding profiles and requires no schema syntax changes. See the
+disable its explicit SIMD backends. Installed generators and runtime libraries
+retain the choice made when they were built; `serializer_generate` does not change it.
+Applications using pre-generated headers also link `Serializer::serializer_lib`
+for the shared runtime helpers. Bulk writes remain enabled when SIMD is disabled.
+This is separate from output coding profiles and requires no schema syntax
+changes. See the
 [README](../README.md#simd-in-the-schema-compiler) for scope and validation status.
 
 ## Use an installed package

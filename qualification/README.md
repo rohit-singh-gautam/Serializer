@@ -31,6 +31,24 @@ have not been compiled or executed. Measure parsing separately from C++ emission
 formatter startup, and file I/O before reporting an end-to-end generator speedup;
 the existing codec benchmarks do not measure schema compilation.
 
+### Runtime SIMD validation
+
+`runtime_simd_test.cpp` prepares exhaustive byte classification for JSON scanners,
+exact-size and unaligned buffers, byte-swap tails and in-place swaps, and scalar
+reference comparisons for numeric arrays in all three binary key modes and both
+byte orders. JSON cases cover compact and formatted output, controls/UTF-8, direct
+escaping, source aliasing across growth, capacity failures, and reservation counts.
+Float cases compare representation bits, including negative zero and NaN payloads.
+
+When validation is authorized, run these and the existing generated-object,
+wire-format, view, and decoder-limit cases with SIMD enabled and disabled, with
+and without AVX2 available, and under address/undefined sanitizers. Verify both
+source-dependency and installed-library consumers, including pre-generated headers.
+Benchmark long/short strings, escape density, all JSON layouts, each binary key
+mode, matching/opposite endian arrays, and small records. Keep schema-compiler
+timings separate. Compilation and execution of these cases remain deferred; see
+[runtime SIMD](../docs/runtime_simd.md) for implemented scope.
+
 ## Timing and allocations
 
 Configure `SERIALIZER_BUILD_BENCHMARKS=ON` to add:

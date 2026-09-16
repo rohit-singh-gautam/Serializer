@@ -99,13 +99,19 @@ mode if the application already uses one. Source dependencies build the generato
 as needed; installed packages use their installed executable. `SERIALIZER_INSTALL`
 controls installation and defaults off when Serializer is embedded.
 
-Schema scanning enables internal SIMD by default through `SERIALIZER_ENABLE_SIMD`.
-Supported x64 builds use SSE2 and select an isolated AVX2 backend after CPU/OS checks;
-short spans and other architectures retain scalar scanning. Set this CMake option
+Schema scanning and runtime codecs enable SIMD by default through `SERIALIZER_ENABLE_SIMD`.
+Supported x64 builds use SSE2 and select isolated AVX2 backends after CPU/OS checks;
+short spans and other architectures retain scalar processing. Set this CMake option
 to `OFF` before adding the source dependency when explicit SIMD must be disabled.
-An installed generator retains its build-time choice. This changes neither schema
-syntax nor generated codec behavior; do not add a `simd` keyword or promise a
-measured speedup. SIMD builds, boundary tests, and benchmarks remain deferred.
+Installed generators/libraries retain their build-time choice. Runtime helpers
+accelerate compact/formatted JSON strings and fixed-width binary numeric arrays
+in every key mode; matching-endian arrays and binary views use bulk copies.
+Keep scalar handling for single values, variable-length values, and view setters.
+Link `Serializer::serializer_lib` for pre-generated headers too. Disabling SIMD
+retains bulk array writes and direct JSON escaping. See
+[runtime SIMD](../../../docs/runtime_simd.md) for scope, aliasing, and limitations.
+Wire bytes and schema syntax stay unchanged; do not add a `simd` keyword or promise
+a measured speedup. SIMD builds, boundary tests, and benchmarks remain deferred.
 
 Call the helper once per target with all its schemas. For a shared generated API,
 use an interface library and link consumers to it so one target owns generation.

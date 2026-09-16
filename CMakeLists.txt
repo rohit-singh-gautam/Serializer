@@ -15,12 +15,15 @@ option(SERIALIZER_BUILD_BENCHMARKS "Build separate codec timing and allocation t
 option(SERIALIZER_BUILD_FUZZERS "Build the bounded Clang libFuzzer target" OFF)
 option(SERIALIZER_BUILD_STYLE_EXAMPLES "Build one example for each C++ output profile" OFF)
 option(SERIALIZER_INSTALL "Install the library, compiler, and CMake integration" ${PROJECT_IS_TOP_LEVEL})
-option(SERIALIZER_ENABLE_SIMD "Accelerate schema scanning on supported CPUs" ON)
+option(SERIALIZER_ENABLE_SIMD "Accelerate schema scanning and runtime codecs on supported CPUs" ON)
 
 add_library(serializer_lib
   src/parser.cpp
   src/schema_scan.cpp
   src/schema_scan.hpp
+  src/simd_dispatch.cpp
+  src/simd_dispatch.hpp
+  src/runtime_simd.cpp
   src/cpp_writer.cpp
   src/cpp_type_mapping.cpp
   src/cpp_naming.cpp
@@ -32,6 +35,7 @@ add_library(serializer_lib
   include/rohit/decode.hpp
   include/rohit/binary_view.hpp
   include/rohit/json_text.hpp
+  include/rohit/runtime_simd.hpp
   include/rohit/stream.hpp
 )
 target_include_directories(serializer_lib PUBLIC
@@ -60,14 +64,15 @@ elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
 endif()
 if(SERIALIZER_ENABLE_SIMD AND serializer_x64 AND
     CMAKE_CXX_COMPILER_ID MATCHES "^(MSVC|GNU|Clang|AppleClang)$")
-  target_sources(serializer_lib PRIVATE src/schema_scan_avx2.cpp)
+  set(serializer_avx2_sources src/schema_scan_avx2.cpp src/runtime_simd_avx2.cpp)
+  target_sources(serializer_lib PRIVATE ${serializer_avx2_sources})
   target_compile_definitions(serializer_lib PRIVATE SERIALIZER_HAS_AVX2_SCANNER=1)
   if(MSVC)
-    set_source_files_properties(src/schema_scan_avx2.cpp PROPERTIES COMPILE_OPTIONS /arch:AVX2)
+    set_source_files_properties(${serializer_avx2_sources} PROPERTIES COMPILE_OPTIONS /arch:AVX2)
   else()
-    set_source_files_properties(src/schema_scan_avx2.cpp PROPERTIES COMPILE_OPTIONS -mavx2)
+    set_source_files_properties(${serializer_avx2_sources} PROPERTIES COMPILE_OPTIONS -mavx2)
   endif()
-  set_source_files_properties(src/schema_scan_avx2.cpp PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE)
+  set_source_files_properties(${serializer_avx2_sources} PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE)
 endif()
 
 add_library(Serializer::serializer_lib ALIAS serializer_lib)
