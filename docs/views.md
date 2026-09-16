@@ -122,8 +122,8 @@ Strings borrow payload bytes; no complete owning object is constructed.
 | Enum | Validated enum value | `set_field(value)` if compact width is unchanged |
 | String | `std::string_view` | `set_field(text)` with identical byte length |
 | Class | Nested view | Use nested field setters |
-| Array | Borrowed sequence with `size()` and `at(index)` | `set(index, value)` for scalar/string elements; otherwise use nested views |
-| Map | Encoded entries with `size()`, `key_at(index)`, `value_at(index)` | `set_value(index, value)` for scalar/string values; otherwise use nested views |
+| Array | Borrowed sequence with `size()`, `at(index)`, and `begin()`/`end()` | `set(index, value)` or iterator `set(value)` for scalar/string elements; otherwise use nested views |
+| Map | Encoded entries with `size()`, `key_at(index)`, `value_at(index)`, and `begin()`/`end()` | `set_value(index, value)` or iterator `set_value(value)` for scalar/string values; otherwise use nested views |
 | Union | Active alternative with `index()` and `get<Index>()` | `set<Index>(value)` for the active scalar/string alternative |
 
 Unions also expose `e_field` and `get_field_type()` for symbolic discriminator
@@ -141,6 +141,71 @@ Editing one encoded duplicate only changes that entry.
 Field accessors retain the schema's public/protected/private access. Parent
 objects are exposed through `get_base_ID()`, using the parent's field ID, with
 the declared parent access. Views use composition for these parent buffers.
+
+## Sequential collection traversal
+
+Array and map views provide C++20 forward iterators. Prefer a range-based loop when
+visiting every entry, especially for strings, compact enums, and nested objects:
+
+```cpp
+std::uint64_t total{};
+for (const auto score : reader.get_scores()) {
+  total += score;
+}
+
+auto scores = editor.get_scores();
+for (auto iterator = scores.begin(); iterator != scores.end(); ++iterator) {
+  iterator.set(std::uint16_t{250});
+}
+```
+
+For a `map(uint32) string` field named `labels`, each dereference returns a
+key/value pair. The following updates every matching value, including duplicates:
+
+```cpp
+auto labels = editor.get_labels();
+for (auto iterator = labels.begin(); iterator != labels.end(); ++iterator) {
+  const auto [key, text] = *iterator;
+  if (key == 1 && text == "one") {
+    iterator.set_value("ONE");
+  }
+}
+
+for (const auto [key, text] : labels) {
+  // Read each encoded entry in wire order.
+  static_cast<void>(key);
+  static_cast<void>(text);
+}
+```
+
+- Array dereference returns a scalar, borrowed string, or nested view by value.
+  Map dereference returns a pair with read-only key access and a value using the
+  collection's mutability. Use `auto child` when editing a returned nested view.
+  Scalar/string updates use the iterator setters; assigning a dereferenced copy
+  does not update the encoded value.
+- Copies advance independently. Prefix/postfix increment and equality comparison
+  support multiple passes and C++20 range algorithms. `end()` does not scan entries.
+  Dereferencing, incrementing, or setting an end/default iterator throws
+  `std::out_of_range`. Iterators do not provide random-access arithmetic.
+- Iterators keep spans, limits, and current boundaries inline without heap allocation.
+  Fixed-width entries advance by their encoded width. Variable-width entries scan
+  only the next entry; a complete pass discovers each entry's boundaries once.
+  Nested object dereferences still validate that subobject to construct its offsets.
+  Repeated indexed access to variable-width entries retains its existing scan cost.
+- The complete message is validated under the shared decode limits during mapping.
+  Subsequent entry scans stay bounded by the mapped bytes and retain the original
+  limit policy. No additional schema attribute or generation option is required.
+- An iterator can outlive a temporary collection wrapper because it retains its
+  own span and limits. The buffer owner must still outlive the iterator and every
+  borrowed result. Size-preserving setters keep iterators valid, and subsequent
+  dereferences observe changes through other aliases. Buffer relocation or layout
+  changes invalidate them. Constness of a wrapper does not remove the mutability
+  granted by its byte span; use a read-only mapping for read-only access.
+
+`test/binary_view_iterator_test.cpp` prepares iterator/range concept checks, scan-count
+checks for linear traversal, independent copies, unaligned input and empty collections,
+zero-byte objects, variable compact widths, duplicate keys, nested views, mapping
+limits, and mutation failures. Compilation and execution remain deferred.
 
 ## Nested types and application boundaries
 
@@ -172,11 +237,12 @@ from one mode to multiple modes changes `person` to `person<mode>` at call sites
 - Scalar and string field getters use generated constant slots, without runtime
   reflection or key lookup. Fixed-width array elements and fixed-width map
   entries use direct indexed offsets. Variable-width entries require bounded
-  traversal of preceding entries on each indexed access. A nested object getter
+  traversal of preceding entries on each indexed access; sequential iterators
+  continue from the current entry's boundary. A nested object getter
   validates that subobject to construct its own offset cache.
 - The owner must keep the buffer alive and at the same address. Do not resize,
   reset, replace, or directly alter its layout while any view, string view, or
-  collection view is live. Generated setters preserve layout, so existing views
+  collection view or iterator is live. Generated setters preserve layout, so existing views
   remain usable. Overlapping string replacements are supported.
 - Read-only means that this view cannot write. Another mutable alias can update
   the observed values. Synchronization between threads is the caller's responsibility.

@@ -283,6 +283,8 @@ Generated views map **little-endian positional binary (`binary_none`)** through
 `person::map(span, limits)`. Getters access mapped fields; mutable setters update
 existing bytes without changing field sizes. Strings require the same byte length.
 Arrays, maps, nested objects, and active union alternatives have borrowed accessors.
+Array and map views provide sequential `begin()`/`end()` iterators. Prefer range-based
+loops for variable-length collections to avoid rescanning earlier entries on each index.
 See [the view usage guide](docs/views.md) for examples, nested-mode requirements,
 lifetimes, mutation limits, and compilation costs.
 

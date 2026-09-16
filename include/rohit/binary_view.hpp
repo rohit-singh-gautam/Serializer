@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <iterator>
 #include <span>
 #include <stdexcept>
 #include <string_view>
@@ -150,7 +151,149 @@ template <typename Element> struct array_view_codec;
 template <typename Key, typename Value> struct map_view_codec;
 template <typename... Alternatives> struct variant_view_codec;
 
-// A borrowed sequence keeps its prefix and element bytes; indexed access walks preceding elements.
+template <typename Element, typename Byte> class binary_array_view;
+template <typename Key, typename Value, typename Byte> class binary_map_view;
+
+// Keep independent positions and cached entry boundaries without owning or allocating message data.
+template <typename Byte, typename... Codecs>
+class binary_collection_iterator {
+  static constexpr auto component_count = sizeof...(Codecs);
+  static_assert(component_count == 1 || component_count == 2);
+  static constexpr bool is_map_entry = component_count == 2;
+  using first_codec = std::tuple_element_t<0, std::tuple<Codecs...>>;
+  using last_codec = std::tuple_element_t<component_count - 1, std::tuple<Codecs...>>;
+  using first_byte = std::conditional_t<is_map_entry, const std::uint8_t, Byte>;
+  using first_value = decltype(first_codec::read(std::declval<std::span<first_byte>>(),
+                                                 std::declval<const decode_limits&>()));
+  using last_value = decltype(last_codec::read(std::declval<std::span<Byte>>(),
+                                               std::declval<const decode_limits&>()));
+  using entry_offsets = std::array<std::size_t, component_count + 1>;
+  std::span<Byte> storage{};
+  decode_limits limits{};
+  std::size_t index{};
+  std::size_t count{};
+  entry_offsets offsets{};
+
+  template <typename, typename>
+  friend class binary_array_view;
+  template <typename, typename, typename>
+  friend class binary_map_view;
+
+  // Discover only the current entry; mapping has already validated the whole collection and limits.
+  entry_offsets locate(std::size_t start) const {
+    entry_offsets result{};
+    result[0] = start;
+    std::size_t component{};
+    if constexpr (((Codecs::fixed_size != 0) && ...)) {
+      auto next = start;
+      ((next += Codecs::fixed_size, result[++component] = next), ...);
+    } else {
+      const auto remaining = storage.subspan(start);
+      const auto input = make_constant_stream(remaining.data(), remaining.size());
+      view_scanner scanner{input, limits};
+      // Retain the collection's nesting level during this bounded entry scan.
+      auto nesting = scanner.enter_object();
+      ((Codecs::scan(scanner), result[++component] = start + scanner.position()), ...);
+    }
+    return result;
+  }
+
+  // Only validated collection views may construct iterators; end construction never scans entries.
+  binary_collection_iterator(std::span<Byte> bytes, const decode_limits& input_limits, bool at_end)
+      : storage{bytes}, limits{input_limits} {
+    const auto [element_count, prefix] = view_compact(storage);
+    count = element_count;
+    if (at_end || count == 0) {
+      index = count;
+      offsets.fill(storage.size());
+    } else {
+      offsets = locate(prefix);
+    }
+  }
+
+  // Reject dereferencing, advancing, or modifying an end or default-constructed iterator.
+  void require_element() const {
+    if (index == count) {
+      throw std::out_of_range{"View collection iterator at end"};
+    }
+  }
+
+  // Borrow one cached component; callers must first require a dereferenceable iterator.
+  template <std::size_t Index>
+  std::span<Byte> component_bytes() const {
+    return storage.subspan(offsets[Index], offsets[Index + 1] - offsets[Index]);
+  }
+
+public:
+  using value_type =
+      std::conditional_t<is_map_entry, std::pair<first_value, last_value>, first_value>;
+  using difference_type = std::ptrdiff_t;
+  using reference = value_type;
+  using pointer = void;
+  using iterator_concept = std::forward_iterator_tag;
+  // Legacy forward iterators require references; these iterators return values or borrowed views.
+  using iterator_category = std::input_iterator_tag;
+
+  // Create an empty singular iterator; copies retain independent positions and shared storage.
+  binary_collection_iterator() = default;
+
+  // Return a scalar/string/nested view, or a pair containing an immutable key and its value.
+  value_type operator*() const {
+    require_element();
+    // Read values on demand so size-preserving edits through another alias remain observable.
+    if constexpr (!is_map_entry) {
+      return first_codec::read(component_bytes<0>(), limits);
+    } else {
+      return {first_codec::read(std::span<const std::uint8_t>{component_bytes<0>()}, limits),
+              last_codec::read(component_bytes<1>(), limits)};
+    }
+  }
+
+  // Advance from cached boundaries; failed scans leave this iterator's position unchanged.
+  binary_collection_iterator& operator++() {
+    require_element();
+    if (index + 1 < count) {
+      offsets = locate(offsets.back());
+    } else {
+      offsets.fill(storage.size());
+    }
+    ++index;
+    return *this;
+  }
+
+  // Return the previous independent position, then advance this iterator.
+  binary_collection_iterator operator++(int) {
+    auto previous = *this;
+    ++*this;
+    return previous;
+  }
+
+  // Compare positions in the same encoded collection, including zero-byte object elements.
+  bool operator==(const binary_collection_iterator& other) const noexcept {
+    return storage.data() == other.storage.data() && storage.size() == other.storage.size() &&
+           index == other.index;
+  }
+
+  // Replace the current scalar/string array element without rescanning earlier elements.
+  template <typename Replacement>
+  void set(const Replacement& value) const
+      requires (!is_map_entry && !std::is_const_v<Byte> &&
+                requires(std::span<Byte> bytes) { first_codec::write(bytes, value); }) {
+    require_element();
+    first_codec::write(component_bytes<0>(), value);
+  }
+
+  // Replace only the current map value, preserving key identity and encoded entry extents.
+  template <typename Replacement>
+  void set_value(const Replacement& value) const
+      requires (is_map_entry && !std::is_const_v<Byte> &&
+                requires(std::span<Byte> bytes) { last_codec::write(bytes, value); }) {
+    require_element();
+    last_codec::write(component_bytes<1>(), value);
+  }
+};
+
+// A borrowed sequence supports sequential traversal and checked indexed access.
 template <typename Element, typename Byte>
 class binary_array_view {
   std::span<Byte> storage;
@@ -178,6 +321,15 @@ class binary_array_view {
     }
   }
 public:
+  using iterator = binary_collection_iterator<Byte, Element>;
+  // Start an independent traversal; its storage and limits outlive a temporary collection wrapper.
+  iterator begin() const {
+    return iterator{storage, limits, false};
+  }
+  // Return the past-the-end position without traversing the collection.
+  iterator end() const {
+    return iterator{storage, limits, true};
+  }
   // Return the validated element count, with no traversal or allocation.
   std::size_t size() const { return view_compact(storage).first; }
   // Read a scalar/string or return a nested view of an existing element.
@@ -243,6 +395,15 @@ class binary_map_view {
             storage.subspan(middle, scanner.position() - middle)};
   }
 public:
+  using iterator = binary_collection_iterator<Byte, Key, Value>;
+  // Traverse pairs in wire order; key views remain read-only even when values are mutable.
+  iterator begin() const {
+    return iterator{storage, limits, false};
+  }
+  // Return the past-the-end position without traversing the collection.
+  iterator end() const {
+    return iterator{storage, limits, true};
+  }
   // Return the encoded entry count; duplicate keys remain visible in wire order.
   std::size_t size() const { return view_compact(storage).first; }
   // Borrow or read a key with immutable access even from a mutable map view.

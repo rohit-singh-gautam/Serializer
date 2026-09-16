@@ -225,6 +225,10 @@ Views map little-endian `binary_none` buffers only. A read-only mapping borrows 
 `std::span<const std::uint8_t>`; a mutable mapping needs `std::span<std::uint8_t>`.
 Use generated `get_field()` and `set_field()` accessors. Setters preserve encoded
 sizes, and every borrowed value depends on the buffer's lifetime and stable layout.
+Use range-based loops over array/map views for sequential access. Arrays yield
+values or nested views; maps yield key/value pairs in wire order. Mutable iterators
+provide `set(value)` for array elements and `set_value(value)` for map values,
+subject to the same encoded-size restrictions. Iterator copies advance independently.
 See [views.md](views.md) for a complete example and collection/nested-type rules.
 
 ## 4. Handle limits and failed input

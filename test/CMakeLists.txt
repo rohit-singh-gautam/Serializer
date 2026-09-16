@@ -14,6 +14,7 @@ add_executable(core_serializer_test
   wire_format_test.cpp
   decoder_qualification_test.cpp
   binary_view_test.cpp
+  binary_view_iterator_test.cpp
   output_options_test.cpp
   java_writer_test.cpp
 )

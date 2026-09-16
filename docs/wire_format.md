@@ -120,6 +120,9 @@ borrowed strings, or nested views. Mutable setters preserve field and collection
 extents; changing a string length, compact width, entry count, or active union
 alternative requires rebuilding. No native C++ object layout is overlaid on bytes.
 View map entries retain wire order and duplicate keys; keys remain immutable.
+Array/map iterators advance through cached entry boundaries without changing the
+wire layout or initial mapping validation. Size-preserving setters retain iterator
+validity; replacing or relocating the underlying buffer invalidates borrowed access.
 See [views.md](views.md) for API, lifetime, visibility, and nested-mode details.
 
 ## JSON representation

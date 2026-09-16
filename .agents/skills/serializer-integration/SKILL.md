@@ -293,9 +293,16 @@ view and must not relocate or change the layout while views remain live.
 Use setters only for existing scalar/string fields or collection elements with
 unchanged encoded sizes. Do not promise insertion, resizing, union switching,
 or JSON/keyed/big-endian mapping. Map keys remain read-only; map entries retain
-wire order and duplicates. Nested field access can construct another validated
-view; variable-width collection indexing traverses preceding entries. Refer to
-the view guide for parent accessors, union access, and complete examples.
+wire order and duplicates. Prefer range-based loops or `begin()`/`end()` for sequential
+array/map access: iterators cache entry boundaries, while variable-width indexed
+access traverses preceding entries each time. Arrays yield values or nested views;
+maps yield key/value pairs. Use iterator `set(value)` for mutable scalar/string array
+elements and `set_value(value)` for mutable map values; dereference returns a value,
+not a writable scalar reference. Nested object values expose their existing setters.
+Copies advance independently and retain their own span/limits, so temporary collection
+wrappers are safe while the underlying buffer remains alive and unchanged in layout.
+Nested field access still constructs a validated view. Refer to the view guide for
+parent accessors, union access, and complete examples.
 
 ## Verify and document the result
 
