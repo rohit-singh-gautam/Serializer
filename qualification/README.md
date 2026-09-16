@@ -45,6 +45,14 @@ prepares every work-budget boundary around a numeric array, partial-failure
 positions, truncation, input/allocation/collection/depth limits, cumulative
 budgets across repeated reads, and boolean/enum validation fallbacks.
 
+`json_whitespace_scan_test.cpp` prepares exhaustive whitespace classification,
+stop positions across vector boundaries, exact-size and unaligned inputs,
+scalar tails, generated/formatted JSON, invalid whitespace, and native
+JSON/ProtoJSON byte/work limits with exact failure cursors. The Protobuf test
+target adds nested ProtoJSON object/array/map gaps and transactional rejection
+of invalid whitespace. Include empty, compact, and heavily indented JSON when
+benchmarking; these cases have not been compiled or executed.
+
 When validation is authorized, run these and the existing generated-object,
 wire-format, view, and decoder-limit cases with SIMD enabled and disabled, with
 and without AVX2 available, and under address/undefined sanitizers. Verify both

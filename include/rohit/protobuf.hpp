@@ -1,7 +1,9 @@
 #pragma once
 
+#include <rohit/runtime_simd.hpp>
 #include <rohit/serializer.hpp>
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <charconv>
@@ -370,6 +372,18 @@ class protobuf_codec<serialize_type::in, Format> : public json<serialize_type::i
 
   // Skip legal whitespace and TextProto line comments within the message bounds.
   void whitespace() {
+    if constexpr (Format == protobuf_format::json) {
+      const auto bytes = available_input();
+      const auto size = std::min(bytes.size(), remaining());
+      const auto count =
+          detail::scan_json_prefix<detail::json_scan_kind::whitespace>(bytes.data(), size);
+      take(count);
+      // Exhausting a budget before the next byte must fail at the consumed cursor.
+      if (count == size && remaining() != 0) {
+        require_input(1);
+      }
+      return;
+    }
     while (remaining() != 0) {
       const auto byte = peek();
       if (base::is_whitespace(byte)) {

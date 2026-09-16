@@ -1,5 +1,16 @@
 # Migrating to the snake_case Serializer API
 
+## SIMD JSON whitespace scanning
+
+Rebuild `Serializer::serializer_lib` and consumers with matching updated runtime
+headers to accelerate long whitespace runs in native JSON and ProtoJSON input.
+Existing generated headers work without regeneration. The existing
+`SERIALIZER_ENABLE_SIMD` option controls the backends; disabled or unsupported
+builds retain scalar scanning. Accepted whitespace, wire bytes, budgets, and
+failure positions remain unchanged. See [whitespace scanning](docs/runtime_simd.md#simd-json-whitespace-scanning)
+for scope and prepared coverage. Builds, tests, sanitizers, and benchmarks remain
+deferred.
+
 ## Reused JSON string scan results
 
 Recompile consumers with the updated runtime headers to reuse JSON validation

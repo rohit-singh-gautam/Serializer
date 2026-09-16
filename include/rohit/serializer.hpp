@@ -670,7 +670,7 @@ protected:
 
   // Recognize only the whitespace permitted by JSON.
   static constexpr bool is_whitespace(std::uint8_t ch) noexcept {
-    return ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r';
+    return detail::json_plain_byte<detail::json_scan_kind::whitespace>(ch);
   }
 
   // Recognize the end of a scalar token without accepting a prefix of another token.
@@ -678,13 +678,11 @@ protected:
     return is_whitespace(ch) || ch == ',' || ch == ']' || ch == '}';
   }
 
-  // Advance a whole whitespace run with one cursor update.
+  // Scan a budget-bounded whitespace run with SIMD where available, then commit one cursor update.
   void skip_whitespace() {
     const auto bytes = available_input();
-    std::size_t size{};
-    while (size < bytes.size() && is_whitespace(bytes[size])) {
-      ++size;
-    }
+    const auto size =
+        detail::scan_json_prefix<detail::json_scan_kind::whitespace>(bytes.data(), bytes.size());
     read_bytes(size);
     if (size == bytes.size() && !in_stream.full()) {
       require_input(1);

@@ -36,18 +36,33 @@ std::size_t scan_native(const std::uint8_t* data, std::size_t size) noexcept {
 #if defined(SERIALIZER_RUNTIME_SSE2)
   constexpr auto block_bytes = sizeof(__m128i);
   static_assert(block_bytes == runtime_simd_bytes);
+  static_assert(block_bytes <= std::numeric_limits<std::uint32_t>::digits);
   while (size - offset >= block_bytes) {
     __m128i bytes{};
     std::memcpy(&bytes, data + offset, block_bytes);
-    // Unsigned saturation maps precisely 0x00..0x1f to zero, including with signed char.
-    const auto controls = _mm_cmpeq_epi8(
-        _mm_subs_epu8(bytes, _mm_set1_epi8(json_control_limit - 1)), _mm_setzero_si128());
-    auto special = _mm_or_si128(controls, _mm_or_si128(_mm_cmpeq_epi8(bytes, _mm_set1_epi8('"')),
-                                                       _mm_cmpeq_epi8(bytes, _mm_set1_epi8('\\'))));
-    if constexpr (Kind == json_scan_kind::ascii) {
-      special = _mm_or_si128(special, bytes);
+    std::uint32_t mask{};
+    if constexpr (Kind == json_scan_kind::whitespace) {
+      const auto whitespace =
+          _mm_or_si128(_mm_or_si128(_mm_cmpeq_epi8(bytes, _mm_set1_epi8(' ')),
+                                    _mm_cmpeq_epi8(bytes, _mm_set1_epi8('\t'))),
+                       _mm_or_si128(_mm_cmpeq_epi8(bytes, _mm_set1_epi8('\n')),
+                                    _mm_cmpeq_epi8(bytes, _mm_set1_epi8('\r'))));
+      // Invert only active lanes: upper movemask bits do not describe input bytes.
+      constexpr auto lane_mask = std::numeric_limits<std::uint32_t>::max() >>
+                                 (std::numeric_limits<std::uint32_t>::digits - block_bytes);
+      mask = static_cast<std::uint32_t>(_mm_movemask_epi8(whitespace)) ^ lane_mask;
+    } else {
+      // Unsigned saturation maps precisely 0x00..0x1f to zero, including with signed char.
+      const auto controls = _mm_cmpeq_epi8(
+          _mm_subs_epu8(bytes, _mm_set1_epi8(json_control_limit - 1)), _mm_setzero_si128());
+      auto special =
+          _mm_or_si128(controls, _mm_or_si128(_mm_cmpeq_epi8(bytes, _mm_set1_epi8('"')),
+                                              _mm_cmpeq_epi8(bytes, _mm_set1_epi8('\\'))));
+      if constexpr (Kind == json_scan_kind::ascii) {
+        special = _mm_or_si128(special, bytes);
+      }
+      mask = static_cast<std::uint32_t>(_mm_movemask_epi8(special));
     }
-    const auto mask = static_cast<std::uint32_t>(_mm_movemask_epi8(special));
     if (mask != 0) {
       return offset + static_cast<std::size_t>(std::countr_zero(mask));
     }
@@ -98,6 +113,9 @@ void swap_native(std::uint8_t* output, const std::uint8_t* input, std::size_t si
 // Select character rules once per span, outside the vector loop.
 std::size_t scan_json_baseline(const std::uint8_t* data, std::size_t size,
                                json_scan_kind kind) noexcept {
+  if (kind == json_scan_kind::whitespace) {
+    return scan_native<json_scan_kind::whitespace>(data, size);
+  }
   return kind == json_scan_kind::ascii ? scan_native<json_scan_kind::ascii>(data, size)
                                        : scan_native<json_scan_kind::unescaped>(data, size);
 }

@@ -3,6 +3,7 @@
 #include <array>
 #include <cstring>
 #include <immintrin.h>
+#include <limits>
 
 #if defined(_MSC_VER)
 #include <intrin.h>
@@ -26,19 +27,33 @@ std::size_t first_stop(std::uint32_t mask) noexcept {
 template <json_scan_kind Kind>
 std::size_t scan_vectors(const std::uint8_t* data, std::size_t size) noexcept {
   constexpr auto block_bytes = sizeof(__m256i);
+  static_assert(block_bytes <= std::numeric_limits<std::uint32_t>::digits);
   std::size_t offset{};
   while (size - offset >= block_bytes) {
     __m256i bytes{};
     std::memcpy(&bytes, data + offset, block_bytes);
-    const auto controls = _mm256_cmpeq_epi8(
-        _mm256_subs_epu8(bytes, _mm256_set1_epi8(json_control_limit - 1)), _mm256_setzero_si256());
-    auto special = _mm256_or_si256(
-        controls, _mm256_or_si256(_mm256_cmpeq_epi8(bytes, _mm256_set1_epi8('"')),
-                                  _mm256_cmpeq_epi8(bytes, _mm256_set1_epi8('\\'))));
-    if constexpr (Kind == json_scan_kind::ascii) {
-      special = _mm256_or_si256(special, bytes);
+    std::uint32_t mask{};
+    if constexpr (Kind == json_scan_kind::whitespace) {
+      const auto whitespace =
+          _mm256_or_si256(_mm256_or_si256(_mm256_cmpeq_epi8(bytes, _mm256_set1_epi8(' ')),
+                                          _mm256_cmpeq_epi8(bytes, _mm256_set1_epi8('\t'))),
+                          _mm256_or_si256(_mm256_cmpeq_epi8(bytes, _mm256_set1_epi8('\n')),
+                                          _mm256_cmpeq_epi8(bytes, _mm256_set1_epi8('\r'))));
+      constexpr auto lane_mask = std::numeric_limits<std::uint32_t>::max() >>
+                                 (std::numeric_limits<std::uint32_t>::digits - block_bytes);
+      mask = static_cast<std::uint32_t>(_mm256_movemask_epi8(whitespace)) ^ lane_mask;
+    } else {
+      const auto controls =
+          _mm256_cmpeq_epi8(_mm256_subs_epu8(bytes, _mm256_set1_epi8(json_control_limit - 1)),
+                            _mm256_setzero_si256());
+      auto special = _mm256_or_si256(
+          controls, _mm256_or_si256(_mm256_cmpeq_epi8(bytes, _mm256_set1_epi8('"')),
+                                    _mm256_cmpeq_epi8(bytes, _mm256_set1_epi8('\\'))));
+      if constexpr (Kind == json_scan_kind::ascii) {
+        special = _mm256_or_si256(special, bytes);
+      }
+      mask = static_cast<std::uint32_t>(_mm256_movemask_epi8(special));
     }
-    const auto mask = static_cast<std::uint32_t>(_mm256_movemask_epi8(special));
     if (mask != 0) {
       return offset + first_stop(mask);
     }
@@ -90,6 +105,9 @@ __attribute__((noinline))
 #endif
 std::size_t scan_json_avx2(const std::uint8_t* data, std::size_t size,
                            json_scan_kind kind) noexcept {
+  if (kind == json_scan_kind::whitespace) {
+    return scan_vectors<json_scan_kind::whitespace>(data, size);
+  }
   return kind == json_scan_kind::ascii ? scan_vectors<json_scan_kind::ascii>(data, size)
                                        : scan_vectors<json_scan_kind::unescaped>(data, size);
 }

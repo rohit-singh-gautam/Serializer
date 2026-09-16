@@ -11,6 +11,7 @@ add_executable(core_serializer_test
   schema_scan_test.cpp
   runtime_simd_test.cpp
   json_scan_reuse_test.cpp
+  json_whitespace_scan_test.cpp
   binary_array_decode_test.cpp
   nested_storage_reuse_test.cpp
   fixed_field_batch_test.cpp

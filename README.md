@@ -122,6 +122,10 @@ All C++ protocols use the shared runtime paths automatically:
   x64 CPUs. UTF-8 validation and escaping rules remain unchanged. Escaped strings
   write directly into reserved stream storage, with a source snapshot only when
   expanding output overlaps its input. JSON input uses the same bounded scanners.
+- Native JSON and ProtoJSON input scan long whitespace runs in SSE2/AVX2 blocks,
+  advancing and charging the consumed run once. Short gaps and tails stay scalar.
+  Only space, tab, line feed, and carriage return are accepted; input/work budgets
+  bound every scan. See [JSON whitespace scanning](docs/runtime_simd.md#simd-json-whitespace-scanning).
 - Positional, integer-key, and string-key binary output write eligible contiguous
   integer and floating-point arrays in one payload reservation. Matching byte
   order uses a bulk copy; differing byte order uses SIMD swaps with scalar tails.
@@ -141,7 +145,9 @@ ISA flags out of consumer code. `SERIALIZER_ENABLE_SIMD=OFF` disables the explic
 schema and runtime SIMD backends; bulk array reads/writes and direct JSON output remain.
 Short inputs and unsupported architectures use scalar fallbacks. No input/output
 padding is required. See [runtime SIMD details](docs/runtime_simd.md), including
-the prepared validation matrix. Builds, tests, and benchmarks remain deferred.
+the prepared validation matrix. Rebuild the runtime library and consumers to use
+the whitespace scanner; schema headers do not need regeneration. Builds, tests,
+and benchmarks remain deferred.
 
 ### Reusing destination storage
 

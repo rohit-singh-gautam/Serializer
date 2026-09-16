@@ -11,7 +11,8 @@ generated elsewhere.
 | Path | Implementation |
 | --- | --- |
 | Compact JSON and both formatted JSON modes | SIMD scans ordinary string spans; complete UTF-8 validation precedes writing. Quoted output is written directly after one reservation. |
-| JSON input | The same bounded scans accelerate string validation and copying between escapes. Unicode and escape validation remain scalar at special bytes. |
+| JSON input | Bounded scans accelerate string validation, copying between escapes, and whitespace runs. Unicode and escape validation remain scalar at special bytes. |
+| ProtoJSON input | Whitespace runs use the shared bounded scanner within message and decoder-budget limits. TextProto retains its separate whitespace/comment loop. |
 | Positional, integer-key, and string-key binary output | Eligible numeric arrays use one reservation for their payload after the count prefix. Matching-endian payloads use a bulk copy; opposite-endian payloads use SIMD byte swapping. |
 | Positional, integer-key, and string-key binary input | Eligible numeric arrays use a bulk copy or byte swap after validating the complete payload and resource budgets. The successful bulk path charges and advances the payload once. |
 | Nested objects, maps, and unions | Contained strings and arrays use the same protocol helpers. Traversal, field identifiers, ordering, and discriminators remain unchanged. |
@@ -27,6 +28,33 @@ element-wise encoding and decoding; nested numeric vectors still reach the bulk 
 JSON number formatting, individual scalar fields, and compact binary prefixes
 retain their scalar implementations. SIMD availability does not imply every
 operation benefits from vector instructions.
+
+## SIMD JSON whitespace scanning
+
+Native JSON and ProtoJSON readers recognize exactly four whitespace bytes outside
+strings: space (`0x20`), tab (`0x09`), line feed (`0x0a`), and carriage return (`0x0d`).
+The scanner stops at every other byte, including vertical tab, form feed, NUL,
+and non-ASCII bytes. It changes neither whitespace grammar nor string contents.
+
+An inline scalar probe examines up to eight bytes, so the usual zero-/one-byte
+gaps avoid backend dispatch. If the prefix is all whitespace and enough input
+remains, the existing CPU-selected backend compares 16 bytes with SSE2 or 32 bytes
+with AVX2 per block. A bit mask locates the first non-whitespace byte. Incomplete
+blocks use the baseline/scalar tail; no padding or aligned input is required.
+
+Each scan is bounded by the physical input and remaining input/work budgets;
+ProtoJSON also respects the current message boundary. The reader advances and
+charges the resulting whitespace run once. Reaching a budget before the next
+byte retains the existing resource-limit failure and consumed cursor position.
+No temporary allocation or input mutation is needed. Calls at object, array,
+and field boundaries, plus trailing whitespace in `finish()`, use this path.
+
+Rebuild `Serializer::serializer_lib` and consumers with matching updated runtime
+headers. Existing generated headers use the scanner automatically; no schema
+regeneration, keyword, or new option is required. `SERIALIZER_ENABLE_SIMD=OFF`
+and unsupported architectures use the same bounded scalar grammar. JSON output,
+TextProto's separate whitespace/comment parser, binary codecs, and Java are unchanged.
+Whitespace-heavy input is the intended workload; no measured speedup is claimed.
 
 ## Reusing JSON string scan results
 
@@ -93,6 +121,12 @@ and an independent JSON escaping reference, plus byte-classification, exact-size
 buffers, unaligned starts, scalar/vector tails, Unicode failures, overlapping
 sources, and reservation-count checks. Existing generated-object and view tests
 remain part of the validation matrix.
+`test/json_whitespace_scan_test.cpp` prepares all-byte classification at multiple
+stop positions, exact-size and unaligned ranges, empty input, vector tails,
+generated JSON with long gaps, formatted-output round trips, invalid whitespace,
+and native JSON/ProtoJSON input/work budget boundaries and failure cursors.
+`test/protobuf_codec_test.cpp` adds long gaps around nested ProtoJSON objects,
+arrays, and maps, plus invalid-whitespace checks that preserve the destination.
 Binary arrays are decoded from scalar-encoded, exact-size input at multiple byte
 offsets into reused storage. `test/binary_array_decode_test.cpp` covers work-budget
 boundaries and partial results, truncated payloads, input/allocation/collection/depth

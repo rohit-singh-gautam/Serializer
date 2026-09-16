@@ -5,17 +5,22 @@
 
 namespace rohit::serializer::detail {
 
-enum class json_scan_kind { ascii, unescaped };
+enum class json_scan_kind { ascii, unescaped, whitespace };
 inline constexpr std::size_t runtime_probe_bytes = 8;
 inline constexpr std::size_t runtime_simd_bytes = 16;
 inline constexpr std::uint8_t json_control_limit = 0x20;
 inline constexpr std::uint8_t json_ascii_limit = 0x80;
 
-// ASCII scans stop for UTF-8 validation; escape scans also accept already validated UTF-8 bytes.
+// Match one byte using the selected string rules or JSON's four whitespace characters.
 template <json_scan_kind Kind>
 constexpr bool json_plain_byte(std::uint8_t value) noexcept {
-  return value >= json_control_limit && value != '"' && value != '\\' &&
-         (Kind == json_scan_kind::unescaped || value < json_ascii_limit);
+  if constexpr (Kind == json_scan_kind::whitespace) {
+    return value == ' ' || value == '\t' || value == '\n' || value == '\r';
+  } else {
+    // ASCII scans stop for UTF-8 validation; escape scans accept already validated UTF-8 bytes.
+    return value >= json_control_limit && value != '"' && value != '\\' &&
+           (Kind == json_scan_kind::unescaped || value < json_ascii_limit);
+  }
 }
 
 // Read only the supplied range; null is permitted for an empty input.
@@ -36,7 +41,7 @@ std::size_t scan_json_baseline(const std::uint8_t* data, std::size_t size,
 std::size_t scan_json_long(const std::uint8_t* data, std::size_t size,
                            json_scan_kind kind) noexcept;
 
-// Keep short strings and adjacent escapes out of runtime dispatch.
+// Keep short strings, adjacent escapes, and ordinary small whitespace gaps out of runtime dispatch.
 template <json_scan_kind Kind>
 std::size_t scan_json_prefix(const std::uint8_t* data, std::size_t size) noexcept {
   const auto probe = size < runtime_probe_bytes ? size : runtime_probe_bytes;

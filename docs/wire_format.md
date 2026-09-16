@@ -141,6 +141,13 @@ See [views.md](views.md) for API, lifetime, visibility, and nested-mode details.
 
 ## JSON representation
 
+Outside strings, JSON whitespace consists only of space (`0x20`), tab (`0x09`),
+line feed (`0x0a`), and carriage return (`0x0d`). C++ JSON and ProtoJSON readers
+use bounded SIMD scans for long runs, with scalar short gaps and tails. This
+requires no input padding and preserves input/work budgets and failure positions.
+See [whitespace scanning](runtime_simd.md#simd-json-whitespace-scanning) for scope
+and deferred verification. No additional whitespace characters are accepted.
+
 Strings and names are UTF-8. Output escapes quotes, backslashes, and all control
 characters. Input decodes the JSON escapes and surrogate pairs and rejects invalid
 UTF-8, unpaired surrogates, and unescaped controls. Ordinary unescaped names are

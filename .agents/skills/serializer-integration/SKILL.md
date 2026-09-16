@@ -120,6 +120,12 @@ to `OFF` before adding the source dependency when explicit SIMD must be disabled
 Installed generators/libraries retain their build-time choice. Runtime helpers
 accelerate compact/formatted JSON strings and C++ fixed-width binary numeric arrays
 on input and output in every key mode; matching-endian arrays and binary views use bulk copies.
+Native JSON and ProtoJSON also scan long whitespace runs with bounded SSE2/AVX2
+helpers, retaining scalar short gaps/tails and exactly space, tab, LF, and CR.
+Input/work budgets and ProtoJSON message bounds constrain scanning; consumed bytes
+are charged once per run with existing failure positions. Rebuild the runtime
+library and consumers with matching headers; no schema regeneration is needed.
+See [JSON whitespace scanning](../../../docs/runtime_simd.md#simd-json-whitespace-scanning).
 Bulk array input validates the complete payload before destination changes and
 retains allocation, input, nesting, collection, and work limits. Work exhaustion
 uses the scalar path to preserve partial results and failure positions. Boolean

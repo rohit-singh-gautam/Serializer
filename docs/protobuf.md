@@ -76,6 +76,12 @@ resource budgets, not exact heap accounting. Keep the input buffer alive and
 independent of the destination. Decoder instances have one owner and share their
 budgets with every nested field.
 
+ProtoJSON uses the shared [SIMD whitespace scanner](runtime_simd.md#simd-json-whitespace-scanning)
+for long runs within message and input/work limits. Short gaps and tails remain
+scalar. TextProto retains its separate whitespace/comment parser. The focused
+whitespace tests are prepared; builds, execution, and performance measurements
+for this optimization remain deferred.
+
 Binary messages have no automatic outer size prefix or terminator. Applications
 must provide framing. Concatenating two binary encodings can form a valid merged
 message; `finish()` cannot infer where an application intended to split them.

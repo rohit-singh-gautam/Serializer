@@ -3,9 +3,13 @@
 #include <rohit/protobuf.hpp>
 #include <rohit/serializer_creator.hpp>
 
+#include <cstddef>
+#include <cstdint>
+#include <initializer_list>
 #include <limits>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 namespace codec = rohit::serializer;
@@ -91,6 +95,81 @@ TEST(protobuf_codec, protojson_rules) {
   EXPECT_NE(json.find("\"counts\":{\"x\":\"42\"}"), std::string::npos);
   EXPECT_THROW(decode<codec::protojson>(R"({"numbers":[null]})"), std::exception);
   EXPECT_THROW(decode<codec::protojson>(R"({"signedValue":1.5})"), std::exception);
+}
+
+// Decode long whitespace gaps between every token without changing quoted string contents.
+TEST(protobuf_codec, protojson_whitespace_runs) {
+  constexpr std::string_view tokens[] = {"{",
+                                         "\"signedValue\"",
+                                         ":",
+                                         "-42",
+                                         ",",
+                                         "\"displayName\"",
+                                         ":",
+                                         R"("keep  spaces\tand\nescapes")",
+                                         ",",
+                                         "\"numbers\"",
+                                         ":",
+                                         "[",
+                                         "1",
+                                         ",",
+                                         "-2",
+                                         ",",
+                                         "3",
+                                         "]",
+                                         ",",
+                                         "\"counts\"",
+                                         ":",
+                                         "{",
+                                         "\"x\"",
+                                         ":",
+                                         "\"42\"",
+                                         "}",
+                                         ",",
+                                         "\"nested\"",
+                                         ":",
+                                         "{",
+                                         "\"number\"",
+                                         ":",
+                                         "7",
+                                         ",",
+                                         "\"text\"",
+                                         ":",
+                                         "\"nested  text\"",
+                                         "}",
+                                         "}"};
+  constexpr std::string_view whitespace = " \t\r\n";
+  for (const std::size_t gap_size : {1u, 7u, 8u, 15u, 16u, 23u, 24u, 31u, 32u, 39u, 40u, 97u}) {
+    std::string gap(gap_size, ' ');
+    for (std::size_t index = 0; index < gap.size(); ++index) {
+      gap[index] = whitespace[index % whitespace.size()];
+    }
+    std::string wire = gap;
+    for (const auto token : tokens) {
+      wire += token;
+      wire += gap;
+    }
+    const auto copy = decode<codec::protojson>(wire);
+    EXPECT_EQ(copy.signed_value, -42);
+    EXPECT_EQ(copy.display_name, "keep  spaces\tand\nescapes");
+    EXPECT_EQ(copy.numbers, (std::vector<std::int32_t>{1, -2, 3}));
+    EXPECT_EQ(copy.counts.at("x"), 42);
+    EXPECT_EQ(copy.nested.number, 7);
+    EXPECT_EQ(copy.nested.text, "nested  text");
+  }
+}
+
+// Invalid whitespace after a valid field must still reject the replacement object.
+TEST(protobuf_codec, protojson_invalid_whitespace) {
+  const std::string gap(65, ' ');
+  for (const auto invalid : {"\v", "\f", "\xc2\xa0", "\xe2\x80\xa8", "# comment\n"}) {
+    const auto wire = "{\"signedValue\":1," + gap + invalid + "\"small\":2}";
+    const auto input = rohit::make_constant_stream(wire.data(), wire.size());
+    protobuf_test::record value{};
+    value.signed_value = 99;
+    EXPECT_THROW(value.serialize_in<codec::protojson>(input), codec::exception::bad_input_data);
+    EXPECT_EQ(value.signed_value, 99);
+  }
 }
 
 // Accept standard TextProto comments, list syntax, alternate braces, and escaped strings.

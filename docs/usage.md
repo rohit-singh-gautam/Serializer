@@ -18,9 +18,10 @@ The schema compiler enables bounded SIMD scanning on supported x64 builds, with
 scalar fallbacks. This is automatic and needs no additional schema keyword; see
 [schema-scanner configuration](cmake_integration.md#schema-scanner-configuration)
 for the `SERIALIZER_ENABLE_SIMD` source-build option.
-The same option also controls [runtime SIMD](runtime_simd.md): JSON string
-scanning and endian conversion of C++ binary numeric arrays on input and output
-across all key modes. Bulk decoding preserves resource limits and partial-failure behavior.
+The same option also controls [runtime SIMD](runtime_simd.md): JSON string and
+whitespace scanning, and endian conversion of C++ binary numeric arrays on input
+and output across all key modes. Bulk decoding preserves resource limits and
+partial-failure behavior.
 Link `Serializer::serializer_lib` even when using pre-generated headers.
 
 The examples below describe the current source API. They have been reviewed
@@ -471,6 +472,23 @@ charges, borrowed keys, destination reuse, overlapping/growing output, and custo
 reservation rejection. Existing runtime SIMD tests cover the shared helpers
 across JSON formatting modes. Builds, tests, sanitizer runs, and performance
 measurements remain deferred. No measured speedup is claimed.
+
+### SIMD JSON whitespace scanning
+
+Native JSON and ProtoJSON readers automatically scan long whitespace runs with
+the existing SSE2/AVX2 runtime backends. Short gaps and remaining tails stay scalar.
+For example, decoding a deeply indented object can skip its long indentation in
+blocks before parsing the next field. Spaces inside `"keep  these spaces"` remain
+string data and are handled by the string reader.
+
+Only JSON's space, tab, line feed, and carriage return count as whitespace.
+Scanning stays within the input and remaining decoder budgets, then charges and
+advances once per run. ProtoJSON also bounds scans by the current message. Rebuild
+the runtime library and consumers with matching headers; generated schema headers
+do not need regeneration. Use the existing `SERIALIZER_ENABLE_SIMD` build option
+to choose explicit SIMD or scalar scanning. No schema or application API change
+is needed. See [implementation and prepared coverage](runtime_simd.md#simd-json-whitespace-scanning).
+Builds, test execution, sanitizer runs, and benchmarks remain deferred.
 
 ## Agent-assisted integration
 
