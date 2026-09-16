@@ -35,6 +35,14 @@ to defer configuration, generation, or builds before executing these commands.
 
 ## VS Code configuration
 
+The optional [Serializer VS Code extension](editor_extension.md) adds schema
+highlighting and commands for the workflow below. After configuring CMake Tools,
+run **Serializer: Generate Headers**, **Serializer: Open Generated Header**, or
+**Serializer: Diagnose Missing Header**. The diagnostic command reads the active
+source target's paths and distinguishes absent generated files from missing
+runtime integration. It does not merge include paths across coding profiles.
+Set `serializer.headersTarget` to select one consumer's generation target.
+
 Install Microsoft C/C++ and CMake Tools. Open the application's CMake project
 root and configure its normal build with CMake Tools. Select **CMake Tools** as
 the C/C++ configuration provider. This can be a user-level setting, so it does
@@ -114,7 +122,8 @@ generator used by the Windows preset does not provide it. In either case, the
 real generated header must exist. See
 [CMake's compile-command export documentation](https://cmake.org/cmake/help/latest/variable/CMAKE_EXPORT_COMPILE_COMMANDS.html).
 
-**Validation status:** CMake configuration, header generation, compilation, and
-editor verification remain deferred for this change. The missing-header diagnostic
-will remain until generation succeeds and IntelliSense receives the matching
-CMake configuration.
+**Validation status:** the [extension smoke test](editor_extension.md#verification-performed)
+verified CMake configuration, header generation, header opening, and consumer
+compilation in an isolated Windows VS Code host. Live C/C++ IntelliSense reparsing
+and other platforms remain unverified. A missing-header diagnostic remains until
+generation succeeds and IntelliSense receives the matching CMake configuration.

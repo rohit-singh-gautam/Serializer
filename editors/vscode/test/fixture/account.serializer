@@ -1,0 +1,5 @@
+serializer version 1;
+
+class account stable_ids {
+  public uint32 id (1);
+}

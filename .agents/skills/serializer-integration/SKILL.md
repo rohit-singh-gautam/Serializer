@@ -33,6 +33,8 @@ there instead of relying on the relative links.
   language sections, coding profiles, naming, formatter configuration, and examples.
 - Use [docs/intellisense.md](../../../docs/intellisense.md) for generated include
   errors, editor configuration, and generating headers without compiling consumers.
+- Use [docs/editor_extension.md](../../../docs/editor_extension.md) for the optional
+  VS Code extension, local VSIX installation, and CMake header assistance.
 - Read [docs/wire_format.md](../../../docs/wire_format.md) when choosing protocols,
   limits, failure handling, or compatibility behavior.
 - Read [migration.md](../../../migration.md) when updating older headers or APIs.
@@ -138,10 +140,20 @@ For generation without compiling consumers, build `<target>_serializer_headers`
 or the aggregate `serializer_generated_headers` target. Configuration alone does
 not create headers. No custom VS Code task or Serializer editor extension is
 required, and `.vscode/*` remains ignored. Editor provider settings may be user-level.
+The optional extension in `editors/vscode` highlights `.serializer`, offers
+versioned snippets, and invokes the same targets through CMake Tools. Configure
+the consumer first, then use `Serializer: Generate Headers` or `Serializer:
+Diagnose Missing Header`. Set `serializer.headersTarget` for one consumer; keep
+profile include paths separate. Its IntelliSense command explicitly updates the
+selected folder's C/C++ provider. Generation saves dirty schema/INI/CMake inputs
+in that folder and requires workspace trust. It provides lexical editing and
+build assistance, not semantic schema diagnostics or a Visual Studio package.
 These targets still build the generator when needed and perform real generation:
 honor any instruction to defer configuration, generation, or builds. Install/package
 consumption has been smoke-tested on Windows for compiler 0.1.0, including versioned
-package discovery and both generation helpers; editor verification remains deferred.
+package discovery and both generation helpers. The extension's Windows VS Code
+host smoke test covers header generation, opening, and build failure handling;
+live C/C++ IntelliSense reparsing and other editor platforms remain unverified.
 
 Keep output settings in a generator INI config, with `[output] language = cpp`
 and a `[cpp]` section. Java uses its own section as described below. C++ `coding_standard` values

@@ -1,0 +1,27 @@
+{
+  "Schema": {
+    "prefix": "schema",
+    "body": ["serializer version 1;", "", "namespace ${1:models} {", "class ${2:account} stable_ids {", "  public uint32 ${3:id} (1);", "  $0", "}", "}"],
+    "description": "Create a versioned Serializer schema with explicit field IDs"
+  },
+  "Class": {
+    "prefix": "class",
+    "body": ["class ${1:record} stable_ids {", "  public ${2:uint32} ${3:id} (${4:1});", "  $0", "}"],
+    "description": "Declare a class with stable field IDs"
+  },
+  "Field": {
+    "prefix": "field",
+    "body": "public ${1:string} ${2:name} (${3:1});$0",
+    "description": "Declare a field; select an unused ID in this class"
+  },
+  "Enum": {
+    "prefix": "enum",
+    "body": ["enum ${1:status} {", "  ${2:pending},", "  ${3:complete}", "}"],
+    "description": "Declare enum alternatives"
+  },
+  "Namespace": {
+    "prefix": "namespace",
+    "body": ["namespace ${1:models} {", "  $0", "}"],
+    "description": "Declare a namespace"
+  }
+}

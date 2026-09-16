@@ -23,6 +23,9 @@ the deferred validation work.
 
 ## 1. Define a schema
 
+The optional [VS Code extension](editor_extension.md) supplies `.serializer`
+highlighting and a `schema` snippet with the required version header.
+
 Save this as `schemas/person.serializer` in your application:
 
 ```text

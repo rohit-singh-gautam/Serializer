@@ -1,0 +1,7 @@
+cmake_minimum_required(VERSION 3.28)
+project(serializer_extension_smoke LANGUAGES CXX)
+set(SERIALIZER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(SERIALIZER_INSTALL OFF CACHE BOOL "" FORCE)
+add_subdirectory("${SERIALIZER_SOURCE_DIR}" serializer)
+add_executable(smoke main.cpp)
+serializer_generate(TARGET smoke SCHEMAS account.serializer CONFIG output.ini)

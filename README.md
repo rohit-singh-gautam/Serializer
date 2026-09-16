@@ -15,6 +15,11 @@ headers before compiling against the updated API.
 **Getting started:** the [usage guide](docs/usage.md) covers schema authoring,
 automatic header generation with CMake, and decoding an exact message with limits.
 
+**VS Code:** the [Serializer extension](docs/editor_extension.md) highlights
+`.serializer` files, supplies snippets, and provides CMake header-generation,
+generated-header navigation, and missing-include assistance. Build a local VSIX
+from `editors/vscode`; Marketplace publication and Visual Studio support are pending.
+
 ## Integrate with a coding agent
 
 **Agent entry point: [Serializer integration skill](.agents/skills/serializer-integration/SKILL.md).**
@@ -205,9 +210,13 @@ cmake --build build --config Debug --target serializer_generated_headers
 
 No custom VS Code task or Serializer IntelliSense extension is required. See the
 [IntelliSense guide](docs/intellisense.md) for the repository presets and
-profile-specific includes. Source builds and installed-package generation have
+profile-specific includes. The optional [VS Code extension](docs/editor_extension.md)
+exposes the same build targets through commands and diagnoses missing includes.
+Source builds and installed-package generation have
 been checked on Windows; see [compiler verification](docs/command_line.md#verification).
-Editor verification remains deferred.
+The extension's Windows editor-host generation smoke test passed; see
+[extension verification](docs/editor_extension.md#verification-performed) for scope.
+Live C/C++ IntelliSense reparsing remains unverified.
 
 ## Language Construct
 
