@@ -7,7 +7,7 @@ compile-time protocol templates, for both encoding and decoding. See
 [Protobuf codecs](docs/protobuf.md) for generation, schema mappings, and limitations.
 Language-specific output profiles select layouts and naming conventions.
 Schemas use `.serializer` and begin with `serializer version 1;`.
-Run `serializer --version` for compiler version **0.1.0** and supported schema versions.
+Run `serializer --version` for compiler version **1.0.0** and supported schema versions.
 See [command-line options](docs/command_line.md) for multi-language generation and overrides.
 See [Java output](docs/java.md) for dependency-free Java 17+ codecs and
 [all examples](example/README.md) for self-contained example folders.

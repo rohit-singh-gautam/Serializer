@@ -7,7 +7,7 @@ The `serializer_generate` helper documented below remains C++-specific.
 Each helper explicitly selects its own backend, so both may share a configuration
 with `[output] language = cpp,java`. Schema paths use `.serializer`, and every
 schema starts with `serializer version 1;`. The installed package supports
-`find_package(Serializer 0.1.0 EXACT CONFIG REQUIRED)`; see
+`find_package(Serializer 1.0.0 EXACT CONFIG REQUIRED)`; see
 [compiler and schema versioning](command_line.md).
 
 Serializer ships a `serializer_generate` function with both its source tree and

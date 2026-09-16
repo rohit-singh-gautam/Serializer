@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.28)
 
-project(serializer VERSION 0.1.0 LANGUAGES CXX)
+project(serializer VERSION 1.0.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 configure_file(cmake/version.hpp.in generated/include/rohit/version.hpp @ONLY)
 

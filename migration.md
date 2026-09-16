@@ -85,7 +85,7 @@ Replace bare CLI keys with long options: `input` becomes `--input`, `output` bec
 The CMake helpers already use the updated interface. For both languages, pass
 `--language cpp,java --cpp.output account.hpp --java.output AccountSchema.java`.
 Each backend's settings can be overridden independently on the command line.
-`serializer --version` reports compiler release 0.1.0 and schema language version 1.
+`serializer --version` reports compiler release 1.0.0 and schema language version 1.
 These are separate version domains; neither changes wire bytes. See
 [the complete CLI contract](docs/command_line.md).
 

@@ -52,7 +52,7 @@ feature as a prerequisite without the user's request.
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
   remains available through `parser::parse(input)`. Schema language version 1 is
-  independent of compiler release 0.1.0 and wire protocols. Use `serializer --version`
+  independent of compiler release 1.0.0 and wire protocols. Use `serializer --version`
   to inspect both; see [CLI and versioning](../../../docs/command_line.md).
 - Use `class`, `enum`, and `namespace`. Every member needs an explicit access
   modifier and a trailing semicolon. Classes/enums have no trailing semicolon.
