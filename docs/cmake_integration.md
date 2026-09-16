@@ -22,6 +22,25 @@ generation rules. On a fresh build, tests and all C++ style examples are enabled
 GoogleTest and clang-format 19+ must be available. `all` configures and builds,
 `test` also runs CTest, and `configure` stops after configuration.
 
+| Requirement | When it is needed |
+| --- | --- |
+| CMake 3.28+ | Every source build; CTest is included with CMake. |
+| C++20 compiler and standard library | Library, schema compiler, and C++ consumers; the selected compiler must support the target architecture. |
+| Native build tool | GNU Make for `make all`; Ninja for the Linux presets; MSBuild/Visual Studio C++ tools or another configured generator on Windows. |
+| PowerShell | Windows `make.ps1` wrapper. |
+| Git, HTTPS certificates, curl, zip, unzip, tar | Obtaining sources and bootstrapping/downloading vcpkg dependencies; the Linux setup installs these tools. |
+| GoogleTest CMake package | `SERIALIZER_BUILD_TESTS=ON`; supplied by this checkout's vcpkg manifest or an existing installation. |
+| clang-format 19+ | Generated C++ tests, style examples, benchmarks, fuzzers, and consumer generation with formatting enabled. |
+| JDK 17+ (`java` and `javac`) | `SERIALIZER_BUILD_JAVA_EXAMPLES=ON`; Java source generation itself requires no JDK. |
+| Official Protobuf library and `protoc` | `SERIALIZER_BUILD_TESTS=ON` together with `SERIALIZER_BUILD_PROTOBUF_INTEROP_TESTS=ON`; Serializer's own Protobuf codecs do not require them. |
+| Clang with libFuzzer, AddressSanitizer, and UndefinedBehaviorSanitizer | `SERIALIZER_BUILD_FUZZERS=ON`; the fuzz target rejects MSVC mode. |
+
+`setup.sh` installs the default Linux build tools and bootstraps vcpkg; it does
+not install optional Java, Protobuf interoperability, or fuzzing dependencies.
+Distribution package names alone do not guarantee the required versions: check
+`cmake --version` and use a C++20-capable compiler/standard library. Set
+`VCPKG_ROOT` in the shell running Make after setup, as recorded in `~/.bashrc`.
+
 ```sh
 make all
 make test CONFIG=Debug JOBS=8
@@ -49,6 +68,79 @@ paths, compiler/generator selection, or optional Java/benchmark/fuzzer settings.
 Use separate build directories when changing compilers, architectures, or
 toolchains. Existing cache options are retained unless explicitly overridden.
 Every wrapper stops on a failed configure, build, or test command.
+
+### Formatter setup
+
+The default build generates C++ test and example headers, so it requires a
+runnable clang-format 19 or newer. A successful vcpkg GoogleTest installation
+does not supply this host tool, and installing Clang alone may omit it.
+On Ubuntu/Debian releases providing the package:
+
+```sh
+sudo apt install clang-format-19
+make all
+```
+
+On Windows, install LLVM or Visual Studio's C++ Clang tools with clang-format
+19 or newer, then rerun `./make.ps1 all`. CMake searches versioned executables on
+`PATH` and the standard Windows LLVM/Visual Studio locations. A previous
+not-found result does not require deleting the build directory; rerunning
+configuration searches again.
+
+For an installation outside those locations, pass the executable explicitly:
+
+```sh
+make all CMAKE_ARGS='-DSERIALIZER_CLANG_FORMAT_EXECUTABLE=/path/to/clang-format'
+```
+
+```powershell
+./make.ps1 all -CMakeArgs '-DSERIALIZER_CLANG_FORMAT_EXECUTABLE=C:/Tools/LLVM/bin/clang-format.exe'
+```
+
+CMake caches the selected path for subsequent builds. If a cached explicit path
+is no longer valid, replace it with the new path. For a compiler/library-only
+build without generated tests/examples, use the separate minimal build shown
+above; keep tests enabled when intending to run `make test` or `./make.ps1 test`.
+
+### vcpkg package builds
+
+A port builds the library and schema compiler directly through CMake; it does
+not run `setup.sh` or the repository's Make/PowerShell wrappers. Follow vcpkg's
+[maintainer guidance](https://learn.microsoft.com/en-us/vcpkg/contributing/maintainer-guide#do-not-build-testsdocsexamples-by-default)
+and explicitly disable development targets:
+
+```cmake
+vcpkg_cmake_configure(
+  SOURCE_PATH "${SOURCE_PATH}"
+  OPTIONS
+    -DSERIALIZER_BUILD_TESTS=OFF
+    -DSERIALIZER_BUILD_PROTOBUF_INTEROP_TESTS=OFF
+    -DSERIALIZER_BUILD_STYLE_EXAMPLES=OFF
+    -DSERIALIZER_BUILD_JAVA_EXAMPLES=OFF
+    -DSERIALIZER_BUILD_BENCHMARKS=OFF
+    -DSERIALIZER_BUILD_FUZZERS=OFF
+    -DSERIALIZER_INSTALL=ON
+)
+```
+
+This configuration needs no GoogleTest, clang-format, JDK, Protobuf runtime, or
+sanitizer libraries. Declare `vcpkg-cmake` and `vcpkg-cmake-config` as host
+dependencies when using their helpers; vcpkg manages its CMake/Ninja tooling,
+while the CI host supplies the compiler and platform SDK. Keep download hashes,
+patches, CMake package/tool relocation, copyright installation, and version
+database entries consistent in the port repository.
+
+Installing the package is separate from running its schema compiler. C++
+generation still requires a host clang-format when formatting is enabled; pass
+`CLANG_FORMAT` to `serializer_generate`, configure the CLI formatter path, or
+explicitly select `format = false` for a separate formatting pipeline. Cross
+compilation also requires a host-runnable Serializer through `GENERATOR`;
+the target package's executable may be unable to run on the build host.
+
+Package verification must cover the advertised platforms and linkage modes.
+Windows shared-library builds require exported symbols; the current source has
+no DLL export annotations, so a Windows port must select static library linkage.
+Linux package checks do not establish macOS, Android, or ARM compatibility.
 
 ## Use a source dependency
 

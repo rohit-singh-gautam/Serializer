@@ -324,5 +324,6 @@ TEST(runtime_simd, transformed_append_rejects_invalid_sizes) {
   EXPECT_FALSE(invoked);
   EXPECT_EQ(output.current_offset(), 0);
   // An inaccurate allocation hint must not become an unchecked destination bound.
-  EXPECT_EQ(simd::escape_json_string("\n", 0), "\\u000a");
+  const std::string text{"\n"};
+  EXPECT_EQ(simd::escape_json_string(text, 0), "\\u000a");
 }

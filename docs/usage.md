@@ -13,6 +13,8 @@ Serializer compiles a schema into a C++ header, then reads or writes generated
 objects through JSON or binary protocols. Use a C++20-or-newer compiler and
 standard library; the CMake project requires CMake 3.28 or newer. Header generation
 uses clang-format 19+ by default. Applications using existing headers do not need it.
+When building this repository's tests/examples with `make all` or `./make.ps1 all`,
+install that host tool first; see [formatter setup](cmake_integration.md#formatter-setup).
 
 The schema compiler enables bounded SIMD scanning on supported x64 builds, with
 scalar fallbacks. This is automatic and needs no additional schema keyword; see

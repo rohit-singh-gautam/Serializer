@@ -19,7 +19,12 @@ template <template <codec::serialize_type> class Protocol, typename T>
 std::string encode(const T& value) {
   rohit::full_stream_auto_alloc stream;
   value.template serialize_out<Protocol>(stream);
-  return {reinterpret_cast<const char*>(stream.begin()), stream.current_offset()};
+  const auto encoded_size = stream.current_offset();
+  // Empty Protobuf messages leave the lazily allocated stream without storage.
+  if (encoded_size == 0) {
+    return {};
+  }
+  return {reinterpret_cast<const char*>(stream.begin()), encoded_size};
 }
 
 // Decode an exact message through generated direct field dispatch.

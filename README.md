@@ -77,6 +77,15 @@ do not install a compiler or clang-format. Java, benchmarks, and fuzzers remain
 opt-in. See [build wrapper options](docs/cmake_integration.md#build-this-repository)
 for build directories, configurations, and additional CMake settings.
 
+If configuration reports a missing clang-format, install version 19 or newer and
+rerun `make all`. On Ubuntu/Debian with that package available, use
+`sudo apt install clang-format-19`. Installing Clang alone does not necessarily
+install clang-format. See [formatter setup](docs/cmake_integration.md#formatter-setup)
+for Windows and custom installation paths.
+The [build requirements](docs/cmake_integration.md#build-this-repository) distinguish
+default and optional tools; [vcpkg package builds](docs/cmake_integration.md#vcpkg-package-builds)
+disable development targets and do not require their dependencies.
+
 The equivalent direct CMake commands are:
 
 ```sh

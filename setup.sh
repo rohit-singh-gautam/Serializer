@@ -4,7 +4,9 @@ CURRENTDIR=$(pwd)
 
 sudo apt update
 sudo apt upgrade
-sudo apt install g++ cmake gdb pkg-config autoconf generate-ninja ninja-build curl zip unzip tar
+# Generated C++ tests and examples require clang-format 19 or newer.
+sudo apt install g++ cmake make gdb git ca-certificates pkg-config autoconf ninja-build \
+  clang-format-19 curl zip unzip tar
 
 cd ~/
 git clone https://github.com/microsoft/vcpkg.git

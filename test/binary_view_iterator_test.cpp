@@ -199,7 +199,10 @@ TEST(binary_view_iterator, fixed_and_mixed_map_entries) {
 
 // Empty, singleton, and zero-byte object entries must use element counts to distinguish positions.
 TEST(binary_view_iterator, empty_and_zero_byte_elements_have_correct_end_positions) {
-  const std::array<std::uint8_t, 1> empty{0};
+  // Use stream storage while exposing only the one-byte count, never spare capacity.
+  rohit::full_stream_auto_alloc empty_storage{};
+  empty_storage.append(std::uint8_t{0});
+  const std::span<const std::uint8_t> empty{empty_storage.begin(), empty_storage.current_offset()};
   auto array = map_collection<view::array_view_codec<string_codec>>(std::span{empty});
   auto map = map_collection<view::map_view_codec<uint_codec, uint_codec>>(std::span{empty});
   EXPECT_EQ(array.begin(), array.end());
@@ -210,7 +213,9 @@ TEST(binary_view_iterator, empty_and_zero_byte_elements_have_correct_end_positio
   EXPECT_EQ(end, array.end());
   EXPECT_EQ(decltype(end){}, decltype(end){});
 
-  const std::array<std::uint8_t, 1> objects{3};
+  rohit::full_stream_auto_alloc object_storage{};
+  object_storage.append(std::uint8_t{3});
+  const std::span<const std::uint8_t> objects{object_storage.begin(), object_storage.current_offset()};
   using object_codec = view::array_view_codec<view::object_view_codec<view_test::empty>>;
   auto entries = map_collection<object_codec>(std::span{objects});
   auto iterator = entries.begin();

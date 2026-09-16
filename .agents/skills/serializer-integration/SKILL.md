@@ -123,6 +123,24 @@ GoogleTest, and clang-format dependencies as direct CMake; Java, benchmarks, and
 fuzzers remain opt-in. See [wrapper options](../../../docs/cmake_integration.md#build-this-repository)
 for configurations, separate build directories, and CMake overrides.
 
+If the default build reports missing clang-format, install a host clang-format
+19+ and rerun configuration; vcpkg's GoogleTest dependency does not supply it.
+On Ubuntu/Debian with the package available, use `sudo apt install clang-format-19`.
+For other installation paths, pass `-DSERIALIZER_CLANG_FORMAT_EXECUTABLE=...`
+through `CMAKE_ARGS` or PowerShell's `-CMakeArgs`. Do not disable tests merely to
+hide a missing formatter when a full build is requested. See
+[formatter setup](../../../docs/cmake_integration.md#formatter-setup).
+
+For dependency or vcpkg CI checks, review the complete
+[build requirements](../../../docs/cmake_integration.md#build-this-repository)
+and the actual port's options and host dependencies. Package builds should disable
+all development targets; they then need no GoogleTest, formatter, JDK, Protobuf
+runtime, or sanitizers. Consumer schema generation has separate host-tool needs,
+especially when cross-compiling. See
+[vcpkg package builds](../../../docs/cmake_integration.md#vcpkg-package-builds)
+for configuration, installation checks, and Windows static linkage. Do not infer
+other platforms' verification from a successful local package build.
+
 Use a revision with the explicit stream-offset return type, warning-clean pointer
 accessors, and native-width identifier hash seed for GCC, Clang, and 32-bit MSVC
 builds. Regenerate LLVM-profile headers after the storage-donor naming fix; only
