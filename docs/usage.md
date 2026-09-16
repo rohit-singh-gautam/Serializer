@@ -13,7 +13,8 @@ scalar fallbacks. This is automatic and needs no additional schema keyword; see
 [schema-scanner configuration](cmake_integration.md#schema-scanner-configuration)
 for the `SERIALIZER_ENABLE_SIMD` source-build option.
 The same option also controls [runtime SIMD](runtime_simd.md): JSON string
-scanning and endian conversion of binary numeric arrays across all key modes.
+scanning and endian conversion of C++ binary numeric arrays on input and output
+across all key modes. Bulk decoding preserves resource limits and partial-failure behavior.
 Link `Serializer::serializer_lib` even when using pre-generated headers.
 
 The examples below describe the current source API. They have been reviewed

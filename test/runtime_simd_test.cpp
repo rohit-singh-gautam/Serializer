@@ -76,19 +76,27 @@ void compare_binary_array(const std::vector<Value>& values) {
                 rohit::detail::endian_floating_point<Value>) {
     EXPECT_EQ(output.reservations, values.empty() ? 1u : 2u);
   }
-  const auto input = rohit::make_constant_full_stream(output.begin(), output.current_offset());
-  codec::binary<codec::serialize_type::in, Keys, Endian> decoder{input};
-  std::vector<Value> decoded;
-  decoder.serialize_in(decoded);
-  decoder.finish();
-  ASSERT_EQ(decoded.size(), values.size());
-  if constexpr (rohit::detail::endian_integer<Value> ||
-                rohit::detail::endian_floating_point<Value>) {
-    if (!values.empty()) {
-      EXPECT_EQ(std::memcmp(decoded.data(), values.data(), values.size() * sizeof(Value)), 0);
+  // Decode independently encoded scalars from unpadded, possibly unaligned storage.
+  for (const std::size_t offset : {0u, 1u, 7u}) {
+    const auto size = reference.current_offset();
+    auto storage = std::make_unique<std::uint8_t[]>(offset + size);
+    std::memcpy(storage.get() + offset, reference.begin(), size);
+    const auto input = rohit::make_constant_full_stream(storage.get() + offset, size);
+    codec::binary<codec::serialize_type::in, Keys, Endian> decoder{input};
+    std::vector<Value> decoded(values.size() + 1);
+    const auto capacity = decoded.capacity();
+    decoder.serialize_in(decoded);
+    decoder.finish();
+    ASSERT_EQ(decoded.size(), values.size());
+    EXPECT_EQ(decoded.capacity(), capacity);
+    if constexpr (rohit::detail::endian_integer<Value> ||
+                  rohit::detail::endian_floating_point<Value>) {
+      if (!values.empty()) {
+        EXPECT_EQ(std::memcmp(decoded.data(), values.data(), values.size() * sizeof(Value)), 0);
+      }
+    } else {
+      EXPECT_EQ(decoded, values);
     }
-  } else {
-    EXPECT_EQ(decoded, values);
   }
 }
 

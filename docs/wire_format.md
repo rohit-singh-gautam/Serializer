@@ -34,7 +34,7 @@ and protocol. Values are emitted field by field into the output stream.
 | Map | Compact entry count followed by each key and value; output follows `std::map` order |
 | Numeric enum | Compact nonnegative underlying value; generated enum input/output rejects undeclared values |
 
-Runtime SIMD and bulk array writes preserve these exact representations. Eligible
+Runtime SIMD and bulk array reads/writes preserve these exact representations. Eligible
 fixed-width numeric arrays are copied or byte-swapped in blocks after the same
 compact count prefix; JSON string scanning preserves validation and escaping.
 SIMD introduces no padding, alignment, flags, or protocol marker. See
@@ -146,7 +146,8 @@ compression codec. No binary compression or new framing layer is introduced.
 ## Replacement and failure behavior
 
 - Strings, vectors, and maps replace their previous contents. String/vector
-  capacity is reused. Vectors append moved decoded temporaries after clearing.
+  capacity is reused. Eligible C++ binary numeric vectors clear and resize before
+  a bulk copy or byte swap; other vector paths append decoded temporaries after clearing.
   Maps retain ordered semantics; duplicate keys keep the last complete entry.
 - Generated objects update fields in input order. Missing fields retain their
   destination values, so fresh construction supplies schema defaults. Duplicate
@@ -186,6 +187,9 @@ Construct a new decoder to start a new message budget.
 
 Work units cover consumed bytes, decoded values, aggregate entries, and declared
 binary collection slots; they are a deterministic work bound, not CPU cycles.
+Bulk binary-array decoding retains every scalar-path charge. When the work budget
+would run out during an array, the scalar loop preserves its partial result and
+failure position; complete payload checks still precede destination changes.
 Storage accounting covers decoded strings, vector element storage (including
 requested JSON growth slack), and map values plus a node-link allowance. It is
 charged even for logical storage that reuses existing capacity. It is not an

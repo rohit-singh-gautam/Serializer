@@ -61,7 +61,7 @@ Set `SERIALIZER_ENABLE_SIMD=OFF` in the CMake cache before adding Serializer to
 disable its explicit SIMD backends. Installed generators and runtime libraries
 retain the choice made when they were built; `serializer_generate` does not change it.
 Applications using pre-generated headers also link `Serializer::serializer_lib`
-for the shared runtime helpers. Bulk writes remain enabled when SIMD is disabled.
+for the shared runtime helpers. Bulk array reads/writes remain enabled when SIMD is disabled.
 This is separate from output coding profiles and requires no schema syntax
 changes. See the
 [README](../README.md#simd-in-the-schema-compiler) for scope and validation status.

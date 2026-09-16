@@ -91,6 +91,12 @@ protected:
     return in_stream.get_curr_and_increase_unchecked(size);
   }
 
+  // Check a batch's byte and value work without overflow or committing any charges.
+  bool has_work_budget(std::size_t byte_count, std::size_t value_count) const noexcept {
+    const auto remaining_work = limits.max_work_units - work_units;
+    return byte_count <= remaining_work && value_count <= remaining_work - byte_count;
+  }
+
   // Charge operations that may consume no bytes, such as empty positional objects.
   void charge_work(std::size_t count = 1) {
     if (count > limits.max_work_units - work_units) {

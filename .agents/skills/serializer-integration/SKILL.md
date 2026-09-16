@@ -116,11 +116,15 @@ Supported x64 builds use SSE2 and select isolated AVX2 backends after CPU/OS che
 short spans and other architectures retain scalar processing. Set this CMake option
 to `OFF` before adding the source dependency when explicit SIMD must be disabled.
 Installed generators/libraries retain their build-time choice. Runtime helpers
-accelerate compact/formatted JSON strings and fixed-width binary numeric arrays
-in every key mode; matching-endian arrays and binary views use bulk copies.
+accelerate compact/formatted JSON strings and C++ fixed-width binary numeric arrays
+on input and output in every key mode; matching-endian arrays and binary views use bulk copies.
+Bulk array input validates the complete payload before destination changes and
+retains allocation, input, nesting, collection, and work limits. Work exhaustion
+uses the scalar path to preserve partial results and failure positions. Boolean
+and enum arrays retain per-element validation. Input must not overlap decoded storage.
 Keep scalar handling for single values, variable-length values, and view setters.
 Link `Serializer::serializer_lib` for pre-generated headers too. Disabling SIMD
-retains bulk array writes and direct JSON escaping. See
+retains bulk array reads/writes and direct JSON escaping. See
 [runtime SIMD](../../../docs/runtime_simd.md) for scope, aliasing, and limitations.
 Wire bytes and schema syntax stay unchanged; do not add a `simd` keyword or promise
 a measured speedup. SIMD builds, boundary tests, and benchmarks remain deferred.

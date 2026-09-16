@@ -101,7 +101,7 @@ comparisons remain deferred; no measured speedup is claimed.
 
 ### SIMD in runtime serialization
 
-All output protocols use the shared runtime paths automatically:
+All C++ protocols use the shared runtime paths automatically:
 
 - Compact and formatted JSON scan ordinary string spans with SSE2/AVX2 on supported
   x64 CPUs. UTF-8 validation and escaping rules remain unchanged. Escaped strings
@@ -111,16 +111,19 @@ All output protocols use the shared runtime paths automatically:
   integer and floating-point arrays in one payload reservation. Matching byte
   order uses a bulk copy; differing byte order uses SIMD swaps with scalar tails.
   The count prefix, keys, scalar bits, and wire bytes are unchanged.
+- Binary input bulk-decodes the same numeric arrays after checking the complete
+  payload and resource budgets. Matching byte order uses a copy; differing byte
+  order uses SIMD swaps. Work charges and partial results on failure are preserved.
 - Nested objects, maps, and unions use these paths for their contained strings
   and arrays. Individual scalars, compact integers, enums, and packed boolean
-  vectors retain their existing encoding. JSON numeric formatting still uses
+  vectors retain their existing scalar handling. JSON numeric formatting still uses
   scalar conversion. Binary views already copy their encoded bytes in bulk;
   individual view setters retain scalar updates.
 
 Link consumers to `Serializer::serializer_lib`, including users of pre-generated
 headers. CPU dispatch and vector instructions live in compiled helpers, keeping
 ISA flags out of consumer code. `SERIALIZER_ENABLE_SIMD=OFF` disables the explicit
-schema and runtime SIMD backends; bulk writes and direct JSON output remain.
+schema and runtime SIMD backends; bulk array reads/writes and direct JSON output remain.
 Short inputs and unsupported architectures use scalar fallbacks. No input/output
 padding is required. See [runtime SIMD details](docs/runtime_simd.md), including
 the prepared validation matrix. Builds, tests, and benchmarks remain deferred.

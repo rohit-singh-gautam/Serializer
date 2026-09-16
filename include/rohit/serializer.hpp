@@ -68,6 +68,12 @@ static_assert((variable_tag_mask & variable_payload_mask) == 0);
 } // namespace constants
 
 namespace detail {
+// Only padding-free fixed-width scalars can share bulk binary input/output paths.
+template <typename T>
+concept binary_array_scalar =
+    (rohit::detail::endian_integer<T> || rohit::detail::endian_floating_point<T>) &&
+    (sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4 || sizeof(T) == 8);
+
 // Use a fixed-width hash for generated lookup groups, followed by exact name equality.
 constexpr std::uint64_t field_name_hash(std::string_view name) noexcept {
   constexpr std::uint64_t hash_seed = 100000000003ULL;
@@ -1179,6 +1185,29 @@ public:
       }
       value.clear();
       value.reserve(count);
+      if constexpr (detail::binary_array_scalar<value_type>) {
+        static_assert(std::endian::native == std::endian::little ||
+                          std::endian::native == std::endian::big,
+                      "Mixed-endian scalars are unsupported");
+        // The range check above proves multiplication safe before storage is allocated.
+        const auto bytes = static_cast<std::size_t>(count) * sizeof(value_type);
+        if (has_work_budget(bytes, count)) {
+          // Establish live elements before writing their representations. Empty arrays need no copy.
+          value.resize(count);
+          if (count != 0) {
+            charge_work(count);
+            const auto* source = read_bytes(bytes);
+            if constexpr (sizeof(value_type) == 1 || WireEndian == std::endian::native) {
+              std::memcpy(value.data(), source, bytes);
+            } else {
+              detail::copy_swapped(reinterpret_cast<std::uint8_t*>(value.data()), source,
+                                   bytes, sizeof(value_type));
+            }
+          }
+          return;
+        }
+        // Preserve the scalar decoder's partial result, cursor, and charges on work exhaustion.
+      }
       for (std::size_t index = 0; index < count; ++index) {
         value_type element{};
         serialize_in(element);
@@ -1408,10 +1437,7 @@ public:
     } else if constexpr (type_check::vector<T>) {
       serialize_out_variable(value.size());
       using element_type = typename T::value_type;
-      if constexpr ((rohit::detail::endian_integer<element_type> ||
-                     rohit::detail::endian_floating_point<element_type>) &&
-                    (sizeof(element_type) == 1 || sizeof(element_type) == 2 ||
-                     sizeof(element_type) == 4 || sizeof(element_type) == 8)) {
+      if constexpr (detail::binary_array_scalar<element_type>) {
         static_assert(std::endian::native == std::endian::little ||
                           std::endian::native == std::endian::big,
                       "Mixed-endian scalars are unsupported");

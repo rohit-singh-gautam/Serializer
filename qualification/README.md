@@ -39,6 +39,11 @@ reference comparisons for numeric arrays in all three binary key modes and both
 byte orders. JSON cases cover compact and formatted output, controls/UTF-8, direct
 escaping, source aliasing across growth, capacity failures, and reservation counts.
 Float cases compare representation bits, including negative zero and NaN payloads.
+Array input now reads scalar-encoded bytes from exact-size storage at multiple
+offsets and checks destination capacity reuse. `binary_array_decode_test.cpp`
+prepares every work-budget boundary around a numeric array, partial-failure
+positions, truncation, input/allocation/collection/depth limits, cumulative
+budgets across repeated reads, and boolean/enum validation fallbacks.
 
 When validation is authorized, run these and the existing generated-object,
 wire-format, view, and decoder-limit cases with SIMD enabled and disabled, with
