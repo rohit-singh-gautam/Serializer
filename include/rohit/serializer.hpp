@@ -22,6 +22,7 @@
 #include <rohit/stream.hpp>
 
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <charconv>
 #include <cmath>
@@ -144,12 +145,88 @@ static_assert(constants::maximum_fixed_batch_fields <=
                   (sizeof(std::uint64_t) + fixed_prefix_bytes(constants::variable_four_byte_max)));
 
 // Encode an already validated compact ID or length into a reserved span.
-inline void write_fixed_prefix(std::uint8_t*& output, std::uint32_t value) noexcept {
+constexpr void write_fixed_prefix(std::uint8_t*& output, std::uint32_t value) noexcept {
   const auto following_bytes = fixed_prefix_bytes(value) - 1;
   *output++ = static_cast<std::uint8_t>((value >> (following_bytes * constants::wire_byte_bits)) |
                                         (following_bytes << constants::variable_length_tag_shift));
   for (auto remaining = following_bytes; remaining != 0; --remaining) {
     *output++ = static_cast<std::uint8_t>(value >> ((remaining - 1) * constants::wire_byte_bits));
+  }
+}
+
+// Own a literal in a C++20 template argument, including names containing embedded zero bytes.
+template <std::size_t N>
+struct field_name_literal {
+  static_assert(N > 0, "A field name literal includes its terminator");
+  char text[N]{};
+
+  // Copy the complete literal so its template parameter object supplies permanent storage.
+  consteval field_name_literal(const char (&value)[N]) {
+    std::copy_n(value, N, text);
+  }
+
+  // Adapt an existing named constant without repeating its spelling.
+  consteval explicit field_name_literal(std::string_view value) {
+    if (value.size() != N - 1) {
+      throw std::invalid_argument{"Field name literal extent does not match its text"};
+    }
+    std::copy(value.begin(), value.end(), text);
+  }
+
+  // Borrow the text without the literal terminator; the owning template object remains alive.
+  constexpr std::string_view view() const noexcept {
+    return {text, N - 1};
+  }
+};
+
+// Accept ASCII names that need no JSON escaping; other spellings retain validated string output.
+template <field_name_literal Name>
+consteval bool is_plain_json_field_name() {
+  for (const unsigned char ch : Name.view()) {
+    if (ch < 0x20 || ch >= 0x80 || ch == '"' || ch == '\\') {
+      return false;
+    }
+  }
+  return true;
+}
+
+// Keep quoted JSON bytes in shared constant storage, with no per-object allocation or name scan.
+template <field_name_literal Name>
+  requires(is_plain_json_field_name<Name>())
+struct json_field_name {
+  inline static constexpr auto bytes = [] {
+    constexpr std::size_t quote_bytes = 2;
+    std::array<char, Name.view().size() + quote_bytes> result{};
+    result.front() = '"';
+    std::copy(Name.view().begin(), Name.view().end(), result.begin() + 1);
+    result.back() = '"';
+    return result;
+  }();
+};
+
+// Keep a canonical compact length and its wire name together, independent of scalar endianness.
+template <field_name_literal Name>
+  requires(!Name.view().empty() && Name.view().size() <= constants::variable_four_byte_max)
+struct binary_field_name {
+  inline static constexpr auto bytes = [] {
+    constexpr auto length = static_cast<std::uint32_t>(Name.view().size());
+    std::array<std::uint8_t, fixed_prefix_bytes(length) + length> result{};
+    auto* output = result.data();
+    write_fixed_prefix(output, length);
+    for (const unsigned char ch : Name.view()) {
+      *output++ = ch;
+    }
+    return result;
+  }();
+};
+
+// Select an optional protocol token at compile time; custom protocols still receive string_view.
+template <typename Protocol, field_name_literal Name>
+constexpr auto constant_field_name() {
+  if constexpr (requires { Protocol::template encoded_field_name<Name>(); }) {
+    return Protocol::template encoded_field_name<Name>();
+  } else {
+    return Name.view();
   }
 }
 
@@ -1135,6 +1212,13 @@ public:
   constexpr static serialize_key_type key_type = serialize_key_type::string;
 
 public:
+  // Opt generated plain ASCII names into prequoted output; escaping stays on the dynamic path.
+  template <detail::field_name_literal Name>
+    requires(detail::is_plain_json_field_name<Name>())
+  static constexpr auto encoded_field_name() noexcept {
+    return detail::json_field_name<Name>{};
+  }
+
   // Initialize this object from the supplied storage or value state.
   json_out(stream& out_stream) : json_formatter<beautify>{out_stream, format::compress} {}
   // Initialize this object from the supplied storage or value state.
@@ -1170,8 +1254,12 @@ private:
 
   // Write a map entry using the established key and value field names.
   void serialize_out_key_value_pair(const auto& value) {
-    constexpr auto key_str = constants::map_key_name;
-    constexpr auto value_str = constants::map_value_name;
+    constexpr auto key_str =
+        encoded_field_name<detail::field_name_literal<constants::map_key_name.size() + 1>{
+            constants::map_key_name}>();
+    constexpr auto value_str =
+        encoded_field_name<detail::field_name_literal<constants::map_value_name.size() + 1>{
+            constants::map_value_name}>();
     write_brace_open();
     serialize_out_first(key_str, value.first);
     serialize_out_second(value_str, value.second);
@@ -1219,6 +1307,14 @@ private:
   }
 
 public:
+  // Copy a prequoted constant name; colon spacing and object framing remain formatter decisions.
+  template <detail::field_name_literal Name>
+  void serialize_out(detail::json_field_name<Name>) {
+    before_data();
+    const auto& bytes = detail::json_field_name<Name>::bytes;
+    out_stream.append_external(bytes.data(), bytes.size());
+  }
+
   // Encode a supported value or field through this protocol and advance the output cursor.
   template <typename T>
   void serialize_out(const T& value) {
@@ -1557,6 +1653,14 @@ public:
   static_assert(WireEndian == std::endian::little || WireEndian == std::endian::big,
                 "Binary storage requires little-endian or big-endian byte order");
 
+  // Opt generated nonempty wire names into a constant compact-length-and-name token.
+  template <detail::field_name_literal Name>
+    requires(KeyType == serialize_key_type::string && !Name.view().empty() &&
+             Name.view().size() <= constants::variable_four_byte_max)
+  static constexpr auto encoded_field_name() noexcept {
+    return detail::binary_field_name<Name>{};
+  }
+
 protected:
   stream& out_stream;
 
@@ -1574,6 +1678,16 @@ public:
   }
 
 protected:
+  // Copy the constant prefix and name with one reservation, then encode the field normally.
+  template <detail::field_name_literal Name, typename T>
+  void serialize_out(detail::binary_field_name<Name>, const T& value) {
+    static_assert(KeyType == serialize_key_type::string,
+                  "Named binary fields require string-key mode");
+    const auto& bytes = detail::binary_field_name<Name>::bytes;
+    out_stream.append_external(bytes.data(), bytes.size());
+    serialize_out(value);
+  }
+
   // Encode a field ID or a positional union discriminator, followed by its value.
   template <typename T>
   void serialize_out(const std::integral auto& id, const T& value) {
@@ -1677,6 +1791,34 @@ public:
       detail::write_fixed_prefix(output, static_cast<std::uint32_t>(field.first.size()));
       std::memcpy(output, field.first.data(), field.first.size());
       output += field.first.size();
+      detail::write_fixed_scalar<WireEndian>(output, field.second);
+    };
+    (write(fields), ...);
+  }
+
+  // Batch constant names and scalar snapshots with a compile-time extent and one reservation.
+  template <detail::field_name_literal... Names, detail::binary_fixed_scalar... Values>
+    requires(KeyType == serialize_key_type::string && sizeof...(Values) > 1 &&
+             sizeof...(Values) <= constants::maximum_fixed_batch_fields)
+  void struct_serialize_out_fixed(std::pair<detail::binary_field_name<Names>, Values>... fields) {
+    constexpr auto bytes = [] {
+      std::size_t total{};
+      for (const auto size : {detail::binary_field_name<Names>::bytes.size() +
+                              detail::binary_fixed_bytes<Values>...}) {
+        if (size > rohit::detail::maximum_buffer_bytes - total) {
+          throw rohit::exception::stream_overflow_exception{};
+        }
+        total += size;
+      }
+      return total;
+    }();
+    out_stream.reserve(bytes);
+    auto* output = out_stream.get_curr_and_increase_unchecked(bytes);
+    // Constant key bytes are disjoint from output, and each captured scalar survives stream growth.
+    const auto write = [&output](const auto& field) noexcept {
+      const auto& name = field.first.bytes;
+      std::memcpy(output, name.data(), name.size());
+      output += name.size();
       detail::write_fixed_scalar<WireEndian>(output, field.second);
     };
     (write(fields), ...);

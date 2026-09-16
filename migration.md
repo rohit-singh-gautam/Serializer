@@ -1,5 +1,21 @@
 # Migrating to the snake_case Serializer API
 
+## Pre-encoded constant field names
+
+Regenerate C++ owning headers to use compile-time name tokens for native JSON
+and string-key binary output, including fixed-width binary batches. Existing
+schemas, wire spellings, bytes, endian choices, formatting, and object calls
+remain valid. Old headers retain their original name paths; fixed JSON map
+wrapper names are optimized by the updated runtime itself. Custom protocols
+without the optional `encoded_field_name<Name>()` hook receive ordinary
+`std::string_view` names. Input, views, Java, and Protobuf are unchanged.
+
+An isolated binary name now reserves its length and text together, so a failed
+reservation leaves both unwritten. The following value can still fail separately.
+Review [constant field names](docs/usage.md#pre-encode-constant-field-names) for
+compilation/storage tradeoffs and custom-protocol behavior. Generation, builds,
+tests, and benchmarks for this optimization remain deferred.
+
 ## Generated fixed-width field batches
 
 Regenerate C++ owning headers to group adjacent fixed-width scalars automatically.

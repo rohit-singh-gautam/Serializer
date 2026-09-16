@@ -1,0 +1,24 @@
+serializer version 1;
+
+namespace constant_names {
+  enum state { ReadyNow, Waiting }
+
+  class base_record {
+    public uint8 id;
+  }
+
+  class record stable_ids : public base_record ("baseWire", 7) {
+    public string label ("displayName", 1);
+    public uint16 userId ("userID", 2);
+    public uint32 requestCount ("requestCount", 3);
+    public state status ("wireState", 4);
+    public union(uint32 = CountValue, float = FloatValue) payload ("wirePayload", 5);
+    public array string tags ("wireTags", 6);
+    public map(string) uint32 totals ("wireTotals", 8);
+    public base_record child ("wireChild", 9);
+  }
+
+  class single_name {
+    public uint8 value ("userID");
+  }
+}

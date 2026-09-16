@@ -52,6 +52,13 @@ consume a whole group while retaining each value/byte work charge; scalar fallba
 preserves input partial results and diagnostics. Keyed input still dispatches each
 field. See [field batching](usage.md#batch-generated-fixed-width-fields) for scope.
 
+Generated C++ constant field names also preserve wire bytes. JSON copies the same
+quoted ASCII names while retaining formatter-controlled punctuation and spacing.
+String-key binary copies the same canonical compact length and name together,
+including within scalar batches. Names always use schema wire spelling, independent
+of generated C++ coding profiles. See [constant field names](usage.md#pre-encode-constant-field-names)
+for scope and deferred verification.
+
 Compact integers use the established two-bit length tag and six payload bits in
 the first byte, followed by zero to three full payload bytes in big-endian order.
 
@@ -195,6 +202,10 @@ compression codec. No binary compression or new framing layer is introduced.
   unwritten; earlier output remains. The failure prefix can therefore differ from
   separate field writes. Object terminators are emitted separately. Stream policy
   overrides apply to the full batch reservation, including when capacity is available.
+- An isolated pre-encoded binary name reserves its compact length and text together.
+  Rejection writes neither part, retaining previous output. Its value and object
+  terminator remain separate writes. This can change the failure prefix relative
+  to dynamically encoded names, whose length and text are written separately.
 - `serialize_in` consumes one value. Call `finish()` to require an exact message;
   JSON permits trailing whitespace, while binary requires the cursor at the end.
   The generated stream convenience overload retains its one-value behavior.

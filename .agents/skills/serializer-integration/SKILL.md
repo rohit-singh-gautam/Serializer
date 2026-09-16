@@ -309,6 +309,19 @@ user instruction to defer generation/builds/tests and report what remains unveri
   for custom-stream policies and prepared tests. Generation/build/test execution
   and performance measurements remain deferred.
 
+- Regenerate owning headers for pre-encoded constant field names in native C++
+  JSON and string-key binary output, including fixed-width batches. Schema wire
+  spellings and bytes stay unchanged; JSON formatting and dynamic-string validation
+  remain active. No schema option is needed. Custom protocols without the static
+  `encoded_field_name<Name>()` hook receive ordinary `std::string_view` names.
+  Constant arrays add compiler work/read-only data, not per-object storage; no
+  measured speedup is claimed. Isolated binary names reserve their length and text
+  together, leaving both unwritten on rejection; values may fail separately.
+  Input, views, Java, and Protobuf keep their existing paths. See
+  [constant field names](../../../docs/usage.md#pre-encode-constant-field-names)
+  for details and prepared tests; generation/build/test execution and benchmarks
+  remain deferred.
+
 ## Map generated views
 
 Use `View::map(span, limits)` with the exact little-endian `binary_none` message.

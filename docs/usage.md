@@ -348,6 +348,72 @@ C++ target generates its fixture; output-profile tests also exercise grouped
 fields. These are prepared tests: generation, compilation, test execution, and
 performance measurements remain deferred. No measured speedup is claimed.
 
+### Pre-encode constant field names
+
+Regenerate C++ owning headers to prepare the encoded form of schema wire names
+at compile time. For example:
+
+```text
+class account {
+  public uint32 user_id ("userID");
+}
+```
+
+The spelling `userID` never changes between objects. Previously each JSON write
+sent it through the ordinary string validator and escape-size scan. String-key
+binary wrote its compact length and then its text through separate operations.
+The generated output now selects an immutable name token at compile time:
+
+| Protocol | Prepared name bytes | Work performed for each object |
+| --- | --- | --- |
+| JSON | `"userID"`, including both quote characters | Copy the quoted name; let the formatter write its colon and spacing; encode the current value |
+| String-key binary | `06 75 73 65 72 49 44` in hexadecimal | Copy the length and name together; encode the current value |
+| Positional/integer-key binary | No name token | Keep the existing positional or numeric-ID output |
+
+The JSON fast path accepts plain ASCII names that need no escaping, covering the
+schema's supported identifiers, explicit wire-name aliases, qualified parent
+names, and `field:Alternative` union keys. Other constant spellings passed through
+the internal helper fall back to ordinary validated JSON string output. Dynamic
+strings still receive full UTF-8 validation and escaping. JSON's fixed `key` and
+`value` map wrapper names also use constant tokens; map keys themselves remain
+ordinary values. Colons, commas, indentation, and object framing keep their
+existing formatting rules.
+
+String-key binary tokens contain the canonical one-to-four-byte compact length
+and the original name. They work with either scalar endianness: compact lengths
+retain their own wire encoding. Within a fixed-width field batch, the token sizes
+and scalar widths determine the reservation size at compile time, removing the
+per-call name validation, length-prefix encoding, and size accumulation. The
+batch still reserves once and writes every field in its original position.
+
+Constant arrays have static lifetime and are shared by matching name token
+specializations; serialized objects gain no data members or allocations. The
+tradeoff is additional template/constant-evaluation work and read-only program
+data, especially when using both named codecs with many unique names. Messages
+have exactly the same size and bytes. Expected gains are from avoiding repeated
+name processing, particularly for many small records; they have not been measured.
+
+Generated code uses `detail::constant_field_name<Protocol, "name">()`. It selects
+the protocol's optional static `encoded_field_name<Name>()` hook with `requires`
+and `if constexpr`. Custom protocols without the hook receive the original
+`std::string_view`, including in their existing batch calls. A protocol subclass
+that needs ordinary names can hide the inherited hook with a deleted template.
+Existing generated headers continue using their original name paths; regeneration
+enables the generated optimization. No schema keyword, output option, or SIMD
+setting is required. Input, views, Java, and Protobuf codecs are unchanged.
+
+Stream reservation policies remain authoritative. An isolated binary name is now
+one write: if its reservation fails, neither its length nor its text is written;
+previous output survives. Its value and the object terminator can still fail
+separately. This can leave a shorter output prefix than the previous split name
+writes. Fixed-field batches retain their whole-batch reservation behavior.
+
+Prepared coverage in `test/constant_field_name_test.cpp` includes exact name bytes,
+formatted JSON, dynamic escaping, both binary endians, generated parents/unions,
+wire aliases, compact-length boundaries, batch and isolated reservation counts,
+custom-protocol fallback, and fixed/custom stream failures. Generation,
+compilation, test execution, and benchmarks remain deferred for this step.
+
 ## Agent-assisted integration
 
 Use the [Serializer integration skill](../.agents/skills/serializer-integration/SKILL.md)

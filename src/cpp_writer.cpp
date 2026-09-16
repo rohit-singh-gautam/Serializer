@@ -220,6 +220,12 @@ public:
     }
   }
 
+  // Select pre-encoded wire-name storage when the protocol supports it, preserving custom codecs.
+  std::string constant_output_name(std::string_view name) {
+    return "::rohit::serializer::detail::constant_field_name<SerializeOutProtocol, \"" +
+           std::string{name} + "\">()";
+  }
+
   // Emit C++ serializer out body for parent for the parsed schema.
   void write_serializer_out_body_for_parent(stream& out_stream, const class_node* obj,
                                             const rohit::serializer::serialize_key_type key_type,
@@ -234,8 +240,8 @@ public:
                           ".struct_serialize_out("));
       }
       if (key_type == rohit::serializer::serialize_key_type::string) {
-        out_stream.write("::std::make_pair(::std::string_view { \"", parent.display_name,
-                         "\" }, static_cast<const ",
+        out_stream.write("::std::make_pair(", constant_output_name(parent.display_name),
+                         ", static_cast<const ",
                          storage_type_name(parent.name, parent.parent_class),
                          "*>(this))"
                          ");");
@@ -268,12 +274,12 @@ public:
     if (key_type == rohit::serializer::serialize_key_type::string) {
       if (member.modifier != member::modifier_type::none ||
           member.type_name_list[0].type != object_type::enum_type) {
-        out_stream.write("::std::make_pair(::std::string_view { \"", member.display_name, "\" }, ",
+        out_stream.write("::std::make_pair(", constant_output_name(member.display_name), ", ",
                          "::std::cref(this->", field_name(member.name),
                          "))"
                          ");");
       } else {
-        out_stream.write("::std::make_pair(::std::string_view { \"", member.display_name, "\" }, ",
+        out_stream.write("::std::make_pair(", constant_output_name(member.display_name), ", ",
                          "::rohit::serializer::detail::enum_name(this->", field_name(member.name),
                          "))"
                          ");");
@@ -303,8 +309,9 @@ public:
                          : (std::string{"        "} + local_name("serializer_protocol") +
                             ".struct_serialize_out("));
       if (key_type == serialize_key_type::string) {
-        output.write("::std::make_pair(::std::string_view{\"", field.display_name, ":",
-                     alternative.enum_name, "\"}, ::std::cref(", payload, "))");
+        output.write("::std::make_pair(",
+                     constant_output_name(field.display_name + ":" + alternative.enum_name),
+                     ", ::std::cref(", payload, "))");
       } else if (key_type == serialize_key_type::integer) {
         output.write("::std::make_tuple(static_cast<::std::uint32_t>(", field.id,
                      "), static_cast<::std::uint32_t>(", index, "), ::std::cref(", payload, "))");
@@ -350,7 +357,7 @@ public:
                      "), " + value + ")";
       } else if (keys == serialize_key_type::string) {
         arguments +=
-            "::std::make_pair(::std::string_view{\"" + field.display_name + "\"}, " + value + ")";
+            "::std::make_pair(" + constant_output_name(field.display_name) + ", " + value + ")";
       } else {
         arguments += value;
       }

@@ -167,6 +167,23 @@ earlier output remains. See [field batching](docs/usage.md#batch-generated-fixed
 for boundaries and verification status. Generation, builds, test execution, and
 performance measurements remain deferred.
 
+### Pre-encoding constant field names
+
+Regenerated C++ owning serializers prepare constant JSON and string-key binary
+field names at compile time. JSON copies a prequoted name without rescanning it
+for escaping; string-key binary copies the compact length and name together.
+Fixed-field binary batches use these same constants and a compile-time total size.
+Parent names, renamed wire keys, and union alternative keys are included; JSON's
+fixed map wrapper names are also pre-encoded by the runtime.
+
+No schema option is needed. Wire bytes and formatting remain unchanged, and
+custom protocols without the optional name hook still receive `std::string_view`.
+This trades some compiler work and constant storage for less repeated encoding
+work; it does not shrink messages or add storage to each object. See
+[constant field names](docs/usage.md#pre-encode-constant-field-names) for scope,
+failure behavior, and examples. Tests are prepared; generation, builds, test
+execution, and performance measurements remain deferred.
+
 ### Output language and coding standard
 
 Keep target-language settings in a generator config, separate from the `.serializer`
