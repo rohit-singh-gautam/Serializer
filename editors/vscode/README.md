@@ -1,4 +1,4 @@
-# Serializer for Visual Studio Code
+# Rohit Serializer for Visual Studio Code
 
 Edit `.serializer` schemas with syntax highlighting, bracket matching, comments,
 folding, and snippets. Use the project's CMake configuration to generate and locate

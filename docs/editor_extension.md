@@ -1,6 +1,6 @@
 # VS Code extension
 
-The [Serializer extension](../editors/vscode/README.md), version **1.0.0**, provides `.serializer`
+The [Rohit Serializer extension](../editors/vscode/README.md), version **1.0.0**, provides `.serializer`
 syntax highlighting, snippets, and CMake generated-header commands. Schemas use
 the current `serializer version 1;` header. Legacy `.def` and `.struct` names are
 not registered. C++/Java generation remains owned by the project's build rules;

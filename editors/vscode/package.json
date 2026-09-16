@@ -1,6 +1,6 @@
 {
   "name": "serializer-language",
-  "displayName": "Serializer",
+  "displayName": "Rohit Serializer",
   "icon": "dist/serializer_logo.png",
   "description": "Syntax highlighting and CMake generated-header assistance for Serializer schemas.",
   "version": "1.0.0",

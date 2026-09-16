@@ -18,7 +18,7 @@ headers before compiling against the updated API.
 **Getting started:** the [usage guide](docs/usage.md) covers schema authoring,
 automatic header generation with CMake, and decoding an exact message with limits.
 
-**VS Code:** the [Serializer extension](docs/editor_extension.md) highlights
+**VS Code:** [Rohit Serializer](docs/editor_extension.md) highlights
 `.serializer` files, supplies snippets, and provides CMake header-generation,
 generated-header navigation, and missing-include assistance. Run
 `./install_extension.ps1` from PowerShell to build and install the local extension

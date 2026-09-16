@@ -2,6 +2,7 @@
 
 ## 1.0.0
 
+- Use the Marketplace display name "Rohit Serializer".
 - Prepare the Marketplace release under publisher `rohitjairajsingh`.
 - Include Rohit Jairaj Singh's author profile and documentation/support links.
 - Include the Serializer logo as the extension and Marketplace icon.

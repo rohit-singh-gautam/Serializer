@@ -144,8 +144,8 @@ For generation without compiling consumers, build `<target>_serializer_headers`
 or the aggregate `serializer_generated_headers` target. Configuration alone does
 not create headers. No custom VS Code task or Serializer editor extension is
 required, and `.vscode/*` remains ignored. Editor provider settings may be user-level.
-The optional `rohitjairajsingh.serializer-language` extension in `editors/vscode`
-highlights `.serializer`, offers
+The optional Rohit Serializer extension (`rohitjairajsingh.serializer-language`)
+in `editors/vscode` highlights `.serializer`, offers
 32×32 language icons for Explorer/editor tabs where the file icon theme permits them,
 versioned snippets, and invokes the same targets through CMake Tools. Run the root
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
