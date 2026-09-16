@@ -947,7 +947,7 @@ public:
   }
 
   // Report the cursor offset in bytes from the buffer start.
-  auto current_offset() const {
+  std::size_t current_offset() const {
     if ((begin_data == nullptr) != (current_data == nullptr) ||
         std::less<const std::uint8_t*>{}(current_data, begin_data)) {
       throw exception::stream_underflow_exception{};
