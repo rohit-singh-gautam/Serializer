@@ -296,6 +296,18 @@ user instruction to defer generation/builds/tests and report what remains unveri
 - When the application requires atomic replacement, decode/finish a temporary
   object before committing it. Keep structured parse error handling at the message
   boundary and leave payload excerpts disabled unless the task needs them.
+- Regenerate owning headers for automatic fixed-width field batching: native
+  binary output groups 2 through 16 consecutive scalar fields per reservation;
+  positional binary input shares range/budget checks and falls back to scalar
+  reads on a failed check or invalid Boolean. Keyed input keeps individual
+  dispatch. Fields retain their wire order, IDs/names, endian, and work charges.
+  Variable-length fields, enums, unions, parents, and objects bound runs; nested
+  serializers group their own fields. JSON/custom protocols without batch hooks,
+  Java, and Protobuf retain existing paths. No schema option or SIMD setting is
+  required. Failed output reservations leave the current batch unwritten, with
+  previous output intact. See [field batching](../../../docs/usage.md#batch-generated-fixed-width-fields)
+  for custom-stream policies and prepared tests. Generation/build/test execution
+  and performance measurements remain deferred.
 
 ## Map generated views
 

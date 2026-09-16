@@ -24,6 +24,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -319,12 +320,70 @@ public:
         "      }");
   }
 
+  // Identify fixed-width schema scalars; collections, enums, unions, and objects end a run.
+  bool is_fixed_field(const member& field) {
+    return field.modifier == member::modifier_type::none &&
+           field.type_name_list.front().type == object_type::primitive &&
+           field.type_name_list.front().name != "string";
+  }
+
+  // Bound each consecutive run to keep generated template packs and snapshots small.
+  std::span<const member> fixed_field_run(std::span<const member> fields, std::size_t begin) {
+    auto end = begin;
+    while (end < fields.size() && end - begin < constants::maximum_fixed_batch_fields &&
+           is_fixed_field(fields[end])) {
+      ++end;
+    }
+    return fields.subspan(begin, end - begin);
+  }
+
+  // Capture scalar values and literal wire keys for one output batch, respecting the naming profile.
+  std::string fixed_output_arguments(std::span<const member> fields, serialize_key_type keys) {
+    std::string arguments;
+    for (const auto& field : fields) {
+      if (!arguments.empty()) {
+        arguments += ", ";
+      }
+      const auto value = "this->" + field_name(field.name);
+      if (keys == serialize_key_type::integer) {
+        arguments += "::std::make_pair(static_cast<::std::uint32_t>(" + std::to_string(field.id) +
+                     "), " + value + ")";
+      } else if (keys == serialize_key_type::string) {
+        arguments +=
+            "::std::make_pair(::std::string_view{\"" + field.display_name + "\"}, " + value + ")";
+      } else {
+        arguments += value;
+      }
+    }
+    return arguments;
+  }
+
+  // Use a protocol batch hook when available; preserve JSON and custom protocol framing otherwise.
+  void write_fixed_output(stream& output, std::span<const member> fields, serialize_key_type keys,
+                          bool& first) {
+    const auto call = local_name("serializer_protocol") + ".struct_serialize_out_fixed(" +
+                      fixed_output_arguments(fields, keys) + ");";
+    output.write("\n      if constexpr (requires { ", call, " }) {\n        ", call,
+                 "\n      } else {");
+    for (const auto& field : fields) {
+      write_serializer_out_body_non_union(output, field, keys, first);
+    }
+    output.write("\n      }");
+  }
+
   // Emit C++ serializer out body for the parsed schema.
   void write_serializer_out_body(stream& out_stream, const class_node* obj,
                                  const rohit::serializer::serialize_key_type key_type) {
     bool first = true;
     write_serializer_out_body_for_parent(out_stream, obj, key_type, first);
-    for (const auto& member : obj->member_list) {
+    for (std::size_t index = 0; index < obj->member_list.size();) {
+      const auto run = fixed_field_run(obj->member_list, index);
+      if (run.size() > 1) {
+        write_fixed_output(out_stream, run, key_type, first);
+        index += run.size();
+        continue;
+      }
+      const auto& member = obj->member_list[index++];
       if (member.modifier != member::modifier_type::variant) {
         write_serializer_out_body_non_union(out_stream, member, key_type, first);
       } else {
@@ -482,7 +541,22 @@ public:
                       " = ::rohit::serializer::detail::enter_decode_object(" +
                       local_name("serializer_protocol") + ");\n"));
     write_serializer_in_body_for_parent_key_none(out_stream, obj);
-    for (const auto& member : obj->member_list) {
+    for (std::size_t index = 0; index < obj->member_list.size();) {
+      const auto run = fixed_field_run(obj->member_list, index);
+      if (run.size() > 1) {
+        // Positional input has no intervening keys; other protocol implementations keep scalar calls.
+        const auto call = local_name("serializer_protocol") + ".serialize_in_fixed(" +
+                          fixed_output_arguments(run, serialize_key_type::none) + ");";
+        out_stream.write("      if constexpr (requires { ", call, " }) {\n        ", call,
+                         "\n      } else {\n");
+        for (const auto& field : run) {
+          write_serializer_in_body_non_union_key_none(out_stream, field);
+        }
+        out_stream.write("      }\n");
+        index += run.size();
+        continue;
+      }
+      const auto& member = obj->member_list[index++];
       if (member.modifier != member::modifier_type::variant) {
         write_serializer_in_body_non_union_key_none(out_stream, member);
       } else if (member.type_name_list.size()) {

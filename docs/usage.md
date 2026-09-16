@@ -302,6 +302,52 @@ existing decode paths. Focused reuse/defaults/duplicate/failure/limit tests are
 included in the normal C++ test target; generation, compilation, test execution,
 and allocation/performance measurements remain deferred for this implementation.
 
+### Batch generated fixed-width fields
+
+Regenerate C++ owning headers to batch consecutive scalar fields automatically.
+For example, `uint8 kind`, `uint32 sequence`, and `double reading` occupy 13 bytes
+in positional binary. They share one output reservation, and each field is encoded
+at its own wire offset. No C++ object layout or padding is copied. The same fields
+share an output reservation in integer-key/string-key binary, including their
+existing interleaved IDs or names.
+
+Eligible schema fields are `bool`, `char`, fixed-width signed/unsigned integers,
+`float`, and `double`. A batch contains 2 through 16 consecutive eligible fields.
+Longer runs split into bounded groups; isolated fields use scalar calls. Strings,
+arrays, maps, enums, unions, and nested objects end a run. Parent and nested-object
+serializers batch their own runs. This bounds generated unrolling and the scalar
+snapshots taken before an output reservation can relocate storage.
+
+Positional binary input checks the group's input range and remaining byte/work
+budgets, validates Boolean bytes, then loads fields without unaligned typed access
+and commits one cursor/accounting update. If the checks fail, the original scalar
+reads determine which earlier fields are completed, where the cursor stops, and
+which exception is raised. Each value and consumed byte retains its usual work
+charge; allocation and nesting behavior are unchanged. Keyed input retains
+individual dispatch to accept the existing ordering, missing-field, and duplicate
+semantics.
+
+The generated calls detect protocol hooks at compile time using `if constexpr` and
+`requires`. JSON and custom protocols without those hooks keep their existing
+field calls and framing. Protobuf and Java retain their existing codec paths.
+No schema keyword, output option, or SIMD setting is needed. Binary byte order,
+wire bytes, and public object input/output calls are unchanged.
+
+Output validates IDs/names and performs one virtual stream reservation before
+writing a batch. Custom reservation policies remain authoritative. Rejection
+writes none of that batch, while earlier output remains; an output failure may
+therefore leave a shorter prefix than individual field writes. A later object
+terminator can still fail separately. Source objects and borrowed wire names must
+remain valid and independent of the output buffer; input bytes must likewise stay
+independent of decoded storage.
+
+`test/fixed_field_batch_test.cpp` covers scalar byte equivalence, golden bytes,
+reservation counts, both endians, unaligned input, run boundaries, custom-protocol
+fallbacks, resource budgets, Boolean failures, and output rejection. The normal
+C++ target generates its fixture; output-profile tests also exercise grouped
+fields. These are prepared tests: generation, compilation, test execution, and
+performance measurements remain deferred. No measured speedup is claimed.
+
 ## Agent-assisted integration
 
 Use the [Serializer integration skill](../.agents/skills/serializer-integration/SKILL.md)

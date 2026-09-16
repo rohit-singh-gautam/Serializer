@@ -1,5 +1,17 @@
 # Migrating to the snake_case Serializer API
 
+## Generated fixed-width field batches
+
+Regenerate C++ owning headers to group adjacent fixed-width scalars automatically.
+Native binary output batches all three key modes; positional binary input shares
+checks while retaining scalar failure behavior. Existing object calls, schemas,
+wire bytes, and endianness are unchanged. JSON and custom protocols without the
+optional batch hooks retain individual calls. On output reservation failure, the
+current batch remains unwritten; earlier output remains, so the failure prefix can
+differ from individual writes. See [field batching](docs/usage.md#batch-generated-fixed-width-fields)
+before relying on output failure prefixes or custom reservation policies.
+Generation, builds, tests, and benchmarks for this optimization remain deferred.
+
 ## Nested destination storage reuse
 
 Regenerate C++ owning headers with the updated compiler to reuse buffers in

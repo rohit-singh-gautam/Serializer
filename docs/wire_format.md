@@ -45,6 +45,13 @@ compact count prefix; JSON string scanning preserves validation and escaping.
 SIMD introduces no padding, alignment, flags, or protocol marker. See
 [runtime SIMD](runtime_simd.md) for coverage and deferred validation.
 
+Generated fixed-width field batching also preserves these bytes. C++ native binary
+output reserves adjacent scalar fields together, including their existing keyed
+headers, then encodes each value separately. Positional input can validate and
+consume a whole group while retaining each value/byte work charge; scalar fallback
+preserves input partial results and diagnostics. Keyed input still dispatches each
+field. See [field batching](usage.md#batch-generated-fixed-width-fields) for scope.
+
 Compact integers use the established two-bit length tag and six payload bits in
 the first byte, followed by zero to three full payload bytes in big-endian order.
 
@@ -183,6 +190,11 @@ compression codec. No binary compression or new framing layer is introduced.
 - Output values and their referenced storage must remain valid throughout encoding;
   they must not refer into an output buffer that encoding can overwrite or relocate.
   Stream-level overlap support does not make an entire multi-write protocol operation atomic.
+- Generated fixed-width output groups validate their IDs/names and reserve the
+  whole batch before writing. A validation/reservation failure leaves that batch
+  unwritten; earlier output remains. The failure prefix can therefore differ from
+  separate field writes. Object terminators are emitted separately. Stream policy
+  overrides apply to the full batch reservation, including when capacity is available.
 - `serialize_in` consumes one value. Call `finish()` to require an exact message;
   JSON permits trailing whitespace, while binary requires the cursor at the end.
   The generated stream convenience overload retains its one-value behavior.

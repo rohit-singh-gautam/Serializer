@@ -30,6 +30,7 @@
 #include <cstdint>
 #include <cstring>
 #include <functional>
+#include <initializer_list>
 #include <iterator>
 #include <limits>
 #include <map>
@@ -48,6 +49,7 @@ namespace rohit::serializer {
 namespace constants {
 // The first byte stores a two-bit length tag and six payload bits.
 inline constexpr std::uint32_t variable_tag_mask = 0xc0U;
+inline constexpr unsigned variable_length_tag_shift = 6;
 inline constexpr std::uint32_t variable_payload_mask = 0x3fU;
 inline constexpr std::uint32_t variable_two_byte_tag = 0x40U;
 inline constexpr std::uint32_t variable_three_byte_tag = 0x80U;
@@ -64,6 +66,8 @@ inline constexpr unsigned wire_byte_bits = 8;
 inline constexpr int decimal_radix = 10;
 inline constexpr std::string_view map_key_name = "key";
 inline constexpr std::string_view map_value_name = "value";
+// Bound generated unrolling and scalar snapshots; longer runs are split into separate batches.
+inline constexpr std::size_t maximum_fixed_batch_fields = 16;
 static_assert(variable_payload_mask == variable_one_byte_max);
 static_assert((variable_tag_mask & variable_payload_mask) == 0);
 } // namespace constants
@@ -74,6 +78,109 @@ template <typename T>
 concept binary_array_scalar =
     (rohit::detail::endian_integer<T> || rohit::detail::endian_floating_point<T>) &&
     (sizeof(T) == 1 || sizeof(T) == 2 || sizeof(T) == 4 || sizeof(T) == 8);
+
+// Booleans occupy one validated wire byte; all other batch members have padding-free scalar bits.
+template <typename T>
+concept binary_fixed_scalar = std::same_as<T, bool> || binary_array_scalar<T>;
+
+template <binary_fixed_scalar T>
+inline constexpr std::size_t binary_fixed_bytes = std::same_as<T, bool> ? 1 : sizeof(T);
+
+// Select an unsigned representation without performing floating-point arithmetic or conversion.
+template <binary_array_scalar T>
+using binary_fixed_word =
+    std::conditional_t<sizeof(T) == sizeof(std::uint8_t), std::uint8_t,
+                       std::conditional_t<sizeof(T) == sizeof(std::uint16_t), std::uint16_t,
+                                          std::conditional_t<sizeof(T) == sizeof(std::uint32_t),
+                                                             std::uint32_t, std::uint64_t>>>;
+
+// Store one scalar in a reserved span and advance its local cursor, without copying object padding.
+template <std::endian WireEndian, binary_fixed_scalar T>
+void write_fixed_scalar(std::uint8_t*& output, T value) noexcept {
+  if constexpr (std::same_as<T, bool>) {
+    *output = static_cast<std::uint8_t>(value);
+  } else {
+    const auto bits = std::bit_cast<binary_fixed_word<T>>(value);
+    const auto wire = change_endian<std::endian::native, WireEndian>(bits);
+    std::memcpy(output, &wire, sizeof(wire));
+  }
+  output += binary_fixed_bytes<T>;
+}
+
+// Check Boolean representations before committing any batch state; the full span is already bounded.
+template <binary_fixed_scalar T>
+bool valid_fixed_scalar(const std::uint8_t*& input) noexcept {
+  bool valid = true;
+  if constexpr (std::same_as<T, bool>) {
+    valid = *input <= 1;
+  }
+  input += binary_fixed_bytes<T>;
+  return valid;
+}
+
+// Load one prevalidated scalar without alignment assumptions and advance the local cursor.
+template <std::endian WireEndian, binary_fixed_scalar T>
+void read_fixed_scalar(const std::uint8_t*& input, T& value) noexcept {
+  if constexpr (std::same_as<T, bool>) {
+    value = *input != 0;
+  } else {
+    binary_fixed_word<T> bits;
+    std::memcpy(&bits, input, sizeof(bits));
+    value = std::bit_cast<T>(change_endian<WireEndian, std::endian::native>(bits));
+  }
+  input += binary_fixed_bytes<T>;
+}
+
+// Return the canonical prefix width for an already validated 30-bit value.
+constexpr std::size_t fixed_prefix_bytes(std::uint32_t value) noexcept {
+  return value <= constants::variable_one_byte_max     ? 1
+         : value <= constants::variable_two_byte_max   ? 2
+         : value <= constants::variable_three_byte_max ? 3
+                                                       : 4;
+}
+
+static_assert(constants::maximum_fixed_batch_fields <=
+              rohit::detail::maximum_buffer_bytes /
+                  (sizeof(std::uint64_t) + fixed_prefix_bytes(constants::variable_four_byte_max)));
+
+// Encode an already validated compact ID or length into a reserved span.
+inline void write_fixed_prefix(std::uint8_t*& output, std::uint32_t value) noexcept {
+  const auto following_bytes = fixed_prefix_bytes(value) - 1;
+  *output++ = static_cast<std::uint8_t>((value >> (following_bytes * constants::wire_byte_bits)) |
+                                        (following_bytes << constants::variable_length_tag_shift));
+  for (auto remaining = following_bytes; remaining != 0; --remaining) {
+    *output++ = static_cast<std::uint8_t>(value >> ((remaining - 1) * constants::wire_byte_bits));
+  }
+}
+
+// Validate an object field identifier before reserving or writing any part of a batch.
+constexpr std::size_t fixed_identifier_bytes(std::uint32_t identifier) {
+  if (identifier == constants::binary_object_end_id) {
+    throw std::invalid_argument{"Binary field ID zero is reserved for object termination"};
+  }
+  if (identifier > constants::variable_four_byte_max) {
+    throw std::out_of_range{"Binary variable integer exceeds the 30-bit wire range"};
+  }
+  return fixed_prefix_bytes(identifier);
+}
+
+// Validate a borrowed wire name and accumulate its field size without overflowing a stream extent.
+inline void add_fixed_named_bytes(std::size_t& total, std::string_view name,
+                                  std::size_t value_bytes) {
+  if (name.empty()) {
+    throw std::invalid_argument{"An empty binary field name is reserved for object termination"};
+  }
+  if (name.size() > constants::variable_four_byte_max) {
+    throw std::out_of_range{"Binary variable integer exceeds the 30-bit wire range"};
+  }
+  const auto prefix_bytes = fixed_prefix_bytes(static_cast<std::uint32_t>(name.size()));
+  for (const auto bytes : {name.size(), prefix_bytes, value_bytes}) {
+    if (bytes > rohit::detail::maximum_buffer_bytes - total) {
+      throw rohit::exception::stream_overflow_exception{};
+    }
+    total += bytes;
+  }
+}
 
 // Use a fixed-width hash for generated lookup groups, followed by exact name equality.
 constexpr std::uint64_t field_name_hash(std::string_view name) noexcept {
@@ -1231,8 +1338,9 @@ public:
   std::uint32_t serialize_in_variable() {
     require_input(1);
     const auto first = *in_stream.curr();
-    constexpr unsigned length_tag_shift = 6;
-    const auto size = static_cast<std::size_t>((first & constants::variable_tag_mask) >> length_tag_shift) + 1;
+    const auto size = static_cast<std::size_t>((first & constants::variable_tag_mask) >>
+                                               constants::variable_length_tag_shift) +
+                      1;
     const auto* bytes = read_bytes(size);
     std::uint32_t value = first & constants::variable_payload_mask;
     for (std::size_t index = 1; index < size; ++index) {
@@ -1261,6 +1369,25 @@ public:
     } catch (const std::invalid_argument&) {
       throw exception::bad_input_data{in_stream, "Unknown enum name", limits.diagnostics};
     }
+  }
+
+  // Decode adjacent positional fields with one range/budget check and one cursor/accounting update.
+  // Input must be independent of the destinations. Any failed preflight retains scalar failure behavior.
+  template <detail::binary_fixed_scalar... Values>
+    requires(KeyType == serialize_key_type::none && sizeof...(Values) > 1 &&
+             sizeof...(Values) <= constants::maximum_fixed_batch_fields)
+  void serialize_in_fixed(Values&... values) {
+    constexpr auto bytes = (detail::binary_fixed_bytes<Values> + ...);
+    if (can_read_batch(bytes, sizeof...(Values))) {
+      const auto* inspected = in_stream.curr();
+      if ((detail::valid_fixed_scalar<Values>(inspected) && ...)) {
+        const auto* input = read_batch_unchecked(bytes, sizeof...(Values));
+        (detail::read_fixed_scalar<WireEndian>(input, values), ...);
+        return;
+      }
+    }
+    // Preserve completed fields, cursor position, error precedence, and individual work charges.
+    (serialize_in(values), ...);
   }
 
   // Decode a scalar without unaligned typed access, or replace a validated collection.
@@ -1506,6 +1633,55 @@ protected:
   }
 
 public:
+  // Write adjacent positional scalars after one policy-aware reservation; snapshots survive growth.
+  // A failed reservation writes none of this batch. No aggregate layout or padding is copied.
+  template <detail::binary_fixed_scalar... Values>
+    requires(KeyType == serialize_key_type::none && sizeof...(Values) > 1 &&
+             sizeof...(Values) <= constants::maximum_fixed_batch_fields)
+  void struct_serialize_out_fixed(Values... values) {
+    constexpr auto bytes = (detail::binary_fixed_bytes<Values> + ...);
+    out_stream.reserve(bytes);
+    auto* output = out_stream.get_curr_and_increase_unchecked(bytes);
+    (detail::write_fixed_scalar<WireEndian>(output, values), ...);
+  }
+
+  // Batch field IDs and scalar snapshots in their original wire order, validating before reservation.
+  template <detail::binary_fixed_scalar... Values>
+    requires(KeyType == serialize_key_type::integer && sizeof...(Values) > 1 &&
+             sizeof...(Values) <= constants::maximum_fixed_batch_fields)
+  void struct_serialize_out_fixed(std::pair<std::uint32_t, Values>... fields) {
+    std::size_t bytes{};
+    ((bytes += detail::fixed_identifier_bytes(fields.first) + detail::binary_fixed_bytes<Values>),
+     ...);
+    out_stream.reserve(bytes);
+    auto* output = out_stream.get_curr_and_increase_unchecked(bytes);
+    // Every prefix and value fits the single reservation and cannot fail while writing.
+    const auto write = [&output](const auto& field) noexcept {
+      detail::write_fixed_prefix(output, field.first);
+      detail::write_fixed_scalar<WireEndian>(output, field.second);
+    };
+    (write(fields), ...);
+  }
+
+  // Batch named scalar fields; name storage must remain valid and independent of the output buffer.
+  template <detail::binary_fixed_scalar... Values>
+    requires(KeyType == serialize_key_type::string && sizeof...(Values) > 1 &&
+             sizeof...(Values) <= constants::maximum_fixed_batch_fields)
+  void struct_serialize_out_fixed(std::pair<std::string_view, Values>... fields) {
+    std::size_t bytes{};
+    (detail::add_fixed_named_bytes(bytes, fields.first, detail::binary_fixed_bytes<Values>), ...);
+    out_stream.reserve(bytes);
+    auto* output = out_stream.get_curr_and_increase_unchecked(bytes);
+    // Wire names and their compact lengths stay interleaved with the original field values.
+    const auto write = [&output](const auto& field) noexcept {
+      detail::write_fixed_prefix(output, static_cast<std::uint32_t>(field.first.size()));
+      std::memcpy(output, field.first.data(), field.first.size());
+      output += field.first.size();
+      detail::write_fixed_scalar<WireEndian>(output, field.second);
+    };
+    (write(fields), ...);
+  }
+
   // Encode a nonnegative 30-bit integer in one to four bytes; reject invalid values before writing.
   void serialize_out_variable(const std::integral auto id) {
     if constexpr (std::is_signed_v<decltype(id)>) {

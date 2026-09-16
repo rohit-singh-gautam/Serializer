@@ -1,0 +1,50 @@
+serializer version 1;
+
+namespace fixed_fields {
+  enum phase { idle, active }
+
+  class scalars stable_ids {
+    public uint8 marker (1);
+    public int16 delta (64);
+    public uint32 sequence (16384);
+    public float ratio (4194304);
+    public bool enabled (3);
+    public double reading (4);
+    public char suffix (5);
+  }
+
+  class segmented stable_ids : public scalars (1) {
+    public uint16 before_a (2);
+    public uint16 before_b (3);
+    public string label (4);
+    public uint32 after_a (5);
+    public uint32 after_b (6);
+    public phase status (7);
+    public uint8 tail_a (8);
+    public uint8 tail_b (9);
+    public scalars child (10);
+    public union(uint32 = number, float = real) choice (11);
+  }
+
+  // More than one generated pack, including a final two-field batch.
+  class long_run {
+    public uint8 a0;
+    public uint8 a1;
+    public uint8 a2;
+    public uint8 a3;
+    public uint8 a4;
+    public uint8 a5;
+    public uint8 a6;
+    public uint8 a7;
+    public uint8 a8;
+    public uint8 a9;
+    public uint8 a10;
+    public uint8 a11;
+    public uint8 a12;
+    public uint8 a13;
+    public uint8 a14;
+    public uint8 a15;
+    public uint8 a16;
+    public uint8 a17;
+  }
+}

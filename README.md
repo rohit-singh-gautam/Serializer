@@ -151,6 +151,22 @@ codecs retain their existing replacement paths. See [destination reuse](docs/usa
 for limitations and an example. Focused tests are added; generation, builds, test
 execution, and performance measurements remain deferred.
 
+### Batching generated fixed-width fields
+
+Regenerated C++ owning serializers group consecutive fixed-width scalar fields in
+batches of up to 16. All native binary output modes reserve once per batch, then
+encode each field separately, including existing IDs or names. Positional binary
+input checks a complete batch's range, work budget, and Boolean values together;
+if it cannot safely complete the batch, it uses the original scalar reads to retain
+partial results and diagnostics. Keyed input keeps per-field dispatch.
+
+No schema option is needed. Wire bytes, byte order, and object padding rules remain
+unchanged. JSON, Protobuf, and custom protocols without batch hooks retain their
+existing calls. A failed output reservation writes none of the current batch;
+earlier output remains. See [field batching](docs/usage.md#batch-generated-fixed-width-fields)
+for boundaries and verification status. Generation, builds, test execution, and
+performance measurements remain deferred.
+
 ### Output language and coding standard
 
 Keep target-language settings in a generator config, separate from the `.serializer`

@@ -97,6 +97,20 @@ protected:
     return byte_count <= remaining_work && value_count <= remaining_work - byte_count;
   }
 
+  // Probe a fixed-field batch without changing state; the scalar fallback owns failure diagnostics.
+  bool can_read_batch(std::size_t byte_count, std::size_t value_count) const {
+    return byte_count <= limits.max_input_bytes - input_bytes &&
+           has_work_budget(byte_count, value_count) && byte_count <= in_stream.remaining_buffer();
+  }
+
+  // Commit a batch only after can_read_batch and all value validation succeed, with no intervening reads.
+  const std::uint8_t* read_batch_unchecked(std::size_t byte_count,
+                                           std::size_t value_count) noexcept {
+    input_bytes += byte_count;
+    work_units += byte_count + value_count;
+    return in_stream.get_curr_and_increase_unchecked(byte_count);
+  }
+
   // Charge operations that may consume no bytes, such as empty positional objects.
   void charge_work(std::size_t count = 1) {
     if (count > limits.max_work_units - work_units) {

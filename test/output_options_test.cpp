@@ -68,7 +68,8 @@ public:
 TEST(output_options, profiles_preserve_wire_names) {
   constexpr std::string_view schema =
       "namespace ExampleAPI { enum UserState { ReadyNow } "
-      "class UserRecord view owning { public uint32 userID; public UserState state; "
+      "class UserRecord view owning { public uint32 userID; public uint32 requestCount; public "
+      "UserState state; "
       "public union(uint32 = CountValue, float = FloatValue) payload; } }";
   struct expectation {
     writer::coding_standard standard;
