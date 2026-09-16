@@ -192,7 +192,11 @@ change wire names to fix a C++ naming problem. Enum defaults referring to declar
 values are translated; opaque C++ default expressions require `naming = preserve`
 or an explicitly chosen literal/default change.
 
-Formatting requires clang-format 19+ at generation time. Pin its version and pass
+Formatting requires clang-format 19+ at generation time. Repository test/example
+builds detect a suitable host tool through CMake's program search and, on Windows,
+standard LLVM and all Visual Studio installations reported by `vswhere`. Discovery
+runs again for a fresh build cache; installing LLVM or Visual Studio's C++ Clang
+tools is still required if no suitable formatter exists. For reproducibility, pin its version and pass
 `--cpp.clang_format` or set `SERIALIZER_CLANG_FORMAT_EXECUTABLE` for this repository's
 CMake rules; the shipped helper also accepts `CLANG_FORMAT`. `format_file` can
 replace layout rules. Config paths are relative to

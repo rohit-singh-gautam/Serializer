@@ -133,8 +133,8 @@ endforeach()
 # Formatting is a generator-time dependency; runtime users do not need clang-format.
 if(SERIALIZER_BUILD_TESTS OR SERIALIZER_BUILD_BENCHMARKS OR SERIALIZER_BUILD_FUZZERS
     OR SERIALIZER_BUILD_STYLE_EXAMPLES)
-  find_program(SERIALIZER_CLANG_FORMAT_EXECUTABLE
-    NAMES clang-format clang-format-22 clang-format-21 clang-format-20 clang-format-19 REQUIRED)
+  include(cmake/serializer_find_clang_format.cmake)
+  serializer_find_clang_format()
 endif()
 
 if(SERIALIZER_BUILD_TESTS)

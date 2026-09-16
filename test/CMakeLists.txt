@@ -72,6 +72,11 @@ add_test(NAME serializer_compiler_cli
     "-DVERSION=${PROJECT_VERSION}" "-DDIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/compiler_cli"
     -P "${CMAKE_CURRENT_SOURCE_DIR}/compiler_cli.cmake")
 
+add_test(NAME serializer_clang_format_discovery
+  COMMAND "${CMAKE_COMMAND}" "-DFORMATTER=${SERIALIZER_CLANG_FORMAT_EXECUTABLE}"
+    "-DDIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/clang_format_discovery"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/clang_format_discovery.cmake")
+
 if(SERIALIZER_BUILD_JAVA_EXAMPLES)
   include(java_tests.cmake)
 endif()

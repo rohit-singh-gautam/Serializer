@@ -132,6 +132,15 @@ Relative schema, config, format-file, and generator paths use the current source
 directory. Prefer an absolute path for `CLANG_FORMAT`; a bare executable name is
 resolved on `PATH` by the generator. By default it invokes `clang-format`.
 CLI overrides from the helper take precedence over values in the config.
+When building this repository's tests or C++ examples, CMake automatically finds
+a runnable clang-format 19+ through its normal program search paths. On Windows,
+it also checks standard LLVM locations and Visual Studio installations, including
+instances other than the selected compiler's installation. Deleting the build
+cache triggers discovery again. An explicit `SERIALIZER_CLANG_FORMAT_EXECUTABLE`
+still takes precedence and is version-checked. If no suitable tool is installed,
+configuration explains which dependency to install; it does not download tools.
+This discovery applies to repository builds requiring formatting; standalone CLI
+and consuming-project overrides continue to follow the rules above.
 For full output settings, including naming and disabling formatting for a separate
 formatting pipeline, use [the INI configuration](output_configuration.md).
 

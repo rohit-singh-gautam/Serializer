@@ -241,7 +241,12 @@ at generation time; runtime consumers do not need clang-format. Config-file
 paths are relative to the config; CLI overrides take precedence. A custom
 `format_file` can supply organization-specific clang-format rules.
 
-Set `SERIALIZER_CLANG_FORMAT_EXECUTABLE` when CMake cannot find the formatter.
+CMake detects clang-format 19+ for test/example builds from its normal program
+search paths and, on Windows, standard LLVM and Visual Studio installations.
+Fresh build directories repeat discovery without a manually configured path.
+Set `SERIALIZER_CLANG_FORMAT_EXECUTABLE` only to select a specific installation;
+explicit paths are also checked for a runnable version 19+. If none is installed,
+install LLVM or Visual Studio's C++ Clang tools and configure again.
 The standard test build includes all profile examples; a build with tests disabled
 can opt into them with `SERIALIZER_BUILD_STYLE_EXAMPLES=ON`. All nine C++ style
 examples were generated, built, and run on Windows during Java backend validation;
