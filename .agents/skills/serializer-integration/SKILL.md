@@ -35,6 +35,8 @@ there instead of relying on the relative links.
   errors, editor configuration, and generating headers without compiling consumers.
 - Use [docs/editor_extension.md](../../../docs/editor_extension.md) for the optional
   VS Code extension, local VSIX installation, and CMake header assistance.
+- Use [Visual Studio extension](../../../editors/visual_studio/README.md) for the
+  separate Visual Studio 2022/2026 x64 grammar package and its build/install steps.
 - Read [docs/wire_format.md](../../../docs/wire_format.md) when choosing protocols,
   limits, failure handling, or compatibility behavior.
 - Read [migration.md](../../../migration.md) when updating older headers or APIs.
@@ -158,6 +160,12 @@ profile include paths separate. Its IntelliSense command explicitly updates the
 selected folder's C/C++ provider. Generation saves dirty schema/INI/CMake inputs
 in that folder and requires workspace trust. It provides lexical editing and
 build assistance, not semantic schema diagnostics or a Visual Studio package.
+For Visual Studio 2022/2026 on Windows x64, use `editors/visual_studio` instead.
+Run its `build.ps1` with Visual Studio's MSBuild to package and validate the VSIX,
+then install it using Visual Studio's VSIX Installer. It shares the canonical
+grammar and editing configuration, without the VS Code CMake commands or snippets.
+Continue to use the consumer's CMake targets for generation and include paths.
+Native Visual Studio installation and interactive editing checks remain pending.
 These targets still build the generator when needed and perform real generation:
 honor any instruction to defer configuration, generation, or builds. Install/package
 consumption has been smoke-tested on Windows for compiler 0.1.0, including versioned

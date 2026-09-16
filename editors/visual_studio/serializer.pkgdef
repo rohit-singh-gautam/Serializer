@@ -1,0 +1,7 @@
+; Discover .serializer through the shared grammar's fileTypes registration.
+[$RootKey$\TextMate\Repositories]
+"RohitSerializer"="$PackageFolder$\Grammars"
+
+; Enable comment toggling, bracket pairs, and indentation for this grammar.
+[$RootKey$\TextMate\LanguageConfiguration\GrammarMapping]
+"source.serializer"="$PackageFolder$\language-configuration.json"

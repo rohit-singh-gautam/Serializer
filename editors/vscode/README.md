@@ -85,8 +85,9 @@ success. There is no automatic build on file open/save.
   IntelliSense settings command is specific to Microsoft C/C++.
 - Syntax highlighting is lexical. Semantic schema diagnostics, completion,
   go-to-definition, and a language server are future work.
-- This is a VS Code extension. A Visual Studio extension requires a separate
-  package; the canonical grammar in `editors/serializer.tmLanguage.json` can be reused.
+- For Visual Studio 2022/2026, use the separate
+  [Visual Studio extension](https://github.com/rohit-singh-gautam/Serializer/tree/main/editors/visual_studio).
+  It shares the grammar and basic editing configuration; the commands above are VS Code features.
 
 See the repository's [extension guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/editor_extension.md)
 for development, validation, and packaging instructions. This source distribution

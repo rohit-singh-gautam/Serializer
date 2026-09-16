@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011">
+  <Metadata>
+    <Identity Id="Rohit.Serializer.VisualStudio.40c33349-6c7b-42a6-b843-390d7120b1b9" Version="1.0.0" Language="en-US" Publisher="Rohit Jairaj Singh" />
+    <DisplayName>Rohit Serializer</DisplayName>
+    <Description xml:space="preserve">Syntax highlighting and basic editing support for .serializer schemas in Visual Studio.</Description>
+    <MoreInfo>https://github.com/rohit-singh-gautam/Serializer/tree/main/editors/visual_studio</MoreInfo>
+    <License>LICENSE</License>
+    <Icon>Resources\serializer_logo_128x128.png</Icon>
+    <Tags>Serializer, schema, C++, Java, TextMate</Tags>
+  </Metadata>
+  <Installation>
+    <InstallationTarget Id="Microsoft.VisualStudio.Community" Version="[17.0,)">
+      <ProductArchitecture>amd64</ProductArchitecture>
+    </InstallationTarget>
+  </Installation>
+  <Dependencies />
+  <Prerequisites>
+    <Prerequisite Id="Microsoft.VisualStudio.Component.CoreEditor" Version="[17.0,)" DisplayName="Visual Studio core editor" />
+  </Prerequisites>
+  <Assets>
+    <Asset Type="Microsoft.VisualStudio.VsPackage" Path="serializer.pkgdef" />
+  </Assets>
+</PackageManifest>

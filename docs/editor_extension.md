@@ -1,4 +1,11 @@
-# VS Code extension
+# Serializer editor extensions
+
+Serializer provides separate packages for VS Code and Visual Studio. Both use
+`editors/serializer.tmLanguage.json`; build assistance commands currently belong
+to the VS Code extension. For the Visual Studio VSIX, see
+[Visual Studio](#visual-studio-extension) below.
+
+## VS Code
 
 The [Rohit Serializer extension](../editors/vscode/README.md), version **1.0.0**, provides `.serializer`
 syntax highlighting, snippets, and CMake generated-header commands. Schemas use
@@ -152,6 +159,37 @@ license, README, and changelog, then follow Microsoft's
 [VS Code publishing workflow](https://code.visualstudio.com/api/working-with-extensions/publishing-extension).
 The package includes the license for the bundled CMake Tools API helper.
 
-Visual Studio support and a shared language server are not implemented in this
-release. Keep any future Visual Studio adapter separate and reuse the canonical
-grammar. Package-manager recipes are also outside this extension's implementation.
+A shared language server is not implemented. Package-manager recipes are also
+outside this extension's implementation.
+
+## Visual Studio extension
+
+The separate [Visual Studio package](../editors/visual_studio/README.md), version
+**1.0.0**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
+grammar, shared language configuration, repository license, and logo. The grammar's
+`fileTypes` associates `.serializer` files; a `.pkgdef` registers the grammar and
+its editing configuration. It contains no compiled extension code.
+
+Build and validate with Windows PowerShell 5.1+ and Visual Studio's MSBuild:
+
+```powershell
+./editors/visual_studio/build.ps1
+```
+
+The script restores locked NuGet dependencies and writes
+`out/extensions/serializer-visual-studio-1.0.0.vsix`. Close Visual Studio,
+double-click this VSIX, install into the desired instance, and restart Visual
+Studio. The root `install_extension.ps1` remains the VS Code installer.
+
+This package configures highlighting, comment toggling, bracket/quote pairs, and
+indentation. It does not port VS Code commands or snippets. Generate headers using
+the consumer's existing CMake targets and keep include paths on those targets.
+Semantic schema diagnostics, schema completion, and go-to-definition are not implemented.
+
+The build's package check verifies identity, target architecture, `.pkgdef`
+registration, manifest assets, and byte-for-byte agreement with canonical sources.
+The Release build and package checks passed with Visual Studio 2026 MSBuild,
+including Windows PowerShell 5.1 invocation from outside the repository. All 13
+existing VS Code grammar/model/command tests passed with the shared grammar change.
+Native Visual Studio installation, interactive editing, and Marketplace publication
+remain pending. See the package README for the manual verification checklist.

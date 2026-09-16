@@ -32,6 +32,9 @@ the deferred validation work.
 
 The optional [VS Code extension](editor_extension.md) supplies `.serializer`
 highlighting and a `schema` snippet with the required version header.
+The separate [Visual Studio extension](../editors/visual_studio/README.md) packages
+the shared highlighting grammar and basic editing configuration for Visual Studio
+2022/2026 on Windows x64. Neither extension is required for compilation or codecs.
 
 Save this as `schemas/person.serializer` in your application:
 
