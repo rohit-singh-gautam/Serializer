@@ -13,7 +13,7 @@ The VS Code package also supplies an `include` snippet. See
 
 ## VS Code
 
-The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.0**, provides `.serializer`
+The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.1**, provides `.serializer`
 syntax highlighting, snippets, declaration/definition navigation, and CMake generated-header commands. Schemas use
 the current `serializer version 1;` header. Legacy `.def` and `.struct` names are
 not registered. C++/Java generation remains owned by the project's build rules;
@@ -52,13 +52,13 @@ Packaging compiles and bundles TypeScript, copies the canonical grammar, logo,
 and repository license into the extension, and writes:
 
 ```text
-out/extensions/serializer-vscode-1.1.0.vsix
+out/extensions/serializer-vscode-1.1.1.vsix
 ```
 
 From the repository root, install it with:
 
 ```sh
-code --install-extension out/extensions/serializer-vscode-1.1.0.vsix
+code --install-extension out/extensions/serializer-vscode-1.1.1.vsix
 ```
 
 Alternatively run **Extensions: Install from VSIX** and select the file. The
@@ -94,6 +94,13 @@ Nothing configures or builds automatically when opening or saving a schema.
 See [IntelliSense troubleshooting](intellisense.md) for the underlying integration.
 
 ## Navigate available schemas and headers
+
+Right-click a `.serializer` file in **Explorer** or its **editor tab** and select
+**Serializer: Go to Implementation**. This opens existing generated C++ output
+for the clicked file, including an included schema's entry header. It uses the
+clicked file rather than whichever editor is active. Multiple available outputs
+produce a picker; missing output does nothing and never prompts for generation.
+The command is also available in the Command Palette for the active schema.
 
 **Go to Declaration** opens a schema include's file or the original class/enum
 declaration for a type reference. From C++ includes it opens the entry schema;
@@ -184,6 +191,12 @@ consumer compilation, and a malformed schema leaving the prior header intact.
 The fixture disables generated-output formatting so it does not need clang-format.
 
 ### Verification performed
+
+For VS Code version 1.1.1, all 38 existing automated tests and the isolated
+navigation host passed on Windows. The file-menu actions share the existing
+URI-based header-opening handler. The VSIX was rebuilt and checked for the new
+command, Explorer/tab menu contributions, version metadata and bundled code.
+Interactive rendering of the new context-menu items has not been checked.
 
 For VS Code version 1.1.0, all 38 automated grammar/model/command/navigation tests
 passed on Windows. An isolated VS Code host passed navigation checks without CMake

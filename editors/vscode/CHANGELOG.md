@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.1
+
+- Add Serializer: Go to Implementation to `.serializer` file context menus in
+  Explorer and editor tabs, using the clicked file even when another editor is active.
+- Reuse existing generated-header navigation, including its output picker and
+  silent handling of missing output, without builds or generation prompts.
+
 ## 1.1.0
 
 - Add Go to Declaration for schema includes, class/enum declarations and type

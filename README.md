@@ -31,7 +31,7 @@ automatic header generation with CMake, and decoding an exact message with limit
 schema declaration/generated-header navigation, and missing-include assistance. Run
 `./install_extension.ps1` from PowerShell to build and install the local extension
 (Node.js 22+, npm, and the VS Code CLI are required). Marketplace publication is pending.
-The VS Code extension version is **1.1.0**, with ID `rohitjairajsingh.serializer-language`
+The VS Code extension version is **1.1.1**, with ID `rohitjairajsingh.serializer-language`
 (Rohit Jairaj Singh). Its release version is independent of the compiler version.
 It also supplies a dedicated 32×32 icon for `.serializer` files in Explorer and
 editor tabs when supported by the selected file icon theme.
@@ -362,9 +362,11 @@ No custom VS Code task or Serializer IntelliSense extension is required. See the
 [IntelliSense guide](docs/intellisense.md) for the repository presets and
 profile-specific includes. The optional [VS Code extension](docs/editor_extension.md)
 exposes the same build targets through commands and diagnoses missing includes.
-Version 1.1.0 also provides **Go to Declaration** to source schemas and **Go to
+The extension also provides **Go to Declaration** to source schemas and **Go to
 Definition** to existing generated C++ headers for includes and schema types.
 C++ type references use the C++ language service to find their originating schema.
+Right-click a `.serializer` file in Explorer or its editor tab and choose
+**Serializer: Go to Implementation** to open its available generated header.
 Navigation and **Open Generated Header** only use available files: they never
 build, configure, save inputs, or prompt for generation. See
 [navigation details and limitations](docs/editor_extension.md#navigate-available-schemas-and-headers).

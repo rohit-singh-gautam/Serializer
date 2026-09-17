@@ -174,15 +174,8 @@ export function registerNavigation(context: vscode.ExtensionContext): void {
     if (selected) { await vscode.window.showTextDocument(selected.uri, { selection: selected.range }); }
   }
 
-  context.subscriptions.push(vscode.commands.registerCommand('serializer.goToSchemaDeclaration', async () => {
-    const editor = vscode.window.activeTextEditor;
-    if (!editor || !['serializer', 'cpp'].includes(editor.document.languageId)) { return; }
-    const cancellation = new vscode.CancellationTokenSource();
-    try {
-      const targets = await declarationProvider(editor.document, editor.selection.active, cancellation.token);
-      if (targets.length) { await show(targets); }
-    } finally { cancellation.dispose(); }
-  }), vscode.commands.registerCommand('serializer.openGeneratedHeader', async (uri?: vscode.Uri) => {
+  /** Use the clicked file's URI for Explorer/tab actions, or the active schema from the palette. */
+  async function openGeneratedHeader(uri?: vscode.Uri): Promise<void> {
     const schema = uri ?? vscode.window.activeTextEditor?.document.uri;
     if (!schema || schema.scheme !== 'file' || !schema.fsPath.endsWith('.serializer')) { return; }
     const cancellation = new vscode.CancellationTokenSource();
@@ -193,5 +186,17 @@ export function registerNavigation(context: vscode.ExtensionContext): void {
       if (targets.length) { await show(targets); }
     } catch { /* Opening available output never offers or invokes generation. */ }
     finally { cancellation.dispose(); }
-  }), { dispose: () => cache.clear() });
+  }
+
+  context.subscriptions.push(vscode.commands.registerCommand('serializer.goToSchemaDeclaration', async () => {
+    const editor = vscode.window.activeTextEditor;
+    if (!editor || !['serializer', 'cpp'].includes(editor.document.languageId)) { return; }
+    const cancellation = new vscode.CancellationTokenSource();
+    try {
+      const targets = await declarationProvider(editor.document, editor.selection.active, cancellation.token);
+      if (targets.length) { await show(targets); }
+    } finally { cancellation.dispose(); }
+  }), vscode.commands.registerCommand('serializer.openGeneratedHeader', openGeneratedHeader),
+  vscode.commands.registerCommand('serializer.goToImplementation', openGeneratedHeader),
+  { dispose: () => cache.clear() });
 }

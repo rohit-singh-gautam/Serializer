@@ -3,7 +3,7 @@
   "displayName": "Rohit Serializer",
   "icon": "dist/serializer_logo.png",
   "description": "Schema declarations, generated C++ definitions, syntax highlighting and CMake assistance for Serializer.",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "publisher": "rohitjairajsingh",
   "author": {
     "name": "Rohit Jairaj Singh",
@@ -105,6 +105,11 @@
         "category": "Serializer"
       },
       {
+        "command": "serializer.goToImplementation",
+        "title": "Go to Implementation",
+        "category": "Serializer"
+      },
+      {
         "command": "serializer.configureIntelliSense",
         "title": "Use CMake Tools for C/C++ IntelliSense",
         "category": "Serializer",
@@ -112,6 +117,20 @@
       }
     ],
     "menus": {
+      "explorer/context": [
+        {
+          "command": "serializer.goToImplementation",
+          "when": "resourceScheme == file && resourceExtname == .serializer && !explorerResourceIsFolder",
+          "group": "navigation"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "serializer.goToImplementation",
+          "when": "resourceScheme == file && resourceExtname == .serializer",
+          "group": "navigation"
+        }
+      ],
       "editor/context": [
         {
           "command": "serializer.generateHeaders",
@@ -154,7 +173,7 @@
     "test:integration": "npm run build && node test/run.cjs",
     "test:navigation": "npm run build && node test/run_navigation.cjs",
     "vscode:prepublish": "npm run build",
-    "package": "vsce package --no-dependencies --out ../../out/extensions/serializer-vscode-1.1.0.vsix"
+    "package": "vsce package --no-dependencies --out ../../out/extensions/serializer-vscode-1.1.1.vsix"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

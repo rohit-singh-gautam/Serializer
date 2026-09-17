@@ -1,7 +1,7 @@
 # Rohit Serializer for Visual Studio Code
 
 Edit `.serializer` schemas with syntax highlighting, bracket matching, comments,
-folding, and snippets. Version **1.1.0** adds navigation from includes and class
+folding, and snippets. Version **1.1.1** includes navigation from includes and class
 references to source schemas and existing generated C++ headers. Use the project's
 CMake configuration for the separate build and missing-header assistance commands.
 
@@ -50,6 +50,11 @@ The project still needs Serializer, a C++20 compiler, CMake 3.28+, and clang-for
 
 ## Declaration and definition navigation
 
+Right-click a `.serializer` file in **Explorer** or its **editor tab**, then choose
+**Serializer: Go to Implementation** to open an existing generated C++ header.
+The command uses the clicked file, even when another editor is active. Multiple
+available headers produce a picker; missing output produces no result or build prompt.
+
 | Selected item | Go to Declaration | Go to Definition |
 | --- | --- | --- |
 | Schema `include types/account.serializer;` | Included schema | Existing header containing that schema's declarations |
@@ -83,6 +88,7 @@ headers are shown through normal navigation choices or a command picker.
 | --- | --- |
 | **Serializer: Generate Headers** | Builds `serializer_generated_headers` through CMake Tools, using the selected project and configuration. Saves modified schema/INI/CMake inputs in that workspace folder first. |
 | **Serializer: Open Generated Header** | Opens an existing header containing the active schema, with a path picker for multiple outputs. Missing output is a silent no-op. No build or generation prompt. |
+| **Serializer: Go to Implementation** | Opens existing generated C++ output for the `.serializer` file selected in Explorer or an editor tab; uses the active schema from the Command Palette. |
 | **Serializer: Go to Schema Declaration** | Opens only schema declaration results for the selected include or type, independently of other C++ declaration providers. |
 | **Serializer: Diagnose Missing Header** | With the cursor on a literal C/C++ `#include`, reports source-specific include paths, file existence, and registered generated headers in the Serializer Output channel. Otherwise asks for the header name. |
 | **Serializer: Use CMake Tools for C/C++ IntelliSense** | Explicitly sets `C_Cpp.default.configurationProvider` to `ms-vscode.cmake-tools` in the selected workspace folder. Requires Microsoft C/C++. |

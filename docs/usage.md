@@ -40,6 +40,8 @@ The optional [VS Code extension](editor_extension.md) supplies `.serializer`
 highlighting and a `schema` snippet with the required version header.
 It also navigates includes and type references: **Go to Declaration** opens the
 original schema, and **Go to Definition** opens available generated C++ output.
+For an entire schema, right-click its file in Explorer or its editor tab and
+choose **Serializer: Go to Implementation** to open an existing generated header.
 Navigation never builds or offers generation; see
 [available-file navigation](editor_extension.md#navigate-available-schemas-and-headers).
 The separate [Visual Studio extension](../editors/visual_studio/README.md) packages

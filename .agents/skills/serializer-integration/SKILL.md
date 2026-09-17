@@ -219,7 +219,7 @@ versioned snippets, and invokes the same targets through CMake Tools. Run the ro
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 1.1.0 is independent of compiler and schema versions. Configure
+version 1.1.1 is independent of compiler and schema versions. Configure
 the consumer first, then use `Serializer: Generate Headers` or `Serializer:
 Diagnose Missing Header`. Set `serializer.headersTarget` for one consumer; keep
 profile include paths separate. Its IntelliSense command explicitly updates the
@@ -234,6 +234,9 @@ legacy basename/profile matches as choices. An already active CMake model can
 narrow lookup but navigation must also work without it and in Restricted Mode.
 C++ type references use the installed C++ definition provider. Use `Serializer:
 Go to Schema Declaration` when other providers add C++ declaration locations.
+For file-level navigation, right-click a `.serializer` file in Explorer or its
+editor tab and choose `Serializer: Go to Implementation`. It uses the clicked
+file's URI and the same available-output lookup without building or prompting.
 See [navigation and limits](../../../docs/editor_extension.md#navigate-available-schemas-and-headers).
 Semantic schema diagnostics remain unavailable.
 For Visual Studio 2022/2026 on Windows x64, use `editors/visual_studio` instead.
