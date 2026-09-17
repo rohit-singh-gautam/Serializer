@@ -22,6 +22,10 @@ existing headers. Calls validate one complete frame with independent input,
 output, and window limits. Additional formats can supply a custom backend. See
 [examples](docs/usage.md#compress-complete-messages) and the
 [compression verification record](docs/verification-compression-2026-09-17.md).
+The [compression examples](example/compression/README.md) provide runnable programs
+for all five built-in formats, uncompressed output, and a custom backend. Build
+enabled formats with `SERIALIZER_BUILD_COMPRESSION_EXAMPLES=ON` or the standard
+test build; select dependencies separately with `SERIALIZER_WITH_*`.
 The [iostream examples](example/iostream/README.md) provide seven runnable memory,
 file, buffered, and custom stream examples with a shared 52-class, 645-field schema.
 They run in the standard test build or independently with

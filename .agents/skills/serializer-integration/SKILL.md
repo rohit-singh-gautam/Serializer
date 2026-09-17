@@ -363,6 +363,12 @@ user instruction to defer generation/builds/tests and report what remains unveri
   algorithms are not provided. Custom `compression::backend` adapters can extend
   format support without generator changes. Refer to the separate
   [compression verification record](../../../docs/verification-compression-2026-09-17.md).
+  Start from the [runnable compression examples](../../../example/compression/README.md)
+  for each built-in format, identity output, or the custom-backend interface.
+  Set `SERIALIZER_BUILD_COMPRESSION_EXAMPLES=ON` and `SERIALIZER_BUILD_TESTS=OFF`
+  to build them without GoogleTest, enable the matching `SERIALIZER_WITH_*`
+  dependencies, and run CTest with `-L serializer_compression_examples`. Regular
+  test builds include the enabled examples; disabled backends have no example target.
 
 - For Protobuf binary, ProtoJSON, or TextProto, read
   [the Protobuf guide](../../../docs/protobuf.md). Enable `[cpp] protobuf = true`

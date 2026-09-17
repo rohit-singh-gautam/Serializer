@@ -1,0 +1,16 @@
+serializer version 1;
+
+namespace compression_model {
+  class section stable_ids {
+    public uint32 number (1);
+    public string heading (2);
+    public array string paragraphs (3);
+  }
+
+  class document stable_ids {
+    public uint32 revision (1);
+    public string title (2);
+    public array section sections (3);
+    public map(string) string labels (4);
+  }
+}

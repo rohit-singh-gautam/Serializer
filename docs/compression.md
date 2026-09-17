@@ -8,6 +8,10 @@ bytes, field IDs, and byte order stay unchanged. Existing calls remain uncompres
 
 See the [usage examples](usage.md#compress-complete-messages) for generated APIs,
 free helpers, exact decoding, and explicit resource limits.
+The [runnable compression examples](../example/compression/README.md) cover every
+built-in format, identity output, and a custom backend. Build them independently
+with `SERIALIZER_BUILD_COMPRESSION_EXAMPLES=ON` or through the regular test build;
+only formats whose dependencies are enabled receive executable targets.
 
 ## Build and dependency options
 

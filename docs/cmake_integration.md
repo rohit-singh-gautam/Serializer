@@ -45,7 +45,7 @@ GoogleTest and clang-format 19+ must be available. `all` configures and builds,
 | PowerShell | Windows `make.ps1` wrapper. |
 | Git, HTTPS certificates, curl, zip, unzip, tar | Obtaining sources and bootstrapping/downloading vcpkg dependencies; the Linux setup installs these tools. |
 | GoogleTest CMake package | `SERIALIZER_BUILD_TESTS=ON`; supplied by this checkout's vcpkg manifest or an existing installation. |
-| clang-format 19+ | Generated C++ tests, style/iostream examples, benchmarks, fuzzers, and consumer generation with formatting enabled. |
+| clang-format 19+ | Generated C++ tests, style/iostream/compression examples, benchmarks, fuzzers, and consumer generation with formatting enabled. |
 | JDK 17+ (`java` and `javac`) | `SERIALIZER_BUILD_JAVA_EXAMPLES=ON`; Java source generation itself requires no JDK. |
 | Official Protobuf library and `protoc` | `SERIALIZER_BUILD_TESTS=ON` together with `SERIALIZER_BUILD_PROTOBUF_INTEROP_TESTS=ON`; Serializer's own Protobuf codecs do not require them. |
 | Clang with libFuzzer, AddressSanitizer, and UndefinedBehaviorSanitizer | `SERIALIZER_BUILD_FUZZERS=ON`; the fuzz target rejects MSVC mode. |
@@ -88,6 +88,13 @@ The [iostream examples](../example/iostream/README.md) are included with tests.
 To build them without GoogleTest, configure with `SERIALIZER_BUILD_TESTS=OFF`
 and `SERIALIZER_BUILD_IOSTREAM_EXAMPLES=ON`, build
 `serializer_iostream_examples`, and run CTest with `-L serializer_iostream`.
+
+The [compression examples](../example/compression/README.md) are also included
+with tests for the enabled `SERIALIZER_WITH_*` dependencies. To build them without
+GoogleTest, set `SERIALIZER_BUILD_TESTS=OFF` and
+`SERIALIZER_BUILD_COMPRESSION_EXAMPLES=ON`, build `serializer_compression_examples`,
+and run CTest with `-L serializer_compression_examples`. With every optional
+compression dependency disabled, only the uncompressed example is built.
 
 ### Visual Studio folder builds
 

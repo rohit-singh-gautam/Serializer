@@ -792,6 +792,10 @@ explains automatic selection and use from a consuming project's root.
 Enable `SERIALIZER_WITH_ZSTD`, `SERIALIZER_WITH_LZ4`, and/or `SERIALIZER_WITH_ZLIB`
 when building the runtime, with matching dependency packages available. All are
 optional and default OFF. See [compression contracts and dependencies](compression.md).
+For complete programs covering every built-in format, identity output, and a
+custom backend, see [compression examples](../example/compression/README.md).
+They include generated member/static calls, standard streams, standalone byte
+compression, and fresh exact decoding with explicit resource limits.
 Regenerate owning C++ headers for the added member/static overloads:
 
 ```cpp

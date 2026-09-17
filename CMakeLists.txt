@@ -17,6 +17,7 @@ option(SERIALIZER_BUILD_BENCHMARKS "Build separate codec timing and allocation t
 option(SERIALIZER_BUILD_FUZZERS "Build instrumented Clang libFuzzer targets and seed corpus tools" OFF)
 option(SERIALIZER_BUILD_STYLE_EXAMPLES "Build one example for each C++ output profile" OFF)
 option(SERIALIZER_BUILD_IOSTREAM_EXAMPLES "Build standard and custom iostream examples" OFF)
+option(SERIALIZER_BUILD_COMPRESSION_EXAMPLES "Build examples for enabled message compression formats" OFF)
 option(SERIALIZER_BUILD_JAVA_EXAMPLES "Generate and compile pure Java examples (JDK 17+)" OFF)
 option(SERIALIZER_INSTALL "Install the library, compiler, and CMake integration" ${PROJECT_IS_TOP_LEVEL})
 option(SERIALIZER_ENABLE_SIMD "Accelerate schema scanning and runtime codecs on supported CPUs" ON)
@@ -152,12 +153,14 @@ endif()
 
 # Formatting is a generator-time dependency; runtime users do not need clang-format.
 if(SERIALIZER_BUILD_TESTS OR SERIALIZER_BUILD_BENCHMARKS OR SERIALIZER_BUILD_FUZZERS
-    OR SERIALIZER_BUILD_STYLE_EXAMPLES OR SERIALIZER_BUILD_IOSTREAM_EXAMPLES)
+    OR SERIALIZER_BUILD_STYLE_EXAMPLES OR SERIALIZER_BUILD_IOSTREAM_EXAMPLES
+    OR SERIALIZER_BUILD_COMPRESSION_EXAMPLES)
   include(cmake/serializer_find_clang_format.cmake)
   serializer_find_clang_format()
 endif()
 
-if(SERIALIZER_BUILD_TESTS OR SERIALIZER_BUILD_FUZZERS OR SERIALIZER_BUILD_IOSTREAM_EXAMPLES)
+if(SERIALIZER_BUILD_TESTS OR SERIALIZER_BUILD_FUZZERS OR SERIALIZER_BUILD_IOSTREAM_EXAMPLES
+    OR SERIALIZER_BUILD_COMPRESSION_EXAMPLES)
   enable_testing()
 endif()
 if(SERIALIZER_BUILD_TESTS)
@@ -175,6 +178,10 @@ endif()
 
 if(SERIALIZER_BUILD_IOSTREAM_EXAMPLES OR SERIALIZER_BUILD_TESTS)
   add_subdirectory(example/iostream)
+endif()
+
+if(SERIALIZER_BUILD_COMPRESSION_EXAMPLES OR SERIALIZER_BUILD_TESTS)
+  add_subdirectory(example/compression)
 endif()
 
 if(SERIALIZER_BUILD_JAVA_EXAMPLES)
