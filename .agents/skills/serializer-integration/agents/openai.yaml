@@ -1,6 +1,6 @@
 interface:
   display_name: "Serializer Integration"
-  short_description: "Integrate schemas, codecs, and compatibility checks"
+  short_description: "Integrate schemas, codecs, compression, and compatibility"
 
 policy:
   allow_implicit_invocation: true

@@ -1,5 +1,13 @@
 # Migrating to the snake_case Serializer API
 
+Optional [message compression](docs/compression.md) adds C++ overloads without
+changing existing bytes or calls. Rebuild the runtime with selected optional
+dependencies and regenerate owning headers for member/static options. Free
+helpers work with existing headers. Readers must explicitly select the same
+standard compression format; there is no automatic uncompressed fallback.
+The compression overloads finish the inner decoder even for buffer inputs.
+See [compression verification](docs/verification-compression-2026-09-17.md).
+
 See the dated [verification record](docs/verification-2026-09-17.md) for the source
 revision, configurations, passing checks, and remaining validation work.
 

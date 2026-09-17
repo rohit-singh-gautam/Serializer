@@ -16,6 +16,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #pragma once
+#include <rohit/compression.hpp>
 #include <rohit/decode.hpp>
 #include <rohit/json_text.hpp>
 #include <rohit/runtime_simd.hpp>
@@ -2116,6 +2117,70 @@ template <typename Value, template <serialize_type> class Protocol,
     const auto view = make_constant_full_stream(buffer.begin(), buffer.current_offset());
     return deserialize_exact<Value, Protocol>(view, limits);
   }
+}
+
+namespace detail {
+// Decompress one bounded input extent before exposing bytes to any field decoder.
+template <rohit::type_check::input_stream Stream>
+std::vector<std::uint8_t> decompress_message(Stream&& input, compression::decode_options options,
+                                           const decode_limits& limits) {
+  compression::validate(options);
+  options.max_decompressed_bytes = std::min(options.max_decompressed_bytes, limits.max_input_bytes);
+  if constexpr (rohit::type_check::input_buffer<Stream>) {
+    const auto size = input.remaining_buffer();
+    auto bytes = compression::decompress({input.curr(), size}, options);
+    input.get_curr_and_increase_unchecked(size);
+    return bytes;
+  } else if constexpr (rohit::detail::memory_input_stream<Stream>) {
+    const auto view = borrow_stream_bytes(input, options.max_compressed_bytes);
+    return compression::decompress({view.curr(), view.remaining_buffer()}, options);
+  } else {
+    const auto buffer = read_stream_bytes(input, options.max_compressed_bytes);
+    return compression::decompress({buffer.begin(), buffer.current_offset()}, options);
+  }
+}
+} // namespace detail
+
+// Stage one bounded serialized message and publish its finalized compressed frame in one append.
+// Buffer reservation failure preserves existing output; external I/O can still write a prefix.
+template <template <serialize_type> class Protocol, rohit::type_check::output_stream Stream,
+          typename Value>
+void serialize_to(Stream& output, const Value& value, const compression::encode_options& options,
+                  compression::encode_limits limits = {}) {
+  compression::validate(options);
+  const stream_limits staging_limits{0, limits.max_input_bytes};
+  full_stream_auto_alloc_limits staging{&staging_limits};
+  serialize_to<Protocol>(staging, value);
+  const auto bytes = compression::compress({staging.begin(), staging.current_offset()}, options, limits);
+  if constexpr (rohit::type_check::output_buffer<Stream>) {
+    output.append(bytes.data(), bytes.size());
+  } else {
+    write_stream_bytes(output, bytes.data(), bytes.size());
+  }
+}
+
+// Validate the compressed frame before decoding; native field errors retain partial-update semantics.
+// This explicit whole-message overload always checks the complete decompressed input.
+template <template <serialize_type> class Protocol, rohit::type_check::input_stream Stream,
+          typename Value>
+void serialize_from(Stream&& input, Value& value, decode_limits limits,
+                    const compression::decode_options& options) {
+  const auto bytes = detail::decompress_message(input, options, limits);
+  const auto view = make_constant_full_stream(bytes.data(), bytes.size());
+  Protocol<serialize_type::in> decoder{view, limits};
+  decoder.serialize_in(value);
+  decoder.finish();
+}
+
+// Return a fresh value only after both decompression and exact object decoding succeed.
+// Failure can consume the source; no compressed storage is borrowed by the returned owning value.
+template <typename Value, template <serialize_type> class Protocol,
+          rohit::type_check::input_stream Stream>
+[[nodiscard]] Value deserialize_exact(Stream&& input, decode_limits limits,
+                                      const compression::decode_options& options) {
+  const auto bytes = detail::decompress_message(input, options, limits);
+  const auto view = make_constant_full_stream(bytes.data(), bytes.size());
+  return deserialize_exact<Value, Protocol>(view, limits);
 }
 
 } // namespace rohit::serializer

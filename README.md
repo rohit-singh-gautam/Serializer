@@ -15,6 +15,13 @@ Generated owning classes also provide a static pair:
 Use `object.serialize_in<Protocol>(stream, limits)` to supply explicit decode
 limits, or omit the second argument to retain the defaults.
 See [stream concepts and adapters](docs/usage.md#stream-concepts-and-implicit-adapters).
+Optional C++ [message compression](docs/compression.md) supports standard Zstandard,
+LZ4, gzip, zlib, and raw DEFLATE formats through separately enabled dependencies.
+Generated member/static calls accept compression options; free helpers support
+existing headers. Calls validate one complete frame with independent input,
+output, and window limits. Additional formats can supply a custom backend. See
+[examples](docs/usage.md#compress-complete-messages) and the
+[compression verification record](docs/verification-compression-2026-09-17.md).
 The [iostream examples](example/iostream/README.md) provide seven runnable memory,
 file, buffered, and custom stream examples with a shared 52-class, 645-field schema.
 They run in the standard test build or independently with

@@ -1,5 +1,19 @@
 {
   "dependencies": [
     "gtest"
-  ]
+  ],
+  "features": {
+    "compression-zstd": {
+      "description": "Optional Zstandard compression backend",
+      "dependencies": ["zstd"]
+    },
+    "compression-lz4": {
+      "description": "Optional LZ4 frame compression backend",
+      "dependencies": ["lz4"]
+    },
+    "compression-zlib": {
+      "description": "Optional gzip, zlib, and raw DEFLATE compression backend",
+      "dependencies": ["zlib"]
+    }
+  }
 }

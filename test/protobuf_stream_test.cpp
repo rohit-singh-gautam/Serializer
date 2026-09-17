@@ -10,6 +10,29 @@
 namespace {
 namespace codec = rohit::serializer;
 
+// Compression is an outer transform shared by all three optional Protobuf codecs.
+template <template <codec::serialize_type> class Protocol>
+void check_compressed_protocol() {
+  namespace compression = codec::compression;
+  for (const auto format : {compression::format::zstd, compression::format::lz4,
+                           compression::format::gzip}) {
+    if (!compression::available(format)) { continue; }
+    compression::encode_options options;
+    if (format == compression::format::zstd) { options = compression::zstd_options{}; }
+    if (format == compression::format::lz4) { options = compression::lz4_options{}; }
+    if (format == compression::format::gzip) { options = compression::gzip_options{}; }
+    protobuf_test::record original{};
+    original.display_name = "compressed message";
+    original.numbers = {1, 2, 300};
+    std::stringstream stream;
+    original.serialize_out<Protocol>(stream, options);
+    const auto decoded = codec::deserialize_exact<protobuf_test::record, Protocol>(
+        stream, {}, compression::decode_options{.format = format});
+    EXPECT_EQ(decoded.display_name, original.display_name);
+    EXPECT_EQ(decoded.numbers, original.numbers);
+  }
+}
+
 // Check nested and packed Protobuf output through independent buffer implementations.
 template <template <codec::serialize_type> class Protocol>
 void check_protocol() {
@@ -112,4 +135,11 @@ TEST(protobuf_stream, exact_fresh_value_helper) {
   check_exact_codec<codec::protobuf_binary>();
   check_exact_codec<codec::protojson>();
   check_exact_codec<codec::textproto>();
+}
+
+// Optional standard compressors preserve the binary and text Protobuf message contracts.
+TEST(protobuf_stream, compressed_messages) {
+  check_compressed_protocol<codec::protobuf_binary>();
+  check_compressed_protocol<codec::protojson>();
+  check_compressed_protocol<codec::textproto>();
 }

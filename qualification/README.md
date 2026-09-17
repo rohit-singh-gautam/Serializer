@@ -204,13 +204,33 @@ that runtime/SIMD objects carry the instrumentation.
 
 ## Measurement-dependent decisions
 
+Optional compression backends add `compression_fuzz` and generated seeds when any
+`SERIALIZER_WITH_ZSTD`, `SERIALIZER_WITH_LZ4`, or `SERIALIZER_WITH_ZLIB` option is ON.
+Its selector chooses Zstandard/LZ4/gzip/zlib/raw DEFLATE modulo five. Policies 1/2/3/4
+restrict compressed bytes, expanded bytes, window bytes, and zero-byte output;
+policies 5/6 retain the inner allocation/work restrictions. Successful frames are
+also parsed with the generated positional codec. Seeds include strict prefixes,
+trailing data, concatenated frames, corrupted bytes, empty frames, and expansion
+limits. Add this target to the campaign loop above. See
+[compression verification](../docs/verification-compression-2026-09-17.md).
+
+The fuzz runtime recompiles Serializer's compression adapters with instrumentation
+and links the enabled dependencies. To instrument library internals too, build
+zstd/LZ4/zlib themselves with Clang's
+`-fsanitize=fuzzer-no-link,address,undefined -fno-sanitize-recover=all
+-fno-omit-frame-pointer`, and use those installations in a separate sanitizer
+build. Link ordinary consumers in that diagnostic build with ASan/UBSan too;
+prebuilt dependencies do not acquire instrumentation from Serializer's options.
+The named dependencies/flags and actual campaign results must be recorded.
+
 Keep these as experiments until the measured workloads justify a change:
 
 - Direct-to-output integer formatting with exact-fit and custom-policy fallback.
 - Replacing the public virtual stream hierarchy or templating every protocol on it.
 - Map insertion hints based on validated ordering, or alternate container APIs.
-- New binary type/length framing, ordinary-integer variable encoding, compression,
-  or language backends. These require separate version/API contracts.
+- New binary type/length framing, ordinary-integer variable encoding, or language
+  backends require separate version/API contracts. Compression backends are now
+  optional; choosing algorithms/levels/thresholds still requires workload benchmarks.
 
 The current implementation keeps exact-length stack formatting, preserves ordered
 maps and stream reservation overrides, and introduces no new binary wire framing.

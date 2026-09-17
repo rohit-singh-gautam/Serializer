@@ -20,8 +20,14 @@ option(SERIALIZER_BUILD_IOSTREAM_EXAMPLES "Build standard and custom iostream ex
 option(SERIALIZER_BUILD_JAVA_EXAMPLES "Generate and compile pure Java examples (JDK 17+)" OFF)
 option(SERIALIZER_INSTALL "Install the library, compiler, and CMake integration" ${PROJECT_IS_TOP_LEVEL})
 option(SERIALIZER_ENABLE_SIMD "Accelerate schema scanning and runtime codecs on supported CPUs" ON)
+option(SERIALIZER_WITH_ZSTD "Enable standard Zstandard frame compression" OFF)
+option(SERIALIZER_WITH_LZ4 "Enable standard LZ4 frame compression" OFF)
+option(SERIALIZER_WITH_ZLIB "Enable gzip, zlib, and raw DEFLATE compression" OFF)
+include(cmake/serializer_compression.cmake)
 
 add_library(serializer_lib
+  src/compression.cpp
+  include/rohit/compression.hpp
   src/parser.cpp
   src/schema_scan.cpp
   src/schema_scan.hpp
@@ -58,7 +64,11 @@ target_include_directories(serializer_lib PUBLIC
 )
 target_compile_features(serializer_lib PUBLIC cxx_std_20)
 target_compile_definitions(serializer_lib PRIVATE
-  SERIALIZER_ENABLE_SIMD=$<BOOL:${SERIALIZER_ENABLE_SIMD}>)
+  SERIALIZER_ENABLE_SIMD=$<BOOL:${SERIALIZER_ENABLE_SIMD}>
+  SERIALIZER_WITH_ZSTD=$<BOOL:${SERIALIZER_WITH_ZSTD}>
+  SERIALIZER_WITH_LZ4=$<BOOL:${SERIALIZER_WITH_LZ4}>
+  SERIALIZER_WITH_ZLIB=$<BOOL:${SERIALIZER_WITH_ZLIB}>)
+target_link_libraries(serializer_lib PRIVATE ${serializer_compression_libraries})
 
 # Keep AVX2 flags off the dispatcher and consumers, including in unity builds.
 set(serializer_x64 FALSE)
@@ -122,6 +132,7 @@ if(SERIALIZER_INSTALL)
   install(FILES "${CMAKE_CURRENT_BINARY_DIR}/SerializerConfig.cmake"
     "${CMAKE_CURRENT_BINARY_DIR}/SerializerConfigVersion.cmake"
     cmake/serializer_generate.cmake cmake/serializer_generate_java.cmake
+    cmake/serializer_compression.cmake
     DESTINATION "${serializer_package_directory}")
   install(FILES LICENSE DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/Serializer")
 endif()

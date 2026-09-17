@@ -192,7 +192,10 @@ JSON maps retain the established array-of-entries representation:
 ```
 
 `format::compress` means compact JSON without optional whitespace. It is not a
-compression codec. No binary compression or new framing layer is introduced.
+compression codec. Optional [message compression](compression.md) wraps the entire
+encoded message in a selected standard compression format; it leaves the inner
+wire bytes unchanged and adds no Serializer envelope. Its whole-message overloads
+validate both the compressed frame and the complete decoded message.
 
 ## Replacement and failure behavior
 

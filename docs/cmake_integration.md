@@ -24,6 +24,14 @@ has no editor dependency and requires no `.vscode` files.
 
 ## Build this repository
 
+Optional message compression is controlled by `SERIALIZER_WITH_ZSTD`,
+`SERIALIZER_WITH_LZ4`, and `SERIALIZER_WITH_ZLIB` (all OFF by default). Enable the
+matching `compression-zstd`, `compression-lz4`, and `compression-zlib` vcpkg manifest
+features through `VCPKG_MANIFEST_FEATURES`, or provide upstream CMake installations
+through `CMAKE_PREFIX_PATH`. Installed packages rediscover enabled dependencies
+for their exported runtime target. See [compression](compression.md) for targets,
+limits, and supported format profiles. Missing enabled dependencies are errors.
+
 The root wrappers forward to CMake and preserve its incremental build and schema
 generation rules. On a fresh build, tests and all C++ style examples are enabled;
 GoogleTest and clang-format 19+ must be available. `all` configures and builds,

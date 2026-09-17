@@ -28,7 +28,8 @@ class corpus_writer {
 public:
   // Create only the selected build-output corpus directory.
   explicit corpus_writer(const std::filesystem::path& directory) : root{directory} {
-    for (const auto target : {"codec_fuzz", "view_fuzz", "protobuf_fuzz", "runtime_simd_fuzz"}) {
+    for (const auto target : {"codec_fuzz", "view_fuzz", "protobuf_fuzz", "runtime_simd_fuzz",
+                              "compression_fuzz"}) {
       std::filesystem::create_directories(root / target);
     }
   }
@@ -212,6 +213,36 @@ void malformed_seeds(corpus_writer& writer, bytes positional) {
 }
 
 // Generate all protocol families through the actual schema compiler's owning classes.
+void compression_seeds(corpus_writer& writer, const bytes& positional) {
+  namespace compression = codec::compression;
+  const std::array formats{compression::format::zstd, compression::format::lz4,
+                           compression::format::gzip, compression::format::zlib,
+                           compression::format::deflate};
+  const std::array<compression::encode_options, 5> options{
+      compression::zstd_options{}, compression::lz4_options{}, compression::gzip_options{},
+      compression::zlib_options{}, compression::deflate_options{}};
+  for (std::uint8_t index = 0; index < formats.size(); ++index) {
+    if (!compression::available(formats[index])) { continue; }
+    const auto name = "frame_" + std::to_string(index);
+    const auto frame = compression::compress(positional, options[index]);
+    writer.family("compression_fuzz", name, index, frame);
+    auto malformed = frame;
+    malformed.push_back(0);
+    writer.write("compression_fuzz", name + "_trailing", index, malformed);
+    malformed = frame;
+    malformed.insert(malformed.end(), frame.begin(), frame.end());
+    writer.write("compression_fuzz", name + "_concatenated", index, malformed);
+    malformed = frame;
+    malformed[malformed.size() / 2] ^= 0x80;
+    writer.write("compression_fuzz", name + "_corrupted", index, malformed);
+    writer.family("compression_fuzz", name + "_empty", index, compression::compress({}, options[index]));
+    const bytes expansion(qualification::fuzz_payload_bytes * 2, 'a');
+    writer.write("compression_fuzz", name + "_expansion_limit", index,
+                 compression::compress(expansion, options[index]));
+  }
+}
+
+// Generate native, optional Protobuf, view, SIMD, and compiled-in compression seeds.
 void generate(corpus_writer& writer) {
   const auto value = fixture();
   writer.family(
@@ -238,6 +269,7 @@ void generate(corpus_writer& writer) {
   compact_seeds(writer);
   simd_seeds(writer);
   malformed_seeds(writer, positional);
+  compression_seeds(writer, positional);
 }
 } // namespace
 

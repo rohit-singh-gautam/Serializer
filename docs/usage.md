@@ -786,3 +786,58 @@ checkout to an agent, give it that file's path directly; skill installation is
 not required for direct use. The [README](../README.md#integrate-with-a-coding-agent)
 provides a copyable request, and its [discovery guide](../README.md#repository-agent-skill)
 explains automatic selection and use from a consuming project's root.
+
+## Compress complete messages
+
+Enable `SERIALIZER_WITH_ZSTD`, `SERIALIZER_WITH_LZ4`, and/or `SERIALIZER_WITH_ZLIB`
+when building the runtime, with matching dependency packages available. All are
+optional and default OFF. See [compression contracts and dependencies](compression.md).
+Regenerate owning C++ headers for the added member/static overloads:
+
+```cpp
+namespace codec = rohit::serializer;
+namespace compression = codec::compression;
+
+rohit::full_stream_auto_alloc output;
+value.serialize_out<codec::binary_integer>(
+    output, compression::zstd_options{.level = 3});
+
+const auto input = rohit::make_constant_full_stream(output.begin(), output.current_offset());
+const compression::decode_options options{
+    .format = compression::format::zstd,
+    .max_compressed_bytes = 8 * compression::mebibyte,
+    .max_decompressed_bytes = 64 * compression::mebibyte,
+    .max_window_bytes = 8 * compression::mebibyte
+};
+codec::decode_limits limits{};
+destination.serialize_in<codec::binary_integer>(input, limits, options);
+```
+
+Compression applies once to the entire message and works with all seven C++
+owning codecs. Replace `zstd_options` with `lz4_options`, `gzip_options`,
+`zlib_options`, `deflate_options`, or `none_options`, and select the matching
+input `compression::format`. Native byte order and schema selection remain
+separate agreements. `format::compress` still selects compact JSON whitespace.
+
+The matching static and fresh-value alternatives, using independent input streams:
+
+```cpp
+record::serialize<codec::binary_integer>(other_output, value, compression::gzip_options{.level = 6});
+auto fresh = codec::deserialize_exact<record, codec::binary_integer>(fresh_input, limits, options);
+auto another = record::deserialize<codec::binary_integer>(another_input, limits, options);
+```
+
+For existing generated headers, use `serialize_to<Protocol>(output, value, options)`
+and `serialize_from<Protocol>(input, value, limits, options)` without regeneration.
+The free exact helper also needs no regeneration. Output additionally accepts
+`compression::encode_limits{.max_input_bytes = ..., .max_output_bytes = ...}`.
+Standard streams and custom stream concepts use the existing adapters.
+
+Calls stage bounded whole messages and require one standard frame/member in the
+input extent. They reject trailing compressed data, validate checksums when
+present, and finish the inner decoder. Frame failures precede field updates;
+member decoding can still partially update fields on inner parse errors. The exact
+helper returns a fresh value only on success. Input may be consumed on failure.
+Views require separately owned decompressed bytes before mapping. See the
+[format, memory, and custom-backend contract](compression.md) and
+[verification](verification-compression-2026-09-17.md).

@@ -447,6 +447,15 @@ public:
                      ") const {\n"
                      "    ::rohit::serializer::serialize_to<Protocol>(",
                      local_name("stream"), ", *this);\n  }\n\n");
+    out_stream.write(
+        "  // Encode one bounded message using an optional standard compression backend.\n"
+        "  template <template <::rohit::serializer::serialize_type> class Protocol,\n"
+        "            ::rohit::type_check::output_stream SerializerStream>\n"
+        "  void serialize_out(SerializerStream& ", local_name("stream"),
+        ", const ::rohit::serializer::compression::encode_options& ", local_name("compression"),
+        ", ::rohit::serializer::compression::encode_limits ", local_name("limits"), " = {}) const {\n"
+        "    ::rohit::serializer::serialize_to<Protocol>(", local_name("stream"), ", *this, ",
+        local_name("compression"), ", ", local_name("limits"), ");\n  }\n\n");
   }
 
   // Pass a matching base donor without adding a protocol value charge for the parent.
@@ -779,6 +788,15 @@ public:
         local_name("stream"), ", ::rohit::serializer::decode_limits ", local_name("limits"),
         ") {\n    ::rohit::serializer::serialize_from<Protocol>(",
         local_name("stream"), ", *this, ", local_name("limits"), ");\n  }\n");
+    out_stream.write(
+        "\n  // Validate one compressed frame and decode the complete uncompressed message.\n"
+        "  template <template <::rohit::serializer::serialize_type> class Protocol,\n"
+        "            ::rohit::type_check::input_stream SerializerStream>\n"
+        "  void serialize_in(SerializerStream&& ", local_name("stream"),
+        ", ::rohit::serializer::decode_limits ", local_name("limits"),
+        ", const ::rohit::serializer::compression::decode_options& ", local_name("compression"),
+        ") {\n    ::rohit::serializer::serialize_from<Protocol>(", local_name("stream"),
+        ", *this, ", local_name("limits"), ", ", local_name("compression"), ");\n  }\n");
   }
 
   // Emit matching static entrypoints for owning values without changing the member APIs.
@@ -794,6 +812,24 @@ public:
         "            ::rohit::type_check::output_stream SerializerStream>\n"
         "  static void serialize(SerializerStream& ", stream, ", const ", name, "& ", value,
         ") {\n    ::rohit::serializer::serialize_to<Protocol>(", stream, ", ", value, ");\n  }\n");
+    const auto compression = local_name("compression");
+    output.write(
+        "\n  // Encode one complete compressed message without taking ownership of the value.\n"
+        "  template <template <::rohit::serializer::serialize_type> class Protocol,\n"
+        "            ::rohit::type_check::output_stream SerializerStream>\n"
+        "  static void serialize(SerializerStream& ", stream, ", const ", name, "& ", value,
+        ", const ::rohit::serializer::compression::encode_options& ", compression,
+        ", ::rohit::serializer::compression::encode_limits ", limits, " = {}) {\n"
+        "    ::rohit::serializer::serialize_to<Protocol>(", stream, ", ", value, ", ", compression,
+        ", ", limits, ");\n  }\n"
+        "\n  // Return a fresh value after validating both the frame and the exact message.\n"
+        "  template <template <::rohit::serializer::serialize_type> class Protocol,\n"
+        "            ::rohit::type_check::input_stream SerializerStream>\n"
+        "  [[nodiscard]] static ", name, " deserialize(SerializerStream&& ", stream,
+        ", ::rohit::serializer::decode_limits ", limits,
+        ", const ::rohit::serializer::compression::decode_options& ", compression,
+        ") {\n    return ::rohit::serializer::deserialize_exact<", name, ", Protocol>(", stream,
+        ", ", limits, ", ", compression, ");\n  }\n");
     for (const bool explicit_limits : {false, true}) {
       output.write(
           "\n  // Decode a new owning value; failures throw without returning a partial object.\n"

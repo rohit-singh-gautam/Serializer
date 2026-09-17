@@ -8,6 +8,7 @@ add_executable(core_serializer_test
   core_serializer_test.cpp
   stream_boundary_test.cpp
   deserialize_exact_test.cpp
+  compression_test.cpp
   stream_concepts_test.cpp
   serializer_parser_test.cpp
   schema_version_test.cpp
@@ -42,6 +43,54 @@ elseif(UNIX)
 endif()
 
 add_test(NAME core_serializer_test COMMAND core_serializer_test)
+add_executable(compression_allocation_failure_test compression_allocation_failure_test.cpp)
+if(MSVC)
+  # MSVC debug vector constructors allocate iterator proxies inside noexcept functions.
+  # Test recoverable storage failures with release iterator semantics in BOTH translation units;
+  # the normal runtime and core tests keep the caller's existing iterator/ABI configuration.
+  target_sources(compression_allocation_failure_test PRIVATE ../src/compression.cpp)
+  target_include_directories(compression_allocation_failure_test PRIVATE
+    "$<TARGET_PROPERTY:serializer_lib,INTERFACE_INCLUDE_DIRECTORIES>")
+  target_compile_features(compression_allocation_failure_test PRIVATE cxx_std_20)
+  target_compile_definitions(compression_allocation_failure_test PRIVATE _ITERATOR_DEBUG_LEVEL=0
+    "$<TARGET_PROPERTY:serializer_lib,COMPILE_DEFINITIONS>")
+  target_link_libraries(compression_allocation_failure_test PRIVATE ${serializer_compression_libraries})
+else()
+  target_link_libraries(compression_allocation_failure_test PRIVATE Serializer::serializer_lib)
+endif()
+add_test(NAME compression_allocation_failure_test COMMAND compression_allocation_failure_test)
+set_tests_properties(compression_allocation_failure_test PROPERTIES TIMEOUT 60)
+
+# Standalone interoperability is optional; frozen independent fixtures need no external tools.
+if(SERIALIZER_WITH_ZSTD OR SERIALIZER_WITH_LZ4 OR SERIALIZER_WITH_ZLIB)
+  add_executable(compression_interop compression_interop.cpp)
+  target_link_libraries(compression_interop PRIVATE Serializer::serializer_lib)
+  find_package(Python3 3.9 COMPONENTS Interpreter QUIET)
+  if(Python3_Interpreter_FOUND)
+    foreach(format IN ITEMS zstd lz4 gzip zlib deflate)
+      set(compression_tool_arguments)
+      if(format STREQUAL "zstd" AND SERIALIZER_WITH_ZSTD)
+        find_program(serializer_zstd_program NAMES zstd)
+        if(NOT serializer_zstd_program)
+          continue()
+        endif()
+        list(APPEND compression_tool_arguments --tool "${serializer_zstd_program}")
+      elseif(format STREQUAL "lz4" AND SERIALIZER_WITH_LZ4)
+        find_program(serializer_lz4_program NAMES lz4)
+        if(NOT serializer_lz4_program)
+          continue()
+        endif()
+        list(APPEND compression_tool_arguments --tool "${serializer_lz4_program}")
+      elseif(NOT (SERIALIZER_WITH_ZLIB AND format MATCHES "^(gzip|zlib|deflate)$"))
+        continue()
+      endif()
+      add_test(NAME compression_interop_${format}
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/compression_interop_test.py"
+          --helper "$<TARGET_FILE:compression_interop>" --format "${format}" ${compression_tool_arguments})
+      set_tests_properties(compression_interop_${format} PROPERTIES LABELS serializer_compression)
+    endforeach()
+  endif()
+endif()
 
 # ELF linker wrapping injects allocator failures without modifying the production runtime.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang)$")

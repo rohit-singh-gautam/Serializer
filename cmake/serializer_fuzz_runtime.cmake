@@ -35,3 +35,4 @@ target_compile_definitions(serializer_fuzz_runtime PRIVATE
 target_compile_options(serializer_fuzz_runtime PRIVATE
   "$<TARGET_PROPERTY:serializer_lib,COMPILE_OPTIONS>")
 target_link_libraries(serializer_fuzz_runtime PUBLIC serializer_fuzz_instrumentation)
+target_link_libraries(serializer_fuzz_runtime PRIVATE ${serializer_compression_libraries})

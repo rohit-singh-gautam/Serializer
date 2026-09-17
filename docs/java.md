@@ -5,6 +5,10 @@ reflection, third-party runtime, or formatter dependency. The C++ schema compile
 is used at build time only. Each output file contains one public outer class,
 namespace containers, generated owning types, and private codec helpers.
 
+Optional [compression backends](compression.md) are currently C++ runtime features.
+Java's generated API has no new compression options; external standard libraries
+can compress/decompress its encoded bytes before calling the existing codecs.
+
 Schema directives such as `include common.serializer;` load reusable declarations
 into the entry schema's Java output. Reopened namespace blocks share one static
 container; duplicate qualified types and namespace/type conflicts fail during

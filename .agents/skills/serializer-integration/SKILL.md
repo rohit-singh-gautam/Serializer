@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer into C++ or Java applications from a provided repository or existing dependency. Use for .serializer schemas, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, schema compatibility checks and reservations, stream concepts and iostream adapters, exact fresh-value decoding, JSON or binary codecs, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
+description: "Integrate Serializer into C++ or Java applications from a provided repository or existing dependency. Use for .serializer schemas, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, schema compatibility checks and reservations, stream concepts and iostream adapters, exact fresh-value decoding, optional message compression, JSON or binary codecs, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
 ---
 
 # Serializer Integration
@@ -347,6 +347,22 @@ user instruction to defer generation/builds/tests and report what remains unveri
   interoperability, including exact binary bytes. Do not claim benchmark results.
 
 ## Implement the C++ codec calls
+
+- For optional compression, read [the compression contract](../../../docs/compression.md)
+  and [usage examples](../../../docs/usage.md#compress-complete-messages). Enable only
+  the needed `SERIALIZER_WITH_ZSTD`, `SERIALIZER_WITH_LZ4`, or `SERIALIZER_WITH_ZLIB`
+  dependencies. Select typed compression options at the whole-message boundary;
+  keep inner protocol/endian/schema agreements explicit. Regenerate owning headers
+  for member/static overloads, or use free helpers with existing generated headers.
+  Input requires an explicit compression format and exactly one frame/member.
+  Bound compressed input, expanded output, and backend window independently of
+  object decode limits. Calls stage whole messages and finish the inner decoder;
+  member parse errors can still partially update fields. Use the fresh exact
+  helper for replacement semantics. Views must map stable decompressed storage.
+  Java compression wrappers, dictionaries, concatenated streams, and unbundled
+  algorithms are not provided. Custom `compression::backend` adapters can extend
+  format support without generator changes. Refer to the separate
+  [compression verification record](../../../docs/verification-compression-2026-09-17.md).
 
 - For Protobuf binary, ProtoJSON, or TextProto, read
   [the Protobuf guide](../../../docs/protobuf.md). Enable `[cpp] protobuf = true`

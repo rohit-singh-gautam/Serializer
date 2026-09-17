@@ -1,5 +1,10 @@
 # Verification record — 2026-09-17
 
+The later [compression verification record](verification-compression-2026-09-17.md)
+identifies its separate source snapshot, optional dependencies, full sanitizer
+suite, interoperability checks, and bounded compression fuzz campaign. Results
+below retain their original snapshot scope.
+
 ## Compatibility and exact-decoding follow-up
 
 The subsequent compatibility-checker and exact-decoding changes were validated
