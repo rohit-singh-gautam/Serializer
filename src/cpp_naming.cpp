@@ -314,6 +314,8 @@ void naming::validate_names(const std::vector<std::unique_ptr<syntax_node>>& sta
         const auto& object = static_cast<const class_node&>(node);
         std::set<std::string> owning{"serialize_in",
                                      "serialize_out",
+                                     "serialize",
+                                     "deserialize",
                                      "serialize_in_member_by_identifier",
                                      "serialize_in_member_by_name",
                                      "serializer_reuses_storage",

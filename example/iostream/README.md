@@ -5,15 +5,17 @@ standard memory streams, file streams, base stream references, and a custom
 non-seekable stream buffer. Each stream category has its own folder, source, and
 README. The shared model is generated once through `serializer_generate`.
 
-All examples use the generated member API for both directions:
+All examples use the generated static API for both directions:
 
 ```cpp
-original.serialize_out<codec::binary_integer>(stream);
-decoded.serialize_in<codec::binary_integer>(stream, message_limits());
+archive::serialize<codec::binary_integer>(stream, original);
+const auto decoded = archive::deserialize<codec::binary_integer>(stream, message_limits());
 ```
 
-The input overload accepts explicit resource limits and performs the same
-implicit stream adaptation as the overload with default limits.
+The input factory creates the destination internally, accepts explicit resource
+limits, and uses the same implicit stream adaptation as the member API.
+Omit the second argument to use default limits. Existing member
+`serialize_out` and `serialize_in` calls remain available.
 
 | Folder | Standard stream types | Protocol | Serializer adaptation |
 | --- | --- | --- | --- |

@@ -14,14 +14,13 @@ int main() {
     chunked_streambuf buffer;
     std::ostream output{&buffer};
     output.exceptions(std::ios::badbit | std::ios::failbit);
-    original.serialize_out<codec::binary_integer>(output);
+    archive::serialize<codec::binary_integer>(output, original);
     output.flush();
 
     // The first read begins at the start of the stored message; no seeking is supported.
     std::istream input{&buffer};
     input.exceptions(std::ios::badbit | std::ios::failbit);
-    archive decoded{};
-    decoded.serialize_in<codec::binary_integer>(input, message_limits());
+    const auto decoded = archive::deserialize<codec::binary_integer>(input, message_limits());
     verify_round_trip(original, decoded, buffer.size());
     return buffer.size();
   });

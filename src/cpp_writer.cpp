@@ -781,10 +781,43 @@ public:
         local_name("stream"), ", *this, ", local_name("limits"), ");\n  }\n");
   }
 
+  // Emit matching static entrypoints for owning values without changing the member APIs.
+  void write_static_serializer(rohit::type_check::output_buffer auto& output,
+                               const class_node* obj) {
+    const auto name = type_name(obj->name);
+    const auto stream = local_name("stream");
+    const auto value = local_name("value");
+    const auto limits = local_name("limits");
+    output.write(
+        "\n  // Encode a borrowed value; the caller owns the destination and any flush/close.\n"
+        "  template <template <::rohit::serializer::serialize_type> class Protocol,\n"
+        "            ::rohit::type_check::output_stream SerializerStream>\n"
+        "  static void serialize(SerializerStream& ", stream, ", const ", name, "& ", value,
+        ") {\n    ::rohit::serializer::serialize_to<Protocol>(", stream, ", ", value, ");\n  }\n");
+    for (const bool explicit_limits : {false, true}) {
+      output.write(
+          "\n  // Decode a new owning value; failures throw without returning a partial object.\n"
+          "  // Input may be consumed; byte sources receive exact-message validation.\n"
+          "  template <template <::rohit::serializer::serialize_type> class Protocol,\n"
+          "            ::rohit::type_check::input_stream SerializerStream>\n"
+          "  [[nodiscard]] static ", name, " deserialize(SerializerStream&& ", stream);
+      if (explicit_limits) {
+        output.write(", ::rohit::serializer::decode_limits ", limits);
+      }
+      output.write(") {\n    ", name, " ", value,
+                   "{};\n    ::rohit::serializer::serialize_from<Protocol>(", stream, ", ", value);
+      if (explicit_limits) {
+        output.write(", ", limits);
+      }
+      output.write(");\n    return ", value, ";\n  }\n");
+    }
+  }
+
   // Emit C++ serializer for the parsed schema.
   void write_serializer(rohit::type_check::output_buffer auto& out_stream, const class_node* obj) {
     write_serializer_out_body(out_stream, obj);
     write_serializer_in_body(out_stream, obj);
+    write_static_serializer(out_stream, obj);
     if (protobuf_enabled) { write_protobuf(out_stream, *obj); }
   }
 

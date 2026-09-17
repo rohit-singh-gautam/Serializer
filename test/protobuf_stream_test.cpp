@@ -51,9 +51,27 @@ void check_protocol() {
   decoded.serialize_in<Protocol>(io, limits);
   EXPECT_EQ(decoded.numbers, original.numbers);
   EXPECT_EQ(decoded.nested.number, original.nested.number);
+
+  std::stringstream factory_io;
+  protobuf_test::record::serialize<Protocol>(factory_io, original);
+  EXPECT_EQ(factory_io.str(), expected);
+  const auto factory_value = protobuf_test::record::deserialize<Protocol>(factory_io, limits);
+  EXPECT_EQ(factory_value.numbers, original.numbers);
+  EXPECT_EQ(factory_value.counts, original.counts);
+  EXPECT_EQ(factory_value.nested.number, original.nested.number);
+  const stream_test::input_cursor factory_input{expected};
+  const auto custom_value = protobuf_test::record::deserialize<Protocol>(factory_input);
+  stream_test::output_buffer factory_output;
+  protobuf_test::record::serialize<Protocol>(factory_output, custom_value);
+  EXPECT_EQ(factory_output.bytes(), expected);
+
   std::istringstream oversized{expected};
   --limits.max_input_bytes;
   EXPECT_THROW(decoded.serialize_in<Protocol>(oversized, limits), std::length_error);
+  std::istringstream oversized_factory{expected};
+  EXPECT_THROW(static_cast<void>(
+                   protobuf_test::record::deserialize<Protocol>(oversized_factory, limits)),
+               std::length_error);
 }
 } // namespace
 

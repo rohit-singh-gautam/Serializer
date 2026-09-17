@@ -25,13 +25,12 @@ int main() {
     std::iostream stream{&file_buffer};
     stream.exceptions(std::ios::badbit | std::ios::failbit);
     // The static std::iostream type selects the generic 8 KiB serializer adapter.
-    original.serialize_out<codec::binary_integer>(stream);
+    archive::serialize<codec::binary_integer>(stream, original);
     stream.flush();
     const auto encoded_bytes = static_cast<std::size_t>(std::filesystem::file_size(file.name()));
     stream.seekg(0);
 
-    archive decoded{};
-    decoded.serialize_in<codec::binary_integer>(stream, message_limits());
+    const auto decoded = archive::deserialize<codec::binary_integer>(stream, message_limits());
     verify_round_trip(original, decoded, encoded_bytes);
     if (file_buffer.close() == nullptr) {
       throw std::ios_base::failure{"Unable to close buffered example file"};

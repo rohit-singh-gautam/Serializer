@@ -276,8 +276,11 @@ all readers of the previous message have finished.
 
 Regenerate C++ headers to use any implementation satisfying the public concepts in
 `<rohit/stream_concepts.hpp>`. Inheritance from `rohit::stream` is unnecessary.
-Generated `serialize_out<Protocol>(stream)` and `serialize_in<Protocol>(stream)`
-calls select their implementation at compile time, preserving the chosen protocol.
+Generated static `Type::serialize<Protocol>(stream, value)` and
+`Type::deserialize<Protocol>(stream[, limits])` calls select their implementation
+at compile time, preserving the chosen protocol. The member
+`serialize_out<Protocol>(stream)` and `serialize_in<Protocol>(stream[, limits])`
+APIs remain available for existing callers and destination reuse.
 
 ```cpp
 #include <person.hpp>
@@ -287,12 +290,24 @@ calls select their implementation at compile time, preserving the chosen protoco
 // Encode into a standard memory stream; its unread contents become one input message.
 void round_trip(demo::person& value) {
   std::stringstream message;
-  value.serialize_out<rohit::serializer::json>(message);
-  demo::person decoded{};
-  decoded.serialize_in<rohit::serializer::json>(message);
+  demo::person::serialize<rohit::serializer::json>(message, value);
+  auto decoded = demo::person::deserialize<rohit::serializer::json>(message);
   value = std::move(decoded);
 }
 ```
+
+Static `serialize` takes the stream first and a const reference to the value
+second; it returns `void`. Static `deserialize` value-initializes an owning
+object, decodes it, and returns it by value. Its return is marked `[[nodiscard]]`.
+Schema defaults and protocol-specific default behavior are preserved. An exception
+prevents a partially decoded object from being returned, but input may already
+be consumed. The helper adds no heap-allocated wrapper or extra encoding step.
+
+Both APIs use the existing stream adapters. Omitting `limits` calls the existing
+default-input path; passing `decode_limits` selects the explicit-limit path.
+They are generated for owning classes, including the owning specialization of
+classes that also expose views. Views retain their `map` API and borrowed lifetime.
+Regenerate C++ headers to obtain the static helpers.
 
 The same calls accept `std::ifstream`, `std::ofstream`, `std::fstream`, base-class
 `std::istream`/`std::ostream` references, and structural custom byte sources/sinks.
@@ -329,21 +344,25 @@ incremental parsing. For consecutive framed messages, supply an exact-size input
 buffer or a byte source bounded to one frame; no length prefix is inserted or read.
 
 Use the generated overload `destination.serialize_in<Protocol>(input, limits)`
-for explicit limits. Omitting `limits` preserves the existing default-limit
+for explicit limits on an existing object, or
+`Type::deserialize<Protocol>(input, limits)` to create a new one.
+Omitting `limits` preserves the existing default-limit
 overload and custom-protocol constructor behavior. Both overloads select the same
 implicit adapter from the stream's static type:
 
 ```cpp
 rohit::serializer::decode_limits limits{};
 limits.max_input_bytes = 16 * rohit::serializer::decode_limits::mebibyte;
-decoded.serialize_in<rohit::serializer::binary_integer>(stream, limits);
+auto decoded = demo::person::deserialize<rohit::serializer::binary_integer>(stream, limits);
 ```
 
 `serialize_from<Protocol>(input, destination, limits)` remains available as a
 free-function alternative and is the shared implementation behind the generated
-member overload. Output likewise has `serialize_to<Protocol>(output, value)`.
+member overloads and static factory. Output likewise has
+`serialize_to<Protocol>(output, value)`, shared by both output APIs.
 Regenerate existing C++ headers to obtain the new two-argument member overload.
-Buffer-input convenience calls retain their existing behavior: no implicit `finish()` check.
+All buffer-input convenience calls, including the static factory, retain their
+existing behavior: no implicit `finish()` check.
 For exact buffer validation, construct the concrete decoder and call `finish()`:
 
 ```cpp

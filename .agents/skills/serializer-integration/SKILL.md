@@ -371,6 +371,16 @@ user instruction to defer generation/builds/tests and report what remains unveri
   `SERIALIZER_BUILD_IOSTREAM_EXAMPLES=ON` to build them independently without
   GoogleTest, then run CTest with `-L serializer_iostream`. The standard test build
   includes them too. Keep their concrete stream types where specialization matters.
+- Regenerate owning C++ classes to use matching static entrypoints:
+  `Type::serialize<Protocol>(stream, value)` writes a const borrowed value and
+  returns void; `Type::deserialize<Protocol>(stream[, limits])` returns a newly
+  initialized owning value marked `[[nodiscard]]`. Defaults and stream adaptation
+  match the existing member APIs. Failures throw without returning a partial
+  object, but may consume input. Keep `serialize_in` for destination storage reuse.
+  The static factory retains buffer-input semantics without an implicit `finish()`;
+  byte streams still receive exact-message validation. Views retain `map`.
+  Both new names are reserved in owning class scope; preserve wire names and IDs
+  with metadata when resolving schema member collisions.
 - Byte-stream input means one bounded EOF-delimited message and includes `finish()`
   validation; it is not incremental parsing and adds no wire framing. Use a bounded
   source or exact-size buffer for framed traffic. Regenerated owning classes expose

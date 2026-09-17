@@ -9,6 +9,9 @@ C++ stream APIs use structural C++20 concepts: custom implementations need no
 `rohit::stream` base class. Generated calls accept standard streams directly through
 implicit adapters. Memory input streams borrow their unread storage; file streams
 use larger I/O batches; custom contiguous buffers retain the direct codec path.
+Generated owning classes also provide a static pair:
+`Type::serialize<Protocol>(stream, value)` and
+`Type::deserialize<Protocol>(stream[, limits])`, which returns a new object.
 Use `object.serialize_in<Protocol>(stream, limits)` to supply explicit decode
 limits, or omit the second argument to retain the defaults.
 See [stream concepts and adapters](docs/usage.md#stream-concepts-and-implicit-adapters).

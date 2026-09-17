@@ -27,6 +27,20 @@ and the free `serialize_from<Protocol>(input, object, limits)` remain supported.
 Byte streams retain EOF-delimited exact-message validation; contiguous buffer
 convenience calls retain their existing behavior without an implicit `finish()`.
 
+Regenerated owning classes also provide static
+`Type::serialize<Protocol>(output, value)` and
+`Type::deserialize<Protocol>(input[, limits])`. The first returns void; the
+second initializes and returns a new owning value. Existing member APIs remain
+available, including `serialize_in` for reusing destination storage. Input
+validation, default constructors, stream selection, and wire bytes stay unchanged.
+Views continue to use `map`.
+
+`serialize` and `deserialize` are now reserved in generated owning class scope.
+The generator rejects colliding class/member names before emitting invalid C++.
+Resolve member collisions while preserving wire names and IDs, for example
+`public string serialized_payload ("serialize", 1);` for a field whose existing
+wire name is `serialize` and ID is 1.
+
 ## VS Code navigation in extension 1.1.0
 
 Upgrade the VS Code package to 1.1.0 for declaration navigation to source schemas

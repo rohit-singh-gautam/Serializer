@@ -131,6 +131,9 @@ TEST(output_options, rejects_collisions_and_keywords) {
         "class ViewBase view readonly {}", "enum State { ReadyNow, ready_now }",
         "enum State { Ready } class ToState {}",
         "class record { public uint32 serializer_reuses_storage; }",
+        "class record { public uint32 serialize; }",
+        "class record { public uint32 deserialize; }",
+        "class serialize {}", "class deserialize {}",
         "class record { public union(uint32 = someValue, float = some_value) payload; }"}) {
     EXPECT_THROW(emit(schema, writer::coding_standard::serializer), std::invalid_argument)
         << schema;
@@ -142,6 +145,9 @@ TEST(output_options, rejects_collisions_and_keywords) {
                std::invalid_argument);
   EXPECT_THROW(emit("class SerializerStream {}", writer::coding_standard::google),
                std::invalid_argument);
+  EXPECT_NO_THROW(emit(
+      "class record { public string serialized_payload (\"serialize\", 1); }",
+      writer::coding_standard::serializer));
   const auto preserved =
       emit("class UserRecord { public uint32 userID; }", writer::coding_standard::google, false);
   EXPECT_NE(preserved.find("class UserRecord"), std::string::npos);

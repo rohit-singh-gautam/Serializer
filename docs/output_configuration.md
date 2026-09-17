@@ -119,8 +119,9 @@ All three still encode the key `accountID`. Explicit display names, field IDs,
 enum/union wire spellings, alternative numbers, declaration order, and endianness
 also stay unchanged. Renaming a profile changes the C++ API, not the wire format.
 
-Runtime/ADL interfaces keep their required spellings, including `serialize_in`,
-`serialize_out`, `serialize_in_member_by_name`, `serialize_in_member_by_identifier`,
+Runtime/ADL interfaces and static codec helpers keep their required spellings, including
+`serialize`, `deserialize`, `serialize_in`, `serialize_out`,
+`serialize_in_member_by_name`, `serialize_in_member_by_identifier`,
 `serializer_enum_*`, `serializer_scan`, `map`, and `to_string`. Runtime types and
 inherited view APIs such as `serialized_bytes` also retain their public names.
 Generated conversion helpers such as `to_account_state` and field accessors follow

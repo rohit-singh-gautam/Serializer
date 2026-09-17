@@ -19,7 +19,7 @@ int main() {
   Record.CurrentState = style_demo::AccountState::Active;
 
   rohit::full_stream_auto_alloc Bytes{};
-  Record.serialize_out<rohit::serializer::binary_none>(Bytes);
+  OwningRecord::serialize<rohit::serializer::binary_none>(Bytes, Record);
   auto Editor = MutableRecord::map(
       std::span<std::uint8_t>{Bytes.begin(), Bytes.current_offset()});
   Editor.setAccountId(43);
@@ -35,6 +35,13 @@ int main() {
   Decoder.finish();
   if (Decoded.AccountId != 43 ||
       Decoded.CurrentState != style_demo::AccountState::Active) {
+    return 1;
+  }
+  const auto FactoryInput =
+      rohit::make_constant_stream(Bytes.begin(), Bytes.current_offset());
+  const auto FactoryValue = OwningRecord::deserialize<rohit::serializer::binary_none>(
+      FactoryInput, rohit::serializer::decode_limits{});
+  if (FactoryValue.AccountId != Decoded.AccountId) {
     return 1;
   }
   rohit::full_stream_auto_alloc Json{};

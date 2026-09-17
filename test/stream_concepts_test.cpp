@@ -10,12 +10,14 @@
 
 #include <array>
 #include <chrono>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <ios>
 #include <sstream>
+#include <stdexcept>
 #include <streambuf>
 #include <string>
 #include <string_view>
@@ -65,6 +67,26 @@ static_assert(accepts_limited_input<const input_cursor>);
 static_assert(accepts_limited_input<std::istream>);
 static_assert(!accepts_limited_input<incomplete_stream>);
 
+// Both factories reject incomplete streams before instantiating their bodies.
+template <typename T>
+concept accepts_static_input = requires(T& input, codec::decode_limits limits) {
+  { test::test1::person::deserialize<codec::json>(input) } -> std::same_as<test::test1::person>;
+  { test::test1::person::deserialize<codec::json>(input, limits) }
+      -> std::same_as<test::test1::person>;
+};
+template <typename T>
+concept accepts_static_output = requires(T& output, const test::test1::person& value) {
+  { test::test1::person::serialize<codec::json>(output, value) } -> std::same_as<void>;
+};
+static_assert(accepts_static_input<const input_cursor>);
+static_assert(accepts_static_input<std::istream>);
+static_assert(!accepts_static_input<const std::istream>);
+static_assert(!accepts_static_input<incomplete_stream>);
+static_assert(accepts_static_output<output_buffer>);
+static_assert(accepts_static_output<std::ostream>);
+static_assert(!accepts_static_output<const output_buffer>);
+static_assert(!accepts_static_output<incomplete_stream>);
+
 // Compare custom storage and iostream output with the established native byte contract.
 template <template <codec::serialize_type> class Protocol>
 void check_round_trip() {
@@ -99,6 +121,19 @@ void check_round_trip() {
   decoded.serialize_in<Protocol>(io);
   EXPECT_EQ(decoded.name, original.name);
   EXPECT_EQ(decoded.id, original.id);
+
+  std::stringstream factory_io;
+  test::test1::person::serialize<Protocol>(factory_io, original);
+  EXPECT_EQ(factory_io.str(), expected);
+  const auto factory_value = test::test1::person::deserialize<Protocol>(factory_io, limits);
+  EXPECT_EQ(factory_value.name, original.name);
+  EXPECT_EQ(factory_value.id, original.id);
+  const input_cursor factory_input{expected};
+  const auto custom_value = test::test1::person::deserialize<Protocol>(factory_input);
+  EXPECT_TRUE(factory_input.full());
+  output_buffer factory_output;
+  test::test1::person::serialize<Protocol>(factory_output, custom_value);
+  EXPECT_EQ(factory_output.bytes(), expected);
 }
 
 // A failed bulk write must surface even when ostream exceptions are disabled.
@@ -264,6 +299,66 @@ TEST(stream_concepts, accepts_temporary_const_input_views) {
   const std::string json = "{\"fullname\":\"Ada\",\"ID\":8}";
   value.serialize_in<codec::json>(rohit::make_constant_full_stream(json));
   EXPECT_EQ(value.name, "Ada");
+}
+
+TEST(stream_concepts, static_factories_preserve_defaults_and_buffer_boundaries) {
+  const auto defaults = test::test1::personex::deserialize<codec::json>(std::istringstream{"{}"});
+  EXPECT_EQ(defaults.name, "None");
+  EXPECT_EQ(defaults.id, 0);
+  EXPECT_EQ(defaults.account, 1);
+
+  const std::string messages = "{} {}";
+  const input_cursor input{messages};
+  const auto first = test::test1::personex::deserialize<codec::json>(input, codec::decode_limits{});
+  EXPECT_EQ(first.account, 1);
+  // Buffer convenience calls consume one object without requiring the complete buffer to end.
+  EXPECT_EQ(std::string_view(reinterpret_cast<const char*>(input.curr()), input.remaining_buffer()),
+            " {}");
+  constexpr std::string_view empty_json = "{}";
+  const auto temporary = test::test1::person::deserialize<codec::json>(
+      rohit::make_constant_full_stream(empty_json.data(), empty_json.size()));
+  EXPECT_EQ(temporary.name, "None");
+}
+
+TEST(stream_concepts, static_factories_support_owning_storage_specializations) {
+  using owning_record = view_test::record<codec::storage_mode::owning>;
+  owning_record original{};
+  original.code = 42;
+  original.nested.label = "nested";
+  original.values = {1, 2, 3};
+  original.payload.number = 17;
+  std::stringstream io;
+  owning_record::serialize<codec::binary_none>(io, original);
+  const auto decoded = owning_record::deserialize<codec::binary_none>(io);
+  static_assert(std::same_as<std::remove_cvref_t<decltype(decoded)>, owning_record>);
+  EXPECT_EQ(decoded.code, original.code);
+  EXPECT_EQ(decoded.nested.label, original.nested.label);
+  EXPECT_EQ(decoded.values, original.values);
+  EXPECT_EQ(decoded.payload.number, original.payload.number);
+}
+
+TEST(stream_concepts, static_factories_propagate_limits_parse_and_transport_errors) {
+  const std::string json = "{\"fullname\":\"Ada\",\"ID\":8}";
+  codec::decode_limits limits;
+  limits.max_string_bytes = 2;
+  std::istringstream limited{json};
+  EXPECT_THROW(static_cast<void>(test::test1::person::deserialize<codec::json>(limited, limits)),
+               codec::exception::resource_limit);
+  limits.max_input_bytes = json.size() - 1;
+  std::istringstream oversized{json};
+  EXPECT_THROW(static_cast<void>(test::test1::person::deserialize<codec::json>(oversized, limits)),
+               std::length_error);
+  std::istringstream truncated{json.substr(0, json.size() - 1)};
+  EXPECT_THROW(static_cast<void>(test::test1::person::deserialize<codec::json>(truncated)),
+               codec::exception::bad_input_data);
+  std::istringstream trailing{json + " {}"};
+  EXPECT_THROW(static_cast<void>(test::test1::person::deserialize<codec::json>(trailing)),
+               codec::exception::bad_input_data);
+  failing_output buffer;
+  std::ostream output{&buffer};
+  const test::test1::person original{"Ada", 8};
+  EXPECT_THROW(test::test1::person::serialize<codec::json>(output, original),
+               std::ios_base::failure);
 }
 
 TEST(stream_concepts, binary_views_support_custom_output_and_iostreams) {
@@ -440,4 +535,14 @@ TEST(stream_concepts, inherited_rebind_hooks_preserve_custom_protocol_behavior) 
   decoded.serialize_in<legacy_json>(input);
   EXPECT_TRUE(legacy_json<codec::serialize_type::in>::constructed);
   EXPECT_EQ(decoded.name, original.name);
+
+  legacy_json<codec::serialize_type::out>::constructed = false;
+  legacy_json<codec::serialize_type::in>::constructed = false;
+  bytes.reset();
+  test::test1::person::serialize<legacy_json>(bytes, original);
+  EXPECT_TRUE(legacy_json<codec::serialize_type::out>::constructed);
+  const auto static_input = rohit::make_constant_full_stream(bytes.begin(), bytes.current_offset());
+  const auto static_value = test::test1::person::deserialize<legacy_json>(static_input);
+  EXPECT_TRUE(legacy_json<codec::serialize_type::in>::constructed);
+  EXPECT_EQ(static_value.name, original.name);
 }

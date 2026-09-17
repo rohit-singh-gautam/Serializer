@@ -12,14 +12,13 @@ int main() {
     const auto original = make_archive();
     std::stringstream storage{std::ios::in | std::ios::out | std::ios::binary};
     std::ostream& output = storage;
-    original.serialize_out<codec::binary_integer>(output);
+    archive::serialize<codec::binary_integer>(output, original);
     const auto encoded_bytes = storage.view().size();
     storage.seekg(0);
 
     // Erasing the static memory-stream type selects owned staging with 8 KiB read batches.
     std::istream& input = storage;
-    archive decoded{};
-    decoded.serialize_in<codec::binary_integer>(input, message_limits());
+    const auto decoded = archive::deserialize<codec::binary_integer>(input, message_limits());
     verify_round_trip(original, decoded, encoded_bytes);
     return encoded_bytes;
   });
