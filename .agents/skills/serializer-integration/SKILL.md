@@ -364,11 +364,21 @@ user instruction to defer generation/builds/tests and report what remains unveri
   Memory input (`istringstream`/`stringstream`) borrows the unread suffix; known
   file streams use 64 KiB batches and erased/custom byte streams use 8 KiB batches.
   Standard memory output uses generic buffered writes. No measured speedup is claimed.
+- For complete stream-specific consumers, use the seven
+  [iostream example folders](../../../example/iostream/README.md). They share a
+  52-class, 645-field schema and verify large messages through memory, file,
+  explicitly buffered, erased, and custom non-seekable streams. Enable
+  `SERIALIZER_BUILD_IOSTREAM_EXAMPLES=ON` to build them independently without
+  GoogleTest, then run CTest with `-L serializer_iostream`. The standard test build
+  includes them too. Keep their concrete stream types where specialization matters.
 - Byte-stream input means one bounded EOF-delimited message and includes `finish()`
   validation; it is not incremental parsing and adds no wire framing. Use a bounded
-  source or exact-size buffer for framed traffic. `serialize_from<Protocol>(input,
-  destination, limits)` supplies explicit limits. Low-level codec templates accept
-  a concrete buffer type; existing buffer calls remain valid. Keep memory-stream
+  source or exact-size buffer for framed traffic. Regenerated owning classes expose
+  `destination.serialize_in<Protocol>(input, limits)` for explicit limits; the
+  one-argument overload retains default behavior. The free
+  `serialize_from<Protocol>(input, destination, limits)` remains an alternative.
+  Low-level codec templates accept a concrete buffer type; existing buffer calls
+  remain valid. Keep memory-stream
   storage stable while decoding. Never imply that concepts prove lifetime or
   alias safety. See [stream contracts](../../../docs/usage.md#stream-concepts-and-implicit-adapters).
 - Open binary files in binary mode. Adapters borrow streams, retain exception masks,
@@ -387,7 +397,8 @@ user instruction to defer generation/builds/tests and report what remains unveri
 - For explicit limits and whole-message validation, construct the input protocol
   with `(input, decode_limits)`, call `decoder.serialize_in(destination)`, and then
   `decoder.finish()`. Convenience object input calls omit the final exact-message
-  check. Share decoder sessions by reference; they are noncopyable.
+  check for contiguous buffers; byte streams always receive that check.
+  Share decoder sessions by reference; they are noncopyable.
 - Choose limits from the application's message sizes and workload. Storage/work
   accounting is cumulative per decoder and is not an exact process-memory limit.
 - Strings/vectors/maps replace contents. Missing keyed fields retain destination

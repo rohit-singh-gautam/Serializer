@@ -771,7 +771,14 @@ public:
         local_name("stream"),
         ") {\n"
         "    ::rohit::serializer::serialize_from<Protocol>(",
-        local_name("stream"), ", *this);\n  }\n");
+        local_name("stream"), ", *this);\n  }\n\n"
+        "  // Decode with explicit resource limits; byte sources receive exact-message validation.\n"
+        "  template <template <::rohit::serializer::serialize_type> class Protocol,\n"
+        "            ::rohit::type_check::input_stream SerializerStream>\n"
+        "  void serialize_in(SerializerStream&& ",
+        local_name("stream"), ", ::rohit::serializer::decode_limits ", local_name("limits"),
+        ") {\n    ::rohit::serializer::serialize_from<Protocol>(",
+        local_name("stream"), ", *this, ", local_name("limits"), ");\n  }\n");
   }
 
   // Emit C++ serializer for the parsed schema.

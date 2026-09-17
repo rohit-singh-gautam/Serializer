@@ -296,6 +296,13 @@ void round_trip(demo::person& value) {
 
 The same calls accept `std::ifstream`, `std::ofstream`, `std::fstream`, base-class
 `std::istream`/`std::ostream` references, and structural custom byte sources/sinks.
+For complete programs, see the [iostream example suite](../example/iostream/README.md):
+each stream category has its own folder, and all seven examples share a large
+52-class schema with multi-batch payloads. It includes separate and bidirectional
+memory/file streams, an explicitly buffered file, base references, and a custom
+non-seekable stream buffer. Enable `SERIALIZER_BUILD_IOSTREAM_EXAMPLES=ON` to
+build and run the suite without GoogleTest, or use the standard test build.
+
 Standard-stream adaptation supports narrow `char` streams; wide streams do not
 provide the required byte interface.
 Open binary files with `std::ios::binary`. Stream formatting flags and locale do
@@ -321,9 +328,22 @@ other streams buffer the whole encoded message before decoding. This is not
 incremental parsing. For consecutive framed messages, supply an exact-size input
 buffer or a byte source bounded to one frame; no length prefix is inserted or read.
 
-Use `serialize_from<Protocol>(input, destination, limits)` for explicit limits, or
-`serialize_to<Protocol>(output, value)` as free-function alternatives. Buffer-input
-convenience calls retain their existing behavior: no implicit `finish()` check.
+Use the generated overload `destination.serialize_in<Protocol>(input, limits)`
+for explicit limits. Omitting `limits` preserves the existing default-limit
+overload and custom-protocol constructor behavior. Both overloads select the same
+implicit adapter from the stream's static type:
+
+```cpp
+rohit::serializer::decode_limits limits{};
+limits.max_input_bytes = 16 * rohit::serializer::decode_limits::mebibyte;
+decoded.serialize_in<rohit::serializer::binary_integer>(stream, limits);
+```
+
+`serialize_from<Protocol>(input, destination, limits)` remains available as a
+free-function alternative and is the shared implementation behind the generated
+member overload. Output likewise has `serialize_to<Protocol>(output, value)`.
+Regenerate existing C++ headers to obtain the new two-argument member overload.
+Buffer-input convenience calls retain their existing behavior: no implicit `finish()` check.
 For exact buffer validation, construct the concrete decoder and call `finish()`:
 
 ```cpp
@@ -397,10 +417,12 @@ source as a string. Schema includes still require `parser::parse_file`.
 Binary views retain stable-span mapping and can copy their positional bytes to
 custom buffers or standard output streams; streams do not extend a view's lifetime.
 
-Verification for this change: the regenerated MSVC Debug build passed all 17 CTest
-targets, including 167 core tests and 13 Protobuf tests. Clang 21 on Linux built
+Verification: the regenerated MSVC Debug build passed all 24 CTest
+targets, including the core and Protobuf tests and seven iostream examples. Clang 21 on Linux built
 the compiler and generated style/include examples and passed a separate smoke test
 covering all seven C++ protocols with independent buffers and standard streams.
+All seven large-schema iostream examples also passed in a standalone Clang 21
+build with GoogleTest disabled.
 The full Linux GoogleTest suite was not run because that dependency was unavailable.
 Performance benchmarks have not been run.
 
@@ -448,8 +470,10 @@ See [views.md](views.md) for a complete example and collection/nested-type rules
   Share it by reference for nested reads and create a fresh decoder per message
   budget. All configured defaults still apply when you override only some limits.
 - `finish()` rejects trailing binary data; JSON permits trailing whitespace.
-  The generated `object.serialize_in<Protocol>(input)` convenience call uses
-  default limits and does not perform this final exact-message check.
+  Generated `object.serialize_in<Protocol>(input[, limits])` calls perform this
+  final exact-message check for byte streams; contiguous buffer calls preserve
+  their existing behavior without an implicit `finish()`. Omitting `limits`
+  uses the defaults.
 - Strings, vectors, and maps replace old contents. C++ native codecs can reuse
   nested buffers and map nodes as described below; resource accounting still applies.
 - Decoding can leave partial changes on failure. Catch

@@ -54,6 +54,17 @@ static_assert(accepts_output<output_buffer>);
 static_assert(accepts_output<std::ostream>);
 static_assert(!accepts_output<incomplete_stream>);
 
+// The explicit-limit overload has the same structural input constraints as the default overload.
+template <typename T>
+concept accepts_limited_input = requires(test::test1::person& value, T& input,
+                                        codec::decode_limits limits) {
+  value.template serialize_in<codec::json>(input, limits);
+};
+static_assert(accepts_limited_input<input_cursor>);
+static_assert(accepts_limited_input<const input_cursor>);
+static_assert(accepts_limited_input<std::istream>);
+static_assert(!accepts_limited_input<incomplete_stream>);
+
 // Compare custom storage and iostream output with the established native byte contract.
 template <template <codec::serialize_type> class Protocol>
 void check_round_trip() {
@@ -69,6 +80,15 @@ void check_round_trip() {
   test::test1::person decoded{};
   decoded.serialize_in<Protocol>(input);
   EXPECT_TRUE(input.full());
+  EXPECT_EQ(decoded.name, original.name);
+  EXPECT_EQ(decoded.id, original.id);
+
+  const input_cursor limited_input{expected};
+  codec::decode_limits limits;
+  limits.max_input_bytes = expected.size();
+  decoded = {};
+  decoded.serialize_in<Protocol>(limited_input, limits);
+  EXPECT_TRUE(limited_input.full());
   EXPECT_EQ(decoded.name, original.name);
   EXPECT_EQ(decoded.id, original.id);
 
@@ -208,13 +228,25 @@ TEST(stream_concepts, enforces_message_limits_and_exact_iostream_input) {
   limits.max_input_bytes = json.size();
   test::test1::person value{};
   std::istringstream exact{json};
-  EXPECT_NO_THROW(codec::serialize_from<codec::json>(exact, value, limits));
+  EXPECT_NO_THROW(value.serialize_in<codec::json>(exact, limits));
   std::istringstream oversized{json + " "};
-  EXPECT_THROW(codec::serialize_from<codec::json>(oversized, value, limits), std::length_error);
+  EXPECT_THROW(value.serialize_in<codec::json>(oversized, limits), std::length_error);
+  limits.max_input_bytes = json.size() + 3;
   std::istringstream trailing{json + " {}"};
-  EXPECT_THROW(value.serialize_in<codec::json>(trailing), codec::exception::bad_input_data);
+  EXPECT_THROW(value.serialize_in<codec::json>(trailing, limits), codec::exception::bad_input_data);
   std::istringstream truncated{json.substr(0, json.size() - 1)};
-  EXPECT_THROW(value.serialize_in<codec::json>(truncated), codec::exception::bad_input_data);
+  EXPECT_THROW(value.serialize_in<codec::json>(truncated, limits), codec::exception::bad_input_data);
+}
+
+TEST(stream_concepts, generated_limits_apply_to_custom_buffers_and_memory_input) {
+  const std::string json = "{\"fullname\":\"Ada\",\"ID\":8}";
+  codec::decode_limits limits;
+  limits.max_string_bytes = 2;
+  test::test1::person value{};
+  const input_cursor custom{json};
+  EXPECT_THROW(value.serialize_in<codec::json>(custom, limits), codec::exception::resource_limit);
+  std::istringstream memory{json};
+  EXPECT_THROW(value.serialize_in<codec::json>(memory, limits), codec::exception::resource_limit);
 }
 
 TEST(stream_concepts, reports_external_io_failures) {

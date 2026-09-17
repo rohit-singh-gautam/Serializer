@@ -1,0 +1,864 @@
+serializer version 1;
+
+// A deliberately large, shared example contract. Generate it through CMake, not by hand.
+// All fields have stable explicit IDs; all referenced types are declared before use.
+namespace iostream_model {
+enum health_state { unknown, healthy, degraded, unavailable }
+enum severity { debug, info, warning, error, critical }
+enum device_role { compute, storage, network, controller }
+enum deployment_state { pending, running, succeeded, failed, rolled_back }
+
+// The capture interval and its clock properties.
+class time_range stable_ids {
+  public uint64 start_ns (1);
+  public uint64 end_ns (2);
+  public uint64 sample_period_ns (3);
+  public uint64 clock_offset_ns (4);
+  public uint32 sequence (5);
+  public uint32 missed_samples (6);
+  public bool synchronized (7);
+  public string clock_source (8);
+  public string timezone (9);
+  public string label (10);
+}
+
+// The process that produced this archive.
+class source_identity stable_ids {
+  public string source_id (1);
+  public string host_name (2);
+  public string agent_name (3);
+  public string agent_version (4);
+  public string instance_id (5);
+  public string boot_id (6);
+  public string tenant (7);
+  public string environment (8);
+  public uint32 process_id (9);
+  public uint64 started_ns (10);
+  public bool trusted (11);
+  public map(string) string labels (12);
+}
+
+// Physical placement independent of network addresses.
+class location stable_ids {
+  public string country (1);
+  public string region (2);
+  public string city (3);
+  public string building (4);
+  public string floor (5);
+  public string room (6);
+  public string aisle (7);
+  public string rack_name (8);
+  public double latitude (9);
+  public double longitude (10);
+  public double elevation_m (11);
+  public map(string) string labels (12);
+}
+
+// An operational contact with escalation information.
+class contact stable_ids {
+  public string name (1);
+  public string team (2);
+  public string role (3);
+  public string email (4);
+  public string phone (5);
+  public string timezone (6);
+  public string schedule (7);
+  public string escalation_group (8);
+  public uint32 priority (9);
+  public bool enabled (10);
+  public array string channels (11);
+  public map(string) string labels (12);
+}
+
+// Teams and contacts responsible for an asset.
+class ownership stable_ids {
+  public string organization (1);
+  public string department (2);
+  public string cost_center (3);
+  public string project (4);
+  public string account (5);
+  public string tenant (6);
+  public contact primary_contact (7);
+  public array contact escalation_contacts (8);
+  public uint64 assigned_ns (9);
+  public uint64 reviewed_ns (10);
+  public bool shared (11);
+  public map(string) string labels (12);
+}
+
+// Reproducible software build provenance.
+class build_info stable_ids {
+  public string product (1);
+  public string version (2);
+  public string revision (3);
+  public string branch (4);
+  public string compiler (5);
+  public string target (6);
+  public string build_mode (7);
+  public string package_digest (8);
+  public uint64 built_ns (9);
+  public uint32 api_version (10);
+  public bool verified (11);
+  public array string features (12);
+}
+
+// Operating system inventory.
+class os_info stable_ids {
+  public string family (1);
+  public string distribution (2);
+  public string release (3);
+  public string kernel (4);
+  public string architecture (5);
+  public string machine_id (6);
+  public string boot_parameters (7);
+  public string locale (8);
+  public uint64 boot_ns (9);
+  public uint64 uptime_seconds (10);
+  public bool virtualized (11);
+  public array string capabilities (12);
+}
+
+// Processor identity and cumulative counters.
+class cpu_info stable_ids {
+  public string vendor (1);
+  public string model (2);
+  public string architecture (3);
+  public uint32 socket (4);
+  public uint32 cores (5);
+  public uint32 threads (6);
+  public uint64 frequency_hz (7);
+  public uint64 user_ns (8);
+  public uint64 system_ns (9);
+  public uint64 idle_ns (10);
+  public double utilization (11);
+  public array double core_utilization (12);
+}
+
+// Memory capacities and pressure measurements.
+class memory_info stable_ids {
+  public uint64 total_bytes (1);
+  public uint64 free_bytes (2);
+  public uint64 available_bytes (3);
+  public uint64 cached_bytes (4);
+  public uint64 buffered_bytes (5);
+  public uint64 swap_total_bytes (6);
+  public uint64 swap_used_bytes (7);
+  public uint64 page_faults (8);
+  public uint64 major_faults (9);
+  public double pressure (10);
+  public bool ecc_enabled (11);
+  public array uint64 node_bytes (12);
+}
+
+// A physical storage device and its health counters.
+class disk_info stable_ids {
+  public string device_id (1);
+  public string model (2);
+  public string serial_number (3);
+  public string firmware (4);
+  public string bus (5);
+  public uint64 capacity_bytes (6);
+  public uint64 read_bytes (7);
+  public uint64 written_bytes (8);
+  public uint64 read_operations (9);
+  public uint64 write_operations (10);
+  public double temperature_c (11);
+  public health_state health (12);
+}
+
+// Interface configuration and traffic counters.
+class network_interface stable_ids {
+  public string name (1);
+  public string hardware_address (2);
+  public array string addresses (3);
+  public uint32 mtu (4);
+  public uint64 speed_bits_per_second (5);
+  public uint64 received_bytes (6);
+  public uint64 sent_bytes (7);
+  public uint64 received_packets (8);
+  public uint64 sent_packets (9);
+  public uint64 dropped_packets (10);
+  public bool link_up (11);
+  public map(string) uint64 counters (12);
+}
+
+// An individual process snapshot.
+class process_info stable_ids {
+  public uint32 process_id (1);
+  public uint32 parent_id (2);
+  public string executable (3);
+  public string command_line (4);
+  public string user (5);
+  public string working_directory (6);
+  public uint64 started_ns (7);
+  public uint64 resident_bytes (8);
+  public uint64 virtual_bytes (9);
+  public uint64 cpu_ns (10);
+  public uint32 thread_count (11);
+  public health_state health (12);
+}
+
+// A container and its resource policy.
+class container_info stable_ids {
+  public string container_id (1);
+  public string name (2);
+  public string image (3);
+  public string image_digest (4);
+  public string runtime (5);
+  public string namespace_name (6);
+  public uint64 created_ns (7);
+  public uint64 memory_limit_bytes (8);
+  public uint64 memory_used_bytes (9);
+  public double cpu_limit (10);
+  public health_state health (11);
+  public map(string) string labels (12);
+}
+
+// Temperature readings and configured thresholds.
+class temperature_sensor stable_ids {
+  public string sensor_id (1);
+  public string name (2);
+  public string location_name (3);
+  public double current_c (4);
+  public double minimum_c (5);
+  public double maximum_c (6);
+  public double warning_c (7);
+  public double critical_c (8);
+  public uint64 observed_ns (9);
+  public uint32 error_count (10);
+  public bool enabled (11);
+  public health_state health (12);
+}
+
+// Fan speed and control state.
+class fan_sensor stable_ids {
+  public string sensor_id (1);
+  public string name (2);
+  public string controller (3);
+  public uint32 current_rpm (4);
+  public uint32 minimum_rpm (5);
+  public uint32 maximum_rpm (6);
+  public double duty_cycle (7);
+  public uint64 observed_ns (8);
+  public uint32 error_count (9);
+  public bool automatic (10);
+  public bool enabled (11);
+  public health_state health (12);
+}
+
+// Electrical supply identity and live measurements.
+class power_supply stable_ids {
+  public string supply_id (1);
+  public string model (2);
+  public string serial_number (3);
+  public double voltage_v (4);
+  public double current_a (5);
+  public double input_w (6);
+  public double output_w (7);
+  public double capacity_w (8);
+  public double efficiency (9);
+  public uint64 observed_ns (10);
+  public bool redundant (11);
+  public health_state health (12);
+}
+
+// Compute accelerator inventory and utilization.
+class accelerator_info stable_ids {
+  public string device_id (1);
+  public string vendor (2);
+  public string model (3);
+  public string driver (4);
+  public string firmware (5);
+  public uint64 memory_total_bytes (6);
+  public uint64 memory_used_bytes (7);
+  public uint64 frequency_hz (8);
+  public double utilization (9);
+  public double temperature_c (10);
+  public double power_w (11);
+  public health_state health (12);
+}
+
+// Configuration policy attached to a device.
+class device_config stable_ids {
+  public uint32 revision (1);
+  public string profile (2);
+  public string management_address (3);
+  public string update_channel (4);
+  public uint64 polling_period_ns (5);
+  public uint64 timeout_ns (6);
+  public uint32 retry_count (7);
+  public bool collection_enabled (8);
+  public bool remote_access (9);
+  public array string enabled_metrics (10);
+  public array string disabled_checks (11);
+  public map(string) string parameters (12);
+}
+
+// A scalar sample with an explicit numeric union.
+class counter_sample stable_ids {
+  public string name (1);
+  public string unit (2);
+  public uint64 timestamp_ns (3);
+  public uint64 sequence (4);
+  public union(uint64 = integer_value, double = real_value) value (5);
+  public double minimum (6);
+  public double maximum (7);
+  public double average (8);
+  public uint32 observations (9);
+  public bool valid (10);
+  public severity level (11);
+  public map(string) string labels (12);
+}
+
+// Histogram boundaries and counts with matching array lengths.
+class histogram stable_ids {
+  public string name (1);
+  public string unit (2);
+  public array double bounds (3);
+  public array uint64 counts (4);
+  public uint64 count (5);
+  public double sum (6);
+  public double minimum (7);
+  public double maximum (8);
+  public double mean (9);
+  public uint64 start_ns (10);
+  public uint64 end_ns (11);
+  public map(string) string labels (12);
+}
+
+// A sizeable time series used to exercise multi-batch transfers.
+class metric_series stable_ids {
+  public string name (1);
+  public string unit (2);
+  public string description (3);
+  public array uint64 timestamps_ns (4);
+  public array double values (5);
+  public array uint32 quality_flags (6);
+  public double minimum (7);
+  public double maximum (8);
+  public double average (9);
+  public uint64 period_ns (10);
+  public bool monotonic (11);
+  public map(string) string labels (12);
+}
+
+// A trace span and its bounded event annotations.
+class trace_span stable_ids {
+  public string trace_id (1);
+  public string span_id (2);
+  public string parent_id (3);
+  public string operation (4);
+  public string service (5);
+  public uint64 started_ns (6);
+  public uint64 duration_ns (7);
+  public uint32 status_code (8);
+  public bool sampled (9);
+  public array string events (10);
+  public map(string) string attributes (11);
+  public severity level (12);
+}
+
+// A log entry whose message can contain escapes and Unicode.
+class log_entry stable_ids {
+  public uint64 timestamp_ns (1);
+  public uint64 sequence (2);
+  public severity level (3);
+  public string source (4);
+  public string category (5);
+  public string message (6);
+  public string trace_id (7);
+  public string span_id (8);
+  public uint32 process_id (9);
+  public uint32 thread_id (10);
+  public bool structured (11);
+  public map(string) string attributes (12);
+}
+
+// An alert rule and evaluation policy.
+class alert_rule stable_ids {
+  public string rule_id (1);
+  public string name (2);
+  public string expression (3);
+  public string description (4);
+  public severity level (5);
+  public uint64 evaluation_period_ns (6);
+  public uint64 pending_period_ns (7);
+  public uint32 required_samples (8);
+  public bool enabled (9);
+  public array string destinations (10);
+  public map(string) string labels (11);
+  public map(string) double thresholds (12);
+}
+
+// An alert occurrence connected to a rule.
+class alert_event stable_ids {
+  public string event_id (1);
+  public string rule_id (2);
+  public string device_id (3);
+  public string summary (4);
+  public string details (5);
+  public severity level (6);
+  public uint64 opened_ns (7);
+  public uint64 updated_ns (8);
+  public uint64 closed_ns (9);
+  public bool acknowledged (10);
+  public string acknowledged_by (11);
+  public map(string) string labels (12);
+}
+
+// An address and its transport policy.
+class service_endpoint stable_ids {
+  public string endpoint_id (1);
+  public string scheme (2);
+  public string host (3);
+  public uint32 port (4);
+  public string path (5);
+  public string protocol (6);
+  public string region (7);
+  public uint64 timeout_ns (8);
+  public uint32 weight (9);
+  public bool encrypted (10);
+  public bool enabled (11);
+  public map(string) string headers (12);
+}
+
+// A dependency edge with error and latency statistics.
+class service_dependency stable_ids {
+  public string source_service (1);
+  public string target_service (2);
+  public string operation (3);
+  public string protocol (4);
+  public uint64 calls (5);
+  public uint64 errors (6);
+  public double mean_latency_ms (7);
+  public double maximum_latency_ms (8);
+  public uint64 observed_ns (9);
+  public bool required (10);
+  public health_state health (11);
+  public map(string) string labels (12);
+}
+
+// Configuration for one deployable service.
+class service_config stable_ids {
+  public string service_id (1);
+  public string name (2);
+  public string namespace_name (3);
+  public string owner (4);
+  public build_info build (5);
+  public array service_endpoint endpoints (6);
+  public array service_dependency dependencies (7);
+  public uint32 desired_replicas (8);
+  public uint64 timeout_ns (9);
+  public bool enabled (10);
+  public map(string) string environment (11);
+  public map(string) string parameters (12);
+}
+
+// A service's current availability and measurements.
+class service_status stable_ids {
+  public string service_id (1);
+  public health_state health (2);
+  public uint32 ready_replicas (3);
+  public uint32 pending_replicas (4);
+  public uint32 failed_replicas (5);
+  public uint64 started_ns (6);
+  public uint64 requests (7);
+  public uint64 errors (8);
+  public double availability (9);
+  public double latency_ms (10);
+  public array counter_sample counters (11);
+  public array histogram histograms (12);
+}
+
+// Certificate inventory without private key material.
+class certificate_info stable_ids {
+  public string certificate_id (1);
+  public string subject (2);
+  public string issuer (3);
+  public string serial_number (4);
+  public string fingerprint (5);
+  public string algorithm (6);
+  public array string names (7);
+  public uint64 valid_from_ns (8);
+  public uint64 valid_until_ns (9);
+  public uint32 key_bits (10);
+  public bool trusted (11);
+  public bool revoked (12);
+}
+
+// A link between network devices.
+class network_link stable_ids {
+  public string link_id (1);
+  public string source_device (2);
+  public string source_interface (3);
+  public string target_device (4);
+  public string target_interface (5);
+  public string protocol (6);
+  public uint64 capacity_bits_per_second (7);
+  public uint64 observed_ns (8);
+  public double utilization (9);
+  public double latency_ms (10);
+  public double packet_loss (11);
+  public health_state health (12);
+}
+
+// A route advertised by a network device.
+class network_route stable_ids {
+  public string route_id (1);
+  public string destination (2);
+  public string gateway (3);
+  public string interface_name (4);
+  public string protocol (5);
+  public string table_name (6);
+  public uint32 prefix_length (7);
+  public uint32 metric (8);
+  public uint32 preference (9);
+  public uint64 updated_ns (10);
+  public bool active (11);
+  public array string next_hops (12);
+}
+
+// A mounted logical volume and its backing devices.
+class storage_volume stable_ids {
+  public string volume_id (1);
+  public string name (2);
+  public string filesystem (3);
+  public string mount_path (4);
+  public array string disk_ids (5);
+  public uint64 total_bytes (6);
+  public uint64 used_bytes (7);
+  public uint64 reserved_bytes (8);
+  public uint64 files (9);
+  public uint64 snapshots (10);
+  public bool read_only (11);
+  public health_state health (12);
+}
+
+// Backup completion metadata and retained object counts.
+class backup_record stable_ids {
+  public string backup_id (1);
+  public string volume_id (2);
+  public string destination (3);
+  public string policy (4);
+  public string checksum (5);
+  public uint64 started_ns (6);
+  public uint64 finished_ns (7);
+  public uint64 source_bytes (8);
+  public uint64 stored_bytes (9);
+  public uint64 object_count (10);
+  public bool verified (11);
+  public health_state health (12);
+}
+
+// Public example access policy with no credentials.
+class access_policy stable_ids {
+  public string policy_id (1);
+  public string name (2);
+  public string subject (3);
+  public string resource (4);
+  public string action (5);
+  public string decision (6);
+  public array string conditions (7);
+  public uint64 created_ns (8);
+  public uint64 expires_ns (9);
+  public uint32 revision (10);
+  public bool enabled (11);
+  public map(string) string labels (12);
+}
+
+// An audit record for configuration changes.
+class audit_entry stable_ids {
+  public string entry_id (1);
+  public string actor (2);
+  public string action (3);
+  public string resource (4);
+  public string result (5);
+  public string reason (6);
+  public uint64 timestamp_ns (7);
+  public uint32 revision (8);
+  public bool approved (9);
+  public array string changed_fields (10);
+  public map(string) string before_values (11);
+  public map(string) string after_values (12);
+}
+
+// One ordered deployment action.
+class deployment_step stable_ids {
+  public uint32 ordinal (1);
+  public string name (2);
+  public string target (3);
+  public string command_description (4);
+  public deployment_state state (5);
+  public uint64 started_ns (6);
+  public uint64 finished_ns (7);
+  public uint64 timeout_ns (8);
+  public uint32 attempts (9);
+  public bool optional (10);
+  public string output_summary (11);
+  public map(string) string parameters (12);
+}
+
+// A deployment with its ordered actions.
+class deployment_record stable_ids {
+  public string deployment_id (1);
+  public string service_id (2);
+  public string environment (3);
+  public build_info previous_build (4);
+  public build_info next_build (5);
+  public deployment_state state (6);
+  public array deployment_step steps (7);
+  public uint64 created_ns (8);
+  public uint64 completed_ns (9);
+  public string requested_by (10);
+  public bool rollback_allowed (11);
+  public map(string) string labels (12);
+}
+
+// A scheduled maintenance interval.
+class maintenance_window stable_ids {
+  public string window_id (1);
+  public string title (2);
+  public string description (3);
+  public time_range interval (4);
+  public string owner (5);
+  public array string device_ids (6);
+  public array string service_ids (7);
+  public array string suppressed_rules (8);
+  public uint32 priority (9);
+  public bool approved (10);
+  public bool recurring (11);
+  public map(string) string labels (12);
+}
+
+// Rack-level capacity and inventory.
+class rack stable_ids {
+  public string rack_id (1);
+  public string name (2);
+  public location placement (3);
+  public ownership owner (4);
+  public uint32 total_units (5);
+  public uint32 occupied_units (6);
+  public double power_capacity_w (7);
+  public double power_used_w (8);
+  public array string device_ids (9);
+  public array temperature_sensor sensors (10);
+  public health_state health (11);
+  public map(string) string labels (12);
+}
+
+// A zone grouping several racks.
+class zone stable_ids {
+  public string zone_id (1);
+  public string name (2);
+  public string site_id (3);
+  public location placement (4);
+  public ownership owner (5);
+  public array string rack_ids (6);
+  public uint32 device_count (7);
+  public double power_capacity_w (8);
+  public double power_used_w (9);
+  public uint64 observed_ns (10);
+  public health_state health (11);
+  public map(string) string labels (12);
+}
+
+// A complete site's identification and aggregate capacity.
+class site stable_ids {
+  public string site_id (1);
+  public string name (2);
+  public location placement (3);
+  public ownership owner (4);
+  public array zone zones (5);
+  public array rack racks (6);
+  public uint32 device_count (7);
+  public uint32 service_count (8);
+  public double power_capacity_w (9);
+  public double power_used_w (10);
+  public health_state health (11);
+  public map(string) string labels (12);
+}
+
+// Retention bounds for the different capture categories.
+class retention_policy stable_ids {
+  public string policy_id (1);
+  public string name (2);
+  public uint32 metrics_days (3);
+  public uint32 logs_days (4);
+  public uint32 traces_days (5);
+  public uint32 audit_days (6);
+  public uint64 maximum_archive_bytes (7);
+  public uint64 maximum_series_samples (8);
+  public bool compression_requested (9);
+  public bool encryption_required (10);
+  public array string excluded_labels (11);
+  public map(string) string parameters (12);
+}
+
+// A previous archive export and its outcome.
+class export_job stable_ids {
+  public string job_id (1);
+  public string archive_id (2);
+  public string destination (3);
+  public string protocol (4);
+  public string checksum (5);
+  public uint64 started_ns (6);
+  public uint64 completed_ns (7);
+  public uint64 encoded_bytes (8);
+  public uint64 transferred_bytes (9);
+  public uint32 attempts (10);
+  public health_state health (11);
+  public map(string) string labels (12);
+}
+
+// A dashboard panel's declarative query and layout.
+class dashboard_panel stable_ids {
+  public string panel_id (1);
+  public string title (2);
+  public string query (3);
+  public string unit (4);
+  public string visualization (5);
+  public uint32 row (6);
+  public uint32 column (7);
+  public uint32 width (8);
+  public uint32 height (9);
+  public double minimum (10);
+  public double maximum (11);
+  public map(string) string labels (12);
+}
+
+// A named collection of visualization panels.
+class dashboard stable_ids {
+  public string dashboard_id (1);
+  public string title (2);
+  public string description (3);
+  public string owner (4);
+  public string timezone (5);
+  public uint64 created_ns (6);
+  public uint64 updated_ns (7);
+  public uint64 refresh_period_ns (8);
+  public bool shared (9);
+  public array dashboard_panel panels (10);
+  public array string tags (11);
+  public map(string) string variables (12);
+}
+
+// An operational incident connected to the captured data.
+class incident stable_ids {
+  public string incident_id (1);
+  public string title (2);
+  public string description (3);
+  public severity level (4);
+  public health_state state (5);
+  public uint64 opened_ns (6);
+  public uint64 updated_ns (7);
+  public uint64 resolved_ns (8);
+  public array string device_ids (9);
+  public array string alert_ids (10);
+  public array contact responders (11);
+  public array string timeline (12);
+}
+
+// All data collected for one device.
+class device_snapshot stable_ids {
+  public string device_id (1);
+  public string display_name (2);
+  public device_role role (3);
+  public health_state health (4);
+  public source_identity source (5);
+  public location placement (6);
+  public ownership owner (7);
+  public os_info operating_system (8);
+  public build_info agent_build (9);
+  public device_config configuration (10);
+  public array cpu_info processors (11);
+  public memory_info memory (12);
+  public array disk_info disks (13);
+  public array network_interface interfaces (14);
+  public array process_info processes (15);
+  public array container_info containers (16);
+  public array temperature_sensor temperatures (17);
+  public array fan_sensor fans (18);
+  public array power_supply power_supplies (19);
+  public array accelerator_info accelerators (20);
+  public array metric_series metrics (21);
+  public array counter_sample counters (22);
+  public array histogram histograms (23);
+  public array log_entry logs (24);
+  public array trace_span traces (25);
+  public map(string) string labels (26);
+}
+
+// Configuration and observations for a service.
+class service_snapshot stable_ids {
+  public service_config configuration (1);
+  public service_status status (2);
+  public array metric_series metrics (3);
+  public array log_entry logs (4);
+  public array trace_span traces (5);
+  public array certificate_info certificates (6);
+  public array deployment_record deployments (7);
+  public array alert_event alerts (8);
+  public array string device_ids (9);
+  public uint64 observed_ns (10);
+  public bool complete (11);
+  public map(string) string labels (12);
+}
+
+// Counts and totals describing the archive.
+class archive_summary stable_ids {
+  public uint32 device_count (1);
+  public uint32 service_count (2);
+  public uint32 site_count (3);
+  public uint32 alert_count (4);
+  public uint64 sample_count (5);
+  public uint64 log_count (6);
+  public uint64 trace_count (7);
+  public uint64 captured_bytes (8);
+  public double mean_cpu_utilization (9);
+  public double mean_memory_utilization (10);
+  public health_state health (11);
+  public map(string) uint64 category_counts (12);
+}
+
+// The message envelope and its provenance.
+class archive_metadata stable_ids {
+  public string archive_id (1);
+  public string title (2);
+  public string description (3);
+  public uint32 format_revision (4);
+  public source_identity producer (5);
+  public time_range interval (6);
+  public build_info collector_build (7);
+  public ownership owner (8);
+  public retention_policy retention (9);
+  public uint64 created_ns (10);
+  public array string tags (11);
+  public map(string) string labels (12);
+}
+
+// One EOF-delimited message shared by every iostream example.
+class telemetry_archive stable_ids {
+  public archive_metadata metadata (1);
+  public archive_summary summary (2);
+  public array device_snapshot devices (3);
+  public array service_snapshot services (4);
+  public array site sites (5);
+  public array network_link links (6);
+  public array network_route routes (7);
+  public array storage_volume volumes (8);
+  public array backup_record backups (9);
+  public array alert_rule alert_rules (10);
+  public array alert_event alerts (11);
+  public array access_policy policies (12);
+  public array audit_entry audit (13);
+  public array deployment_record deployments (14);
+  public array maintenance_window maintenance (15);
+  public array export_job exports (16);
+  public array dashboard dashboards (17);
+  public array incident incidents (18);
+  public array log_entry logs (19);
+  public array trace_span traces (20);
+  public map(string) string annotations (21);
+}
+
+}

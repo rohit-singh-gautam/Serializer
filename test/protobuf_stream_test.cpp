@@ -4,6 +4,7 @@
 #include <protobuf.hpp>
 
 #include <sstream>
+#include <stdexcept>
 #include <string>
 
 namespace {
@@ -36,13 +37,23 @@ void check_protocol() {
   EXPECT_EQ(decoded.counts, original.counts);
   EXPECT_EQ(decoded.nested.text, original.nested.text);
 
+  const stream_test::input_cursor limited_input{expected};
+  codec::decode_limits limits;
+  limits.max_input_bytes = expected.size();
+  decoded.serialize_in<Protocol>(limited_input, limits);
+  EXPECT_TRUE(limited_input.full());
+  EXPECT_EQ(decoded.display_name, original.display_name);
+
   std::stringstream io;
   original.serialize_out<Protocol>(io);
   EXPECT_EQ(io.str(), expected);
   decoded = {};
-  decoded.serialize_in<Protocol>(io);
+  decoded.serialize_in<Protocol>(io, limits);
   EXPECT_EQ(decoded.numbers, original.numbers);
   EXPECT_EQ(decoded.nested.number, original.nested.number);
+  std::istringstream oversized{expected};
+  --limits.max_input_bytes;
+  EXPECT_THROW(decoded.serialize_in<Protocol>(oversized, limits), std::length_error);
 }
 } // namespace
 

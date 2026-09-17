@@ -9,7 +9,13 @@ C++ stream APIs use structural C++20 concepts: custom implementations need no
 `rohit::stream` base class. Generated calls accept standard streams directly through
 implicit adapters. Memory input streams borrow their unread storage; file streams
 use larger I/O batches; custom contiguous buffers retain the direct codec path.
+Use `object.serialize_in<Protocol>(stream, limits)` to supply explicit decode
+limits, or omit the second argument to retain the defaults.
 See [stream concepts and adapters](docs/usage.md#stream-concepts-and-implicit-adapters).
+The [iostream examples](example/iostream/README.md) provide seven runnable memory,
+file, buffered, and custom stream examples with a shared 52-class, 645-field schema.
+They run in the standard test build or independently with
+`SERIALIZER_BUILD_IOSTREAM_EXAMPLES=ON`.
 Language-specific output profiles select layouts and naming conventions.
 Schemas use `.serializer` and begin with `serializer version 1;`.
 Share declarations with `include common.serializer;` before any declarations.

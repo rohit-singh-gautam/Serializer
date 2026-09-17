@@ -37,7 +37,7 @@ GoogleTest and clang-format 19+ must be available. `all` configures and builds,
 | PowerShell | Windows `make.ps1` wrapper. |
 | Git, HTTPS certificates, curl, zip, unzip, tar | Obtaining sources and bootstrapping/downloading vcpkg dependencies; the Linux setup installs these tools. |
 | GoogleTest CMake package | `SERIALIZER_BUILD_TESTS=ON`; supplied by this checkout's vcpkg manifest or an existing installation. |
-| clang-format 19+ | Generated C++ tests, style examples, benchmarks, fuzzers, and consumer generation with formatting enabled. |
+| clang-format 19+ | Generated C++ tests, style/iostream examples, benchmarks, fuzzers, and consumer generation with formatting enabled. |
 | JDK 17+ (`java` and `javac`) | `SERIALIZER_BUILD_JAVA_EXAMPLES=ON`; Java source generation itself requires no JDK. |
 | Official Protobuf library and `protoc` | `SERIALIZER_BUILD_TESTS=ON` together with `SERIALIZER_BUILD_PROTOBUF_INTEROP_TESTS=ON`; Serializer's own Protobuf codecs do not require them. |
 | Clang with libFuzzer, AddressSanitizer, and UndefinedBehaviorSanitizer | `SERIALIZER_BUILD_FUZZERS=ON`; the fuzz target rejects MSVC mode. |
@@ -75,6 +75,11 @@ paths, compiler/generator selection, or optional Java/benchmark/fuzzer settings.
 Use separate build directories when changing compilers, architectures, or
 toolchains. Existing cache options are retained unless explicitly overridden.
 Every wrapper stops on a failed configure, build, or test command.
+
+The [iostream examples](../example/iostream/README.md) are included with tests.
+To build them without GoogleTest, configure with `SERIALIZER_BUILD_TESTS=OFF`
+and `SERIALIZER_BUILD_IOSTREAM_EXAMPLES=ON`, build
+`serializer_iostream_examples`, and run CTest with `-L serializer_iostream`.
 
 ### Visual Studio folder builds
 
@@ -153,6 +158,7 @@ vcpkg_cmake_configure(
     -DSERIALIZER_BUILD_TESTS=OFF
     -DSERIALIZER_BUILD_PROTOBUF_INTEROP_TESTS=OFF
     -DSERIALIZER_BUILD_STYLE_EXAMPLES=OFF
+    -DSERIALIZER_BUILD_IOSTREAM_EXAMPLES=OFF
     -DSERIALIZER_BUILD_JAVA_EXAMPLES=OFF
     -DSERIALIZER_BUILD_BENCHMARKS=OFF
     -DSERIALIZER_BUILD_FUZZERS=OFF

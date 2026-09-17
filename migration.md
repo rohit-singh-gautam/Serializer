@@ -20,6 +20,13 @@ validation. No framing, protocol markers, or wire bytes change. See
 [stream concepts and adapters](docs/usage.md#stream-concepts-and-implicit-adapters)
 for complete contracts and limits.
 
+Regenerate C++ headers to use `object.serialize_in<Protocol>(input, limits)`.
+This overload accepts the same native/custom buffers and standard streams as the
+one-argument overload, with explicit `decode_limits`. Existing one-argument calls
+and the free `serialize_from<Protocol>(input, object, limits)` remain supported.
+Byte streams retain EOF-delimited exact-message validation; contiguous buffer
+convenience calls retain their existing behavior without an implicit `finish()`.
+
 ## VS Code navigation in extension 1.1.0
 
 Upgrade the VS Code package to 1.1.0 for declaration navigation to source schemas
