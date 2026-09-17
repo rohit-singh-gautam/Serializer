@@ -40,7 +40,10 @@ describes how to reproduce and extend validation.
 The optional [VS Code extension](editor_extension.md) supplies `.serializer`
 highlighting and a `schema` snippet with the required version header.
 It also navigates includes and type references: **Go to Declaration** opens the
-original schema, and **Go to Definition** opens available generated C++ output.
+original schema, and **Go to Definition** opens matching generated C++ output or
+falls back to the schema type declaration when no generated definition is available.
+Enum type references inside field defaults, such as `AccountState` in
+`AccountState::WaitingForReview`, support both actions.
 For an entire schema, right-click its file in Explorer or its editor tab and
 choose **Serializer: Go to Implementation** to open an existing generated header.
 Navigation never builds or offers generation; see

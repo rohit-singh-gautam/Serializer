@@ -1,7 +1,7 @@
 # Rohit Serializer for Visual Studio Code
 
 Edit `.serializer` schemas with syntax highlighting, bracket matching, comments,
-folding, and snippets. Version **1.1.1** includes navigation from includes and class
+folding, and snippets. Version **1.1.2** includes navigation from includes and type
 references to source schemas and existing generated C++ headers. Use the project's
 CMake configuration for the separate build and missing-header assistance commands.
 
@@ -58,13 +58,18 @@ available headers produce a picker; missing output produces no result or build p
 | Selected item | Go to Declaration | Go to Definition |
 | --- | --- | --- |
 | Schema `include types/account.serializer;` | Included schema | Existing header containing that schema's declarations |
-| Class/enum declaration or type reference in a schema | Original schema declaration | Matching generated C++ type definition |
+| Class/enum declaration or type reference in a schema | Original schema declaration | Matching generated C++ type definition; schema declaration if unavailable |
 | C++ `#include <account.hpp>` | Entry schema | Existing generated header |
 | Generated class/enum type reference in C++ | Original schema declaration | Normal C++ language-service definition |
 
 Navigation only reads available files. It never configures, builds, generates,
 saves a document, activates CMake Tools, or offers to generate a missing header.
-Missing destinations produce no result. Included schemas can map to an entry
+Type references include the enum prefix in defaults such as
+`AccountState::WaitingForReview`. Put the cursor on `AccountState`; the enum value
+itself is not a type reference. **Go to Definition** falls back to the source
+declaration when the generated header or matching type is unavailable, including
+new types in unsaved schemas. Unresolved names and missing header-only destinations
+produce no result. Included schemas can map to an entry
 schema's header: `account.serializer` included by `request.serializer` may be
 implemented in `request.hpp`. Unsaved schema edits are used for declaration lookup.
 

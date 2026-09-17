@@ -13,7 +13,7 @@ The VS Code package also supplies an `include` snippet. See
 
 ## VS Code
 
-The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.1**, provides `.serializer`
+The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.2**, provides `.serializer`
 syntax highlighting, snippets, declaration/definition navigation, and CMake generated-header commands. Schemas use
 the current `serializer version 1;` header. Legacy `.def` and `.struct` names are
 not registered. C++/Java generation remains owned by the project's build rules;
@@ -52,13 +52,13 @@ Packaging compiles and bundles TypeScript, copies the canonical grammar, logo,
 and repository license into the extension, and writes:
 
 ```text
-out/extensions/serializer-vscode-1.1.1.vsix
+out/extensions/serializer-vscode-1.1.2.vsix
 ```
 
 From the repository root, install it with:
 
 ```sh
-code --install-extension out/extensions/serializer-vscode-1.1.1.vsix
+code --install-extension out/extensions/serializer-vscode-1.1.2.vsix
 ```
 
 Alternatively run **Extensions: Install from VSIX** and select the file. The
@@ -108,13 +108,17 @@ from C++ type references it maps the C++ language service's resolved generated
 type back to its original schema, including declarations in included files.
 
 **Go to Definition** on a schema include opens its existing output header; on a
-schema type it selects the generated type definition. Included `account.serializer`
+schema type it selects the generated type definition, falling back to the original
+schema declaration when no matching generated definition is available. This also
+works on `AccountState` inside a default such as `AccountState::WaitingForReview`;
+the enum value itself is not a type reference. Included `account.serializer`
 may be emitted in `request.hpp`, so navigation follows include relationships.
 C++ class definitions continue to use the C++ language service. The extension
 also supplies generated-header locations for literal C++ includes.
 
 These actions and **Open Generated Header** never save, configure, build, generate,
-activate CMake Tools, or offer generation. Missing destinations return no result.
+activate CMake Tools, or offer generation. Unresolved types and missing header-only
+destinations return no result; schema type definitions can still use the source fallback.
 An already active CMake configuration supplies output candidates and include paths;
 otherwise the current workspace folder is searched, including ignored build trees.
 Sibling `<header>.d` dependency files identify the entry schema. Legacy outputs
@@ -191,6 +195,17 @@ consumer compilation, and a malformed schema leaving the prior header intact.
 The fixture disables generated-output formatting so it does not need clang-format.
 
 ### Verification performed
+
+For VS Code extension version 1.1.2 on 2026-09-17, all 43 automated tests and the
+isolated navigation host passed on Windows. Regressions use the maintained AUTOSAR
+account schema and cover enum default type prefixes, exact schema destination
+ranges, included/qualified enums, missing or stale generated definitions, unsaved
+types, Restricted Mode, and CMake profile isolation. Existing generated type
+matches retain priority; header-only commands remain silent without output.
+The 1.1.2 VSIX was rebuilt and verified for matching manifest versions, the tested
+navigation bundle, and updated packaged documentation.
+No additional Linux/macOS, remote-host, clangd, or interactive F12 checks were
+performed for this revision.
 
 For VS Code version 1.1.1, all 38 existing automated tests and the isolated
 navigation host passed on Windows. The file-menu actions share the existing

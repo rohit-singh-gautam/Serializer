@@ -56,8 +56,10 @@ automatic header generation with CMake, and decoding an exact message with limit
 schema declaration/generated-header navigation, and missing-include assistance. Run
 `./install_extension.ps1` from PowerShell to build and install the local extension
 (Node.js 22+, npm, and the VS Code CLI are required). Marketplace publication is pending.
-The VS Code extension version is **1.1.1**, with ID `rohitjairajsingh.serializer-language`
+The VS Code extension version is **1.1.2**, with ID `rohitjairajsingh.serializer-language`
 (Rohit Jairaj Singh). Its release version is independent of the compiler version.
+Go to Definition resolves enum types in field defaults and falls back to the
+schema declaration when a matching generated C++ definition is unavailable.
 It also supplies a dedicated 32×32 icon for `.serializer` files in Explorer and
 editor tabs when supported by the selected file icon theme.
 

@@ -47,6 +47,29 @@ async function runSuite() {
     assert.equal(definitions.length, 1, `schema definition: ${word}`);
     assert.equal(definitions[0].uri.fsPath, header);
   }
+
+  // Use the reported schema to exercise all enum type occurrences before and after generation.
+  const autosar = path.join(workspace, 'styles/autosar/account.serializer');
+  const autosarHeader = path.join(workspace, 'build/autosar_account.hpp');
+  fs.mkdirSync(path.dirname(autosar), { recursive: true });
+  fs.copyFileSync(path.resolve(__dirname, '../../../example/coding_styles/autosar/account.serializer'), autosar);
+  const autosarDocument = await vscode.workspace.openTextDocument(autosar);
+  for (const word of ['AccountState {', 'AccountState currentState', 'AccountState::WaitingForReview']) {
+    const definitions = await navigate(autosarDocument, word, true);
+    assert.equal(definitions.length, 1, `ungenerated enum definition: ${word}`);
+    assert.equal(definitions[0].uri.fsPath, autosar);
+    assert.equal(autosarDocument.getText(definitions[0].range), 'AccountState');
+    assert.equal(definitions[0].range.start.line, 3, 'enum declaration, not its field reference');
+    assert.equal((await navigate(autosarDocument, word, false))[0].uri.fsPath, autosar);
+  }
+  fs.writeFileSync(autosarHeader, banner + 'namespace style_demo { enum class account_state { waiting_for_review, active }; }\n');
+  fs.writeFileSync(`${autosarHeader}.d`, `${escape(autosarHeader)}: ${escape(autosar)}\n`);
+  const generatedAutosar = await vscode.workspace.openTextDocument(autosarHeader);
+  const enumDefinitions = await navigate(autosarDocument, 'AccountState::WaitingForReview', true);
+  assert.equal(enumDefinitions.length, 1);
+  assert.equal(enumDefinitions[0].uri.fsPath, autosarHeader);
+  assert.equal(generatedAutosar.getText(enumDefinitions[0].range), 'account_state');
+
   await vscode.commands.executeCommand('serializer.openGeneratedHeader', vscode.Uri.file(common));
   assert.equal(vscode.window.activeTextEditor.document.uri.fsPath, header);
   const cppDocument = await vscode.workspace.openTextDocument(cpp);
@@ -88,15 +111,16 @@ async function runSuite() {
   change.insert(schema.uri, schema.positionAt(schema.getText().length), '\nclass unsaved {}\n');
   await vscode.workspace.applyEdit(change);
   assert.equal((await navigate(schema, 'unsaved', false))[0].uri.fsPath, input);
+  assert.equal((await navigate(schema, 'unsaved', true))[0].uri.fsPath, input);
   assert.equal(schema.isDirty, true);
   assert.ok(!fs.readFileSync(input, 'utf8').includes('unsaved'));
   const missing = path.join(workspace, 'missing.serializer');
   fs.writeFileSync(missing, 'serializer version 1; class missing {}');
   const missingDocument = await vscode.workspace.openTextDocument(missing);
-  assert.deepEqual(await navigate(missingDocument, 'missing', true), []);
+  assert.equal((await navigate(missingDocument, 'missing', true))[0].uri.fsPath, missing);
   await vscode.commands.executeCommand('serializer.openGeneratedHeader', missingDocument.uri);
   assert.equal(fs.existsSync(path.join(workspace, 'build/missing.hpp')), false);
-  console.log('Serializer navigation host passed: schema and C++ includes/types, merged output, ignored build directory, unsaved buffers, missing output, and no CMake/build dependency.');
+  console.log('Serializer navigation host passed: schema and C++ includes/types, AUTOSAR enum defaults, schema fallback, merged output, ignored build directory, unsaved buffers, missing output, and no CMake/build dependency.');
   if (cppExtension) { console.log(`Verified native Microsoft C/C++ ${cppExtension.packageJSON.version} navigation.`); }
 }
 

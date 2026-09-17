@@ -102,9 +102,30 @@ test('navigation works in Restricted Mode and never accesses build APIs or saves
 test('inactive CMake Tools remains inactive and absent generated output is silent', async () => {
   const state = harness();
   state.put('account.serializer', 'serializer version 1; class account {}');
-  assert.deepEqual(await state.request('account.serializer', 'account', true), []);
+  const targets = await state.request('account.serializer', 'account', true);
+  assert.equal(targets.length, 1);
+  assert.equal(targets[0].uri.fsPath, path.join(root, 'account.serializer'));
   await state.commands.get('serializer.openGeneratedHeader')(state.document('account.serializer').uri);
   assert.deepEqual(state.calls, ['getExtension', 'getExtension']);
+});
+
+test('AUTOSAR enum navigation uses live schema ranges and prefers a matching generated definition', async () => {
+  const name = 'example/coding_styles/autosar/account.serializer';
+  const source = fs.readFileSync(path.resolve(__dirname, '../../..', name), 'utf8');
+  const state = harness({ trusted: false });
+  state.put(name, source);
+  const doc = state.document(name);
+  const expected = doc.positionAt(source.indexOf('AccountState'));
+  for (const marker of ['AccountState {', 'AccountState currentState', 'AccountState::WaitingForReview']) {
+    const targets = await state.request(name, marker, true);
+    assert.equal(targets.length, 1);
+    assert.equal(targets[0].uri.fsPath, doc.uri.fsPath);
+    assert.deepEqual(targets[0].range.start, expected);
+  }
+  state.put('build/account.hpp', banner + 'namespace style_demo { enum class account_state { waiting_for_review, active }; }');
+  assert.equal((await state.request(name, 'AccountState::WaitingForReview', true))[0].uri.fsPath,
+    path.join(root, 'build/account.hpp'));
+  assert.deepEqual(state.calls, [], 'navigation needs no CMake activation, commands, builds or prompts');
 });
 
 test('C++ resolved type locations map to schema while definition is left to the C++ provider', async () => {
@@ -143,7 +164,23 @@ test('disk cache observes changes and missing destinations do not offer generati
   state.put('build/account.hpp', banner + '\n\nclass account {};');
   assert.equal((await state.request('account.serializer', 'account', true))[0].range.start.line, 3);
   state.files.delete(path.join(root, 'build/account.hpp'));
-  assert.deepEqual(await state.request('account.serializer', 'account', true), []);
+  const targets = await state.request('account.serializer', 'account', true);
+  assert.equal(targets.length, 1);
+  assert.equal(targets[0].uri.fsPath, path.join(root, 'account.serializer'));
+  assert.ok(state.calls.every(call => call === 'getExtension'));
+});
+
+test('a missing configured type falls back to its schema instead of another output profile', async () => {
+  const state = harness({ active: true, model: { configurations: [{ name: 'Debug', projects: [{
+    sourceDirectory: root, targets: [{ name: 'app', fileGroups: [
+      { isGenerated: true, sources: ['debug/account.hpp'] }
+    ] }] }] }] } });
+  state.put('account.serializer', 'serializer version 1; enum state { ready } class account { public state value { state::ready }; }');
+  state.put('debug/account.hpp', banner + 'class account {};');
+  state.put('release/account.hpp', banner + 'enum class state { ready }; class account {};');
+  const targets = await state.request('account.serializer', 'state::ready', true);
+  assert.equal(targets.length, 1);
+  assert.equal(targets[0].uri.fsPath, path.join(root, 'account.serializer'));
   assert.ok(state.calls.every(call => call === 'getExtension'));
 });
 

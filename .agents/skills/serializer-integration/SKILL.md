@@ -231,7 +231,7 @@ versioned snippets, and invokes the same targets through CMake Tools. Run the ro
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 1.1.1 is independent of compiler and schema versions. Configure
+version 1.1.2 is independent of compiler and schema versions. Configure
 the consumer first, then use `Serializer: Generate Headers` or `Serializer:
 Diagnose Missing Header`. Set `serializer.headersTarget` for one consumer; keep
 profile include paths separate. Its IntelliSense command explicitly updates the
@@ -240,7 +240,10 @@ in that folder and requires workspace trust. Declaration/definition navigation
 and `Serializer: Open Generated Header` only read available files; never invoke
 generation or configuration to satisfy navigation, or offer generation for a
 missing destination. Declaration opens the originating schema, while definition
-opens existing generated C++ output. Follow schema includes to their actual entry
+prefers existing generated C++ output and falls back to the original schema type
+declaration if no generated definition matches. Enum type prefixes in defaults
+such as `AccountState::WaitingForReview` participate in both lookups; enum value
+navigation is not provided. Follow schema includes to their actual entry
 header and use existing `<header>.d` dependencies when present; expose ambiguous
 legacy basename/profile matches as choices. An already active CMake model can
 narrow lookup but navigation must also work without it and in Restricted Mode.

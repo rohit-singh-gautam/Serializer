@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.1.2
+
+- Resolve enum type prefixes in field defaults such as
+  `AccountState::WaitingForReview`, including qualified types from included schemas.
+- Fall back from Go to Definition to the original schema type declaration when
+  no matching generated C++ definition is available. Existing generated matches
+  retain priority; header-only commands remain silent when output is unavailable.
+- Add regression coverage using the AUTOSAR account schema, including editor
+  provider ranges, unsaved types, missing/stale output, and CMake profile isolation.
+
 ## 1.1.1
 
 - Add Serializer: Go to Implementation to `.serializer` file context menus in

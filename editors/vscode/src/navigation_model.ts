@@ -14,7 +14,7 @@ export interface TypeSymbol extends Span {
 export interface SourceIndex {
   symbols: TypeSymbol[];
   includes: SchemaInclude[];
-  references: Array<Span & { name: string; scope: string[] }>;
+  references: Array<Span & { name: string; scope: string[]; kind?: TypeSymbol['kind'] }>;
 }
 
 /** Hide comments and literals while preserving UTF-16 offsets used by VS Code. */
@@ -72,6 +72,26 @@ export function indexSource(text: string, schema: boolean): SourceIndex {
     return name.next;
   }
 
+  /** Index only the enum type prefix of a field default, excluding its value and quoted text. */
+  function defaultReference(member: number): void {
+    if (!/^[A-Za-z_]\w*$/.test(tokens[member]?.text ?? '')) { return; }
+    for (let next = member + 1; next < tokens.length; ++next) {
+      const token = tokens[next].text;
+      if ([';', '}', 'public', 'private', 'protected'].includes(token)) { return; }
+      if (token !== '{') { continue; }
+      const value = qualified(next + 1);
+      if (value && tokens[value.next]?.text === '}') {
+        const separator = value.next - 2;
+        if (separator > next + 1 && tokens[separator].text === '::') {
+          result.references.push({ start: value.start, end: tokens[separator - 1].end,
+            name: value.name.slice(0, value.name.lastIndexOf('::')),
+            scope: [...currentScope()], kind: 'enum' });
+        }
+      }
+      return;
+    }
+  }
+
   for (let i = 0; i < tokens.length; ++i) {
     const token = tokens[i];
     if (token.text === '{') {
@@ -95,7 +115,7 @@ export function indexSource(text: string, schema: boolean): SourceIndex {
       }
       i = end;
     } else if (schema && ['public', 'private', 'protected'].includes(token.text)) {
-      typeReference(i + 1);
+      defaultReference(typeReference(i + 1));
     } else if (token.text === 'class' || token.text === 'struct' || token.text === 'enum') {
       if (tokens[i - 1]?.text === 'enum') { continue; }
       const nameIndex = token.text === 'enum' && ['class', 'struct'].includes(tokens[i + 1]?.text)
@@ -137,7 +157,9 @@ export function resolveType(reference: SourceIndex['references'][number], symbol
   for (;;) {
     const qualified = [...scope, name].join('::');
     const matches = symbols.filter(symbol => symbol.qualified === qualified);
-    if (matches.length || !scope.length) { return matches; }
+    if (matches.length || !scope.length) {
+      return matches.filter(symbol => !reference.kind || symbol.kind === reference.kind);
+    }
     scope.pop();
   }
 }

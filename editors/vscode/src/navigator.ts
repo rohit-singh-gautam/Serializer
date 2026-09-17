@@ -133,7 +133,7 @@ export class Navigator {
     return [...new Set(preferred.length ? preferred : available)];
   }
 
-  /** Navigate a schema include or declared/referenced type without generating any output. */
+  /** Prefer generated type definitions, falling back to their schema without generating output. */
   async schema(file: string, offset: number, definition: boolean): Promise<NavigationTarget[]> {
     const source = await this.source(file);
     const include = source?.index.includes.find(item => offset >= item.start && offset < item.end);
@@ -159,7 +159,7 @@ export class Navigator {
         }
       }
     }
-    return this.unique(targets);
+    return this.unique(targets.length ? targets : declarations);
   }
 
   /** Open only existing generated outputs for a whole schema, including included-only schemas. */

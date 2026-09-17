@@ -1,4 +1,5 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
 const path = require('node:path');
 const { test } = require('node:test');
 const { Navigator } = require('../out/navigator');
@@ -32,6 +33,51 @@ function selected(state, targets) {
     state.files.get(target.file).slice(target.start, target.end)]);
 }
 
+test('every AccountState type occurrence in the AUTOSAR example resolves to its enum', async () => {
+  const name = 'example/coding_styles/autosar/account.serializer';
+  const source = fs.readFileSync(path.resolve(__dirname, '../../..', name), 'utf8');
+  const header = 'build/account.hpp';
+  const state = fixture({ [name]: source,
+    [header]: banner + 'namespace style_demo { enum class account_state { waiting_for_review, active }; }',
+    [`${header}.d`]: `${escapeDependency(file(header))}: ${escapeDependency(file(name))}` });
+  const occurrences = [...source.matchAll(/AccountState/g)];
+  assert.equal(occurrences.length, 3, 'declaration, field type and enum default');
+  for (const occurrence of occurrences) {
+    for (const offset of [occurrence.index, occurrence.index + occurrence[0].length - 1]) {
+      assert.deepEqual(selected(state, await state.resolver().schema(file(name), offset, false)),
+        [[name, 'AccountState']]);
+      assert.deepEqual(selected(state, await state.resolver().schema(file(name), offset, true)),
+        [[header, 'account_state']]);
+    }
+  }
+});
+
+test('enum default type prefixes resolve included scopes without indexing values or strings', async () => {
+  const source = `serializer version 1; include types.serializer;
+namespace outer { namespace inner { class request {
+  public state local (1) { state::ready };
+  public ::outer::state global { ::outer::state::ready } (2);
+  public string quoted (3) { "state::ready" };
+  public string raw (4) { R"(state::ready)" };
+  /* public state ignored (5) { state::ready }; */
+  public state unrelated (6) { helper::ready };
+} } }`;
+  const types = 'serializer version 1; namespace outer { enum state { ready } class helper {} namespace inner { enum state { ready } } }';
+  const state = fixture({ 'request.serializer': source, 'types.serializer': types });
+  const local = source.indexOf('state::ready');
+  const global = source.indexOf('::outer::state::ready');
+  const resolver = state.resolver();
+  assert.equal((await resolver.schema(file('request.serializer'), local, false))[0]?.start,
+    types.lastIndexOf('state {'));
+  assert.equal((await resolver.schema(file('request.serializer'), global + '::outer::'.length, false))[0]?.start,
+    types.indexOf('state {'));
+  for (const offset of [local + 'state::'.length, global + '::outer::state::'.length,
+    source.indexOf('state::ready"'), source.indexOf('state::ready)'),
+    source.indexOf('state::ready', source.indexOf('ignored')), source.indexOf('helper::ready')]) {
+    assert.deepEqual(await resolver.schema(file('request.serializer'), offset, false), []);
+  }
+});
+
 test('schema includes and qualified class references navigate into source and merged output', async () => {
   const state = fixture({
     'request.serializer': 'serializer version 1; include types/account.serializer; namespace app { class request { public data::account owner; }}',
@@ -51,15 +97,33 @@ test('schema includes and qualified class references navigate into source and me
   assert.deepEqual(selected(state, await resolver.headers(file('types/account.serializer'))), [['build/request.hpp', '']]);
 });
 
-test('source navigation works before generation and missing output returns no destination', async () => {
+test('type definitions fall back to the schema before generation while header actions stay empty', async () => {
   const state = fixture({ 'account.serializer': 'serializer version 1; class account {}',
     'main.cpp': '#include <account.hpp>\naccount value;' });
   const resolver = state.resolver();
   assert.deepEqual(selected(state, await resolver.cppInclude(file('main.cpp'), state.at('main.cpp', 'account'), false)),
     [['account.serializer', '']]);
   assert.deepEqual(await resolver.cppInclude(file('main.cpp'), state.at('main.cpp', 'account'), true), []);
-  assert.deepEqual(await resolver.schema(file('account.serializer'), state.at('account.serializer', 'account'), true), []);
+  assert.deepEqual(selected(state, await resolver.schema(file('account.serializer'), state.at('account.serializer', 'account'), true)),
+    [['account.serializer', 'account']]);
   assert.deepEqual(await resolver.headers(file('account.serializer')), []);
+});
+
+test('missing or stale generated enum definitions fall back to the exact included declaration', async () => {
+  const source = 'serializer version 1; include types.serializer; class request { public data::state status { data::state::ready }; public unknown missing; }';
+  const state = fixture({ 'request.serializer': source,
+    'types.serializer': 'serializer version 1; namespace data { enum state { ready } }',
+    'build/request.hpp': banner + 'class request {}; namespace data { enum class old_state { ready }; }' });
+  for (const headerPresent of [true, false]) {
+    if (!headerPresent) { state.files.delete(file('build/request.hpp')); }
+    for (const marker of ['data::state status', 'data::state::ready']) {
+      assert.deepEqual(selected(state, await state.resolver().schema(file('request.serializer'), source.indexOf(marker), true)),
+        [['types.serializer', 'state']]);
+    }
+  }
+  assert.deepEqual(await state.resolver().schema(file('request.serializer'), source.indexOf('unknown'), true), []);
+  state.cancel();
+  assert.deepEqual(await state.resolver().schema(file('request.serializer'), source.indexOf('data::state'), true), []);
 });
 
 test('missing includes, comments, strings, field names and unresolved types yield no declaration', async () => {
