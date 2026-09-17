@@ -148,7 +148,9 @@ The runtime also accepts mapped views through a little-endian `binary_none`
 encoder's `serialize_out(view)` call. Empty identifier input reports a schema
 diagnostic before attempting to read the stream.
 
-Portability verification: the default 13 CTest targets pass on Linux x64 with
+Current results and outstanding checks are recorded in the dated
+[verification record](docs/verification-2026-09-17.md), tied to its source revision
+and build configurations. Earlier portability checks reported 13 CTest targets on Linux x64 with
 GCC 15.2 and Clang 21.1, and Windows x64 with MSVC 19.51. The Windows x86 vcpkg
 package and installed-consumer round trips have also been checked. Native macOS,
 Android, and ARM Linux builds still require their CI runners; these local checks
@@ -185,8 +187,8 @@ runtime optimizations below; generated methods call these helpers normally.
 Use `-DSERIALIZER_ENABLE_SIMD=OFF` when configuring a source build to disable the
 explicit SIMD scanners. See [CMake integration](docs/cmake_integration.md) for
 consumer configuration and [qualification](qualification/README.md#schema-scanner-validation)
-for the prepared boundary cases. Configuration, compilation, tests, and timing
-comparisons remain deferred; no measured speedup is claimed.
+for the boundary cases and [verification results](docs/verification-2026-09-17.md).
+Timing comparisons remain outstanding; no measured speedup is claimed.
 
 ### SIMD in runtime serialization
 
@@ -220,8 +222,9 @@ schema and runtime SIMD backends; bulk array reads/writes and direct JSON output
 Short inputs and unsupported architectures use scalar fallbacks. No input/output
 padding is required. See [runtime SIMD details](docs/runtime_simd.md), including
 the prepared validation matrix. Rebuild the runtime library and consumers to use
-the whitespace scanner; schema headers do not need regeneration. Builds, tests,
-and benchmarks remain deferred.
+the whitespace scanner; schema headers do not need regeneration. See the
+[verification record](docs/verification-2026-09-17.md) for unit and sanitizer/fuzz
+coverage. Benchmarks remain outstanding.
 
 ### Reusing destination storage
 
@@ -234,8 +237,9 @@ map keys, resource limits, and partial-failure behavior remain unchanged.
 Reuse the destination across messages and create a fresh decoder for each message's
 budget. No schema keyword or caller opt-in is needed. Java and the optional Protobuf
 codecs retain their existing replacement paths. See [destination reuse](docs/usage.md#reuse-destination-storage)
-for limitations and an example. Focused tests are added; generation, builds, test
-execution, and performance measurements remain deferred.
+for limitations and an example. Focused tests pass in the configurations in the
+[verification record](docs/verification-2026-09-17.md); performance measurements
+remain outstanding.
 
 ### Batching generated fixed-width fields
 
@@ -250,8 +254,8 @@ No schema option is needed. Wire bytes, byte order, and object padding rules rem
 unchanged. JSON, Protobuf, and custom protocols without batch hooks retain their
 existing calls. A failed output reservation writes none of the current batch;
 earlier output remains. See [field batching](docs/usage.md#batch-generated-fixed-width-fields)
-for boundaries and verification status. Generation, builds, test execution, and
-performance measurements remain deferred.
+for boundaries and the [verification record](docs/verification-2026-09-17.md)
+for results. Performance measurements remain outstanding.
 
 ### Pre-encoding constant field names
 
@@ -267,8 +271,8 @@ custom protocols without the optional name hook still receive `std::string_view`
 This trades some compiler work and constant storage for less repeated encoding
 work; it does not shrink messages or add storage to each object. See
 [constant field names](docs/usage.md#pre-encode-constant-field-names) for scope,
-failure behavior, and examples. Tests are prepared; generation, builds, test
-execution, and performance measurements remain deferred.
+failure behavior, and examples. See the [verification record](docs/verification-2026-09-17.md)
+for generation and test results. Performance measurements remain outstanding.
 
 ### Reducing repeated JSON string scans
 
@@ -281,8 +285,9 @@ All UTF-8, escape, resource-limit, and output-reservation checks remain active.
 This is automatic with the updated runtime headers and needs no regenerated schema
 code or option. It works with SIMD enabled or disabled and adds no per-string
 allocation for scan metadata. See [JSON scan reuse](docs/usage.md#reduce-repeated-json-scans)
-for scope and remaining passes. Focused tests are prepared; builds, test execution,
-sanitizers, and benchmarks remain deferred.
+for scope and remaining passes. The [verification record](docs/verification-2026-09-17.md)
+separates passing unit tests and bounded sanitizer/fuzz runs from outstanding
+platform checks and benchmarks.
 
 ### Output language and coding standard
 
@@ -324,7 +329,7 @@ install LLVM or Visual Studio's C++ Clang tools and configure again.
 The standard test build includes all profile examples; a build with tests disabled
 can opt into them with `SERIALIZER_BUILD_STYLE_EXAMPLES=ON`. All nine C++ style
 examples were generated, built, and run on Windows during Java backend validation;
-see [verification scope and outstanding suite failures](docs/java.md#verification-performed-for-this-implementation).
+see [current verification and historical results](docs/java.md#verification-performed-for-this-implementation).
 
 ### Pure Java output
 
@@ -458,8 +463,9 @@ expose `key_type`. Explicit codec byte-order selection is documented in
 [the wire-format contract](docs/wire_format.md#byte-order).
 Messages contain no automatic byte-order marker. Both endpoints must agree on it.
 
-These changes are implemented in source; generation, builds, and tests remain
-deferred for this step.
+Independent legacy big-endian and current little-endian fixtures exercise explicit
+protocol selection. The schema-language version does not identify message byte
+order or wire version. See the [verification record](docs/verification-2026-09-17.md).
 
 ### Explicit field IDs with `stable_ids`
 
@@ -503,6 +509,19 @@ integer-key object. JSON and string-key binary identify fields by their wire
 names. Positional binary still depends on declaration order even with explicit IDs.
 Keyed readers reject unknown fields, so stable IDs alone do not make old readers
 accept added fields. See [schema evolution](docs/wire_format.md#schema-evolution).
+
+Use the separate [schema compatibility checker](docs/schema_evolution.md) to
+compare revisions and enforce a persistent policy of reserved field IDs/names:
+
+```sh
+serializer --input current.serializer --check-against previous.serializer \
+  --compatibility-protocol binary_integer --compatibility-direction backward \
+  --compatibility-policy compatibility.json
+```
+
+It checks identity/type changes, positional order, and enum/union ordinals, and
+distinguishes native unknown-field rejection from Protobuf binary skipping.
+This does not introduce a new native wire format or a `reserved` schema keyword.
 
 `stable_ids` is independent of `view` and is not required for mapping buffers.
 Views use positional binary, so field order and types must still match.
@@ -563,6 +582,11 @@ There are three predefined format
 More can be generated using structure ```cpp rohit::serializer::write_format ```
 
 `format::compress` selects compact JSON formatting; it does not compress data.
+For exact fresh-value decoding, use
+`rohit::serializer::deserialize_exact<Value, Protocol>(input[, limits])`.
+It decodes a candidate and calls `finish()` before returning; input may still be
+consumed on failure. See [the helper's contract](docs/usage.md#decode-one-exact-message-into-a-fresh-value).
+Existing member and static decoding APIs retain their behavior.
 For wire details, schema evolution, decoder limits, and failure behavior, see
 [the wire-format contract](docs/wire_format.md). Optional timing, allocation,
 and fuzz targets are described in [qualification](qualification/README.md).

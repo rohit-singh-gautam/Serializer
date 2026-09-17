@@ -37,6 +37,8 @@ add_library(serializer_lib
   src/output_options.cpp
   src/protobuf_schema.cpp
   src/protobuf_schema.hpp
+  src/schema_compatibility.cpp
+  include/rohit/schema_compatibility.hpp
   include/rohit/output_options.hpp
   include/rohit/serializer_creator.hpp
   include/rohit/serializer.hpp

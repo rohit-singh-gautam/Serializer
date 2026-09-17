@@ -52,6 +52,10 @@ values, and repeated non-repeatable options are errors.
 | Option | Short form | Meaning |
 | --- | --- | --- |
 | `--input` | `-i` | Required `.serializer` schema |
+| `--check-against` | | Previous schema for read-only compatibility checking; no code generation |
+| `--compatibility-protocol` | | Required for checking: `binary_none`, `binary_integer`, `binary_string`, `json`, or `protobuf_binary` |
+| `--compatibility-direction` | | `backward` (new reader), `forward` (old reader), or `both` (default) |
+| `--compatibility-policy` | | Optional version-1 JSON reservations file |
 | `--output` | `-o` | Output file for exactly one selected language |
 | `--depfile` | | Optional Make-style dependency file for all selected outputs and their transitive schema/configuration inputs |
 | `--config` | `-c` | Optional generator INI configuration |
@@ -74,6 +78,16 @@ explicit CLI language selection replaces the config selection. Config paths are
 relative to the configuration file; command-line paths are relative to the working
 directory. `[output] language = cpp, java` also selects both languages. Duplicate
 or unknown languages and empty list entries are rejected.
+
+Compatibility options require `--check-against` and cannot be combined with
+generation/configuration/output options. Both schema revisions resolve their own
+relative includes. The checker compares wire identities, shapes, positional order,
+enum/union ordinals, and persistent reservations; it writes diagnostics only.
+Exit 0 means no incompatibility detected in the selected direction, 2 means a
+compatibility hazard, and 1 means invalid input or I/O failure. See
+[schema compatibility checking](schema_evolution.md) for policy syntax, conservative
+limits, and the distinction between native unknown-field rejection and Protobuf
+binary skipping.
 
 Depfiles use absolute paths with Make escaping, including paths containing spaces
 and Windows drive letters. Their parent directory must exist. They cannot overwrite
@@ -135,7 +149,8 @@ Verified on Windows with MSVC and Java 17:
   constants, and both installed generation helpers pass a separate consumer smoke
   build using a shared multi-language configuration.
 
-The full unit suite retains four pre-existing failures:
+That historical implementation run retained four failures:
 `serialize_parser.identifier`, `serialize_parser.hierarchical_identifier`,
 `serialize_parser.access_type`, and `binary_view.edits_preserve_the_encoded_layout`.
-No cross-platform or performance qualification is claimed by these checks.
+The later [verification record](verification-2026-09-17.md) records a passing full
+suite for its identified snapshot. No performance qualification is claimed here.

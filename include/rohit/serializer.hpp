@@ -2094,4 +2094,28 @@ void serialize_from(Stream&& input, Value& value) {
   }
 }
 
+// Decode a fresh owning value and return it only after the entire message is validated.
+// Failure discards the candidate but may consume input; caller-owned objects are not modified.
+// JSON permits trailing whitespace. Binary input must be bounded to one framed message.
+// Custom protocols must accept (input, limits) and provide serialize_in(value) and finish().
+template <typename Value, template <serialize_type> class Protocol,
+          rohit::type_check::input_stream Stream>
+[[nodiscard]] Value deserialize_exact(Stream&& input, decode_limits limits = {}) {
+  if constexpr (rohit::type_check::input_buffer<Stream>) {
+    Value value{};
+    detail::stream_protocol_t<Protocol<serialize_type::in>, std::remove_cvref_t<Stream>> decoder{
+        input, limits};
+    decoder.serialize_in(value);
+    decoder.finish();
+    return value;
+  } else if constexpr (rohit::detail::memory_input_stream<Stream>) {
+    const auto view = borrow_stream_bytes(input, limits.max_input_bytes);
+    return deserialize_exact<Value, Protocol>(view, limits);
+  } else {
+    auto buffer = read_stream_bytes(input, limits.max_input_bytes);
+    const auto view = make_constant_full_stream(buffer.begin(), buffer.current_offset());
+    return deserialize_exact<Value, Protocol>(view, limits);
+  }
+}
+
 } // namespace rohit::serializer

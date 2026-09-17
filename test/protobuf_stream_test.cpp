@@ -80,3 +80,36 @@ TEST(protobuf_stream, custom_buffers_and_iostreams) {
   check_protocol<codec::protojson>();
   check_protocol<codec::textproto>();
 }
+
+namespace {
+// Exact decoding also accepts opt-in owning codecs and rejects malformed final input.
+template <template <codec::serialize_type> class Protocol>
+void check_exact_codec() {
+  protobuf_test::record original{};
+  original.display_name = "Exact input";
+  original.nested.number = 42;
+  rohit::full_stream_auto_alloc encoded{};
+  original.serialize_out<Protocol>(encoded);
+  const std::string bytes{reinterpret_cast<const char*>(encoded.begin()), encoded.current_offset()};
+  const stream_test::input_cursor input{bytes};
+  const auto result = codec::deserialize_exact<protobuf_test::record, Protocol>(input);
+  EXPECT_EQ(result.display_name, original.display_name);
+  EXPECT_EQ(result.nested.number, original.nested.number);
+  std::istringstream stream{bytes};
+  EXPECT_EQ((codec::deserialize_exact<protobuf_test::record, Protocol>(stream)).display_name,
+            original.display_name);
+  // NUL is an invalid tag in binary and invalid trailing syntax in both text protocols.
+  const std::string malformed = bytes + '\0';
+  const stream_test::input_cursor invalid{malformed};
+  EXPECT_THROW(
+      static_cast<void>(codec::deserialize_exact<protobuf_test::record, Protocol>(invalid)),
+      rohit::exception::base_parser);
+}
+} // namespace
+
+// Protobuf binary remains externally framed: valid concatenated messages can merge.
+TEST(protobuf_stream, exact_fresh_value_helper) {
+  check_exact_codec<codec::protobuf_binary>();
+  check_exact_codec<codec::protojson>();
+  check_exact_codec<codec::textproto>();
+}

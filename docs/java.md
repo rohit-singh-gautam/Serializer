@@ -174,15 +174,24 @@ Source and installed Serializer packages expose the helper. See the runnable
 
 ### Verification performed for this implementation
 
+The current [2026-09-17 verification record](verification-2026-09-17.md) identifies
+the tested source revision and configurations. The full Windows C++/Java suite
+passes there, including two-way interoperability and exact binary byte comparisons.
+The four failures listed below belong to the earlier implementation run and were
+not reproduced in the current recorded run.
+
+Historical implementation run:
+
 On Windows with MSVC 19.51 and JDK 17.0.18, the compiler, all nine C++ style
 examples, all four Java examples, and the Java qualification program built.
 The eight output-options/Java-generator unit tests and 15 example/CLI/interoperability
 CTest entries passed. The interoperability check verifies both directions for all
 four protocols and exact binary bytes, including enum union payloads.
 
-The full C++ unit suite ran but reported four failures:
+That earlier full C++ unit suite reported four failures:
 `serialize_parser.identifier`, `serialize_parser.hierarchical_identifier`,
 `serialize_parser.access_type`, and `binary_view.edits_preserve_the_encoded_layout`.
 The parser failures concern empty-input exception types; the view test reports
-an unsupported-type exception. This is not a clean full-suite qualification.
-No performance benchmark, GraalVM build, or non-Windows runtime test was run.
+an unsupported-type exception. That run was not a clean full-suite qualification.
+No performance benchmark, GraalVM build, or non-Windows Java runtime test was run
+in either verification; those checks remain outstanding.

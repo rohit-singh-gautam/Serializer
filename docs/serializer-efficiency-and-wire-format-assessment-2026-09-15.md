@@ -3,6 +3,12 @@
 Reviewed: 2026-09-15. Source revision: `18f068f932363b58c3792e43cb09cee5f9c016d6`
 (`Code cleanup`).
 
+This is a historical assessment and implementation log. Deferred-test statements
+below describe the individual implementation steps at that time. Current results,
+including regression and bounded sanitizer/fuzz runs, are recorded separately in
+[verification dated 2026-09-17](verification-2026-09-17.md). Timing and allocation
+benchmarks remain outstanding.
+
 ## Scope and conclusion
 
 This document assesses Serializer's own generator, codec, stream implementation,

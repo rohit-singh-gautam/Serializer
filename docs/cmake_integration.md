@@ -368,7 +368,9 @@ IntelliSense needs the real header to exist after a first successful build or
 header-generation step. Select an editor's CMake integration to obtain per-target
 settings; see [IntelliSense troubleshooting](intellisense.md).
 
-**Validation status:** these rules are implemented in source and used by the
-repository's fixtures and examples. CMake configuration, generation, compilation,
-install/package consumption, and editor verification have not been run for this
-implementation step. The commands above are provided for later validation.
+**Validation status:** the [verification record](verification-2026-09-17.md)
+records CMake configuration, generation, compilation, and execution of the
+repository's fixtures and examples, plus a separate installed-package consumer
+check in the compatibility/exact-decoding follow-up. Editor verification was not
+performed in those runs; see the record's scope before extending its results to
+other configurations.

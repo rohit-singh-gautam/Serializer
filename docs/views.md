@@ -206,7 +206,8 @@ for (const auto [key, text] : labels) {
 `test/binary_view_iterator_test.cpp` prepares iterator/range concept checks, scan-count
 checks for linear traversal, independent copies, unaligned input and empty collections,
 zero-byte objects, variable compact widths, duplicate keys, nested views, mapping
-limits, and mutation failures. Compilation and execution remain deferred.
+limits, and mutation failures. See the [verification record](verification-2026-09-17.md)
+for passing unit tests and bounded view fuzz runs, including remaining platform checks.
 
 ## Nested types and application boundaries
 

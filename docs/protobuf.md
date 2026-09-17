@@ -76,11 +76,19 @@ resource budgets, not exact heap accounting. Keep the input buffer alive and
 independent of the destination. Decoder instances have one owner and share their
 budgets with every nested field.
 
+The optional `deserialize_exact<Value, Protocol>(input[, limits])` runtime helper
+also returns a fresh owning value for these codecs. It preserves each codec's
+framing rules; for binary, valid concatenated messages may merge. For schema
+revision checks, the separate [compatibility checker](schema_evolution.md)
+supports `protobuf_binary` and validates this mapping before comparing revisions.
+Its first version does not check ProtoJSON/TextProto compatibility.
+
 ProtoJSON uses the shared [SIMD whitespace scanner](runtime_simd.md#simd-json-whitespace-scanning)
 for long runs within message and input/work limits. Short gaps and tails remain
 scalar. TextProto retains its separate whitespace/comment parser. The focused
-whitespace tests are prepared; builds, execution, and performance measurements
-for this optimization remain deferred.
+whitespace tests pass in the configurations recorded in
+[verification](verification-2026-09-17.md), which also covers bounded fuzz runs
+for all three optional codecs. Performance measurements remain outstanding.
 
 Binary messages have no automatic outer size prefix or terminator. Applications
 must provide framing. Concatenating two binary encodings can form a valid merged

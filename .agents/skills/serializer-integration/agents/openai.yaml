@@ -1,6 +1,6 @@
 interface:
   display_name: "Serializer Integration"
-  short_description: "Integrate schemas, C++/Java output profiles, and codecs"
+  short_description: "Integrate schemas, codecs, and compatibility checks"
 
 policy:
   allow_implicit_invocation: true

@@ -1,8 +1,8 @@
 # Codec validation tools
 
 These tools separate regression tests, performance measurements, and fuzzing.
-The original assessment implementation deferred execution; the fuzzing section
-records the current workflow and its verification scope separately.
+The dated [verification record](../docs/verification-2026-09-17.md) ties executed
+checks to a source revision and configurations, and lists outstanding work.
 
 ## Regression tests
 
@@ -12,9 +12,25 @@ integers, odd-offset scalar reads, float/double wire bytes, JSON grammar and Uni
 replacement/failure behavior, cumulative limits, old/new schemas, enum fields and
 collections, escaped field names, empty objects, and diagnostics. Existing tests
 were adjusted for strict JSON and exact input views.
-Existing wire snapshots remain the binary compatibility baseline.
+Independent frozen legacy big-endian and current little-endian messages in
+`wire_compatibility_test.cpp` pin all three native binary modes against explicit
+protocol selection. Schema-language version 1 does not identify message byte order.
 
-Run the normal supported-platform build/test matrix when validation is authorized.
+`stream_boundary_test.cpp` directly checks rejected compact output values and
+exact-capacity single-byte writes. On Linux with GCC/Clang, the standalone
+`stream_allocation_failure_test` uses ELF linker wrapping to fail malloc/realloc
+deterministically: failed growth and replacement must preserve bytes, cursor,
+capacity, and ownership, and recovery/move/destruction must release storage once.
+No allocator hooks are added to the production runtime. This injection target is
+not built on Windows or macOS; portable boundary tests remain in the core suite.
+
+`schema_compatibility_test.cpp` and `serializer_compatibility_cli` exercise the
+separate evolution checker and reservation policy. `deserialize_exact_test.cpp`
+and the Protobuf stream tests cover exact fresh-value decoding, suffix rejection,
+defaults, resource limits, and input/transport failures. The dated record includes
+focused ASan/UBSan checks for these additions.
+
+Run the normal supported-platform build/test matrix for the platforms being qualified.
 Also run optimized and address/undefined-sanitized builds, and C++20/C++23 builds
 to cover the byte-swap fallback and standard-library paths.
 
@@ -25,10 +41,11 @@ exact-size input allocations, empty input, scalar/vector transitions, identifier
 delimiters, qualified names, comment boundaries, and unterminated-comment cursors.
 It exercises the baseline scanner, the CPU-selected scanner, and short-token dispatch.
 
-When testing is authorized, run with `SERIALIZER_ENABLE_SIMD=ON` and `OFF`, on x64
+Extend validation with `SERIALIZER_ENABLE_SIMD=ON` and `OFF`, on x64
 with and without AVX2 available, and on a platform using the scalar fallback.
-Include address-sanitized runs to catch reads beyond unpadded input. These cases
-have not been compiled or executed. Measure parsing separately from C++ emission,
+Include address-sanitized runs to catch reads beyond unpadded input. See the
+[verification record](../docs/verification-2026-09-17.md) for executed unit tests
+and the limits of current sanitizer coverage. Measure parsing separately from C++ emission,
 formatter startup, and file I/O before reporting an end-to-end generator speedup;
 the existing codec benchmarks do not measure schema compilation.
 
@@ -52,15 +69,16 @@ scalar tails, generated/formatted JSON, invalid whitespace, and native
 JSON/ProtoJSON byte/work limits with exact failure cursors. The Protobuf test
 target adds nested ProtoJSON object/array/map gaps and transactional rejection
 of invalid whitespace. Include empty, compact, and heavily indented JSON when
-benchmarking; these cases have not been compiled or executed.
+benchmarking. Unit tests and sanitizer/fuzz results are recorded separately in
+[verification](../docs/verification-2026-09-17.md).
 
-When validation is authorized, run these and the existing generated-object,
+For broader qualification, run these and the existing generated-object,
 wire-format, view, and decoder-limit cases with SIMD enabled and disabled, with
 and without AVX2 available, and under address/undefined sanitizers. Verify both
 source-dependency and installed-library consumers, including pre-generated headers.
 Benchmark long/short strings, escape density, all JSON layouts, each binary key
 mode, matching/opposite endian arrays, and small records. Keep schema-compiler
-timings separate. Compilation and execution of these cases remain deferred; see
+timings separate. Benchmarks and unrecorded platform configurations remain outstanding; see
 [runtime SIMD](../docs/runtime_simd.md) for implemented scope.
 
 ## Timing and allocations
@@ -179,6 +197,10 @@ random seed and pristine initial corpus make a run reproducible for the same
 toolchain/build; compiler, platform, or corpus changes can alter mutations. Save
 commands, tool versions, flags, exit status, and final libFuzzer statistics. These
 bounded runs do not establish exhaustive coverage or security qualification.
+
+The [2026-09-17 record](../docs/verification-2026-09-17.md) includes corpus counts
+and hashes, the bounded campaigns performed, and compile-command checks proving
+that runtime/SIMD objects carry the instrumentation.
 
 ## Measurement-dependent decisions
 

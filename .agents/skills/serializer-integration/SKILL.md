@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer into C++ or Java applications from a provided repository or existing dependency. Use for .serializer schemas, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, stream concepts and iostream adapters, JSON or binary codecs, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
+description: "Integrate Serializer into C++ or Java applications from a provided repository or existing dependency. Use for .serializer schemas, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, schema compatibility checks and reservations, stream concepts and iostream adapters, exact fresh-value decoding, JSON or binary codecs, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
 ---
 
 # Serializer Integration
@@ -86,7 +86,17 @@ feature as a prerequisite without the user's request.
 - Keep IDs unique in `1..0x3fffffff`. Preserve wire names with metadata such as
   `public string name ("fullname", 3);` when renaming a C++ field. Do not reuse old
   IDs/names or renumber enum/union alternatives in an existing contract.
-- Keyed readers reject unknown fields. Explicit IDs do not make old readers accept
+- For revision checks, run `serializer --input current.serializer --check-against
+  previous.serializer --compatibility-protocol binary_integer` with the agreed
+  native or Protobuf-binary protocol. Select `backward`, `forward`, or `both`
+  through `--compatibility-direction` (default both), and retain old include files.
+  Maintain `--compatibility-policy policy.json` with retired class field/parent
+  IDs and wire names. Exit 2 means a compatibility hazard, 1 invalid input, and 0
+  no hazard detected for the selected direction. This is a conservative separate
+  checker, not a new `reserved` keyword or proof of application semantics.
+  Read [schema evolution](../../../docs/schema_evolution.md) before choosing policy
+  scope or interpreting ordinal and unknown-field diagnostics.
+- Native keyed readers reject unknown fields. Explicit IDs do not make old readers accept
   new fields. Positional binary still requires matching declaration order/types.
   Resolve incompatible changes through the application's versioning contract.
 - Check supported types before choosing raw unions: generated alternatives must
@@ -101,8 +111,9 @@ feature as a prerequisite without the user's request.
   read-only nested views. Declare referenced types before use. `packed` cannot be
   combined with `view`. `stable_ids` is independent of mapping, which is positional.
 - `inplace` and `simd` are not implemented keywords. Views and little-endian
-  defaults are implemented in source but their generation/build/tests remain
-  deferred for the current implementation step; do not claim qualification.
+  defaults are implemented; use the dated
+  [verification record](../../../docs/verification-2026-09-17.md) for tested
+  revisions and configurations rather than assuming all platforms are qualified.
 
 For a new schema, a minimal explicit-ID example is:
 
@@ -195,7 +206,8 @@ Link `Serializer::serializer_lib` for pre-generated headers too. Disabling SIMD
 retains bulk array reads/writes and direct JSON escaping. See
 [runtime SIMD](../../../docs/runtime_simd.md) for scope, aliasing, and limitations.
 Wire bytes and schema syntax stay unchanged; do not add a `simd` keyword or promise
-a measured speedup. SIMD builds, boundary tests, and benchmarks remain deferred.
+a measured speedup. The [verification record](../../../docs/verification-2026-09-17.md)
+records boundary tests and bounded SIMD ON/OFF sanitizer/fuzz runs; benchmarks remain outstanding.
 
 Call the helper once per target with all its schemas. For a shared generated API,
 use an interface library and link consumers to it so one target owns generation.
@@ -356,7 +368,9 @@ user instruction to defer generation/builds/tests and report what remains unveri
   an explicit third `binary` template argument selects another byte order when
   required. Compact prefixes keep their own encoding. No endian/protocol marker,
   auto-detection, or compatibility aliases are provided; agree on the format with
-  the peer. JSON is unaffected by numeric byte order.
+  the peer. The schema-language version identifies neither message byte order nor
+  wire version. Independent legacy/current fixtures cover explicit selection in
+  all three native binary modes. JSON is unaffected by numeric byte order.
 - Regenerate C++ headers for structural stream concepts and implicit standard-stream
   adapters. No `rohit::stream` inheritance is required: use `input_buffer` or
   `output_buffer` for the contiguous fast path, or standard-style byte-stream
@@ -424,11 +438,19 @@ user instruction to defer generation/builds/tests and report what remains unveri
   to logical resource accounting and may increase temporary retained memory.
   Java and Protobuf codecs keep their existing replacement paths. Consult
   [destination reuse](../../../docs/usage.md#reuse-destination-storage) for scope
-  and limitations; generation, builds, focused test execution, and performance
-  measurements for this optimization remain deferred.
+  and limitations; see the [verification record](../../../docs/verification-2026-09-17.md)
+  for generation and focused test results. Performance measurements remain outstanding.
 - When the application requires atomic replacement, decode/finish a temporary
   object before committing it. Keep structured parse error handling at the message
   boundary and leave payload excerpts disabled unless the task needs them.
+- Use the optional `deserialize_exact<Value, Protocol>(input[, limits])` free
+  function for a fresh value returned only after `finish()` succeeds. It supports
+  native and optional Protobuf codecs, concrete buffers, and standard byte sources;
+  no schema regeneration is needed. Input can be consumed on failure, a later
+  assignment can still throw, and fresh decoding does not reuse the previous
+  destination. Bound input to one message: Protobuf binary can merge valid
+  concatenated encodings. Keep existing buffer convenience APIs when one-value
+  decoding or destination reuse is intended. See [exact decoding](../../../docs/usage.md#decode-one-exact-message-into-a-fresh-value).
 - Regenerate owning headers for automatic fixed-width field batching: native
   binary output groups 2 through 16 consecutive scalar fields per reservation;
   positional binary input shares range/budget checks and falls back to scalar
@@ -439,8 +461,9 @@ user instruction to defer generation/builds/tests and report what remains unveri
   Java, and Protobuf retain existing paths. No schema option or SIMD setting is
   required. Failed output reservations leave the current batch unwritten, with
   previous output intact. See [field batching](../../../docs/usage.md#batch-generated-fixed-width-fields)
-  for custom-stream policies and prepared tests. Generation/build/test execution
-  and performance measurements remain deferred.
+  for custom-stream policies and tests. See the
+  [verification record](../../../docs/verification-2026-09-17.md) for results;
+  performance measurements remain outstanding.
 
 - Regenerate owning headers for pre-encoded constant field names in native C++
   JSON and string-key binary output, including fixed-width batches. Schema wire
@@ -452,8 +475,8 @@ user instruction to defer generation/builds/tests and report what remains unveri
   together, leaving both unwritten on rejection; values may fail separately.
   Input, views, Java, and Protobuf keep their existing paths. See
   [constant field names](../../../docs/usage.md#pre-encode-constant-field-names)
-  for details and prepared tests; generation/build/test execution and benchmarks
-  remain deferred.
+  for details and tests, and the [verification record](../../../docs/verification-2026-09-17.md)
+  for results. Benchmarks remain outstanding.
 
 - Use the updated runtime headers for JSON string scan reuse; schema regeneration
   and new options are unnecessary. Validated plain strings copy directly, while
@@ -463,8 +486,8 @@ user instruction to defer generation/builds/tests and report what remains unveri
   ProtoJSON input and ProtoJSON/TextProto quoted output benefit; separate parsers
   and other codecs retain their existing algorithms. See
   [JSON scan reuse](../../../docs/usage.md#reduce-repeated-json-scans) for remaining
-  passes and prepared coverage. Builds/tests/sanitizers/benchmarks remain deferred;
-  do not claim measured performance gains.
+  passes and coverage. Consult the [verification record](../../../docs/verification-2026-09-17.md)
+  for unit-test and bounded sanitizer/fuzz results; do not claim measured performance gains.
 
 ## Map generated views
 
@@ -495,6 +518,11 @@ record through the selected protocol with an exact-size input, destination reuse
 and relevant malformed/limited input. For schema migration, include the relevant
 old/new schema behavior. Consult [qualification](../../../qualification/README.md)
 for library-wide tests, fuzzing, or benchmarks only when that work is in scope.
+
+Use the dated [verification record](../../../docs/verification-2026-09-17.md)
+as the source of current repository results. Keep its commit, configuration, and
+outstanding-check boundaries when describing support; historical failures and
+earlier source-only notes do not describe the current tested revision.
 
 For fuzz qualification, enable `SERIALIZER_BUILD_FUZZERS=ON` with a Clang GNU-style
 driver providing libFuzzer, ASan, and UBSan. It builds an isolated instrumented

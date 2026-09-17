@@ -29,10 +29,11 @@ and output across all key modes. Bulk decoding preserves resource limits and
 partial-failure behavior.
 Link `Serializer::serializer_lib` even when using pre-generated headers.
 
-The examples below describe the current source API. They have been reviewed
-against the source but have not been generated, compiled, or executed as part of
-this documentation change. See [qualification](../qualification/README.md) for
-the deferred validation work.
+The examples below describe the current source API. See the dated
+[verification record](verification-2026-09-17.md) for the generated fixtures,
+examples, tests, and configurations actually run. Documentation snippets are not
+all separate executable tests. [Qualification](../qualification/README.md)
+describes how to reproduce and extend validation.
 
 ## 1. Define a schema
 
@@ -272,6 +273,37 @@ it during decoding. Destination storage must be independent of the input bytes.
 For a reused output buffer, call `reset()` before encoding the next message after
 all readers of the previous message have finished.
 
+### Decode one exact message into a fresh value
+
+Use the optional runtime helper when a complete message must validate before its
+decoded value reaches the caller:
+
+```cpp
+auto decoded = rohit::serializer::deserialize_exact<demo::person,
+    rohit::serializer::binary_integer>(input, limits);
+```
+
+`deserialize_exact<Value, Protocol>(input[, limits])` value-initializes a fresh
+owning `Value`, decodes it, calls `finish()`, and returns it only on success. It
+supports generated owning classes, runtime scalar/collection codecs, concrete
+input buffers, and standard byte streams. JSON allows trailing whitespace; native
+binary rejects any trailing byte. The optional Protobuf codecs work with their
+existing message rules. Include `<rohit/serializer.hpp>`; existing generated
+headers do not need regeneration for this free function.
+
+Failure destroys the candidate and may consume input. It does not rewind the
+source or make a later user-defined assignment atomic. For replacement, keep the
+old value until the helper succeeds, then commit using the application's required
+assignment/swap policy. Fresh decoding uses additional storage and does not reuse
+the old destination's capacity. Limits default to `decode_limits{}`; custom
+protocols must accept `(input, limits)` and provide `serialize_in(value)` and
+`finish()`.
+
+Bound input to one transport message. Protobuf binary may accept concatenated
+valid encodings as a merged message; `finish()` cannot recover missing framing.
+Existing `serialize_in`, `serialize_from`, and generated `Type::deserialize`
+retain their behavior, including one-value buffer decoding and destination reuse.
+
 ### Stream concepts and implicit adapters
 
 Regenerate C++ headers to use any implementation satisfying the public concepts in
@@ -442,8 +474,8 @@ the compiler and generated style/include examples and passed a separate smoke te
 covering all seven C++ protocols with independent buffers and standard streams.
 All seven large-schema iostream examples also passed in a standalone Clang 21
 build with GoogleTest disabled.
-The full Linux GoogleTest suite was not run because that dependency was unavailable.
-Performance benchmarks have not been run.
+The subsequent [verification record](verification-2026-09-17.md) includes the full
+Linux GoogleTest suite. Performance benchmarks have not been run.
 
 ### Choose the protocol
 
@@ -499,7 +531,8 @@ See [views.md](views.md) for a complete example and collection/nested-type rules
   `rohit::exception::base_parser` for codec parse errors and inspect `code()`.
   Allocation failures can also propagate as standard C++ exceptions.
 - If the existing destination must remain intact on failure, decode and finish
-  into a separate temporary object before committing it to application state.
+  into a separate temporary object before committing it to application state,
+  or use [the exact fresh-value helper](#decode-one-exact-message-into-a-fresh-value).
   Include the temporary's memory cost in application limits.
 - Error messages omit automatic payload excerpts by default. Opt-in excerpts
   belong in controlled diagnostics, not ordinary public error responses.
@@ -555,8 +588,9 @@ decoded data, including reused storage; allocation accounting is not a heap limi
 Wire bytes and replacement/failure contracts are unchanged. Input must remain
 independent of destination storage. Java and Protobuf/ProtoJSON/TextProto keep their
 existing decode paths. Focused reuse/defaults/duplicate/failure/limit tests are
-included in the normal C++ test target; generation, compilation, test execution,
-and allocation/performance measurements remain deferred for this implementation.
+included in the normal C++ test target and passed in the recorded
+[verification configurations](verification-2026-09-17.md). Allocation profiling
+and performance measurements remain outstanding.
 
 ### Batch generated fixed-width fields
 
@@ -601,8 +635,8 @@ independent of decoded storage.
 reservation counts, both endians, unaligned input, run boundaries, custom-protocol
 fallbacks, resource budgets, Boolean failures, and output rejection. The normal
 C++ target generates its fixture; output-profile tests also exercise grouped
-fields. These are prepared tests: generation, compilation, test execution, and
-performance measurements remain deferred. No measured speedup is claimed.
+fields. See the [verification record](verification-2026-09-17.md) for generation
+and test results. Performance measurements remain outstanding; no measured speedup is claimed.
 
 ### Pre-encode constant field names
 
@@ -667,8 +701,8 @@ writes. Fixed-field batches retain their whole-batch reservation behavior.
 Prepared coverage in `test/constant_field_name_test.cpp` includes exact name bytes,
 formatted JSON, dynamic escaping, both binary endians, generated parents/unions,
 wire aliases, compact-length boundaries, batch and isolated reservation counts,
-custom-protocol fallback, and fixed/custom stream failures. Generation,
-compilation, test execution, and benchmarks remain deferred for this step.
+custom-protocol fallback, and fixed/custom stream failures. Generation and test
+results are recorded in [verification](verification-2026-09-17.md); benchmarks remain outstanding.
 
 ### Reduce repeated JSON scans
 
@@ -722,8 +756,9 @@ Unicode, surrogate pairs, escape positions around scan-block boundaries, exact
 and unaligned buffers, truncated/malformed suffixes, resource limits and cumulative
 charges, borrowed keys, destination reuse, overlapping/growing output, and custom
 reservation rejection. Existing runtime SIMD tests cover the shared helpers
-across JSON formatting modes. Builds, tests, sanitizer runs, and performance
-measurements remain deferred. No measured speedup is claimed.
+across JSON formatting modes. See the [verification record](verification-2026-09-17.md)
+for unit tests and bounded sanitizer/fuzz coverage. Performance measurements remain
+outstanding; no measured speedup is claimed.
 
 ### SIMD JSON whitespace scanning
 
@@ -740,7 +775,8 @@ the runtime library and consumers with matching headers; generated schema header
 do not need regeneration. Use the existing `SERIALIZER_ENABLE_SIMD` build option
 to choose explicit SIMD or scalar scanning. No schema or application API change
 is needed. See [implementation and prepared coverage](runtime_simd.md#simd-json-whitespace-scanning).
-Builds, test execution, sanitizer runs, and benchmarks remain deferred.
+See the [verification record](verification-2026-09-17.md) for builds, tests, bounded
+sanitizer/fuzz runs, and outstanding platform checks. Benchmarks remain outstanding.
 
 ## Agent-assisted integration
 

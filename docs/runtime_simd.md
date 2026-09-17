@@ -132,8 +132,9 @@ offsets into reused storage. `test/binary_array_decode_test.cpp` covers work-bud
 boundaries and partial results, truncated payloads, input/allocation/collection/depth
 limits, cumulative session budgets, and scalar boolean/enum validation.
 
-**Validation status:** source implementation and tests are prepared. Configuration,
-header generation, compilation, tests, sanitizer runs, and benchmarks remain
-deferred. No measured speedup is claimed. See
+**Validation status:** the dated [verification record](verification-2026-09-17.md)
+records generated builds and regression tests, plus bounded ASan/UBSan fuzz
+campaigns with SIMD ON and OFF. It also lists unperformed platform and sanitizer
+checks. Benchmarks remain outstanding; no measured speedup is claimed. See
 [qualification](../qualification/README.md#runtime-simd-validation) before reporting
 performance or platform coverage.

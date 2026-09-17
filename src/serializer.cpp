@@ -16,6 +16,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #include <rohit/output_options.hpp>
+#include <rohit/schema_compatibility.hpp>
 #include <rohit/serializer_creator.hpp>
 #include <rohit/stream.hpp>
 #include <rohit/version.hpp>
@@ -28,6 +29,7 @@
 #include <iostream>
 #include <map>
 #include <memory>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -39,6 +41,15 @@ constexpr rohit::serializer::cli::commandline_option command_options[] = {
     {'h', "help", "", "Display this help."},
     {'v', "version", "", "Display compiler and supported schema language versions."},
     {'i', "input", "schema.serializer", "Input with a serializer version 1; header."},
+    {'\0', "check-against", "previous.serializer",
+     "Check schema compatibility without generating output."},
+    {'\0', "compatibility-protocol", "protocol",
+     "Required with --check-against: "
+     "binary_none|binary_integer|binary_string|json|protobuf_binary."},
+    {'\0', "compatibility-direction", "backward|forward|both",
+     "Reader direction to enforce (default both)."},
+    {'\0', "compatibility-policy", "policy.json",
+     "Versioned reservations for retired field IDs and wire names."},
     {'o', "output", "file", "Output path when selecting exactly one language."},
     {'\0', "depfile", "file.d", "Write Make-style dependencies for all generated outputs."},
     {'c', "config", "file.ini", "Generator configuration; CLI options override its values."},
@@ -87,6 +98,51 @@ std::string dependency_path(const std::filesystem::path& path) {
   }
   return result;
 }
+
+// Run read-only evolution checks separately from code generation and select the reader direction.
+int check_compatibility(const rohit::serializer::cli::arguments& arguments) {
+  using namespace rohit::serializer;
+  const std::set<std::string> allowed{"input", "check-against", "compatibility-protocol",
+                                      "compatibility-direction", "compatibility-policy"};
+  for (const auto& [name, values] : arguments) {
+    static_cast<void>(values);
+    if (!allowed.contains(name)) {
+      throw std::invalid_argument{"--check-against cannot be combined with --" + name};
+    }
+  }
+  if (!arguments.contains("compatibility-protocol")) {
+    throw std::invalid_argument{"--check-against requires --compatibility-protocol"};
+  }
+  const auto protocol =
+      parse_compatibility_protocol(arguments.at("compatibility-protocol").front());
+  const auto direction = arguments.contains("compatibility-direction")
+                             ? arguments.at("compatibility-direction").front()
+                             : "both";
+  if (direction != "backward" && direction != "forward" && direction != "both") {
+    throw std::invalid_argument{"compatibility-direction must be backward, forward, or both"};
+  }
+  const auto previous = parser::parse_file(arguments.at("check-against").front());
+  const auto current = parser::parse_file(arguments.at("input").front());
+  const auto policy = arguments.contains("compatibility-policy")
+                          ? read_compatibility_policy(arguments.at("compatibility-policy").front())
+                          : compatibility_policy{};
+  const auto issues = check_schema_compatibility(previous, current, protocol, policy);
+  bool incompatible{};
+  for (const auto& item : issues) {
+    const bool selected = (direction != "forward" && item.breaks_new_reader) ||
+                          (direction != "backward" && item.breaks_old_reader);
+    incompatible = incompatible || selected;
+    std::cout << (selected ? "incompatible: " : "other direction: ") << item.path << ": "
+              << item.message << " [" << (item.breaks_new_reader ? "new-reader" : "")
+              << (item.breaks_new_reader && item.breaks_old_reader ? ", " : "")
+              << (item.breaks_old_reader ? "old-reader" : "") << "]\n";
+  }
+  if (!incompatible) {
+    std::cout << "No incompatibilities detected for " << direction
+              << "; byte order and application semantics require separate agreement.\n";
+  }
+  return incompatible ? 2 : 0;
+}
 } // namespace
 
 // Validate all destinations and generate every backend before replacing any output files.
@@ -111,6 +167,13 @@ int main(const int argc, const char* argv[]) {
     }
     if (!arguments.contains("input")) {
       throw std::invalid_argument{"--input is required; use --help for options"};
+    }
+    if (parsed.contains("check-against")) {
+      return check_compatibility(parsed);
+    }
+    if (parsed.contains("compatibility-protocol") || parsed.contains("compatibility-direction") ||
+        parsed.contains("compatibility-policy")) {
+      throw std::invalid_argument{"Compatibility options require --check-against"};
     }
     auto options = arguments.contains("config")
                        ? writer::read_output_options(arguments.at("config"))

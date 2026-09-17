@@ -1,14 +1,17 @@
 set(schemas)
 foreach(fixture IN ITEMS enum person test1 array map variable assessment views storage_reuse
-    fixed_fields constant_names includes)
+    fixed_fields constant_names includes wire_compatibility)
   list(APPEND schemas "${CMAKE_CURRENT_SOURCE_DIR}/resources/${fixture}.serializer")
 endforeach()
 
 add_executable(core_serializer_test
   core_serializer_test.cpp
+  stream_boundary_test.cpp
+  deserialize_exact_test.cpp
   stream_concepts_test.cpp
   serializer_parser_test.cpp
   schema_version_test.cpp
+  schema_compatibility_test.cpp
   schema_include_test.cpp
   schema_scan_test.cpp
   runtime_simd_test.cpp
@@ -20,6 +23,7 @@ add_executable(core_serializer_test
   constant_field_name_test.cpp
   generated_test.cpp
   wire_format_test.cpp
+  wire_compatibility_test.cpp
   decoder_qualification_test.cpp
   binary_view_test.cpp
   binary_view_iterator_test.cpp
@@ -38,6 +42,17 @@ elseif(UNIX)
 endif()
 
 add_test(NAME core_serializer_test COMMAND core_serializer_test)
+
+# ELF linker wrapping injects allocator failures without modifying the production runtime.
+if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang)$")
+  add_executable(stream_allocation_failure_test stream_allocation_failure_test.cpp)
+  target_link_libraries(stream_allocation_failure_test PRIVATE Serializer::serializer_lib)
+  target_compile_options(stream_allocation_failure_test PRIVATE
+    -Wall -Wextra -Wpedantic -Werror -fno-builtin-malloc -fno-builtin-realloc -fno-builtin-free)
+  target_link_options(stream_allocation_failure_test PRIVATE
+    "LINKER:--wrap=malloc" "LINKER:--wrap=realloc" "LINKER:--wrap=free")
+  add_test(NAME stream_allocation_failure_test COMMAND stream_allocation_failure_test)
+endif()
 
 add_executable(protobuf_codec_test protobuf_codec_test.cpp protobuf_stream_test.cpp)
 serializer_generate(TARGET protobuf_codec_test SCHEMAS resources/protobuf.serializer
@@ -73,6 +88,11 @@ add_test(NAME serializer_compiler_cli
   COMMAND "${CMAKE_COMMAND}" "-DGENERATOR=$<TARGET_FILE:serializer>"
     "-DVERSION=${PROJECT_VERSION}" "-DDIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/compiler_cli"
     -P "${CMAKE_CURRENT_SOURCE_DIR}/compiler_cli.cmake")
+
+add_test(NAME serializer_compatibility_cli
+  COMMAND "${CMAKE_COMMAND}" "-DGENERATOR=$<TARGET_FILE:serializer>"
+    "-DDIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/compatibility_cli"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/schema_compatibility_cli.cmake")
 
 find_program(serializer_test_ninja NAMES ninja HINTS "${CMAKE_MAKE_PROGRAM}/..")
 if(CMAKE_GENERATOR MATCHES "Ninja")

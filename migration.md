@@ -1,5 +1,26 @@
 # Migrating to the snake_case Serializer API
 
+See the dated [verification record](docs/verification-2026-09-17.md) for the source
+revision, configurations, passing checks, and remaining validation work.
+
+## Optional compatibility checks and exact decoding
+
+Schema evolution checks are a separate read-only compiler mode:
+`--input current.serializer --check-against previous.serializer` requires an
+explicit `--compatibility-protocol`. Retain a versioned JSON reservation policy
+with `--compatibility-policy`, and select the intended reader direction with
+`--compatibility-direction`. This does not add schema keywords or change field
+numbers, enum ordinals, union tags, or message bytes. See
+[the checker guide](docs/schema_evolution.md) before adding it to CI.
+
+Recompile C++ callers with the new runtime headers to use the optional
+`rohit::serializer::deserialize_exact<Value, Protocol>(input[, limits])` helper.
+It returns a fresh value only after exact-message validation; input may still be
+consumed on error. Existing generated headers work unchanged. Member input APIs
+and generated static `deserialize` retain their existing buffer semantics and
+storage-reuse behavior. See [exact decoding](docs/usage.md#decode-one-exact-message-into-a-fresh-value)
+for limits, ownership, framing, and commit behavior.
+
 ## Stream concepts and implicit standard-stream adapters
 
 Rebuild the compiler/library and regenerate C++ headers to accept custom stream
@@ -99,8 +120,8 @@ Existing generated headers work without regeneration. The existing
 `SERIALIZER_ENABLE_SIMD` option controls the backends; disabled or unsupported
 builds retain scalar scanning. Accepted whitespace, wire bytes, budgets, and
 failure positions remain unchanged. See [whitespace scanning](docs/runtime_simd.md#simd-json-whitespace-scanning)
-for scope and prepared coverage. Builds, tests, sanitizers, and benchmarks remain
-deferred.
+for scope and coverage, and the [verification record](docs/verification-2026-09-17.md)
+for unit tests and bounded sanitizer/fuzz results. Benchmarks remain outstanding.
 
 ## Reused JSON string scan results
 
@@ -110,7 +131,8 @@ required. Existing API calls, wire bytes, formatting, validation, limits, and
 failure behavior remain unchanged; there is no new option or trusted-string mode.
 The shared ProtoJSON input and ProtoJSON/TextProto quoting helpers benefit too.
 See [JSON scan reuse](docs/usage.md#reduce-repeated-json-scans) for remaining scans
-and prepared coverage. Builds, tests, sanitizers, and benchmarks remain deferred.
+and coverage. See the [verification record](docs/verification-2026-09-17.md) for
+unit tests and bounded sanitizer/fuzz results. Benchmarks remain outstanding.
 
 ## Pre-encoded constant field names
 
@@ -125,8 +147,9 @@ without the optional `encoded_field_name<Name>()` hook receive ordinary
 An isolated binary name now reserves its length and text together, so a failed
 reservation leaves both unwritten. The following value can still fail separately.
 Review [constant field names](docs/usage.md#pre-encode-constant-field-names) for
-compilation/storage tradeoffs and custom-protocol behavior. Generation, builds,
-tests, and benchmarks for this optimization remain deferred.
+compilation/storage tradeoffs and custom-protocol behavior. Generation and test
+results are in the [verification record](docs/verification-2026-09-17.md);
+benchmarks remain outstanding.
 
 ## Generated fixed-width field batches
 
@@ -138,7 +161,8 @@ optional batch hooks retain individual calls. On output reservation failure, the
 current batch remains unwritten; earlier output remains, so the failure prefix can
 differ from individual writes. See [field batching](docs/usage.md#batch-generated-fixed-width-fields)
 before relying on output failure prefixes or custom reservation policies.
-Generation, builds, tests, and benchmarks for this optimization remain deferred.
+See the [verification record](docs/verification-2026-09-17.md) for generation and
+test results. Benchmarks remain outstanding.
 
 ## Nested destination storage reuse
 
@@ -151,8 +175,8 @@ The generator reserves `serializer_reuses_storage` and `StorageSource` for its
 support declarations; conflicting generated C++ names are diagnosed. Collection
 elements still use schema defaults for missing fields. Review
 [reuse and failure behavior](docs/usage.md#reuse-destination-storage) before relying
-on retained capacity or partial updates. Generation/build/test execution for this
-optimization remains deferred.
+on retained capacity or partial updates. See the
+[verification record](docs/verification-2026-09-17.md) for generation and test results.
 
 ## Optional Protobuf protocols
 
@@ -220,8 +244,8 @@ when it is not on `PATH`. Formatting failures do not replace the destination
 header. CLI errors now return nonzero and unknown arguments are rejected.
 
 See [output configuration](docs/output_configuration.md) and the
-[profile examples](example/coding_styles/README.md). Generation, compilation,
-and regression testing for this step remain deferred.
+[profile examples](example/coding_styles/README.md). Generation, compilation, and
+regression-test results are in the [verification record](docs/verification-2026-09-17.md).
 
 ## Generated representations and byte order
 
@@ -231,12 +255,20 @@ change with no compatibility aliases or automatic fallback. Applications that
 require a specific byte order can set the third `binary` template parameter and
 inspect `wire_endian`; see [the wire contract](docs/wire_format.md#byte-order).
 
+`serializer version 1;` selects schema syntax and is not emitted into messages;
+it identifies neither byte order nor wire version. Keep legacy peers on explicitly
+selected big-endian protocols and agree on any transition outside the payload.
+Independent frozen big-endian and little-endian fixtures now cover all three
+native binary key modes. A wrong byte-order choice may parse successfully with
+different values, so successful decoding alone does not identify the format.
+
 Schemas can request `view`, restrict it with `readonly`/`mutable`, and add `owning`.
 One mode retains a concrete class name; multiple modes require `person<storage_mode>`.
 Owning nested fields and parents select the owning specialization. Nested types
 must enable the modes requested by their owners. Views map little-endian positional
 binary and expose size-preserving getters/setters. See [views.md](docs/views.md).
-These source changes have not yet been generated, built, or tested for this step.
+See the [verification record](docs/verification-2026-09-17.md) for generated builds,
+view tests, independent wire fixtures, and bounded fuzz runs.
 
 ## Headers and build targets
 
@@ -473,8 +505,9 @@ logical maximum; reservations still enforce that maximum.
 
 File helpers now throw on failed or incomplete I/O instead of returning partial
 input or silently accepting failed output. Literal comparison and explicit
-literal hashing exclude the final string terminator. These corrections require
-the deferred build and regression verification before release.
+literal hashing exclude the final string terminator. Direct compact-output and
+allocation-failure regressions are described in the
+[verification record](docs/verification-2026-09-17.md), along with remaining checks.
 
 ## Parser and writer API
 

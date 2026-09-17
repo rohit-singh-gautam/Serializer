@@ -7,7 +7,7 @@ currently supports only the four original protocols described here.
 
 The `.serializer` source header `serializer version 1;` selects the schema
 language. It is independent of the compiler release and is not emitted into
-messages. This change leaves the wire formats below unchanged; see
+messages. It identifies neither message byte order nor a wire-format version; see
 [compiler and schema versions](command_line.md).
 
 The pure Java backend implements the same four protocols for its supported
@@ -19,8 +19,9 @@ and floating-point spelling may differ while representing the same value. Named
 enum fields use names in string-key binary; enum collection elements and union
 payloads use compact numeric values. JSON always uses enum names.
 
-This describes Serializer's C++20 codecs after the efficiency-assessment changes.
-Implementation and prepared tests have not yet been built or run for this step.
+This describes Serializer's implemented C++20 codecs. See the dated
+[verification record](verification-2026-09-17.md) for tested revisions,
+configurations, results, and outstanding checks.
 
 Stream concepts and implicit iostream adapters preserve the protocol bytes defined
 here. They add no transport framing, length prefix, protocol marker, or endian
@@ -50,7 +51,7 @@ Runtime SIMD and bulk array reads/writes preserve these exact representations. E
 fixed-width numeric arrays are copied or byte-swapped in blocks after the same
 compact count prefix; JSON string scanning preserves validation and escaping.
 SIMD introduces no padding, alignment, flags, or protocol marker. See
-[runtime SIMD](runtime_simd.md) for coverage and deferred validation.
+[runtime SIMD](runtime_simd.md) for coverage and verification scope.
 
 Generated fixed-width field batching also preserves these bytes. C++ native binary
 output reserves adjacent scalar fields together, including their existing keyed
@@ -64,7 +65,7 @@ quoted ASCII names while retaining formatter-controlled punctuation and spacing.
 String-key binary copies the same canonical compact length and name together,
 including within scalar batches. Names always use schema wire spelling, independent
 of generated C++ coding profiles. See [constant field names](usage.md#pre-encode-constant-field-names)
-for scope and deferred verification.
+for scope and the [verification record](verification-2026-09-17.md) for results.
 
 Compact integers use the established two-bit length tag and six payload bits in
 the first byte, followed by zero to three full payload bytes in big-endian order.
@@ -112,6 +113,13 @@ or messages must put that information in their own envelope. The public defaults
 are intentionally changed to little-endian; no compatibility aliases or automatic
 fallback decoding are provided.
 
+Independent frozen fixtures in `test/wire_compatibility_test.cpp` preserve the
+earlier big-endian and current little-endian contracts for all three binary key
+modes. They check decoding against known values and encoding against literal
+bytes, including nested fields, numeric arrays, floating-point values, compact
+IDs, and a union. Selecting the wrong byte order can succeed with incorrect values;
+the schema-language version cannot detect or resolve that mismatch.
+
 ### Object modes
 
 - **Positional (`binary_none`):** base objects and fields follow schema order.
@@ -153,7 +161,7 @@ line feed (`0x0a`), and carriage return (`0x0d`). C++ JSON and ProtoJSON readers
 use bounded SIMD scans for long runs, with scalar short gaps and tails. This
 requires no input padding and preserves input/work budgets and failure positions.
 See [whitespace scanning](runtime_simd.md#simd-json-whitespace-scanning) for scope
-and deferred verification. No additional whitespace characters are accepted.
+and verification scope. No additional whitespace characters are accepted.
 
 Strings and names are UTF-8. Output escapes quotes, backslashes, and all control
 characters. Input decodes the JSON escapes and surrogate pairs and rejects invalid
@@ -165,7 +173,7 @@ C++ JSON string helpers reuse escape boundaries from the full validation pass to
 copy known plain spans without rescanning them. UTF-8/escape validation, emitted
 bytes, string replacement, cursor updates, and resource charges remain unchanged.
 The shared ProtoJSON input and Protobuf text quoting helpers use the same paths.
-See [JSON scan reuse](usage.md#reduce-repeated-json-scans) for scope and deferred
+See [JSON scan reuse](usage.md#reduce-repeated-json-scans) for scope and recorded
 verification. No new wire representation or trusted-input mode is introduced.
 
 Numbers follow JSON grammar: no leading plus, leading zeroes, missing fractional
@@ -203,7 +211,7 @@ compression codec. No binary compression or new framing layer is introduced.
   when old storage is reused. Regenerated owning headers propagate typed donors
   through nested fields and parents without changing field selection or budgets.
   See [destination reuse](usage.md#reuse-destination-storage) for eligibility,
-  memory tradeoffs, and deferred verification. Java and the optional Protobuf
+  memory tradeoffs, and verification scope. Java and the optional Protobuf
   codecs retain their separately documented replacement implementations.
 - Decoding is **partial on failure**. Earlier fields, completed collection
   entries, consumed prefixes, and resource charges remain committed. A malformed
@@ -211,6 +219,9 @@ compression codec. No binary compression or new framing layer is introduced.
   allocation failures may leave a changed destination. There is no whole-object
   rollback. Decode into a fresh object and separate input view when the application
   needs an atomic commit, and account for that extra storage.
+  The optional `deserialize_exact<Value, Protocol>(input[, limits])` helper
+  constructs a fresh candidate, calls `finish()`, and returns only a complete
+  validated value. It does not roll back input or make a later assignment atomic.
 - Source bytes must remain alive and must not overlap destination storage that
   decoding can modify or reallocate. Do not mutate the input cursor outside an
   active decoder or share a decoder between threads. Decoders are noncopyable;
@@ -229,7 +240,9 @@ compression codec. No binary compression or new framing layer is introduced.
   to dynamically encoded names, whose length and text are written separately.
 - `serialize_in` consumes one value. Call `finish()` to require an exact message;
   JSON permits trailing whitespace, while binary requires the cursor at the end.
-  The generated stream convenience overload retains its one-value behavior.
+  Generated buffer convenience calls retain their one-value behavior; byte-stream
+  calls validate one EOF-delimited message. The optional exact helper validates
+  complete consumption for buffers too. See [exact decoding](usage.md#decode-one-exact-message-into-a-fresh-value).
 
 ## Resource limits
 
@@ -293,19 +306,27 @@ groups colliding hashes and verifies the complete name before selecting a field
 or enum. Hashes are internal lookup aids and are not wire identifiers.
 
 - Never reuse a removed field ID or wire name for a different meaning. Keep an
-  application schema history; this generator does not compare earlier schemas.
+  application schema history. The separate [compatibility checker](schema_evolution.md)
+  compares revisions and enforces a persistent reservation policy; ordinary
+  parsing and `stable_ids` alone do not check that history.
 - A renamed C++ member can retain compatibility by preserving its explicit ID
   and wire-name override. Changing a field type or width requires a coordinated
   schema/version change.
 - Enum values and union indices are declaration-order values. Append new
   alternatives without renumbering old ones; retain reserved old alternatives
   instead of reusing their numbers. Unknown alternatives are rejected.
-- Keyed readers reject unknown fields. Old readers therefore do not automatically
+- Native keyed readers reject unknown fields. Old readers therefore do not automatically
   accept new fields. Negotiate versions out of band or use distinct message
   contracts. Positional readers require the same field order and types.
 - Missing fields retain destination values as described above. Adding a field
   can be backward-readable by a newer keyed reader initialized with a default;
   it does not make an older reader accept a newer message.
+
+Native keyed binary lacks the type/extent information needed to skip an unknown
+field. Adding it requires a separately versioned format and explicit agreement;
+no such format is introduced by compatibility checking. Existing C++ Protobuf
+binary can skip unknown fields under its [documented limitations](protobuf.md).
+Neither the schema-language version nor `stable_ids` identifies a message wire version.
 
 ## Diagnostics
 
