@@ -6,6 +6,7 @@ endforeach()
 
 add_executable(core_serializer_test
   core_serializer_test.cpp
+  stream_concepts_test.cpp
   serializer_parser_test.cpp
   schema_version_test.cpp
   schema_include_test.cpp
@@ -38,7 +39,7 @@ endif()
 
 add_test(NAME core_serializer_test COMMAND core_serializer_test)
 
-add_executable(protobuf_codec_test protobuf_codec_test.cpp)
+add_executable(protobuf_codec_test protobuf_codec_test.cpp protobuf_stream_test.cpp)
 serializer_generate(TARGET protobuf_codec_test SCHEMAS resources/protobuf.serializer
   CONFIG protobuf.ini OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/protobuf")
 target_link_libraries(protobuf_codec_test PRIVATE GTest::gtest_main)

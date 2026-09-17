@@ -140,6 +140,8 @@ TEST(output_options, rejects_collisions_and_keywords) {
                std::invalid_argument);
   EXPECT_THROW(emit("class StorageSource {}", writer::coding_standard::google),
                std::invalid_argument);
+  EXPECT_THROW(emit("class SerializerStream {}", writer::coding_standard::google),
+               std::invalid_argument);
   const auto preserved =
       emit("class UserRecord { public uint32 userID; }", writer::coding_standard::google, false);
   EXPECT_NE(preserved.find("class UserRecord"), std::string::npos);

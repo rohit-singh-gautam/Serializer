@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer into C++ or Java applications from a provided repository or existing dependency. Use for .serializer schemas, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, JSON or binary codecs, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
+description: "Integrate Serializer into C++ or Java applications from a provided repository or existing dependency. Use for .serializer schemas, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, stream concepts and iostream adapters, JSON or binary codecs, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
 ---
 
 # Serializer Integration
@@ -357,6 +357,27 @@ user instruction to defer generation/builds/tests and report what remains unveri
   required. Compact prefixes keep their own encoding. No endian/protocol marker,
   auto-detection, or compatibility aliases are provided; agree on the format with
   the peer. JSON is unaffected by numeric byte order.
+- Regenerate C++ headers for structural stream concepts and implicit standard-stream
+  adapters. No `rohit::stream` inheritance is required: use `input_buffer` or
+  `output_buffer` for the contiguous fast path, or standard-style byte-stream
+  concepts for external I/O. Generated calls accept standard streams directly.
+  Memory input (`istringstream`/`stringstream`) borrows the unread suffix; known
+  file streams use 64 KiB batches and erased/custom byte streams use 8 KiB batches.
+  Standard memory output uses generic buffered writes. No measured speedup is claimed.
+- Byte-stream input means one bounded EOF-delimited message and includes `finish()`
+  validation; it is not incremental parsing and adds no wire framing. Use a bounded
+  source or exact-size buffer for framed traffic. `serialize_from<Protocol>(input,
+  destination, limits)` supplies explicit limits. Low-level codec templates accept
+  a concrete buffer type; existing buffer calls remain valid. Keep memory-stream
+  storage stable while decoding. Never imply that concepts prove lifetime or
+  alias safety. See [stream contracts](../../../docs/usage.md#stream-concepts-and-implicit-adapters).
+- Open binary files in binary mode. Adapters borrow streams, retain exception masks,
+  and leave explicit flushing/closing to the caller. I/O failures can consume input
+  or write an output prefix; decode errors may partially update destinations.
+  Encoded staging storage is separate from decoder allocation accounting. Custom
+  protocols retain their constructors unless they explicitly provide compatible
+  `stream_type` and `rebind_stream` hooks; inherited hooks do not replace derived
+  protocol behavior. Schema parser/writer entrypoints use the same stream concepts.
 - Encode into an appropriate stream. Reuse `full_stream_auto_alloc` capacity when
   useful, resetting only after readers of the previous message have finished.
 - Construct input views with the actual message length, such as
@@ -453,6 +474,15 @@ record through the selected protocol with an exact-size input, destination reuse
 and relevant malformed/limited input. For schema migration, include the relevant
 old/new schema behavior. Consult [qualification](../../../qualification/README.md)
 for library-wide tests, fuzzing, or benchmarks only when that work is in scope.
+
+For fuzz qualification, enable `SERIALIZER_BUILD_FUZZERS=ON` with a Clang GNU-style
+driver providing libFuzzer, ASan, and UBSan. It builds an isolated instrumented
+runtime, including SIMD translation units, without changing the normal library or
+generator. Build the four fuzz executables and `fuzz_corpus_generator`, then run
+`ctest --test-dir <build> -L serializer_fuzz --output-on-failure` to generate and
+replay deterministic seeds. Follow [the fuzzing workflow](../../../qualification/README.md#fuzzing)
+for control-byte encoding, separate mutation/artifact directories, fixed seeds,
+and SIMD ON/OFF runs. Seed replay is not a mutation campaign or a security claim.
 
 Report files changed, how to generate/build/use the result, and what was actually
 validated. When editing Serializer itself, keep its README and this skill current

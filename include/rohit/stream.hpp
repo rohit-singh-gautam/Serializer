@@ -26,6 +26,8 @@
 #error "Serializer requires C++20 or later"
 #endif
 
+#include <rohit/stream_concepts.hpp>
+
 #include <algorithm>
 #include <array>
 #include <bit>
@@ -568,7 +570,7 @@ public:
     append(source.data(), source.size());
   }
   // Append raw bytes and advance the cursor; capacity failures follow the stream policy.
-  inline void append(const stream& source) {
+  inline void append(const type_check::buffer_view auto& source) {
     append(source.curr(), source.remaining_buffer());
   }
   // Append raw bytes and advance the cursor; capacity failures follow the stream policy.
@@ -1362,17 +1364,6 @@ public:
   }
 };
 
-namespace type_check {
-
-template <typename T>
-concept stream = std::is_base_of_v<rohit::stream, T>;
-
-template <typename T>
-concept write_stream =
-    std::is_base_of_v<rohit::stream, T> || std::is_base_of_v<rohit::fixed_buffer, T>;
-
-} // namespace type_check
-
 // Borrow mutable storage as a stream; the caller retains ownership.
 inline stream make_stream(auto* begin, auto* end) {
   return stream{begin, end};
@@ -1477,8 +1468,8 @@ protected:
   const std::string message;
 
   // Include payload bytes only when explicitly requested, bounded and escaped for one-line logging.
-  static std::string create_what_string(const stream& input, const std::string& error_text,
-                                        diagnostic_options options) {
+  static std::string create_what_string(const type_check::buffer_view auto& input,
+                                        const std::string& error_text, diagnostic_options options) {
     std::string result{"Error: "};
     result += error_text.empty() ? "Invalid input" : error_text;
     if (options.include_input_excerpt) {
@@ -1504,7 +1495,7 @@ protected:
 
 public:
   // Capture a diagnostic; input excerpts are disabled by default.
-  base_parser(const stream& input, const std::string& error_text = {},
+  base_parser(const type_check::buffer_view auto& input, const std::string& error_text = {},
               diagnostic_options options = {})
       : message{create_what_string(input, error_text, options)} {}
 

@@ -272,6 +272,138 @@ it during decoding. Destination storage must be independent of the input bytes.
 For a reused output buffer, call `reset()` before encoding the next message after
 all readers of the previous message have finished.
 
+### Stream concepts and implicit adapters
+
+Regenerate C++ headers to use any implementation satisfying the public concepts in
+`<rohit/stream_concepts.hpp>`. Inheritance from `rohit::stream` is unnecessary.
+Generated `serialize_out<Protocol>(stream)` and `serialize_in<Protocol>(stream)`
+calls select their implementation at compile time, preserving the chosen protocol.
+
+```cpp
+#include <person.hpp>
+#include <sstream>
+#include <utility>
+
+// Encode into a standard memory stream; its unread contents become one input message.
+void round_trip(demo::person& value) {
+  std::stringstream message;
+  value.serialize_out<rohit::serializer::json>(message);
+  demo::person decoded{};
+  decoded.serialize_in<rohit::serializer::json>(message);
+  value = std::move(decoded);
+}
+```
+
+The same calls accept `std::ifstream`, `std::ofstream`, `std::fstream`, base-class
+`std::istream`/`std::ostream` references, and structural custom byte sources/sinks.
+Standard-stream adaptation supports narrow `char` streams; wide streams do not
+provide the required byte interface.
+Open binary files with `std::ios::binary`. Stream formatting flags and locale do
+not control Serializer's wire encoding. No automatic protocol detection occurs.
+
+| Recognized capability/type | Selected behavior |
+| --- | --- |
+| `input_buffer` / `output_buffer` | Bind the concrete buffer directly; preserve contiguous scans, scalar batching, alias handling, and allocation policy. |
+| `std::istringstream` / `std::stringstream` input | Borrow `view()` from the current read position; avoid an encoded-message copy. |
+| `std::ifstream` / `std::fstream` input | Read into the final owned message buffer in up to 64 KiB batches. No seeking or regular-file assumption is required. |
+| `std::ofstream` / `std::fstream` output | Implicit scratch-buffer adapter with an initial 64 KiB capacity; drain completed batches as needed. |
+| Other byte sources/sinks, including erased standard-stream references | Generic adapter with 8 KiB read batches or initial output capacity. |
+
+Type recognition uses the static type. Passing a string or file stream as a base
+reference selects the generic path and remains supported. Standard memory output
+streams use generic batched output: C++20 does not expose their writable storage
+through a portable reservation API. These policies do not imply a measured speedup.
+
+Input byte streams contain **one message extending through EOF**, starting at their
+current read position. Input is bounded by `decode_limits::max_input_bytes` and
+receives `decoder.finish()` validation. Memory streams retain their own bytes;
+other streams buffer the whole encoded message before decoding. This is not
+incremental parsing. For consecutive framed messages, supply an exact-size input
+buffer or a byte source bounded to one frame; no length prefix is inserted or read.
+
+Use `serialize_from<Protocol>(input, destination, limits)` for explicit limits, or
+`serialize_to<Protocol>(output, value)` as free-function alternatives. Buffer-input
+convenience calls retain their existing behavior: no implicit `finish()` check.
+For exact buffer validation, construct the concrete decoder and call `finish()`:
+
+```cpp
+// Decode a custom contiguous cursor with explicit resource limits.
+template <rohit::type_check::input_buffer Input>
+void decode_person(const Input& input, demo::person& value,
+                   rohit::serializer::decode_limits limits) {
+  rohit::serializer::json<rohit::serializer::serialize_type::in, Input>
+      decoder{input, limits};
+  decoder.serialize_in(value);
+  decoder.finish();
+}
+```
+
+`json`, `binary_integer`, `binary_string`, `binary_none`, `protobuf_binary`,
+`protojson`, and `textproto` accept the concrete buffer type as their optional
+second template argument. `binary` takes it after `WireEndian`; `json_out` takes
+it after the `beautify` argument. Existing protocol names and default buffer types
+remain valid. Low-level codecs require buffer concepts; generated calls and the
+free functions perform implicit standard-stream adaptation. For formatted JSON,
+construct `buffered_output_stream<Output>` explicitly, use it with
+`json_out<true, decltype(adapter)>`, and call `adapter.finish()` after encoding.
+
+The concept contracts are:
+
+- `buffer_view`: `curr()` and `remaining_buffer()` expose one valid byte range.
+- `input_buffer`: additionally supplies `full()` and a `noexcept`
+  `get_curr_and_increase_unchecked(size)` through const access. Checked decoder
+  reads advance its cursor without mutating the bytes. Pointers must remain stable
+  throughout decoding. Source bytes must be independent of decoded object storage.
+- `output_buffer`: supports reservation and `noexcept` unchecked writable-range
+  acquisition, raw and external appends, transformed appends, integer formatting,
+  and text/byte batch writes. See the concept declaration for the exact expressions.
+  A failed reservation leaves its batch unwritten. A successful reservation provides
+  a contiguous range valid until the next reservation. Appends preserve the native
+  alias/rebasing contract; transform callbacks must be invoked synchronously and
+  write exactly their requested output size.
+- `byte_input_stream`: standard-style `read`, `gcount`, `peek`, `eof`, `fail`, and
+  `bad` operations. `read` fills the requested range or reports EOF/failure;
+  `gcount` reports actual bytes read. `peek` must report EOF without consuming data.
+- `byte_output_stream`: standard-style `write` and `fail`; write the complete range
+  or set failure state/throw. Short writes cannot be silently reported as success.
+- `input_stream` and `output_stream` accept either their buffer or byte-stream
+  capability. Compatibility `type_check::stream` now means an input/output buffer;
+  `write_stream` identifies readable buffer views, including `fixed_buffer`.
+
+Concepts check expressions and types; implementations must also uphold these
+lifetime, bounds, aliasing, and failure contracts. Input cursor advancement and
+output range acquisition must not throw after the caller has checked/reserved them.
+
+Adapters borrow their streams, leave exception masks unchanged, and do not close
+or explicitly flush the underlying stream. Output drains only completed reservations;
+a single large string, scalar array, or other batch may grow scratch storage beyond
+its initial capacity. Sources aliasing scratch storage postpone draining until the
+reservation completes. Output failure may leave an external prefix written; a
+failed output adapter cannot be retried. Destructors do not perform fallible I/O.
+
+An initially failed or EOF-marked input is rejected. Successful byte-stream reads
+leave the source at EOF; normal EOF is accepted even when EOF/fail exceptions are
+enabled. I/O errors throw `std::ios_base::failure`; an oversized encoded input
+throws `std::length_error`. Decoder errors keep their existing categories and may
+partially modify the destination. A memory-stream size rejection occurs before
+consumption; other failures may consume input. Encoded-message staging storage is
+separate from decoded-object allocation accounting. Decode a temporary object if
+replacement must be transactional.
+
+`parser::parse` also accepts these input capabilities (byte sources use the default
+message byte limit), and both `writer::cpp::write` and `writer::java::write` accept
+output capabilities. Their `generate` functions return the validated generated
+source as a string. Schema includes still require `parser::parse_file`.
+Binary views retain stable-span mapping and can copy their positional bytes to
+custom buffers or standard output streams; streams do not extend a view's lifetime.
+
+Verification for this change: the regenerated MSVC Debug build passed all 17 CTest
+targets, including 167 core tests and 13 Protobuf tests. Clang 21 on Linux built
+the compiler and generated style/include examples and passed a separate smoke test
+covering all seven C++ protocols with independent buffers and standard streams.
+The full Linux GoogleTest suite was not run because that dependency was unavailable.
+Performance benchmarks have not been run.
+
 ### Choose the protocol
 
 | Protocol | Field identity | Application requirement |

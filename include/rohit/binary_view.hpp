@@ -19,13 +19,18 @@
 namespace rohit::serializer::detail {
 
 // Validate positional bytes using the same limits and scalar rules as owning decoding.
-class view_scanner : public binary_none<serialize_type::in> {
+template <rohit::type_check::input_buffer Stream = stream>
+class basic_view_scanner : public binary_none<serialize_type::in, Stream> {
+  using base = binary_none<serialize_type::in, Stream>;
+  using base::check_collection;
+  using base::limits;
   const std::size_t initial_size;
 public:
+  using base::get_stream;
+  using base::serialize_in_variable;
   // Share one decoding session throughout the complete nested message scan.
-  view_scanner(const stream& input, decode_limits input_limits)
-      : binary_none<serialize_type::in>{input, input_limits},
-        initial_size{input.remaining_buffer()} {}
+  basic_view_scanner(const Stream& input, decode_limits input_limits)
+      : base{input, input_limits}, initial_size{input.remaining_buffer()} {}
   // Return a byte offset without subtracting potentially null pointers.
   std::size_t position() const {
     return initial_size - get_stream().remaining_buffer();
@@ -41,6 +46,8 @@ public:
     throw exception::bad_input_data{get_stream(), "Invalid union discriminator", limits.diagnostics};
   }
 };
+
+using view_scanner = basic_view_scanner<>;
 
 // Read a compact prefix from bytes already validated by a view scanner.
 inline std::pair<std::uint32_t, std::size_t> view_compact(std::span<const std::uint8_t> bytes) {
@@ -532,20 +539,33 @@ public:
   // Borrow the exact serialized message; raw mutation must not invalidate mapped layouts.
   std::span<const std::uint8_t> serialized_bytes() const { return storage; }
   // Copy the existing positional message into a stream using its normal reservation policy.
-  void serialize_out(stream& output) const { output.append(storage.data(), storage.size()); }
+  void serialize_out(rohit::type_check::output_stream auto& output) const {
+    if constexpr (rohit::type_check::output_buffer<std::remove_reference_t<decltype(output)>>) {
+      output.append(storage.data(), storage.size());
+    } else {
+      write_stream_bytes(output, storage.data(), storage.size());
+    }
+  }
   // Append to a positional protocol; keyed and JSON protocols intentionally have no overload.
-  void serialize_out(binary_out_base<serialize_key_type::none, std::endian::little>& protocol) const {
+  template <rohit::type_check::output_buffer Stream>
+  void serialize_out(
+      binary_out_base<serialize_key_type::none, std::endian::little, Stream>& protocol) const {
     serialize_out(protocol.get_stream());
   }
   // Match the runtime's explicit template probe without enabling incompatible protocols.
   template <typename Protocol>
-    requires std::same_as<Protocol, binary_none<serialize_type::out>>
+    requires requires(Protocol& protocol) {
+      requires Protocol::key_type == serialize_key_type::none;
+      requires Protocol::wire_endian == std::endian::little;
+      requires rohit::type_check::output_buffer<
+          std::remove_reference_t<decltype(protocol.get_stream())>>;
+    }
   void serialize_out(Protocol& protocol) const {
     serialize_out(protocol.get_stream());
   }
   // Support the existing explicit-protocol convenience syntax for positional binary only.
   template <template <serialize_type> class Protocol>
-  void serialize_out(stream& output) const {
+  void serialize_out(rohit::type_check::output_stream auto& output) const {
     static_assert(std::is_same_v<Protocol<serialize_type::out>, binary_none<serialize_type::out>>,
                   "Binary views store only binary_none positional messages");
     serialize_out(output);

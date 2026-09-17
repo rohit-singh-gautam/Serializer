@@ -1,5 +1,25 @@
 # Migrating to the snake_case Serializer API
 
+## Stream concepts and implicit standard-stream adapters
+
+Rebuild the compiler/library and regenerate C++ headers to accept custom stream
+implementations and standard iostreams directly. Existing calls using native
+buffers and protocol names remain valid. Concrete codecs add an optional buffer
+type parameter; low-level custom codecs must satisfy their input/output concepts.
+Generated signatures and compiler parser/writer entrypoints are now constrained
+function templates; code taking their addresses may need an explicit specialization.
+Rebuild binary consumers together because compiled parser/writer entrypoints changed.
+
+`type_check::stream` and `write_stream` now check structural capabilities rather
+than inheritance. Custom buffers preserve the pointer fast path; iostream adapters
+are selected implicitly by static type. Standard memory input borrows its unread
+storage. Known file streams use larger I/O batches; generic/base-class streams use
+the portable fallback. Stream output can be partially written before encoding fails.
+Byte-stream input is one bounded EOF-delimited message, followed by exact-message
+validation. No framing, protocol markers, or wire bytes change. See
+[stream concepts and adapters](docs/usage.md#stream-concepts-and-implicit-adapters)
+for complete contracts and limits.
+
 ## VS Code navigation in extension 1.1.0
 
 Upgrade the VS Code package to 1.1.0 for declaration navigation to source schemas

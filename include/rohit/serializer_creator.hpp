@@ -24,7 +24,9 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <span>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -285,37 +287,133 @@ struct parsed_schema {
 // All declarations are owned by the result; no source buffers must outlive this call.
 parsed_schema parse_file(const std::filesystem::path& path);
 
-// Parse declarations and resolve member types; malformed or unsupported versions throw.
-// Library callers may omit the version header for legacy fragments.
-// Includes require parse_file so relative paths have an explicit source directory.
-std::vector<std::unique_ptr<syntax_node>> parse(const stream& in_stream);
-// Require the first version statement when require_version is true, as the compiler does.
-std::vector<std::unique_ptr<syntax_node>> parse(const stream& in_stream, bool require_version);
-#ifdef ROHIT_SERIALIZER_ENABLE_GTEST
-// Parse identifier from the schema input; malformed input throws.
-std::string parse_identifier(const stream& in_stream);
-// Parse hierarchical identifier from the schema input; malformed input throws.
-std::string parse_hierarchical_identifier(const stream& in_stream);
-// Invoke the callback for each whitespace-separated identifier.
-void space_separated_identifier(const stream& in_stream, std::function<void(std::string&&)> fn);
-// Read a schema access keyword; reject unknown or incorrectly cased spellings.
-access_type parse_access_type(const stream& in_stream);
-// Read one member declaration and retain its wire name and identifier.
-member parse_member(const stream& in_stream, const std::uint32_t id,
+namespace detail {
+// Bridge the compiled parser through byte spans while preserving consumed input on failure.
+std::vector<std::unique_ptr<syntax_node>> parse_bytes(std::span<const std::uint8_t> bytes,
+                                                      std::size_t& consumed, bool require_version);
+// Expose individual parser operations to the test-only wrappers below.
+std::string identifier_bytes(std::span<const std::uint8_t> bytes, std::size_t& consumed);
+// Parse one qualified identifier through the compiled schema scanner.
+std::string hierarchical_identifier_bytes(std::span<const std::uint8_t> bytes,
+                                          std::size_t& consumed);
+// Visit each whitespace-separated identifier through the compiled schema scanner.
+void identifiers_bytes(std::span<const std::uint8_t> bytes, std::size_t& consumed,
+                       std::function<void(std::string&&)> callback);
+// Read one schema access specifier.
+access_type access_bytes(std::span<const std::uint8_t> bytes, std::size_t& consumed);
+// Read one schema member declaration.
+member member_bytes(std::span<const std::uint8_t> bytes, std::size_t& consumed, std::uint32_t id,
                     namespace_node* declared_namespace);
-// Parse class body from the schema input; malformed input throws.
-void parse_class_body(const stream& in_stream, class_node* obj, std::uint32_t& id);
+// Read the members in a schema class body.
+void class_body_bytes(std::span<const std::uint8_t> bytes, std::size_t& consumed,
+                      class_node* object, std::uint32_t& id);
+
+// Commit the compiled parser's consumed byte count on both success and failure.
+template <rohit::type_check::input_buffer Input>
+struct input_progress {
+  const Input& input;
+  const std::size_t& consumed;
+  // Advance only the range that the compiled parser has already checked.
+  ~input_progress() {
+    input.get_curr_and_increase_unchecked(consumed);
+  }
+};
+
+// Borrow a custom cursor's bytes and propagate progress without copying schema storage.
+template <rohit::type_check::input_buffer Input, typename Parse>
+decltype(auto) invoke(const Input& input, Parse&& parse) {
+  std::size_t consumed{};
+  const input_progress<Input> progress{input, consumed};
+  return parse(std::span<const std::uint8_t>{input.curr(), input.remaining_buffer()}, consumed);
+}
+} // namespace detail
+
+// Parse declarations from a custom buffer or one bounded EOF-delimited byte source.
+// Includes require parse_file so relative paths have an explicit source directory.
+template <rohit::type_check::input_stream Input>
+std::vector<std::unique_ptr<syntax_node>> parse(Input&& input, bool require_version = false) {
+  if constexpr (rohit::type_check::input_buffer<Input>) {
+    return detail::invoke(input, [require_version](auto bytes, std::size_t& consumed) {
+      return detail::parse_bytes(bytes, consumed, require_version);
+    });
+  } else if constexpr (rohit::detail::memory_input_stream<Input>) {
+    const auto view = borrow_stream_bytes(input, decode_limits{}.max_input_bytes);
+    return parse(view, require_version);
+  } else {
+    auto buffer = read_stream_bytes(input, decode_limits{}.max_input_bytes);
+    const auto view = make_constant_full_stream(buffer.begin(), buffer.current_offset());
+    return parse(view, require_version);
+  }
+}
+
+#ifdef ROHIT_SERIALIZER_ENABLE_GTEST
+// Parse an identifier and preserve consumed input on failure.
+inline std::string parse_identifier(const rohit::type_check::input_buffer auto& input) {
+  return detail::invoke(input, detail::identifier_bytes);
+}
+// Parse a hierarchical identifier through the public cursor concept.
+inline std::string
+parse_hierarchical_identifier(const rohit::type_check::input_buffer auto& input) {
+  return detail::invoke(input, detail::hierarchical_identifier_bytes);
+}
+// Invoke the callback for each whitespace-separated identifier.
+inline void space_separated_identifier(const rohit::type_check::input_buffer auto& input,
+                                       std::function<void(std::string&&)> callback) {
+  detail::invoke(input, [&callback](auto bytes, std::size_t& consumed) {
+    detail::identifiers_bytes(bytes, consumed, std::move(callback));
+  });
+}
+// Read one access keyword, preserving parser diagnostics and cursor progress.
+inline access_type parse_access_type(const rohit::type_check::input_buffer auto& input) {
+  return detail::invoke(input, detail::access_bytes);
+}
+// Parse one schema member from an independent input buffer.
+inline member parse_member(const rohit::type_check::input_buffer auto& input, std::uint32_t id,
+                           namespace_node* declared_namespace) {
+  return detail::invoke(input, [=](auto bytes, std::size_t& consumed) {
+    return detail::member_bytes(bytes, consumed, id, declared_namespace);
+  });
+}
+// Parse a class body and commit the checked consumed range even on failure.
+inline void parse_class_body(const rohit::type_check::input_buffer auto& input, class_node* object,
+                             std::uint32_t& id) {
+  detail::invoke(input, [&](auto bytes, std::size_t& consumed) {
+    detail::class_body_bytes(bytes, consumed, object, id);
+  });
+}
 #endif
 } // namespace parser
 
 namespace writer::cpp {
-// Validate names, emit C++ declarations, and apply the configured formatter before appending output.
-void write(stream& out_stream, const std::vector<std::unique_ptr<syntax_node>>& statements,
-           const cpp_options& options = {});
+// Validate names and return a completely generated and formatted C++ header.
+std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,
+                     const cpp_options& options = {});
+// Append validated generated text to any concept-conforming buffer or byte sink.
+inline void write(rohit::type_check::output_stream auto& output,
+                  const std::vector<std::unique_ptr<syntax_node>>& statements,
+                  const cpp_options& options = {}) {
+  const auto text = generate(statements, options);
+  if constexpr (rohit::type_check::output_buffer<std::remove_reference_t<decltype(output)>>) {
+    output.write(text);
+  } else {
+    write_stream_bytes(output, reinterpret_cast<const std::uint8_t*>(text.data()), text.size());
+  }
+}
 } // namespace writer::cpp
 namespace writer::java {
-// Emit one self-contained Java 17 source file; validate before appending any output.
-void write(stream& out_stream, const std::vector<std::unique_ptr<syntax_node>>& statements,
-           std::string_view outer_class, const java_options& options = {});
+// Validate and return one self-contained Java 17 source file.
+std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,
+                     std::string_view outer_class, const java_options& options = {});
+// Append validated generated Java text through the same output stream concept.
+inline void write(rohit::type_check::output_stream auto& output,
+                  const std::vector<std::unique_ptr<syntax_node>>& statements,
+                  std::string_view outer_class, const java_options& options = {}) {
+  const auto text = generate(statements, outer_class, options);
+  if constexpr (rohit::type_check::output_buffer<std::remove_reference_t<decltype(output)>>) {
+    output.write(text);
+  } else {
+    write_stream_bytes(output, reinterpret_cast<const std::uint8_t*>(text.data()), text.size());
+  }
+}
 } // namespace writer::java
 } // namespace rohit::serializer

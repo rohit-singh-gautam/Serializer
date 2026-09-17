@@ -26,11 +26,36 @@ if(SERIALIZER_BUILD_BENCHMARKS)
 endif()
 
 if(SERIALIZER_BUILD_FUZZERS)
-  if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR MSVC)
-    message(FATAL_ERROR "The fuzz target requires Clang with libFuzzer and address/undefined sanitizers")
-  endif()
-  add_executable(codec_fuzz codec_fuzz.cpp)
-  target_link_libraries(codec_fuzz PRIVATE serializer_qualification_models)
-  target_compile_options(codec_fuzz PRIVATE -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer)
-  target_link_options(codec_fuzz PRIVATE -fsanitize=fuzzer,address,undefined)
+  add_library(serializer_fuzz_models INTERFACE)
+  serializer_generate(TARGET serializer_fuzz_models SCHEMAS fuzz_models.serializer
+    CONFIG fuzz.ini OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/fuzz")
+  # Replace the generation helper's production runtime link for these consumers only.
+  # The generation executable remains an ordinary host tool.
+  set_property(TARGET serializer_fuzz_models PROPERTY INTERFACE_LINK_LIBRARIES serializer_fuzz_runtime)
+
+  set(serializer_fuzz_targets codec_fuzz view_fuzz protobuf_fuzz runtime_simd_fuzz)
+  foreach(target IN LISTS serializer_fuzz_targets)
+    add_executable(${target} ${target}.cpp)
+    target_link_libraries(${target} PRIVATE serializer_fuzz_models)
+    target_link_options(${target} PRIVATE -fsanitize=fuzzer)
+    target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endforeach()
+  add_executable(fuzz_corpus_generator fuzz_corpus_generator.cpp)
+  target_link_libraries(fuzz_corpus_generator PRIVATE serializer_fuzz_models)
+  target_compile_options(fuzz_corpus_generator PRIVATE -Wall -Wextra -Wpedantic -Werror)
+
+  set(serializer_fuzz_seed_directory "${CMAKE_CURRENT_BINARY_DIR}/corpus/seeds")
+  add_custom_target(serializer_fuzz_corpus
+    COMMAND fuzz_corpus_generator "${serializer_fuzz_seed_directory}"
+    DEPENDS fuzz_corpus_generator VERBATIM)
+  add_test(NAME serializer_fuzz_seed_corpus
+    COMMAND fuzz_corpus_generator "${serializer_fuzz_seed_directory}")
+  set_tests_properties(serializer_fuzz_seed_corpus PROPERTIES
+    FIXTURES_SETUP serializer_fuzz_seeds LABELS serializer_fuzz TIMEOUT 60)
+  foreach(target IN LISTS serializer_fuzz_targets)
+    add_test(NAME ${target}_seeds COMMAND ${target} -runs=0 -seed=12345 -max_len=4099
+      "${serializer_fuzz_seed_directory}/${target}")
+    set_tests_properties(${target}_seeds PROPERTIES FIXTURES_REQUIRED serializer_fuzz_seeds
+      LABELS serializer_fuzz TIMEOUT 60)
+  endforeach()
 endif()

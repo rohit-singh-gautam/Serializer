@@ -20,6 +20,7 @@
 #include <rohit/json_text.hpp>
 #include <rohit/runtime_simd.hpp>
 #include <rohit/stream.hpp>
+#include <rohit/stream_io.hpp>
 
 #include <algorithm>
 #include <array>
@@ -363,11 +364,8 @@ concept map = requires(T t) {
   requires std::is_same_v<T, std::map<typename T::key_type, typename T::mapped_type>>;
 };
 
-template <typename T>
-concept functions = requires(T t) {
-  requires std::is_same_v<T, void(stream&)> || std::is_function_v<T> ||
-               std::is_same_v<T, std::function<void(stream&)>>;
-};
+template <typename T, typename Stream = rohit::stream>
+concept functions = std::invocable<const T&, Stream&>;
 
 } // namespace type_check
 
@@ -653,14 +651,34 @@ enum class serialize_type { in, out };
 // Select the generated object's storage; values also form a generator mode mask.
 enum class storage_mode : std::uint8_t { owning = 1, read_only_view = 2, mutable_view = 4 };
 
-template <serialize_type type>
-class json {};
+template <serialize_type type, typename Stream = stream>
+class json;
 
-template <>
-class json<serialize_type::in> : public detail::decoder_input {
+template <rohit::type_check::input_buffer Stream>
+class json<serialize_type::in, Stream> : public detail::decoder_input<Stream> {
+protected:
+  using base = detail::decoder_input<Stream>;
+  using base::available_input;
+  using base::can_read_batch;
+  using base::charge_allocation;
+  using base::charge_work;
+  using base::check_collection;
+  using base::check_string;
+  using base::fail_limit;
+  using base::has_work_budget;
+  using base::in_stream;
+  using base::limits;
+  using base::read_batch_unchecked;
+  using base::read_bytes;
+  using base::require_input;
+
 public:
   constexpr static serialize_key_type key_type = serialize_key_type::string;
-  using detail::decoder_input::decoder_input;
+  using base::base;
+  using base::enter_object;
+  using stream_type = Stream;
+  template <rohit::type_check::input_buffer OtherStream>
+  using rebind_stream = json<serialize_type::in, OtherStream>;
 
 protected:
   // Report malformed JSON without echoing payload data by default.
@@ -1004,14 +1022,14 @@ public:
     if (!in_stream.full()) { fail("Trailing data after JSON value"); }
   }
 }; // class json<serialize_type::in>
-template <bool beautify>
+template <bool beautify, rohit::type_check::output_buffer Stream = stream>
 class json_formatter {
 protected:
-  stream& out_stream;
+  Stream& out_stream;
 
 public:
   // Initialize this object from the supplied storage or value state.
-  json_formatter(stream& out_stream, const write_format&) : out_stream{out_stream} {}
+  json_formatter(Stream& out_stream, const write_format&) : out_stream{out_stream} {}
 
 protected:
   // Emit C++ brace open for the parsed schema.
@@ -1049,12 +1067,12 @@ protected:
   inline void before_data() {}
 };
 
-template <>
-class json_formatter<true> {
+template <rohit::type_check::output_buffer Stream>
+class json_formatter<true, Stream> {
   bool newline_written{true};
 
 protected:
-  stream& out_stream;
+  Stream& out_stream;
   const write_format format_definition;
 
   std::string tab_string{};
@@ -1200,12 +1218,12 @@ protected:
 
 public:
   // Initialize this object from the supplied storage or value state.
-  json_formatter(stream& out_stream, const write_format& format_definition)
+  json_formatter(Stream& out_stream, const write_format& format_definition)
       : out_stream{out_stream}, format_definition{format_definition} {}
 };
 
-template <bool beautify>
-class json_out : public json_formatter<beautify> {
+template <bool beautify, rohit::type_check::output_buffer Stream = stream>
+class json_out : public json_formatter<beautify, Stream> {
 public:
   constexpr static serialize_key_type key_type = serialize_key_type::string;
 
@@ -1218,20 +1236,20 @@ public:
   }
 
   // Initialize this object from the supplied storage or value state.
-  json_out(stream& out_stream) : json_formatter<beautify>{out_stream, format::compress} {}
+  json_out(Stream& out_stream) : json_formatter<beautify, Stream>{out_stream, format::compress} {}
   // Initialize this object from the supplied storage or value state.
-  json_out(stream& out_stream, const write_format& format_definition)
-      : json_formatter<beautify>{out_stream, format_definition} {}
+  json_out(Stream& out_stream, const write_format& format_definition)
+      : json_formatter<beautify, Stream>{out_stream, format_definition} {}
 
 private:
-  using json_formatter<beautify>::out_stream;
+  using json_formatter<beautify, Stream>::out_stream;
 
-  using json_formatter<beautify>::write_brace_open;
-  using json_formatter<beautify>::write_brace_close;
-  using json_formatter<beautify>::write_bracket_open;
-  using json_formatter<beautify>::write_bracket_close;
-  using json_formatter<beautify>::write_colon;
-  using json_formatter<beautify>::before_data;
+  using json_formatter<beautify, Stream>::write_brace_open;
+  using json_formatter<beautify, Stream>::write_brace_close;
+  using json_formatter<beautify, Stream>::write_bracket_open;
+  using json_formatter<beautify, Stream>::write_bracket_close;
+  using json_formatter<beautify, Stream>::write_colon;
+  using json_formatter<beautify, Stream>::before_data;
 
   // Write the first collection element without a leading separator.
   template <typename T>
@@ -1244,7 +1262,7 @@ private:
   // Write a subsequent collection element with its separator.
   template <typename T>
   void serialize_out_second(auto& name, const T& value) {
-    json_formatter<beautify>::template write_comma<true>();
+    json_formatter<beautify, Stream>::template write_comma<true>();
     serialize_out(name);
     write_colon();
     serialize_out(value);
@@ -1273,7 +1291,7 @@ private:
       serialize_func(*itr);
       itr = std::next(itr);
       while (itr != std::end(value_list)) {
-        json_formatter<beautify>::template write_comma<false>();
+        json_formatter<beautify, Stream>::template write_comma<false>();
         serialize_func(*itr);
         itr = std::next(itr);
       }
@@ -1349,10 +1367,10 @@ public:
       write_string(std::string_view{value, value[extent - 1] == '\0' ? extent - 1 : extent});
     } else if constexpr (std::is_enum_v<T>) {
       write_string(detail::enum_name(value));
-    } else if constexpr (type_check::serializer_out_enabled_ptr<T, json<serialize_type::out>>) {
+    } else if constexpr (type_check::serializer_out_enabled_ptr<T, json_out>) {
       if (!value) { throw std::invalid_argument{"Null source object"}; }
       value->serialize_out(*this);
-    } else if constexpr (type_check::serializer_out_enabled<T, json<serialize_type::out>>) {
+    } else if constexpr (type_check::serializer_out_enabled<T, json_out>) {
       value.serialize_out(*this);
     } else {
       throw exception::unknown_serialization_type{out_stream, "Unknown Serialization Type"};
@@ -1360,7 +1378,8 @@ public:
   }
 
   // Encode a supported value or field through this protocol and advance the output cursor.
-  template <type_check::functions T>
+  template <typename T>
+    requires type_check::functions<T, Stream>
   void serialize_out(const T& value) {
     value(out_stream);
   }
@@ -1401,18 +1420,38 @@ public:
   }
 }; // class json_out<>
 
-template <>
-class json<serialize_type::out> : public json_out<false> {
+template <rohit::type_check::output_buffer Stream>
+class json<serialize_type::out, Stream> : public json_out<false, Stream> {
 public:
-  using json_out<false>::json_out;
+  using json_out<false, Stream>::json_out;
+  using stream_type = Stream;
+  template <rohit::type_check::output_buffer OtherStream>
+  using rebind_stream = json<serialize_type::out, OtherStream>;
 };
 
 template <serialize_type type, serialize_key_type KeyType,
-          std::endian WireEndian = std::endian::little>
-class binary {};
+          std::endian WireEndian = std::endian::little, typename Stream = stream>
+class binary;
 
-template <serialize_key_type KeyType, std::endian WireEndian = std::endian::little>
-class binary_in_base : public detail::decoder_input {
+template <serialize_key_type KeyType, std::endian WireEndian = std::endian::little,
+          rohit::type_check::input_buffer Stream = stream>
+class binary_in_base : public detail::decoder_input<Stream> {
+protected:
+  using base = detail::decoder_input<Stream>;
+  using base::available_input;
+  using base::can_read_batch;
+  using base::charge_allocation;
+  using base::charge_work;
+  using base::check_collection;
+  using base::check_string;
+  using base::fail_limit;
+  using base::has_work_budget;
+  using base::in_stream;
+  using base::limits;
+  using base::read_batch_unchecked;
+  using base::read_bytes;
+  using base::require_input;
+
 public:
   constexpr static serialize_key_type key_type = KeyType;
   constexpr static std::endian wire_endian = WireEndian;
@@ -1420,7 +1459,8 @@ public:
                 KeyType == serialize_key_type::string, "Unsupported binary key mode");
   static_assert(WireEndian == std::endian::little || WireEndian == std::endian::big,
                 "Binary storage requires little-endian or big-endian byte order");
-  using detail::decoder_input::decoder_input;
+  using base::base;
+  using base::enter_object;
 
   // Decode a complete one-to-four-byte compact integer with one cursor update.
   std::uint32_t serialize_in_variable() {
@@ -1628,14 +1668,19 @@ public:
   }
 }; // class binary_in_base
 
-template <serialize_key_type KeyType, std::endian WireEndian>
-class binary<serialize_type::in, KeyType, WireEndian>
-    : public binary_in_base<KeyType, WireEndian> {
+template <serialize_key_type KeyType, std::endian WireEndian,
+          rohit::type_check::input_buffer Stream>
+class binary<serialize_type::in, KeyType, WireEndian, Stream>
+    : public binary_in_base<KeyType, WireEndian, Stream> {
 public:
-  using binary_in_base<KeyType, WireEndian>::binary_in_base;
+  using binary_in_base<KeyType, WireEndian, Stream>::binary_in_base;
+  using stream_type = Stream;
+  template <rohit::type_check::input_buffer OtherStream>
+  using rebind_stream = binary<serialize_type::in, KeyType, WireEndian, OtherStream>;
 };
 
-template <serialize_key_type KeyType, std::endian WireEndian = std::endian::little>
+template <serialize_key_type KeyType, std::endian WireEndian = std::endian::little,
+          rohit::type_check::output_buffer Stream = stream>
 class binary_out_base {
 public:
   constexpr static serialize_key_type key_type = KeyType;
@@ -1654,11 +1699,11 @@ public:
   }
 
 protected:
-  stream& out_stream;
+  Stream& out_stream;
 
 public:
   // Initialize this object from the supplied storage or value state.
-  binary_out_base(stream& out_stream) : out_stream{out_stream} {}
+  binary_out_base(Stream& out_stream) : out_stream{out_stream} {}
 
   // Borrow writable output storage without transferring ownership.
   auto& get_stream() {
@@ -1885,12 +1930,10 @@ public:
       } else if constexpr (sizeof(T) == sizeof(std::uint64_t)) {
         serialize_out(std::bit_cast<std::uint64_t>(value));
       }
-    } else if constexpr (type_check::serializer_out_enabled_ptr<
-                             T, binary<serialize_type::out, KeyType, WireEndian>>) {
+    } else if constexpr (type_check::serializer_out_enabled_ptr<T, binary_out_base>) {
       if (!value) { throw std::invalid_argument{"Null source object"}; }
       value->serialize_out(*this);
-    } else if constexpr (type_check::serializer_out_enabled<T,
-                                                            binary<serialize_type::out, KeyType, WireEndian>>) {
+    } else if constexpr (type_check::serializer_out_enabled<T, binary_out_base>) {
       value.serialize_out(*this);
     } else if constexpr (type_check::vector<T>) {
       serialize_out_variable(value.size());
@@ -1930,7 +1973,8 @@ public:
   }
 
   // Encode a supported value or field through this protocol and advance the output cursor.
-  template <type_check::functions T>
+  template <typename T>
+    requires type_check::functions<T, Stream>
   void serialize_out(const T& value) {
     value(out_stream);
   }
@@ -1958,20 +2002,96 @@ public:
   }
 }; // class binary_out_base
 
-template <serialize_key_type KeyType, std::endian WireEndian>
-class binary<serialize_type::out, KeyType, WireEndian>
-    : public binary_out_base<KeyType, WireEndian> {
+template <serialize_key_type KeyType, std::endian WireEndian,
+          rohit::type_check::output_buffer Stream>
+class binary<serialize_type::out, KeyType, WireEndian, Stream>
+    : public binary_out_base<KeyType, WireEndian, Stream> {
 public:
-  using binary_out_base<KeyType, WireEndian>::binary_out_base;
+  using binary_out_base<KeyType, WireEndian, Stream>::binary_out_base;
+  using stream_type = Stream;
+  template <rohit::type_check::output_buffer OtherStream>
+  using rebind_stream = binary<serialize_type::out, KeyType, WireEndian, OtherStream>;
 };
 
-template <serialize_type type>
-using binary_integer = binary<type, serialize_key_type::integer>;
+template <serialize_type type, typename Stream = stream>
+using binary_integer = binary<type, serialize_key_type::integer, std::endian::little, Stream>;
 
-template <serialize_type type>
-using binary_string = binary<type, serialize_key_type::string>;
+template <serialize_type type, typename Stream = stream>
+using binary_string = binary<type, serialize_key_type::string, std::endian::little, Stream>;
 
-template <serialize_type type>
-using binary_none = binary<type, serialize_key_type::none>;
+template <serialize_type type, typename Stream = stream>
+using binary_none = binary<type, serialize_key_type::none, std::endian::little, Stream>;
+
+namespace detail {
+// Preserve custom protocol types unless they explicitly support binding a concrete stream type.
+template <typename Protocol, typename Stream, typename = void>
+struct stream_protocol {
+  using type = Protocol;
+};
+
+template <typename Protocol, typename Stream>
+struct stream_protocol<Protocol, Stream,
+                       std::void_t<typename Protocol::stream_type,
+                                   typename Protocol::template rebind_stream<Stream>>> {
+  // An inherited hook must not silently discard a derived custom protocol's behavior.
+  using type = std::conditional_t<std::same_as<Protocol, typename Protocol::template rebind_stream<
+                                                             typename Protocol::stream_type>>,
+                                  typename Protocol::template rebind_stream<Stream>, Protocol>;
+};
+
+template <typename Protocol, typename Stream>
+using stream_protocol_t = typename stream_protocol<Protocol, Stream>::type;
+} // namespace detail
+
+// Encode using the concrete buffer implementation, or implicitly buffer writes to a byte sink.
+// The caller owns the stream; external I/O failure may leave a written prefix.
+template <template <serialize_type> class Protocol, rohit::type_check::output_stream Stream,
+          typename Value>
+void serialize_to(Stream& output, const Value& value) {
+  if constexpr (rohit::type_check::output_buffer<Stream>) {
+    detail::stream_protocol_t<Protocol<serialize_type::out>, Stream> encoder{output};
+    value.serialize_out(encoder);
+  } else {
+    buffered_output_stream<Stream> buffer{output};
+    serialize_to<Protocol>(buffer, value);
+    buffer.finish();
+  }
+}
+
+// Decode from a borrowed buffer cursor, retaining the established partial-update behavior.
+// Byte sources contain one EOF-delimited message and receive an exact-message check.
+template <template <serialize_type> class Protocol, rohit::type_check::input_stream Stream,
+          typename Value>
+void serialize_from(Stream&& input, Value& value, decode_limits limits) {
+  if constexpr (rohit::type_check::input_buffer<Stream>) {
+    detail::stream_protocol_t<Protocol<serialize_type::in>, std::remove_cvref_t<Stream>> decoder{
+        input, limits};
+    value.serialize_in(decoder);
+  } else if constexpr (rohit::detail::memory_input_stream<Stream>) {
+    const auto view = borrow_stream_bytes(input, limits.max_input_bytes);
+    Protocol<serialize_type::in> decoder{view, limits};
+    value.serialize_in(decoder);
+    decoder.finish();
+  } else {
+    auto buffer = read_stream_bytes(input, limits.max_input_bytes);
+    const auto view = make_constant_full_stream(buffer.begin(), buffer.current_offset());
+    Protocol<serialize_type::in> decoder{view, limits};
+    value.serialize_in(decoder);
+    decoder.finish();
+  }
+}
+
+// Preserve default-constructor behavior for existing custom protocols and buffer callers.
+template <template <serialize_type> class Protocol, rohit::type_check::input_stream Stream,
+          typename Value>
+void serialize_from(Stream&& input, Value& value) {
+  if constexpr (rohit::type_check::input_buffer<Stream>) {
+    detail::stream_protocol_t<Protocol<serialize_type::in>, std::remove_cvref_t<Stream>> decoder{
+        input};
+    value.serialize_in(decoder);
+  } else {
+    serialize_from<Protocol>(input, value, decode_limits{});
+  }
+}
 
 } // namespace rohit::serializer

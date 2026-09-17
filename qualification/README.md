@@ -1,7 +1,8 @@
 # Codec validation tools
 
-These targets are prepared for a later validation pass. They have not been
-configured, built, or run as part of the assessment implementation.
+These tools separate regression tests, performance measurements, and fuzzing.
+The original assessment implementation deferred execution; the fuzzing section
+records the current workflow and its verification scope separately.
 
 ## Regression tests
 
@@ -100,18 +101,84 @@ targets to keep the separate observation function opaque to the optimizer.
 
 ## Fuzzing
 
-Configure `SERIALIZER_BUILD_FUZZERS=ON` with Clang and a libFuzzer-capable toolchain
-to build `codec_fuzz` with address and undefined-behavior sanitizers. It feeds exact
-input ranges through generated records in all four modes, plus JSON strings,
-floating values, and nested vectors. Each attempt uses small explicit byte,
-string, collection, nesting, allocation, and work limits. Expected parse failures
-are caught; sanitizer failures and unexpected exceptions remain visible.
+Use Clang's GNU-style driver with libFuzzer, AddressSanitizer, and
+UndefinedBehaviorSanitizer runtimes, CMake 3.28+, and clang-format 19+. Configuration
+checks that all three runtimes link. Clang-cl/MSVC are not supported by these targets.
+GoogleTest, Java, and the external Protobuf runtime are not required.
 
-Use an input corpus containing valid outputs, each truncated prefix, compact
-integer boundaries, escaped Unicode, invalid UTF-8, unknown fields/discriminators,
-and excessive length/count prefixes. See the official
-[libFuzzer usage guide](https://llvm.org/docs/LibFuzzer.html) for corpus and run
-options. No fuzz campaign or sanitizer result is claimed here.
+`serializer_fuzz_runtime` recompiles the production library's complete source list
+with `-fsanitize=fuzzer-no-link,address,undefined`. It retains the production
+definitions and per-source AVX2 flags. Fuzz executables link only this instrumented
+variant and add libFuzzer's main; the normal library, generator, benchmarks, and
+installed package keep their existing flags. UBSan findings stop execution through
+`-fno-sanitize-recover=all`. See [LLVM's libFuzzer guide](https://llvm.org/docs/LibFuzzer.html)
+and [UBSan recovery controls](https://clang.llvm.org/docs/UndefinedBehaviorSanitizer.html#usage).
+
+| Target | Coverage |
+| --- | --- |
+| `codec_fuzz` | Generated JSON and all three native binary modes, both binary byte orders, compact integers, JSON strings/numbers/nested vectors |
+| `view_fuzz` | Exact positional mapping, read-only access, nested/collection iterators, size-preserving mutation, and an owning-decoder cross-check |
+| `protobuf_fuzz` | Generated Protobuf binary, ProtoJSON, and TextProto readers, including unknown fields and malformed lengths/tags |
+| `runtime_simd_fuzz` | Scalar reference versus compiled baseline and CPU-dispatched string/whitespace scans, plus 2/4/8-byte disjoint and in-place swaps |
+
+Every file has three harness control bytes followed by at most 4096 payload bytes:
+
+1. Protocol selector: `codec_fuzz` uses 0=JSON record, 1/2/3=positional/integer-key/
+   string-key little-endian record, 4=JSON string, 5=JSON double, 6=JSON nested vectors,
+   7=compact integer, and 8/9/10=the three big-endian record modes.
+   `protobuf_fuzz` uses 0=binary, 1=ProtoJSON, 2=TextProto. `runtime_simd_fuzz` uses
+   0/1/2 for 2/4/8-byte swaps and always checks all three scanners. Views ignore it.
+2. Budget selector modulo seven: baseline or a restrictive input-byte, string-byte,
+   collection-count, depth, allocation, or work budget. The SIMD target ignores it.
+3. Starting offset modulo 32: the payload is copied into an allocation ending exactly
+   at the payload boundary, allowing ASan to check unpadded tails at odd alignments.
+
+The baseline budgets are 4096 input bytes, 1024 bytes per string, 64 collection
+elements, depth 8, 16384 accounted allocation bytes, and 8192 work units. Restrictive
+variants reduce those respectively to 16, 16, 2, 1, 32, or 32. Expected parse errors
+are caught; unexpected failures escape. Successful view mapping must support its
+documented getters/setters without suppressing subsequent exceptions.
+
+From the repository root on Linux (including WSL), configure and replay seeds:
+
+```sh
+cmake -S . -B out/build/fuzz-clang -G Ninja \
+  -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
+  -DSERIALIZER_BUILD_TESTS=OFF -DSERIALIZER_BUILD_FUZZERS=ON
+cmake --build out/build/fuzz-clang --parallel 4
+ctest --test-dir out/build/fuzz-clang -L serializer_fuzz --output-on-failure
+```
+
+`fuzz_corpus_generator` writes named deterministic seeds under
+`<build>/qualification/corpus/seeds/<target>`. It uses actual generated encoders,
+checks full record seeds decode, and includes every strict prefix of those records,
+compact-width boundaries, six restrictive budgets, malformed fields/UTF-8/escapes,
+and scalar/SSE2/AVX2 transition sizes. The `serializer_fuzz_corpus` build target also
+runs generation. Use a fresh output directory for a pristine corpus after changing
+the generator; it overwrites its named seeds but does not delete other files.
+
+CTest's fixture first generates seeds, then each target replays its corpus with
+`-runs=0`. For a bounded mutation campaign, keep discoveries and crash artifacts
+separate from the deterministic seeds:
+
+```sh
+build=out/build/fuzz-clang
+for target in codec_fuzz view_fuzz protobuf_fuzz runtime_simd_fuzz; do
+  mkdir -p "$build/qualification/corpus/discoveries/$target" "$build/qualification/artifacts/$target"
+  "$build/qualification/$target" -seed=12345 -runs=20000 -max_len=4099 \
+    -timeout=10 -rss_limit_mb=2048 \
+    -artifact_prefix="$build/qualification/artifacts/$target/" \
+    "$build/qualification/corpus/discoveries/$target" \
+    "$build/qualification/corpus/seeds/$target" || exit 1
+done
+```
+
+Repeat with `-DSERIALIZER_ENABLE_SIMD=OFF` in a separate build directory. A fixed
+random seed and pristine initial corpus make a run reproducible for the same
+toolchain/build; compiler, platform, or corpus changes can alter mutations. Save
+commands, tool versions, flags, exit status, and final libFuzzer statistics. These
+bounded runs do not establish exhaustive coverage or security qualification.
 
 ## Measurement-dependent decisions
 

@@ -96,31 +96,31 @@ constexpr bool is_identifier(const char val) noexcept {
   return is_number(val) || is_capital_alphabet(val) || is_small_alphabet(val) || val == '_';
 }
 // Test for the ASCII whitespace characters accepted by the parser.
-bool is_whitespace(const stream& in_stream) {
+bool is_whitespace(const rohit::type_check::schema_input_buffer auto& in_stream) {
   return !in_stream.full() && is_whitespace(*in_stream);
 }
 // Test whether a character is an ASCII decimal digit.
-bool is_number(const stream& in_stream) {
+bool is_number(const rohit::type_check::schema_input_buffer auto& in_stream) {
   return !in_stream.full() && is_number(*in_stream);
 }
 // Test whether a character is an ASCII lowercase letter.
-bool is_small_alphabet(const stream& in_stream) {
+bool is_small_alphabet(const rohit::type_check::schema_input_buffer auto& in_stream) {
   return !in_stream.full() && is_small_alphabet(*in_stream);
 }
 // Test whether a character is an ASCII uppercase letter.
-bool is_capital_alphabet(const stream& in_stream) {
+bool is_capital_alphabet(const rohit::type_check::schema_input_buffer auto& in_stream) {
   return !in_stream.full() && is_capital_alphabet(*in_stream);
 }
 // Test whether a character can begin a schema identifier.
-bool is_first_identifier(const stream& in_stream) {
+bool is_first_identifier(const rohit::type_check::schema_input_buffer auto& in_stream) {
   return !in_stream.full() && is_first_identifier(*in_stream);
 }
 // Test whether a character can continue a schema identifier.
-bool is_identifier(const stream& in_stream) {
+bool is_identifier(const rohit::type_check::schema_input_buffer auto& in_stream) {
   return !in_stream.full() && is_identifier(*in_stream);
 }
 // Advance past whitespace before the next token.
-void skip_whitespace(const stream& in_stream) {
+void skip_whitespace(const rohit::type_check::schema_input_buffer auto& in_stream) {
   const auto size = detail::scan_prefix<detail::scan_kind::whitespace>(
       in_stream.curr(), in_stream.remaining_buffer());
   in_stream.advance_unchecked(size);
@@ -136,7 +136,7 @@ bool check_number(const std::string& number_text) {
 }
 
 // Read an identifier or quoted spelling from a member specification.
-auto get_member_spec_token(const stream& in_stream) {
+auto get_member_spec_token(const rohit::type_check::schema_input_buffer auto& in_stream) {
   bool is_string{false};
   if (*in_stream == '"') {
     is_string = true;
@@ -156,7 +156,7 @@ auto get_member_spec_token(const stream& in_stream) {
 }
 
 // Consume complete whitespace and comment spans, including a final line comment at EOF.
-void skip_whitespace_and_comment(const stream& input) {
+void skip_whitespace_and_comment(const rohit::type_check::schema_input_buffer auto& input) {
   while (!input.full()) {
     if (is_whitespace(*input)) {
       skip_whitespace(input);
@@ -198,7 +198,7 @@ void skip_whitespace_and_comment(const stream& input) {
   }
 }
 // Preserve initializer spelling, including whitespace and braces inside quoted literals.
-std::string get_default_value(const stream& in_stream) {
+std::string get_default_value(const rohit::type_check::schema_input_buffer auto& in_stream) {
   std::string default_value{};
   if (in_stream.full() || *in_stream != '{') {
     return default_value;
@@ -242,7 +242,7 @@ std::string get_default_value(const stream& in_stream) {
 } // get_default_value
 
 // Consume the expected character or throw a parser diagnostic.
-void check_and_increase(const stream& in_stream, char value) {
+void check_and_increase(const rohit::type_check::schema_input_buffer auto& in_stream, char value) {
   if (*in_stream != value) {
     std::string error_text{"Expected: "};
     error_text.push_back(value);
@@ -255,7 +255,7 @@ void check_and_increase(const stream& in_stream, char value) {
 
 // Parse number from the schema input; malformed input throws.
 template <std::integral T>
-T parse_number(const stream& in_stream) {
+T parse_number(const rohit::type_check::schema_input_buffer auto& in_stream) {
   T ret{0};
   while (is_number(*in_stream)) {
     ret = ret * 10 + (*in_stream - '0');
@@ -265,7 +265,7 @@ T parse_number(const stream& in_stream) {
 }
 
 // Parse identifier from the schema input; malformed input throws.
-std::string parse_identifier(const stream& in_stream) {
+std::string parse_identifier_impl(const rohit::type_check::schema_input_buffer auto& in_stream) {
   if (in_stream.full()) {
     throw exception::bad_identifier{in_stream, "Expected an identifier before end of input"};
   }
@@ -280,10 +280,11 @@ std::string parse_identifier(const stream& in_stream) {
   std::string identifier{reinterpret_cast<const char*>(in_stream.curr()), size};
   in_stream.advance_unchecked(size);
   return identifier;
-} // parse_identifier
+} // parse_identifier_impl
 
 // Parse hierarchical identifier from the schema input; malformed input throws.
-std::string parse_hierarchical_identifier(const stream& in_stream) {
+std::string
+parse_hierarchical_identifier_impl(const rohit::type_check::schema_input_buffer auto& in_stream) {
   if (in_stream.full()) {
     throw exception::bad_identifier{in_stream, "Expected an identifier before end of input"};
   }
@@ -318,15 +319,16 @@ std::string parse_hierarchical_identifier(const stream& in_stream) {
   }
   // The cursor only advances within the original range, including namespace separators.
   return {reinterpret_cast<const char*>(begin), available - in_stream.remaining_buffer()};
-} // parse_hierarchical_identifier
+} // parse_hierarchical_identifier_impl
 
 // Invoke the callback for each whitespace-separated identifier.
-void space_separated_identifier(const stream& in_stream, std::function<void(std::string&&)> fn) {
+void space_separated_identifier_impl(const rohit::type_check::schema_input_buffer auto& in_stream,
+                                     std::function<void(std::string&&)> fn) {
   if (!is_first_identifier(in_stream)) {
     return;
   }
   while (true) {
-    auto identifier = parse_identifier(in_stream);
+    auto identifier = parse_identifier_impl(in_stream);
     fn(std::move(identifier));
     if (!is_whitespace(in_stream)) {
       break;
@@ -337,10 +339,10 @@ void space_separated_identifier(const stream& in_stream, std::function<void(std:
     }
   }
   return;
-} // space_separated_identifier
+} // space_separated_identifier_impl
 
-access_type parse_access_type(const stream& in_stream) {
-  auto access_type = parse_identifier(in_stream);
+access_type parse_access_type_impl(const rohit::type_check::schema_input_buffer auto& in_stream) {
+  auto access_type = parse_identifier_impl(in_stream);
   if (access_type == "public") {
     return access_type::public_access;
   }
@@ -355,7 +357,7 @@ access_type parse_access_type(const stream& in_stream) {
       "sensitive. Unknown access type: "};
   error_text += access_type;
   throw exception::bad_access_type{in_stream, error_text};
-} // parse_access_type
+} // parse_access_type_impl
 
 // Parse member modifier from the schema input; malformed input throws.
 auto parse_member_modifier(const std::string& type) {
@@ -370,19 +372,20 @@ auto parse_member_modifier(const std::string& type) {
 } // parse_member_modifier
 
 // Parse member type union from the schema input; malformed input throws.
-void parse_member_type_union(const stream& in_stream, namespace_node* declared_namespace,
+void parse_member_type_union(const rohit::type_check::schema_input_buffer auto& in_stream,
+                             namespace_node* declared_namespace,
                              std::vector<type_name>& type_name_list) {
   skip_whitespace_and_comment(in_stream);
   check_and_increase(in_stream, '(');
   int count{0};
   while (true) {
     skip_whitespace_and_comment(in_stream);
-    auto type_name = parse_hierarchical_identifier(in_stream);
+    auto type_name = parse_hierarchical_identifier_impl(in_stream);
     skip_whitespace_and_comment(in_stream);
     if (*in_stream == '=') {
       ++in_stream;
       skip_whitespace_and_comment(in_stream);
-      auto enum_name = parse_identifier(in_stream);
+      auto enum_name = parse_identifier_impl(in_stream);
       type_name_list.emplace_back(std::move(type_name), std::move(enum_name), declared_namespace);
       skip_whitespace_and_comment(in_stream);
     } else {
@@ -399,20 +402,22 @@ void parse_member_type_union(const stream& in_stream, namespace_node* declared_n
 } // parse_member_type_union
 
 // Parse member type map from the schema input; malformed input throws.
-void parse_member_type_map(const stream& in_stream, namespace_node* declared_namespace,
+void parse_member_type_map(const rohit::type_check::schema_input_buffer auto& in_stream,
+                           namespace_node* declared_namespace,
                            std::vector<type_name>& type_name_list, std::string& key) {
   skip_whitespace_and_comment(in_stream);
   check_and_increase(in_stream, '(');
   skip_whitespace_and_comment(in_stream);
-  key = parse_hierarchical_identifier(in_stream);
+  key = parse_hierarchical_identifier_impl(in_stream);
   check_and_increase(in_stream, ')');
   skip_whitespace_and_comment(in_stream);
-  auto type_name = parse_hierarchical_identifier(in_stream);
+  auto type_name = parse_hierarchical_identifier_impl(in_stream);
   type_name_list.emplace_back(std::move(type_name), declared_namespace);
 } // parse_member_type_map
 
 // Reject unrepresentable field IDs and keys reserved for object terminators.
-void validate_field_key(const stream& in_stream, std::uint32_t id, std::string_view display_name) {
+void validate_field_key(const rohit::type_check::schema_input_buffer auto& in_stream,
+                        std::uint32_t id, std::string_view display_name) {
   if (id == constants::binary_object_end_id || id > constants::variable_four_byte_max) {
     throw exception::bad_member_spec{in_stream, "Field IDs must be in the range 1 to 0x3fffffff"};
   }
@@ -422,8 +427,8 @@ void validate_field_key(const stream& in_stream, std::uint32_t id, std::string_v
 }
 
 // Parse a wire name and decimal ID without narrowing or overflowing the numeric token.
-void parse_name_spec(const stream& in_stream, std::uint32_t& new_id, std::string& display_name,
-                     bool& explicit_id) {
+void parse_name_spec(const rohit::type_check::schema_input_buffer auto& in_stream,
+                     std::uint32_t& new_id, std::string& display_name, bool& explicit_id) {
   check_and_increase(in_stream, '(');
   bool string_parsed{false};
   bool number_parsed{false};
@@ -466,11 +471,11 @@ void parse_name_spec(const stream& in_stream, std::uint32_t& new_id, std::string
   check_and_increase(in_stream, ')');
 } // parse_name_spec
 
-member parse_member(const stream& in_stream, const std::uint32_t id,
-                    namespace_node* declared_namespace) {
-  auto access = parse_access_type(in_stream);
+member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_stream,
+                         const std::uint32_t id, namespace_node* declared_namespace) {
+  auto access = parse_access_type_impl(in_stream);
   skip_whitespace_and_comment(in_stream);
-  auto next_identifier = parse_hierarchical_identifier(in_stream);
+  auto next_identifier = parse_hierarchical_identifier_impl(in_stream);
   std::vector<std::string> enum_name_list{};
   std::vector<type_name> type_name_list{};
   auto member_modifier = parse_member_modifier(next_identifier);
@@ -479,7 +484,7 @@ member parse_member(const stream& in_stream, const std::uint32_t id,
     type_name_list.emplace_back(std::move(next_identifier), declared_namespace);
   } else if (member_modifier == member::modifier_type::array) {
     skip_whitespace_and_comment(in_stream);
-    auto type_name = parse_hierarchical_identifier(in_stream);
+    auto type_name = parse_hierarchical_identifier_impl(in_stream);
     type_name_list.emplace_back(std::move(type_name), declared_namespace);
   } else if (member_modifier == member::modifier_type::map) {
     parse_member_type_map(in_stream, declared_namespace, type_name_list, key);
@@ -487,7 +492,7 @@ member parse_member(const stream& in_stream, const std::uint32_t id,
     parse_member_type_union(in_stream, declared_namespace, type_name_list);
   }
   skip_whitespace_and_comment(in_stream);
-  auto name = parse_identifier(in_stream);
+  auto name = parse_identifier_impl(in_stream);
   auto display_name = name;
   std::uint32_t new_id{id};
   bool parsed_member_spec{false};
@@ -517,11 +522,11 @@ member parse_member(const stream& in_stream, const std::uint32_t id,
   validate_field_key(in_stream, new_id, display_name);
   return {access, member_modifier, type_name_list, name, display_name, new_id, key, default_value,
           explicit_id};
-} // parse_member
+} // parse_member_impl
 
 // Read a declaration keyword and distinguish misplaced includes from unknown declarations.
-object_type parse_object_type(const stream& in_stream) {
-  auto object_type = parse_identifier(in_stream);
+object_type parse_object_type(const rohit::type_check::schema_input_buffer auto& in_stream) {
+  auto object_type = parse_identifier_impl(in_stream);
   if (object_type == "class") {
     return object_type::class_type;
   }
@@ -542,7 +547,8 @@ object_type parse_object_type(const stream& in_stream) {
 } // parse_object_type
 
 // Parse class body from the schema input; malformed input throws.
-void parse_class_body(const stream& in_stream, class_node* obj, std::uint32_t& id) {
+void parse_class_body_impl(const rohit::type_check::schema_input_buffer auto& in_stream,
+                           class_node* obj, std::uint32_t& id) {
   if (*in_stream != '{') {
     std::string error_text{"Expecting '{' found: "};
     error_text += *in_stream;
@@ -551,7 +557,7 @@ void parse_class_body(const stream& in_stream, class_node* obj, std::uint32_t& i
   ++in_stream;
   skip_whitespace_and_comment(in_stream);
   while (*in_stream != '}') {
-    auto member = parse_member(in_stream, id++, obj->parent_namespace);
+    auto member = parse_member_impl(in_stream, id++, obj->parent_namespace);
     obj->member_list.push_back(std::move(member));
     skip_whitespace_and_comment(in_stream);
   }
@@ -561,11 +567,11 @@ void parse_class_body(const stream& in_stream, class_node* obj, std::uint32_t& i
   }
 }
 
-parent parse_parent(const stream& in_stream, namespace_node* current_namespace,
-                    const std::uint32_t id) {
-  auto access = parse_access_type(in_stream);
+parent parse_parent(const rohit::type_check::schema_input_buffer auto& in_stream,
+                    namespace_node* current_namespace, const std::uint32_t id) {
+  auto access = parse_access_type_impl(in_stream);
   skip_whitespace_and_comment(in_stream);
-  auto full_name = parse_hierarchical_identifier(in_stream);
+  auto full_name = parse_hierarchical_identifier_impl(in_stream);
   std::string display_name = full_name;
   std::uint32_t new_id = id;
   bool explicit_id{false};
@@ -579,8 +585,8 @@ parent parse_parent(const stream& in_stream, namespace_node* current_namespace,
 }
 
 // Parse parent list from the schema input; malformed input throws.
-std::vector<parent> parse_parent_list(const stream& in_stream, namespace_node* current_namespace,
-                                      std::uint32_t& id) {
+std::vector<parent> parse_parent_list(const rohit::type_check::schema_input_buffer auto& in_stream,
+                                      namespace_node* current_namespace, std::uint32_t& id) {
   std::vector<parent> ret{};
   if (!is_first_identifier(in_stream)) {
     return ret;
@@ -599,14 +605,15 @@ std::vector<parent> parse_parent_list(const stream& in_stream, namespace_node* c
 
 // Parse class header from the schema input; malformed input throws.
 std::unique_ptr<class_node>
-parse_class_header(const stream& in_stream, namespace_node* current_namespace, std::uint32_t& id) {
+parse_class_header(const rohit::type_check::schema_input_buffer auto& in_stream,
+                   namespace_node* current_namespace, std::uint32_t& id) {
   // Object type is already parsed
   skip_whitespace_and_comment(in_stream);
-  auto name = parse_identifier(in_stream);
+  auto name = parse_identifier_impl(in_stream);
   skip_whitespace_and_comment(in_stream);
   auto attributes{class_attributes::none};
   bool view{}, owning{}, readonly{}, mutable_view{};
-  space_separated_identifier(in_stream, [&](std::string&& value) {
+  space_separated_identifier_impl(in_stream, [&](std::string&& value) {
     if (value == "packed") {
       attributes |= class_attributes::packed;
     } else if (value == "stable_ids") {
@@ -651,7 +658,8 @@ parse_class_header(const stream& in_stream, namespace_node* current_namespace, s
 }
 
 // Reject ambiguous field identity, including collisions between explicit and implicit IDs.
-void validate_class_keys(const stream& input, const class_node& obj) {
+void validate_class_keys(const rohit::type_check::schema_input_buffer auto& input,
+                         const class_node& obj) {
   std::unordered_set<std::uint32_t> ids;
   std::unordered_set<std::string> names;
   const bool stable = (obj.attributes & class_attributes::stable_ids) == class_attributes::stable_ids;
@@ -689,27 +697,30 @@ void validate_class_keys(const stream& input, const class_node& obj) {
 }
 
 // Register source declarations before parsing their bodies; reopened namespace scopes are shared.
-void register_declaration(const stream& input, syntax_node& node,
+void register_declaration(const rohit::type_check::schema_input_buffer auto& input,
+                          syntax_node& node,
                           std::unordered_map<std::string, syntax_node*>& symbols);
 
 // Parse class from the schema input; malformed input or an occupied name throws at creation.
 std::unique_ptr<class_node>
-parse_class(const stream& in_stream, namespace_node* current_namespace,
+parse_class(const rohit::type_check::schema_input_buffer auto& in_stream,
+            namespace_node* current_namespace,
             std::unordered_map<std::string, syntax_node*>& declarations) {
   std::uint32_t id{1};
   auto obj = parse_class_header(in_stream, current_namespace, id);
   register_declaration(in_stream, *obj, declarations);
   // At this point all whitespace is skipped
-  parse_class_body(in_stream, obj.get(), id);
+  parse_class_body_impl(in_stream, obj.get(), id);
   validate_class_keys(in_stream, *obj);
   return obj;
 }
 
 // Parse enum from the schema input; malformed input throws.
-std::unique_ptr<enum_node> parse_enum(const stream& in_stream, namespace_node* current_namespace,
+std::unique_ptr<enum_node> parse_enum(const rohit::type_check::schema_input_buffer auto& in_stream,
+                                      namespace_node* current_namespace,
                                       std::unordered_map<std::string, syntax_node*>& declarations) {
   skip_whitespace_and_comment(in_stream);
-  auto enum_name = parse_identifier(in_stream);
+  auto enum_name = parse_identifier_impl(in_stream);
   auto ret = std::make_unique<enum_node>(object_type::enum_type, std::move(enum_name),
                                          current_namespace, std::vector<std::string>{});
   register_declaration(in_stream, *ret, declarations);
@@ -724,7 +735,7 @@ std::unique_ptr<enum_node> parse_enum(const stream& in_stream, namespace_node* c
   std::unordered_set<std::string> enum_names;
   if (*in_stream != '}') {
     while (true) {
-      auto name = parse_identifier(in_stream);
+      auto name = parse_identifier_impl(in_stream);
       if (!enum_names.insert(name).second) {
         throw exception::bad_member_spec{in_stream, "Duplicate enum name"};
       }
@@ -754,12 +765,14 @@ std::unique_ptr<enum_node> parse_enum(const stream& in_stream, namespace_node* c
 
 // Parse namespace from the schema input; malformed input throws.
 std::unique_ptr<namespace_node>
-parse_namespace(const stream& in_stream, namespace_node* parent_namespace,
+parse_namespace(const rohit::type_check::schema_input_buffer auto& in_stream,
+                namespace_node* parent_namespace,
                 std::unordered_map<std::string, syntax_node*>& declarations);
 
 // Parse statement list from the schema input; malformed input throws.
 std::vector<std::unique_ptr<syntax_node>>
-parse_statement_list(const stream& in_stream, namespace_node* parent_namespace,
+parse_statement_list(const rohit::type_check::schema_input_buffer auto& in_stream,
+                     namespace_node* parent_namespace,
                      std::unordered_map<std::string, syntax_node*>& declarations) {
   std::vector<std::unique_ptr<syntax_node>> statements{};
   while (true) {
@@ -786,11 +799,12 @@ parse_statement_list(const stream& in_stream, namespace_node* parent_namespace,
 
 // Parse namespace from the schema input; malformed input throws.
 std::unique_ptr<namespace_node>
-parse_namespace(const stream& in_stream, namespace_node* parent_namespace,
+parse_namespace(const rohit::type_check::schema_input_buffer auto& in_stream,
+                namespace_node* parent_namespace,
                 std::unordered_map<std::string, syntax_node*>& declarations) {
   // Object type is already parsed
   skip_whitespace_and_comment(in_stream);
-  auto name = parse_hierarchical_identifier(in_stream);
+  auto name = parse_hierarchical_identifier_impl(in_stream);
   skip_whitespace_and_comment(in_stream);
   if (*in_stream != '{') {
     std::string error_text{"Expecting '{' found: "};
@@ -836,7 +850,8 @@ parse_namespace(const stream& in_stream, namespace_node* parent_namespace,
 } // parse_namespace
 
 // Resolve an unresolved primitive type or throw an unknown-type diagnostic.
-void check_member_type_for_primitive(const stream& in_stream, type_name& type_name) {
+void check_member_type_for_primitive(const rohit::type_check::schema_input_buffer auto& in_stream,
+                                     type_name& type_name) {
   if (type_name.type != object_type::unresolved) {
     return;
   }
@@ -864,7 +879,7 @@ syntax_node* find_declared_type(const std::string& name, namespace_node* current
 }
 
 // Preserve resolved declaration identity so generated nested classes select the correct mode.
-void resolve_type(const stream& input, type_name& type,
+void resolve_type(const rohit::type_check::schema_input_buffer auto& input, type_name& type,
                   const std::unordered_map<std::string, syntax_node*>& types) {
   if (auto* node = find_declared_type(type.name, type.declared_namespace, types)) {
     if (node->type == object_type::namespace_type) {
@@ -878,8 +893,8 @@ void resolve_type(const stream& input, type_name& type,
 }
 
 // Require every nested class to provide the representation used by its containing class.
-void validate_nested_modes(const stream& input, const class_node& owner,
-                           const syntax_node* node, bool map_key = false) {
+void validate_nested_modes(const rohit::type_check::schema_input_buffer auto& input,
+                           const class_node& owner, const syntax_node* node, bool map_key = false) {
   if (!node || node->type != object_type::class_type) { return; }
   const auto& nested = static_cast<const class_node&>(*node);
   for (const auto mode : {storage_mode::owning, storage_mode::read_only_view, storage_mode::mutable_view}) {
@@ -892,7 +907,8 @@ void validate_nested_modes(const stream& input, const class_node& owner,
 }
 
 // Reject generated view accessors that would collide with each other or the mapping API.
-void validate_view_names(const stream& input, const class_node& obj) {
+void validate_view_names(const rohit::type_check::schema_input_buffer auto& input,
+                         const class_node& obj) {
   if (obj.storage_modes == static_cast<std::uint8_t>(storage_mode::owning)) { return; }
   std::unordered_set<std::string> names{"map", "serializer_scan", "serialized_bytes",
       "serialize_out", "wire_endian", "key_type", "view_base", "view_byte", "view_limits"};
@@ -921,7 +937,8 @@ void validate_view_names(const stream& input, const class_node& obj) {
 
 // Reuse the existing symbol table for namespace scopes as well as class and enum declarations.
 // Reopening a namespace is valid; every other duplicate qualified name is a schema error.
-void register_declaration(const stream& input, syntax_node& node,
+void register_declaration(const rohit::type_check::schema_input_buffer auto& input,
+                          syntax_node& node,
                           std::unordered_map<std::string, syntax_node*>& symbols) {
   const auto full_name = node.get_full_name();
   const bool is_namespace = node.type == object_type::namespace_type;
@@ -947,7 +964,7 @@ void register_declaration(const stream& input, syntax_node& node,
 }
 
 // Resolve member types against the discovered namespace and type declarations.
-void resolve_member(const stream& in_stream,
+void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream,
                     std::vector<std::unique_ptr<rohit::serializer::syntax_node>>& statements,
                     std::unordered_map<std::string, syntax_node*>& variable_type_map) {
   for (auto& statement : statements) {
@@ -996,7 +1013,7 @@ void resolve_member(const stream& in_stream,
 
 // Consume the leading version statement before any declarations; comments may precede it.
 // Bound every read so incomplete headers report schema errors instead of stream overflow.
-void parse_version_header(const stream& input, bool required) {
+void parse_version_header(const rohit::type_check::schema_input_buffer auto& input, bool required) {
   skip_whitespace_and_comment(input);
   if (!(input == "serializer")) {
     if (required) {
@@ -1037,15 +1054,15 @@ void parse_version_header(const stream& input, bool required) {
 
 namespace {
 // Recognize an include keyword without accepting identifiers beginning with that spelling.
-bool starts_include(const stream& input) {
+bool starts_include(const rohit::type_check::schema_input_buffer auto& input) {
   constexpr std::string_view keyword{"include"};
   return input == keyword && (input.remaining_buffer() == keyword.size() ||
                               !is_identifier(static_cast<char>(input.curr()[keyword.size()])));
 }
 
 // Read a portable unquoted relative schema path, allowing comments between directive tokens.
-std::filesystem::path parse_include(const stream& input) {
-  static_cast<void>(parse_identifier(input));
+std::filesystem::path parse_include(const rohit::type_check::schema_input_buffer auto& input) {
+  static_cast<void>(parse_identifier_impl(input));
   skip_whitespace_and_comment(input);
   std::string value{};
   while (!input.full()) {
@@ -1144,7 +1161,8 @@ parsed_schema parse_file(const std::filesystem::path& path) {
 }
 
 // Parse schema declarations and resolve their member types; malformed input throws.
-std::vector<std::unique_ptr<syntax_node>> parse(const stream& in_stream, bool require_version) {
+std::vector<std::unique_ptr<syntax_node>>
+parse_schema(const rohit::type_check::schema_input_buffer auto& in_stream, bool require_version) {
   parse_version_header(in_stream, require_version);
   std::unordered_map<std::string, syntax_node*> declarations{};
   auto statements = parse_statement_list(in_stream, nullptr, declarations);
@@ -1156,10 +1174,70 @@ std::vector<std::unique_ptr<syntax_node>> parse(const stream& in_stream, bool re
   return statements;
 }
 
-// Preserve the library's fragment-parsing entry point while validating any supplied header.
-std::vector<std::unique_ptr<syntax_node>> parse(const stream& in_stream) {
-  return parse(in_stream, false);
+namespace detail {
+// Track the internal scanner's progress without imposing its type on public callers.
+template <rohit::type_check::input_buffer Input>
+struct consumed_progress {
+  const Input& input;
+  const std::size_t initial_bytes;
+  std::size_t& consumed;
+  // Record exactly the bytes consumed before normal return or stack unwinding.
+  ~consumed_progress() {
+    consumed = initial_bytes - input.remaining_buffer();
+  }
+};
+
+// Normalize a byte span once; parser internals retain checked cursor and SIMD operations.
+template <typename Parse>
+decltype(auto) scan_bytes(std::span<const std::uint8_t> bytes, std::size_t& consumed,
+                          Parse&& parse) {
+  const auto input = make_constant_full_stream(bytes.data(), bytes.size());
+  const consumed_progress<full_stream> progress{input, bytes.size(), consumed};
+  return parse(input);
 }
 
+// Compile one schema while retaining checked progress for the caller's independent cursor.
+std::vector<std::unique_ptr<syntax_node>> parse_bytes(std::span<const std::uint8_t> bytes,
+                                                      std::size_t& consumed, bool require_version) {
+  return scan_bytes(bytes, consumed, [require_version](const auto& input) {
+    return parse_schema(input, require_version);
+  });
+}
+// Dispatch a single identifier scan.
+std::string identifier_bytes(std::span<const std::uint8_t> bytes, std::size_t& consumed) {
+  return scan_bytes(bytes, consumed,
+                    [](const auto& input) { return parse_identifier_impl(input); });
+}
+// Dispatch a qualified identifier scan.
+std::string hierarchical_identifier_bytes(std::span<const std::uint8_t> bytes,
+                                          std::size_t& consumed) {
+  return scan_bytes(bytes, consumed,
+                    [](const auto& input) { return parse_hierarchical_identifier_impl(input); });
+}
+// Dispatch identifier callbacks without retaining them after this call.
+void identifiers_bytes(std::span<const std::uint8_t> bytes, std::size_t& consumed,
+                       std::function<void(std::string&&)> callback) {
+  scan_bytes(bytes, consumed, [&callback](const auto& input) {
+    space_separated_identifier_impl(input, std::move(callback));
+  });
+}
+// Dispatch one access-keyword scan.
+access_type access_bytes(std::span<const std::uint8_t> bytes, std::size_t& consumed) {
+  return scan_bytes(bytes, consumed,
+                    [](const auto& input) { return parse_access_type_impl(input); });
+}
+// Dispatch one member scan with its surrounding namespace and starting identifier.
+member member_bytes(std::span<const std::uint8_t> bytes, std::size_t& consumed, std::uint32_t id,
+                    namespace_node* declared_namespace) {
+  return scan_bytes(bytes, consumed, [=](const auto& input) {
+    return parse_member_impl(input, id, declared_namespace);
+  });
+}
+// Dispatch a class-body scan and share the caller's next identifier.
+void class_body_bytes(std::span<const std::uint8_t> bytes, std::size_t& consumed,
+                      class_node* object, std::uint32_t& id) {
+  scan_bytes(bytes, consumed, [&](const auto& input) { parse_class_body_impl(input, object, id); });
+}
+} // namespace detail
 } // namespace parser
 } // namespace rohit::serializer

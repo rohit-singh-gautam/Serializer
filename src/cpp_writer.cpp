@@ -166,7 +166,8 @@ public:
   }
 
   // Emit C++ access type for the parsed schema.
-  void write_access_type(stream& out_stream, const access_type access) {
+  void write_access_type(rohit::type_check::output_buffer auto& out_stream,
+                         const access_type access) {
     switch (access) {
     default:
     case access_type::public_access:
@@ -184,7 +185,8 @@ public:
   }
 
   // Emit C++ parent list for the parsed schema.
-  void write_parent_list(stream& out_stream, const std::vector<parent>& parents) {
+  void write_parent_list(rohit::type_check::output_buffer auto& out_stream,
+                         const std::vector<parent>& parents) {
     bool first{true};
     for (const auto& parent : parents) {
       if (first) {
@@ -198,7 +200,8 @@ public:
   }
 
   // Emit C++ member list for the parsed schema.
-  void write_member_list(stream& out_stream, const std::vector<member>& members) {
+  void write_member_list(rohit::type_check::output_buffer auto& out_stream,
+                         const std::vector<member>& members) {
     access_type last_access{access_type::private_access};
 
     for (const auto& member : members) {
@@ -227,7 +230,8 @@ public:
   }
 
   // Emit C++ serializer out body for parent for the parsed schema.
-  void write_serializer_out_body_for_parent(stream& out_stream, const class_node* obj,
+  void write_serializer_out_body_for_parent(rohit::type_check::output_buffer auto& out_stream,
+                                            const class_node* obj,
                                             const rohit::serializer::serialize_key_type key_type,
                                             bool& first) {
     for (const auto& parent : obj->parents) {
@@ -260,7 +264,8 @@ public:
   }
 
   // Emit C++ serializer out body non union for the parsed schema.
-  void write_serializer_out_body_non_union(stream& out_stream, const member& member,
+  void write_serializer_out_body_non_union(rohit::type_check::output_buffer auto& out_stream,
+                                           const member& member,
                                            const rohit::serializer::serialize_key_type key_type,
                                            bool& first) {
     if (first) {
@@ -295,8 +300,9 @@ public:
   }
 
   // Emit only the active union payload, preserving original wire names and numeric alternatives.
-  void write_serializer_out_body_union(stream& output, const member& field,
-                                       serialize_key_type key_type, bool& first) {
+  void write_serializer_out_body_union(rohit::type_check::output_buffer auto& output,
+                                       const member& field, serialize_key_type key_type,
+                                       bool& first) {
     output.write("\n      switch (this->", union_tag_name(field), ") {\n");
     for (std::size_t index = 0; index < field.type_name_list.size(); ++index) {
       const auto& alternative = field.type_name_list[index];
@@ -366,8 +372,8 @@ public:
   }
 
   // Use a protocol batch hook when available; preserve JSON and custom protocol framing otherwise.
-  void write_fixed_output(stream& output, std::span<const member> fields, serialize_key_type keys,
-                          bool& first) {
+  void write_fixed_output(rohit::type_check::output_buffer auto& output,
+                          std::span<const member> fields, serialize_key_type keys, bool& first) {
     const auto call = local_name("serializer_protocol") + ".struct_serialize_out_fixed(" +
                       fixed_output_arguments(fields, keys) + ");";
     output.write("\n      if constexpr (requires { ", call, " }) {\n        ", call,
@@ -379,7 +385,8 @@ public:
   }
 
   // Emit C++ serializer out body for the parsed schema.
-  void write_serializer_out_body(stream& out_stream, const class_node* obj,
+  void write_serializer_out_body(rohit::type_check::output_buffer auto& out_stream,
+                                 const class_node* obj,
                                  const rohit::serializer::serialize_key_type key_type) {
     bool first = true;
     write_serializer_out_body_for_parent(out_stream, obj, key_type, first);
@@ -404,7 +411,8 @@ public:
   }
 
   // Emit direct field writes selected at compile time by the output protocol type.
-  void write_serializer_out_body(stream& out_stream, const class_node* obj) {
+  void write_serializer_out_body(rohit::type_check::output_buffer auto& out_stream,
+                                 const class_node* obj) {
     out_stream.write(
         (std::string{
              "  // Encode fields directly using the protocol's compile-time key mode.\n  template "
@@ -431,19 +439,19 @@ public:
                      "::rohit::serializer::serialize_key_type::string) {");
     write_serializer_out_body(out_stream, obj, rohit::serializer::serialize_key_type::string);
     out_stream.write("\n    }\n  }\n\n");
-    out_stream.write(
-        (std::string{"  // Construct the requested protocol and write this object.\n  template "
-                     "<template <::rohit::serializer::serialize_type> class Protocol>\n  void "
-                     "serialize_out(::rohit::stream& "} +
-         local_name("stream") + ") const {\n    using " + type_name("serializer_out_protocol") +
-         " = Protocol<::rohit::serializer::serialize_type::out>;\n    " +
-         type_name("serializer_out_protocol") + " " + local_name("serializer_protocol") + "{" +
-         local_name("stream") + "};\n    serialize_out(" + local_name("serializer_protocol") +
-         ");\n  }\n\n"));
+    out_stream.write("  // Encode to a buffer or byte sink satisfying the output stream concept.\n"
+                     "  template <template <::rohit::serializer::serialize_type> class Protocol,\n"
+                     "            ::rohit::type_check::output_stream SerializerStream>\n"
+                     "  void serialize_out(SerializerStream& ",
+                     local_name("stream"),
+                     ") const {\n"
+                     "    ::rohit::serializer::serialize_to<Protocol>(",
+                     local_name("stream"), ", *this);\n  }\n\n");
   }
 
   // Pass a matching base donor without adding a protocol value charge for the parent.
-  void write_parent_input(stream& output, const parent& base, std::string_view indent) {
+  void write_parent_input(rohit::type_check::output_buffer auto& output, const parent& base,
+                          std::string_view indent) {
     const auto base_type = storage_type_name(base.name, base.parent_class);
     output.write(indent, "if constexpr (::std::is_same_v<StorageSource, ::std::nullptr_t>) {\n",
                  indent, "  static_cast<", base_type, "*>(this)->serialize_in(",
@@ -454,8 +462,8 @@ public:
   }
 
   // Donate a present field's storage; absent keyed fields retain the fresh candidate's defaults.
-  void write_field_input(stream& output, const member& field, std::string_view indent,
-                         bool explicit_type = true) {
+  void write_field_input(rohit::type_check::output_buffer auto& output, const member& field,
+                         std::string_view indent, bool explicit_type = true) {
     const auto cpp_type = get_cpp_type(field);
     const bool has_storage = field.modifier == member::modifier_type::array ||
                              field.modifier == member::modifier_type::map ||
@@ -477,14 +485,18 @@ public:
   }
 
   // Emit C++ serializer in body for parent key none for the parsed schema.
-  void write_serializer_in_body_for_parent_key_none(stream& out_stream, const class_node* obj) {
+  void
+  write_serializer_in_body_for_parent_key_none(rohit::type_check::output_buffer auto& out_stream,
+                                               const class_node* obj) {
     for (const auto& parent : obj->parents) {
       write_parent_input(out_stream, parent, "      ");
     }
   }
 
   // Emit C++ serializer in body for parent key integer for the parsed schema.
-  void write_serializer_in_body_for_parent_key_integer(stream& out_stream, const class_node* obj) {
+  void
+  write_serializer_in_body_for_parent_key_integer(rohit::type_check::output_buffer auto& out_stream,
+                                                  const class_node* obj) {
     for (const auto& parent : obj->parents) {
       out_stream.write("      case ", parent.id, ":\n");
       write_parent_input(out_stream, parent, "        ");
@@ -493,19 +505,23 @@ public:
   } // write_serializer_in_body_for_parent_key_integer
 
   // Emit C++ serializer in body non union key integer for the parsed schema.
-  void write_serializer_in_body_non_union_key_integer(stream& out_stream, const member& member) {
+  void
+  write_serializer_in_body_non_union_key_integer(rohit::type_check::output_buffer auto& out_stream,
+                                                 const member& member) {
     out_stream.write("      case ", member.id, ":\n");
     write_field_input(out_stream, member, "        ");
     out_stream.write("        break;\n");
   } // write_serializer_in_body_non_union_key_integer
 
   // Emit C++ serializer in body non union key none for the parsed schema.
-  void write_serializer_in_body_non_union_key_none(stream& out_stream, const member& member) {
+  void
+  write_serializer_in_body_non_union_key_none(rohit::type_check::output_buffer auto& out_stream,
+                                              const member& member) {
     write_field_input(out_stream, member, "      ");
   } // write_serializer_in_body_non_union_key_none
 
   // Decode one active union value through its correctly renamed discriminator and storage member.
-  void write_union_input(stream& output, const member& field) {
+  void write_union_input(rohit::type_check::output_buffer auto& output, const member& field) {
     output.write("      this->", union_tag_name(field), " = static_cast<", union_enum_name(field),
                  (std::string{">("} + local_name("serializer_protocol") +
                   ".serialize_in_variable());\n      switch (this->"),
@@ -531,19 +547,22 @@ public:
   }
 
   // Decode a union selected by its numeric field identifier.
-  void write_serializer_in_body_union_key_integer(stream& output, const member& field) {
+  void write_serializer_in_body_union_key_integer(rohit::type_check::output_buffer auto& output,
+                                                  const member& field) {
     output.write("      case ", field.id, ": {\n");
     write_union_input(output, field);
     output.write("        break;\n      }\n");
   }
 
   // Decode the next positional union without an unnecessary discriminator temporary.
-  void write_serializer_in_body_union_key_none(stream& output, const member& field) {
+  void write_serializer_in_body_union_key_none(rohit::type_check::output_buffer auto& output,
+                                               const member& field) {
     write_union_input(output, field);
   }
 
   // Emit C++ serializer in body key none for the parsed schema.
-  void write_serializer_in_body_key_none(stream& out_stream, const class_node* obj) {
+  void write_serializer_in_body_key_none(rohit::type_check::output_buffer auto& out_stream,
+                                         const class_node* obj) {
     out_stream.write((std::string{"      [[maybe_unused]] auto "} + local_name("object_scope") +
                       " = ::rohit::serializer::detail::enter_decode_object(" +
                       local_name("serializer_protocol") + ");\n"));
@@ -573,7 +592,7 @@ public:
   } // write_serializer_in_body_key_none
 
   // Retain the original field hook signature while forwarding to the typed donor implementation.
-  void write_member_input_forwarder(stream& output, bool by_name) {
+  void write_member_input_forwarder(rohit::type_check::output_buffer auto& output, bool by_name) {
     const std::string_view method =
         by_name ? "serialize_in_member_by_name" : "serialize_in_member_by_identifier";
     const std::string_view key_type = by_name ? "::std::string_view" : "::std::uint32_t";
@@ -586,7 +605,8 @@ public:
   }
 
   // Emit C++ serializer in body with key integer for the parsed schema.
-  void write_serializer_in_body_with_key_integer(stream& out_stream, const class_node* obj) {
+  void write_serializer_in_body_with_key_integer(rohit::type_check::output_buffer auto& out_stream,
+                                                 const class_node* obj) {
     write_member_input_forwarder(out_stream, false);
     out_stream.write(
         (std::string{"  // Decode the member selected by its numeric wire "
@@ -616,7 +636,8 @@ public:
   }
 
   // Collect actual wire names so hash collisions share a case and always require full equality.
-  void write_serializer_in_body_with_key_string(stream& out_stream, const class_node* obj) {
+  void write_serializer_in_body_with_key_string(rohit::type_check::output_buffer auto& out_stream,
+                                                const class_node* obj) {
     write_member_input_forwarder(out_stream, true);
     struct entry {
       std::string name;
@@ -698,7 +719,8 @@ public:
                       ".get_stream(), \"Unknown field name\"};\n  }\n\n"));
   }
   // Emit field reads selected at compile time, retaining keyed input dispatch where needed.
-  void write_serializer_in_body(stream& out_stream, const class_node* obj) {
+  void write_serializer_in_body(rohit::type_check::output_buffer auto& out_stream,
+                                const class_node* obj) {
     write_serializer_in_body_with_key_integer(out_stream, obj);
     write_serializer_in_body_with_key_string(out_stream, obj);
     out_stream.write("  // Decode this object using the protocol's compile-time key mode.\n"
@@ -742,18 +764,18 @@ public:
         type_name(obj->name), "> ", local_name("storage_reader"), "{*this, *",
         local_name("storage_donor"), "};\n        ", local_name("serializer_protocol"),
         ".struct_serialize_in(&", local_name("storage_reader"), ");\n      }",
-        (std::string{"\n    }\n  }\n\n  // Construct the requested protocol and read this "
-                     "object.\n  template <template <::rohit::serializer::serialize_type> class "
-                     "Protocol>\n  void serialize_in(const ::rohit::stream& "} +
-         local_name("stream") + ") {\n    using " + type_name("serializer_in_protocol") +
-         " = Protocol<::rohit::serializer::serialize_type::in>;\n    " +
-         type_name("serializer_in_protocol") + " " + local_name("serializer_protocol") + "{" +
-         local_name("stream") + "};\n    serialize_in(" + local_name("serializer_protocol") +
-         ");\n  }\n"));
+        "\n    }\n  }\n\n  // Decode from a buffer or bounded EOF-delimited byte source.\n"
+        "  template <template <::rohit::serializer::serialize_type> class Protocol,\n"
+        "            ::rohit::type_check::input_stream SerializerStream>\n"
+        "  void serialize_in(SerializerStream&& ",
+        local_name("stream"),
+        ") {\n"
+        "    ::rohit::serializer::serialize_from<Protocol>(",
+        local_name("stream"), ", *this);\n  }\n");
   }
 
   // Emit C++ serializer for the parsed schema.
-  void write_serializer(stream& out_stream, const class_node* obj) {
+  void write_serializer(rohit::type_check::output_buffer auto& out_stream, const class_node* obj) {
     write_serializer_out_body(out_stream, obj);
     write_serializer_in_body(out_stream, obj);
     if (protobuf_enabled) { write_protobuf(out_stream, *obj); }
@@ -775,7 +797,7 @@ public:
   }
 
   // Emit direct typed Protobuf traversal; field IDs remain template arguments in all formats.
-  void write_protobuf(stream& output, const class_node& object) {
+  void write_protobuf(rohit::type_check::output_buffer auto& output, const class_node& object) {
     const auto protocol = local_name("serializer_protocol");
     output.write("\n  // Reset every field to the standard Protobuf default.\n"
                  "  void serializer_protobuf_reset() {\n");
@@ -915,8 +937,8 @@ public:
   }
 
   // Emit a constant-offset getter; access follows the schema field or parent's visibility.
-  void write_view_getter(stream& output, const std::string& name, std::size_t index,
-                         access_type access) {
+  void write_view_getter(rohit::type_check::output_buffer auto& output, const std::string& name,
+                         std::size_t index, access_type access) {
     write_access_type(output, access);
     output.write(":\n  // Read this field or borrow its nested view from the mapped buffer.\n"
                  "  auto ",
@@ -928,7 +950,8 @@ public:
   }
 
   // Emit one concrete view representation with validated mapping and size-preserving mutation.
-  void write_view_class(stream& output, const class_node* obj, storage_mode mode) {
+  void write_view_class(rohit::type_check::output_buffer auto& output, const class_node* obj,
+                        storage_mode mode) {
     const auto count = obj->parents.size() + obj->member_list.size();
     const std::string byte_type =
         mode == storage_mode::read_only_view ? "const ::std::uint8_t" : "::std::uint8_t";
@@ -1026,7 +1049,8 @@ public:
   }
 
   // Emit the existing owning API, selecting owning specializations for nested classes.
-  void write_owning_class(stream& out_stream, const class_node* obj) {
+  void write_owning_class(rohit::type_check::output_buffer auto& out_stream,
+                          const class_node* obj) {
     if (obj->multiple_modes()) {
       out_stream.write("template <>\n");
     }
@@ -1055,7 +1079,7 @@ public:
   }
 
   // Emit only requested modes; a single mode has no class template declaration.
-  void write_class(stream& output, const class_node* obj) {
+  void write_class(rohit::type_check::output_buffer auto& output, const class_node* obj) {
     if (obj->multiple_modes()) {
       output.write("template <::rohit::serializer::storage_mode Mode>\nclass ",
                    type_name(obj->name), ";\n\n");
@@ -1088,7 +1112,7 @@ public:
   }
 
   // Emit enum values, allocation-free spellings, and collision-aware name conversion.
-  void write_enum(stream& out_stream, const enum_node* enum_ptr) {
+  void write_enum(rohit::type_check::output_buffer auto& out_stream, const enum_node* enum_ptr) {
     out_stream.write("enum class ", type_name(enum_ptr->name), " {\n");
     for (const auto& name : enum_ptr->enum_name_list) {
       out_stream.write("  ", enum_name(name), ",\n");
@@ -1152,7 +1176,8 @@ public:
                      (std::string{"("} + local_name("name") + "); }\n\n"));
   }
   // Emit C++ namespace for the parsed schema.
-  void write_namespace(stream& out_stream, const namespace_node* namespace_ptr) {
+  void write_namespace(rohit::type_check::output_buffer auto& out_stream,
+                       const namespace_node* namespace_ptr) {
     std::string full_name = namespace_name(namespace_ptr->name);
     while (namespace_ptr->statements.size() == 1 &&
            namespace_ptr->statements.back()->type == object_type::namespace_type) {
@@ -1166,7 +1191,7 @@ public:
   }
 
   // Emit C++ statement list for the parsed schema.
-  void write_statement_list(stream& out_stream,
+  void write_statement_list(rohit::type_check::output_buffer auto& out_stream,
                             const std::vector<std::unique_ptr<syntax_node>>& statements) {
     if (statements.empty()) {
       return;
@@ -1193,7 +1218,8 @@ public:
   }
 
   // Generate a complete C++ header while retaining the parsed schema and original wire names.
-  void emit(stream& out_stream, const std::vector<std::unique_ptr<syntax_node>>& statements) {
+  void emit(rohit::type_check::output_buffer auto& out_stream,
+            const std::vector<std::unique_ptr<syntax_node>>& statements) {
     if (protobuf_enabled) { validate_protobuf_schema(statements); }
     validate_names(statements);
     const bool has_views = contains_views(statements);
@@ -1226,13 +1252,13 @@ public:
 } // namespace
 
 // Commit output to the caller only after name validation and formatting both succeed.
-void write(stream& out_stream, const std::vector<std::unique_ptr<syntax_node>>& statements,
-           const cpp_options& options) {
+std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,
+                     const cpp_options& options) {
   static_cast<void>(coding_standard_name(options.standard));
   full_stream_auto_alloc raw{};
   emitter generator{options};
   generator.emit(raw, statements);
   const std::string_view source{reinterpret_cast<const char*>(raw.begin()), raw.current_offset()};
-  out_stream.write(format_cpp(source, options));
+  return format_cpp(source, options);
 }
 } // namespace rohit::serializer::writer::cpp

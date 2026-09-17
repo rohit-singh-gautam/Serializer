@@ -1,0 +1,20 @@
+serializer version 1;
+
+namespace fuzz_models {
+enum phase { idle, active }
+class child view owning stable_ids {
+  public uint32 code (1);
+  public string label (2);
+}
+class record view owning stable_ids {
+  public bool enabled (1);
+  public uint32 number (2);
+  public string text (3);
+  public array uint32 values (4);
+  public array child children (5);
+  public map(uint32) string labels (6);
+  public child nested (7);
+  public union(uint32 = number, float = real) payload (8);
+  public phase status (9);
+}
+}

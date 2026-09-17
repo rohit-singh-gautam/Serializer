@@ -966,9 +966,9 @@ public:
 } // namespace
 
 // Publish only a completely validated source file.
-void write(stream& out_stream, const std::vector<std::unique_ptr<syntax_node>>& statements,
-           std::string_view outer_class, const java_options& options) {
+std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,
+                     std::string_view outer_class, const java_options& options) {
   emitter generator{options, outer_class};
-  out_stream.write(generator.generate(statements));
+  return generator.generate(statements);
 }
 } // namespace rohit::serializer::writer::java

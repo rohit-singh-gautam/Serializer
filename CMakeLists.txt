@@ -14,7 +14,7 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 option(SERIALIZER_BUILD_TESTS "Build Serializer's tests" ${PROJECT_IS_TOP_LEVEL})
 option(SERIALIZER_BUILD_PROTOBUF_INTEROP_TESTS "Verify codecs against the official Protobuf runtime" OFF)
 option(SERIALIZER_BUILD_BENCHMARKS "Build separate codec timing and allocation tools" OFF)
-option(SERIALIZER_BUILD_FUZZERS "Build the bounded Clang libFuzzer target" OFF)
+option(SERIALIZER_BUILD_FUZZERS "Build instrumented Clang libFuzzer targets and seed corpus tools" OFF)
 option(SERIALIZER_BUILD_STYLE_EXAMPLES "Build one example for each C++ output profile" OFF)
 option(SERIALIZER_BUILD_JAVA_EXAMPLES "Generate and compile pure Java examples (JDK 17+)" OFF)
 option(SERIALIZER_INSTALL "Install the library, compiler, and CMake integration" ${PROJECT_IS_TOP_LEVEL})
@@ -45,6 +45,8 @@ add_library(serializer_lib
   include/rohit/json_text.hpp
   include/rohit/runtime_simd.hpp
   include/rohit/stream.hpp
+  include/rohit/stream_concepts.hpp
+  include/rohit/stream_io.hpp
 )
 target_include_directories(serializer_lib PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
@@ -130,6 +132,10 @@ foreach(target IN ITEMS serializer_lib serializer)
   endif()
 endforeach()
 
+if(SERIALIZER_BUILD_FUZZERS)
+  include(cmake/serializer_fuzz_runtime.cmake)
+endif()
+
 # Formatting is a generator-time dependency; runtime users do not need clang-format.
 if(SERIALIZER_BUILD_TESTS OR SERIALIZER_BUILD_BENCHMARKS OR SERIALIZER_BUILD_FUZZERS
     OR SERIALIZER_BUILD_STYLE_EXAMPLES)
@@ -137,8 +143,10 @@ if(SERIALIZER_BUILD_TESTS OR SERIALIZER_BUILD_BENCHMARKS OR SERIALIZER_BUILD_FUZ
   serializer_find_clang_format()
 endif()
 
-if(SERIALIZER_BUILD_TESTS)
+if(SERIALIZER_BUILD_TESTS OR SERIALIZER_BUILD_FUZZERS)
   enable_testing()
+endif()
+if(SERIALIZER_BUILD_TESTS)
   find_package(GTest CONFIG REQUIRED)
   add_subdirectory(test)
 endif()

@@ -51,6 +51,7 @@ public:
 
 namespace detail {
 
+template <rohit::type_check::input_buffer Stream = stream>
 class decoder_input {
   std::size_t input_bytes{};
   std::size_t allocation_bytes{};
@@ -58,7 +59,7 @@ class decoder_input {
   std::size_t nesting_depth{};
 
 protected:
-  const stream& in_stream;
+  const Stream& in_stream;
   const decode_limits limits;
 
   // Reject a request before touching input or allocating destination storage.
@@ -148,7 +149,7 @@ protected:
 
 public:
   // Borrow a fixed input range and snapshot the limits for this decoding session.
-  decoder_input(const stream& input, decode_limits input_limits = {})
+  decoder_input(const Stream& input, decode_limits input_limits = {})
       : in_stream{input}, limits{input_limits} {}
 
   // A decoding session owns its accounting; nested readers must share it by reference.
@@ -157,7 +158,7 @@ public:
   decoder_input& operator=(const decoder_input&) = delete;
 
   // Borrow the same cursor used by nested generated serializers.
-  const stream& get_stream() const noexcept {
+  const Stream& get_stream() const noexcept {
     return in_stream;
   }
 

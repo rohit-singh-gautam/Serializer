@@ -5,6 +5,11 @@ binary protocols. The C++ runtime API and default generated C++ use `snake_case`
 Opt-in C++ codecs also support **Protobuf binary, ProtoJSON, and TextProto** through
 compile-time protocol templates, for both encoding and decoding. See
 [Protobuf codecs](docs/protobuf.md) for generation, schema mappings, and limitations.
+C++ stream APIs use structural C++20 concepts: custom implementations need no
+`rohit::stream` base class. Generated calls accept standard streams directly through
+implicit adapters. Memory input streams borrow their unread storage; file streams
+use larger I/O batches; custom contiguous buffers retain the direct codec path.
+See [stream concepts and adapters](docs/usage.md#stream-concepts-and-implicit-adapters).
 Language-specific output profiles select layouts and naming conventions.
 Schemas use `.serializer` and begin with `serializer version 1;`.
 Share declarations with `include common.serializer;` before any declarations.
@@ -553,6 +558,13 @@ For wire details, schema evolution, decoder limits, and failure behavior, see
 [the wire-format contract](docs/wire_format.md). Optional timing, allocation,
 and fuzz targets are described in [qualification](qualification/README.md).
 
+`SERIALIZER_BUILD_FUZZERS=ON` builds a separate runtime with libFuzzer coverage,
+AddressSanitizer, and UndefinedBehaviorSanitizer, including compiled SIMD helpers.
+Four targets cover native codecs, mapped views, optional Protobuf codecs, and
+scalar/baseline/dispatched SIMD comparisons. A deterministic corpus generator and
+CTest seed replay work without GoogleTest. See [fuzzing](qualification/README.md#fuzzing)
+for Clang prerequisites, corpus controls, bounded campaigns, and verification scope.
+
 Positional binary writes fields in schema order without field IDs, names, or an
 object terminator. Both ends must agree on field order and types. Unions still
 write an alternative index before their payload.
@@ -625,11 +637,11 @@ public:
   template <typename SerializeOutProtocol>
   void serialize_out(SerializeOutProtocol& serializer_protocol) const;
   template <template<rohit::serializer::serialize_type> class SerializerProtocol>
-  void serialize_out(rohit::stream& stream) const;
+  void serialize_out(rohit::type_check::output_stream auto& stream) const;
   template <typename SerializeInProtocol>
   void serialize_in(SerializeInProtocol& serializer_protocol);
   template <template<rohit::serializer::serialize_type> class SerializerProtocol>
-  void serialize_in(const rohit::stream& stream);
+  void serialize_in(rohit::type_check::input_stream auto&& stream);
 }; // class person
 }
 ```
@@ -668,11 +680,11 @@ public:
   template <typename SerializeOutProtocol>
   void serialize_out(SerializeOutProtocol& serializer_protocol) const;
   template <template<rohit::serializer::serialize_type> class SerializerProtocol>
-  void serialize_out(rohit::stream& stream) const;
+  void serialize_out(rohit::type_check::output_stream auto& stream) const;
   template <typename SerializeInProtocol>
   void serialize_in(SerializeInProtocol& serializer_protocol);
   template <template<rohit::serializer::serialize_type> class SerializerProtocol>
-  void serialize_in(const rohit::stream& stream);
+  void serialize_in(rohit::type_check::input_stream auto&& stream);
 }; // class person
 
 class personlist {
@@ -683,11 +695,11 @@ public:
   template <typename SerializeOutProtocol>
   void serialize_out(SerializeOutProtocol& serializer_protocol) const;
   template <template<rohit::serializer::serialize_type> class SerializerProtocol>
-  void serialize_out(rohit::stream& stream) const;
+  void serialize_out(rohit::type_check::output_stream auto& stream) const;
   template <typename SerializeInProtocol>
   void serialize_in(SerializeInProtocol& serializer_protocol);
   template <template<rohit::serializer::serialize_type> class SerializerProtocol>
-  void serialize_in(const rohit::stream& stream);
+  void serialize_in(rohit::type_check::input_stream auto&& stream);
 }; // class personlist
 
 } // namespace arraytest
@@ -726,11 +738,11 @@ public:
   template <typename SerializeOutProtocol>
   void serialize_out(SerializeOutProtocol& serializer_protocol) const;
   template <template<rohit::serializer::serialize_type> class SerializerProtocol>
-  void serialize_out(rohit::stream& stream) const;
+  void serialize_out(rohit::type_check::output_stream auto& stream) const;
   template <typename SerializeInProtocol>
   void serialize_in(SerializeInProtocol& serializer_protocol);
   template <template<rohit::serializer::serialize_type> class SerializerProtocol>
-  void serialize_in(const rohit::stream& stream);
+  void serialize_in(rohit::type_check::input_stream auto&& stream);
 }; // class person
 
 class personlist {
@@ -741,11 +753,11 @@ public:
   template <typename SerializeOutProtocol>
   void serialize_out(SerializeOutProtocol& serializer_protocol) const;
   template <template<rohit::serializer::serialize_type> class SerializerProtocol>
-  void serialize_out(rohit::stream& stream) const;
+  void serialize_out(rohit::type_check::output_stream auto& stream) const;
   template <typename SerializeInProtocol>
   void serialize_in(SerializeInProtocol& serializer_protocol);
   template <template<rohit::serializer::serialize_type> class SerializerProtocol>
-  void serialize_in(const rohit::stream& stream);
+  void serialize_in(rohit::type_check::input_stream auto&& stream);
 }; // class personlist
 
 } // namespace maptest

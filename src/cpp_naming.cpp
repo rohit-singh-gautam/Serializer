@@ -320,6 +320,7 @@ void naming::validate_names(const std::vector<std::unique_ptr<syntax_node>>& sta
                                      "StorageSource",
                                      "SerializeInProtocol",
                                      "SerializeOutProtocol",
+                                     "SerializerStream",
                                      "Protocol"};
         if (options.protobuf) {
           owning.insert({"serializer_protobuf_write", "serializer_protobuf_read",

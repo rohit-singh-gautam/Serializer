@@ -58,12 +58,14 @@ void protobuf_reset(T& value) {
 }
 } // namespace detail
 
-template <serialize_type Direction, protobuf_format Format>
+template <serialize_type Direction, protobuf_format Format, typename Stream = stream>
 class protobuf_codec;
 
-template <protobuf_format Format>
-class protobuf_codec<serialize_type::out, Format> {
-  stream& output;
+template <protobuf_format Format, rohit::type_check::output_buffer Stream>
+class protobuf_codec<serialize_type::out, Format, Stream> {
+  template <serialize_type, protobuf_format, typename>
+  friend class protobuf_codec;
+  Stream& output;
   bool first{true};
 
   // Encode one base-128 value without allocating temporary storage.
@@ -83,7 +85,7 @@ class protobuf_codec<serialize_type::out, Format> {
 
   // Quote a UTF-8 value using JSON escapes, which are also valid TextProto string escapes.
   void quoted(std::string_view value) {
-    json_out<false> writer{output};
+    json_out<false, Stream> writer{output};
     writer.serialize_out(value);
   }
 
@@ -146,7 +148,7 @@ class protobuf_codec<serialize_type::out, Format> {
       output.write(std::string_view{value ? "true" : "false"});
     } else if constexpr (std::floating_point<T>) {
       if (std::isfinite(value)) {
-        json_out<false> writer{output};
+        json_out<false, Stream> writer{output};
         writer.serialize_out(value);
       } else if constexpr (Format == protobuf_format::json) {
         quoted(std::isnan(value) ? "NaN" : value < 0 ? "-Infinity" : "Infinity");
@@ -180,9 +182,13 @@ class protobuf_codec<serialize_type::out, Format> {
   }
 
 public:
+  using stream_type = Stream;
+  template <rohit::type_check::output_buffer OtherStream>
+  using rebind_stream = protobuf_codec<serialize_type::out, Format, OtherStream>;
+
   static constexpr serialize_key_type key_type = serialize_key_type::integer;
   // Borrow the output stream; protocol selection has no runtime discriminator.
-  explicit protobuf_codec(stream& output) : output{output} {}
+  explicit protobuf_codec(Stream& output) : output{output} {}
 
   // Encode the root message without an extra binary length prefix or TextProto braces.
   template <typename T>
@@ -209,7 +215,7 @@ public:
     prefix<Id>(name, json_name, 2);
     if constexpr (Format == protobuf_format::binary) {
       full_stream_auto_alloc bytes;
-      protobuf_codec nested{bytes};
+      protobuf_codec<serialize_type::out, Format> nested{bytes};
       write(nested);
       varint(bytes.current_offset());
       output.append_external(bytes.begin(), bytes.current_offset());
@@ -245,7 +251,7 @@ public:
                            detail::protobuf_wire_type<Element>() != 2) {
         if (!value.empty()) {
           full_stream_auto_alloc bytes;
-          protobuf_codec nested{bytes};
+          protobuf_codec<serialize_type::out, Format> nested{bytes};
           for (const Element& element : value) {
             nested.scalar(element);
           }
@@ -306,9 +312,9 @@ public:
   }
 };
 
-template <protobuf_format Format>
-class protobuf_codec<serialize_type::in, Format> : public json<serialize_type::in> {
-  using base = json<serialize_type::in>;
+template <protobuf_format Format, rohit::type_check::input_buffer Stream>
+class protobuf_codec<serialize_type::in, Format, Stream> : public json<serialize_type::in, Stream> {
+  using base = json<serialize_type::in, Stream>;
   using base::available_input;
   using base::charge_allocation;
   using base::charge_work;
@@ -781,9 +787,13 @@ class protobuf_codec<serialize_type::in, Format> : public json<serialize_type::i
   }
 
 public:
+  using stream_type = Stream;
+  template <rohit::type_check::input_buffer OtherStream>
+  using rebind_stream = protobuf_codec<serialize_type::in, Format, OtherStream>;
+
   static constexpr serialize_key_type key_type = serialize_key_type::integer;
   // Share one input cursor and limit budget across all nested message reads.
-  explicit protobuf_codec(const stream& input, decode_limits policy = {})
+  explicit protobuf_codec(const Stream& input, decode_limits policy = {})
       : base{input, policy},
         message_end{input.curr() == nullptr ? nullptr : input.curr() + input.remaining_buffer()} {}
 
@@ -1173,10 +1183,10 @@ public:
   }
 };
 
-template <serialize_type Direction>
-using protobuf_binary = protobuf_codec<Direction, protobuf_format::binary>;
-template <serialize_type Direction>
-using protojson = protobuf_codec<Direction, protobuf_format::json>;
-template <serialize_type Direction>
-using textproto = protobuf_codec<Direction, protobuf_format::text>;
+template <serialize_type Direction, typename Stream = stream>
+using protobuf_binary = protobuf_codec<Direction, protobuf_format::binary, Stream>;
+template <serialize_type Direction, typename Stream = stream>
+using protojson = protobuf_codec<Direction, protobuf_format::json, Stream>;
+template <serialize_type Direction, typename Stream = stream>
+using textproto = protobuf_codec<Direction, protobuf_format::text, Stream>;
 } // namespace rohit::serializer

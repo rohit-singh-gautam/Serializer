@@ -22,6 +22,13 @@ payloads use compact numeric values. JSON always uses enum names.
 This describes Serializer's C++20 codecs after the efficiency-assessment changes.
 Implementation and prepared tests have not yet been built or run for this step.
 
+Stream concepts and implicit iostream adapters preserve the protocol bytes defined
+here. They add no transport framing, length prefix, protocol marker, or endian
+marker. Byte-stream input is one EOF-delimited message and is checked for trailing
+data; framed applications must bound each input message themselves. Memory input
+may be borrowed and output may be drained in batches without changing its encoding.
+See [stream adapters](usage.md#stream-concepts-and-implicit-adapters).
+
 ## Binary representation
 
 Binary messages have no implicit version, size envelope, compression, alignment,
