@@ -118,8 +118,10 @@ function(serializer_generate)
     add_custom_command(
       OUTPUT "${header}"
       COMMAND "${CMAKE_COMMAND}" -E make_directory "${output_directory}"
-      COMMAND "${compiler}" --input "${input}" --output "${header}" --language cpp ${arguments}
+      COMMAND "${compiler}" --input "${input}" --output "${header}" --language cpp
+        --depfile "${header}.d" ${arguments}
       DEPENDS "${input}" ${dependencies}
+      DEPFILE "${header}.d"
       COMMENT "Generating Serializer header ${stem}.hpp for ${arg_TARGET}"
       VERBATIM
     )

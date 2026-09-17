@@ -56,6 +56,21 @@ feature as a prerequisite without the user's request.
   to inspect both; see [CLI and versioning](../../../docs/command_line.md).
 - Use `class`, `enum`, and `namespace`. Every member needs an explicit access
   modifier and a trailing semicolon. Classes/enums have no trailing semicolon.
+- Share schema declarations with `include common.serializer;` after the version
+  header and before declarations. Paths are unquoted, relative to the including
+  file, and use forward slashes; `./` and `../` work, while spaces, backslashes,
+  absolute paths, and quoted paths are rejected. Every dependency needs its own
+  version header. Files load once per entry compilation; cycles are errors.
+- Reopened namespaces reuse their scope during parsing. Duplicate qualified
+  classes/enums and namespace/type conflicts are errors; same leaf names in
+  different namespaces are valid. Referenced types still precede their use.
+- Generate only the entry schema for a combined model. Included declarations are
+  emitted into that entry's C++ header or Java compilation unit; overlapping C++
+  entry graphs can produce duplicate definitions when their headers are included
+  together. Both CMake helpers track transitive inputs using depfiles. Library
+  callers use `parser::parse_file(path)` and pass its `statements` to the writers.
+  See [include usage](../../../docs/usage.md#share-declarations-with-includes) and
+  [paired C++/Java examples](../../../example/includes/README.md).
 - In owning representations, map `array T` to `std::vector<T>` and `map(K) T` to `std::map<K, T>`.
 - Keep literal spaces in quoted defaults, such as `public string label { "schema default" };`.
   The parser preserves quoted whitespace, escapes, and braces without rewriting the literal.
@@ -204,13 +219,23 @@ versioned snippets, and invokes the same targets through CMake Tools. Run the ro
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 1.0.1 is independent of compiler and schema versions. Configure
+version 1.1.0 is independent of compiler and schema versions. Configure
 the consumer first, then use `Serializer: Generate Headers` or `Serializer:
 Diagnose Missing Header`. Set `serializer.headersTarget` for one consumer; keep
 profile include paths separate. Its IntelliSense command explicitly updates the
 selected folder's C/C++ provider. Generation saves dirty schema/INI/CMake inputs
-in that folder and requires workspace trust. It provides lexical editing and
-build assistance, not semantic schema diagnostics or a Visual Studio package.
+in that folder and requires workspace trust. Declaration/definition navigation
+and `Serializer: Open Generated Header` only read available files; never invoke
+generation or configuration to satisfy navigation, or offer generation for a
+missing destination. Declaration opens the originating schema, while definition
+opens existing generated C++ output. Follow schema includes to their actual entry
+header and use existing `<header>.d` dependencies when present; expose ambiguous
+legacy basename/profile matches as choices. An already active CMake model can
+narrow lookup but navigation must also work without it and in Restricted Mode.
+C++ type references use the installed C++ definition provider. Use `Serializer:
+Go to Schema Declaration` when other providers add C++ declaration locations.
+See [navigation and limits](../../../docs/editor_extension.md#navigate-available-schemas-and-headers).
+Semantic schema diagnostics remain unavailable.
 For Visual Studio 2022/2026 on Windows x64, use `editors/visual_studio` instead.
 Run its `build.ps1` with Visual Studio's MSBuild to package and validate the VSIX,
 then install it using Visual Studio's VSIX Installer. It shares the canonical

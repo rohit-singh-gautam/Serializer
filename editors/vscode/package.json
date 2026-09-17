@@ -2,8 +2,8 @@
   "name": "serializer-language",
   "displayName": "Rohit Serializer",
   "icon": "dist/serializer_logo.png",
-  "description": "Syntax highlighting and CMake generated-header assistance for Serializer schemas.",
-  "version": "1.0.1",
+  "description": "Schema declarations, generated C++ definitions, syntax highlighting and CMake assistance for Serializer.",
+  "version": "1.1.0",
   "publisher": "rohitjairajsingh",
   "author": {
     "name": "Rohit Jairaj Singh",
@@ -44,7 +44,7 @@
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": "limited",
-      "description": "Highlighting and snippets work; build commands require a trusted workspace."
+      "description": "Highlighting, snippets and file navigation work; build commands require a trusted workspace."
     },
     "virtualWorkspaces": {
       "supported": false
@@ -97,8 +97,12 @@
       {
         "command": "serializer.openGeneratedHeader",
         "title": "Open Generated Header",
-        "category": "Serializer",
-        "enablement": "isWorkspaceTrusted"
+        "category": "Serializer"
+      },
+      {
+        "command": "serializer.goToSchemaDeclaration",
+        "title": "Go to Schema Declaration",
+        "category": "Serializer"
       },
       {
         "command": "serializer.configureIntelliSense",
@@ -118,6 +122,11 @@
           "command": "serializer.openGeneratedHeader",
           "when": "editorLangId == serializer",
           "group": "serializer"
+        },
+        {
+          "command": "serializer.goToSchemaDeclaration",
+          "when": "editorLangId == serializer || editorLangId == cpp",
+          "group": "navigation"
         },
         {
           "command": "serializer.diagnoseHeader",
@@ -143,8 +152,9 @@
     "build": "npm run compile && node scripts/package.cjs",
     "test": "npm run compile && node --test test/*.test.cjs",
     "test:integration": "npm run build && node test/run.cjs",
+    "test:navigation": "npm run build && node test/run_navigation.cjs",
     "vscode:prepublish": "npm run build",
-    "package": "vsce package --no-dependencies --out ../../out/extensions/serializer-vscode-1.0.1.vsix"
+    "package": "vsce package --no-dependencies --out ../../out/extensions/serializer-vscode-1.1.0.vsix"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

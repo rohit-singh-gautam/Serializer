@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.2
+
+- Highlight unquoted schema includes, paths, comments, and semicolons.
+- Recognize invalid quoted include paths and add real TextMate tokenization coverage.
+- Package the updated canonical grammar for Visual Studio.
+
 ## 1.0.1
 
 - Update the extension version and package references to 1.0.1.

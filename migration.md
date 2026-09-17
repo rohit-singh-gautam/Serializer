@@ -1,5 +1,38 @@
 # Migrating to the snake_case Serializer API
 
+## VS Code navigation in extension 1.1.0
+
+Upgrade the VS Code package to 1.1.0 for declaration navigation to source schemas
+and definition navigation to existing generated C++ headers. Includes and schema
+class/enum references are supported; C++ type references use the installed C++
+definition provider. `Serializer: Open Generated Header` no longer offers to build
+missing output. Navigation only reads available files and returns no result when
+a destination is missing. Explicit `Serializer: Generate Headers` remains a
+separate command. Existing generated files need no regeneration; available sibling
+`<header>.d` files improve source mapping, especially for included schemas and
+duplicate basenames. See [navigation](docs/editor_extension.md#navigate-available-schemas-and-headers).
+
+## Unquoted schema includes and namespace scopes
+
+To split a schema, move shared declarations into another versioned `.serializer`
+file and add `include common.serializer;` after the entry file's version header.
+Paths are unquoted and relative to the including file. Generate only the entry:
+included declarations appear in its combined C++ header or Java compilation unit.
+Existing field order, IDs, names, and protocols are preserved; the wire format is unchanged.
+
+Namespace scopes are reused during declaration creation. Duplicate qualified
+classes/enums and namespace/type collisions now fail in the parser, before backend
+generation. Distinct namespace blocks remain ordered for C++ emission; shorthand
+`namespace a::b` is represented by nested namespace nodes in the returned AST.
+Java emits one container for reopened namespaces. Applications inspecting AST
+namespace names directly should account for the normalized nested representation.
+
+Library callers needing includes use `parser::parse_file(path)` and pass the
+returned `statements` to the existing writers. Stream-only parsing remains available
+for fragments without includes. Reconfigure consumers to pick up transitive schema
+dependency tracking in both CMake helpers. Install editor extension version **1.0.2 or later**
+for the updated unquoted-include highlighting. See [include usage](docs/usage.md#share-declarations-with-includes).
+
 ## Build portability and quoted defaults
 
 Rebuild with the updated runtime headers for GCC/Clang and 32-bit MSVC fixes.

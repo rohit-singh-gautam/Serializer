@@ -4,6 +4,7 @@ import { getCMakeToolsApi, Version } from 'vscode-cmake-tools';
 import type { Project, CodeModel } from 'vscode-cmake-tools';
 import { activeConfiguration, generatedHeaders, includeCandidates, parseInclude,
   sourceIncludes } from './model';
+import { registerNavigation } from './navigation';
 
 interface ProjectContext {
   folder: vscode.WorkspaceFolder;
@@ -13,6 +14,7 @@ interface ProjectContext {
 
 /** Register commands lazily; opening a file never configures or builds a project. */
 export function activate(context: vscode.ExtensionContext): void {
+  registerNavigation(context);
   const output = vscode.window.createOutputChannel('Serializer');
   const running = new Set<string>();
   context.subscriptions.push(output);
@@ -106,35 +108,6 @@ export function activate(context: vscode.ExtensionContext): void {
     }
   }
 
-  /** Find and open a schema's generated header, asking when several profiles share its filename. */
-  async function openGenerated(uri?: vscode.Uri): Promise<void> {
-    const schema = uri ?? vscode.window.activeTextEditor?.document.uri;
-    if (!schema || path.extname(schema.fsPath) !== '.serializer') {
-      throw new Error('Open a .serializer schema first.');
-    }
-    const selected = await projectContext(schema);
-    const name = `${path.basename(schema.fsPath, '.serializer')}.hpp`;
-    const headers = generatedHeaders(selected.configuration, name);
-    if (!headers.length) {
-      throw new Error(`No generated ${name} is registered in this CMake configuration. Add this schema to serializer_generate and reconfigure.`);
-    }
-    const items = headers.map(header => ({ label: header.targets.join(', '),
-      description: header.path, header }));
-    const item = items.length === 1 ? items[0] : await vscode.window.showQuickPick(items, {
-      placeHolder: `Choose the target/profile for ${name}`
-    });
-    if (!item) { return; }
-    const headerUri = vscode.Uri.file(item.header.path);
-    if (!await isFile(headerUri)) {
-      const choice = await vscode.window.showInformationMessage(`${name} has not been generated.`, 'Generate Headers');
-      if (choice !== 'Generate Headers' || !await generate(schema)) { return; }
-      if (!await isFile(headerUri)) {
-        throw new Error(`The selected target did not produce ${headerUri.fsPath}. Check serializer.headersTarget and the active profile.`);
-      }
-    }
-    await vscode.window.showTextDocument(headerUri);
-  }
-
   /** Explain actual target include paths and missing outputs without editing CMake files. */
   async function diagnose(uri?: vscode.Uri): Promise<void> {
     const editor = vscode.window.activeTextEditor;
@@ -203,7 +176,6 @@ export function activate(context: vscode.ExtensionContext): void {
   }
 
   command('serializer.generateHeaders', generate);
-  command('serializer.openGeneratedHeader', openGenerated);
   command('serializer.diagnoseHeader', diagnose);
   command('serializer.configureIntelliSense', configureIntelliSense);
 

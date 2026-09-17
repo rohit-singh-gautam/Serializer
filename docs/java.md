@@ -5,6 +5,12 @@ reflection, third-party runtime, or formatter dependency. The C++ schema compile
 is used at build time only. Each output file contains one public outer class,
 namespace containers, generated owning types, and private codec helpers.
 
+Schema directives such as `include common.serializer;` load reusable declarations
+into the entry schema's Java output. Reopened namespace blocks share one static
+container; duplicate qualified types and namespace/type conflicts fail during
+parsing. See [include rules](usage.md#share-declarations-with-includes) and the
+[three paired C++/Java examples](../example/includes/README.md).
+
 ## Generate and run
 
 From the repository root, with the built `serializer` executable on `PATH`:

@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.1.0
+
+- Add Go to Declaration for schema includes, class/enum declarations and type
+  references, and generated C++ includes/types.
+- Add Go to Definition from schemas to existing generated headers and exact type
+  definitions, including included schemas and storage-mode specializations.
+- Read existing dependency files for output ownership; honor available CMake
+  configurations, include search order, naming profiles and ambiguous outputs.
+- Add Go to Schema Declaration to select only Serializer destinations when
+  another C++ provider also supplies declaration results.
+- Make Open Generated Header read-only and available without CMake Tools or
+  workspace trust. Navigation never saves, configures, builds, activates CMake
+  Tools, or offers generation; unavailable destinations return no result.
+- Add resolver/provider tests and an isolated VS Code navigation test harness.
+
+## 1.0.2
+
+- Highlight unquoted schema includes, paths, comments, and semicolons.
+- Recognize invalid quoted include paths and add real TextMate tokenization coverage.
+- Add an `include common.serializer;` snippet.
+
 ## 1.0.1
 
 - Include the shared grammar's explicit `.serializer` file association.

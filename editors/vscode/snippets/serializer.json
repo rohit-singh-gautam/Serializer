@@ -1,4 +1,9 @@
 {
+  "Include": {
+    "prefix": "include",
+    "body": "include ${1:common.serializer};$0",
+    "description": "Include a schema using an unquoted path relative to this file"
+  },
   "Schema": {
     "prefix": "schema",
     "body": ["serializer version 1;", "", "namespace ${1:models} {", "class ${2:account} stable_ids {", "  public uint32 ${3:id} (1);", "  $0", "}", "}"],

@@ -47,6 +47,36 @@ test('block comment state spans lines without highlighting keywords inside it', 
   assert.ok(next.tokens.some(token => token.scopes.includes('entity.name.type.serializer')));
 });
 
+test('unquoted includes highlight keywords, relative paths, comments and terminators', async () => {
+  const grammar = await loadGrammar();
+  for (const file of ['common.serializer', '../shared/common.serializer', './v1/shared-types.serializer']) {
+    const line = `include /* schema */ ${file}; // done`;
+    const result = grammar.tokenizeLine(line, INITIAL);
+    /** Find the innermost scope at the start of a directive token. */
+    const scope = word => result.tokens.find(token => token.startIndex <= line.indexOf(word) &&
+      token.endIndex > line.indexOf(word)).scopes.at(-1);
+    assert.equal(scope('include'), 'keyword.control.import.serializer');
+    assert.equal(scope(file), 'string.unquoted.path.serializer');
+    assert.equal(scope(';'), 'punctuation.separator.serializer');
+    assert.equal(scope('schema'), 'comment.block.serializer');
+    assert.equal(scope('done'), 'comment.line.double-slash.serializer');
+    assert.equal(result.ruleStack.depth, 1);
+  }
+  for (const file of ['"common.serializer"', '<common.serializer>', 'common.hpp']) {
+    const result = grammar.tokenizeLine(`include ${file};`, INITIAL);
+    assert.ok(result.tokens.some(token => token.scopes.includes('invalid.illegal.include.serializer')));
+  }
+  const start = grammar.tokenizeLine('include /* dependency', INITIAL);
+  const finish = grammar.tokenizeLine('*/ common.serializer; class real {}', start.ruleStack);
+  assert.ok(finish.tokens.some(token => token.scopes.includes('string.unquoted.path.serializer')));
+  assert.ok(finish.tokens.some(token => token.scopes.includes('entity.name.type.serializer')));
+  assert.equal(finish.ruleStack.depth, 1);
+  for (const line of ['// include common.serializer;', 'public string text { "include common.serializer;" };']) {
+    const result = grammar.tokenizeLine(line, INITIAL);
+    assert.ok(!result.tokens.some(token => token.scopes.includes('meta.include.serializer')));
+  }
+});
+
 test('all repository schemas tokenize without losing the outer grammar state', async () => {
   const grammar = await loadGrammar();
   const root = path.resolve(__dirname, '../../..');

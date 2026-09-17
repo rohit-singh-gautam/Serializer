@@ -40,6 +40,7 @@ constexpr rohit::serializer::cli::commandline_option command_options[] = {
     {'v', "version", "", "Display compiler and supported schema language versions."},
     {'i', "input", "schema.serializer", "Input with a serializer version 1; header."},
     {'o', "output", "file", "Output path when selecting exactly one language."},
+    {'\0', "depfile", "file.d", "Write Make-style dependencies for all generated outputs."},
     {'c', "config", "file.ini", "Generator configuration; CLI options override its values."},
     {'l', "language", "cpp|java", "Select output languages; repeat or comma-separate values.",
      true},
@@ -50,7 +51,8 @@ constexpr rohit::serializer::cli::commandline_option command_options[] = {
      "serializer|core|google|llvm|gnu|cert|misra|autosar|qt"},
     {'\0', "cpp.naming", "profile|preserve", "C++ identifier naming policy."},
     {'\0', "cpp.format", "true|false", "Run clang-format (default true)."},
-    {'\0', "cpp.protobuf", "true|false", "Generate direct Protobuf binary, ProtoJSON, and TextProto codecs."},
+    {'\0', "cpp.protobuf", "true|false",
+     "Generate direct Protobuf binary, ProtoJSON, and TextProto codecs."},
     {'\0', "cpp.clang_format", "executable", "clang-format 19+ executable (default clang-format)."},
     {'\0', "cpp.format_file", "file", "Custom layout; --cpp.format_file= clears it.", false, true},
     {'\0', "java.coding_standard", "profile", "serializer|google|oracle"},
@@ -65,6 +67,25 @@ bool same_file(const std::filesystem::path& first, const std::filesystem::path& 
     return true;
   }
   return std::filesystem::weakly_canonical(first) == std::filesystem::weakly_canonical(second);
+}
+
+// Quote an absolute path for CMake's Make-style depfile reader, including Windows drive letters.
+std::string dependency_path(const std::filesystem::path& path) {
+  std::string result{};
+  for (const auto ch : std::filesystem::absolute(path).lexically_normal().generic_string()) {
+    if (ch == '\n' || ch == '\r') {
+      throw std::invalid_argument{"Dependency paths must not contain line breaks"};
+    }
+    if (ch == '$') {
+      result += "$$";
+    } else {
+      if (ch == ' ' || ch == '\t' || ch == '#' || ch == ':' || ch == '\\') {
+        result.push_back('\\');
+      }
+      result.push_back(ch);
+    }
+  }
+  return result;
 }
 } // namespace
 
@@ -204,15 +225,60 @@ int main(const int argc, const char* argv[]) {
       }
       destinations.push_back(output_file);
     }
-    const auto input = rohit::make_stream_from_file(input_file);
-    const auto statements = parser::parse(input, true);
+    const auto schema = parser::parse_file(input_file);
+    auto dependencies = schema.dependencies;
+    if (arguments.contains("config")) {
+      dependencies.emplace_back(arguments.at("config"));
+    }
+    if (!options.cpp.format_file.empty()) {
+      dependencies.emplace_back(options.cpp.format_file);
+    }
+    for (const auto& destination : destinations) {
+      for (const auto& dependency : dependencies) {
+        if (same_file(destination, dependency)) {
+          throw std::invalid_argument{"Output must not overwrite a schema or configuration"};
+        }
+      }
+    }
+    std::string dependency_text{};
+    std::filesystem::path depfile{};
+    if (arguments.contains("depfile")) {
+      depfile = arguments.at("depfile");
+      const auto parent = depfile.parent_path();
+      if ((!parent.empty() && !std::filesystem::is_directory(parent)) ||
+          std::filesystem::is_directory(depfile)) {
+        throw std::invalid_argument{
+            "Depfile requires an existing parent directory and a file path"};
+      }
+      for (const auto& dependency : dependencies) {
+        if (same_file(depfile, dependency)) {
+          throw std::invalid_argument{"Depfile must not overwrite a schema or configuration"};
+        }
+      }
+      for (const auto& destination : destinations) {
+        if (same_file(depfile, destination)) {
+          throw std::invalid_argument{"Depfile must not overwrite generated output"};
+        }
+        if (!dependency_text.empty()) {
+          dependency_text += ' ';
+        }
+        dependency_text += dependency_path(destination);
+      }
+      dependency_text += ':';
+      for (const auto& dependency : dependencies) {
+        dependency_text += ' ';
+        dependency_text += dependency_path(dependency);
+      }
+      dependency_text += '\n';
+    }
     std::vector<std::unique_ptr<rohit::full_stream_auto_alloc>> outputs{};
     for (std::size_t index = 0; index < languages.size(); ++index) {
       auto output = std::make_unique<rohit::full_stream_auto_alloc>();
       if (languages[index] == "java") {
-        writer::java::write(*output, statements, destinations[index].stem().string(), options.java);
+        writer::java::write(*output, schema.statements, destinations[index].stem().string(),
+                            options.java);
       } else {
-        writer::cpp::write(*output, statements, options.cpp);
+        writer::cpp::write(*output, schema.statements, options.cpp);
       }
       outputs.push_back(std::move(output));
     }
@@ -224,6 +290,11 @@ int main(const int argc, const char* argv[]) {
                         ? writer::java_coding_standard_name(options.java.standard)
                         : writer::coding_standard_name(options.cpp.standard))
                 << ")\n";
+    }
+    if (!depfile.empty()) {
+      rohit::full_stream_auto_alloc dependency_output{};
+      dependency_output.write(dependency_text);
+      dependency_output.write_to_file_till_offset(depfile);
     }
     return 0;
   } catch (const std::exception& error) {

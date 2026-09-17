@@ -1,6 +1,6 @@
 set(schemas)
 foreach(fixture IN ITEMS enum person test1 array map variable assessment views storage_reuse
-    fixed_fields constant_names)
+    fixed_fields constant_names includes)
   list(APPEND schemas "${CMAKE_CURRENT_SOURCE_DIR}/resources/${fixture}.serializer")
 endforeach()
 
@@ -8,6 +8,7 @@ add_executable(core_serializer_test
   core_serializer_test.cpp
   serializer_parser_test.cpp
   schema_version_test.cpp
+  schema_include_test.cpp
   schema_scan_test.cpp
   runtime_simd_test.cpp
   json_scan_reuse_test.cpp
@@ -71,6 +72,18 @@ add_test(NAME serializer_compiler_cli
   COMMAND "${CMAKE_COMMAND}" "-DGENERATOR=$<TARGET_FILE:serializer>"
     "-DVERSION=${PROJECT_VERSION}" "-DDIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/compiler_cli"
     -P "${CMAKE_CURRENT_SOURCE_DIR}/compiler_cli.cmake")
+
+find_program(serializer_test_ninja NAMES ninja HINTS "${CMAKE_MAKE_PROGRAM}/..")
+if(CMAKE_GENERATOR MATCHES "Ninja")
+  set(serializer_test_ninja "${CMAKE_MAKE_PROGRAM}")
+endif()
+if(serializer_test_ninja)
+  add_test(NAME serializer_include_dependencies
+    COMMAND "${CMAKE_COMMAND}" "-DGENERATOR=$<TARGET_FILE:serializer>"
+      "-DREPOSITORY=${PROJECT_SOURCE_DIR}" "-DNINJA=${serializer_test_ninja}"
+      "-DDIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/include_dependencies"
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/schema_include_build.cmake")
+endif()
 
 add_test(NAME serializer_clang_format_discovery
   COMMAND "${CMAKE_COMMAND}" "-DFORMATTER=${SERIALIZER_CLANG_FORMAT_EXECUTABLE}"

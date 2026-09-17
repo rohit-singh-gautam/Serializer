@@ -62,8 +62,9 @@ function(serializer_generate_java)
   endif()
   add_custom_command(OUTPUT "${output}"
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${directory}"
-    COMMAND "${generator}" ${arguments}
+    COMMAND "${generator}" ${arguments} --depfile "${output}.d"
     DEPENDS ${dependencies}
+    DEPFILE "${output}.d"
     COMMENT "Generating Java schema ${output}"
     VERBATIM)
   add_custom_target("${ARG_TARGET}" DEPENDS "${output}")

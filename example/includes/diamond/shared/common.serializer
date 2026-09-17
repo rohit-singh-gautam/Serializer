@@ -1,0 +1,7 @@
+serializer version 1;
+
+namespace demo {
+  class account stable_ids {
+    public uint32 id (7);
+  }
+}

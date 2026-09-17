@@ -38,6 +38,10 @@ the deferred validation work.
 
 The optional [VS Code extension](editor_extension.md) supplies `.serializer`
 highlighting and a `schema` snippet with the required version header.
+It also navigates includes and type references: **Go to Declaration** opens the
+original schema, and **Go to Definition** opens available generated C++ output.
+Navigation never builds or offers generation; see
+[available-file navigation](editor_extension.md#navigate-available-schemas-and-headers).
 The separate [Visual Studio extension](../editors/visual_studio/README.md) packages
 the shared highlighting grammar and basic editing configuration for Visual Studio
 2022/2026 on Windows x64. Neither extension is required for compilation or codecs.
@@ -72,6 +76,67 @@ class person stable_ids {
   Quoted defaults may contain literal spaces: `public string label { "schema default" };`.
   Spaces, escaped quotes, and braces within quotes are preserved exactly; a quoted
   `}` does not end the initializer. Unclosed quotes or braces are schema errors.
+
+### Share declarations with includes
+
+Save reusable types in `schemas/common.serializer`:
+
+```text
+serializer version 1;
+namespace demo {
+  class account stable_ids {
+    public uint32 id (7);
+  }
+}
+```
+
+Then compile an entry schema such as `schemas/request.serializer`:
+
+```text
+serializer version 1;
+include common.serializer;
+
+namespace demo {
+  class request stable_ids {
+    public account owner (1);
+  }
+}
+```
+
+- Write `include path/to/common.serializer;` without quotes or angle brackets.
+  Use ASCII letters, digits, `_`, `-`, `.`, and forward slashes in a relative path;
+  spaces, backslashes, absolute paths, and other extensions are rejected.
+  `./` and `../` are supported. Paths resolve from the including file, independently
+  of the compiler's working directory. Comments may separate directive tokens.
+- Every file requires its own `serializer version 1;` header. Includes follow that
+  header and precede all declarations, at file scope only.
+- Nested dependencies load before their includers. Repeated paths, normalized path
+  aliases, and diamond dependencies contribute declarations only once per entry
+  compilation. Include cycles and chains deeper than 32 files (including the
+  entry file) are errors. Diagnostics identify the failing file and include chain.
+- Namespace creation reuses the existing logical scope, including equivalent
+  `namespace a::b` and nested namespace blocks. Source blocks retain their order.
+  A second class or enum with the same qualified name, or a namespace/type name
+  conflict, fails during parsing. Equal leaf names in different namespaces are valid.
+- Referenced types must still precede their use. Including files cannot provide
+  missing types to their dependencies. Including a file does not inject its
+  declarations into the caller's namespace or change field IDs or wire names.
+- One entry schema produces one combined C++ header or Java compilation unit.
+  Java emits one static container per logical namespace. Compile only the entry
+  schema for a combined model; generated C++ headers from overlapping entry graphs
+  can contain duplicate definitions if included together. Separate generated-file
+  imports are not implemented.
+
+Use `serializer_generate(TARGET app SCHEMAS schemas/request.serializer)` or
+`serializer_generate_java` as usual. Both helpers track transitive schema dependencies
+through compiler depfiles and regenerate when an included file changes. Direct CLI
+callers can request `--depfile output.d`. Library callers use
+`parser::parse_file(path)`, which returns owning `statements` and canonical
+`dependencies`; pass `statements` to either existing writer. The stream-only
+`parser::parse` APIs reject includes because they have no source directory.
+
+The [include examples](../example/includes/README.md) contain three runnable pairs
+of C++ and Java consumers: shared types, reopened namespaces, and diamond includes.
 
 ### When to use `stable_ids`
 

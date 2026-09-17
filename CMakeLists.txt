@@ -154,3 +154,7 @@ endif()
 if(SERIALIZER_BUILD_JAVA_EXAMPLES)
   add_subdirectory(example/java)
 endif()
+
+if(SERIALIZER_BUILD_TESTS OR SERIALIZER_BUILD_STYLE_EXAMPLES OR SERIALIZER_BUILD_JAVA_EXAMPLES)
+  add_subdirectory(example/includes)
+endif()

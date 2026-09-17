@@ -1,0 +1,12 @@
+serializer version 1;
+
+include includes/left.serializer;
+include includes/right.serializer;
+include includes/../includes/common.serializer;
+
+namespace include_demo {
+  class request stable_ids {
+    public left first (1);
+    public right second (2);
+  }
+}

@@ -1,0 +1,8 @@
+serializer version 1;
+include common.serializer;
+
+namespace include_demo {
+  class left stable_ids {
+    public account owner (3);
+  }
+}

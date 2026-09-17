@@ -23,10 +23,12 @@
 #include <charconv>
 #include <concepts>
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <iterator>
 #include <memory>
 #include <queue>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <system_error>
@@ -517,6 +519,7 @@ member parse_member(const stream& in_stream, const std::uint32_t id,
           explicit_id};
 } // parse_member
 
+// Read a declaration keyword and distinguish misplaced includes from unknown declarations.
 object_type parse_object_type(const stream& in_stream) {
   auto object_type = parse_identifier(in_stream);
   if (object_type == "class") {
@@ -527,6 +530,10 @@ object_type parse_object_type(const stream& in_stream) {
   }
   if (object_type == "enum") {
     return object_type::enum_type;
+  }
+  if (object_type == "include") {
+    throw exception::bad_object_type{
+        in_stream, "Includes require parse_file and must precede all declarations at file scope"};
   }
   std::string error_text{"Bad identifier type it must be one of 'class' or 'namespace' case "
                          "sensitive. Unknown access type: "};
@@ -681,11 +688,17 @@ void validate_class_keys(const stream& input, const class_node& obj) {
   }
 }
 
-// Parse class from the schema input; malformed input throws.
-std::unique_ptr<class_node> parse_class(const stream& in_stream,
-                                        namespace_node* current_namespace) {
+// Register source declarations before parsing their bodies; reopened namespace scopes are shared.
+void register_declaration(const stream& input, syntax_node& node,
+                          std::unordered_map<std::string, syntax_node*>& symbols);
+
+// Parse class from the schema input; malformed input or an occupied name throws at creation.
+std::unique_ptr<class_node>
+parse_class(const stream& in_stream, namespace_node* current_namespace,
+            std::unordered_map<std::string, syntax_node*>& declarations) {
   std::uint32_t id{1};
   auto obj = parse_class_header(in_stream, current_namespace, id);
+  register_declaration(in_stream, *obj, declarations);
   // At this point all whitespace is skipped
   parse_class_body(in_stream, obj.get(), id);
   validate_class_keys(in_stream, *obj);
@@ -693,9 +706,13 @@ std::unique_ptr<class_node> parse_class(const stream& in_stream,
 }
 
 // Parse enum from the schema input; malformed input throws.
-std::unique_ptr<enum_node> parse_enum(const stream& in_stream, namespace_node* current_namespace) {
+std::unique_ptr<enum_node> parse_enum(const stream& in_stream, namespace_node* current_namespace,
+                                      std::unordered_map<std::string, syntax_node*>& declarations) {
   skip_whitespace_and_comment(in_stream);
   auto enum_name = parse_identifier(in_stream);
+  auto ret = std::make_unique<enum_node>(object_type::enum_type, std::move(enum_name),
+                                         current_namespace, std::vector<std::string>{});
+  register_declaration(in_stream, *ret, declarations);
   skip_whitespace_and_comment(in_stream);
   if (*in_stream != '{') {
     std::string error_text{"Expecting '{' found: "};
@@ -704,7 +721,6 @@ std::unique_ptr<enum_node> parse_enum(const stream& in_stream, namespace_node* c
   }
   ++in_stream;
   skip_whitespace_and_comment(in_stream);
-  std::vector<std::string> enum_name_list{};
   std::unordered_set<std::string> enum_names;
   if (*in_stream != '}') {
     while (true) {
@@ -712,7 +728,7 @@ std::unique_ptr<enum_node> parse_enum(const stream& in_stream, namespace_node* c
       if (!enum_names.insert(name).second) {
         throw exception::bad_member_spec{in_stream, "Duplicate enum name"};
       }
-      enum_name_list.push_back(name);
+      ret->enum_name_list.push_back(name);
       skip_whitespace_and_comment(in_stream);
       if (*in_stream != ',') {
         break;
@@ -733,18 +749,18 @@ std::unique_ptr<enum_node> parse_enum(const stream& in_stream, namespace_node* c
   if (!in_stream.full() && *in_stream == ';') {
     throw exception::bad_class{in_stream, {"Semicolon is not expected at the end of a class"}};
   }
-  auto ret = std::make_unique<enum_node>(object_type::enum_type, std::move(enum_name),
-                                         current_namespace, std::move(enum_name_list));
   return ret;
 }
 
 // Parse namespace from the schema input; malformed input throws.
-std::unique_ptr<namespace_node> parse_namespace(const stream& in_stream,
-                                                namespace_node* parent_namespace);
+std::unique_ptr<namespace_node>
+parse_namespace(const stream& in_stream, namespace_node* parent_namespace,
+                std::unordered_map<std::string, syntax_node*>& declarations);
 
 // Parse statement list from the schema input; malformed input throws.
-std::vector<std::unique_ptr<syntax_node>> parse_statement_list(const stream& in_stream,
-                                                               namespace_node* parent_namespace) {
+std::vector<std::unique_ptr<syntax_node>>
+parse_statement_list(const stream& in_stream, namespace_node* parent_namespace,
+                     std::unordered_map<std::string, syntax_node*>& declarations) {
   std::vector<std::unique_ptr<syntax_node>> statements{};
   while (true) {
     skip_whitespace_and_comment(in_stream);
@@ -753,11 +769,11 @@ std::vector<std::unique_ptr<syntax_node>> parse_statement_list(const stream& in_
     }
     auto object_type = parse_object_type(in_stream);
     if (object_type == object_type::class_type) {
-      statements.emplace_back(parse_class(in_stream, parent_namespace));
+      statements.emplace_back(parse_class(in_stream, parent_namespace, declarations));
     } else if (object_type == object_type::namespace_type) {
-      statements.emplace_back(parse_namespace(in_stream, parent_namespace));
+      statements.emplace_back(parse_namespace(in_stream, parent_namespace, declarations));
     } else if (object_type == object_type::enum_type) {
-      statements.emplace_back(parse_enum(in_stream, parent_namespace));
+      statements.emplace_back(parse_enum(in_stream, parent_namespace, declarations));
     } else {
       std::string error_text{
           "Bad identifier type it must be one of 'class' or 'namespace' case sensitive."};
@@ -769,8 +785,9 @@ std::vector<std::unique_ptr<syntax_node>> parse_statement_list(const stream& in_
 }
 
 // Parse namespace from the schema input; malformed input throws.
-std::unique_ptr<namespace_node> parse_namespace(const stream& in_stream,
-                                                namespace_node* parent_namespace) {
+std::unique_ptr<namespace_node>
+parse_namespace(const stream& in_stream, namespace_node* parent_namespace,
+                std::unordered_map<std::string, syntax_node*>& declarations) {
   // Object type is already parsed
   skip_whitespace_and_comment(in_stream);
   auto name = parse_hierarchical_identifier(in_stream);
@@ -782,10 +799,32 @@ std::unique_ptr<namespace_node> parse_namespace(const stream& in_stream,
   }
   ++in_stream;
 
-  auto ret = std::make_unique<namespace_node>(object_type::namespace_type, std::move(name),
-                                              parent_namespace);
-  auto statements = parse_statement_list(in_stream, ret.get());
-  std::swap(ret->statements, statements);
+  // Normalize a::b into nested blocks, sharing each existing logical scope immediately.
+  // Blocks retain source order for C++ emission; child declarations point to the first scope node.
+  std::unique_ptr<namespace_node> ret{};
+  namespace_node* block = nullptr;
+  auto* scope = parent_namespace;
+  std::size_t start = 0;
+  do {
+    const auto end = name.find("::", start);
+    auto next = std::make_unique<namespace_node>(
+        object_type::namespace_type,
+        name.substr(start, end == std::string::npos ? end : end - start), scope);
+    register_declaration(in_stream, *next, declarations);
+    scope = static_cast<namespace_node*>(declarations.at(next->get_full_name()));
+    auto* next_block = next.get();
+    if (block) {
+      block->statements.push_back(std::move(next));
+    } else {
+      ret = std::move(next);
+    }
+    block = next_block;
+    if (end == std::string::npos) {
+      break;
+    }
+    start = end + std::string_view{"::"}.size();
+  } while (true);
+  block->statements = parse_statement_list(in_stream, scope, declarations);
 
   if (*in_stream != '}') {
     std::string error_text{"Expecting '}' found: "};
@@ -828,6 +867,9 @@ syntax_node* find_declared_type(const std::string& name, namespace_node* current
 void resolve_type(const stream& input, type_name& type,
                   const std::unordered_map<std::string, syntax_node*>& types) {
   if (auto* node = find_declared_type(type.name, type.declared_namespace, types)) {
+    if (node->type == object_type::namespace_type) {
+      throw exception::bad_member_type{input, "Namespace cannot be used as a type: " + type.name};
+    }
     type.resolved_node = node;
     type.type = node->type;
     type.defined_namespace = node->parent_namespace;
@@ -877,6 +919,33 @@ void validate_view_names(const stream& input, const class_node& obj) {
   }
 }
 
+// Reuse the existing symbol table for namespace scopes as well as class and enum declarations.
+// Reopening a namespace is valid; every other duplicate qualified name is a schema error.
+void register_declaration(const stream& input, syntax_node& node,
+                          std::unordered_map<std::string, syntax_node*>& symbols) {
+  const auto full_name = node.get_full_name();
+  const bool is_namespace = node.type == object_type::namespace_type;
+  std::size_t end = 0;
+  do {
+    end = is_namespace ? full_name.find("::", end) : std::string::npos;
+    const auto name = full_name.substr(0, end);
+    const auto [position, inserted] = symbols.emplace(name, &node);
+    if (!inserted) {
+      const bool previous_namespace = position->second->type == object_type::namespace_type;
+      if (is_namespace != previous_namespace) {
+        throw exception::bad_class{input, "Namespace/type name conflict: " + name};
+      }
+      if (!is_namespace) {
+        throw exception::bad_class{input, "Duplicate type: " + name};
+      }
+    }
+    if (end == std::string::npos) {
+      break;
+    }
+    end += std::string_view{"::"}.size();
+  } while (true);
+}
+
 // Resolve member types against the discovered namespace and type declarations.
 void resolve_member(const stream& in_stream,
                     std::vector<std::unique_ptr<rohit::serializer::syntax_node>>& statements,
@@ -885,11 +954,12 @@ void resolve_member(const stream& in_stream,
     switch (statement->type) {
     case object_type::namespace_type: {
       auto namespace_ptr = dynamic_cast<namespace_node*>(statement.get());
+      register_declaration(in_stream, *namespace_ptr, variable_type_map);
       resolve_member(in_stream, namespace_ptr->statements, variable_type_map);
     } break;
 
     case object_type::class_type: {
-      variable_type_map.insert({statement->get_full_name(), statement.get()});
+      register_declaration(in_stream, *statement, variable_type_map);
       auto class_ptr = dynamic_cast<class_node*>(statement.get());
       for (auto& base : class_ptr->parents) {
         auto* node = find_declared_type(base.name, base.current_namespace, variable_type_map);
@@ -915,7 +985,7 @@ void resolve_member(const stream& in_stream,
     } break;
 
     case object_type::enum_type:
-      variable_type_map.insert({statement->get_full_name(), statement.get()});
+      register_declaration(in_stream, *statement, variable_type_map);
       break;
 
     default:
@@ -965,10 +1035,119 @@ void parse_version_header(const stream& input, bool required) {
   ++input;
 }
 
+namespace {
+// Recognize an include keyword without accepting identifiers beginning with that spelling.
+bool starts_include(const stream& input) {
+  constexpr std::string_view keyword{"include"};
+  return input == keyword && (input.remaining_buffer() == keyword.size() ||
+                              !is_identifier(static_cast<char>(input.curr()[keyword.size()])));
+}
+
+// Read a portable unquoted relative schema path, allowing comments between directive tokens.
+std::filesystem::path parse_include(const stream& input) {
+  static_cast<void>(parse_identifier(input));
+  skip_whitespace_and_comment(input);
+  std::string value{};
+  while (!input.full()) {
+    const auto ch = static_cast<char>(*input);
+    if (input == "//" || input == "/*") {
+      break;
+    }
+    if (!is_identifier(ch) && ch != '.' && ch != '-' && ch != '/') {
+      break;
+    }
+    value.push_back(ch);
+    ++input;
+  }
+  const std::filesystem::path path{value};
+  if (value.empty() || path.is_absolute() || path.has_root_path() ||
+      path.extension() != ".serializer") {
+    throw exception::bad_input_data{input,
+                                    "Expected an unquoted relative .serializer path after include"};
+  }
+  skip_whitespace_and_comment(input);
+  if (input.full() || *input != ';') {
+    throw exception::bad_input_data{
+        input, "Expected ';' after include path (use forward slashes, without quotes or spaces)"};
+  }
+  ++input;
+  return path;
+}
+
+// Load each dependency before resolving its includer, retaining declaration-before-use order.
+class file_loader {
+  enum class file_state { loading, loaded };
+  static constexpr std::size_t maximum_include_depth = 32;
+  parsed_schema result{};
+  std::unordered_map<std::string, file_state> files{};
+  // Creation checks all names immediately; resolution exposes only preceding declarations.
+  std::unordered_map<std::string, syntax_node*> declarations{};
+  std::unordered_map<std::string, syntax_node*> types{};
+
+  // Append a file once; unwind diagnostics through every including file on failure.
+  void load(const std::filesystem::path& path, std::size_t depth) {
+    try {
+      if (path.extension() != ".serializer") {
+        throw std::invalid_argument{"Input must use .serializer"};
+      }
+      const auto canonical = std::filesystem::canonical(path);
+      auto identity = canonical.generic_string();
+#ifdef _WIN32
+      to_lower_in_place(identity);
+#endif
+      if (const auto found = files.find(identity); found != files.end()) {
+        if (found->second == file_state::loading) {
+          throw std::invalid_argument{"Include cycle"};
+        }
+        return;
+      }
+      if (depth >= maximum_include_depth) {
+        throw std::invalid_argument{"Maximum include depth (" +
+                                    std::to_string(maximum_include_depth) + " files) exceeded"};
+      }
+      files.emplace(identity, file_state::loading);
+      result.dependencies.push_back(canonical);
+      const auto input = rohit::make_stream_from_file(canonical);
+      parse_version_header(input, true);
+      skip_whitespace_and_comment(input);
+      while (starts_include(input)) {
+        const auto included = parse_include(input);
+        load(canonical.parent_path() / included, depth + 1);
+        skip_whitespace_and_comment(input);
+      }
+      auto statements = parse_statement_list(input, nullptr, declarations);
+      if (!input.full()) {
+        throw exception::bad_input_data{input, "Unexpected trailing schema input"};
+      }
+      resolve_member(input, statements, types);
+      for (auto& statement : statements) {
+        result.statements.push_back(std::move(statement));
+      }
+      files.at(identity) = file_state::loaded;
+    } catch (const std::exception& error) {
+      throw std::invalid_argument{path.generic_string() + ": " + error.what()};
+    }
+  }
+
+public:
+  // Return the complete compilation unit only after every dependency has been validated.
+  parsed_schema run(const std::filesystem::path& path) {
+    load(path, 0);
+    return std::move(result);
+  }
+};
+} // namespace
+
+// Give filesystem-aware callers an isolated include cache and symbol table per entry schema.
+parsed_schema parse_file(const std::filesystem::path& path) {
+  return file_loader{}.run(path);
+}
+
 // Parse schema declarations and resolve their member types; malformed input throws.
 std::vector<std::unique_ptr<syntax_node>> parse(const stream& in_stream, bool require_version) {
   parse_version_header(in_stream, require_version);
-  auto statements = parse_statement_list(in_stream, nullptr);
+  std::unordered_map<std::string, syntax_node*> declarations{};
+  auto statements = parse_statement_list(in_stream, nullptr, declarations);
   if (!in_stream.full()) {
     throw exception::bad_input_data{in_stream, "Unexpected trailing schema input"};
   }

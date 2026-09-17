@@ -1,0 +1,9 @@
+serializer version 1;
+
+namespace include_demo {
+  enum state { pending, ready }
+  class account stable_ids {
+    public uint32 id (7);
+    public state status (8) { state::ready };
+  }
+}

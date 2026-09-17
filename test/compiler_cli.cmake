@@ -115,3 +115,37 @@ foreach(header IN ITEMS "" "serializer version 0;" "serializer version 2;"
 endforeach()
 file(WRITE "${schema}" "// comment\n/* license */ serializer /* schema */ version 1;\nclass account {}\n")
 succeed(-i "${schema}" -o "${cpp}" --cpp.format=false)
+
+# Both backends consume one include graph, and dependency output tracks the entire graph.
+file(MAKE_DIRECTORY "${DIRECTORY}/shared")
+file(WRITE "${DIRECTORY}/shared/common.serializer"
+  "serializer version 1; namespace models { class account { public uint32 id (7); } }\n")
+file(WRITE "${schema}" "serializer version 1; include shared/common.serializer;\n"
+  "include shared/./common.serializer; namespace models { class request { public account owner; } }\n")
+set(depfile "${DIRECTORY}/model.d")
+succeed(-i "${schema}" -l cpp,java --cpp.output "${cpp}" --java.output "${java}"
+  --cpp.format false --depfile "${depfile}")
+file(READ "${depfile}" dependencies)
+if(NOT dependencies MATCHES "common.serializer" OR NOT dependencies MATCHES "model.serializer" OR
+    NOT dependencies MATCHES "model.hpp" OR NOT dependencies MATCHES "Model.java")
+  message(FATAL_ERROR "Missing schema or output in dependency file: ${dependencies}")
+endif()
+file(READ "${java}" java_source)
+string(REGEX MATCHALL "class Models" containers "${java_source}")
+list(LENGTH containers container_count)
+if(NOT container_count EQUAL 1)
+  message(FATAL_ERROR "Reopened namespace must produce one Java container")
+endif()
+reject("Depfile must not overwrite" -i "${schema}" -o "${cpp}" --cpp.format false --depfile "${cpp}")
+reject("Depfile must not overwrite" -i "${schema}" -o "${cpp}" --cpp.format false --depfile "${schema}")
+reject("Depfile must not overwrite" -i "${schema}" -o "${cpp}" --cpp.format false
+  --depfile "${DIRECTORY}/shared/common.serializer")
+reject("Depfile requires" -i "${schema}" -o "${cpp}" --cpp.format false
+  --depfile "${DIRECTORY}/absent/file.d")
+file(SHA256 "${depfile}" dependency_before)
+file(WRITE "${DIRECTORY}/shared/common.serializer" "serializer version 1; include absent.serializer;")
+reject("absent.serializer" -i "${schema}" -o "${cpp}" --cpp.format false --depfile "${depfile}")
+file(SHA256 "${depfile}" dependency_after)
+if(NOT dependency_before STREQUAL dependency_after)
+  message(FATAL_ERROR "Failed include parsing changed the dependency file")
+endif()

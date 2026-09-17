@@ -96,7 +96,11 @@
 - Every extension-related change must increment the affected extension's version
   in the same change, including code, grammar, snippets, icons, metadata,
   documentation, tests, and build or packaging scripts. Documentation-only and
-  behavior-preserving changes are not exempt; use at least a patch increment.
+  behavior-preserving changes are not exempt.
+- Increment only the patch/revision component (the third number), for example
+  `1.1.0` to `1.1.1`, then `1.1.2`. Keep the major and minor components unchanged
+  unless the user explicitly requests a major or minor version increase. Apply
+  this rule to both the VS Code and Visual Studio extensions.
 - Changes to shared assets or tooling used by both the VS Code and Visual Studio
   extensions must increment both extension versions. Keep extension IDs stable.
 - Update the affected manifests, lockfiles where applicable, changelogs, package

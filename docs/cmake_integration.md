@@ -4,6 +4,13 @@ For Java source generation, use `serializer_generate_java(TARGET name SCHEMA fil
 OUTPUT Schema.java CONFIG java.ini)`. This creates a generation target without
 linking a C++ runtime into the application. See [Java CMake usage](java.md#cmake-and-verification).
 The `serializer_generate` helper documented below remains C++-specific.
+
+Both helpers accept entry schemas containing `include common.serializer;`.
+The compiler emits a depfile, and CMake tracks direct and transitive included files
+automatically; they do not need to be listed manually in `DEPENDS`. Only list entry
+schemas in `SCHEMAS`/`SCHEMA`, since included declarations join the entry's output.
+See [include usage](usage.md#share-declarations-with-includes) and
+[C++/Java examples](../example/includes/README.md).
 Each helper explicitly selects its own backend, so both may share a configuration
 with `[output] language = cpp,java`. Schema paths use `.serializer`, and every
 schema starts with `serializer version 1;`. The installed package supports

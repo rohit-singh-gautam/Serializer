@@ -1,0 +1,10 @@
+serializer version 1;
+include common.serializer;
+
+// Reopen demo; account resolves to the class declared in common.serializer.
+namespace demo {
+  class request stable_ids {
+    public account owner (1);
+    public audit::account audit_record (2);
+  }
+}

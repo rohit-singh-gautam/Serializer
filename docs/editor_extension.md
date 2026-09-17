@@ -5,10 +5,16 @@ Serializer provides separate packages for VS Code and Visual Studio. Both use
 to the VS Code extension. For the Visual Studio VSIX, see
 [Visual Studio](#visual-studio-extension) below.
 
+Both packages highlight `include common.serializer;` with distinct scopes for
+the keyword, unquoted relative path, and semicolon. Paths such as
+`../shared/common.serializer` are supported; quoted paths are marked invalid.
+The VS Code package also supplies an `include` snippet. See
+[schema include syntax](usage.md#share-declarations-with-includes).
+
 ## VS Code
 
-The [Rohit Serializer extension](../editors/vscode/README.md), version **1.0.1**, provides `.serializer`
-syntax highlighting, snippets, and CMake generated-header commands. Schemas use
+The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.0**, provides `.serializer`
+syntax highlighting, snippets, declaration/definition navigation, and CMake generated-header commands. Schemas use
 the current `serializer version 1;` header. Legacy `.def` and `.struct` names are
 not registered. C++/Java generation remains owned by the project's build rules;
 this initial extension's generated-file commands target C++ headers.
@@ -46,13 +52,13 @@ Packaging compiles and bundles TypeScript, copies the canonical grammar, logo,
 and repository license into the extension, and writes:
 
 ```text
-out/extensions/serializer-vscode-1.0.1.vsix
+out/extensions/serializer-vscode-1.1.0.vsix
 ```
 
 From the repository root, install it with:
 
 ```sh
-code --install-extension out/extensions/serializer-vscode-1.0.1.vsix
+code --install-extension out/extensions/serializer-vscode-1.1.0.vsix
 ```
 
 Alternatively run **Extensions: Install from VSIX** and select the file. The
@@ -76,15 +82,45 @@ publisher ID. The manifest's `author.url` links to his LinkedIn profile; `homepa
    and run **Serializer: Diagnose Missing Header**. Read the Serializer Output
    report for file existence, target-specific search paths, and suggested changes.
 
-**Serializer: Open Generated Header** uses the active schema's basename to locate
-headers registered in CMake and asks which target/profile to use when ambiguous.
-It offers to generate a missing file. Generated paths stay in the build tree.
+**Serializer: Open Generated Header** opens only existing output containing the
+active schema, including declarations merged from included schemas. It asks which
+path to use when several outputs apply and returns silently when none is available.
 
-Commands require workspace trust and CMake Tools; lexical editing does not.
+Build/diagnosis/configuration commands require workspace trust and CMake Tools;
+file navigation and lexical editing do not.
 Generation saves modified schema, INI, and CMake documents in the chosen workspace
 folder. It can compile the Serializer generator but not the consuming target.
 Nothing configures or builds automatically when opening or saving a schema.
 See [IntelliSense troubleshooting](intellisense.md) for the underlying integration.
+
+## Navigate available schemas and headers
+
+**Go to Declaration** opens a schema include's file or the original class/enum
+declaration for a type reference. From C++ includes it opens the entry schema;
+from C++ type references it maps the C++ language service's resolved generated
+type back to its original schema, including declarations in included files.
+
+**Go to Definition** on a schema include opens its existing output header; on a
+schema type it selects the generated type definition. Included `account.serializer`
+may be emitted in `request.hpp`, so navigation follows include relationships.
+C++ class definitions continue to use the C++ language service. The extension
+also supplies generated-header locations for literal C++ includes.
+
+These actions and **Open Generated Header** never save, configure, build, generate,
+activate CMake Tools, or offer generation. Missing destinations return no result.
+An already active CMake configuration supplies output candidates and include paths;
+otherwise the current workspace folder is searched, including ignored build trees.
+Sibling `<header>.d` dependency files identify the entry schema. Legacy outputs
+without depfiles use the generated-file banner and schema basenames, with ambiguous
+matches exposed as choices. Naming profiles and storage-mode specializations are
+recognized. Unsaved schema contents participate in lookup; stale output is not
+regenerated or represented as current.
+
+C++ type references require Microsoft C/C++, clangd, or another definition provider.
+VS Code merges providers' declaration results; **Serializer: Go to Schema Declaration**
+offers only schema destinations. This is a lexical schema index, not a full language
+server. Member/function navigation and semantic diagnostics remain unimplemented.
+See the [extension README](../editors/vscode/README.md#limits) for discovery limits.
 
 ## Development and tests
 
@@ -121,6 +157,17 @@ and include directories on CMake targets rather than maintaining editor-only rul
 the maintained schemas, and verifies configuration isolation, include search
 order, and duplicate generated-header ownership.
 
+It also covers navigation through include graphs, namespace/name resolution,
+storage-mode classes, dependency paths, naming profiles, missing/changed files,
+Restricted Mode and passive CMake integration.
+
+`npm run test:navigation` launches an isolated VS Code host with existing source
+and header fixtures, without CMake or a compiler. It checks the standard provider
+commands, explicit schema/header commands, ignored build directories and unsaved
+documents. Set `VSCODE_EXECUTABLE_PATH` to use an installed editor. Optional
+`SERIALIZER_CPP_TOOLS_PATH` adds an installed Microsoft C/C++ extension to exercise
+its real definition provider; otherwise the test supplies a controlled C++ provider.
+
 `npm run test:integration` launches an isolated VS Code extension host and a real
 CMake consumer under `out/extension-tests`. It requires CMake, a C++20 compiler,
 and an installed CMake Tools extension. Set:
@@ -138,7 +185,24 @@ The fixture disables generated-output formatting so it does not need clang-forma
 
 ### Verification performed
 
-On Windows, all 13 automated grammar/model/command tests passed. An isolated
+For VS Code version 1.1.0, all 38 automated grammar/model/command/navigation tests
+passed on Windows. An isolated VS Code host passed navigation checks without CMake
+Tools, and a second run passed with Microsoft C/C++ 1.34.4 as the real definition
+provider. These covered schema and C++ includes/types, merged include output,
+hidden build directories, unsaved schemas and missing outputs. Provider tests
+also covered Restricted Mode and passive use of an already active CMake model.
+Existing generated headers from all nine C++ coding profiles passed 63
+bidirectional type-location checks. The existing CMake Tools consumer regression
+also passed generation, read-only header opening, compilation and failed-generation
+checks. Linux/macOS, remote hosts and clangd have not
+been exercised for navigation. Visual Studio's package remains highlighting-only.
+
+For version 1.0.2, all four grammar tests passed on Windows, including unquoted
+include paths, comments, invalid quoted paths, token scopes, and maintained schemas.
+Both VSIX packages were rebuilt and their packaged grammar was checked against the
+canonical source. Interactive installation/highlighting was not rerun for this update.
+
+Previously, an isolated
 VS Code host with CMake Tools 1.24.42 and the Visual Studio 18 2026 CMake generator
 passed the end-to-end consumer checks above, including an expected failed build
 for an unsupported schema version. Native Visual Studio, Linux/macOS hosts,
@@ -165,7 +229,7 @@ outside this extension's implementation.
 ## Visual Studio extension
 
 The separate [Visual Studio package](../editors/visual_studio/README.md), version
-**1.0.1**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
+**1.0.2**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
 grammar, shared language configuration, repository license, and logo. The grammar's
 `fileTypes` associates `.serializer` files; a `.pkgdef` registers the grammar and
 its editing configuration. It contains no compiled extension code.
@@ -177,7 +241,7 @@ Build and validate with Windows PowerShell 5.1+ and Visual Studio's MSBuild:
 ```
 
 The script restores locked NuGet dependencies, rebuilds package intermediates, and writes
-`out/extensions/serializer-visual-studio-1.0.1.vsix`. Close Visual Studio,
+`out/extensions/serializer-visual-studio-1.0.2.vsix`. Close Visual Studio,
 double-click this VSIX, install into the desired instance, and restart Visual
 Studio. The root `install_extension.ps1` remains the VS Code installer.
 

@@ -1,0 +1,8 @@
+serializer version 1;
+include ../shared/common.serializer;
+
+namespace demo {
+  class right stable_ids : public account ("base", 5) {
+    public string label (9);
+  }
+}

@@ -44,7 +44,7 @@ function harness({ trusted = true, apiAvailable = true, exitCode = 0, cancelled 
   const localRequire = createRequire(file);
   const exports = {};
   const execute = vm.runInThisContext(`(function(require, exports) { ${fs.readFileSync(file, 'utf8')}\n})`, { filename: file });
-  execute(name => name === 'vscode' ? vscode : name === 'vscode-cmake-tools' ? {
+  execute(name => name === './navigation' ? { registerNavigation() {} } : name === 'vscode' ? vscode : name === 'vscode-cmake-tools' ? {
     Version: { v1: 1 }, getCMakeToolsApi: async () => {
       calls.push('api');
       return apiAvailable ? { getProject: async () => project } : undefined;

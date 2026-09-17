@@ -31,6 +31,15 @@ schemas and add the header, then update build references. Library callers using
 `parser::parse(input)` may continue parsing headerless fragments; any supplied
 header is validated. Use `parser::parse(input, true)` to require the file header.
 
+Unquoted directives such as `include common.serializer;` are allowed after the
+header and before declarations. Paths are relative to the including file. Each
+dependency has its own version header; repeated files are loaded once and their
+declarations join the entry schema's output. See [schema includes](usage.md#share-declarations-with-includes)
+for path restrictions, namespace handling, duplicate detection, and output limitations.
+Library callers use `parser::parse_file(path)` for includes; its result owns the
+combined `statements` and records canonical `dependencies` (including the entry).
+Existing stream-only parsing does not read files.
+
 ## Options
 
 Run `serializer --help` or `-h` for all accepted names. Options use `--name value`,
@@ -44,6 +53,7 @@ values, and repeated non-repeatable options are errors.
 | --- | --- | --- |
 | `--input` | `-i` | Required `.serializer` schema |
 | `--output` | `-o` | Output file for exactly one selected language |
+| `--depfile` | | Optional Make-style dependency file for all selected outputs and their transitive schema/configuration inputs |
 | `--config` | `-c` | Optional generator INI configuration |
 | `--language` | `-l` | `cpp`, `java`, or a comma-separated list; repeatable |
 | `--cpp.output` | | C++ `.h`, `.hpp`, or `.hxx` destination |
@@ -64,6 +74,11 @@ explicit CLI language selection replaces the config selection. Config paths are
 relative to the configuration file; command-line paths are relative to the working
 directory. `[output] language = cpp, java` also selects both languages. Duplicate
 or unknown languages and empty list entries are rejected.
+
+Depfiles use absolute paths with Make escaping, including paths containing spaces
+and Windows drive letters. Their parent directory must exist. They cannot overwrite
+schemas, configurations, or generated outputs. Parse, validation, and backend failures
+preserve existing outputs and depfiles; filesystem write failures may leave partial output.
 
 Single-language invocation:
 

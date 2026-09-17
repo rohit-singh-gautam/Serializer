@@ -171,6 +171,7 @@ class emitter {
   std::string source{};
   std::size_t level{1};
   std::map<const syntax_node*, std::string> names{};
+  std::map<std::string, const syntax_node*> declarations{};
 
   // Append one line with the selected profile's indentation.
   void line(const std::string& value = {}) {
@@ -197,13 +198,17 @@ class emitter {
   // Register names up front and reject collisions including enclosing Java classes.
   void register_nodes(const std::vector<std::unique_ptr<syntax_node>>& nodes,
                       const std::string& prefix, std::set<std::string> enclosing) {
-    std::set<std::string> siblings{};
     for (const auto& node : nodes) {
       const auto name = type_name(node->name);
-      if (!siblings.insert(name).second || enclosing.contains(name)) {
+      const auto qualified = prefix + "." + name;
+      const auto [previous, inserted] = declarations.emplace(qualified, node.get());
+      const bool reopened_namespace = !inserted && node->type == object_type::namespace_type &&
+                                      previous->second->type == object_type::namespace_type &&
+                                      previous->second->get_full_name() == node->get_full_name();
+      if ((!inserted && !reopened_namespace) || enclosing.contains(name)) {
         throw std::invalid_argument{"Java type name collision: " + name};
       }
-      names.emplace(node.get(), prefix + "." + name);
+      names.emplace(node.get(), qualified);
       if (node->type == object_type::namespace_type) {
         auto nested = enclosing;
         nested.insert(name);
@@ -868,15 +873,28 @@ class emitter {
     line("}");
   }
 
-  // Preserve schema namespace hierarchy using static Java namespace containers.
-  void nodes(const std::vector<std::unique_ptr<syntax_node>>& values) {
+  // Combine reopened namespaces into one Java container without changing the source AST order.
+  void nodes(const std::vector<const syntax_node*>& values) {
+    std::map<std::string, std::vector<const syntax_node*>> namespace_children{};
+    for (const auto* value : values) {
+      if (value->type == object_type::namespace_type) {
+        auto& children = namespace_children[value->name];
+        for (const auto& child : static_cast<const namespace_node&>(*value).statements) {
+          children.push_back(child.get());
+        }
+      }
+    }
+    std::set<std::string> emitted_namespaces{};
     for (const auto& value : values) {
       if (value->type == object_type::namespace_type) {
+        if (!emitted_namespaces.insert(value->name).second) {
+          continue;
+        }
         line("public static final class " + type_name(value->name) + " {");
         ++level;
         line("/** Namespace container; no instances are needed. */");
         line("private " + type_name(value->name) + "() {}");
-        nodes(static_cast<const namespace_node&>(*value).statements);
+        nodes(namespace_children.at(value->name));
         --level;
         line("}");
       } else if (value->type == object_type::enum_type) {
@@ -935,7 +953,12 @@ public:
       start = end + 1;
     }
     level = 1;
-    nodes(values);
+    std::vector<const syntax_node*> roots{};
+    roots.reserve(values.size());
+    for (const auto& value : values) {
+      roots.push_back(value.get());
+    }
+    nodes(roots);
     source += "}\n";
     return source;
   }

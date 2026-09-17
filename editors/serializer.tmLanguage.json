@@ -5,6 +5,18 @@
   "fileTypes": ["serializer"],
   "patterns": [
     { "include": "#comments" },
+    {
+      "name": "meta.include.serializer",
+      "begin": "\\binclude\\b",
+      "beginCaptures": { "0": { "name": "keyword.control.import.serializer" } },
+      "end": ";|(?=[{}])",
+      "endCaptures": { "0": { "name": "punctuation.separator.serializer" } },
+      "patterns": [
+        { "include": "#comments" },
+        { "name": "string.unquoted.path.serializer", "match": "[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*\\.serializer(?=[\\s;]|/\\*|//|$)" },
+        { "name": "invalid.illegal.include.serializer", "match": "[^\\s;{}]+" }
+      ]
+    },
     { "include": "#strings" },
     {
       "match": "\\b(namespace|class|enum)\\s+([A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",

@@ -21,6 +21,7 @@
 #include <rohit/stream.hpp>
 
 #include <cstdint>
+#include <filesystem>
 #include <functional>
 #include <memory>
 #include <string>
@@ -134,6 +135,7 @@ struct syntax_node {
 };
 
 struct namespace_node : public syntax_node {
+  // Ordered source-block contents; children of reopened blocks share the first namespace scope.
   std::vector<std::unique_ptr<syntax_node>> statements{};
   // Initialize this object from the supplied storage or value state.
   namespace_node(object_type type, std::string&& name, namespace_node* parent_namespace)
@@ -272,8 +274,20 @@ const std::string& get_cpp_type_or_empty(const std::string& type);
 const std::string& get_cpp_type(const std::string& type);
 
 namespace parser {
+// Own a resolved entry schema and its included declarations; dependencies are canonical paths.
+struct parsed_schema {
+  std::vector<std::unique_ptr<syntax_node>> statements{};
+  std::vector<std::filesystem::path> dependencies{};
+};
+
+// Load versioned files with unquoted, file-relative includes and include-once semantics.
+// Includes precede declarations; cycles, duplicate types, and unresolved references throw.
+// All declarations are owned by the result; no source buffers must outlive this call.
+parsed_schema parse_file(const std::filesystem::path& path);
+
 // Parse declarations and resolve member types; malformed or unsupported versions throw.
 // Library callers may omit the version header for legacy fragments.
+// Includes require parse_file so relative paths have an explicit source directory.
 std::vector<std::unique_ptr<syntax_node>> parse(const stream& in_stream);
 // Require the first version statement when require_version is true, as the compiler does.
 std::vector<std::unique_ptr<syntax_node>> parse(const stream& in_stream, bool require_version);

@@ -1,0 +1,13 @@
+serializer version 1;
+
+namespace demo {
+  class account stable_ids {
+    public uint32 id (7);
+  }
+}
+namespace audit {
+  // The same leaf name in another namespace is a distinct type.
+  class account stable_ids {
+    public string label (3);
+  }
+}

@@ -7,6 +7,12 @@ compile-time protocol templates, for both encoding and decoding. See
 [Protobuf codecs](docs/protobuf.md) for generation, schema mappings, and limitations.
 Language-specific output profiles select layouts and naming conventions.
 Schemas use `.serializer` and begin with `serializer version 1;`.
+Share declarations with `include common.serializer;` before any declarations.
+Paths are unquoted and relative to the including file. Includes are loaded once
+per entry schema and emitted together in its generated output. Namespace scopes
+are reused during parsing; duplicate types and namespace/type conflicts are rejected.
+See [schema includes](docs/usage.md#share-declarations-with-includes) and the
+[paired C++/Java examples](example/includes/README.md).
 Quoted defaults preserve literal spaces, for example
 `public string label { "schema default" };`; escaping the space is unnecessary.
 Run `serializer --version` for compiler version **1.0.0** and supported schema versions.
@@ -22,10 +28,10 @@ automatic header generation with CMake, and decoding an exact message with limit
 
 **VS Code:** [Rohit Serializer](docs/editor_extension.md) highlights
 `.serializer` files, supplies snippets, and provides CMake header-generation,
-generated-header navigation, and missing-include assistance. Run
+schema declaration/generated-header navigation, and missing-include assistance. Run
 `./install_extension.ps1` from PowerShell to build and install the local extension
 (Node.js 22+, npm, and the VS Code CLI are required). Marketplace publication is pending.
-The extension version is **1.0.1**, with ID `rohitjairajsingh.serializer-language`
+The VS Code extension version is **1.1.0**, with ID `rohitjairajsingh.serializer-language`
 (Rohit Jairaj Singh). Its release version is independent of the compiler version.
 It also supplies a dedicated 32×32 icon for `.serializer` files in Explorer and
 editor tabs when supported by the selected file icon theme.
@@ -33,7 +39,7 @@ editor tabs when supported by the selected file icon theme.
 **Visual Studio:** a separate [Rohit Serializer VSIX](editors/visual_studio/README.md)
 packages the same grammar and basic editing configuration for Visual Studio 2022/2026
 on Windows x64. Build it with `./editors/visual_studio/build.ps1`, then install
-`out/extensions/serializer-visual-studio-1.0.1.vsix` with Visual Studio's VSIX Installer.
+`out/extensions/serializer-visual-studio-1.0.2.vsix` with Visual Studio's VSIX Installer.
 It supplies lexical editing; use existing CMake targets for generation. Native IDE
 installation and interactive editing verification remain pending.
 
@@ -356,6 +362,12 @@ No custom VS Code task or Serializer IntelliSense extension is required. See the
 [IntelliSense guide](docs/intellisense.md) for the repository presets and
 profile-specific includes. The optional [VS Code extension](docs/editor_extension.md)
 exposes the same build targets through commands and diagnoses missing includes.
+Version 1.1.0 also provides **Go to Declaration** to source schemas and **Go to
+Definition** to existing generated C++ headers for includes and schema types.
+C++ type references use the C++ language service to find their originating schema.
+Navigation and **Open Generated Header** only use available files: they never
+build, configure, save inputs, or prompt for generation. See
+[navigation details and limitations](docs/editor_extension.md#navigate-available-schemas-and-headers).
 Source builds and installed-package generation have
 been checked on Windows; see [compiler verification](docs/command_line.md#verification).
 The extension's Windows editor-host generation smoke test passed; see

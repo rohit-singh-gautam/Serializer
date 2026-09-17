@@ -1,0 +1,9 @@
+serializer version 1;
+include common.serializer;
+
+namespace demo {
+  class request stable_ids {
+    public common::account owner (1);
+    public string message (2);
+  }
+}
