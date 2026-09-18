@@ -114,6 +114,12 @@ Agree on the format outside the message; see [byte order](wire_format.md#byte-or
 Accessors load numeric values by copying scalar bits and converting byte order
 where necessary. They never expose an unaligned native integer/float reference.
 Strings borrow payload bytes; no complete owning object is constructed.
+Mapping validates UTF-8, including nested strings and string map keys. A mutable
+string setter rejects malformed UTF-8 before changing any bytes. Embedded NULs
+are valid; arbitrary bytes belong in `array uint8`.
+Mapping and string setters use the dedicated bounded UTF-8 SIMD backend when
+available. They remain strict even if an owning binary codec uses the
+`binary_text_validation::unchecked` policy; views expose no such opt-out.
 
 ## Access and mutation contract
 

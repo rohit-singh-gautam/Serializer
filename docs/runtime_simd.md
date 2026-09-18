@@ -15,6 +15,7 @@ generated elsewhere.
 | ProtoJSON input | Whitespace runs use the shared bounded scanner within message and decoder-budget limits. TextProto retains its separate whitespace/comment loop. |
 | Positional, integer-key, and string-key binary output | Eligible numeric arrays use one reservation for their payload after the count prefix. Matching-endian payloads use a bulk copy; opposite-endian payloads use SIMD byte swapping. |
 | Positional, integer-key, and string-key binary input | Eligible numeric arrays use a bulk copy or byte swap after validating the complete payload and resource budgets. The successful bulk path charges and advances the payload once. |
+| Binary strings and dynamic field names | Strict UTF-8 validation uses AVX2 for complete Unicode sequences, with SSE2/word ASCII scanning and scalar Unicode fallback. |
 | Nested objects, maps, and unions | Contained strings and arrays use the same protocol helpers. Traversal, field identifiers, ordering, and discriminators remain unchanged. |
 | Binary views | Existing positional bytes are copied as a complete message. Scalar setters still update individual fields. There is no additional field-encoding pass to vectorize. |
 
@@ -28,6 +29,34 @@ element-wise encoding and decoding; nested numeric vectors still reach the bulk 
 JSON number formatting, individual scalar fields, and compact binary prefixes
 retain their scalar implementations. SIMD availability does not imply every
 operation benefits from vector instructions.
+
+## Binary UTF-8 validation
+
+Strict C++ binary string validation uses a dedicated allocation-free backend,
+including view mapping and mutable string setters. It accepts every ASCII byte,
+including quotes, backslashes, controls, and embedded NULs; JSON's escape rules
+do not apply to binary text. Input need not be aligned or padded.
+
+On supported x64 CPUs, the isolated AVX2 backend classifies 32 input bytes at a
+time. Leading-byte masks determine the exact continuation positions; additional
+checks reject overlong sequences, surrogate code points, and values above
+U+10FFFF. A block ending inside a sequence revisits at most three bytes, so the
+next block or scalar tail begins at a code-point boundary. No vector load crosses
+the supplied range. An all-ASCII block needs only a high-bit check.
+
+Short inputs and CPUs without AVX2 use the baseline: SSE2/word scans skip ASCII,
+and Unicode sequences are checked scalarly. With `SERIALIZER_ENABLE_SIMD=OFF`,
+explicit SSE2/AVX2 instructions are disabled, but validation still runs. Rebuild
+the runtime library and consumers together; generated headers need no changes.
+JSON/ProtoJSON string handling retains its existing scanner and escape semantics.
+
+For guaranteed-valid text, C++ owning binary protocols expose the compile-time
+`binary_text_validation::unchecked` policy. It removes runtime UTF-8 scanning
+without a runtime branch and leaves bounds/resource checks intact. It does not
+change the wire format or make invalid text portable. Views and other languages
+have no new opt-out. See [usage](usage.md#choose-c-binary-text-validation) and
+[measured results](verification-utf8-2026-09-18.md). SIMD reduces the validation
+cost; it does not make validation free.
 
 ## SIMD JSON whitespace scanning
 
@@ -135,6 +164,8 @@ limits, cumulative session budgets, and scalar boolean/enum validation.
 **Validation status:** the dated [verification record](verification-2026-09-17.md)
 records generated builds and regression tests, plus bounded ASan/UBSan fuzz
 campaigns with SIMD ON and OFF. It also lists unperformed platform and sanitizer
-checks. Benchmarks remain outstanding; no measured speedup is claimed. See
+checks. Binary UTF-8 tests and measurements are recorded separately in
+[UTF-8 verification](verification-utf8-2026-09-18.md); other runtime benchmarks
+remain outstanding. See
 [qualification](../qualification/README.md#runtime-simd-validation) before reporting
 performance or platform coverage.

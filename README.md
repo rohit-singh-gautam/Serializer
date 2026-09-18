@@ -244,6 +244,10 @@ All C++ protocols use the shared runtime paths automatically:
 - Binary input bulk-decodes the same numeric arrays after checking the complete
   payload and resource budgets. Matching byte order uses a copy; differing byte
   order uses SIMD swaps. Work charges and partial results on failure are preserved.
+- Binary strings use a dedicated bounded UTF-8 validator: AVX2 checks complete
+  Unicode sequences, while the baseline accelerates ASCII with SSE2/word scans
+  and validates Unicode scalarly. Quotes, controls, and embedded NULs are valid
+  ASCII here. See [binary text validation](docs/runtime_simd.md#binary-utf-8-validation).
 - Nested objects, maps, and unions use these paths for their contained strings
   and arrays. Individual scalars, compact integers, enums, and packed boolean
   vectors retain their existing scalar handling. JSON numeric formatting still uses
@@ -259,7 +263,8 @@ padding is required. See [runtime SIMD details](docs/runtime_simd.md), including
 the prepared validation matrix. Rebuild the runtime library and consumers to use
 the whitespace scanner; schema headers do not need regeneration. See the
 [verification record](docs/verification-2026-09-17.md) for unit and sanitizer/fuzz
-coverage. Benchmarks remain outstanding.
+coverage. Other runtime benchmarks remain outstanding; binary UTF-8 measurements
+are recorded in [UTF-8 verification](docs/verification-utf8-2026-09-18.md).
 
 ### Reusing destination storage
 
@@ -532,6 +537,27 @@ point. Inspect `Protocol::wire_endian` or `View::wire_endian` in C++; views also
 expose `key_type`. Explicit codec byte-order selection is documented in
 [the wire-format contract](docs/wire_format.md#byte-order).
 Messages contain no automatic byte-order marker. Both endpoints must agree on it.
+
+Wire byte order is independent of machine byte order: a big-endian machine using
+little-endian binary must exchange identical bytes with a little-endian machine
+using that same protocol and schema. Other language backends currently use the
+little-endian wire profile; explicit big-endian wire selection is a C++ feature.
+The [interoperability runner](example/interoperability/README.md) pins positional
+output to shared frozen bytes and can include emulated big-endian C/C++ hosts.
+See [cross-endian verification](docs/verification-cross-endian-2026-09-18.md)
+for the exercised matrix and its scope.
+
+Strings require valid UTF-8 in every language, including C++ binary codecs and
+mapped views. Embedded NULs remain valid; use `array uint8` for arbitrary bytes.
+Older C++ binary strings containing invalid UTF-8 are now rejected; see
+[migration](migration.md#binary-string-validation).
+Validation is strict by default. C++ owning binary codecs also offer an explicit
+compile-time `binary_text_validation::unchecked` policy for already validated
+or otherwise guaranteed-valid text. It removes runtime text scans, not bounds or
+resource checks. Invalid UTF-8 remains outside the cross-language contract.
+See [policy selection](docs/usage.md#choose-c-binary-text-validation); JSON, mapped
+views, and other language runtimes remain strict. Rebuild the runtime and C++
+consumers together; schema regeneration is unnecessary for this policy.
 
 Independent legacy big-endian and current little-endian fixtures exercise explicit
 protocol selection. The schema-language version does not identify message byte

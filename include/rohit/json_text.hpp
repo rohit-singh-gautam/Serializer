@@ -15,7 +15,7 @@
 namespace rohit::serializer::detail {
 
 // Return a complete UTF-8 sequence length, rejecting overlong encodings and surrogate code points.
-inline std::size_t utf8_sequence_size(std::span<const std::uint8_t> bytes) {
+constexpr std::size_t utf8_sequence_size(std::span<const std::uint8_t> bytes) {
   if (bytes.empty()) {
     throw std::invalid_argument{"Truncated UTF-8"};
   }
@@ -38,6 +38,19 @@ inline std::size_t utf8_sequence_size(std::span<const std::uint8_t> bytes) {
     throw std::invalid_argument{"Invalid UTF-8 code point"};
   }
   return size;
+}
+
+// Validate binary text without allocation or padded reads using the bounded UTF-8 backend.
+inline void validate_utf8(std::span<const std::uint8_t> bytes) {
+  if (!is_valid_utf8(bytes.data(), bytes.size())) {
+    throw std::invalid_argument{"Invalid UTF-8"};
+  }
+}
+
+// Treat string storage as bytes without changing embedded NULs or Unicode normalization.
+inline void validate_utf8(std::string_view text) {
+  validate_utf8(std::span<const std::uint8_t>{
+      reinterpret_cast<const std::uint8_t*>(text.data()), text.size()});
 }
 
 // Read exactly four ASCII hexadecimal digits without locale-dependent conversion.

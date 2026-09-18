@@ -23,6 +23,7 @@ option(SERIALIZER_BUILD_INTEROP_EXAMPLES "Build five-language examples and inter
 option(SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES "Register all language examples and native codec qualification with CTest" OFF)
 set(SERIALIZER_EXAMPLE_WSL_LANGUAGES "" CACHE STRING "Comma-separated example SDKs to run under WSL on Windows")
 option(SERIALIZER_EXAMPLE_SANITIZERS "Use address/undefined sanitizers for native C examples and tests" OFF)
+option(SERIALIZER_EXAMPLE_BIG_ENDIAN "Include QEMU s390x C/C++ in all-language interoperability" OFF)
 option(SERIALIZER_INSTALL "Install the library, compiler, and CMake integration" ${PROJECT_IS_TOP_LEVEL})
 option(SERIALIZER_ENABLE_SIMD "Accelerate schema scanning and runtime codecs on supported CPUs" ON)
 option(SERIALIZER_WITH_ZSTD "Enable standard Zstandard frame compression" OFF)
@@ -223,10 +224,15 @@ if(SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
   if(SERIALIZER_EXAMPLE_SANITIZERS)
     list(APPEND native_example_options --sanitize)
   endif()
+  set(big_endian_example_options)
+  if(SERIALIZER_EXAMPLE_BIG_ENDIAN)
+    list(APPEND big_endian_example_options --big-endian)
+  endif()
   add_test(NAME serializer_language_examples
     COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/example/run.py"
       --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_lib>"
-      --build "${PROJECT_BINARY_DIR}/language_examples" ${native_example_options})
+      --build "${PROJECT_BINARY_DIR}/language_examples" ${native_example_options}
+      ${big_endian_example_options})
   add_test(NAME serializer_native_codecs
     COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/test/native/run.py"
       --compiler "$<TARGET_FILE:serializer>" --build "${PROJECT_BINARY_DIR}/native_codecs"

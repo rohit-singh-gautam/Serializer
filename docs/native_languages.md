@@ -74,6 +74,10 @@ schema access modifiers do not provide C access control.
 All five support JSON, positional binary, integer-key binary, and string-key
 binary. These use the existing [wire contract](wire_format.md), including
 little-endian scalars, compact lengths, stable IDs, enum contexts, and map order.
+Little-endian refers to the wire bytes, independently of the host CPU. The shared
+interop runner can add big-endian C/C++ hosts using `--big-endian`; all participants
+check the same frozen positional bytes. Strings require valid UTF-8 in every
+backend, including C++; use `array uint8` for arbitrary binary data.
 
 ```rust
 let value = schema::InteropMessage::default();

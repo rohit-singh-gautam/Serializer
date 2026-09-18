@@ -174,8 +174,8 @@ ordinary escapes, ASCII character literals, and declared enum constants.
 Arbitrary C++ expressions, collection/union defaults, direct self-containing
 owning defaults, views, and `packed` output are rejected. Map keys support
 integers, characters, booleans, strings, and enums; floating-point and object
-keys are unsupported. Binary strings must be valid UTF-8, matching Java's
-portable subset; arbitrary byte strings accepted by C++ are outside this subset.
+keys are unsupported. Binary strings must be valid UTF-8 in every backend,
+including C++; malformed byte strings are rejected on both encoding and decoding.
 JSON characters must be ASCII. Use `array uint8` for arbitrary byte payloads.
 
 Missing keyed fields retain schema defaults. Duplicate fields apply in order;

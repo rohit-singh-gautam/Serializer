@@ -23,6 +23,48 @@ characters, Unicode, defaults, parent composition, nested objects, arrays, maps
 with several key types, enum collection contexts, explicit wire-name overrides,
 multi-byte IDs, and every union alternative.
 
+Every positional producer is also compared against the shared frozen
+[expected bytes](../../test/positional_binary_fixture.json). The prefix covers
+the fields preceding `payload`, and the three suffixes cover the union tag and
+active payload. These bytes were specified with explicit little-endian scalar
+representations and compact lengths, independently of generated codecs. Update
+them only for an intentional fixture/schema change, never automatically from a
+producer's output.
+
+## Different machine byte orders
+
+The configured wire byte order must match even when the machines have different
+native byte orders. All generated language runtimes use little-endian wire data;
+C++ additionally supports explicit big-endian wire selection. A big-endian host
+does not imply a big-endian message.
+
+Add two actual big-endian target builds to the existing matrix:
+
+```sh
+python example/run.py --compiler build/serializer --example interoperability --language all --big-endian
+```
+
+This requires `s390x-linux-gnu-g++`, `s390x-linux-gnu-gcc`, and `qemu-s390x` on
+Linux (Ubuntu packages `g++-s390x-linux-gnu` and `qemu-user`). On Windows these
+tools run through WSL; the normal languages retain their configured native/WSL
+SDK selection. The s390x binaries are statically linked and compiled with
+assertions requiring a big-endian host target. C++ uses its scalar backend on
+s390x. Both cross-built consumers use the same generated schemas and handwritten
+fixtures as their native counterparts.
+
+The extended matrix has **13 participants x 13 participants x 4 protocols x 3
+variants = 2,028 exchanges**, including 507 positional checks. Little-endian
+native producers and big-endian target producers decode each other's output,
+and every producer must match the frozen positional bytes. An unavailable
+compiler/emulator is a failure when this option is requested, never a silent
+skip. With CTest, enable both `SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES=ON` and
+`SERIALIZER_EXAMPLE_BIG_ENDIAN=ON`.
+
+This qualifies the exercised s390x C/C++ consumers under emulation; it does not
+claim execution of every managed-language runtime on big-endian hardware.
+See the [verification record](../../docs/verification-cross-endian-2026-09-18.md)
+for the exercised configurations, results, and limits.
+
 ## Existing five-runtime CMake subset
 
 Prerequisites: the normal C++ build tools, Java 17+, Node.js 22+, Go 1.22+, and the

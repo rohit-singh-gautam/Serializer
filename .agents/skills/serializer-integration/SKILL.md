@@ -367,8 +367,9 @@ user instruction to defer generation/builds/tests and report what remains unveri
   `Schema.Namespace.Type.decode(bytes, protocol[, limits])`. All four protocols
   are implemented; decode validates an exact message before returning a fresh
   object. JSON uses UTF-8, and binary scalars are little-endian. Java strings
-  reject invalid UTF-8 byte sequences; no arbitrary byte-string compatibility is
-  promised. See the Java guide before mapping unusual defaults or union payloads.
+  reject invalid UTF-8 byte sequences, matching C++ binary codecs and all other
+  backends. Use `array uint8` for arbitrary payload bytes. See the Java guide
+  before mapping unusual defaults or union payloads.
 - Use the generated `Limits` to bound message bytes, string bytes, cumulative
   collection entries, and nesting. Unknown fields and malformed values fail with
   `IllegalArgumentException`. Do not share mutable input/object storage across
@@ -460,6 +461,30 @@ user instruction to defer generation/builds/tests and report what remains unveri
   the peer. The schema-language version identifies neither message byte order nor
   wire version. Independent legacy/current fixtures cover explicit selection in
   all three native binary modes. JSON is unaffected by numeric byte order.
+- Keep wire byte order independent of host CPU byte order. The shared profile is
+  little-endian on both little- and big-endian machines; only C++ currently offers
+  explicit big-endian wire selection. Use the interoperability runner's
+  `--big-endian` option for QEMU s390x C/C++ participants and shared frozen
+  positional bytes. See [qualification commands](../../../example/interoperability/README.md).
+- Require valid UTF-8 for binary strings in every language, including C++ owning
+  codecs, mapped views, and mutable string setters. Preserve embedded NULs and
+  do not normalize Unicode. Use `array uint8` for arbitrary bytes; migrate older
+  C++ raw strings using the [migration guide](../../../migration.md#binary-string-validation).
+- Keep C++ binary text validation strict by default. Only for text whose validity
+  is guaranteed elsewhere, select `binary_text_validation::unchecked` as the
+  third `binary_none`/`binary_integer`/`binary_string` argument (after `Stream`),
+  or the fifth `binary` argument. This compile-time policy propagates through
+  nested owning values and stream rebinding and removes runtime text scans only.
+  Bounds, limits, Boolean/enum checks, and exact-message checks remain active.
+  Invalid UTF-8 is still not interoperable; peers may remain strict when text is
+  valid. JSON, generated view mapping/setters, and other runtimes have no new
+  opt-out. See [usage](../../../docs/usage.md#choose-c-binary-text-validation).
+- Rebuild the runtime and consumers for the dedicated binary UTF-8 SIMD backend;
+  schema regeneration is not needed. AVX2 validates complete Unicode sequences,
+  with bounded SSE2/word ASCII and scalar Unicode fallback. The existing
+  `SERIALIZER_ENABLE_SIMD` setting controls explicit vector acceleration, not
+  whether validation is enabled. Consult [UTF-8 verification](../../../docs/verification-utf8-2026-09-18.md)
+  for measurements and test scope; do not promise zero strict-validation overhead.
 - Regenerate C++ headers for structural stream concepts and implicit standard-stream
   adapters. No `rohit::stream` inheritance is required: use `input_buffer` or
   `output_buffer` for the contiguous fast path, or standard-style byte-stream

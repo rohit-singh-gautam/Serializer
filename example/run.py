@@ -23,11 +23,24 @@ def run(command, *, cwd=None, capture=False):
                           text=capture, encoding='utf-8' if capture else None, timeout=600)
 
 
+def verify_positional_bytes(directory, producers):
+    """Pin every producer to independently specified, shared little-endian wire bytes."""
+    fixture = json.loads((ROOT / 'test/positional_binary_fixture.json').read_text(encoding='utf-8'))
+    for variant, suffix in enumerate(fixture['variant_hex']):
+        expected = bytes.fromhex(fixture['prefix_hex'] + suffix)
+        for producer in producers:
+            actual = (directory / f'{producer}_BINARY_NONE_{variant}.bin').read_bytes()
+            if actual != expected:
+                raise AssertionError(f'{producer}: positional variant {variant} differs from frozen bytes')
+
+
 class Runner:
     """Keep native/WSL SDK selection explicit and translate only actual filesystem paths."""
     def __init__(self, args):
         self.args = args
         self.wsl = set(filter(None, args.wsl_languages.split(',')))
+        if getattr(args, 'big_endian', False) and os.name == 'nt':
+            self.wsl.update(('cpp_s390x', 'c_s390x'))
 
     def path(self, language, path):
         """Translate a resolved Windows file path for an explicitly selected WSL SDK."""
@@ -111,6 +124,26 @@ class Runner:
         """Run generated native binaries under the same host used to build them."""
         return ['wsl', '--exec', executable] if language in self.wsl else [executable]
 
+    def build_big_endian(self, language, directory):
+        """Compile the same C/C++ consumers for a big-endian CPU and run them under QEMU."""
+        participant = language + '_s390x'
+        path = lambda value: self.path(participant, value)
+        executable = directory / ('main_' + participant)
+        compiler = 's390x-linux-gnu-g++' if language == 'cpp' else 's390x-linux-gnu-gcc'
+        command = self.command(participant, compiler, '-std=c++20' if language == 'cpp' else '-std=c11',
+                               '-static', '-O2', '-Wall', '-Wextra', '-Wpedantic', '-Werror',
+                               '-include', path(ROOT / 'test/big_endian_host.h'),
+                               '-I' + path(directory), '-o', path(executable),
+                               path(directory / ('main.cpp' if language == 'cpp' else 'main.c')))
+        if language == 'cpp':
+            command += ['-DSERIALIZER_ENABLE_SIMD=0', '-I' + path(ROOT / 'include'),
+                        path(ROOT / 'src/runtime_simd.cpp'), path(ROOT / 'src/simd_dispatch.cpp')]
+        else:
+            command += ['-lm']
+        print(f'Build {participant}/interoperability (big-endian host, little-endian wire)', flush=True)
+        run(command)
+        return self.command(participant, 'qemu-s390x', path(executable))
+
     def example(self, example, languages):
         """Generate every selected output from one entry schema, then run all consumers."""
         build = self.args.build / example
@@ -128,14 +161,28 @@ class Runner:
         if 'typescript' in selected and 'javascript' in selected:
             shutil.copyfile(targets['js'], build / 'typescript/schema.mjs')
         commands = {language: self.build(language, example, build / language) for language in selected}
+        if example == 'interoperability' and getattr(self.args, 'big_endian', False):
+            for language in ('cpp', 'c'):
+                if language not in selected:
+                    raise ValueError('--big-endian requires cpp and c in --language')
+                commands[language + '_s390x'] = self.build_big_endian(language, build / language)
         fixtures = build / 'fixtures'
         fixtures.mkdir(parents=True, exist_ok=True)
         if example == 'interoperability':
-            (fixtures / 'producers.txt').write_text('\n'.join('js' if x == 'javascript' else x for x in selected) + '\n')
+            producers = ['js' if language == 'javascript' else language for language in commands]
+            (fixtures / 'producers.txt').write_text('\n'.join(producers) + '\n')
             for mode in ('emit', 'verify'):
                 for language, command in commands.items():
-                    run([*command, self.path(language, fixtures), mode])
-            print(f'PASS: {len(selected)} producers x {len(selected)} consumers x 4 protocols x 3 variants = {len(selected)**2*12} exchanges', flush=True)
+                    directory = fixtures / language if mode == 'emit' and language.endswith('_s390x') else fixtures
+                    directory.mkdir(parents=True, exist_ok=True)
+                    run([*command, self.path(language, directory), mode])
+                    if directory != fixtures:
+                        source = language.removesuffix('_s390x')
+                        for message in directory.glob(source + '_*.bin'):
+                            shutil.copyfile(message, fixtures / (language + message.name[len(source):]))
+                if mode == 'emit':
+                    verify_positional_bytes(fixtures, producers)
+            print(f'PASS: {len(commands)} producers x {len(commands)} consumers x 4 protocols x 3 variants = {len(commands)**2*12} exchanges; frozen positional bytes verified', flush=True)
         else:
             input_file = schema.parent / 'fixture.json'
             expected = json.loads(input_file.read_text(encoding='utf-8'))
@@ -159,11 +206,15 @@ def main():
     parser.add_argument('--cpp-library', type=Path)
     parser.add_argument('--wsl-languages', default='', help='Explicit Windows-to-WSL SDK selection, e.g. c,rust,swift')
     parser.add_argument('--sanitize', action='store_true', help='Enable address/undefined sanitizers for C')
+    parser.add_argument('--big-endian', action='store_true',
+                        help='Add s390x C/C++ producers and consumers through QEMU (WSL on Windows)')
     args = parser.parse_args()
     args.compiler = args.compiler.resolve(); args.build = args.build.resolve()
     languages = LANGUAGES if args.language == 'all' else tuple(args.language.split(','))
     if not languages or len(set(languages)) != len(languages) or any(x not in LANGUAGES for x in languages):
         parser.error('Choose distinct supported language folder names')
+    if args.big_endian and (not {'cpp', 'c'}.issubset(languages) or args.example not in ('all', 'interoperability')):
+        parser.error('--big-endian requires cpp and c and the interoperability example')
     runner = Runner(args)
     for example in EXAMPLES if args.example == 'all' else (args.example,):
         runner.example(example, languages)

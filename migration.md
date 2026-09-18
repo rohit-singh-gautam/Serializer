@@ -11,6 +11,37 @@ See [compression verification](docs/verification-compression-2026-09-17.md).
 See the dated [verification record](docs/verification-2026-09-17.md) for the source
 revision, configurations, passing checks, and remaining validation work.
 
+## Binary string validation
+
+C++ native binary codecs now validate UTF-8 by default for strings and field names,
+matching all generated language runtimes. Invalid output raises
+`std::invalid_argument`; invalid input raises `bad_input_data`. Owning string
+decoding validates before replacing the destination. Mapping and mutable view
+setters enforce the same rule; failed string updates preserve the backing bytes.
+Constant generated binary field names are validated at compile time.
+
+Valid UTF-8, embedded NULs, lengths, scalar byte order, and collection bytes are
+unchanged. Rebuild the runtime and C++ consumers against matching updated headers.
+The dedicated validator uses CPU-selected SIMD with a bounded scalar fallback;
+existing generated headers do not need regeneration. Existing binary
+messages containing invalid UTF-8 strings must be migrated to `array uint8`:
+the byte-count prefix and payload representation are the same, but the schema
+and generated APIs distinguish text from arbitrary bytes. Update both endpoints'
+schema and regenerate together. Optional/nullable fields are not added by this
+change.
+
+An explicit C++ owning-codec `binary_text_validation::unchecked` policy can skip
+runtime string/name checks when validity is guaranteed elsewhere. It preserves
+length, bounds, resource, and non-text checks and has no runtime policy branch.
+This can also read old C++-only raw strings during migration, but it does not
+make those strings valid for strict readers or other languages. Generated views
+and JSON remain strict. See [policy usage](docs/usage.md#choose-c-binary-text-validation)
+and [UTF-8 verification](docs/verification-utf8-2026-09-18.md).
+
+The little-endian wire profile remains independent of native machine byte order.
+See [cross-endian verification](example/interoperability/README.md) for frozen
+positional fixtures and the optional s390x/QEMU producer/consumer matrix.
+
 ## Additional native output languages
 
 JavaScript/TypeScript, Go, and C# output can be generated alongside existing C++

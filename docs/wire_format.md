@@ -22,7 +22,7 @@ messages. It identifies neither message byte order nor a wire-format version; se
 The pure Java backend implements the same four protocols for its supported
 owning types. Binary fixed-width values are little-endian, IDs and compact
 prefixes are unchanged, and Java retains original enum/wire names. Java strings
-require valid UTF-8; Java does not provide C++ binary byte-string or view semantics.
+require valid UTF-8, as do the C++ codecs. Java does not provide borrowed views.
 See [Java mappings, limits, and restrictions](java.md). JSON whitespace, escaping,
 and floating-point spelling may differ while representing the same value. Named
 enum fields use names in string-key binary; enum collection elements and union
@@ -51,7 +51,7 @@ and protocol. Values are emitted field by field into the output stream.
 | `bool` | One byte, `00` or `01`; other input values are rejected |
 | Fixed-width integer | Declared width, least significant byte first by default; signed integers preserve their C++20 two's-complement representation |
 | `float`, `double` | Supported binary IEC 559 32-bit or 64-bit representation, least significant byte first by default; bit-preserving conversion through an unsigned integer |
-| String | Compact byte length followed by those bytes; binary string contents need not be UTF-8 |
+| String | Compact UTF-8 byte length followed by valid UTF-8 bytes; embedded NULs are preserved |
 | Vector | Compact element count followed by recursively encoded elements |
 | Map | Compact entry count followed by each key and value; output follows `std::map` order |
 | Numeric enum | Compact nonnegative underlying value; generated enum input/output rejects undeclared values |
@@ -113,8 +113,36 @@ static_assert(big_endian_binary_out::wire_endian == std::endian::big);
 Only `std::endian::little` and `std::endian::big` are supported. This parameter
 affects fixed-width scalars throughout nested objects and containers. Compact
 lengths, counts, IDs, enum values, and union discriminators always use the compact
-encoding described above, independently of fixed-width byte order. Strings remain
-byte sequences; JSON has no numeric byte-order setting.
+encoding described above, independently of fixed-width byte order. UTF-8 text is
+unchanged; JSON has no numeric byte-order setting. Explicit big-endian wire
+selection is currently available in C++; other generated backends implement the
+little-endian wire profile regardless of their machine's native byte order.
+
+For example, `uint32{0x12345678}` remains `78 56 34 12` with little-endian wire
+configuration on both x86-64 and big-endian s390x. Changing the machine does not
+change the schema or require changing the wire setting. The interoperability
+runner's `--big-endian` option executes s390x C/C++ producers and consumers under
+QEMU alongside the other languages. Every positional producer is also checked
+against `test/positional_binary_fixture.json`, specified independently of the
+generated codecs. See [the runner](../example/interoperability/README.md).
+
+By default, binary string writers and readers reject invalid UTF-8, including overlong
+sequences, surrogate code points, and truncated multibyte sequences. C++ owning
+string decoding leaves that destination unchanged on this validation failure;
+view mapping validates strings without allocation, and view setters validate
+before modifying the backing bytes. No Unicode normalization is performed.
+Use `array uint8` for arbitrary payload bytes. This tightens the former C++-only
+raw-string behavior without changing valid UTF-8 wire bytes; see
+[migration](../migration.md#binary-string-validation).
+
+C++ owning binary codecs accept the compile-time policy
+`binary_text_validation::unchecked` after the existing stream template argument.
+It omits runtime text checks, including dynamic field names, while retaining
+bounds, resource budgets, and all other decoding rules. Constant names still
+validate during compilation. It changes neither valid wire bytes nor endian
+selection: valid text interoperates with strict readers. Invalid text remains
+outside this contract even when a C++ caller opts out. JSON, generated mapped
+views, and other runtimes remain strict. See [policy usage](usage.md#choose-c-binary-text-validation).
 
 There is no implicit endian marker or auto-detection. Both endpoints must agree
 on protocol, byte order, and schema. Applications requiring self-describing files

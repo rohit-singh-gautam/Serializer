@@ -143,7 +143,15 @@ void compact_seeds(corpus_writer& writer) {
 void simd_seeds(corpus_writer& writer) {
   constexpr std::size_t lengths[]{0,  1,  7,  8,   15,  16,  17,   31,   32,   33,
                                   63, 64, 65, 127, 128, 129, 1023, 1024, 1025, 4096};
+  constexpr std::string_view unicode_pattern{
+      "\xc2\x80\xe0\xa0\x80\xed\x9f\xbf\xf0\x90\x80\x80\xf4\x8f\xbf\xbf\xe4\xb8\x96"};
   for (const auto size : lengths) {
+    bytes unicode(size);
+    for (std::size_t index = 0; index < unicode.size(); ++index) {
+      unicode[index] = static_cast<std::uint8_t>(unicode_pattern[index % unicode_pattern.size()]);
+    }
+    // Dense valid sequences and truncated suffixes reach the complete UTF-8 vector checks.
+    writer.write("runtime_simd_fuzz", "utf8_span_" + std::to_string(size), 0, unicode, 0, 1);
     for (const auto fill : std::array<std::uint8_t, 5>{'a', ' ', '\t', 0, 255}) {
       bytes payload(size, fill);
       for (std::uint8_t width = 0; width < 3; ++width) {

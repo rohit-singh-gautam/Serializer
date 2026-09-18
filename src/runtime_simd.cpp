@@ -25,6 +25,8 @@ std::size_t scan_json_avx2(const std::uint8_t* data, std::size_t size,
 // Call only for disjoint or identical ranges after CPU/OS validation.
 void copy_swapped_avx2(std::uint8_t* output, const std::uint8_t* input, std::size_t size,
                        std::size_t element_bytes) noexcept;
+// Validate complete UTF-8 vectors only after CPU/OS validation.
+bool is_valid_utf8_avx2(const std::uint8_t* data, std::size_t size) noexcept;
 #endif
 
 namespace {
@@ -109,6 +111,61 @@ void swap_native(std::uint8_t* output, const std::uint8_t* input, std::size_t si
 }
 
 } // namespace
+
+// Skip every ASCII byte, including controls; inspect Unicode sequences without JSON rescans.
+bool is_valid_utf8_baseline(const std::uint8_t* data, std::size_t size) noexcept {
+  constexpr std::uint8_t ascii_limit = 0x80;
+  constexpr std::uint8_t continuation_mask = 0xc0;
+  constexpr std::uint64_t high_bits = 0x8080808080808080ULL;
+  std::size_t offset{};
+  while (offset < size) {
+    if (data[offset] < ascii_limit) {
+#if defined(SERIALIZER_RUNTIME_SSE2)
+      while (size - offset >= sizeof(__m128i)) {
+        __m128i bytes{};
+        std::memcpy(&bytes, data + offset, sizeof(bytes));
+        if (_mm_movemask_epi8(bytes) != 0) { break; }
+        offset += sizeof(bytes);
+      }
+#endif
+      while (size - offset >= sizeof(high_bits)) {
+        std::uint64_t bytes{};
+        std::memcpy(&bytes, data + offset, sizeof(bytes));
+        if ((bytes & high_bits) != 0) { break; }
+        offset += sizeof(bytes);
+      }
+      while (offset < size && data[offset] < ascii_limit) { ++offset; }
+      if (offset == size) { return true; }
+    }
+    const auto first = data[offset];
+    const std::size_t sequence_bytes = first >= 0xc2 && first <= 0xdf ? 2 :
+        first >= 0xe0 && first <= 0xef ? 3 : first >= 0xf0 && first <= 0xf4 ? 4 : 0;
+    if (sequence_bytes == 0 || sequence_bytes > size - offset) { return false; }
+    for (std::size_t index = 1; index < sequence_bytes; ++index) {
+      if ((data[offset + index] & continuation_mask) != ascii_limit) { return false; }
+    }
+    const auto second = data[offset + 1];
+    if ((first == 0xe0 && second < 0xa0) || (first == 0xed && second >= 0xa0) ||
+        (first == 0xf0 && second < 0x90) || (first == 0xf4 && second >= 0x90)) {
+      return false;
+    }
+    offset += sequence_bytes;
+  }
+  return true;
+}
+
+// Cache only a supported backend; short inputs avoid dispatch and AVX transition overhead.
+bool is_valid_utf8(const std::uint8_t* data, std::size_t size) noexcept {
+#if defined(SERIALIZER_HAS_AVX2_SCANNER)
+  if (size >= runtime_simd_bytes * 2) {
+    using validate_function = bool (*)(const std::uint8_t*, std::size_t) noexcept;
+    static const validate_function implementation =
+        supports_avx2() ? is_valid_utf8_avx2 : is_valid_utf8_baseline;
+    return implementation(data, size);
+  }
+#endif
+  return is_valid_utf8_baseline(data, size);
+}
 
 // Select character rules once per span, outside the vector loop.
 std::size_t scan_json_baseline(const std::uint8_t* data, std::size_t size,

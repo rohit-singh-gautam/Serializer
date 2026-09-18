@@ -38,6 +38,7 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <span>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -217,6 +218,10 @@ struct binary_field_name {
     write_fixed_prefix(output, length);
     for (const unsigned char ch : Name.view()) {
       *output++ = ch;
+    }
+    // Validate constant names once during compilation, keeping generated output scan-free.
+    for (std::size_t offset = fixed_prefix_bytes(length); offset < result.size();) {
+      offset += utf8_sequence_size(std::span<const std::uint8_t>{result}.subspan(offset));
     }
     return result;
   }();
@@ -1430,12 +1435,17 @@ public:
   using rebind_stream = json<serialize_type::out, OtherStream>;
 };
 
+// Unchecked binary text requires the caller to guarantee valid UTF-8 at the boundary.
+enum class binary_text_validation { strict, unchecked };
+
 template <serialize_type type, serialize_key_type KeyType,
-          std::endian WireEndian = std::endian::little, typename Stream = stream>
+          std::endian WireEndian = std::endian::little, typename Stream = stream,
+          binary_text_validation TextValidation = binary_text_validation::strict>
 class binary;
 
 template <serialize_key_type KeyType, std::endian WireEndian = std::endian::little,
-          rohit::type_check::input_buffer Stream = stream>
+          rohit::type_check::input_buffer Stream = stream,
+          binary_text_validation TextValidation = binary_text_validation::strict>
 class binary_in_base : public detail::decoder_input<Stream> {
 protected:
   using base = detail::decoder_input<Stream>;
@@ -1456,6 +1466,10 @@ protected:
 public:
   constexpr static serialize_key_type key_type = KeyType;
   constexpr static std::endian wire_endian = WireEndian;
+  constexpr static binary_text_validation text_validation = TextValidation;
+  static_assert(TextValidation == binary_text_validation::strict ||
+                TextValidation == binary_text_validation::unchecked,
+                "Unsupported binary text validation policy");
   static_assert(KeyType == serialize_key_type::none || KeyType == serialize_key_type::integer ||
                 KeyType == serialize_key_type::string, "Unsupported binary key mode");
   static_assert(WireEndian == std::endian::little || WireEndian == std::endian::big,
@@ -1463,6 +1477,19 @@ public:
   using base::base;
   using base::enter_object;
 
+protected:
+  // Strict decoding validates before replacing or borrowing text; unchecked removes the scan.
+  void validate_string(std::span<const std::uint8_t> bytes) const {
+    if constexpr (TextValidation == binary_text_validation::strict) {
+      try {
+        detail::validate_utf8(bytes);
+      } catch (const std::invalid_argument&) {
+        throw exception::bad_input_data{in_stream, "Invalid binary UTF-8", limits.diagnostics};
+      }
+    }
+  }
+
+public:
   // Decode a complete one-to-four-byte compact integer with one cursor update.
   std::uint32_t serialize_in_variable() {
     require_input(1);
@@ -1483,6 +1510,7 @@ public:
     const auto size = serialize_in_variable();
     check_string(size, false);
     const auto* bytes = read_bytes(size);
+    validate_string({bytes, size});
     return size == 0 ? std::string_view{} :
         std::string_view{reinterpret_cast<const char*>(bytes), size};
   }
@@ -1564,6 +1592,7 @@ public:
       require_input(size);
       check_string(size);
       if (size > value.max_size()) { fail_limit("String exceeds destination capacity limit"); }
+      validate_string({in_stream.curr(), size});
       if (size == 0) {
         value.clear();
       } else {
@@ -1670,22 +1699,27 @@ public:
 }; // class binary_in_base
 
 template <serialize_key_type KeyType, std::endian WireEndian,
-          rohit::type_check::input_buffer Stream>
-class binary<serialize_type::in, KeyType, WireEndian, Stream>
-    : public binary_in_base<KeyType, WireEndian, Stream> {
+          rohit::type_check::input_buffer Stream, binary_text_validation TextValidation>
+class binary<serialize_type::in, KeyType, WireEndian, Stream, TextValidation>
+    : public binary_in_base<KeyType, WireEndian, Stream, TextValidation> {
 public:
-  using binary_in_base<KeyType, WireEndian, Stream>::binary_in_base;
+  using binary_in_base<KeyType, WireEndian, Stream, TextValidation>::binary_in_base;
   using stream_type = Stream;
   template <rohit::type_check::input_buffer OtherStream>
-  using rebind_stream = binary<serialize_type::in, KeyType, WireEndian, OtherStream>;
+  using rebind_stream = binary<serialize_type::in, KeyType, WireEndian, OtherStream, TextValidation>;
 };
 
 template <serialize_key_type KeyType, std::endian WireEndian = std::endian::little,
-          rohit::type_check::output_buffer Stream = stream>
+          rohit::type_check::output_buffer Stream = stream,
+          binary_text_validation TextValidation = binary_text_validation::strict>
 class binary_out_base {
 public:
   constexpr static serialize_key_type key_type = KeyType;
   constexpr static std::endian wire_endian = WireEndian;
+  constexpr static binary_text_validation text_validation = TextValidation;
+  static_assert(TextValidation == binary_text_validation::strict ||
+                TextValidation == binary_text_validation::unchecked,
+                "Unsupported binary text validation policy");
   static_assert(KeyType == serialize_key_type::none || KeyType == serialize_key_type::integer ||
                 KeyType == serialize_key_type::string, "Unsupported binary key mode");
   static_assert(WireEndian == std::endian::little || WireEndian == std::endian::big,
@@ -1822,6 +1856,9 @@ public:
   void struct_serialize_out_fixed(std::pair<std::string_view, Values>... fields) {
     std::size_t bytes{};
     (detail::add_fixed_named_bytes(bytes, fields.first, detail::binary_fixed_bytes<Values>), ...);
+    if constexpr (TextValidation == binary_text_validation::strict) {
+      (detail::validate_utf8(fields.first), ...);
+    }
     out_stream.reserve(bytes);
     auto* output = out_stream.get_curr_and_increase_unchecked(bytes);
     // Wire names and their compact lengths stay interleaved with the original field values.
@@ -1914,12 +1951,13 @@ public:
           static_cast<wire_type>(value));
       // Byte copying does not require the stream cursor to be aligned for wire_type.
       out_stream.append_external(&wire_value, sizeof(wire_value));
-    } else if constexpr (std::is_same_v<std::string, T>) {
-      // variable size following string of size
-      serialize_out_variable(value.size());
-      out_stream.append(value);
-    } else if constexpr (std::is_same_v<std::string_view, T>) {
-      // variable size following string of size
+    } else if constexpr (std::is_same_v<std::string, T> || std::is_same_v<std::string_view, T>) {
+      if (value.size() > constants::variable_four_byte_max) {
+        throw std::out_of_range{"Binary variable integer exceeds the 30-bit wire range"};
+      }
+      if constexpr (TextValidation == binary_text_validation::strict) {
+        detail::validate_utf8(std::string_view{value});
+      }
       serialize_out_variable(value.size());
       out_stream.append(value);
     } else if constexpr (std::floating_point<T>) {
@@ -2004,24 +2042,30 @@ public:
 }; // class binary_out_base
 
 template <serialize_key_type KeyType, std::endian WireEndian,
-          rohit::type_check::output_buffer Stream>
-class binary<serialize_type::out, KeyType, WireEndian, Stream>
-    : public binary_out_base<KeyType, WireEndian, Stream> {
+          rohit::type_check::output_buffer Stream, binary_text_validation TextValidation>
+class binary<serialize_type::out, KeyType, WireEndian, Stream, TextValidation>
+    : public binary_out_base<KeyType, WireEndian, Stream, TextValidation> {
 public:
-  using binary_out_base<KeyType, WireEndian, Stream>::binary_out_base;
+  using binary_out_base<KeyType, WireEndian, Stream, TextValidation>::binary_out_base;
   using stream_type = Stream;
   template <rohit::type_check::output_buffer OtherStream>
-  using rebind_stream = binary<serialize_type::out, KeyType, WireEndian, OtherStream>;
+  using rebind_stream = binary<serialize_type::out, KeyType, WireEndian, OtherStream, TextValidation>;
 };
 
-template <serialize_type type, typename Stream = stream>
-using binary_integer = binary<type, serialize_key_type::integer, std::endian::little, Stream>;
+template <serialize_type type, typename Stream = stream,
+          binary_text_validation TextValidation = binary_text_validation::strict>
+using binary_integer =
+    binary<type, serialize_key_type::integer, std::endian::little, Stream, TextValidation>;
 
-template <serialize_type type, typename Stream = stream>
-using binary_string = binary<type, serialize_key_type::string, std::endian::little, Stream>;
+template <serialize_type type, typename Stream = stream,
+          binary_text_validation TextValidation = binary_text_validation::strict>
+using binary_string =
+    binary<type, serialize_key_type::string, std::endian::little, Stream, TextValidation>;
 
-template <serialize_type type, typename Stream = stream>
-using binary_none = binary<type, serialize_key_type::none, std::endian::little, Stream>;
+template <serialize_type type, typename Stream = stream,
+          binary_text_validation TextValidation = binary_text_validation::strict>
+using binary_none =
+    binary<type, serialize_key_type::none, std::endian::little, Stream, TextValidation>;
 
 namespace detail {
 // Preserve custom protocol types unless they explicitly support binding a concrete stream type.

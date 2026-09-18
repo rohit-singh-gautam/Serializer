@@ -83,6 +83,17 @@ timings separate. Benchmarks and unrecorded platform configurations remain outst
 
 ## Timing and allocations
 
+`utf8_validation_test.cpp` compares baseline and CPU-selected UTF-8 validation
+against an independent code-point decoder. It covers all byte pairs at vector
+boundaries, every Unicode scalar, unaligned exact-size buffers, truncation,
+invalid ranges, mutations, and deterministic random spans. `binary_text_test.cpp`
+covers strict and unchecked owning policies, nested/custom/standard streams,
+unchanged limits, and strict view mapping/mutation. See
+[UTF-8 verification](../docs/verification-utf8-2026-09-18.md) for executed tests,
+sanitizer scope, and before/after timing; other unrecorded benchmarks remain open.
+The runtime SIMD fuzzer compares both UTF-8 backends with the existing scalar
+sequence checker; deterministic seeds include dense Unicode and incomplete tails.
+
 Configure `SERIALIZER_BUILD_BENCHMARKS=ON` to add:
 
 - `codec_benchmark`: codec timing with no allocation interception.

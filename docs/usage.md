@@ -515,11 +515,53 @@ Use the same protocol at both ends. To use JSON in the example, replace both
 `json_out<true>` with a `write_format` and pass it to the object's `serialize_out`.
 `format::compress` only removes optional JSON whitespace.
 
+Binary strings require valid UTF-8 in every language, including C++ and its
+mapped views. Embedded NULs are preserved. Use `array uint8` for binary payloads;
+older C++ raw-byte strings may need the [migration](../migration.md#binary-string-validation).
+
 Binary fixed-width values default to **little-endian**, independent of the host.
 Inspect `Protocol::wire_endian`; select the third `binary` template argument only
 when your application requires another byte order. Compact prefixes retain their
 defined encoding. Messages carry no automatic protocol or endian marker, so both
 endpoints must agree on those choices. See [byte order](wire_format.md#byte-order).
+
+### Choose C++ binary text validation
+
+Native C++ binary codecs default to `binary_text_validation::strict`. Validation
+adds a bounded, allocation-free UTF-8 scan; long strings use the CPU-selected
+[SIMD backend](runtime_simd.md#binary-utf-8-validation). For text already validated
+at an application boundary, an explicit policy can remove that scan:
+
+```cpp
+namespace codec = rohit::serializer;
+template <codec::serialize_type Type>
+using trusted_binary = codec::binary_none<
+    Type, rohit::stream, codec::binary_text_validation::unchecked>;
+
+value.serialize_out<trusted_binary>(output);
+auto decoded = codec::deserialize_exact<my_message, trusted_binary>(input);
+```
+
+Replace `my_message` with the generated owning type. The policy is the third
+argument of `binary_none`, `binary_integer`, or `binary_string`, after the stream
+type; it is the fifth argument of `binary<Type, Keys, Endian, Stream, Policy>`.
+`Protocol::text_validation` exposes it. Existing protocol arguments keep their
+meaning. Custom buffer and iostream adapters preserve the policy automatically.
+
+`unchecked` removes runtime UTF-8 checks for values, string map keys, and dynamic
+field names throughout nested owning objects and collections. Constant generated
+field names still validate at compile time, with no per-message cost. Bounds,
+length/overflow checks, resource budgets, Boolean/enum/union checks, unknown-key
+handling, and `finish()` are unchanged. No runtime policy branch or policy byte
+is added. Input/output buffer lifetime and non-aliasing requirements still apply.
+
+This is not a second wire format: valid strings produce identical bytes, and a
+strict peer can decode them. Invalid UTF-8 may pass through unchecked C++ codecs
+but remains outside the interoperable string contract and can be rejected by
+other languages. Use `array uint8` for arbitrary bytes. JSON, generated view
+mapping/setters, and other language runtimes remain strict. Rebuild the runtime
+library and consumers with matching headers; no schema change or regeneration
+is needed. The SIMD build option and text-validation policy are independent.
 
 ### Use generated views
 

@@ -124,8 +124,8 @@ This backend supports owning classes only: `view`, `readonly`, `mutable`, and
 integral primitives, booleans, strings, and enums; object and floating-point map
 keys are rejected. Preserve the generated map comparator when replacing a map.
 String keys sort by UTF-8 bytes, and unsigned integer keys use unsigned ordering.
-Java strings cannot represent arbitrary invalid UTF-8 bytes supported by the C++
-binary string codec. JSON `char` is restricted to one ASCII byte. Null field values
+Binary strings require valid UTF-8 in both Java and C++; use `array uint8` for
+arbitrary binary payloads. JSON `char` is restricted to one ASCII byte. Null field values
 have no wire representation. Big-endian output, borrowed views, explicit SIMD,
 native acceleration, and configurable output-buffer reuse are not implemented.
 

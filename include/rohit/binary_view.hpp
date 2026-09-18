@@ -135,6 +135,7 @@ struct string_view_codec {
     if (value.size() != size) {
       throw std::length_error{"A view string replacement must have the same byte length"};
     }
+    validate_utf8(value);
     if (size != 0) {
       std::memmove(bytes.data() + prefix, value.data(), size);
     }

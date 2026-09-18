@@ -41,6 +41,13 @@ std::size_t scan_json_baseline(const std::uint8_t* data, std::size_t size,
 std::size_t scan_json_long(const std::uint8_t* data, std::size_t size,
                            json_scan_kind kind) noexcept;
 
+// Validate exactly size UTF-8 bytes; null is permitted only for empty input.
+// The baseline uses scalar Unicode checks and available baseline-ISA ASCII acceleration.
+bool is_valid_utf8_baseline(const std::uint8_t* data, std::size_t size) noexcept;
+
+// Dispatch complete UTF-8 validation to a cached CPU/OS-compatible backend.
+bool is_valid_utf8(const std::uint8_t* data, std::size_t size) noexcept;
+
 // Keep short strings, adjacent escapes, and ordinary small whitespace gaps out of runtime dispatch.
 template <json_scan_kind Kind>
 std::size_t scan_json_prefix(const std::uint8_t* data, std::size_t size) noexcept {

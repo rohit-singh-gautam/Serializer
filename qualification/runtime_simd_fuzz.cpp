@@ -1,5 +1,6 @@
 #include "fuzz_support.hpp"
 
+#include <rohit/json_text.hpp>
 #include <rohit/runtime_simd.hpp>
 
 #include <algorithm>
@@ -8,9 +9,26 @@
 #include <cstdlib>
 #include <iterator>
 #include <memory>
+#include <stdexcept>
 
 namespace {
 namespace runtime = rohit::serializer::detail;
+
+// Compare both complete UTF-8 backends with the existing scalar JSON sequence checker.
+void check_utf8(const qualification::fuzz_input& input) {
+  bool expected = true;
+  try {
+    for (std::size_t offset = 0; offset < input.bytes.size();) {
+      offset += runtime::utf8_sequence_size(input.bytes.subspan(offset));
+    }
+  } catch (const std::invalid_argument&) {
+    expected = false;
+  }
+  if (runtime::is_valid_utf8_baseline(input.bytes.data(), input.bytes.size()) != expected ||
+      runtime::is_valid_utf8(input.bytes.data(), input.bytes.size()) != expected) {
+    std::abort();
+  }
+}
 
 // Compare baseline and dispatched compiled scanners with a scalar implementation.
 template <runtime::json_scan_kind Kind>
@@ -55,6 +73,7 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     return 0;
   }
   fuzz_input input{data, size};
+  check_utf8(input);
   check_scan<runtime::json_scan_kind::ascii>(input);
   check_scan<runtime::json_scan_kind::unescaped>(input);
   check_scan<runtime::json_scan_kind::whitespace>(input);

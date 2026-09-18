@@ -48,6 +48,12 @@ with installed WSL SDKs. `--sanitize` enables address/undefined sanitizers with
 the GCC/Clang C toolchain. SDK and language baseline details are in the
 [native language guide](../docs/native_languages.md).
 
+Add `--big-endian` to `--example interoperability --language all` to include
+QEMU s390x C/C++ producers and consumers using the same little-endian wire
+profile. On Windows the cross compilers and QEMU run in WSL. See
+[cross-endian requirements](interoperability/README.md#different-machine-byte-orders).
+The positional fixtures are pinned to shared expected bytes in both matrices.
+
 ## CTest
 
 ```sh
@@ -60,6 +66,7 @@ These opt-in tests compile SDK consumers during CTest and run all 44 examples,
 the 1,452-exchange matrix, and the five new runtime boundary suites. All SDKs
 must be available. Set `SERIALIZER_EXAMPLE_WSL_LANGUAGES` and
 `SERIALIZER_EXAMPLE_SANITIZERS` for the corresponding runner options.
+Enable `SERIALIZER_EXAMPLE_BIG_ENDIAN=ON` to include the s390x participants.
 The existing `SERIALIZER_BUILD_INTEROP_EXAMPLES` option retains the smaller
 C++/Java/JS/Go/C# matrix and optional browser test.
 

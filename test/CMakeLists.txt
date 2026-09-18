@@ -16,6 +16,7 @@ add_executable(core_serializer_test
   schema_include_test.cpp
   schema_scan_test.cpp
   runtime_simd_test.cpp
+  utf8_validation_test.cpp
   json_scan_reuse_test.cpp
   json_whitespace_scan_test.cpp
   binary_array_decode_test.cpp
@@ -24,6 +25,7 @@ add_executable(core_serializer_test
   constant_field_name_test.cpp
   generated_test.cpp
   wire_format_test.cpp
+  binary_text_test.cpp
   wire_compatibility_test.cpp
   decoder_qualification_test.cpp
   binary_view_test.cpp
