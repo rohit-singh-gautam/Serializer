@@ -93,6 +93,18 @@
 
 ## Extension versioning
 
+- Always keep both "Rohit Serializer" extensions, for **Visual Studio** and
+  **Visual Studio Code**, up to date with the current Serializer code, schema
+  syntax, generators, naming profiles, and supported languages. Review both
+  extensions' behavior and documentation whenever those change;
+  update, rebuild, validate, and install the current local package when requested.
+- All supported navigation must work consistently. Treat broken declaration,
+  definition, include, and generated-output navigation as regressions. Verify
+  qualified names, cursor/selection boundaries, transitive includes, unsaved
+  edits, and every supported output language with relevant automated tests.
+  Preserve normal editor navigation for unrelated symbols, and document genuine
+  prerequisites or unavailable destinations instead of claiming unverified support.
+
 - Every extension-related change must increment the affected extension's version
   in the same change, including code, grammar, snippets, icons, metadata,
   documentation, tests, and build or packaging scripts. Documentation-only and

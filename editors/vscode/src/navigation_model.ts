@@ -1,6 +1,12 @@
 import * as path from 'node:path';
 
 export interface Span { start: number; end: number }
+
+/** Accept editor carets at a selection's end, preferring a token beginning there. */
+export function spanAt<T extends Span>(spans: T[], offset: number): T | undefined {
+  return spans.find(span => offset >= span.start && offset < span.end)
+    ?? spans.find(span => offset === span.end);
+}
 interface Token extends Span { text: string }
 export interface SchemaInclude extends Span { name: string }
 export interface TypeSymbol extends Span {
@@ -34,7 +40,7 @@ export function codeOnly(text: string): string {
 }
 
 /** Read declarations and schema type positions, ignoring comments, literals and member names. */
-export function indexSource(text: string, schema: boolean): SourceIndex {
+export function indexSource(text: string, schema: boolean, classScopes = false): SourceIndex {
   const code = codeOnly(text);
   const tokens: Token[] = [...code.matchAll(/[A-Za-z_][A-Za-z_0-9]*|::|[^\s]/g)]
     .map(match => ({ text: match[0], start: match.index!, end: match.index! + match[0].length }));
@@ -151,6 +157,9 @@ export function indexSource(text: string, schema: boolean): SourceIndex {
         kind: token.text === 'enum' ? 'enum' : 'class', start: name.start, end: name.end,
         body: tokens[body].start, declaration: token.start, definition: tokens[body].text === '{' };
       result.symbols.push(symbol);
+      if (classScopes && symbol.definition) {
+        namespaceBodies.set(body, [...currentScope(), name.text]);
+      }
       if (schema) {
         result.references.push({ start: name.start, end: name.end,
           name: symbol.qualified, scope: [] });
@@ -192,7 +201,7 @@ export function generatedNames(qualified: string): string[] {
 }
 
 /** Decode Serializer's Make depfiles, including escaped drive colons, spaces, # and $. */
-export function dependencySchemas(text: string, header: string): string[] {
+export function dependencyFiles(text: string): { targets: string[]; schemas: string[] } {
   const sides: string[][] = [[], []];
   let side = 0;
   let word = '';
@@ -217,11 +226,17 @@ export function dependencySchemas(text: string, header: string): string[] {
     } else { word += ch; }
   }
   flush();
+  return { targets: sides[0].filter(file => path.isAbsolute(file)).map(file => path.normalize(file)),
+    schemas: sides[1].filter(file => path.isAbsolute(file) && file.endsWith('.serializer')).map(file => path.normalize(file)) };
+}
+
+/** Require exact depfile target ownership before using its ordered schema dependencies. */
+export function dependencySchemas(text: string, header: string): string[] {
+  const files = dependencyFiles(text);
   const equalPath = (left: string, right: string): boolean => process.platform === 'win32'
     ? path.normalize(left).toLowerCase() === path.normalize(right).toLowerCase()
     : path.normalize(left) === path.normalize(right);
-  if (!sides[0].some(target => path.isAbsolute(target) && equalPath(target, header))) { return []; }
-  return sides[1].filter(file => path.isAbsolute(file) && file.endsWith('.serializer')).map(file => path.normalize(file));
+  return files.targets.some(target => equalPath(target, header)) ? files.schemas : [];
 }
 
 /** Restrict include navigation to the literal path under the cursor, excluding comments. */
@@ -234,6 +249,6 @@ export function cppIncludeAt(text: string, offset: number): (SchemaInclude & { q
   if (codeOnly(text).charAt(hash) !== '#') { return undefined; }
   const name = match[1] ?? match[2];
   const pathStart = start + match[0].indexOf(match[1] ? '"' : '<') + 1;
-  return offset >= pathStart && offset < pathStart + name.length
+  return offset >= pathStart && offset <= pathStart + name.length
     ? { name, start: pathStart, end: pathStart + name.length, quoted: !!match[1] } : undefined;
 }

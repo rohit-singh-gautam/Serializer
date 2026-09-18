@@ -10,15 +10,32 @@
     <ProjectTypeGuids>{82B43B9B-A64C-4715-B499-D71E9CA2BD60};{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}</ProjectTypeGuids>
     <MinimumVisualStudioVersion>17.0</MinimumVisualStudioVersion>
     <GeneratePkgDefFile>false</GeneratePkgDefFile>
-    <IncludeAssemblyInVSIXContainer>false</IncludeAssemblyInVSIXContainer>
+    <IncludeAssemblyInVSIXContainer>true</IncludeAssemblyInVSIXContainer>
     <IncludeDebugSymbolsInVSIXContainer>false</IncludeDebugSymbolsInVSIXContainer>
     <DeployExtension>false</DeployExtension>
     <CopyVsixExtensionFiles>false</CopyVsixExtensionFiles>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <AssemblyName>Rohit.Serializer.VisualStudio</AssemblyName>
+    <RootNamespace>Rohit.Serializer.VisualStudio</RootNamespace>
+    <LangVersion>latest</LangVersion>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
     <PackageReference Include="Microsoft.VSSDK.BuildTools" Version="17.14.2142" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.VisualStudio.SDK" Version="17.14.40265" ExcludeAssets="runtime" PrivateAssets="all" />
+    <PackageReference Include="Jint" Version="4.16.2" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="System" />
+    <Reference Include="System.Core" />
+    <Reference Include="System.ComponentModel.Composition" />
+    <Reference Include="System.Web.Extensions" />
+    <Reference Include="WindowsBase" />
+    <Reference Include="PresentationCore" />
+    <Reference Include="PresentationFramework" />
+    <Compile Include="navigation_runner.cs" />
+    <Compile Include="navigation_editor.cs" />
+    <EmbeddedResource Include="obj\navigation.js" LogicalName="Rohit.Serializer.navigation.js" />
   </ItemGroup>
   <!-- Link canonical assets so each build packages the current shared rules. -->
   <ItemGroup>
@@ -26,6 +43,7 @@
     <Content Include="..\vscode\language-configuration.json" Link="language-configuration.json" IncludeInVSIX="true" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="serializer.pkgdef" IncludeInVSIX="true" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\LICENSE" Link="LICENSE" IncludeInVSIX="true" />
+    <Content Include="THIRD_PARTY_NOTICES.txt" IncludeInVSIX="true" />
     <Content Include="..\..\logo\serializer_logo_128x128.png" Link="Resources\serializer_logo_128x128.png" IncludeInVSIX="true" />
     <None Include="source.extension.vsixmanifest" SubType="Designer" />
   </ItemGroup>
@@ -33,6 +51,9 @@
   <Import Project="$(VSToolsPath)\VSSDK\Microsoft.VsSDK.targets" Condition="Exists('$(VSToolsPath)\VSSDK\Microsoft.VsSDK.targets')" />
   <Target Name="RequireVsSdk" BeforeTargets="PrepareForBuild">
     <Error Condition="'$(VsSdkTargetsImported)' != 'true'" Text="Restore Microsoft.VSSDK.BuildTools before building (MSBuild /restore)." />
+  </Target>
+  <Target Name="BundleNavigation" BeforeTargets="PrepareForBuild">
+    <Exec Command="node &quot;$(MSBuildProjectDirectory)\bundle_navigation.cjs&quot;" />
   </Target>
   <!-- Keep the package name tied to the manifest version, independent of the compiler. -->
   <Target Name="SetSerializerVsixName" BeforeTargets="GetVsixSourceItems">

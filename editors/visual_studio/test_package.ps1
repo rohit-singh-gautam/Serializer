@@ -39,15 +39,22 @@ try {
       $target.Version -cne '[17.0,)' -or $target.ProductArchitecture -cne 'amd64') {
     throw 'Unexpected Visual Studio installation target.'
   }
-  $asset = $manifest.PackageManifest.Assets.Asset
-  if ($asset.Type -cne 'Microsoft.VisualStudio.VsPackage' -or $asset.Path -cne 'serializer.pkgdef') {
+  $assets = @($manifest.PackageManifest.Assets.Asset)
+  if (@($assets | Where-Object { $_.Type -ceq 'Microsoft.VisualStudio.VsPackage' -and $_.Path -ceq 'serializer.pkgdef' }).Count -ne 1) {
     throw 'Missing Visual Studio package registration.'
+  }
+  if (@($assets | Where-Object { $_.Type -ceq 'Microsoft.VisualStudio.MefComponent' -and $_.Path -ceq 'Rohit.Serializer.VisualStudio.dll' }).Count -ne 1) {
+    throw 'Missing native editor navigation registration.'
+  }
+  foreach ($assembly in @('Rohit.Serializer.VisualStudio.dll', 'Jint.dll', 'Acornima.dll')) {
+    if ($null -eq $archive.GetEntry($assembly)) { throw "Missing navigation assembly: $assembly" }
   }
   $sharedFiles = @{
     'Grammars/serializer.tmLanguage.json' = 'editors/serializer.tmLanguage.json'
     'language-configuration.json' = 'editors/vscode/language-configuration.json'
     'serializer.pkgdef' = 'editors/visual_studio/serializer.pkgdef'
     'LICENSE' = 'LICENSE'
+    'THIRD_PARTY_NOTICES.txt' = 'editors/visual_studio/THIRD_PARTY_NOTICES.txt'
     'Resources/serializer_logo_128x128.png' = 'logo/serializer_logo_128x128.png'
   }
   foreach ($name in $sharedFiles.Keys) {
@@ -82,8 +89,8 @@ try {
       '"source.serializer"="$PackageFolder$\language-configuration.json"')) {
     if (-not $registration.Contains($required)) { throw "Missing registration: $required" }
   }
-  if (@($archive.Entries | Where-Object { $_.FullName -match '\.(dll|exe|pdb)$' }).Count -ne 0) {
-    throw 'This grammar-only package must not contain compiled binaries.'
+  if (@($archive.Entries | Where-Object { $_.FullName -match '\.exe$' }).Count -ne 0) {
+    throw 'Navigation must run in-process without packaged executable helpers.'
   }
 } finally {
   $archive.Dispose()

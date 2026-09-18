@@ -13,6 +13,10 @@ param([string]$MSBuildPath)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+if (-not (Test-Path -LiteralPath (Join-Path $PSScriptRoot '../vscode/node_modules/esbuild/package.json'))) {
+  throw 'Run npm ci in editors/vscode first. Building both packages uses the same locked TypeScript bundler.'
+}
+
 if (-not $MSBuildPath) {
   $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
   if (-not (Test-Path -LiteralPath $vswhere -PathType Leaf)) {

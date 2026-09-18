@@ -40,7 +40,7 @@ there instead of relying on the relative links.
 - Use [docs/editor_extension.md](../../../docs/editor_extension.md) for the optional
   VS Code extension, local VSIX installation, and CMake header assistance.
 - Use [Visual Studio extension](../../../editors/visual_studio/README.md) for the
-  separate Visual Studio 2022/2026 x64 grammar package and its build/install steps.
+  separate Visual Studio 2022/2026 x64 navigation package and its build/install steps.
 - Read [docs/wire_format.md](../../../docs/wire_format.md) when choosing protocols,
   limits, failure handling, or compatibility behavior.
 - Read [migration.md](../../../migration.md) when updating older headers or APIs.
@@ -241,7 +241,7 @@ versioned snippets, and invokes the same targets through CMake Tools. Run the ro
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 1.1.2 is independent of compiler and schema versions. Configure
+version 1.1.4 is independent of compiler and schema versions. Configure
 the consumer first, then use `Serializer: Generate Headers` or `Serializer:
 Diagnose Missing Header`. Set `serializer.headersTarget` for one consumer; keep
 profile include paths separate. Its IntelliSense command explicitly updates the
@@ -250,15 +250,21 @@ in that folder and requires workspace trust. Declaration/definition navigation
 and `Serializer: Open Generated Header` only read available files; never invoke
 generation or configuration to satisfy navigation, or offer generation for a
 missing destination. Declaration opens the originating schema, while definition
-prefers existing generated C++ output and falls back to the original schema type
+prefers existing generated output in any supported language and falls back to the original schema type
 declaration if no generated definition matches. Enum type prefixes in defaults
 such as `AccountState::WaitingForReview` participate in both lookups; enum value
 navigation is not provided. Follow schema includes to their actual entry
-header and use existing `<header>.d` dependencies when present; expose ambiguous
+output and use existing `<output>.d` or workspace multi-output `.d` dependencies when present; expose ambiguous
 legacy basename/profile matches as choices. An already active CMake model can
 narrow lookup but navigation must also work without it and in Restricted Mode.
-C++ type references use the installed C++ definition provider. Use `Serializer:
-Go to Schema Declaration` when other providers add C++ declaration locations.
+Use the built-in `Go to Declaration` menu action, including for whole-name selections.
+Caller type references in C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python,
+Swift, Kotlin, and C use their installed language definition providers.
+For reliable ownership of renamed/flattened output, retain the compiler's
+`--depfile` output in the workspace; native generators without a banner require
+dependency metadata. Use `Serializer: Go to Schema Declaration` from the Command
+Palette when other providers add non-schema declaration locations. Do not override
+VS Code's global commands or disable other language services.
 For file-level navigation, right-click a `.serializer` file in Explorer or its
 editor tab and choose `Serializer: Go to Implementation`. It uses the clicked
 file's URI and the same available-output lookup without building or prompting.
@@ -267,9 +273,15 @@ Semantic schema diagnostics remain unavailable.
 For Visual Studio 2022/2026 on Windows x64, use `editors/visual_studio` instead.
 Run its `build.ps1` with Visual Studio's MSBuild to package and validate the VSIX,
 then install it using Visual Studio's VSIX Installer. It shares the canonical
-grammar and editing configuration, without the VS Code CMake commands or snippets.
+grammar, custom-type highlighting and navigation resolver. Native Go to Declaration
+opens schema includes/types and maps generated declarations in all 11 languages
+back to their schemas. Go to Definition/Ctrl+click on schemas prefer existing output.
+From caller code, use its language service to reach the generated declaration first.
+The VS package does not supply VS Code's CMake commands or snippets; Node.js is
+needed to build the shared bundle, but is not required at runtime.
 Continue to use the consumer's CMake targets for generation and include paths.
-Native Visual Studio installation and interactive editing checks remain pending.
+See the [verification record](../../../docs/editor_extension.md#verification-performed)
+for tested editor hosts and remaining verification boundaries.
 These targets still build the generator when needed and perform real generation:
 honor any instruction to defer configuration, generation, or builds. Install/package
 consumption has been smoke-tested on Windows for compiler 0.1.0, including versioned

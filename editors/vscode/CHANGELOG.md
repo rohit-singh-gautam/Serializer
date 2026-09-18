@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.1.4
+
+- Highlight custom class/enum references and namespace qualifiers using theme type colors.
+- Share the navigation resolver with the new native Visual Studio integration.
+
+- Fix navigation at the end of selected qualified types and include paths,
+  with regressions for `demo::order` in the maintained complex model.
+- Use the built-in Go to Declaration context-menu action. Retain the schema-only
+  command in the Command Palette for choosing only Serializer destinations.
+- Register declaration navigation for every supported generated language:
+  C++, Java, JavaScript, TypeScript, Go, C#, Rust, Python, Swift, Kotlin, and C.
+- Resolve actual nested/flattened type names, C typedefs, TypeScript enum aliases,
+  naming profiles and compiler multi-output dependency files. Schema definitions
+  and file-level Go to Implementation can open all generated output languages.
+- Keep schema declaration lookup independent of CMake responsiveness; deduplicate
+  language-provider locations and accept declaration ranges containing modifiers.
+- Verify the real compiler's output across all languages and exercise the native
+  declaration command with forward/reversed selections in an isolated VS Code host.
+- Refresh the package, installation guidance and integration skill to include
+  the shorthand include support introduced in 1.1.3.
+
 ## 1.1.3
 
 - Highlight extensionless schema includes and use shorthand in the include snippet.

@@ -4,6 +4,7 @@ const path = require('node:path');
 const { test } = require('node:test');
 const { Navigator } = require('../out/navigator');
 const { indexSource, generatedNames, dependencySchemas, cppIncludeAt } = require('../out/navigation_model');
+const { indexGeneratedSource, outputNames } = require('../out/generated_navigation');
 
 const root = path.resolve('navigation workspace');
 const file = name => path.join(root, name);
@@ -32,6 +33,23 @@ function selected(state, targets) {
   return targets.map(target => [path.relative(root, target.file).replaceAll('\\', '/'),
     state.files.get(target.file).slice(target.start, target.end)]);
 }
+
+test('complex model qualified types resolve at every cursor position including selection ends', async () => {
+  const directory = path.resolve(__dirname, '../../../example/schemas/complex');
+  const entries = Object.fromEntries(fs.readdirSync(directory, { recursive: true })
+    .filter(name => name.endsWith('.serializer'))
+    .map(name => [name, fs.readFileSync(path.join(directory, name), 'utf8')]));
+  const state = fixture(entries);
+  const source = entries['model.serializer'];
+  for (const [name, destination] of [['demo::order', 'sales/order.serializer'],
+    ['demo::snapshot', 'analytics/snapshot.serializer'], ['demo::customer', 'people/customer.serializer']]) {
+    const start = source.indexOf(name);
+    for (let offset = start; offset <= start + name.length; ++offset) {
+      assert.deepEqual(selected(state, await state.resolver().schema(file('model.serializer'), offset, false)),
+        [[destination, name.split('::').at(-1)]], `cursor ${offset - start} in ${name}`);
+    }
+  }
+});
 
 test('every AccountState type occurrence in the AUTOSAR example resolves to its enum', async () => {
   const name = 'example/coding_styles/autosar/account.serializer';
@@ -191,7 +209,7 @@ test('preserved, snake and Pascal type spellings match namespaces and acronym bo
     const resolver = state.resolver();
     assert.deepEqual(selected(state, await resolver.schema(file('account.serializer'), state.at('account.serializer', 'AccountID'), true)),
       [['build/account.hpp', name]]);
-    assert.deepEqual(selected(state, await resolver.cppDeclaration(file('build/account.hpp'), state.at('build/account.hpp', name))),
+    assert.deepEqual(selected(state, await resolver.generatedDeclaration(file('build/account.hpp'), state.at('build/account.hpp', name))),
       [['account.serializer', 'AccountID']]);
   }
 });
@@ -202,7 +220,7 @@ test('depfiles disambiguate duplicate basenames and handle renamed output header
     'build/renamed.hpp': banner + 'class account {};',
     'build/renamed.hpp.d': `${escapeDependency(file('build/renamed.hpp'))}: ${escapeDependency(file('right/account.serializer'))}` });
   assert.deepEqual(await state.resolver().headers(file('left/account.serializer')), []);
-  assert.deepEqual(selected(state, await state.resolver().cppDeclaration(file('build/renamed.hpp'), state.at('build/renamed.hpp', 'account'))),
+  assert.deepEqual(selected(state, await state.resolver().generatedDeclaration(file('build/renamed.hpp'), state.at('build/renamed.hpp', 'account'))),
     [['right/account.serializer', 'account']]);
 });
 
@@ -212,7 +230,7 @@ test('legacy duplicate schemas and multiple generated profiles expose all availa
     'build/one/account.hpp': banner + 'class account {};',
     'build/two/account.hpp': banner + 'class Account {};' });
   assert.equal((await state.resolver().headers(file('left/account.serializer'))).length, 2);
-  assert.equal((await state.resolver().cppDeclaration(file('build/one/account.hpp'), state.at('build/one/account.hpp', 'account'))).length, 2);
+  assert.equal((await state.resolver().generatedDeclaration(file('build/one/account.hpp'), state.at('build/one/account.hpp', 'account'))).length, 2);
 });
 
 test('active output inventory excludes other configurations', async () => {
@@ -286,7 +304,7 @@ test('storage-mode specializations navigate to real definitions and primary decl
     'build/account.hpp': banner + 'template <mode Mode> class AccountRecord; template<> class AccountRecord<mode::owning> {}; template<> class AccountRecord<mode::view> {};' });
   const results = await state.resolver().schema(file('account.serializer'), state.at('account.serializer', 'AccountRecord'), true);
   assert.equal(results.length, 2);
-  assert.deepEqual(selected(state, await state.resolver().cppDeclaration(file('build/account.hpp'), state.at('build/account.hpp', 'AccountRecord'))),
+  assert.deepEqual(selected(state, await state.resolver().generatedDeclaration(file('build/account.hpp'), state.at('build/account.hpp', 'AccountRecord'))),
     [['account.serializer', 'AccountRecord']]);
 });
 
@@ -296,7 +314,58 @@ test('preserved names that normalize alike remain distinct in both directions', 
   for (const name of ['AccountRecord', 'account_record']) {
     assert.deepEqual(selected(state, await state.resolver().schema(file('account.serializer'), state.at('account.serializer', name), true)),
       [['build/account.hpp', name]]);
-    assert.deepEqual(selected(state, await state.resolver().cppDeclaration(file('build/account.hpp'), state.at('build/account.hpp', name))),
+    assert.deepEqual(selected(state, await state.resolver().generatedDeclaration(file('build/account.hpp'), state.at('build/account.hpp', name))),
       [['account.serializer', name]]);
   }
+});
+
+test('generated indices ignore multiline literals and keep Rust lifetimes and TypeScript enum aliases', () => {
+  const cases = [
+    ['schema.py', '"""\nclass Fake:\n    pass\n"""\nclass Real:\n    pass', ['Real']],
+    ['schema.rs', "impl<'a> Reader<'a> {}\npub struct Real {}\npub enum State { Ready }", ['Real', 'State']],
+    ['schema.go', 'var text = `\ntype Fake struct {}\n`\ntype Real struct {}', ['Real']],
+    ['schema.mjs', 'const text = `\nexport class Fake {}\n`;\nexport class Real {}', ['Real']],
+    ['schema.d.mts', 'export declare const State: Readonly<{ Ready: 0 }>;\nexport type State = typeof State[keyof typeof State];', ['State', 'State']]
+  ];
+  for (const [file, text, expected] of cases) {
+    assert.deepEqual(indexGeneratedSource(text, file).symbols.map(symbol => symbol.name), expected, file);
+  }
+  assert.deepEqual(outputNames('HTTPModels::ID2Record', 'schema.rs', ''), ['HTTPModelsID2Record']);
+});
+
+test('C typedef tag and alias locations and TypeScript enum aliases resolve to schema types', async () => {
+  for (const [name, source, markers] of [
+    ['schema.h', '#define SRL_NATIVE_RUNTIME_INCLUDED\ntypedef struct data_order data_order;\nstruct data_order {};\ntypedef enum data_state { ready } data_state;',
+      ['data_order data_order', 'data_order;', 'data_order {};', 'data_state {', 'data_state;']],
+    ['schema.d.mts', 'export declare const DataState: Readonly<{ Ready: 0 }>;\nexport type DataState = typeof DataState[keyof typeof DataState];',
+      ['DataState:', 'DataState =']]
+  ]) {
+    const state = fixture({ 'model.serializer': 'serializer version 1; namespace data { class order {} enum state { ready } }',
+      [name]: source, [`${name}.d`]: `${escapeDependency(file(name))}: ${escapeDependency(file('model.serializer'))}` });
+    for (const marker of markers) {
+      const results = await state.resolver().generatedDeclaration(file(name), source.indexOf(marker));
+      assert.deepEqual(selected(state, results), [['model.serializer', marker.includes('order') ? 'order' : 'state']], marker);
+    }
+  }
+});
+
+test('portable preserved names that normalize alike remain distinct inside schema namespaces', async () => {
+  const name = 'schema.mjs';
+  const state = fixture({ 'model.serializer': 'serializer version 1; namespace Data { class OrderRecord {} class order_record {} }',
+    [name]: 'export class DataOrderRecord {}\nexport class Dataorder_record {}',
+    [`${name}.d`]: `${escapeDependency(file(name))}: ${escapeDependency(file('model.serializer'))}` }, [], [name]);
+  for (const type of ['OrderRecord', 'order_record']) {
+    assert.deepEqual(selected(state, await state.resolver().schema(file('model.serializer'), state.at('model.serializer', type), true)),
+      [[name, `Data${type}`]]);
+    assert.deepEqual(selected(state, await state.resolver().generatedDeclaration(file(name), state.at(name, `Data${type}`))),
+      [['model.serializer', type]]);
+  }
+});
+
+test('include path endpoints navigate without accepting following comments', async () => {
+  const state = fixture({ 'model.serializer': 'serializer version 1; include types/order; // types/order',
+    'types/order.serializer': 'serializer version 1; class order {}' });
+  assert.deepEqual(selected(state, await state.resolver().schema(file('model.serializer'),
+    state.at('model.serializer', 'types/order') + 'types/order'.length, false)), [['types/order.serializer', '']]);
+  assert.deepEqual(await state.resolver().schema(file('model.serializer'), state.at('model.serializer', 'types/order', true), false), []);
 });

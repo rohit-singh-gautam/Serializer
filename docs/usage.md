@@ -45,17 +45,24 @@ describes how to reproduce and extend validation.
 The optional [VS Code extension](editor_extension.md) supplies `.serializer`
 highlighting and a `schema` snippet with the required version header.
 It also navigates includes and type references: **Go to Declaration** opens the
-original schema, and **Go to Definition** opens matching generated C++ output or
+original schema, and **Go to Definition** opens matching generated output or
 falls back to the schema type declaration when no generated definition is available.
 Enum type references inside field defaults, such as `AccountState` in
 `AccountState::WaitingForReview`, support both actions.
 For an entire schema, right-click its file in Explorer or its editor tab and
-choose **Serializer: Go to Implementation** to open an existing generated header.
+choose **Serializer: Go to Implementation** to open existing output in any of the
+11 generated languages. Use the built-in declaration menu for qualified names
+and whole-name selections. Caller type references require their language's
+definition provider; retain the compiler's `--depfile` for precise output ownership.
 Navigation never builds or offers generation; see
 [available-file navigation](editor_extension.md#navigate-available-schemas-and-headers).
 The separate [Visual Studio extension](../editors/visual_studio/README.md) packages
-the shared highlighting grammar and basic editing configuration for Visual Studio
-2022/2026 on Windows x64. Neither extension is required for compilation or codecs.
+the shared grammar, custom-type highlighting, and native schema navigation for
+Visual Studio 2022/2026 on Windows x64. Go to Declaration opens schemas, and
+Go to Definition/Ctrl+click on schema types prefer existing generated output.
+Generated type declarations in all 11 languages map back to their schemas; caller
+references first use the native language service to reach that generated type.
+Neither extension is required for compilation or codecs.
 
 Save this as `schemas/person.serializer` in your application:
 

@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011">
   <Metadata>
-    <Identity Id="Rohit.Serializer.VisualStudio.40c33349-6c7b-42a6-b843-390d7120b1b9" Version="1.0.3" Language="en-US" Publisher="Rohit Jairaj Singh" />
+    <Identity Id="Rohit.Serializer.VisualStudio.40c33349-6c7b-42a6-b843-390d7120b1b9" Version="1.0.4" Language="en-US" Publisher="Rohit Jairaj Singh" />
     <DisplayName>Rohit Serializer</DisplayName>
-    <Description xml:space="preserve">Syntax highlighting and basic editing support for .serializer schemas in Visual Studio.</Description>
+    <Description xml:space="preserve">Schema declaration, generated definition and include navigation, syntax highlighting, and editing support for Serializer.</Description>
     <MoreInfo>https://github.com/rohit-singh-gautam/Serializer/tree/main/editors/visual_studio</MoreInfo>
     <License>LICENSE</License>
     <Icon>Resources\serializer_logo_128x128.png</Icon>
@@ -20,5 +20,6 @@
   </Prerequisites>
   <Assets>
     <Asset Type="Microsoft.VisualStudio.VsPackage" Path="serializer.pkgdef" />
+    <Asset Type="Microsoft.VisualStudio.MefComponent" Path="Rohit.Serializer.VisualStudio.dll" />
   </Assets>
 </PackageManifest>

@@ -1,94 +1,104 @@
 # Rohit Serializer for Visual Studio
 
-Version **1.0.3** provides `.serializer` syntax highlighting and basic editing support
-to **Visual Studio 2022 and Visual Studio 2026 on Windows x64**. It registers the
-shared TextMate grammar and language configuration for comment toggling, bracket
-pairs, quote completion, and indentation. Schemas begin with `serializer version 1;`.
-The grammar highlights unquoted includes such as `include common;`
-and `include ../shared/common;`, including their keyword and path.
-Explicit `.serializer` includes remain supported. Shorthand requires an updated
-Serializer compiler; schema filenames on disk keep their `.serializer` extension.
+Version **1.0.4** provides `.serializer` highlighting and native navigation in
+**Visual Studio 2022 and Visual Studio 2026 on Windows x64**. It shares the VS Code
+extension's grammar and schema/generated-output resolver. Custom type references
+such as `demo::order`, `demo::snapshot` and `demo::customer` use the active theme's
+type and namespace colors.
 
-This is an asset-only VSIX: it runs no extension code or background process.
-It does not provide semantic diagnostics, schema completion, go-to-definition,
-snippets, or the VS Code extension's CMake commands. Use the project's existing
-CMake generation targets for C++/Java output. See [usage](../../docs/usage.md) and
-[CMake integration](../../docs/cmake_integration.md).
+## Navigation
 
-## Build
+- **Go to Declaration** on a schema include or type opens its source declaration.
+  Extensionless/transitive includes, qualified names, containers, bases, enum-default
+  prefixes and whole-name selections are supported, including unsaved schemas.
+- **Go to Definition** (F12) and **Ctrl+click** on a schema prefer existing generated
+  output; types fall back to their schema declaration when no output matches.
+  Several destinations produce a picker.
+- **Go to Declaration** on a generated type declaration maps it to its originating
+  schema. C++, Java, JavaScript, TypeScript, Go, C#, Rust, Python, Swift, Kotlin
+  and C output are supported, including naming profiles and flattened names.
+- In caller code, use its normal language service to reach the generated type,
+  then Go to Declaration to open the schema. The adapter does not query external
+  language services for a one-step caller-to-schema jump.
 
-Use Windows PowerShell 5.1+ and Visual Studio 2022/2026 or its Build Tools with
-MSBuild installed. NuGet access is needed on the first build. The pinned build
-tools and .NET Framework reference assemblies restore automatically; the Visual
-Studio SDK workload and Node.js are not required for packaging.
+Retain the compiler's `--depfile` beside generated output or in the solution tree,
+especially for renamed outputs and Python/Swift/Kotlin/C output without a banner.
+CMake generation helpers already produce dependency metadata. Navigation only
+reads existing files; it never saves, configures, builds or prompts to generate.
 
-From the repository root:
+The extension also configures comment toggling, bracket/quote pairs and indentation.
+It does not provide semantic diagnostics, completion, member/function navigation,
+snippets or VS Code's CMake commands. Use existing CMake targets for generation.
+See [usage](../../docs/usage.md), [CMake integration](../../docs/cmake_integration.md)
+and the [navigation investigation](../../docs/editor_navigation.md).
+
+## Build and install
+
+Use Node.js 22+, npm, Windows PowerShell 5.1+, and Visual Studio 2022/2026 or its
+Build Tools with MSBuild. The pinned SDK/reference packages restore from NuGet;
+the separate Visual Studio SDK workload is not required.
 
 ```powershell
+# From the repository root:
+npm ci --prefix editors/vscode
 ./editors/visual_studio/build.ps1
 ```
 
-The script also works when invoked by absolute path from another directory.
-Pass `-MSBuildPath '<path to MSBuild.exe>'` to select a particular installation.
-It uses Visual Studio's full-framework MSBuild, not `dotnet build`.
-
-Output:
+The build script works from any directory and accepts `-MSBuildPath` to choose an
+installation. It uses full-framework MSBuild with locked dependencies, bundles
+the current shared resolver, rebuilds and validates:
 
 ```text
-out/extensions/serializer-visual-studio-1.0.3.vsix
+out/extensions/serializer-visual-studio-1.0.4.vsix
 ```
 
-The script rebuilds package intermediates to refresh version metadata, then
-validates the package's identity, installation target, registration,
-and exact copies of the shared assets. It does not install the extension.
+Close Visual Studio, double-click the VSIX, select the installation and restart
+the IDE. **Extensions > Manage Extensions** lists **Rohit Serializer**. The root
+`install_extension.ps1` is the separate VS Code installer. Marketplace publication
+is pending.
 
-## Install and use
+## Implementation and verification
 
-1. Close Visual Studio and double-click the generated VSIX.
-2. Select the Visual Studio installation in the VSIX Installer and install.
-3. Restart Visual Studio and open a `.serializer` file, such as
-   `editors/vscode/test/fixture/account.serializer`.
-4. Check keyword, type, string, number, and comment highlighting. Use **Edit >
-   Advanced > Comment Selection**, type matching braces/quotes, and check indentation.
+`navigation_editor.cs` exports native MEF command and Ctrl+click providers.
+`navigation_bridge.ts` uses the shared resolver through a small host path adapter.
+The bundle is embedded into `Rohit.Serializer.VisualStudio.dll` and interpreted
+in-process by Jint. Node.js is only a build dependency; no compiler, Node runtime
+or executable helper is needed to navigate. Interpreter dependencies and their
+licenses are included in the VSIX.
 
-Use **Extensions > Manage Extensions** to find or uninstall **Rohit Serializer**.
-The VS Code package and `install_extension.ps1` are for VS Code; use this VSIX for
-Visual Studio. Marketplace publication is pending.
+Lookup uses the solution directory or repository/build markers for loose files,
+skips dependency caches and directory links, and limits inventory to 100,000
+relevant files. Disk reads skip files over 16 MiB. Background requests are bounded,
+cancellable, and discarded if the initiating source/caret changes. Keep external
+outputs within the discovered tree or retain a sibling `<output>.d` for reverse
+navigation. The adapter does not use VS Code's CMake Tools configuration.
 
-## Development
+Edit the canonical `../serializer.tmLanguage.json` and shared
+`../vscode/language-configuration.json`; the project links them at build time.
+The stable extension ID is
+`Rohit.Serializer.VisualStudio.40c33349-6c7b-42a6-b843-390d7120b1b9`.
+Commit both lockfiles when intentionally updating dependencies.
 
-Edit `../serializer.tmLanguage.json` for grammar changes and
-`../vscode/language-configuration.json` for shared editing rules. The project links
-these files into the VSIX at build time, without a second maintained grammar.
-`fileTypes` in the grammar registers `.serializer`; legacy `.def`/`.struct` files
-are not associated. `serializer.pkgdef` registers the grammar repository and maps
-`source.serializer` to the language configuration.
+Run `build.ps1` to rebuild/validate the VSIX or `test_package.ps1` to recheck it.
+The shared grammar and resolver tests run with `npm test` in `../vscode`.
+After `npm run test:navigation:generated` produces real compiler output, build
+`test/navigation_test.csproj` with MSBuild and run
+`out/extension-tests/visual-studio/SerializerNavigationTest.exe <repository> <generated-complex-directory>`.
+This checks the actual .NET interpreter, all 11 output languages, selection
+endpoints, unsaved include changes and cancellation.
+After installing the package, run the native editor test with Windows PowerShell:
 
-The manifest's stable extension ID is
-`Rohit.Serializer.VisualStudio.40c33349-6c7b-42a6-b843-390d7120b1b9`. Its version is
-independent of the compiler and VS Code extension versions. The build derives the
-VSIX filename from this manifest. Commit `packages.lock.json` when deliberately
-updating build dependencies; normal builds restore in locked mode.
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File editors/visual_studio/test/test_host.ps1
+```
 
-The installation target follows Microsoft's
-[Visual Studio compatibility model](https://learn.microsoft.com/en-us/visualstudio/extensibility/migration/extension-compatibility?view=visualstudio).
-Grammar registration follows the
-[language configuration documentation](https://learn.microsoft.com/en-us/visualstudio/extensibility/language-configuration?view=visualstudio).
-Community, Professional, and Enterprise editions use the Community installation
-target; ARM64 and earlier Visual Studio releases are not targeted by this package.
+It creates a hidden Visual Studio 2026 instance and a disposable solution, checks
+native commands and reversed selections, then terminates only its own test host.
+Use `-ProgId VisualStudio.DTE.17.0` to target a Visual Studio 2022 installation.
+See the [verification record](../../docs/editor_extension.md#verification-performed)
+for completed runs and remaining editor-host coverage.
 
-## Verification
-
-Run `build.ps1` to build and validate the VSIX. Run `test_package.ps1` to recheck an
-existing package. The shared grammar's tokenizer tests are in `../vscode`; with
-Node.js 22+ and its npm dependencies installed, run `npm test` there.
-
-Verified on Windows with Visual Studio 2026 MSBuild: the Release VSIX build and
-package validation passed, including invocation from outside the repository under
-Windows PowerShell 5.1 with an explicit MSBuild path. All 13 existing VS Code
-grammar/model/command tests passed after adding the shared file association.
-
-Native Visual Studio installation and interactive editing checks have not yet
-been performed. Package validation and TextMate tokenizer tests do not establish
-the IDE's actual rendering or editing behavior; use the installation checklist
-above before publishing.
+The [installation target](https://learn.microsoft.com/en-us/visualstudio/extensibility/migration/extension-compatibility?view=visualstudio)
+covers Community, Professional and Enterprise through the Community target.
+ARM64 and earlier Visual Studio releases are not targeted. Grammar registration
+uses Microsoft's [language configuration support](https://learn.microsoft.com/en-us/visualstudio/extensibility/language-configuration?view=visualstudio).

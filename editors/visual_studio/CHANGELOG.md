@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.4
+
+- Add native Go to Declaration, schema Go to Definition and Ctrl+click navigation.
+- Resolve extensionless/transitive includes, qualified names, full selections and unsaved schemas.
+- Map generated declarations in all 11 languages back to schemas using dependency metadata.
+- Run the shared resolver in-process with bounded, cancellable background requests.
+- Highlight custom type names and namespace qualifiers with the canonical grammar.
+- Bundle locked interpreter dependencies and notices; validate the MEF package and real .NET resolver.
+
 ## 1.0.3
 
 - Package the shared grammar with extensionless schema include highlighting.

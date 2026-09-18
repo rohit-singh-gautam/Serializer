@@ -2,8 +2,8 @@
   "name": "serializer-language",
   "displayName": "Rohit Serializer",
   "icon": "dist/serializer_logo.png",
-  "description": "Schema declarations, generated C++ definitions, syntax highlighting and CMake assistance for Serializer.",
-  "version": "1.1.3",
+  "description": "Schema and generated-code navigation across Serializer languages, syntax highlighting, and CMake assistance.",
+  "version": "1.1.4",
   "publisher": "rohitjairajsingh",
   "author": {
     "name": "Rohit Jairaj Singh",
@@ -36,7 +36,18 @@
   "main": "./dist/extension.js",
   "activationEvents": [
     "onLanguage:cpp",
-    "onLanguage:c"
+    "onLanguage:c",
+    "onLanguage:java",
+    "onLanguage:javascript",
+    "onLanguage:javascriptreact",
+    "onLanguage:typescript",
+    "onLanguage:typescriptreact",
+    "onLanguage:go",
+    "onLanguage:csharp",
+    "onLanguage:rust",
+    "onLanguage:python",
+    "onLanguage:swift",
+    "onLanguage:kotlin"
   ],
   "extensionKind": [
     "workspace"
@@ -143,11 +154,6 @@
           "group": "serializer"
         },
         {
-          "command": "serializer.goToSchemaDeclaration",
-          "when": "editorLangId == serializer || editorLangId == cpp",
-          "group": "navigation"
-        },
-        {
           "command": "serializer.diagnoseHeader",
           "when": "editorLangId == cpp || editorLangId == c",
           "group": "serializer"
@@ -173,7 +179,8 @@
     "test:integration": "npm run build && node test/run.cjs",
     "test:navigation": "npm run build && node test/run_navigation.cjs",
     "vscode:prepublish": "npm run build",
-    "package": "vsce package --no-dependencies --out ../../out/extensions/serializer-vscode-1.1.3.vsix"
+    "package": "vsce package --no-dependencies --out ../../out/extensions/serializer-vscode-1.1.4.vsix",
+    "test:navigation:generated": "npm run compile && node test/generated_navigation.cjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

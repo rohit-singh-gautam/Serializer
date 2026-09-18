@@ -58,22 +58,30 @@ automatic header generation with CMake, and decoding an exact message with limit
 
 **VS Code:** [Rohit Serializer](docs/editor_extension.md) highlights
 `.serializer` files, supplies snippets, and provides CMake header-generation,
-schema declaration/generated-header navigation, and missing-include assistance. Run
+schema declaration/generated-code navigation for every output language, and missing-include assistance. Run
 `./install_extension.ps1` from PowerShell to build and install the local extension
 (Node.js 22+, npm, and the VS Code CLI are required). Marketplace publication is pending.
-The VS Code extension version is **1.1.3**, with ID `rohitjairajsingh.serializer-language`
+The VS Code extension version is **1.1.4**, with ID `rohitjairajsingh.serializer-language`
 (Rohit Jairaj Singh). Its release version is independent of the compiler version.
-Go to Definition resolves enum types in field defaults and falls back to the
-schema declaration when a matching generated C++ definition is unavailable.
+Use the built-in **Go to Declaration** for schema types and includes, including
+qualified names and whole-name selections. Go to Definition resolves enum types
+in defaults and falls back to the schema when generated code is unavailable.
+Generated-code navigation supports all 11 outputs, using dependency files for
+renamed outputs and flattened/nested language names; caller type references
+require that language's definition provider. See [navigation](docs/editor_extension.md#navigate-available-schemas-and-headers).
 It also supplies a dedicated 32×32 icon for `.serializer` files in Explorer and
 editor tabs when supported by the selected file icon theme.
 
 **Visual Studio:** a separate [Rohit Serializer VSIX](editors/visual_studio/README.md)
-packages the same grammar and basic editing configuration for Visual Studio 2022/2026
-on Windows x64. Build it with `./editors/visual_studio/build.ps1`, then install
-`out/extensions/serializer-visual-studio-1.0.3.vsix` with Visual Studio's VSIX Installer.
-It supplies lexical editing; use existing CMake targets for generation. Native IDE
-installation and interactive editing verification remain pending.
+version **1.0.4** supplies the shared grammar, editing configuration, and native
+schema navigation for Visual Studio 2022/2026 on Windows x64. Go to Declaration
+opens schema types/includes; Go to Definition and Ctrl+click find existing output.
+Generated declarations in all 11 languages map back to their schemas. From caller
+code, first use the language service to reach the generated type. Build with
+`./editors/visual_studio/build.ps1`, then install
+`out/extensions/serializer-visual-studio-1.0.4.vsix` with Visual Studio's VSIX Installer.
+Use existing CMake targets for generation. Both extensions highlight custom types,
+including `demo::order`, using the selected theme's type and namespace colors.
 
 ## Integrate with a coding agent
 

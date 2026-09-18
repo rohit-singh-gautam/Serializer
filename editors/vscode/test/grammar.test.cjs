@@ -106,3 +106,31 @@ test('all repository schemas tokenize without losing the outer grammar state', a
   }
   assert.ok(files >= 20);
 });
+
+test('custom field, container, base and default types use theme type colors, not field-name colors', async () => {
+  const grammar = await loadGrammar();
+  for (const [line, types, fields] of [
+    ['public array demo::order orders (3);', ['order'], ['orders']],
+    ['public demo::snapshot snapshot (4);', ['demo::snapshot'], ['snapshot (']],
+    ['public map(uint64) demo::customer customers (5);', ['customer'], ['customers']],
+    ['public account owner;', ['account'], ['owner']],
+    ['class derived : public demo::base (1) {', ['base'], []],
+    ['public union(demo::order = sale, account = owner) value;', ['order', 'account'], ['sale', 'owner', 'value']],
+    ['public state status { demo::state::ready };', ['state status', 'demo::state'], ['status']]
+  ]) {
+    const tokens = grammar.tokenizeLine(line, INITIAL).tokens;
+    for (const type of types) {
+      const offset = line.indexOf(type) + (type.includes('::') ? type.lastIndexOf('::') + 2 : 0);
+      assert.equal(tokens.find(token => token.startIndex <= offset && token.endIndex > offset).scopes.at(-1), 'entity.name.type.serializer', line);
+    }
+    for (const field of fields) {
+      const offset = line.indexOf(field);
+      assert.notEqual(tokens.find(token => token.startIndex <= offset && token.endIndex > offset).scopes.at(-1), 'entity.name.type.serializer', line);
+    }
+  }
+  for (const line of ['// public demo::order orders;', 'public string label { "demo::order" };']) {
+    const tokens = grammar.tokenizeLine(line, INITIAL).tokens;
+    const offset = line.indexOf('demo::order');
+    assert.ok(!tokens.find(token => token.startIndex <= offset && token.endIndex > offset).scopes.includes('entity.name.type.serializer'));
+  }
+});

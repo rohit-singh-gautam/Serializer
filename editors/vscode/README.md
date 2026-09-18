@@ -1,8 +1,8 @@
 # Rohit Serializer for Visual Studio Code
 
 Edit `.serializer` schemas with syntax highlighting, bracket matching, comments,
-folding, and snippets. Version **1.1.3** includes navigation from includes and type
-references to source schemas and existing generated C++ headers. Use the project's
+folding, and snippets. Version **1.1.4** includes navigation from includes and type
+references to source schemas and existing generated code in all 11 output languages. Use the project's
 CMake configuration for the separate build and missing-header assistance commands.
 
 ```text
@@ -53,16 +53,20 @@ The project still needs Serializer, a C++20 compiler, CMake 3.28+, and clang-for
 ## Declaration and definition navigation
 
 Right-click a `.serializer` file in **Explorer** or its **editor tab**, then choose
-**Serializer: Go to Implementation** to open an existing generated C++ header.
+**Serializer: Go to Implementation** to open existing generated output.
 The command uses the clicked file, even when another editor is active. Multiple
-available headers produce a picker; missing output produces no result or build prompt.
+available outputs produce a picker; missing output produces no result or build prompt.
 
 | Selected item | Go to Declaration | Go to Definition |
 | --- | --- | --- |
-| Schema `include types/account;` | Included schema | Existing header containing that schema's declarations |
-| Class/enum declaration or type reference in a schema | Original schema declaration | Matching generated C++ type definition; schema declaration if unavailable |
-| C++ `#include <account.hpp>` | Entry schema | Existing generated header |
-| Generated class/enum type reference in C++ | Original schema declaration | Normal C++ language-service definition |
+| Schema `include types/account;` | Included schema | Existing generated output containing that schema's declarations |
+| Class/enum declaration or type reference in a schema | Original schema declaration | Matching generated type definition; schema declaration if unavailable |
+| C/C++ `#include <account.hpp>` | Entry schema | Existing generated header |
+| Generated class/enum type reference in any supported language | Original schema declaration | Normal language-service definition |
+
+Use the editor's built-in **Go to Declaration** context-menu action. Qualified
+names such as `demo::order` work on either component and at the end of a selection.
+Schema declarations resolve independently of CMake Tools or generated files.
 
 Navigation only reads available files. It never configures, builds, generates,
 saves a document, activates CMake Tools, or offers to generate a missing header.
@@ -75,19 +79,34 @@ produce no result. Included schemas can map to an entry
 schema's header: `account.serializer` included by `request.serializer` may be
 implemented in `request.hpp`. Unsaved schema edits are used for declaration lookup.
 
-An already active CMake Tools configuration narrows output discovery and supplies
-target-specific include search paths. Otherwise navigation searches the current
-workspace folder, including ignored build directories. Existing `<header>.d`
-dependency files identify the entry schema precisely. Older headers without a
+An already active CMake Tools configuration narrows discovery for its generated
+languages and supplies target-specific C/C++ include paths. Other output languages
+remain discoverable. Navigation searches the current workspace folder, including
+ignored build directories. Existing `<output>.d` or multi-output `.d` dependency
+files identify entry schemas precisely. Older banner-marked outputs without a
 depfile use matching schema basenames and the Serializer generated-file banner;
 ambiguous matches remain available as separate choices. Naming profiles and
 storage-mode class specializations are supported. This is available-file lookup,
 not an assertion that the generated output is up to date with unsaved schema edits.
 
-C++ class references require a C++ definition provider such as Microsoft C/C++ or
-clangd. VS Code can combine its declaration results with ours. Use **Serializer:
-Go to Schema Declaration** for just the schema destination. Multiple existing
-headers are shown through normal navigation choices or a command picker.
+Caller type references require a definition provider for their language, such as
+Microsoft C/C++, clangd, Java, TypeScript, Go, C#, Rust, Python, Swift, or Kotlin
+language tooling. Direct generated type declarations do not require semantic
+resolution once the editor recognizes the file's language. Java namespace
+containers, flattened portable/native names, C typedefs, TypeScript enum aliases,
+and preserved naming are supported. VS Code merges declaration providers' results;
+**Serializer: Go to Schema Declaration** remains in the Command Palette for only
+schema destinations. Other language-service commands retain their normal behavior.
+
+For renamed outputs or native generators without a generated-file banner, retain
+the compiler's dependency metadata in the workspace, for example:
+
+```sh
+serializer --input schemas/model.serializer --language python --output generated/schema.py --depfile generated/schema.py.d
+```
+
+A shared `--depfile generated/model.d` also works for multiple language outputs.
+Navigation only consumes this metadata; it never runs the compiler.
 
 ## Commands
 
@@ -95,8 +114,8 @@ headers are shown through normal navigation choices or a command picker.
 | --- | --- |
 | **Serializer: Generate Headers** | Builds `serializer_generated_headers` through CMake Tools, using the selected project and configuration. Saves modified schema/INI/CMake inputs in that workspace folder first. |
 | **Serializer: Open Generated Header** | Opens an existing header containing the active schema, with a path picker for multiple outputs. Missing output is a silent no-op. No build or generation prompt. |
-| **Serializer: Go to Implementation** | Opens existing generated C++ output for the `.serializer` file selected in Explorer or an editor tab; uses the active schema from the Command Palette. |
-| **Serializer: Go to Schema Declaration** | Opens only schema declaration results for the selected include or type, independently of other C++ declaration providers. |
+| **Serializer: Go to Implementation** | Opens existing output in any generated language for the `.serializer` file selected in Explorer or an editor tab; uses the active schema from the Command Palette. |
+| **Serializer: Go to Schema Declaration** | Command Palette alternative that opens only schema destinations for the selected include or type, independently of other declaration providers. |
 | **Serializer: Diagnose Missing Header** | With the cursor on a literal C/C++ `#include`, reports source-specific include paths, file existence, and registered generated headers in the Serializer Output channel. Otherwise asks for the header name. |
 | **Serializer: Use CMake Tools for C/C++ IntelliSense** | Explicitly sets `C_Cpp.default.configurationProvider` to `ms-vscode.cmake-tools` in the selected workspace folder. Requires Microsoft C/C++. |
 
@@ -123,9 +142,12 @@ success. There is no automatic build on file open/save.
 - Build assistance requires an already configured CMake Tools project. It works
   through CMake with Makefile, Ninja, and Visual Studio generators; handwritten
   Makefiles and browser-only VS Code are not supported by these commands.
-- Header navigation uses existing dependency files when available. Without one,
+- Generated-code navigation uses existing dependency files when available. Without one,
   duplicate basenames can be ambiguous; all matching candidates are exposed.
-  Renamed outputs need a sibling `<header>.d` dependency file for schema mapping.
+  Renamed outputs need an `<output>.d` or workspace multi-output `.d` dependency file.
+  Python, Swift, Kotlin and C outputs require dependency metadata because their
+  current generators do not emit a Serializer banner. A matching type name alone
+  never establishes output ownership.
   Outputs outside the workspace need the active CMake model or a resolved C++
   language-service location. Navigation does not create metadata or add include paths.
 - Diagnose from a compiled `.cpp` file for source-specific settings. A standalone
@@ -138,7 +160,10 @@ success. There is no automatic build on file open/save.
   Navigation skips unopened files larger than 16 MiB and bounds include traversal.
 - For Visual Studio 2022/2026, use the separate
   [Visual Studio extension](https://github.com/rohit-singh-gautam/Serializer/tree/main/editors/visual_studio).
-  It shares the grammar and basic editing configuration; the commands above are VS Code features.
+  It shares the grammar, custom-type highlighting and navigation resolver, and
+  supplies native schema declaration/definition commands. The CMake commands and
+  snippets above belong to VS Code. Visual Studio caller references first use
+  their language service to reach the generated declaration.
 
 See the repository's [extension guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/editor_extension.md)
 for development, validation, and packaging instructions. This source distribution

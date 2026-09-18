@@ -2,10 +2,11 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import type { CMakeToolsExtensionExports, CodeModel } from 'vscode-cmake-tools';
 import { activeConfiguration, fileKey, generatedHeaders, sourceIncludes } from './model';
-import { cppIncludeAt } from './navigation_model';
+import { cppIncludeAt, dependencyFiles } from './navigation_model';
+import { navigationLanguages, outputLanguage, outputPattern } from './generated_navigation';
 import { NavigationFiles, NavigationTarget, Navigator } from './navigator';
 
-const excludedDirectories = /(?:^|[\\/])(?:\.git|node_modules|\.venv)(?:[\\/]|$)/;
+const excludedDirectories = /(?:^|[\\/])(?:\.git|node_modules|\.venv|\.vscode-test)(?:[\\/]|$)/;
 const maximumCachedFiles = 96;
 const maximumCachedCharacters = 16 * 1024 * 1024;
 const maximumFileBytes = 16 * 1024 * 1024;
@@ -62,33 +63,66 @@ export function registerNavigation(context: vscode.ExtensionContext): void {
     const base = folder ?? vscode.Uri.file(path.dirname(document.uri.fsPath));
     // Only null disables files.exclude as well as search.exclude; a custom exclusion
     // glob still inherits files.exclude in VS Code and can hide every build output.
-    const schemas = (await vscode.workspace.findFiles(new vscode.RelativePattern(base, '**/*.serializer'),
-      null, undefined, token)).filter(uri => !excludedDirectories.test(uri.fsPath)).map(uri => uri.fsPath);
+    const [schemaUris, candidates] = await Promise.all([
+      vscode.workspace.findFiles(new vscode.RelativePattern(base, '**/*.serializer'), null, undefined, token),
+      vscode.workspace.findFiles(new vscode.RelativePattern(base, outputPattern), null, undefined, token)
+    ]);
+    const schemas = [...new Set([...schemaUris, ...vscode.workspace.textDocuments.map(item => item.uri)]
+      .filter(uri => uri.scheme === 'file' && uri.fsPath.endsWith('.serializer') && !excludedDirectories.test(uri.fsPath))
+      .map(uri => uri.fsPath))];
     // Active configuration outputs take precedence over other build trees/profiles.
     const registered = model ? generatedHeaders(model).map(header => header.path) : [];
-    if (registered.length) { return { schemas, headers: registered }; }
-    const candidates = await vscode.workspace.findFiles(
-      new vscode.RelativePattern(base, '**/*.{hpp,h,hxx,hh,hpp.d,h.d,hxx.d,hh.d}'),
-      null, undefined, token);
+    for (const project of model?.projects ?? []) {
+      for (const target of project.targets) {
+        for (const group of target.fileGroups ?? []) {
+          if (!group.isGenerated) { continue; }
+          for (const source of group.sources) {
+            if (outputLanguage(source)) {
+              registered.push(path.resolve(target.sourceDirectory ?? project.sourceDirectory, source));
+            }
+          }
+        }
+      }
+    }
     const stems = new Set(schemas.map(schema => fileKey(path.basename(schema, '.serializer'))));
     for (const include of document.getText().matchAll(/^\s*#\s*include\s*["<]([^">\r\n]+)[">]/gm)) {
       stems.add(fileKey(path.basename(include[1], path.extname(include[1]))));
     }
-    const headers = new Set<string>();
+    const outputs = new Set<string>(registered);
+    const dependencies = new Map<string, string[]>();
     for (const candidate of candidates) {
+      if (token.isCancellationRequested) { return { schemas: [], headers: [] }; }
       if (excludedDirectories.test(candidate.fsPath)) { continue; }
       if (candidate.fsPath.endsWith('.d')) {
-        headers.add(candidate.fsPath.slice(0, -'.d'.length));
+        const text = await read(candidate.fsPath);
+        if (text === undefined) { continue; }
+        const files = dependencyFiles(text);
+        if (!files.schemas.length) { continue; }
+        for (const output of files.targets.filter(outputLanguage)) {
+          const key = fileKey(output);
+          const entries = dependencies.get(key) ?? [];
+          if (!entries.some(entry => fileKey(entry) === fileKey(files.schemas[0]))) {
+            entries.push(files.schemas[0]);
+          }
+          dependencies.set(key, entries);
+          outputs.add(output);
+        }
       } else if (stems.has(fileKey(path.basename(candidate.fsPath, path.extname(candidate.fsPath))))) {
-        headers.add(candidate.fsPath);
+        outputs.add(candidate.fsPath);
       }
     }
-    return { schemas, headers: [...headers] };
+    // A configured language's outputs are authoritative; unrelated language outputs remain available.
+    const configuredLanguages = new Set(registered.map(outputLanguage));
+    const configured = new Set(registered.map(fileKey));
+    const available = [...outputs].filter(output => !configuredLanguages.has(outputLanguage(output)) || configured.has(fileKey(output)));
+    return { schemas, headers: available.filter(output => /\.(hpp|h|hxx|hh)$/i.test(output)),
+      outputs: available, dependencies };
   }
 
   /** Create a cancellable request using only available files and an optional CMake snapshot. */
-  async function navigator(document: vscode.TextDocument, token: vscode.CancellationToken): Promise<Navigator> {
-    const model = await configuration(document.uri);
+  async function navigator(document: vscode.TextDocument, token: vscode.CancellationToken,
+    withoutConfiguration = false): Promise<Navigator> {
+    const model = withoutConfiguration ? undefined : await configuration(document.uri);
     return new Navigator({ read, files: () => discover(document, model, token),
       includeDirectories: model ? sourceIncludes(model, document.uri.fsPath).map(group => group.directories) : [],
       cancelled: () => token.isCancellationRequested });
@@ -105,23 +139,27 @@ export function registerNavigation(context: vscode.ExtensionContext): void {
           new vscode.Range(document.positionAt(target.start), document.positionAt(target.end))));
       } catch { /* A deleted or inaccessible destination is a navigation miss. */ }
     }
-    return result;
+    return [...new Map(result.map(location => [
+      `${fileKey(location.uri.fsPath)}:${location.range.start.line}:${location.range.start.character}:${location.range.end.line}:${location.range.end.character}`,
+      location])).values()];
   }
 
-  /** Resolve C++ types through their language service instead of guessing from identifier text. */
+  /** Resolve generated types through their language service instead of guessing from caller text. */
   async function declarations(document: vscode.TextDocument, position: vscode.Position,
     token: vscode.CancellationToken): Promise<vscode.Location[]> {
-    const resolver = await navigator(document, token);
     const offset = document.offsetAt(position);
+    const include = ['cpp', 'c'].includes(document.languageId) && cppIncludeAt(document.getText(), offset);
+    const resolver = await navigator(document, token, !include);
     if (document.languageId === 'serializer') {
       return locations(await resolver.schema(document.uri.fsPath, offset, false), token);
     }
-    if (cppIncludeAt(document.getText(), offset)) {
+    if (include) {
       return locations(await resolver.cppInclude(document.uri.fsPath, offset, false), token);
     }
-    // A generated class declaration itself can be resolved without a C++ language service.
-    const local = await resolver.cppDeclaration(document.uri.fsPath, offset);
+    // A generated declaration itself can be resolved without a language service.
+    const local = await resolver.generatedDeclaration(document.uri.fsPath, offset);
     if (local.length) { return locations(local, token); }
+    if (token.isCancellationRequested) { return []; }
     const resolved = await vscode.commands.executeCommand<Array<vscode.Location | vscode.LocationLink>>(
       'vscode.executeDefinitionProvider', document.uri, position) ?? [];
     const targets: NavigationTarget[] = [];
@@ -132,7 +170,7 @@ export function registerNavigation(context: vscode.ExtensionContext): void {
       try {
         const header = await vscode.workspace.openTextDocument(uri);
         const selection = 'targetUri' in target ? target.targetSelectionRange ?? target.targetRange : target.range;
-        targets.push(...await resolver.cppDeclaration(uri.fsPath, header.offsetAt(selection.start)));
+        targets.push(...await resolver.generatedDeclaration(uri.fsPath, header.offsetAt(selection.start), header.offsetAt(selection.end)));
       } catch { /* Other providers may return destinations that no longer exist. */ }
     }
     return locations(targets, token);
@@ -159,11 +197,13 @@ export function registerNavigation(context: vscode.ExtensionContext): void {
     };
   }
 
-  const selector = [{ language: 'serializer', scheme: 'file' }, { language: 'cpp', scheme: 'file' }];
+  const selector = navigationLanguages.map(language => ({ language, scheme: 'file' }));
   const declarationProvider = provider(declarations);
   context.subscriptions.push(vscode.languages.registerDeclarationProvider(selector, {
     provideDeclaration: declarationProvider
-  }), vscode.languages.registerDefinitionProvider(selector, { provideDefinition: provider(definitions) }));
+  }), vscode.languages.registerDefinitionProvider(
+    selector.filter(item => ['serializer', 'cpp', 'c'].includes(item.language)),
+    { provideDefinition: provider(definitions) }));
 
   /** Open one available destination, asking only when several existing outputs apply. */
   async function show(destinations: vscode.Location[]): Promise<void> {
@@ -175,14 +215,15 @@ export function registerNavigation(context: vscode.ExtensionContext): void {
   }
 
   /** Use the clicked file's URI for Explorer/tab actions, or the active schema from the palette. */
-  async function openGeneratedHeader(uri?: vscode.Uri): Promise<void> {
+  async function openGeneratedHeader(uri?: vscode.Uri, allLanguages = false): Promise<void> {
     const schema = uri ?? vscode.window.activeTextEditor?.document.uri;
     if (!schema || schema.scheme !== 'file' || !schema.fsPath.endsWith('.serializer')) { return; }
     const cancellation = new vscode.CancellationTokenSource();
     try {
       const document = await vscode.workspace.openTextDocument(schema);
       const resolver = await navigator(document, cancellation.token);
-      const targets = await locations(await resolver.headers(schema.fsPath), cancellation.token);
+      const targets = await locations(await (allLanguages ? resolver.implementations(schema.fsPath)
+        : resolver.headers(schema.fsPath)), cancellation.token);
       if (targets.length) { await show(targets); }
     } catch { /* Opening available output never offers or invokes generation. */ }
     finally { cancellation.dispose(); }
@@ -190,13 +231,13 @@ export function registerNavigation(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push(vscode.commands.registerCommand('serializer.goToSchemaDeclaration', async () => {
     const editor = vscode.window.activeTextEditor;
-    if (!editor || !['serializer', 'cpp'].includes(editor.document.languageId)) { return; }
+    if (!editor || !navigationLanguages.includes(editor.document.languageId)) { return; }
     const cancellation = new vscode.CancellationTokenSource();
     try {
-      const targets = await declarationProvider(editor.document, editor.selection.active, cancellation.token);
+      const targets = await declarationProvider(editor.document, editor.selection.start ?? editor.selection.active, cancellation.token);
       if (targets.length) { await show(targets); }
     } finally { cancellation.dispose(); }
   }), vscode.commands.registerCommand('serializer.openGeneratedHeader', openGeneratedHeader),
-  vscode.commands.registerCommand('serializer.goToImplementation', openGeneratedHeader),
+  vscode.commands.registerCommand('serializer.goToImplementation', (uri?: vscode.Uri) => openGeneratedHeader(uri, true)),
   { dispose: () => cache.clear() });
 }
