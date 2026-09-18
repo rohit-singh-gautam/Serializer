@@ -1,0 +1,9 @@
+serializer version 1;
+include ../common/identity.serializer;
+
+namespace demo {
+  class event stable_ids : public entity ("record", 1) {
+    public string actor (2);
+    public union(int64 = code, bool = approved, uint32 = count) outcome (3);
+  }
+}

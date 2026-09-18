@@ -1,0 +1,11 @@
+serializer version 1;
+include ../common/address.serializer;
+include line.serializer;
+
+namespace demo {
+  class shipment stable_ids {
+    public address destination (1);
+    public array order_line lines (2);
+    public map(string) string tracking (3);
+  }
+}

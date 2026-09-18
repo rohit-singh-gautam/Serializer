@@ -1,0 +1,8 @@
+serializer version 1;
+
+class example_model stable_ids {
+  public uint32 revision (1) { 1 };
+  public uint64 id (2);
+  public string name ("display_name", 3);
+  public bool enabled (4) { true };
+}

@@ -111,7 +111,7 @@ codec rather than `JSON.stringify`/`JSON.parse` on the whole message. Display
 64-bit fields using `.toString()` when needed. Binary float NaN payload identity
 is not promised by the JavaScript number representation.
 
-The [browser example](../example/interoperability/javascript/browser.html) uses
+The [browser example](../example/javascript/interoperability/browser.html) uses
 the same module as Node and reads C++-produced bytes. In React or Next.js, import
 the generated module and decode a `Uint8Array` from `response.arrayBuffer()`.
 Framework server/client transfer rules remain separate from Serializer's wire
@@ -234,3 +234,10 @@ reduce avoidable work. Generated codecs do not use reflection or an intermediate
 generic object tree. These choices do not establish performance parity with C++.
 See the [verification record](verification-multilanguage-2026-09-17.md) for the
 tested environments, measurements, and outstanding qualification.
+
+## Additional native targets
+
+Rust, Python, Swift, Kotlin, and C now use the same C++ compiler and wire protocols.
+See [native language APIs](native_languages.md) and [four examples per language](../example/README.md).
+The full opt-in suite expands the five-runtime subset above to all ten runtimes
+plus TypeScript, with 1,452 producer/consumer exchanges.

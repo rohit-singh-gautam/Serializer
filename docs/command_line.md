@@ -59,13 +59,19 @@ values, and repeated non-repeatable options are errors.
 | `--output` | `-o` | Output file for exactly one selected language |
 | `--depfile` | | Optional Make-style dependency file for all selected outputs and their transitive schema/configuration inputs |
 | `--config` | `-c` | Optional generator INI configuration |
-| `--language` | `-l` | `cpp`, `java`, `js`, `typescript`, `go`, `csharp`, or a comma-separated list; repeatable |
+| `--language` | `-l` | `cpp`, `java`, `js`, `typescript`, `go`, `csharp`, `rust`, `python`, `swift`, `kotlin`, `c`, or a comma-separated list; repeatable |
 | `--cpp.output` | | C++ `.h`, `.hpp`, or `.hxx` destination |
 | `--java.output` | | Java `.java` destination; filename supplies the outer class |
 | `--js.output` | | JavaScript ES module `.js` or `.mjs` destination |
 | `--typescript.output` | | Companion `.d.ts` or `.d.mts` declarations, using JS naming |
 | `--go.output` | | Standalone Go `.go` destination |
 | `--csharp.output` | | C# `.cs` destination; filename supplies outer class |
+| `--rust.output` | | Standalone Rust `.rs` destination |
+| `--python.output` | | Standalone Python `.py` destination |
+| `--swift.output` | | Standalone Swift `.swift` destination |
+| `--kotlin.output` | | Standalone Kotlin/JVM `.kt` destination |
+| `--c.output` | | Standalone C11 `.h` destination |
+| `--kotlin.package` | | Optional JVM package; empty clears it |
 | `--js.naming`, `--go.naming`, `--csharp.naming` | | `profile` or `preserve` |
 | `--go.package` | | Go package name, default `generated` |
 | `--csharp.namespace` | | C# namespace, default `SerializerGenerated`; empty clears it |
@@ -170,3 +176,10 @@ output path for each. JS/Go/C# generation is implemented in the C++ compiler and
 does not launch a target SDK. Their SDKs are only needed by applications and
 optional tests. See [portable languages](portable_languages.md) for native APIs,
 configuration, default construction, and common-schema limitations.
+
+Add `rust,python,swift,kotlin,c` and their output paths to generate the additional
+native languages from the same parse. All backends are C++ implementations.
+See [new native targets](native_languages.md) for APIs and limitations.
+Internally, scalar CLI reads use `cli::first(parsed, name)`, which borrows the
+first value with checked lookup; repeated values remain available in `parsed`.
+No second, flattened argument map is constructed.

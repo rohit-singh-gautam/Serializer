@@ -1,26 +1,33 @@
 serializer version 1;
 
 namespace assessment {
-enum phase { idle, active, done }
+  enum phase {
+    idle,
+    active,
+    done
+  }
 
-class empty {}
+  class empty {
+  }
 
-class item stable_ids {
-  public string name (1);
-  public array int32 numbers (2);
-  public array phase phases (3);
-  public phase status (4);
-}
+  class item stable_ids {
+    public string name (1);
+    public array int32 numbers (2);
+    public array phase phases (3);
+    public phase status (4);
+  }
 
-class record stable_ids {
-  public uint8 marker (1);
-  public item child (2);
-  public map(uint32) item entries (3);
-}
+  class record stable_ids {
+    public uint8 marker (1);
+    public item child (2);
+    public map(uint32) item entries (3);
+  }
 
-class older stable_ids { public uint32 count (5); }
-class newer stable_ids {
-  public uint32 renamed_count ("count", 5);
-  public uint32 added (9) { 7 };
-}
+  class older stable_ids {
+    public uint32 count (5);
+  }
+  class newer stable_ids {
+    public uint32 renamed_count ("count", 5);
+    public uint32 added (9) { 7 };
+  }
 }

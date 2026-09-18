@@ -1,0 +1,246 @@
+{
+  "revision": 1,
+  "title": "Order archive / September",
+  "orders": [
+    {
+      "record": {
+        "id": 18446744073709551615,
+        "created": 1750000000
+      },
+      "buyer": {
+        "record": {
+          "id": 42,
+          "created": 1740000000
+        },
+        "full_name": "Ada Lovelace",
+        "addresses": [
+          {
+            "street": "42 Engine Way",
+            "city": "Bengaluru",
+            "postal": "560001"
+          }
+        ],
+        "preferences": [
+          {
+            "key": "language",
+            "value": "en"
+          },
+          {
+            "key": "theme",
+            "value": "dark"
+          }
+        ]
+      },
+      "lines": [
+        {
+          "item": {
+            "record": {
+              "id": 18446744073709551615,
+              "created": 1750000000
+            },
+            "sku": "CPU-64",
+            "title": "Compute module 🚀",
+            "price": {
+              "minor_units": 12345,
+              "unit": "inr"
+            },
+            "tags": [
+              "hardware",
+              "64-bit"
+            ]
+          },
+          "quantity": 3,
+          "subtotal": {
+            "minor_units": 37035,
+            "unit": "inr"
+          }
+        }
+      ],
+      "payments": [
+        {
+          "amount": {
+            "minor_units": 12345,
+            "unit": "inr"
+          },
+          "authorized": true,
+          "reference": "txn-123"
+        }
+      ],
+      "shipments": [
+        {
+          "destination": {
+            "street": "42 Engine Way",
+            "city": "Bengaluru",
+            "postal": "560001"
+          },
+          "lines": [
+            {
+              "item": {
+                "record": {
+                  "id": 18446744073709551615,
+                  "created": 1750000000
+                },
+                "sku": "CPU-64",
+                "title": "Compute module 🚀",
+                "price": {
+                  "minor_units": 12345,
+                  "unit": "inr"
+                },
+                "tags": [
+                  "hardware",
+                  "64-bit"
+                ]
+              },
+              "quantity": 3,
+              "subtotal": {
+                "minor_units": 37035,
+                "unit": "inr"
+              }
+            }
+          ],
+          "tracking": [
+            {
+              "key": "carrier",
+              "value": "Example Carrier"
+            },
+            {
+              "key": "parcel",
+              "value": "PKG-42"
+            }
+          ]
+        }
+      ],
+      "status": "shipped"
+    }
+  ],
+  "snapshot": {
+    "stock": [
+      {
+        "item": {
+          "record": {
+            "id": 18446744073709551615,
+            "created": 1750000000
+          },
+          "sku": "CPU-64",
+          "title": "Compute module 🚀",
+          "price": {
+            "minor_units": 12345,
+            "unit": "inr"
+          },
+          "tags": [
+            "hardware",
+            "64-bit"
+          ]
+        },
+        "warehouses": [
+          {
+            "key": "east",
+            "value": 1024
+          },
+          {
+            "key": "west",
+            "value": 0
+          }
+        ]
+      }
+    ],
+    "events": [
+      {
+        "record": {
+          "id": 18446744073709551615,
+          "created": 1750000000
+        },
+        "actor": "billing",
+        "outcome:code": -9223372036854775808
+      },
+      {
+        "record": {
+          "id": 43,
+          "created": 1750000001
+        },
+        "actor": "approval",
+        "outcome:approved": true
+      },
+      {
+        "record": {
+          "id": 44,
+          "created": 1750000002
+        },
+        "actor": "warehouse",
+        "outcome:count": 4294967295
+      }
+    ],
+    "totals": [
+      {
+        "key": "usd",
+        "value": {
+          "minor_units": -99,
+          "unit": "usd"
+        }
+      },
+      {
+        "key": "inr",
+        "value": {
+          "minor_units": 12345,
+          "unit": "inr"
+        }
+      }
+    ]
+  },
+  "customers": [
+    {
+      "key": 42,
+      "value": {
+        "record": {
+          "id": 42,
+          "created": 1740000000
+        },
+        "full_name": "Ada Lovelace",
+        "addresses": [
+          {
+            "street": "42 Engine Way",
+            "city": "Bengaluru",
+            "postal": "560001"
+          }
+        ],
+        "preferences": [
+          {
+            "key": "language",
+            "value": "en"
+          },
+          {
+            "key": "theme",
+            "value": "dark"
+          }
+        ]
+      }
+    },
+    {
+      "key": 18446744073709551615,
+      "value": {
+        "record": {
+          "id": 42,
+          "created": 1740000000
+        },
+        "full_name": "Ada Lovelace",
+        "addresses": [
+          {
+            "street": "42 Engine Way",
+            "city": "Bengaluru",
+            "postal": "560001"
+          }
+        ],
+        "preferences": [
+          {
+            "key": "language",
+            "value": "en"
+          },
+          {
+            "key": "theme",
+            "value": "dark"
+          }
+        ]
+      }
+    }
+  ]
+}

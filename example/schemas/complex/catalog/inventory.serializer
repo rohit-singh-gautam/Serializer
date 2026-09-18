@@ -1,0 +1,9 @@
+serializer version 1;
+include product.serializer;
+
+namespace demo {
+  class inventory stable_ids {
+    public product item (1);
+    public map(string) uint32 warehouses (2);
+  }
+}

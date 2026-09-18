@@ -1,0 +1,11 @@
+serializer version 1;
+include ../catalog/product.serializer;
+include ../common/money.serializer;
+
+namespace demo {
+  class order_line stable_ids {
+    public product item (1);
+    public uint32 quantity (2);
+    public money subtotal (3);
+  }
+}

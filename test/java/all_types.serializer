@@ -1,38 +1,42 @@
 serializer version 1;
 
 namespace coverage {
-enum choice { first_value, second_value }
-class empty {}
-class primitives {
-  public char character;
-  public int8 i8;
-  public uint8 u8;
-  public int16 i16;
-  public uint16 u16;
-  public int32 i32;
-  public uint32 u32;
-  public int64 i64;
-  public uint64 u64;
-  public float f32;
-  public double f64;
-  public bool flag;
-  public string text;
-  public array uint8 bytes;
-  public array uint64 longs;
-  public array bool flags;
-  public array empty empty_values;
-  public map(uint64) choice choices;
-  public map(string) string names;
-  public union(uint64 = number, choice = selection) variant;
-}
-class compact_values {
-  public string text;
-  public bool flag;
-}
-class defaults {
-  public char newline { '\n' };
-  public string escaped { "a\\b\n\"c" };
-  public uint64 maximum { 18446744073709551615 };
-  public int64 minimum { -9223372036854775808 };
-}
+  enum choice {
+    first_value,
+    second_value
+  }
+  class empty {
+  }
+  class primitives {
+    public char character;
+    public int8 i8;
+    public uint8 u8;
+    public int16 i16;
+    public uint16 u16;
+    public int32 i32;
+    public uint32 u32;
+    public int64 i64;
+    public uint64 u64;
+    public float f32;
+    public double f64;
+    public bool flag;
+    public string text;
+    public array uint8 bytes;
+    public array uint64 longs;
+    public array bool flags;
+    public array empty empty_values;
+    public map(uint64) choice choices;
+    public map(string) string names;
+    public union(uint64 = number, choice = selection) variant;
+  }
+  class compact_values {
+    public string text;
+    public bool flag;
+  }
+  class defaults {
+    public char newline { '\n' };
+    public string escaped { "a\\b\n\"c" };
+    public uint64 maximum { 18446744073709551615 };
+    public int64 minimum { -9223372036854775808 };
+  }
 }

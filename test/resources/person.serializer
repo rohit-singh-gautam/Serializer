@@ -18,14 +18,14 @@ serializer version 1;
 //////////////////////////////////////////////////////////////////////////
 
 namespace test {
-namespace test1 {
-class person {
-    public string name ("fullname", 3) { "None" };
-    public uint64 ID (4) { 0 };
-}
+  namespace test1 {
+    class person {
+      public string name ("fullname", 3) { "None" };
+      public uint64 ID (4) { 0 };
+    }
 
-class personex : public person (5) {
-    public uint64 account (6) { 1 };
-}
-}
+    class personex : public person (5) {
+      public uint64 account (6) { 1 };
+    }
+  }
 }

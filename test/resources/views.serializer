@@ -1,7 +1,10 @@
 serializer version 1;
 
 namespace view_test {
-  enum phase { idle, active }
+  enum phase {
+    idle,
+    active
+  }
 
   class child view owning {
     public uint32 code;
@@ -34,7 +37,8 @@ namespace view_test {
   class owning_mutable mutable owning view {
     public uint32 value;
   }
-  class empty view readonly {}
+  class empty view readonly {
+  }
   class recursive view readonly {
     public array recursive children;
   }

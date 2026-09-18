@@ -1,7 +1,10 @@
 serializer version 1;
 
 namespace storage_reuse {
-  enum phase { idle, active }
+  enum phase {
+    idle,
+    active
+  }
 
   class base stable_ids {
     public string inherited (1);

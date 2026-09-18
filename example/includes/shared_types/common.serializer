@@ -1,7 +1,10 @@
 serializer version 1;
 
 namespace common {
-  enum account_state { pending, active }
+  enum account_state {
+    pending,
+    active
+  }
   class account stable_ids {
     public uint32 id (7);
     public account_state state (8) { account_state::active };

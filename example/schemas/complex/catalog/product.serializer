@@ -1,0 +1,12 @@
+serializer version 1;
+include ../common/identity.serializer;
+include ../common/money.serializer;
+
+namespace demo {
+  class product stable_ids : public entity ("record", 1) {
+    public string sku (2);
+    public string title (3);
+    public money price (4);
+    public array string tags (5);
+  }
+}

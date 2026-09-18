@@ -1,0 +1,12 @@
+serializer version 1;
+include ../catalog/inventory.serializer;
+include ../audit/event.serializer;
+include ../common/money.serializer;
+
+namespace demo {
+  class snapshot stable_ids {
+    public array inventory stock (1);
+    public array event events (2);
+    public map(currency) money totals (3);
+  }
+}

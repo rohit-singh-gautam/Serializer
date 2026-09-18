@@ -27,7 +27,6 @@
 #include <exception>
 #include <filesystem>
 #include <iostream>
-#include <map>
 #include <memory>
 #include <set>
 #include <stdexcept>
@@ -53,7 +52,7 @@ constexpr rohit::serializer::cli::commandline_option command_options[] = {
     {'o', "output", "file", "Output path when selecting exactly one language."},
     {'\0', "depfile", "file.d", "Write Make-style dependencies for all generated outputs."},
     {'c', "config", "file.ini", "Generator configuration; CLI options override its values."},
-    {'l', "language", "cpp|java|js|typescript|go|csharp",
+    {'l', "language", "cpp|java|js|typescript|go|csharp|rust|python|swift|kotlin|c",
      "Select output languages; repeat or comma-separate values.", true},
     {'\0', "cpp.output", "file.hpp", "C++ output path; required for multi-language generation."},
     {'\0', "java.output", "ClassName.java",
@@ -62,10 +61,16 @@ constexpr rohit::serializer::cli::commandline_option command_options[] = {
     {'\0', "typescript.output", "schema.d.mts", "TypeScript declarations matching JS output."},
     {'\0', "go.output", "schema.go", "Go source output."},
     {'\0', "csharp.output", "Schema.cs", "C# source output; filename supplies outer class."},
+    {'\0', "rust.output", "schema.rs", "Rust source output."},
+    {'\0', "python.output", "schema.py", "Python source output."},
+    {'\0', "swift.output", "Schema.swift", "Swift source output."},
+    {'\0', "kotlin.output", "Schema.kt", "Kotlin source output."},
+    {'\0', "c.output", "schema.h", "C11 source output."},
     {'\0', "js.naming", "profile|preserve", "JS and TypeScript identifier naming."},
     {'\0', "go.naming", "profile|preserve", "Go identifier naming."},
     {'\0', "csharp.naming", "profile|preserve", "C# identifier naming."},
     {'\0', "go.package", "name", "Go package (default generated)."},
+    {'\0', "kotlin.package", "name", "Kotlin package; empty clears it.", false, true},
     {'\0', "csharp.namespace", "name", "C# namespace; empty clears it.", false, true},
     {'\0', "cpp.coding_standard", "profile",
      "serializer|core|google|llvm|gnu|cert|misra|autosar|qt"},
@@ -123,17 +128,17 @@ int check_compatibility(const rohit::serializer::cli::arguments& arguments) {
     throw std::invalid_argument{"--check-against requires --compatibility-protocol"};
   }
   const auto protocol =
-      parse_compatibility_protocol(arguments.at("compatibility-protocol").front());
+      parse_compatibility_protocol(cli::first(arguments, "compatibility-protocol"));
   const auto direction = arguments.contains("compatibility-direction")
-                             ? arguments.at("compatibility-direction").front()
+                             ? cli::first(arguments, "compatibility-direction")
                              : "both";
   if (direction != "backward" && direction != "forward" && direction != "both") {
     throw std::invalid_argument{"compatibility-direction must be backward, forward, or both"};
   }
-  const auto previous = parser::parse_file(arguments.at("check-against").front());
-  const auto current = parser::parse_file(arguments.at("input").front());
+  const auto previous = parser::parse_file(cli::first(arguments, "check-against"));
+  const auto current = parser::parse_file(cli::first(arguments, "input"));
   const auto policy = arguments.contains("compatibility-policy")
-                          ? read_compatibility_policy(arguments.at("compatibility-policy").front())
+                          ? read_compatibility_policy(cli::first(arguments, "compatibility-policy"))
                           : compatibility_policy{};
   const auto issues = check_schema_compatibility(previous, current, protocol, policy);
   bool incompatible{};
@@ -170,11 +175,7 @@ int main(const int argc, const char* argv[]) {
                 << "\nSupported schema language version: " << schema_language_version << '\n';
       return 0;
     }
-    std::map<std::string, std::string> arguments{};
-    for (const auto& [key, values] : parsed) {
-      arguments.emplace(key, values.front());
-    }
-    if (!arguments.contains("input")) {
+    if (!parsed.contains("input")) {
       throw std::invalid_argument{"--input is required; use --help for options"};
     }
     if (parsed.contains("check-against")) {
@@ -184,8 +185,8 @@ int main(const int argc, const char* argv[]) {
         parsed.contains("compatibility-policy")) {
       throw std::invalid_argument{"Compatibility options require --check-against"};
     }
-    auto options = arguments.contains("config")
-                       ? writer::read_output_options(arguments.at("config"))
+    auto options = parsed.contains("config")
+                       ? writer::read_output_options(cli::first(parsed, "config"))
                        : writer::output_options{};
     if (parsed.contains("language")) {
       options.language.clear();
@@ -197,49 +198,50 @@ int main(const int argc, const char* argv[]) {
       }
     }
     const auto languages = writer::parse_output_languages(options.language);
-    if (arguments.contains("java.coding_standard")) {
+    if (parsed.contains("java.coding_standard")) {
       options.java.standard =
-          writer::parse_java_coding_standard(arguments.at("java.coding_standard"));
+          writer::parse_java_coding_standard(cli::first(parsed, "java.coding_standard"));
     }
-    if (arguments.contains("java.package")) {
-      options.java.package_name = arguments.at("java.package");
+    if (parsed.contains("java.package")) {
+      options.java.package_name = cli::first(parsed, "java.package");
     }
-    if (arguments.contains("java.naming")) {
-      const auto& value = arguments.at("java.naming");
+    if (parsed.contains("java.naming")) {
+      const auto& value = cli::first(parsed, "java.naming");
       if (value != "profile" && value != "preserve") {
         throw std::invalid_argument{"java.naming must be profile or preserve"};
       }
       options.java.rename_identifiers = value == "profile";
     }
-    if (arguments.contains("cpp.coding_standard")) {
-      options.cpp.standard = writer::parse_coding_standard(arguments.at("cpp.coding_standard"));
+    if (parsed.contains("cpp.coding_standard")) {
+      options.cpp.standard =
+          writer::parse_coding_standard(cli::first(parsed, "cpp.coding_standard"));
     }
-    if (arguments.contains("cpp.naming")) {
-      const auto& value = arguments.at("cpp.naming");
+    if (parsed.contains("cpp.naming")) {
+      const auto& value = cli::first(parsed, "cpp.naming");
       if (value != "profile" && value != "preserve") {
         throw std::invalid_argument{"cpp.naming must be profile or preserve"};
       }
       options.cpp.rename_identifiers = value == "profile";
     }
-    if (arguments.contains("cpp.protobuf")) {
-      const auto& value = arguments.at("cpp.protobuf");
+    if (parsed.contains("cpp.protobuf")) {
+      const auto& value = cli::first(parsed, "cpp.protobuf");
       if (value != "true" && value != "false") {
         throw std::invalid_argument{"cpp.protobuf must be true or false"};
       }
       options.cpp.protobuf = value == "true";
     }
-    if (arguments.contains("cpp.format")) {
-      const auto& value = arguments.at("cpp.format");
+    if (parsed.contains("cpp.format")) {
+      const auto& value = cli::first(parsed, "cpp.format");
       if (value != "true" && value != "false") {
         throw std::invalid_argument{"cpp.format must be true or false"};
       }
       options.cpp.format = value == "true";
     }
-    if (arguments.contains("cpp.clang_format")) {
-      options.cpp.clang_format = arguments.at("cpp.clang_format");
+    if (parsed.contains("cpp.clang_format")) {
+      options.cpp.clang_format = cli::first(parsed, "cpp.clang_format");
     }
-    if (arguments.contains("cpp.format_file")) {
-      options.cpp.format_file = arguments.at("cpp.format_file");
+    if (parsed.contains("cpp.format_file")) {
+      options.cpp.format_file = cli::first(parsed, "cpp.format_file");
     }
     if (!options.cpp.format && !options.cpp.format_file.empty()) {
       throw std::invalid_argument{"cpp.format_file requires cpp.format true"};
@@ -249,31 +251,35 @@ int main(const int argc, const char* argv[]) {
                        : std::string_view{language} == "go" ? options.go
                                                             : options.csharp;
       const auto key = std::string{language} + ".naming";
-      if (arguments.contains(key)) {
-        const auto& value = arguments.at(key);
+      if (parsed.contains(key)) {
+        const auto& value = cli::first(parsed, key);
         if (value != "profile" && value != "preserve") {
           throw std::invalid_argument{key + " must be profile or preserve"};
         }
         settings.rename_identifiers = value == "profile";
       }
     }
-    if (arguments.contains("go.package")) {
-      options.go.package_name = arguments.at("go.package");
+    if (parsed.contains("go.package")) {
+      options.go.package_name = cli::first(parsed, "go.package");
     }
-    if (arguments.contains("csharp.namespace")) {
-      options.csharp.namespace_name = arguments.at("csharp.namespace");
+    if (parsed.contains("csharp.namespace")) {
+      options.csharp.namespace_name = cli::first(parsed, "csharp.namespace");
     }
-    const std::filesystem::path input_file{arguments.at("input")};
+    if (parsed.contains("kotlin.package")) {
+      options.kotlin.package_name = cli::first(parsed, "kotlin.package");
+    }
+    const std::filesystem::path input_file{cli::first(parsed, "input")};
     if (input_file.extension() != ".serializer") {
       throw std::invalid_argument{
           "Input must use .serializer; rename the schema and add serializer version 1;"};
     }
-    if (arguments.contains("output") && languages.size() != 1) {
+    if (parsed.contains("output") && languages.size() != 1) {
       throw std::invalid_argument{
           "Use language-specific --<language>.output paths for multiple languages"};
     }
-    for (const auto language : {"cpp", "java", "js", "typescript", "go", "csharp"}) {
-      if (arguments.contains(std::string{language} + ".output") &&
+    for (const auto language : {"cpp", "java", "js", "typescript", "go", "csharp", "rust", "python",
+                                "swift", "kotlin", "c"}) {
+      if (parsed.contains(std::string{language} + ".output") &&
           std::find(languages.begin(), languages.end(), language) == languages.end()) {
         throw std::invalid_argument{"Output path supplied for unselected language: " +
                                     std::string{language}};
@@ -282,16 +288,16 @@ int main(const int argc, const char* argv[]) {
     std::vector<std::filesystem::path> destinations{};
     for (const auto& language : languages) {
       const auto key = language + ".output";
-      if (arguments.contains("output") && arguments.contains(key)) {
+      if (parsed.contains("output") && parsed.contains(key)) {
         throw std::invalid_argument{"Specify only one of --output and --" + key};
       }
-      if (!arguments.contains("output") && !arguments.contains(key)) {
+      if (!parsed.contains("output") && !parsed.contains(key)) {
         throw std::invalid_argument{"Missing output path: --" + key};
       }
       const std::filesystem::path output_file{
-          arguments.at(arguments.contains("output") ? "output" : key)};
+          cli::first(parsed, parsed.contains("output") ? "output" : key)};
       if (same_file(input_file, output_file) ||
-          (arguments.contains("config") && same_file(arguments.at("config"), output_file)) ||
+          (parsed.contains("config") && same_file(cli::first(parsed, "config"), output_file)) ||
           (!options.cpp.format_file.empty() && same_file(options.cpp.format_file, output_file))) {
         throw std::invalid_argument{
             "Output must not overwrite the schema or an output configuration"};
@@ -309,7 +315,10 @@ int main(const int argc, const char* argv[]) {
         throw std::invalid_argument{"Java output must have a .java extension"};
       }
       if ((language == "js" && extension != ".js" && extension != ".mjs") ||
-          (language == "go" && extension != ".go") ||
+          (language == "go" && extension != ".go") || (language == "rust" && extension != ".rs") ||
+          (language == "python" && extension != ".py") ||
+          (language == "swift" && extension != ".swift") ||
+          (language == "kotlin" && extension != ".kt") || (language == "c" && extension != ".h") ||
           (language == "csharp" && extension != ".cs") ||
           (language == "typescript" && !output_file.string().ends_with(".d.ts") &&
            !output_file.string().ends_with(".d.mts"))) {
@@ -326,8 +335,8 @@ int main(const int argc, const char* argv[]) {
     }
     const auto schema = parser::parse_file(input_file);
     auto dependencies = schema.dependencies;
-    if (arguments.contains("config")) {
-      dependencies.emplace_back(arguments.at("config"));
+    if (parsed.contains("config")) {
+      dependencies.emplace_back(cli::first(parsed, "config"));
     }
     if (!options.cpp.format_file.empty()) {
       dependencies.emplace_back(options.cpp.format_file);
@@ -341,8 +350,8 @@ int main(const int argc, const char* argv[]) {
     }
     std::string dependency_text{};
     std::filesystem::path depfile{};
-    if (arguments.contains("depfile")) {
-      depfile = arguments.at("depfile");
+    if (parsed.contains("depfile")) {
+      depfile = cli::first(parsed, "depfile");
       const auto parent = depfile.parent_path();
       if ((!parent.empty() && !std::filesystem::is_directory(parent)) ||
           std::filesystem::is_directory(depfile)) {
@@ -382,6 +391,7 @@ int main(const int argc, const char* argv[]) {
         const auto& language = languages[index];
         const auto& settings = language == "go"       ? options.go
                                : language == "csharp" ? options.csharp
+                               : language == "kotlin" ? options.kotlin
                                                       : options.js;
         output->write(writer::portable::generate(schema.statements, language,
                                                  destinations[index].stem().string(), settings));

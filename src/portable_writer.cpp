@@ -1,4 +1,5 @@
 #include <rohit/serializer_creator.hpp>
+#include "native_schema.hpp"
 
 #include <algorithm>
 #include <array>
@@ -1242,6 +1243,11 @@ public:
 std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,
                      std::string_view language, std::string_view unit_name,
                      const portable_options& options) {
+  if (language == "c") { return native::c(native::schema{statements}); }
+  if (language == "swift") { return native::swift(native::schema{statements}); }
+  if (language == "kotlin") { return native::kotlin(native::schema{statements}, options.package_name); }
+  if (language == "rust") { return native::rust(native::schema{statements}); }
+  if (language == "python") { return native::python(native::schema{statements}); }
   const auto selected = language == "js"       ? target::js
                         : language == "go"     ? target::go
                         : language == "csharp" ? target::csharp

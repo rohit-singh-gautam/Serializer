@@ -212,7 +212,7 @@ std::vector<std::string> parse_output_languages(std::string_view names) {
     const auto separator = names.find(',');
     const std::string name{trim(names.substr(0, separator))};
     if (name != "cpp" && name != "java" && name != "js" && name != "typescript" && name != "go" &&
-        name != "csharp") {
+        name != "csharp" && name != "python" && name != "rust" && name != "swift" && name != "kotlin" && name != "c") {
       throw std::invalid_argument{"Unsupported output language: " + name};
     }
     if (!seen.insert(name).second) {
@@ -248,7 +248,7 @@ output_options read_output_options(const std::filesystem::path& file) {
       if (text.front() == '[' && text.back() == ']') {
         section = trim(text.substr(1, text.size() - 2));
         if ((section != "output" && section != "cpp" && section != "java" && section != "js" &&
-             section != "go" && section != "csharp") ||
+             section != "go" && section != "csharp" && section != "kotlin") ||
             !sections.insert(section).second) {
           throw std::invalid_argument{"Unknown or repeated section: " + section};
         }
@@ -281,6 +281,8 @@ output_options read_output_options(const std::filesystem::path& file) {
         }
         auto& settings = section == "js" ? result.js : section == "go" ? result.go : result.csharp;
         settings.rename_identifiers = value == "profile";
+      } else if (section == "kotlin" && key == "package") {
+        result.kotlin.package_name = value;
       } else if (section == "go" && key == "package") {
         result.go.package_name = value;
       } else if (section == "csharp" && key == "namespace") {

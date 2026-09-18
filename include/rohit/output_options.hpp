@@ -42,6 +42,7 @@ struct output_options {
   portable_options js{};
   portable_options go{};
   portable_options csharp{};
+  portable_options kotlin{true, "", ""};
 };
 
 // Parse a nonempty comma-separated language list; reject unknown, empty, or repeated names.

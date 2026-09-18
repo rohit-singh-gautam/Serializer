@@ -20,6 +20,9 @@ option(SERIALIZER_BUILD_IOSTREAM_EXAMPLES "Build standard and custom iostream ex
 option(SERIALIZER_BUILD_COMPRESSION_EXAMPLES "Build examples for enabled message compression formats" OFF)
 option(SERIALIZER_BUILD_JAVA_EXAMPLES "Generate and compile pure Java examples (JDK 17+)" OFF)
 option(SERIALIZER_BUILD_INTEROP_EXAMPLES "Build five-language examples and interoperability tests" OFF)
+option(SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES "Register all language examples and native codec qualification with CTest" OFF)
+set(SERIALIZER_EXAMPLE_WSL_LANGUAGES "" CACHE STRING "Comma-separated example SDKs to run under WSL on Windows")
+option(SERIALIZER_EXAMPLE_SANITIZERS "Use address/undefined sanitizers for native C examples and tests" OFF)
 option(SERIALIZER_INSTALL "Install the library, compiler, and CMake integration" ${PROJECT_IS_TOP_LEVEL})
 option(SERIALIZER_ENABLE_SIMD "Accelerate schema scanning and runtime codecs on supported CPUs" ON)
 option(SERIALIZER_WITH_ZSTD "Enable standard Zstandard frame compression" OFF)
@@ -37,6 +40,16 @@ add_library(serializer_lib
   src/simd_dispatch.hpp
   src/runtime_simd.cpp
   src/cpp_writer.cpp
+  src/native_schema.cpp
+  src/c_writer.cpp
+  src/c_runtime.inc
+  src/mobile_writer.cpp
+  src/swift_runtime.inc
+  src/kotlin_runtime.inc
+  src/rust_writer.cpp
+  src/rust_runtime.inc
+  src/python_writer.cpp
+  src/python_runtime.inc
   src/portable_writer.cpp
   src/js_runtime.inc
   src/go_runtime.inc
@@ -167,7 +180,8 @@ if(SERIALIZER_BUILD_TESTS OR SERIALIZER_BUILD_BENCHMARKS OR SERIALIZER_BUILD_FUZ
 endif()
 
 if(SERIALIZER_BUILD_TESTS OR SERIALIZER_BUILD_FUZZERS OR SERIALIZER_BUILD_IOSTREAM_EXAMPLES
-    OR SERIALIZER_BUILD_COMPRESSION_EXAMPLES OR SERIALIZER_BUILD_INTEROP_EXAMPLES)
+    OR SERIALIZER_BUILD_COMPRESSION_EXAMPLES OR SERIALIZER_BUILD_INTEROP_EXAMPLES
+    OR SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
   enable_testing()
 endif()
 if(SERIALIZER_BUILD_TESTS)
@@ -201,4 +215,22 @@ endif()
 
 if(SERIALIZER_BUILD_INTEROP_EXAMPLES)
   add_subdirectory(example/interoperability)
+endif()
+
+if(SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
+  find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
+  set(native_example_options "--wsl-languages=${SERIALIZER_EXAMPLE_WSL_LANGUAGES}")
+  if(SERIALIZER_EXAMPLE_SANITIZERS)
+    list(APPEND native_example_options --sanitize)
+  endif()
+  add_test(NAME serializer_language_examples
+    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/example/run.py"
+      --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_lib>"
+      --build "${PROJECT_BINARY_DIR}/language_examples" ${native_example_options})
+  add_test(NAME serializer_native_codecs
+    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/test/native/run.py"
+      --compiler "$<TARGET_FILE:serializer>" --build "${PROJECT_BINARY_DIR}/native_codecs"
+      ${native_example_options})
+  set_tests_properties(serializer_language_examples serializer_native_codecs PROPERTIES
+    TIMEOUT 1800 LABELS serializer_native)
 endif()

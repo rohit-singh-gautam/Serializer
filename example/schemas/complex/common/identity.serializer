@@ -1,0 +1,8 @@
+serializer version 1;
+
+namespace demo {
+  class entity stable_ids {
+    public uint64 id (1);
+    public uint64 created (2);
+  }
+}

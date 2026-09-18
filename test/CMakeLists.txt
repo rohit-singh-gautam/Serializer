@@ -44,6 +44,10 @@ elseif(UNIX)
 endif()
 
 add_test(NAME core_serializer_test COMMAND core_serializer_test)
+add_test(NAME serializer_native_cli
+  COMMAND "${CMAKE_COMMAND}" "-DGENERATOR=$<TARGET_FILE:serializer>"
+    "-DDIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/native_cli"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/native_cli.cmake")
 add_executable(compression_allocation_failure_test compression_allocation_failure_test.cpp)
 if(MSVC)
   # MSVC debug vector constructors allocate iterator proxies inside noexcept functions.

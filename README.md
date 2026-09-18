@@ -1,6 +1,7 @@
 # Serializer
 
-A C++20 schema compiler with C++, Java, JavaScript/TypeScript, Go, and C# output
+A C++20 schema compiler with C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python,
+Swift, Kotlin, and C output
 supporting JSON and three binary protocols. The compiler and all generators remain
 entirely C++; generated portable codecs have no native runtime dependency. The
 C++ runtime API and default generated C++ use `snake_case`.
@@ -307,7 +308,7 @@ platform checks and benchmarks.
 ### Output language and coding standard
 
 Keep target-language settings in a generator config, separate from the `.serializer`
-schema. C++, Java, JavaScript, Go, and C# output are implemented, with optional
+schema. C++, Java, JavaScript, Go, C#, Rust, Python, Swift, Kotlin, and C output are implemented, with optional
 TypeScript declarations for JavaScript. For C++:
 
 ```ini
@@ -381,12 +382,25 @@ protocols, exact-message decoding, bounded input, and sorted map output. They
 use direct field access, pre-encoded keys, native switch dispatch, and explicit
 endian primitives. See [portable language APIs and limitations](docs/portable_languages.md).
 
-The [five-language example](example/interoperability/README.md) generates every
-language from one `.serializer` schema and verifies all producer/consumer pairs:
-300 exchanges across four protocols and three union alternatives. It includes
-Node and browser examples. Enable `SERIALIZER_BUILD_INTEROP_EXAMPLES=ON` to build
-it; target-language SDKs remain optional for ordinary compiler/runtime builds.
-See [verification and performance measurements](docs/verification-multilanguage-2026-09-17.md).
+The [language examples](example/README.md) provide four runnable programs per
+language, including a complex model spanning 13 included schema files. The shared
+interoperability matrix checks every direction across ten runtimes plus a typed
+TypeScript consumer: 1,452 exchanges covering four protocols and three union
+alternatives. Enable `SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES=ON` and run CTest
+with all SDKs installed. The smaller five-runtime matrix remains available via
+`SERIALIZER_BUILD_INTEROP_EXAMPLES=ON`.
+
+### Rust, Python, Swift, Kotlin, and C output
+
+```sh
+serializer --input example/interoperability/message.serializer --language rust,python,swift,kotlin,c --rust.output schema.rs --python.output schema.py --swift.output Schema.swift --kotlin.output Schema.kt --c.output schema.h
+```
+
+These standalone codecs use native owning types and the same four wire protocols.
+C exposes explicit initialization/free functions and transactional decode; Swift
+uses exact UTF-8 `WireString` map keys; Kotlin preserves unsigned widths and uses
+primitive numeric arrays. See [APIs, SDKs, ownership, and limits](docs/native_languages.md)
+and the [verification record](docs/verification-native-2026-09-18.md).
 
 ### CMake consumer integration
 

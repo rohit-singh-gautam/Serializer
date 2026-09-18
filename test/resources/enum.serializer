@@ -18,17 +18,17 @@ serializer version 1;
 //////////////////////////////////////////////////////////////////////////
 
 namespace enumtest {
-enum testenum {
+  enum testenum {
     test1,
     test2,
     test3,
     test4,
     test5,
     test6
-}
+  }
 
-class test {
+  class test {
     public testenum te;
-}
+  }
 
 }

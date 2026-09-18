@@ -1,0 +1,12 @@
+serializer version 1;
+include sales/order.serializer;
+include analytics/snapshot.serializer;
+include common/identity.serializer;
+
+class example_model stable_ids {
+  public uint32 revision (1) { 1 };
+  public string title (2);
+  public array demo::order orders (3);
+  public demo::snapshot snapshot (4);
+  public map(uint64) demo::customer customers (5);
+}

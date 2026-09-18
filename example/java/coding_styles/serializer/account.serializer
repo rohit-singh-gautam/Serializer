@@ -1,22 +1,25 @@
 serializer version 1;
 
 namespace demo {
-enum account_state { waiting_for_review, active }
-class base_record stable_ids {
-  public uint32 record_id (1);
-}
-class account stable_ids : public base_record ("base", 1) {
-  public uint64 account_id (2);
-  public string display_name ("name", 3) { "Ada" };
-  public account_state state (4) { account_state::active };
-  public array int32 scores (5);
-  public map(string) uint32 counters (6);
-  public union(uint32 = count, float = ratio) payload (7);
-  public bool enabled (8) { true };
-  public int8 small (9) { -128 };
-  public uint16 medium (10) { 65535 };
-  public double balance (11) { 12.5 };
-  public array account_state history (12);
-  public union(account_state = status, uint32 = number) other (13);
-}
+  enum account_state {
+    waiting_for_review,
+    active
+  }
+  class base_record stable_ids {
+    public uint32 record_id (1);
+  }
+  class account stable_ids : public base_record ("base", 1) {
+    public uint64 account_id (2);
+    public string display_name ("name", 3) { "Ada" };
+    public account_state state (4) { account_state::active };
+    public array int32 scores (5);
+    public map(string) uint32 counters (6);
+    public union(uint32 = count, float = ratio) payload (7);
+    public bool enabled (8) { true };
+    public int8 small (9) { -128 };
+    public uint16 medium (10) { 65535 };
+    public double balance (11) { 12.5 };
+    public array account_state history (12);
+    public union(account_state = status, uint32 = number) other (13);
+  }
 }

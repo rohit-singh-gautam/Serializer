@@ -24,7 +24,7 @@ add_custom_command(OUTPUT ${outputs}
   DEPFILE "${generated}/schema.d" VERBATIM)
 add_custom_target(serializer_interop_sources DEPENDS ${outputs})
 
-add_executable(serializer_interop_cpp cpp/main.cpp "${generated}/cpp/message.hpp")
+add_executable(serializer_interop_cpp ../cpp/interoperability/main.cpp "${generated}/cpp/message.hpp")
 target_include_directories(serializer_interop_cpp PRIVATE "${generated}/cpp")
 target_link_libraries(serializer_interop_cpp PRIVATE Serializer::serializer_lib)
 add_dependencies(serializer_interop_cpp serializer_interop_sources)
@@ -34,16 +34,16 @@ else()
   target_compile_options(serializer_interop_cpp PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 
-configure_file(javascript/browser.html "${generated}/javascript/browser.html" COPYONLY)
-configure_file(javascript/main.mjs "${generated}/javascript/main.mjs" COPYONLY)
-configure_file(go/main.go "${generated}/go/main.go" COPYONLY)
-configure_file(go/go.mod "${generated}/go/go.mod" COPYONLY)
-configure_file(csharp/Program.cs "${generated}/csharp/Program.cs" COPYONLY)
-configure_file(csharp/Interop.csproj "${generated}/csharp/Interop.csproj" COPYONLY)
+configure_file(../javascript/interoperability/browser.html "${generated}/javascript/browser.html" COPYONLY)
+configure_file(../javascript/interoperability/main.mjs "${generated}/javascript/main.mjs" COPYONLY)
+configure_file(../go/interoperability/main.go "${generated}/go/main.go" COPYONLY)
+configure_file(../go/interoperability/go.mod "${generated}/go/go.mod" COPYONLY)
+configure_file(../csharp/interoperability/Program.cs "${generated}/csharp/Program.cs" COPYONLY)
+configure_file(../csharp/interoperability/Interop.csproj "${generated}/csharp/Interop.csproj" COPYONLY)
 add_custom_command(OUTPUT "${generated}/java/classes/Main.class"
   COMMAND "${Java_JAVAC_EXECUTABLE}" --release 17 -encoding UTF-8 -Xlint:all -Werror
-    -d "${generated}/java/classes" "${generated}/java/Schema.java" "${CMAKE_CURRENT_SOURCE_DIR}/java/Main.java"
-  DEPENDS "${generated}/java/Schema.java" java/Main.java VERBATIM)
+    -d "${generated}/java/classes" "${generated}/java/Schema.java" "${CMAKE_CURRENT_SOURCE_DIR}/../java/interoperability/Main.java"
+  DEPENDS "${generated}/java/Schema.java" ../java/interoperability/Main.java VERBATIM)
 set(go_executable "${generated}/go/interop_go${CMAKE_EXECUTABLE_SUFFIX}")
 add_custom_command(OUTPUT "${go_executable}"
   COMMAND "${serializer_go}" build -trimpath -o "${go_executable}" .

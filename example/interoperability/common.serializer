@@ -1,11 +1,15 @@
 serializer version 1;
+
 namespace interop {
-enum state { ready, paused }
-class record stable_ids {
-  public uint32 id (1) { 42 };
-}
-class detail stable_ids {
-  public int32 code (1) { 7 };
-  public string note (2) { "default" };
-}
+  enum state {
+    ready,
+    paused
+  }
+  class record stable_ids {
+    public uint32 id (1) { 42 };
+  }
+  class detail stable_ids {
+    public int32 code (1) { 7 };
+    public string note (2) { "default" };
+  }
 }

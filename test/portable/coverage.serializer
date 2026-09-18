@@ -1,20 +1,34 @@
 serializer version 1;
 include ../../example/interoperability/message.serializer;
+
 namespace check {
-class empty {}
-class visibility {
-  private string hidden { "secret" };
-  protected uint64 counter { 42 };
-  public uint32 visible { 7 };
-}
-class bytes_value { public array uint8 values; }
-class bool_value { public bool value; }
-class text_value { public string value; }
-class float_value { public float value; }
-class integer_value { public uint64 value; }
-class recursive { public array recursive children; }
-class default_value {
-  public char nul { '\0' };
-  public string escaped { "a\\b\n\"c" };
-}
+  class empty {
+  }
+  class visibility {
+    private string hidden { "secret" };
+    protected uint64 counter { 42 };
+    public uint32 visible { 7 };
+  }
+  class bytes_value {
+    public array uint8 values;
+  }
+  class bool_value {
+    public bool value;
+  }
+  class text_value {
+    public string value;
+  }
+  class float_value {
+    public float value;
+  }
+  class integer_value {
+    public uint64 value;
+  }
+  class recursive {
+    public array recursive children;
+  }
+  class default_value {
+    public char nul { '\0' };
+    public string escaped { "a\\b\n\"c" };
+  }
 }

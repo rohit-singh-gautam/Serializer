@@ -80,6 +80,13 @@ Use names consistent with Serializer's public API and generated protocol methods
 Use two spaces for new C++ files; preserve the surrounding indentation during
 localized edits to existing files.
 
+Apply the same two-space block indentation to `.serializer` source. Put each
+namespace, class, and enum body on separate lines, indent nested declarations,
+and put each member or enum value on its own line. Keep opening braces on the
+declaration line and closing braces on their own lines. Inline field-default
+braces remain part of the member declaration. Preserve schema identifiers,
+IDs, quoted literal contents, and intentional malformed test input.
+
 - Use spaces, not tabs. Place opening braces on the declaration or control
   statement line and closing braces on their own line. Use `} else {`.
 - Use braces for new conditional and loop bodies. Existing concise one-line

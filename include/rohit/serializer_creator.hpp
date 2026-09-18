@@ -417,7 +417,7 @@ inline void write(rohit::type_check::output_stream auto& output,
 }
 } // namespace writer::java
 namespace writer::portable {
-// Generate standalone JS, Go, C#, or TypeScript declarations from a resolved schema.
+// Generate standalone JS, Go, C#, Rust, Python, Swift, Kotlin, C, or TypeScript declarations.
 // unit_name supplies the C# outer class; unsupported features fail before publication.
 std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,
                      std::string_view language, std::string_view unit_name,

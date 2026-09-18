@@ -1,18 +1,18 @@
 serializer version 1;
 
 namespace wire_compatibility {
-class child stable_ids {
-  public uint16 code (1);
-}
-class record stable_ids {
-  public uint8 marker (1);
-  public int16 delta (2);
-  public uint32 sequence (64);
-  public float ratio (3);
-  public double reading (4);
-  public string label (5);
-  public array uint16 values (6);
-  public child nested (7);
-  public union(uint32 = number, float = real) payload (8);
-}
+  class child stable_ids {
+    public uint16 code (1);
+  }
+  class record stable_ids {
+    public uint8 marker (1);
+    public int16 delta (2);
+    public uint32 sequence (64);
+    public float ratio (3);
+    public double reading (4);
+    public string label (5);
+    public array uint16 values (6);
+    public child nested (7);
+    public union(uint32 = number, float = real) payload (8);
+  }
 }

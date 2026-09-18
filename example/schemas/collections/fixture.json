@@ -1,0 +1,45 @@
+{
+  "revision": 1,
+  "samples": [
+    {
+      "time": -9223372036854775808,
+      "value": -12.25,
+      "status": "good"
+    },
+    {
+      "time": 42,
+      "value": 1.5,
+      "status": "suspect"
+    }
+  ],
+  "totals": [
+    {
+      "key": "a",
+      "value": 0
+    },
+    {
+      "key": "é",
+      "value": 18446744073709551615
+    },
+    {
+      "key": "🚀",
+      "value": 7
+    }
+  ],
+  "tags": [
+    "",
+    "alpha",
+    "line\nbreak",
+    "embedded\u0000nul"
+  ],
+  "switches": [
+    {
+      "key": false,
+      "value": "off"
+    },
+    {
+      "key": true,
+      "value": "on"
+    }
+  ]
+}

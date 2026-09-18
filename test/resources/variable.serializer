@@ -18,48 +18,47 @@ serializer version 1;
 //////////////////////////////////////////////////////////////////////////
 
 namespace test {
-class IP {
+  class IP {
     public uint8 a;
     public uint8 b;
     public uint8 c;
     public uint8 d;
-}
+  }
 
-class serverbase {
+  class serverbase {
     public IP name;
     public uint16 port;
-}
+  }
 
-class cacheserver : public serverbase {
+  class cacheserver : public serverbase {
     public uint32 size;
-}
+  }
 
-class httpserver : public serverbase {
+  class httpserver : public serverbase {
     public uint32 size;
     public uint32 mimesize;
-}
+  }
 
-
-class server {
+  class server {
     // entry_enum enumeration will be created
     // pair<entry_enum, union> will be created
     public union (cacheserver, httpserver) entry;
-}
+  }
 
-enum test112 {
+  enum test112 {
     em1,
     em2,
     em3
-}
+  }
 
-class server1 {
+  class server1 {
     // entry_enum enumeration will be created
     // pair<entry_enum, union> will be created
     public union (cacheserver = cache, httpserver = http) entry;
     public test112 test12;
-}
+  }
 
-/*
+  /*
 class server1 {
     // entry_enum enumeration will be created
     // custom_unique_ptr<entry_enum, base pointer> will be created

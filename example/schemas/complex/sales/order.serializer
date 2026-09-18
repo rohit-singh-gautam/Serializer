@@ -1,0 +1,20 @@
+serializer version 1;
+include ../people/customer.serializer;
+include line.serializer;
+include payment.serializer;
+include shipment.serializer;
+
+namespace demo {
+  enum order_state {
+    draft,
+    paid,
+    shipped
+  }
+  class order stable_ids : public entity ("record", 1) {
+    public customer buyer (2);
+    public array order_line lines (3);
+    public array payment payments (4);
+    public array shipment shipments (5);
+    public order_state status (6);
+  }
+}

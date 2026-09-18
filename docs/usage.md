@@ -3,7 +3,9 @@
 For pure Java generation and runtime usage, see [Java output](java.md) and the
 [Java examples](../example/java/README.md). For JavaScript/TypeScript, Go, and C#,
 see [portable language usage](portable_languages.md) and the
-[five-language interoperability example](../example/interoperability/README.md).
+[any-to-any interoperability example](../example/interoperability/README.md).
+For Rust, Python, Swift, Kotlin, and C, see [native language APIs](native_languages.md)
+and [four examples per language](../example/README.md).
 All outputs share the C++ schema compiler. The workflow below is for C++.
 
 For Protobuf binary, ProtoJSON, or TextProto, enable `[cpp] protobuf = true` in

@@ -1,7 +1,10 @@
 serializer version 1;
 
 namespace constant_names {
-  enum state { ReadyNow, Waiting }
+  enum state {
+    ReadyNow,
+    Waiting
+  }
 
   class base_record {
     public uint8 id;

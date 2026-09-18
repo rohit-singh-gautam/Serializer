@@ -18,13 +18,13 @@ serializer version 1;
 //////////////////////////////////////////////////////////////////////////
 
 namespace maptest {
-class person {
+  class person {
     public string name;
     public uint64 ID;
-}
+  }
 
-class personlist {
+  class personlist {
     public uint64 listid;
     public map(uint64) person list;
-}
+  }
 }

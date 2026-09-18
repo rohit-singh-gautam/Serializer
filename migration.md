@@ -576,3 +576,18 @@ decoded.serialize_in<rohit::serializer::json>(input);
 
 Use the checked-in `.clang-format` for future C++ edits. The repository's rules are
 documented in [CodingStandard.md](CodingStandard.md).
+
+## Additional native targets and language example folders
+
+The C++ compiler now accepts Rust, Python, Swift, Kotlin, and C destinations;
+regenerate from the same `.serializer` schema. Existing protocol bytes and IDs
+are unchanged. Read [native target ownership and API differences](docs/native_languages.md)
+before adopting them, particularly C lifecycle functions and Swift `WireString`
+map keys. Kotlin's optional package uses `--kotlin.package` or `[kotlin] package`.
+
+Interoperability consumers moved from `example/interoperability/<language>` to
+`example/<language>/interoperability`. Shared schemas remain in
+`example/interoperability`. Every language folder now has four examples; see
+[the runner and SDK requirements](example/README.md). The earlier CMake option
+still runs its five-runtime subset; the full suite uses
+`SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES`.

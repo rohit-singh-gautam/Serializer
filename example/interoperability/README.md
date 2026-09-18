@@ -1,25 +1,20 @@
-# Five-language interoperability
+# Any-to-any interoperability
 
-This example compiles **one `message.serializer` schema**, including
-`common.serializer`, into C++, Java, JavaScript, Go, and C#. TypeScript declarations
-describe the generated JavaScript module. The schema compiler remains entirely
-C++; target SDKs compile or run its output only.
+The C++ compiler generates C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python,
+Swift, Kotlin, and C output from [one schema](message.serializer), which includes
+[common types](common.serializer). The handwritten consumers live under
+`example/<language>/interoperability`; shared schemas remain here.
 
-Maintained consumers are organized by language:
-
-```text
-example/interoperability/
-  message.serializer
-  common.serializer
-  cpp/main.cpp
-  java/Main.java
-  javascript/main.mjs
-  javascript/browser.html
-  go/main.go
-  go/go.mod
-  csharp/Program.cs
-  csharp/Interop.csproj
+```sh
+python example/run.py --compiler build/serializer --example interoperability --language all
 ```
+
+See [runner options and SDK setup](../README.md). The full suite runs all producers
+before any consumer. It checks ten native runtimes plus a TypeScript consumer:
+**11 × 11 × 4 protocols × 3 union variants = 1,452 exchanges**. TypeScript uses
+the JS runtime with generated declarations and is also compiled in strict mode.
+The fixture directory contains a `producers.txt` manifest, so a selected subset
+checks precisely the participating languages.
 
 Every consumer independently constructs the same values, writes all four native
 protocols, and reads output from every producer. The fixture covers signed and
@@ -28,7 +23,7 @@ characters, Unicode, defaults, parent composition, nested objects, arrays, maps
 with several key types, enum collection contexts, explicit wire-name overrides,
 multi-byte IDs, and every union alternative.
 
-## Build and run
+## Existing five-runtime CMake subset
 
 Prerequisites: the normal C++ build tools, Java 17+, Node.js 22+, Go 1.22+, and the
 .NET 8+ SDK with the net8.0 targeting pack. All generated files stay in the build
@@ -41,7 +36,7 @@ ctest --test-dir build -C Release -R serializer_all_language_interoperability --
 ```
 
 The CTest first runs every producer in `emit` mode, then every consumer in
-`verify` mode. Each consumer verifies all 60 messages. This exercises **300
+`verify` mode. In this subset, each consumer verifies all 60 messages. This exercises **300
 producer/consumer exchanges**, including 240 between different languages.
 Binary output is byte-identical; JSON can differ in escaping or numeric spelling.
 Complete decoded data is checked through a canonical positional encoding of the

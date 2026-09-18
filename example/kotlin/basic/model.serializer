@@ -1,0 +1,2 @@
+serializer version 1;
+include ../../schemas/basic/model.serializer;

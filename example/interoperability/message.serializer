@@ -2,31 +2,31 @@ serializer version 1;
 include common.serializer;
 
 namespace interop {
-class message stable_ids : public record ("origin", 1) {
-  public uint64 big_unsigned (2) { 18446744073709551615 };
-  public int64 big_signed (3) { -9223372036854775808 };
-  public int8 i8 (4) { -128 };
-  public uint8 u8 (5) { 255 };
-  public int16 i16 (6) { -32768 };
-  public uint16 u16 (7) { 65535 };
-  public int32 i32 (8) { -2147483648 };
-  public uint32 u32 (9) { 4294967295 };
-  public float f32 (10) { 1.5 };
-  public double f64 (11) { -12.25 };
-  public bool flag (12) { true };
-  public char character (13) { '\n' };
-  public string text ("display_name", 14) { "schema default" };
-  public detail nested (15);
-  public array int32 numbers (16);
-  public array float decimals (17);
-  public array bool flags (18);
-  public array string labels (19);
-  public array detail children (20);
-  public array state states (21);
-  public map(string) uint64 counts (22);
-  public map(uint64) detail indexed (23);
-  public map(bool) string toggles (24);
-  public map(state) int32 enums (25);
-  public union(int64 = number, float = ratio, state = state) payload (16384);
-}
+  class message stable_ids : public record ("origin", 1) {
+    public uint64 big_unsigned (2) { 18446744073709551615 };
+    public int64 big_signed (3) { -9223372036854775808 };
+    public int8 i8 (4) { -128 };
+    public uint8 u8 (5) { 255 };
+    public int16 i16 (6) { -32768 };
+    public uint16 u16 (7) { 65535 };
+    public int32 i32 (8) { -2147483648 };
+    public uint32 u32 (9) { 4294967295 };
+    public float f32 (10) { 1.5 };
+    public double f64 (11) { -12.25 };
+    public bool flag (12) { true };
+    public char character (13) { '\n' };
+    public string text ("display_name", 14) { "schema default" };
+    public detail nested (15);
+    public array int32 numbers (16);
+    public array float decimals (17);
+    public array bool flags (18);
+    public array string labels (19);
+    public array detail children (20);
+    public array state states (21);
+    public map(string) uint64 counts (22);
+    public map(uint64) detail indexed (23);
+    public map(bool) string toggles (24);
+    public map(state) int32 enums (25);
+    public union(int64 = number, float = ratio, state = state) payload (16384);
+  }
 }

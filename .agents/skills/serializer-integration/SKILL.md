@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, or C# applications from a provided repository or existing dependency. Use for .serializer schemas, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, schema compatibility checks and reservations, stream concepts and iostream adapters, exact fresh-value decoding, optional message compression, JSON or binary codecs, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
+description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin, or C applications from a provided repository or existing dependency. Use for .serializer schemas, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, schema compatibility checks and reservations, stream concepts and iostream adapters, exact fresh-value decoding, optional message compression, JSON or binary codecs, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
 ---
 
 # Serializer Integration
@@ -25,7 +25,9 @@ there instead of relying on the relative links.
 - Read [README.md](../../../README.md) for supported syntax and feature status.
 - Use [docs/usage.md](../../../docs/usage.md) for the schema, CMake, and codec examples.
 - Use [docs/portable_languages.md](../../../docs/portable_languages.md) for JS/TypeScript,
-  Go, C#, target SDKs, type mappings, limits, and five-language interoperability.
+  Go, C#, target SDKs, type mappings, limits, and interoperability.
+- Use [docs/native_languages.md](../../../docs/native_languages.md) for Rust, Python,
+  Swift, Kotlin/JVM, and C owning codecs, SDKs, limits, and ownership.
 - Use [docs/java.md](../../../docs/java.md) for pure Java 17+ generation, profiles,
   type mappings, supported schema features, limits, and protocol compatibility.
 - Use [docs/cmake_integration.md](../../../docs/cmake_integration.md) for the shipped
@@ -378,7 +380,7 @@ user instruction to defer generation/builds/tests and report what remains unveri
   directly from npm, Go, or MSBuild build steps. The CMake helper tracks includes;
   supply a host `GENERATOR` when cross-compiling.
 - Enable `SERIALIZER_BUILD_INTEROP_EXAMPLES=ON` to compile the
-  [shared five-language example](../../../example/interoperability/README.md).
+  [shared interoperability example](../../../example/interoperability/README.md).
   Test every producer/consumer pair, all four protocols, and all union variants;
   compare complete values and native binary bytes. Run malformed-input tests and
   relevant TypeScript/browser checks when changing target runtimes.
@@ -602,3 +604,30 @@ together with affected linked guides. When editing a consumer, update that
 application's relevant usage docs without modifying an upstream checkout merely
 to restate an unchanged library contract. Keep public examples specific to
 Serializer and public sources.
+
+## Integrate Rust, Python, Swift, Kotlin, or C output
+
+- Keep schema compilation in the C++ executable. Select `rust`, `python`, `swift`,
+  `kotlin`, or `c`; use corresponding `.rs`, `.py`, `.swift`, `.kt`, or `.h` outputs.
+  Select all desired targets in one invocation. `.inc` files are tracked runtime
+  source templates embedded by C++, never temporary output or separate compilers.
+- Apply [native API and SDK guidance](../../../docs/native_languages.md). These
+  are owning codecs for the four original wire protocols, with portable literal
+  defaults; C++ views, packing, compression, and Protobuf are separate features.
+- Use `Default` in Rust and constructors in Python/Swift/Kotlin. Preserve full
+  unsigned widths and Swift `WireString` map-key identity. Python underscores
+  express nonpublic fields by convention; C structs cannot enforce access control.
+- Initialize or zero C destinations and buffers; free owned strings, collections,
+  and models using generated lifecycle functions. Never shallow-copy owning C
+  models. Decode replaces the destination only after exact-message success.
+- Use explicit decode limits at input boundaries. Repeated objects merge,
+  collections replace, and the last complete duplicate map value wins. Do not
+  claim graceful allocation recovery where the target runtime cannot provide it.
+- Every language has `basic`, `collections`, `complex`, and `interoperability`
+  folders under `example/<language>`. Use [the example runner](../../../example/README.md)
+  to generate from shared schemas and validate all producer/consumer pairs.
+  TypeScript is a typed JS consumer, not another wire format or runtime.
+- Enable `SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES` only when all selected SDKs are
+  available. Missing SDKs must be reported, not silently skipped. CTest compiles
+  those consumers and runs the shared boundary suites; the ordinary compiler
+  build requires no target SDK. Consult the [dated verification record](../../../docs/verification-native-2026-09-18.md).

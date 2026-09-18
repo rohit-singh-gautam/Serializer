@@ -2,6 +2,7 @@
 #include <rohit/serializer_creator.hpp>
 #include <rohit/stream.hpp>
 
+#include "../src/command_line.hpp"
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -16,9 +17,37 @@ std::string emit_portable(std::string_view schema, std::string_view language,
 }
 } // namespace
 
+// Scalar access borrows parsed storage and cannot silently mutate absent options.
+TEST(command_line, borrows_first_value_without_flattening_arguments) {
+  using namespace rohit::serializer;
+  const cli::arguments arguments{{"language", {"rust", "python"}}, {"empty", {""}}, {"none", {}}};
+  EXPECT_EQ(&cli::first(arguments, "language"), &arguments.at("language").front());
+  EXPECT_EQ(arguments.at("language").size(), 2u);
+  EXPECT_TRUE(cli::first(arguments, "empty").empty());
+  EXPECT_THROW(cli::first(arguments, "missing"), std::out_of_range);
+  EXPECT_THROW(cli::first(arguments, "none"), std::out_of_range);
+}
+
+// Internal runtime symbols and C lifecycle helpers must not be shadowed by schema declarations.
+TEST(portable_writer, native_runtime_and_lifecycle_collisions) {
+  EXPECT_THROW(emit_portable("class type_error {}", "python"), std::invalid_argument);
+  EXPECT_THROW(emit_portable("class b_tree_map {}", "rust"), std::invalid_argument);
+  EXPECT_THROW(emit_portable("class byte_buffer {}", "kotlin"), std::invalid_argument);
+  EXPECT_THROW(emit_portable("class malloc {}", "c"), std::invalid_argument);
+  EXPECT_THROW(emit_portable("class account {} class account_init {}", "c"), std::invalid_argument);
+  for (const auto language : {"rust", "python", "swift", "kotlin", "c"}) {
+    EXPECT_THROW(emit_portable("class account { public int32 srlWrite; }", language),
+                 std::invalid_argument);
+  }
+  rohit::serializer::writer::portable_options options{};
+  options.package_name = "bad..package";
+  EXPECT_THROW(emit_portable("class account {}", "kotlin", options), std::invalid_argument);
+}
+
 // Unsupported shapes and ambiguous names must fail before files can be overwritten.
 TEST(portable_writer, rejects_invalid_schemas_before_publication) {
-  for (const auto language : {"js", "typescript", "go", "csharp"}) {
+  for (const auto language :
+       {"js", "typescript", "go", "csharp", "rust", "python", "swift", "kotlin", "c"}) {
     for (const auto schema :
          {"class account view { public int32 value; }",
           "class account packed { public int32 value; }",
@@ -71,11 +100,11 @@ TEST(portable_writer, rejects_invalid_module_names) {
 
 // Every requested output is selected in order, including JS's declaration companion.
 TEST(portable_writer, accepts_all_language_selection) {
-  const auto languages =
-      rohit::serializer::writer::parse_output_languages("cpp,java,js,typescript,go,csharp");
-  ASSERT_EQ(languages.size(), 6u);
+  const auto languages = rohit::serializer::writer::parse_output_languages(
+      "cpp,java,js,typescript,go,csharp,rust,python,swift,kotlin,c");
+  ASSERT_EQ(languages.size(), 11u);
   EXPECT_EQ(languages[2], "js");
-  EXPECT_EQ(languages.back(), "csharp");
+  EXPECT_EQ(languages.back(), "c");
   EXPECT_THROW(rohit::serializer::writer::parse_output_languages("go,js,go"),
                std::invalid_argument);
 }

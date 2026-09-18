@@ -1,0 +1,13 @@
+serializer version 1;
+
+namespace demo {
+  enum currency {
+    usd,
+    eur,
+    inr
+  }
+  class money stable_ids {
+    public int64 minor_units (1);
+    public currency unit (2);
+  }
+}

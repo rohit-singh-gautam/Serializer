@@ -398,3 +398,14 @@ repository's fixtures and examples, plus a separate installed-package consumer
 check in the compatibility/exact-decoding follow-up. Editor verification was not
 performed in those runs; see the record's scope before extending its results to
 other configurations.
+
+## All language examples and native codec tests
+
+`SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES=ON` registers `serializer_language_examples`
+and `serializer_native_codecs`. Build the C++ compiler first; these CTest commands
+then compile the target SDK consumers and run all four examples per language,
+any-to-any exchanges, and malformed-input suites. See [SDK requirements](../example/README.md).
+Set `SERIALIZER_EXAMPLE_WSL_LANGUAGES=c,rust,swift` for explicitly selected WSL
+SDKs on Windows, and `SERIALIZER_EXAMPLE_SANITIZERS=ON` for GCC/Clang C sanitizers.
+These options do not change the compiler implementation or require SDKs during
+an ordinary build. The previous five-runtime CMake subset remains available.

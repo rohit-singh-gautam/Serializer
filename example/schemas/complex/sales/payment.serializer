@@ -1,0 +1,10 @@
+serializer version 1;
+include ../common/money.serializer;
+
+namespace demo {
+  class payment stable_ids {
+    public money amount (1);
+    public bool authorized (2);
+    public string reference (3);
+  }
+}

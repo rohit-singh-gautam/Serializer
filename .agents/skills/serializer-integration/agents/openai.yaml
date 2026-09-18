@@ -1,6 +1,6 @@
 interface:
   display_name: "Serializer Integration"
-  short_description: "Integrate C++, Java, JS, Go, and C# schemas and codecs"
+  short_description: "Integrate Serializer schemas and codecs across ten runtimes"
 
 policy:
   allow_implicit_invocation: true

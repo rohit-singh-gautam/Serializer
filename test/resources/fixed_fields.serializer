@@ -1,7 +1,10 @@
 serializer version 1;
 
 namespace fixed_fields {
-  enum phase { idle, active }
+  enum phase {
+    idle,
+    active
+  }
 
   class scalars stable_ids {
     public uint8 marker (1);

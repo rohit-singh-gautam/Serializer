@@ -178,7 +178,7 @@ TEST(output_options, configuration_and_diagnostics) {
   EXPECT_EQ(options.cpp.format_file, file.parent_path() / "styles/custom style.yaml");
   EXPECT_EQ(options.cpp.clang_format, file.parent_path() / "tools/formatter");
   for (const auto invalid :
-       {"[output]\nlanguage = rust\n", "[rust]\nformat = true\n",
+       {"[output]\nlanguage = unknown_backend\n", "[rust]\nformat = true\n",
         "[cpp]\ncoding_standard = googl\n", "[cpp]\nformat = yes\n",
         "[cpp]\nformat = true\nformat = false\n", "[cpp]\n[cpp]\n",
         "[cpp]\nformat = false\nformat_file = style.yaml\n", "[cpp]\nunknown = true\n",

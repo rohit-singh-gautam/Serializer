@@ -4,6 +4,8 @@ set(java_command "${JAVA}" -cp "${CLASSES}" Main)
 set(js_command "${NODE}" "${JS}")
 set(go_command "${GO}")
 set(csharp_command "${DOTNET}" "${CSHARP}")
+file(MAKE_DIRECTORY "${FIXTURES}")
+file(WRITE "${FIXTURES}/producers.txt" "cpp\njava\njs\ngo\ncsharp\n")
 foreach(mode IN ITEMS emit verify)
   foreach(language IN ITEMS cpp java js go csharp)
     execute_process(COMMAND ${${language}_command} "${FIXTURES}" "${mode}"

@@ -22,7 +22,17 @@ struct commandline_option {
   bool allow_empty{};
 };
 
-using arguments = std::map<std::string, std::vector<std::string>>;
+using arguments = std::map<std::string, std::vector<std::string>, std::less<>>;
+
+// Borrow the first option value; throw out_of_range for an absent key or empty value list.
+// The reference remains valid until that option is modified or the arguments are destroyed.
+inline const std::string& first(const arguments& values, std::string_view name) {
+  const auto option = values.find(name);
+  if (option == values.end()) {
+    throw std::out_of_range{"Missing argument: " + std::string{name}};
+  }
+  return option->second.at(0);
+}
 
 // Parse descriptors without modifying caller state; reject unknown, empty, or repeated options.
 // Values beginning with '-' must use --name=value. Short option clusters are unsupported.

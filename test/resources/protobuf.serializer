@@ -1,28 +1,33 @@
 serializer version 1;
+
 namespace protobuf_test {
-enum choice { first_value, second_value }
-class child stable_ids {
-  public int32 number (1);
-  public string text (2);
-}
-class record stable_ids {
-  public int32 signed_value (1);
-  public uint64 large_value (2);
-  public string display_name (3);
-  public bool flag (4);
-  public float fraction (5);
-  public double precise (6);
-  public choice selection (7);
-  public array int32 numbers (8);
-  public map(string) uint64 counts (9);
-  public child nested (10);
-  public union(int32 = number, choice = selected) payload (11);
-  public array bool flags (12);
-  public int8 small (13);
-  public char character (14);
-}
-class derived stable_ids : public child ("base", 1) {
-  public uint32 extra (2);
-}
-class empty {}
+  enum choice {
+    first_value,
+    second_value
+  }
+  class child stable_ids {
+    public int32 number (1);
+    public string text (2);
+  }
+  class record stable_ids {
+    public int32 signed_value (1);
+    public uint64 large_value (2);
+    public string display_name (3);
+    public bool flag (4);
+    public float fraction (5);
+    public double precise (6);
+    public choice selection (7);
+    public array int32 numbers (8);
+    public map(string) uint64 counts (9);
+    public child nested (10);
+    public union(int32 = number, choice = selected) payload (11);
+    public array bool flags (12);
+    public int8 small (13);
+    public char character (14);
+  }
+  class derived stable_ids : public child ("base", 1) {
+    public uint32 extra (2);
+  }
+  class empty {
+  }
 }

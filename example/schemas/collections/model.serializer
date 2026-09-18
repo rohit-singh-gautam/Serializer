@@ -1,0 +1,18 @@
+serializer version 1;
+
+enum quality {
+  good,
+  suspect
+}
+class reading stable_ids {
+  public int64 time (1);
+  public double value (2);
+  public quality status (3);
+}
+class example_model stable_ids {
+  public uint32 revision (1) { 1 };
+  public array reading samples (2);
+  public map(string) uint64 totals (3);
+  public array string tags (4);
+  public map(bool) string switches (5);
+}

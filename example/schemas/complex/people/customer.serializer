@@ -1,0 +1,11 @@
+serializer version 1;
+include ../common/identity.serializer;
+include ../common/address.serializer;
+
+namespace demo {
+  class customer stable_ids : public entity ("record", 1) {
+    public string full_name (2);
+    public array address addresses (3);
+    public map(string) string preferences (4);
+  }
+}

@@ -1,0 +1,9 @@
+serializer version 1;
+
+namespace demo {
+  class address stable_ids {
+    public string street (1);
+    public string city (2);
+    public string postal (3);
+  }
+}

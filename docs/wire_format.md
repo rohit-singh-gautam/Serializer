@@ -5,6 +5,15 @@ separate [Protobuf mapping and decoding contract](protobuf.md). They do not use
 the custom binary layouts or ordinary JSON mapping documented below. Java
 currently supports only the four original protocols described here.
 
+Rust, Python, Swift, Kotlin, and C implement these same four native protocols for
+their supported owning types, alongside JS/TypeScript and Go/C#. They preserve
+integer widths, little-endian scalars, compact prefixes, IDs, and enum contexts.
+Portable strings require valid UTF-8. Swift uses `WireString` map keys to keep
+differently encoded Unicode sequences distinct. See [native runtime contracts](native_languages.md)
+for ownership, exact-decode failure handling, limits, and target-specific APIs.
+The [full interoperability test](../example/interoperability/README.md) checks all
+producer/consumer directions; this adds no new wire values or schema version.
+
 The `.serializer` source header `serializer version 1;` selects the schema
 language. It is independent of the compiler release and is not emitted into
 messages. It identifies neither message byte order nor a wire-format version; see
