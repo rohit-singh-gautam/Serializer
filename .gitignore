@@ -41,6 +41,9 @@ Testing/
 *.gch
 *.ipch
 *.dSYM/
+*.rlib
+*.rmeta
+*.test
 
 # Python bytecode, virtual environments, package metadata, and tool caches.
 __pycache__/
@@ -74,6 +77,8 @@ pnpm-debug.log*
 .kotlin/
 *.class
 *.jar
+*.kotlin_module
+*.hprof
 .build/
 .swiftpm/
 *.swiftmodule
@@ -85,6 +90,8 @@ pnpm-debug.log*
 .coverage.*
 htmlcov/
 coverage/
+coverage.out
+*.coverprofile
 *.gcda
 *.gcno
 *.gcov
