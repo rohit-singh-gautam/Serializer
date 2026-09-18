@@ -945,7 +945,16 @@ public:
                    item.modifier == member::modifier_type::map ? "true" : "false"},
                    ">(protobuf_seen_", item.id, ");\n");
       if (item.modifier == member::modifier_type::variant) {
-        output.write("        if (", protocol, ".null_value()) { continue; }\n        ", protocol,
+        const auto& first_alternative = item.type_name_list.front();
+        output.write("        const auto protobuf_reset_union = [&] {\n          this->",
+                     union_tag_name(item), " = ", union_enum_name(item), "::",
+                     enum_name(first_alternative.enum_name), ";\n          ::std::construct_at(&this->",
+                     field_name(item.name), ".", field_name(first_alternative.enum_name),
+                     ");\n          ::rohit::serializer::detail::protobuf_reset(this->",
+                     field_name(item.name), ".", field_name(first_alternative.enum_name),
+                     ");\n        };\n        ", protocol,
+                     ".reset_json_field(protobuf_reset_union);\n        if (", protocol,
+                     ".null_value()) { continue; }\n        ", protocol,
                      ".message([&](auto& nested) {\n          int protobuf_selected = -1;\n"
                      "          while (nested.next_field()) {\n");
         for (std::size_t index = 0; index < item.type_name_list.size(); ++index) {
@@ -954,7 +963,11 @@ public:
           const auto tag = union_enum_name(item) + "::" + enum_name(alternative.enum_name);
           output.write("            if (nested.template match<", index + 1, ">(\"", alternative.enum_name,
                        "\", \"", protobuf_json_name(alternative.enum_name), "\")) {\n"
-                       "              if (nested.null_value()) { continue; }\n"
+                       "              if (nested.null_value()) {\n"
+                       "                if (protobuf_selected == ", index, ") {\n"
+                       "                  protobuf_reset_union();\n"
+                       "                  protobuf_selected = -1;\n"
+                       "                }\n                continue;\n              }\n"
                        "              nested.oneof(protobuf_selected, ", index, ");\n"
                        "              if (this->", union_tag_name(item), " != ", tag, ") {\n"
                        "                ::std::construct_at(&", payload, ");\n"

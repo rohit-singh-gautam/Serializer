@@ -8,6 +8,10 @@ C++ runtime API and default generated C++ use `snake_case`.
 Opt-in C++ codecs also support **Protobuf binary, ProtoJSON, and TextProto** through
 compile-time protocol templates, for both encoding and decoding. See
 [Protobuf codecs](docs/protobuf.md) for generation, schema mappings, and limitations.
+ProtoJSON duplicate ordinary fields replace earlier values, including nested objects
+and later `null`; binary Protobuf retains its message-merging rules. TextProto checks
+decoded string storage budgets before growing strings. See the
+[finalization verification record](docs/verification-finalization-2026-09-18.md).
 C++ stream APIs use structural C++20 concepts: custom implementations need no
 `rohit::stream` base class. Generated calls accept standard streams directly through
 implicit adapters. Memory input streams borrow their unread storage; file streams
@@ -425,6 +429,9 @@ C exposes explicit initialization/free functions and transactional decode; Swift
 uses exact UTF-8 `WireString` map keys; Kotlin preserves unsigned widths and uses
 primitive numeric arrays. See [APIs, SDKs, ownership, and limits](docs/native_languages.md)
 and the [verification record](docs/verification-native-2026-09-18.md).
+The [finalization fixes](migration.md#finalization-correctness-fixes) correct
+large floating defaults in Rust/C output and leading U+FEFF preservation in
+Windows Swift. Regenerate the affected sources when updating the compiler.
 
 ### CMake consumer integration
 
@@ -538,9 +545,12 @@ expose `key_type`. Explicit codec byte-order selection is documented in
 [the wire-format contract](docs/wire_format.md#byte-order).
 Messages contain no automatic byte-order marker. Both endpoints must agree on it.
 
-Wire byte order is independent of machine byte order: a big-endian machine using
-little-endian binary must exchange identical bytes with a little-endian machine
-using that same protocol and schema. Other language backends currently use the
+Wire byte order is independent of machine byte order: the same scalar values use
+identical wire bytes on little- and big-endian machines. Collection ordering is a
+separate contract: high-byte `map(char)` keys retain historical backend/compiler
+ordering, so equivalent maps need not produce identical bytes. For new portable
+byte-keyed maps, prefer `map(uint8)`; see [map ordering](docs/wire_format.md#map-ordering).
+Other language backends currently use the
 little-endian wire profile; explicit big-endian wire selection is a C++ feature.
 The [interoperability runner](example/interoperability/README.md) pins positional
 output to shared frozen bytes and can include emulated big-endian C/C++ hosts.

@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
 
@@ -49,6 +50,50 @@ static void require(bool success, const char* message) {
     fprintf(stderr, "%s\n", message);
     exit(EXIT_FAILURE);
   }
+}
+/* Check target-compiled defaults independently, including each zero's sign bit. */
+static void check_floating_defaults(const check_floating_default_value* value) {
+  require(value->positive_float == 2147483648.0f, "Positive float default changed");
+  require(value->negative_float == -4294967296.0f, "Negative float default changed");
+  require(value->positive_double == 9223372036854775808.0, "Positive double default changed");
+  require(value->negative_double == -9223372036854775808.0, "Negative double default changed");
+  require(value->scientific_float == 1250.0f, "Scientific float default changed");
+  require(value->scientific_double == -0.025, "Scientific double default changed");
+  require(value->negative_zero_float == 0 && signbit(value->negative_zero_float),
+          "Negative float zero default changed");
+  require(value->negative_zero_double == 0 && signbit(value->negative_zero_double),
+          "Negative double zero default changed");
+  require(value->zero_float == 0 && !signbit(value->zero_float), "Float zero default changed");
+  require(value->zero_double == 0 && !signbit(value->zero_double), "Double zero default changed");
+}
+/* Exercise initialization, absent keyed fields, and complete protocol round trips. */
+static void floating_defaults(void) {
+  check_floating_default_value value = {0}, copy = {0};
+  require(check_floating_default_value_init(&value) == srl_ok, "Floating default init failed");
+  check_floating_defaults(&value);
+  const srl_protocol protocols[] = {srl_json, srl_binary_none, srl_binary_integer,
+                                    srl_binary_string};
+  for (size_t i = 0; i < sizeof(protocols) / sizeof(protocols[0]); ++i) {
+    srl_buffer encoded = {0};
+    require(check_floating_default_value_encode(&value, protocols[i], &encoded) == srl_ok,
+            "Floating default encode failed");
+    require(check_floating_default_value_decode(&copy, encoded.data, encoded.size, protocols[i],
+                                                NULL) == srl_ok,
+            "Floating default decode failed");
+    check_floating_defaults(&copy);
+    srl_buffer_free(&encoded);
+    if (protocols[i] != srl_binary_none) {
+      const bool json = protocols[i] == srl_json;
+      const char* empty = json ? "{}" : "\0";
+      require(check_floating_default_value_decode(&copy, (const uint8_t*)empty,
+                                                  json ? sizeof("{}") - 1 : sizeof("\0") - 1,
+                                                  protocols[i], NULL) == srl_ok,
+              "Absent fields did not retain floating defaults");
+      check_floating_defaults(&copy);
+    }
+  }
+  check_floating_default_value_free(&copy);
+  check_floating_default_value_free(&value);
 }
 /* Read an owned file with checked sizes; no generated model borrows this storage. */
 static srl_buffer read_file(const char* name) {
@@ -309,6 +354,7 @@ static void allocation_failures(void) {
 
 /* Run the entire corpus under address/undefined sanitizers when requested by the runner. */
 int main(int argc, char** argv) {
+  floating_defaults();
   require(argc == 3, "Usage: main <corpus> <results>");
   char path[4096];
   snprintf(path, sizeof(path), "%s/manifest.tsv", argv[1]);

@@ -151,7 +151,7 @@ fileprivate final class SrlReader {
     private func token() throws -> String {
         whitespace(); let start = offset
         while offset < data.count && ![UInt8(44),125,93,32,9,10,13].contains(data[offset]) { offset += 1 }
-        guard offset != start, let text = String(bytes: data[start..<offset], encoding: .utf8) else { throw SerializerError.invalid("Invalid token") }
+        guard offset != start, let text = String(validating: data[start..<offset], as: UTF8.self) else { throw SerializerError.invalid("Invalid token") }
         return text
     }
     // Preserve all integer bits and enforce exact declared JSON ranges.
@@ -188,11 +188,12 @@ fileprivate final class SrlReader {
             value = value*16 + UInt32(digit)
         }; return value
     }
-    // Decode strict UTF-8 and JSON escapes with both escaped and decoded size bounds.
+    // Decode strict UTF-8 without Foundation's platform-dependent leading-BOM removal.
+    // JSON escapes retain both escaped and decoded size bounds.
     func text() throws -> String {
         if !json() {
             let count = try compact(); guard count <= limits.maxStringBytes else { throw SerializerError.invalid("String limit") }; try requireBytes(count)
-            guard let value = String(bytes: data[offset..<offset+count], encoding: .utf8) else { throw SerializerError.invalid("Invalid UTF-8") }; offset += count; return value
+            guard let value = String(validating: data[offset..<offset+count], as: UTF8.self) else { throw SerializerError.invalid("Invalid UTF-8") }; offset += count; return value
         }
         try expect(34); let start = offset; var bytes: [UInt8] = []
         while true {
@@ -215,7 +216,7 @@ fileprivate final class SrlReader {
             default: throw SerializerError.invalid("Invalid string escape")
             }
         }
-        guard bytes.count <= limits.maxStringBytes, let result = String(bytes: bytes, encoding: .utf8) else { throw SerializerError.invalid("Invalid string") }; return result
+        guard bytes.count <= limits.maxStringBytes, let result = String(validating: bytes, as: UTF8.self) else { throw SerializerError.invalid("Invalid string") }; return result
     }
     // Decode an ASCII JSON character or binary byte.
     func character() throws -> UInt8 { if !json() { return UInt8(try integer(1, true)) }; let value = try text(); guard value.utf8.count == 1, let byte = value.utf8.first, byte <= 127 else { throw SerializerError.invalid("Invalid char") }; return byte }

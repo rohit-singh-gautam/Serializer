@@ -31,4 +31,16 @@ namespace check {
     public char nul { '\0' };
     public string escaped { "a\\b\n\"c" };
   }
+  class floating_default_value {
+    public float positive_float { 2147483648 };
+    public float negative_float { -4294967296 };
+    public double positive_double { 9223372036854775808 };
+    public double negative_double { -9223372036854775808 };
+    public float scientific_float { 1.25e3 };
+    public double scientific_double { -2.5E-2 };
+    public float negative_zero_float { -0 };
+    public double negative_zero_double { -0 };
+    public float zero_float;
+    public double zero_double;
+  }
 }

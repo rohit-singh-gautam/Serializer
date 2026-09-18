@@ -11,6 +11,35 @@ See [compression verification](docs/verification-compression-2026-09-17.md).
 See the dated [verification record](docs/verification-2026-09-17.md) for the source
 revision, configurations, passing checks, and remaining validation work.
 
+## Finalization correctness fixes
+
+Regenerate Rust output to correct integer-spelled `float`/`double` defaults outside
+Rust's inferred integer range. Regenerate C output for the equivalent `double`
+literal issue. Accepted defaults now use floating syntax; field types and wire
+representations are unchanged.
+
+Regenerate Swift output for strict standard-library UTF-8 decoding. Foundation's
+Windows string conversion could discard a leading U+FEFF; the generated runtime
+now preserves it as string data, including in JSON escapes and binary payloads.
+Malformed UTF-8 remains rejected, and U+FEFF is not ignored before field names or
+numeric tokens.
+
+Rebuild C++ consumers and regenerate Protobuf-enabled headers for corrected
+ProtoJSON duplicate-field handling, including generated union wrappers. Later
+nested objects replace earlier objects; later `null` restores the Protobuf default.
+Binary Protobuf still merges repeated messages, and native JSON is unchanged.
+TextProto enforces decoded string storage limits before growth, including escaped
+Unicode and adjacent quoted fragments. This can reject over-budget input earlier.
+Temporary token/numeric scratch remains outside the logical storage budget;
+configure input/work and string/token limits too.
+
+Existing `map(char)` wire ordering is preserved: Java uses signed bytes, C++ uses
+its compiler's char signedness, and other backends use unsigned bytes. Equal maps
+with high-byte keys can have different binary order. Use `map(uint8)` for new
+portable byte-keyed contracts; do not silently change existing schemas, since
+JSON key representation also changes. See [map ordering](docs/wire_format.md#map-ordering)
+and [finalization verification](docs/verification-finalization-2026-09-18.md).
+
 ## Binary string validation
 
 C++ native binary codecs now validate UTF-8 by default for strings and field names,

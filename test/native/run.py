@@ -61,6 +61,17 @@ def corpus(directory, schema):
     add(1, [0x40, 0], 1, {'value':''})
     add(1, '{"value":"\\ud83d\\ude80"}', expected={'value':'🚀'})
     add(1, [3, 0xef, 0xbb, 0xbf], 1, {'value':'\ufeff'})
+    # U+FEFF is string data, including at the start; it is never an ignorable field/token prefix.
+    for text in ('\ufefftext', '\ufeff\ufeff'):
+        encoded = text.encode('utf-8')
+        payload = bytes((len(encoded),)) + encoded
+        add(1, payload, 1, {'value':text})
+        add(1, b'\x01' + payload + b'\0', 2, {'value':text})
+        add(1, b'\x05value' + payload + b'\0', 3, {'value':text})
+    add(1, '{"value":"\ufefftext"}', expected={'value':'\ufefftext'})
+    add(1, '{"value":"\\ufefftext"}', expected={'value':'\ufefftext'})
+    add(1, '{"\ufeffvalue":"text"}')
+    add(2, '{"value":\ufeff1}')
     add(1, '{"value":"a\\u0000b"}', expected={'value':'a\0b'})
     add(0, '{"nested":{"code":99},"nested":{"note":"merged"},"numbers":[1,2],"numbers":[3],"counts":[{"value":1,"key":"a"},{"key":"a","value":2}]}',
         expected={'nested':{'code':99,'note':'merged'}, 'numbers':[3], 'counts':[{'key':'a','value':2}]})

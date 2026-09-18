@@ -80,6 +80,11 @@ version header. Both endpoints must agree on the schema and protocol.
 Unsigned fields store their full bit pattern in the corresponding signed Java
 primitive. For example, `uint64` maximum is `-1L`; use `Long.toUnsignedString` for
 display. JSON writes the unsigned decimal value and checks ranges on input.
+Schema `char` retains Java's signed byte map ordering; C++ depends on compiler
+char signedness, while other backends order these byte keys unsigned. High-byte
+keys remain semantically interoperable but can produce differently ordered bytes.
+Prefer `map(uint8)` for new portable byte-keyed contracts; see
+[map ordering](wire_format.md#map-ordering).
 Generated arrays use primitive storage without boxing for binary decoding;
 JSON arrays use a temporary list because their size is not prefixed. Maps box
 primitive keys/values. Generated code directly accesses fields and uses switches

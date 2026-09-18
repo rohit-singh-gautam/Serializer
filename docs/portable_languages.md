@@ -169,6 +169,12 @@ JSON maps remain arrays of `{key, value}` entries. JSON escaping and float text
 formatting can differ across implementations while representing the same data.
 See the full [wire contract](wire_format.md).
 
+High-byte `map(char)` ordering is a documented exception to byte-identical output
+across languages/hosts: these backends use unsigned byte ordering, while Java and
+signed-char C++ sort high bytes first. Values still decode across these orderings.
+For new byte-keyed contracts, prefer `map(uint8)`; see
+[map ordering](wire_format.md#map-ordering).
+
 Portable defaults are decimal numeric literals, booleans, quoted strings with
 ordinary escapes, ASCII character literals, and declared enum constants.
 Arbitrary C++ expressions, collection/union defaults, direct self-containing

@@ -1,0 +1,5 @@
+serializer version 1;
+
+class char_map stable_ids {
+  public map(char) uint32 entries (1);
+}

@@ -13,6 +13,11 @@ the generator config and use `protobuf_binary`, `protojson`, or `textproto` as t
 `serialize_out`/`serialize_in` protocol template. These codecs require no external
 Protobuf runtime. See [Protobuf usage and mapping rules](protobuf.md), including
 field-number restrictions and Protobuf defaults on input.
+ProtoJSON applies the last occurrence of an ordinary field: a nested object
+replaces its earlier contents and `null` restores the Protobuf default. This is
+different from native JSON and Protobuf binary nested-message merging. TextProto
+checks decoded string budgets before growth. Temporary text token/numeric scratch
+is outside the allocation budget; also set input, string/token, and work limits.
 
 Serializer compiles a schema into a C++ header, then reads or writes generated
 objects through JSON or binary protocols. Use a C++20-or-newer compiler and
@@ -87,6 +92,9 @@ class person stable_ids {
   compiler version, and generating C++ and Java together.
 - Write an access modifier on every member, followed by its schema type and name.
 - `array T` generates `std::vector<T>`; `map(K) T` generates `std::map<K, T>`.
+- For new portable byte-keyed maps, prefer `map(uint8)`. Existing `map(char)`
+  preserves backend/compiler ordering for high-byte keys, so equal maps can have
+  different binary bytes. See [map ordering](wire_format.md#map-ordering).
 - Members end with `;`. Classes and enums end with `}` without a trailing `;`.
 - Parenthesized metadata assigns a wire name and/or numeric ID. For example,
   `public string name ("fullname", 1);` uses `fullname` in JSON and string-key

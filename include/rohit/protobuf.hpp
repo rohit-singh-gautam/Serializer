@@ -513,10 +513,12 @@ class protobuf_codec<serialize_type::in, Format, Stream> : public json<serialize
               if (point > 0x10ffff || (point >= 0xd800 && point <= 0xdfff)) {
                 fail("Invalid TextProto Unicode escape");
               }
-              detail::append_utf8(result, point);
-              if (result.size() > limits.max_string_bytes) {
+              const auto size = detail::utf8_code_point_size(point);
+              if (size > limits.max_string_bytes - result.size()) {
                 fail_limit("String length limit exceeded");
               }
+              charge_allocation(size);
+              detail::append_utf8(result, point);
               continue;
             }
             default:
@@ -537,6 +539,7 @@ class protobuf_codec<serialize_type::in, Format, Stream> : public json<serialize
           if (result.size() >= limits.max_string_bytes) {
             fail_limit("String length limit exceeded");
           }
+          charge_allocation(1);
           result += static_cast<char>(byte);
         }
         if (!closed) {
@@ -544,7 +547,6 @@ class protobuf_codec<serialize_type::in, Format, Stream> : public json<serialize
         }
         whitespace();
       } while (remaining() != 0 && (peek() == '\'' || peek() == '"'));
-      check_string(result.size());
       static_cast<void>(detail::json_escaped_size(result));
     }
     return result;
@@ -826,6 +828,14 @@ public:
     seen = true;
   }
 
+  // Replace generated union wrappers only in JSON; binary occurrences continue merging.
+  template <typename Reset>
+  void reset_json_field(Reset&& reset) const {
+    if constexpr (Format == protobuf_format::json) {
+      std::forward<Reset>(reset)();
+    }
+  }
+
   // Named Protobuf formats cannot specify conflicting members of the same oneof.
   void oneof(int& selected, int alternative) const {
     if constexpr (Format != protobuf_format::binary) {
@@ -995,6 +1005,7 @@ public:
   template <typename T>
   void field(T& value) {
     if (null_value()) {
+      detail::protobuf_reset(value);
       return;
     }
     if constexpr (type_check::vector<T>) {
@@ -1149,6 +1160,7 @@ public:
         append_entry();
       }
     } else if constexpr (requires { value.serializer_protobuf_read(*this); }) {
+      reset_json_field([&] { detail::protobuf_reset(value); });
       message([&](auto& nested) { value.serializer_protobuf_read(nested); });
     } else {
       scalar(value);

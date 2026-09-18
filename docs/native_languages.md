@@ -51,6 +51,11 @@ Minimum versions other than those tested need their own qualification. Kotlin/JS
 Kotlin/Native, `no_std` Rust, Python extensions, and Apple device packaging are
 not separate qualified targets in this change.
 
+On Windows, Swift needs a Visual Studio developer environment, its toolchain and
+runtime `bin` directories on `PATH`, and `SDKROOT` pointing to the matching
+`Windows.sdk`. Windows Swift 6.4 setup and results are recorded in
+[finalization verification](verification-finalization-2026-09-18.md).
+
 Schema namespaces flatten into type names. Parents are composed as `base0`,
 `base1`, etc. Fixed-width integer types preserve all bits, including `uint64`;
 Python uses checked arbitrary-precision integers, Kotlin uses unsigned types,
@@ -74,10 +79,17 @@ schema access modifiers do not provide C access control.
 All five support JSON, positional binary, integer-key binary, and string-key
 binary. These use the existing [wire contract](wire_format.md), including
 little-endian scalars, compact lengths, stable IDs, enum contexts, and map order.
+High-byte `map(char)` keys are ordered as unsigned bytes in these backends;
+historical C++/Java ordering can differ while preserving decoded values. See
+[map ordering](wire_format.md#map-ordering); use `map(uint8)` for new portable
+byte-keyed contracts requiring unsigned ordering.
 Little-endian refers to the wire bytes, independently of the host CPU. The shared
 interop runner can add big-endian C/C++ hosts using `--big-endian`; all participants
 check the same frozen positional bytes. Strings require valid UTF-8 in every
 backend, including C++; use `array uint8` for arbitrary binary data.
+Swift's strict UTF-8 decoder preserves a leading U+FEFF as string data on every
+platform, including Windows. Regenerate Swift output to obtain that correction;
+it continues to reject malformed UTF-8 and invalid token/field-name prefixes.
 
 ```rust
 let value = schema::InteropMessage::default();

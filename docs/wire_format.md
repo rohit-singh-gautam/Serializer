@@ -53,8 +53,28 @@ and protocol. Values are emitted field by field into the output stream.
 | `float`, `double` | Supported binary IEC 559 32-bit or 64-bit representation, least significant byte first by default; bit-preserving conversion through an unsigned integer |
 | String | Compact UTF-8 byte length followed by valid UTF-8 bytes; embedded NULs are preserved |
 | Vector | Compact element count followed by recursively encoded elements |
-| Map | Compact entry count followed by each key and value; output follows `std::map` order |
+| Map | Compact entry count followed by each key and value; C++ output follows `std::map` order; see [map ordering](#map-ordering) |
 | Numeric enum | Compact nonnegative underlying value; generated enum input/output rejects undeclared values |
+
+### Map ordering
+
+Native maps decode entries in either key order; owning destinations retain the
+last complete value for duplicate keys. Byte order for numeric scalars does not
+determine the order of map entries. In particular, schema `char` is stored as
+plain `char` in C++ and `byte` in Java: C++ map order depends on compiler char
+signedness, and Java sorts signed byte values. Other generated backends order
+these keys as unsigned bytes. With keys `1` and `255`, signed-char C++ and Java
+write `255` first, while unsigned-char C++ and the unsigned-byte backends write
+`1` first. Both messages represent the same map.
+
+This historical ordering is preserved in all three native binary protocols.
+Do not treat native serialization as a universal canonical encoding for hashes
+or signatures. Prefer `map(uint8)` for new portable byte-keyed contracts requiring
+consistent unsigned ordering. Changing an existing `char` key to `uint8` is a
+schema migration; JSON character keys and integer keys have different representations.
+JSON `char` remains restricted to ASCII, where the signedness difference does not arise.
+
+### Codec implementation
 
 Runtime SIMD and bulk array reads/writes preserve these exact representations. Eligible
 fixed-width numeric arrays are copied or byte-swapped in blocks after the same
@@ -309,7 +329,10 @@ requested JSON growth slack), and map values plus a node-link allowance. It is
 charged even for logical storage that reuses existing capacity. It is not an
 exact heap/RSS limit: allocator metadata, allocator over-allocation, stack objects,
 custom user types, and old storage retained temporarily as donors require separate
-application accounting. JSON string scans
+application accounting. Protobuf text token/numeric scratch is also outside this
+storage budget; bound it with input/work limits and TextProto's token-length limit.
+TextProto decoded strings are charged before each append, including Unicode
+expansion and concatenated quoted fragments. JSON string scans
 are bounded by the remaining input and work limits before any allocation.
 
 ```cpp

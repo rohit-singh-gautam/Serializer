@@ -82,6 +82,12 @@ feature as a prerequisite without the user's request.
   See [include usage](../../../docs/usage.md#share-declarations-with-includes) and
   [paired C++/Java examples](../../../example/includes/README.md).
 - In owning representations, map `array T` to `std::vector<T>` and `map(K) T` to `std::map<K, T>`.
+- For new portable byte-keyed maps, prefer `map(uint8)`. Existing `map(char)`
+  output retains signed Java `byte` ordering and compiler-dependent C++ `char`
+  ordering; other backends use unsigned bytes. High-byte keys decode across
+  backends but do not promise identical encoded ordering. Preserve existing
+  contracts; changing key types is a schema migration, especially for JSON.
+  See [map ordering](../../../docs/wire_format.md#map-ordering).
 - Keep literal spaces in quoted defaults, such as `public string label { "schema default" };`.
   The parser preserves quoted whitespace, escapes, and braces without rewriting the literal.
   Preserve wire names and defaults. Check the output naming policy before writing
@@ -450,6 +456,13 @@ user instruction to defer generation/builds/tests and report what remains unveri
   decoding succeeds. Unknown binary fields are skipped and discarded; unknown
   named fields/enums fail. Do not promise preservation of field/union presence,
   unknown fields, well-known-type mappings, or arbitrary Protobuf schemas.
+  ProtoJSON duplicate ordinary fields replace prior values rather than merging;
+  a later `null` resets the field to its Protobuf default. Binary messages still
+  merge. Regenerate Protobuf-enabled C++ headers for corrected union-wrapper
+  handling. TextProto checks decoded string storage before growth; temporary
+  token/numeric scratch is outside `max_allocation_bytes`, so also bound input,
+  string/token length, and work. See
+  [finalization verification](../../../docs/verification-finalization-2026-09-18.md).
 
 - Select `json`, `binary_none`, `binary_integer`, or `binary_string` according to
   the agreed message contract. Do not silently change protocols to improve size
@@ -470,6 +483,9 @@ user instruction to defer generation/builds/tests and report what remains unveri
   codecs, mapped views, and mutable string setters. Preserve embedded NULs and
   do not normalize Unicode. Use `array uint8` for arbitrary bytes; migrate older
   C++ raw strings using the [migration guide](../../../migration.md#binary-string-validation).
+  Preserve leading U+FEFF as string data too. Regenerate Swift output for strict,
+  platform-independent UTF-8 decoding and Rust/C output for corrected large
+  floating defaults; see [finalization fixes](../../../migration.md#finalization-correctness-fixes).
 - Keep C++ binary text validation strict by default. Only for text whose validity
   is guaranteed elsewhere, select `binary_text_validation::unchecked` as the
   third `binary_none`/`binary_integer`/`binary_string` argument (after `Stream`),

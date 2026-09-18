@@ -93,7 +93,13 @@ class rust_emitter {
       return literal_value.empty() ? "false" : literal_value;
     }
     if (value.name == "float" || value.name == "double") {
-      return "(" + (literal_value.empty() ? "0.0" : literal_value) + " as " + type(value) + ")";
+      if (literal_value.empty()) {
+        literal_value = "0.0";
+      } else if (literal_value.find_first_of(".eE") == std::string::npos) {
+        // A cast does not stop Rust from inferring an integer operand as i32.
+        literal_value += ".0";
+      }
+      return "(" + literal_value + " as " + type(value) + ")";
     }
     return literal_value.empty() ? "0" : literal_value;
   }

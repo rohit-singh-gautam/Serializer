@@ -76,6 +76,13 @@ resource budgets, not exact heap accounting. Keep the input buffer alive and
 independent of the destination. Decoder instances have one owner and share their
 budgets with every nested field.
 
+TextProto checks decoded string length and storage budgets before appending bytes,
+including escaped Unicode and adjacent quoted fragments. `max_allocation_bytes`
+accounts for logical decoded storage, not total parser memory: temporary identifier
+and numeric-token buffers, allocator growth slack, and diagnostic construction are
+not covered. Input/work limits bound token scanning; TextProto tokens additionally
+obey `max_string_bytes`. Set those limits alongside the storage budget.
+
 The optional `deserialize_exact<Value, Protocol>(input[, limits])` runtime helper
 also returns a fresh owning value for these codecs. It preserves each codec's
 framing rules; for binary, valid concatenated messages may merge. For schema
@@ -148,7 +155,10 @@ Nested messages and collections are reset recursively before root decoding.
   only for declared values. `NaN`, `Infinity`, and `-Infinity` are quoted. Null
   fields act as unset values; null collection elements/map values are rejected.
   Input accepts integral decimal/exponent forms without passing integers through
-  floating-point conversion. Duplicate ordinary fields use the last value;
+  floating-point conversion. Duplicate ordinary fields use the last value,
+  including original/JSON-name aliases. A later nested object replaces the earlier
+  object instead of merging with it; later `null` resets the field to its Protobuf
+  default. Repeated union wrapper fields likewise replace the prior wrapper;
   conflicting alternatives within one union object are rejected.
 - **TextProto:** output uses original wire names, enum names, and repeated field
   occurrences. Input supports `#` comments, `{}`/`<>` nested messages, repeated
@@ -187,10 +197,11 @@ Two-way interoperability with Protobuf 6.33.4 has been exercised on Windows for
 all three formats. Broader Protobuf conformance-suite and performance qualification
 remain unperformed.
 
-The full existing C++ unit suite was also run: 87 of 91 cases passed. The four
-failures are the previously documented parser empty-input exception cases and
-`binary_view.edits_preserve_the_encoded_layout`; see
-[the existing verification record](java.md#verification-performed-for-this-implementation).
+The [finalization verification record](verification-finalization-2026-09-18.md)
+records the current regression checks, including duplicate-field replacement and
+pre-allocation TextProto limits. The old 87/91 core-test result belongs to the
+[historical implementation run](java.md#verification-performed-for-this-implementation);
+its four failures were resolved and are not current pending items.
 
 The mapping follows the official [binary wire format](https://protobuf.dev/programming-guides/encoding/),
 [ProtoJSON specification](https://protobuf.dev/programming-guides/json/), and

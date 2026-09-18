@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <initializer_list>
 #include <limits>
+#include <map>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -100,6 +101,73 @@ TEST(protobuf_codec, protojson_rules) {
   EXPECT_NE(json.find("\"counts\":{\"x\":\"42\"}"), std::string::npos);
   EXPECT_THROW(decode<codec::protojson>(R"({"numbers":[null]})"), std::exception);
   EXPECT_THROW(decode<codec::protojson>(R"({"signedValue":1.5})"), std::exception);
+}
+
+// Duplicate JSON fields replace complete values, including aliases and explicit null defaults.
+TEST(protobuf_codec, protojson_duplicate_replacement) {
+  const auto copy = decode<codec::protojson>(
+      R"({"signed_value":1,"signedValue":2,"displayName":"old","display_name":null,)"
+      R"("nested":{"number":1,"text":"old"},"nested":{"number":2},)"
+      R"("numbers":[1,2],"numbers":[3],"counts":{"old":"1"},"counts":{"new":"2"}})");
+  EXPECT_EQ(copy.signed_value, 2);
+  EXPECT_TRUE(copy.display_name.empty());
+  EXPECT_EQ(copy.nested.number, 2);
+  EXPECT_TRUE(copy.nested.text.empty());
+  EXPECT_EQ(copy.numbers, (std::vector<std::int32_t>{3}));
+  EXPECT_EQ(copy.counts, (std::map<std::string, std::uint64_t>{{"new", 2}}));
+
+  const auto cleared = decode<codec::protojson>(
+      R"({"signedValue":42,"signed_value":null,"nested":{"number":3},"nested":null,)"
+      R"("numbers":[1],"numbers":null,"counts":{"old":"1"},"counts":null})");
+  EXPECT_EQ(cleared.signed_value, 0);
+  EXPECT_EQ(cleared.nested.number, 0);
+  EXPECT_TRUE(cleared.nested.text.empty());
+  EXPECT_TRUE(cleared.numbers.empty());
+  EXPECT_TRUE(cleared.counts.empty());
+}
+
+// Each JSON union wrapper is a replacement; null alternatives clear only their own prior value.
+TEST(protobuf_codec, protojson_union_replacement) {
+  for (const auto wire : {
+           R"({"payload":{"selected":"second_value"},"payload":{}})",
+           R"({"payload":{"selected":"second_value"},"payload":null})",
+           R"({"payload":{"number":42,"number":null}})",
+           R"({"payload":{"selected":"second_value","selected":null}})"}) {
+    const auto copy = decode<codec::protojson>(wire);
+    EXPECT_EQ(copy.payload_type, protobuf_test::record::e_payload::number);
+    EXPECT_EQ(copy.payload.number, 0);
+  }
+  const auto copy = decode<codec::protojson>(
+      R"({"payload":{"number":42},"payload":{"selected":"second_value","number":null}})");
+  EXPECT_EQ(copy.payload_type, protobuf_test::record::e_payload::selected);
+  EXPECT_EQ(copy.payload.selected, protobuf_test::choice::second_value);
+  const auto replaced = decode<codec::protojson>(
+      R"({"payload":{"number":42,"number":null,"selected":"second_value"}})");
+  EXPECT_EQ(replaced.payload_type, protobuf_test::record::e_payload::selected);
+  EXPECT_EQ(replaced.payload.selected, protobuf_test::choice::second_value);
+  EXPECT_THROW(decode<codec::protojson>(
+                   R"({"payload":{"number":42,"selected":"second_value"}})"),
+               codec::exception::bad_input_data);
+}
+
+// TextProto charges decoded bytes once, cumulatively across escapes, fragments, and fields.
+TEST(protobuf_codec, textproto_string_storage_limits) {
+  codec::decode_limits limits{};
+  limits.max_allocation_bytes = 4;
+  const auto copy = decode<codec::textproto>(
+      "display_name: 'a' '\\u0062' nested { text: '\\u00e9' }", limits);
+  EXPECT_EQ(copy.display_name, "ab");
+  EXPECT_EQ(copy.nested.text, "\xc3\xa9");
+  limits.max_allocation_bytes = 3;
+  EXPECT_THROW(decode<codec::textproto>(
+                   "display_name: 'a' '\\u0062' nested { text: '\\u00e9' }", limits),
+               codec::exception::resource_limit);
+  limits.max_allocation_bytes = 0;
+  EXPECT_TRUE(decode<codec::textproto>("display_name: ''", limits).display_name.empty());
+  limits = {};
+  limits.max_string_bytes = 12;
+  EXPECT_THROW(decode<codec::textproto>("display_name: 'abcdefghijk\\U0001f600'", limits),
+               codec::exception::resource_limit);
 }
 
 // Decode long whitespace gaps between every token without changing quoted string contents.
@@ -256,6 +324,10 @@ TEST(protobuf_codec, repeated_and_nested_binary_segments) {
   EXPECT_EQ(negative.signed_value, -1);
   EXPECT_THROW(decode<codec::protobuf_binary>(std::string{"\x42\x01\x80", 3}), std::exception);
   EXPECT_THROW(decode<codec::protobuf_binary>(std::string{"\x52\x01\x08\x01", 4}), std::exception);
+  const auto union_copy =
+      decode<codec::protobuf_binary>(std::string{"\x5a\x02\x10\x01\x5a\x00", 6});
+  EXPECT_EQ(union_copy.payload_type, protobuf_test::record::e_payload::selected);
+  EXPECT_EQ(union_copy.payload.selected, protobuf_test::choice::second_value);
 }
 
 // Preserve native nonfinite values in the Protobuf-specific text spellings.

@@ -115,10 +115,15 @@ serializer_generate(TARGET protobuf_codec_test SCHEMAS resources/protobuf.serial
   CONFIG protobuf.ini OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/protobuf")
 target_link_libraries(protobuf_codec_test PRIVATE GTest::gtest_main)
 add_test(NAME protobuf_codec_test COMMAND protobuf_codec_test)
+add_executable(protobuf_allocation_test protobuf_allocation_test.cpp)
+target_link_libraries(protobuf_allocation_test PRIVATE Serializer::serializer_lib)
+add_test(NAME protobuf_allocation_test COMMAND protobuf_allocation_test)
 if(MSVC)
   target_compile_options(protobuf_codec_test PRIVATE /W4 /WX)
+  target_compile_options(protobuf_allocation_test PRIVATE /W4 /WX)
 else()
   target_compile_options(protobuf_codec_test PRIVATE -Wall -Wextra -Werror -Wpedantic)
+  target_compile_options(protobuf_allocation_test PRIVATE -Wall -Wextra -Werror -Wpedantic)
 endif()
 if(SERIALIZER_BUILD_PROTOBUF_INTEROP_TESTS)
   find_package(protobuf CONFIG REQUIRED)
@@ -178,6 +183,10 @@ endif()
 
 if(SERIALIZER_BUILD_INTEROP_EXAMPLES)
   include(portable_tests.cmake)
+endif()
+
+if(SERIALIZER_BUILD_INTEROP_EXAMPLES OR SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
+  include(char_map_tests.cmake)
 endif()
 
 add_test(NAME serializer_portable_cli

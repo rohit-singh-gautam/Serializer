@@ -140,6 +140,10 @@ class c_emitter {
       return literal_value.find_first_of(".eE") == std::string::npos ? literal_value + ".0f"
                                                                      : literal_value + "f";
     }
+    if (value.name == "double" && literal_value.find_first_of(".eE") == std::string::npos) {
+      // Keep accepted floating defaults out of C's integer-literal range and signedness rules.
+      return literal_value + ".0";
+    }
     return literal_value;
   }
   // Initialize one scalar in zeroed storage; propagate the first allocation failure.
