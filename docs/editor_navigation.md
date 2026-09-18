@@ -3,6 +3,9 @@
 This records the VS Code 1.1.4 navigation repair and the new Visual Studio 1.0.4
 navigation implementation, with verification on Windows. Both use the same
 schema/generated-output resolver and custom-type highlighting grammar.
+Version 1.1.4 synchronized both editor extension release versions. Subsequent
+build-tooling releases keep them equal; the navigation implementation described
+here is unchanged.
 
 ## Reproduced causes
 

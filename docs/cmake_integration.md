@@ -52,6 +52,7 @@ GoogleTest and clang-format 19+ must be available. `all` configures and builds,
 | C++20 compiler and standard library | Library, schema compiler, and C++ consumers; the selected compiler must support the target architecture. |
 | Native build tool | GNU Make for `make all`; Ninja for the Linux and Windows presets; MSBuild/Visual Studio C++ tools or another configured generator for the Windows wrapper. |
 | PowerShell | Windows `make.ps1` wrapper. |
+| Node.js 22+, npm and Visual Studio 2022/2026 MSBuild | Both editor extension packages, included in Windows `make.ps1 all`; the `configure` and `test` targets remain CMake-only. |
 | Git, HTTPS certificates, curl, zip, unzip, tar | Obtaining sources and bootstrapping/downloading vcpkg dependencies; the Linux setup installs these tools. |
 | GoogleTest CMake package | `SERIALIZER_BUILD_TESTS=ON`; supplied by this checkout's vcpkg manifest or an existing installation. |
 | clang-format 19+ | Generated C++ tests, style/iostream/compression examples, benchmarks, fuzzers, and consumer generation with formatting enabled. |
@@ -78,6 +79,16 @@ On Windows, use PowerShell without installing GNU Make:
 ./make.ps1 test -Configuration Debug -Jobs 8
 ./make.ps1 all -BuildDirectory out/build/minimal -CMakeArgs '-DSERIALIZER_BUILD_TESTS=OFF'
 ```
+
+After the CMake build succeeds, `./make.ps1 all` restores locked npm dependencies
+and packages both the Visual Studio Code and Visual Studio extensions. The two
+manifests must have the same release version; a mismatch or any packaging failure
+fails the command. Packages are written to `out/extensions` and are not installed.
+Visual Studio's full-framework MSBuild is required for the VSIX even if CMake
+uses Ninja or another generator. First builds need npm/NuGet access for dependencies.
+Run `./editors/build.ps1` to package only the extensions, optionally with
+`-MSBuildPath '<path to MSBuild.exe>'`. Use direct CMake commands for a CMake-only
+build; the `configure` and `test` wrapper targets do not package extensions.
 
 Both default to Release, four build jobs, and `out/build/make-Release`; changing
 configuration changes the default directory. Relative PowerShell build paths are

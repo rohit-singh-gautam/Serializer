@@ -1,7 +1,7 @@
 # Rohit Serializer for Visual Studio Code
 
 Edit `.serializer` schemas with syntax highlighting, bracket matching, comments,
-folding, and snippets. Version **1.1.4** includes navigation from includes and type
+folding, and snippets. Version **1.1.5** includes navigation from includes and type
 references to source schemas and existing generated code in all 11 output languages. Use the project's
 CMake configuration for the separate build and missing-header assistance commands.
 
@@ -26,6 +26,11 @@ Place includes after the version header and before declarations;
 quoted paths and angle brackets are invalid. See [schema includes](../../docs/usage.md#share-declarations-with-includes).
 
 ## Install and use
+
+From the repository root on Windows, `./make.ps1 all` builds Serializer and both
+editor VSIX packages; `./editors/build.ps1` builds only the packages. These commands
+require Node.js 22+, npm and Visual Studio MSBuild, restore locked dependencies,
+and write to `out/extensions` without installing either extension.
 
 Install the packaged VSIX through **Extensions: Install from VSIX**. The extension
 supports VS Code 1.96+ on desktop and remote extension hosts. Highlighting,

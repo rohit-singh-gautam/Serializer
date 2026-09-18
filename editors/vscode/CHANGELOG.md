@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.5
+
+- Build both editor VSIX packages as part of `make.ps1 all` without installing them.
+- Add `editors/build.ps1` for standalone packaging with locked dependencies and matching-version checks.
+- Keep both extension releases synchronized at 1.1.5 and document the required build tools.
+
 ## 1.1.4
 
 - Highlight custom class/enum references and namespace qualifiers using theme type colors.

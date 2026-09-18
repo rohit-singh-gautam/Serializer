@@ -105,16 +105,19 @@
   Preserve normal editor navigation for unrelated symbols, and document genuine
   prerequisites or unavailable destinations instead of claiming unverified support.
 
-- Every extension-related change must increment the affected extension's version
+- The Visual Studio and Visual Studio Code extensions must always have exactly
+  the same release version. Update both versions together, even when a change
+  affects only one extension; never release or install mismatched versions.
+- Every extension-related change must increment both extension versions together
   in the same change, including code, grammar, snippets, icons, metadata,
   documentation, tests, and build or packaging scripts. Documentation-only and
-  behavior-preserving changes are not exempt.
+  behavior-preserving changes are not exempt unless the user explicitly specifies
+  the version to use.
 - Increment only the patch/revision component (the third number), for example
   `1.1.0` to `1.1.1`, then `1.1.2`. Keep the major and minor components unchanged
   unless the user explicitly requests a major or minor version increase. Apply
   this rule to both the VS Code and Visual Studio extensions.
-- Changes to shared assets or tooling used by both the VS Code and Visual Studio
-  extensions must increment both extension versions. Keep extension IDs stable.
+- Keep both extension IDs stable when synchronizing or incrementing versions.
 - Update the affected manifests, lockfiles where applicable, changelogs, package
   output filenames, and current-version documentation together. Rebuild and
   validate affected packages before distribution; do not reuse an earlier

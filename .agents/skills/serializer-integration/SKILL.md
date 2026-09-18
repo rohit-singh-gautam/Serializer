@@ -158,6 +158,11 @@ The test target builds before running CTest. They require the same compiler,
 GoogleTest, and clang-format dependencies as direct CMake; Java, benchmarks, and
 fuzzers remain opt-in. See [wrapper options](../../../docs/cmake_integration.md#build-this-repository)
 for configurations, separate build directories, and CMake overrides.
+On Windows, `./make.ps1 all` additionally packages both editor extensions after a
+successful CMake build. It requires Node.js 22+, npm and Visual Studio MSBuild,
+restores locked npm dependencies, and rejects unequal extension versions. Packages
+go to `out/extensions`; it does not install them. Use `./editors/build.ps1` for
+extension packaging alone. The `configure` and `test` targets remain CMake-only.
 
 The repository's Windows presets explicitly use Ninja and x64 architecture with
 `strategy: external`. Visual Studio supplies the compiler environment; command-line
@@ -241,7 +246,8 @@ versioned snippets, and invokes the same targets through CMake Tools. Run the ro
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 1.1.4 is independent of compiler and schema versions. Configure
+version 1.1.5 is shared with the Visual Studio extension and is independent of
+compiler and schema versions. Keep both editor extension versions equal. Configure
 the consumer first, then use `Serializer: Generate Headers` or `Serializer:
 Diagnose Missing Header`. Set `serializer.headersTarget` for one consumer; keep
 profile include paths separate. Its IntelliSense command explicitly updates the

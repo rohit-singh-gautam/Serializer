@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.1.5
+
+- Build and validate this VSIX alongside the VS Code package from `make.ps1 all`.
+- Add shared `editors/build.ps1` packaging with locked npm restoration and matching-version checks.
+- Keep both extension releases synchronized at 1.1.5; building does not install either package.
+
+## 1.1.4
+
+- Synchronize the release version with the Visual Studio Code extension at 1.1.4.
+- Retain the navigation and highlighting implementation from 1.0.4.
+- Keep both extension versions equal for subsequent releases.
+
 ## 1.0.4
 
 - Add native Go to Declaration, schema Go to Definition and Ctrl+click navigation.

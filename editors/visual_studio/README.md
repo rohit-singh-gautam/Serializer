@@ -1,6 +1,6 @@
 # Rohit Serializer for Visual Studio
 
-Version **1.0.4** provides `.serializer` highlighting and native navigation in
+Version **1.1.5** provides `.serializer` highlighting and native navigation in
 **Visual Studio 2022 and Visual Studio 2026 on Windows x64**. It shares the VS Code
 extension's grammar and schema/generated-output resolver. Custom type references
 such as `demo::order`, `demo::snapshot` and `demo::customer` use the active theme's
@@ -38,6 +38,11 @@ Use Node.js 22+, npm, Windows PowerShell 5.1+, and Visual Studio 2022/2026 or it
 Build Tools with MSBuild. The pinned SDK/reference packages restore from NuGet;
 the separate Visual Studio SDK workload is not required.
 
+From the repository root, `./make.ps1 all` builds Serializer and both editor
+extension packages. `./editors/build.ps1` builds only the two packages, restores
+locked npm dependencies, and checks that their versions match. Neither command
+installs the packages. The individual Visual Studio build remains available:
+
 ```powershell
 # From the repository root:
 npm ci --prefix editors/vscode
@@ -49,7 +54,7 @@ installation. It uses full-framework MSBuild with locked dependencies, bundles
 the current shared resolver, rebuilds and validates:
 
 ```text
-out/extensions/serializer-visual-studio-1.0.4.vsix
+out/extensions/serializer-visual-studio-1.1.5.vsix
 ```
 
 Close Visual Studio, double-click the VSIX, select the installation and restart
@@ -77,6 +82,8 @@ Edit the canonical `../serializer.tmLanguage.json` and shared
 `../vscode/language-configuration.json`; the project links them at build time.
 The stable extension ID is
 `Rohit.Serializer.VisualStudio.40c33349-6c7b-42a6-b843-390d7120b1b9`.
+Its release version must always equal the Visual Studio Code extension's version;
+increment both together for future changes.
 Commit both lockfiles when intentionally updating dependencies.
 
 Run `build.ps1` to rebuild/validate the VSIX or `test_package.ps1` to recheck it.

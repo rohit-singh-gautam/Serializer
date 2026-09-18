@@ -1,6 +1,10 @@
 <#
 .SYNOPSIS
-Configure and build Serializer, optionally running its tests.
+Configure and build Serializer and both editor extensions, or run CMake tests.
+.DESCRIPTION
+The all target builds enabled CMake targets and both editor VSIX packages without
+installing them. Extension packaging requires Windows, Node.js 22+, npm and Visual
+Studio MSBuild. The configure and test targets operate on CMake targets only.
 .EXAMPLE
 ./make.ps1 all
 .EXAMPLE
@@ -55,6 +59,9 @@ if ($Target -eq 'configure') {
 }
 Invoke-BuildCommand 'cmake' @('--build', $BuildDirectory, '--config', $Configuration,
     '--parallel', "$Jobs")
+if ($Target -eq 'all') {
+    & (Join-Path $PSScriptRoot 'editors/build.ps1')
+}
 if ($Target -eq 'test') {
     Invoke-BuildCommand 'ctest' @('--test-dir', $BuildDirectory,
         '--build-config', $Configuration, '--output-on-failure')

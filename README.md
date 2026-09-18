@@ -61,8 +61,9 @@ automatic header generation with CMake, and decoding an exact message with limit
 schema declaration/generated-code navigation for every output language, and missing-include assistance. Run
 `./install_extension.ps1` from PowerShell to build and install the local extension
 (Node.js 22+, npm, and the VS Code CLI are required). Marketplace publication is pending.
-The VS Code extension version is **1.1.4**, with ID `rohitjairajsingh.serializer-language`
-(Rohit Jairaj Singh). Its release version is independent of the compiler version.
+The VS Code extension version is **1.1.5**, with ID `rohitjairajsingh.serializer-language`
+(Rohit Jairaj Singh). Both editor extensions share this release version, independent
+of the compiler version, and must be updated together.
 Use the built-in **Go to Declaration** for schema types and includes, including
 qualified names and whole-name selections. Go to Definition resolves enum types
 in defaults and falls back to the schema when generated code is unavailable.
@@ -73,13 +74,13 @@ It also supplies a dedicated 32×32 icon for `.serializer` files in Explorer and
 editor tabs when supported by the selected file icon theme.
 
 **Visual Studio:** a separate [Rohit Serializer VSIX](editors/visual_studio/README.md)
-version **1.0.4** supplies the shared grammar, editing configuration, and native
+version **1.1.5** supplies the shared grammar, editing configuration, and native
 schema navigation for Visual Studio 2022/2026 on Windows x64. Go to Declaration
 opens schema types/includes; Go to Definition and Ctrl+click find existing output.
 Generated declarations in all 11 languages map back to their schemas. From caller
 code, first use the language service to reach the generated type. Build with
 `./editors/visual_studio/build.ps1`, then install
-`out/extensions/serializer-visual-studio-1.0.4.vsix` with Visual Studio's VSIX Installer.
+`out/extensions/serializer-visual-studio-1.1.5.vsix` with Visual Studio's VSIX Installer.
 Use existing CMake targets for generation. Both extensions highlight custom types,
 including `demo::order`, using the selected theme's type and namespace colors.
 
@@ -111,6 +112,7 @@ make test
 
 ```powershell
 # Windows (PowerShell; GNU Make is not required)
+# all also packages both editor extensions; requires Node.js 22+, npm and Visual Studio MSBuild
 ./make.ps1 all
 ./make.ps1 test
 ```
@@ -123,6 +125,13 @@ do not install a compiler or clang-format. Java, benchmarks, and fuzzers remain
 opt-in. See [build wrapper options](docs/cmake_integration.md#build-this-repository)
 for build directories, configurations, and additional CMake settings.
 
+On Windows, `./make.ps1 all` also restores locked npm dependencies and builds both
+editor extension packages in `out/extensions`, after the CMake build succeeds.
+This requires Node.js 22+, npm, and Visual Studio 2022/2026 or Build Tools with
+MSBuild. It checks that extension versions match and stops on packaging failures;
+neither package is installed. Run `./editors/build.ps1` to build only the two
+extension packages. The `configure` and `test` targets remain CMake-only.
+
 If configuration reports a missing clang-format, install version 19 or newer and
 rerun `make all`. On Ubuntu/Debian with that package available, use
 `sudo apt install clang-format-19`. Installing Clang alone does not necessarily
@@ -132,7 +141,7 @@ The [build requirements](docs/cmake_integration.md#build-this-repository) distin
 default and optional tools; [vcpkg package builds](docs/cmake_integration.md#vcpkg-package-builds)
 disable development targets and do not require their dependencies.
 
-The equivalent direct CMake commands are:
+To build only the enabled CMake targets, use:
 
 ```sh
 cmake -S . -B build

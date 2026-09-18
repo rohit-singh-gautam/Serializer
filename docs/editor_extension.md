@@ -5,6 +5,9 @@ Serializer provides separate packages for VS Code and Visual Studio. Both use
 to the VS Code extension. For the Visual Studio VSIX, see
 [Visual Studio](#visual-studio-extension) below.
 
+Both extensions use release version **1.1.5**. Keep their versions equal and
+increment them together for future changes, including changes to only one package.
+
 Both packages highlight custom type references such as `demo::order`,
 `demo::snapshot` and `demo::customer` using theme type/namespace scopes. Field names
 keep their ordinary identifier scopes. Both also highlight `include common;` with distinct scopes for
@@ -17,7 +20,7 @@ Both resolve either spelling for navigation; VS Code also supplies a shorthand
 
 ## VS Code
 
-The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.4**, provides `.serializer`
+The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.5**, provides `.serializer`
 syntax highlighting, snippets, declaration/definition navigation, and CMake generated-header commands. Schemas use
 the current `serializer version 1;` header. Legacy `.def` and `.struct` names are
 not registered. Generation remains owned by the project's build rules. Navigation
@@ -25,6 +28,13 @@ supports C++, Java, JavaScript, TypeScript, Go, C#, Rust, Python, Swift, Kotlin,
 and C output; build and missing-header assistance target C/C++.
 
 ## Build and install locally
+
+On Windows, `./make.ps1 all` builds the enabled CMake targets and then both
+extension packages. It restores locked npm dependencies and rejects mismatched
+extension versions. Run `./editors/build.ps1` to package just the extensions.
+Both commands require Node.js 22+, npm and Visual Studio MSBuild, place the VSIX
+files in `out/extensions`, and do not install them. `configure` and `test` remain
+CMake-only. See [build requirements](cmake_integration.md#build-this-repository).
 
 Use Node.js 22+, npm, and VS Code's `code` CLI. From PowerShell at the repository
 root, build and install with:
@@ -57,13 +67,13 @@ Packaging compiles and bundles TypeScript, copies the canonical grammar, logo,
 and repository license into the extension, and writes:
 
 ```text
-out/extensions/serializer-vscode-1.1.4.vsix
+out/extensions/serializer-vscode-1.1.5.vsix
 ```
 
 From the repository root, install it with:
 
 ```sh
-code --install-extension out/extensions/serializer-vscode-1.1.4.vsix
+code --install-extension out/extensions/serializer-vscode-1.1.5.vsix
 ```
 
 Alternatively run **Extensions: Install from VSIX** and select the file. The
@@ -220,6 +230,22 @@ The fixture disables generated-output formatting so it does not need clang-forma
 
 ### Verification performed
 
+For both extensions at **1.1.5**, `./make.ps1 all` completed the real CMake build
+and produced both VSIX packages. Standalone `editors/build.ps1` also passed under
+Windows PowerShell 5.1 from outside the repository with an explicit MSBuild path
+containing spaces. Package versions and canonical grammar contents matched the
+source; Visual Studio's package validation passed. Controlled failure checks
+confirmed that failed CMake configuration/compilation stop packaging, unequal
+extension versions are rejected, and `configure`/`test` remain CMake-only.
+Navigation code was unchanged, so its earlier tests were not repeated for this
+build integration. These build checks did not install either extension.
+
+The version synchronization on 2026-09-18 rebuilt and validated Visual Studio
+**1.1.4** with unchanged navigation code, installed it, and confirmed both installed
+extensions report **1.1.4**. The installed Visual Studio assembly matches the new
+build. Source manifests and VS Code lockfile version entries also agree. The
+navigation tests below were not rerun for this metadata-only version change.
+
 For VS Code **1.1.4** and Visual Studio **1.0.4** on 2026-09-18:
 
 - All 54 automated grammar/model/provider tests passed, including the reported
@@ -232,7 +258,7 @@ For VS Code **1.1.4** and Visual Studio **1.0.4** on 2026-09-18:
 - Visual Studio's actual .NET interpreter passed 42 source/output checks across
   all 11 languages, selection endpoints, unsaved includes and cancellation.
   Its Release VSIX built without warnings and passed package/asset validation.
-- Both current versions were installed locally. A new hidden Visual Studio 2026
+- Both packages were installed locally for this run. A new hidden Visual Studio 2026
   instance passed eight native-command checks: forward/reversed selections of
   `demo::order`, `demo::snapshot` and `demo::customer`, schema-to-generated-header
   definition and generated-declaration-to-schema navigation. The reproducible test
@@ -313,7 +339,7 @@ outside this extension's implementation.
 ## Visual Studio extension
 
 The separate [Visual Studio package](../editors/visual_studio/README.md), version
-**1.0.4**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
+**1.1.5**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
 grammar, editing configuration and a native MEF navigation component using the
 same resolver as VS Code. The grammar's `fileTypes` associates `.serializer` files;
 a `.pkgdef` registers its grammar and editing configuration.
@@ -326,7 +352,7 @@ npm ci --prefix editors/vscode
 ```
 
 The script restores locked NuGet dependencies, rebuilds package intermediates, and writes
-`out/extensions/serializer-visual-studio-1.0.4.vsix`. Close Visual Studio,
+`out/extensions/serializer-visual-studio-1.1.5.vsix`. Close Visual Studio,
 double-click this VSIX, install into the desired instance, and restart Visual
 Studio. The root `install_extension.ps1` remains the VS Code installer.
 
