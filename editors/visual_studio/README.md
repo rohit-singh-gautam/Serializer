@@ -1,6 +1,6 @@
 # Rohit Serializer for Visual Studio
 
-Version **1.1.5** provides `.serializer` highlighting and native navigation in
+Version **1.1.6** provides `.serializer` highlighting and native navigation in
 **Visual Studio 2022 and Visual Studio 2026 on Windows x64**. It shares the VS Code
 extension's grammar and schema/generated-output resolver. Custom type references
 such as `demo::order`, `demo::snapshot` and `demo::customer` use the active theme's
@@ -32,6 +32,19 @@ snippets or VS Code's CMake commands. Use existing CMake targets for generation.
 See [usage](../../docs/usage.md), [CMake integration](../../docs/cmake_integration.md)
 and the [navigation investigation](../../docs/editor_navigation.md).
 
+## Download and install Serializer
+
+The editor extension is separate from the Serializer compiler and runtime:
+
+- [Download Serializer source (ZIP)](https://github.com/rohit-singh-gautam/Serializer/archive/refs/heads/main.zip)
+  or [clone the repository](https://github.com/rohit-singh-gautam/Serializer).
+- Follow the [build and installation instructions](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/cmake_integration.md#use-an-installed-package)
+  to install the compiler, runtime library, headers, and CMake package.
+- Use the [CMake integration guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/cmake_integration.md)
+  to add Serializer to your project and generate code from schemas.
+
+Installing this extension does not install the compiler or runtime.
+
 ## Build and install
 
 Use Node.js 22+, npm, Windows PowerShell 5.1+, and Visual Studio 2022/2026 or its
@@ -54,7 +67,7 @@ installation. It uses full-framework MSBuild with locked dependencies, bundles
 the current shared resolver, rebuilds and validates:
 
 ```text
-out/extensions/serializer-visual-studio-1.1.5.vsix
+out/extensions/serializer-visual-studio-1.1.6.vsix
 ```
 
 Close Visual Studio, double-click the VSIX, select the installation and restart

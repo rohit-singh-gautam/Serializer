@@ -1,7 +1,7 @@
 # Rohit Serializer for Visual Studio Code
 
 Edit `.serializer` schemas with syntax highlighting, bracket matching, comments,
-folding, and snippets. Version **1.1.5** includes navigation from includes and type
+folding, and snippets. Version **1.1.6** includes navigation from includes and type
 references to source schemas and existing generated code in all 11 output languages. Use the project's
 CMake configuration for the separate build and missing-header assistance commands.
 
@@ -24,6 +24,19 @@ resolve to `.serializer` files during navigation; explicit `.serializer` include
 remain supported. The compiler must support shorthand to build these schemas.
 Place includes after the version header and before declarations;
 quoted paths and angle brackets are invalid. See [schema includes](../../docs/usage.md#share-declarations-with-includes).
+
+## Download and install Serializer
+
+The editor extension is separate from the Serializer compiler and runtime:
+
+- [Download Serializer source (ZIP)](https://github.com/rohit-singh-gautam/Serializer/archive/refs/heads/main.zip)
+  or [clone the repository](https://github.com/rohit-singh-gautam/Serializer).
+- Follow the [build and installation instructions](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/cmake_integration.md#use-an-installed-package)
+  to install the compiler, runtime library, headers, and CMake package.
+- Use the [CMake integration guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/cmake_integration.md)
+  to add Serializer to your project and generate code from schemas.
+
+Installing this extension does not install the compiler or runtime.
 
 ## Install and use
 

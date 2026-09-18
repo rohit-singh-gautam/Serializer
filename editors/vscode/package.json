@@ -3,7 +3,7 @@
   "displayName": "Rohit Serializer",
   "icon": "dist/serializer_logo.png",
   "description": "Schema and generated-code navigation across Serializer languages, syntax highlighting, and CMake assistance.",
-  "version": "1.1.5",
+  "version": "1.1.6",
   "publisher": "rohitjairajsingh",
   "author": {
     "name": "Rohit Jairaj Singh",
@@ -179,7 +179,7 @@
     "test:integration": "npm run build && node test/run.cjs",
     "test:navigation": "npm run build && node test/run_navigation.cjs",
     "vscode:prepublish": "npm run build",
-    "package": "vsce package --no-dependencies --out ../../out/extensions/serializer-vscode-1.1.5.vsix",
+    "package": "vsce package --no-dependencies --out ../../out/extensions/serializer-vscode-1.1.6.vsix",
     "test:navigation:generated": "npm run compile && node test/generated_navigation.cjs"
   },
   "devDependencies": {

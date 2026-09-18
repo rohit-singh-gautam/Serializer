@@ -61,7 +61,7 @@ automatic header generation with CMake, and decoding an exact message with limit
 schema declaration/generated-code navigation for every output language, and missing-include assistance. Run
 `./install_extension.ps1` from PowerShell to build and install the local extension
 (Node.js 22+, npm, and the VS Code CLI are required). Marketplace publication is pending.
-The VS Code extension version is **1.1.5**, with ID `rohitjairajsingh.serializer-language`
+The VS Code extension version is **1.1.6**, with ID `rohitjairajsingh.serializer-language`
 (Rohit Jairaj Singh). Both editor extensions share this release version, independent
 of the compiler version, and must be updated together.
 Use the built-in **Go to Declaration** for schema types and includes, including
@@ -74,13 +74,13 @@ It also supplies a dedicated 32×32 icon for `.serializer` files in Explorer and
 editor tabs when supported by the selected file icon theme.
 
 **Visual Studio:** a separate [Rohit Serializer VSIX](editors/visual_studio/README.md)
-version **1.1.5** supplies the shared grammar, editing configuration, and native
+version **1.1.6** supplies the shared grammar, editing configuration, and native
 schema navigation for Visual Studio 2022/2026 on Windows x64. Go to Declaration
 opens schema types/includes; Go to Definition and Ctrl+click find existing output.
 Generated declarations in all 11 languages map back to their schemas. From caller
 code, first use the language service to reach the generated type. Build with
 `./editors/visual_studio/build.ps1`, then install
-`out/extensions/serializer-visual-studio-1.1.5.vsix` with Visual Studio's VSIX Installer.
+`out/extensions/serializer-visual-studio-1.1.6.vsix` with Visual Studio's VSIX Installer.
 Use existing CMake targets for generation. Both extensions highlight custom types,
 including `demo::order`, using the selected theme's type and namespace colors.
 

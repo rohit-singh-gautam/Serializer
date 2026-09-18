@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.6
+
+- Add direct Serializer source-download, compiler/runtime installation, and CMake
+  integration links to the extension description.
+- Clarify that installing the editor extension does not install the compiler or runtime.
+- Keep the release version synchronized with the Visual Studio Code extension.
+
 ## 1.1.5
 
 - Build and validate this VSIX alongside the VS Code package from `make.ps1 all`.
