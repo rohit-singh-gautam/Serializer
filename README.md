@@ -35,10 +35,12 @@ They run in the standard test build or independently with
 `SERIALIZER_BUILD_IOSTREAM_EXAMPLES=ON`.
 Language-specific output profiles select layouts and naming conventions.
 Schemas use `.serializer` and begin with `serializer version 1;`.
-Share declarations with `include common.serializer;` before any declarations.
-Paths are unquoted and relative to the including file. Includes are loaded once
-per entry schema and emitted together in its generated output. Namespace scopes
-are reused during parsing; duplicate types and namespace/type conflicts are rejected.
+Share declarations with `include common;` before any declarations.
+Paths are unquoted and relative to the including file; `.serializer` is appended
+when the filename has no extension. Explicit `include common.serializer;` remains
+supported. Includes are loaded once per entry schema and emitted together in its
+generated output. Namespace scopes are reused during parsing; duplicate types
+and namespace/type conflicts are rejected.
 See [schema includes](docs/usage.md#share-declarations-with-includes) and the
 [paired C++/Java examples](example/includes/README.md).
 Quoted defaults preserve literal spaces, for example
@@ -59,7 +61,7 @@ automatic header generation with CMake, and decoding an exact message with limit
 schema declaration/generated-header navigation, and missing-include assistance. Run
 `./install_extension.ps1` from PowerShell to build and install the local extension
 (Node.js 22+, npm, and the VS Code CLI are required). Marketplace publication is pending.
-The VS Code extension version is **1.1.2**, with ID `rohitjairajsingh.serializer-language`
+The VS Code extension version is **1.1.3**, with ID `rohitjairajsingh.serializer-language`
 (Rohit Jairaj Singh). Its release version is independent of the compiler version.
 Go to Definition resolves enum types in field defaults and falls back to the
 schema declaration when a matching generated C++ definition is unavailable.
@@ -69,7 +71,7 @@ editor tabs when supported by the selected file icon theme.
 **Visual Studio:** a separate [Rohit Serializer VSIX](editors/visual_studio/README.md)
 packages the same grammar and basic editing configuration for Visual Studio 2022/2026
 on Windows x64. Build it with `./editors/visual_studio/build.ps1`, then install
-`out/extensions/serializer-visual-studio-1.0.2.vsix` with Visual Studio's VSIX Installer.
+`out/extensions/serializer-visual-studio-1.0.3.vsix` with Visual Studio's VSIX Installer.
 It supplies lexical editing; use existing CMake targets for generation. Native IDE
 installation and interactive editing verification remain pending.
 

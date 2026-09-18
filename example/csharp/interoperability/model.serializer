@@ -1,2 +1,2 @@
 serializer version 1;
-include ../../interoperability/message.serializer;
+include ../../interoperability/message;

@@ -5,15 +5,17 @@ Serializer provides separate packages for VS Code and Visual Studio. Both use
 to the VS Code extension. For the Visual Studio VSIX, see
 [Visual Studio](#visual-studio-extension) below.
 
-Both packages highlight `include common.serializer;` with distinct scopes for
+Both packages highlight `include common;` with distinct scopes for
 the keyword, unquoted relative path, and semicolon. Paths such as
-`../shared/common.serializer` are supported; quoted paths are marked invalid.
-The VS Code package also supplies an `include` snippet. See
+`../shared/common` are supported; quoted paths are marked invalid. Shorthand resolves
+directly to a `.serializer` file, and explicit `.serializer` paths remain accepted.
+The VS Code package also supplies a shorthand `include` snippet and resolves either
+spelling for navigation. Use an updated compiler to build shorthand includes. See
 [schema include syntax](usage.md#share-declarations-with-includes).
 
 ## VS Code
 
-The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.2**, provides `.serializer`
+The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.3**, provides `.serializer`
 syntax highlighting, snippets, declaration/definition navigation, and CMake generated-header commands. Schemas use
 the current `serializer version 1;` header. Legacy `.def` and `.struct` names are
 not registered. C++/Java generation remains owned by the project's build rules;
@@ -52,13 +54,13 @@ Packaging compiles and bundles TypeScript, copies the canonical grammar, logo,
 and repository license into the extension, and writes:
 
 ```text
-out/extensions/serializer-vscode-1.1.2.vsix
+out/extensions/serializer-vscode-1.1.3.vsix
 ```
 
 From the repository root, install it with:
 
 ```sh
-code --install-extension out/extensions/serializer-vscode-1.1.2.vsix
+code --install-extension out/extensions/serializer-vscode-1.1.3.vsix
 ```
 
 Alternatively run **Extensions: Install from VSIX** and select the file. The
@@ -196,6 +198,14 @@ The fixture disables generated-output formatting so it does not need clang-forma
 
 ### Verification performed
 
+For VS Code **1.1.3** and Visual Studio **1.0.3** on 2026-09-18, all 45 automated
+editor tests passed, including shorthand paths, mixed include spellings, source
+ranges, missing files, and tokenization of the migrated repository schemas. The
+isolated VS Code navigation host passed with extensionless includes. Both VSIX
+packages were rebuilt and validated for their versions and shared grammar; the
+VS Code bundle, snippet, and updated packaged documentation were also checked.
+Native Visual Studio installation and interactive highlighting were not rerun.
+
 For VS Code extension version 1.1.2 on 2026-09-17, all 43 automated tests and the
 isolated navigation host passed on Windows. Regressions use the maintained AUTOSAR
 account schema and cover enum default type prefixes, exact schema destination
@@ -257,7 +267,7 @@ outside this extension's implementation.
 ## Visual Studio extension
 
 The separate [Visual Studio package](../editors/visual_studio/README.md), version
-**1.0.2**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
+**1.0.3**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
 grammar, shared language configuration, repository license, and logo. The grammar's
 `fileTypes` associates `.serializer` files; a `.pkgdef` registers the grammar and
 its editing configuration. It contains no compiled extension code.
@@ -269,7 +279,7 @@ Build and validate with Windows PowerShell 5.1+ and Visual Studio's MSBuild:
 ```
 
 The script restores locked NuGet dependencies, rebuilds package intermediates, and writes
-`out/extensions/serializer-visual-studio-1.0.2.vsix`. Close Visual Studio,
+`out/extensions/serializer-visual-studio-1.0.3.vsix`. Close Visual Studio,
 double-click this VSIX, install into the desired instance, and restart Visual
 Studio. The root `install_extension.ps1` remains the VS Code installer.
 

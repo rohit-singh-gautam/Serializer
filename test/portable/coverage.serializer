@@ -1,5 +1,5 @@
 serializer version 1;
-include ../../example/interoperability/message.serializer;
+include ../../example/interoperability/message;
 
 namespace check {
   class empty {

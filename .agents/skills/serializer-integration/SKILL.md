@@ -60,11 +60,17 @@ feature as a prerequisite without the user's request.
   to inspect both; see [CLI and versioning](../../../docs/command_line.md).
 - Use `class`, `enum`, and `namespace`. Every member needs an explicit access
   modifier and a trailing semicolon. Classes/enums have no trailing semicolon.
-- Share schema declarations with `include common.serializer;` after the version
+- Share schema declarations with `include common;` after the version
   header and before declarations. Paths are unquoted, relative to the including
   file, and use forward slashes; `./` and `../` work, while spaces, backslashes,
-  absolute paths, and quoted paths are rejected. Every dependency needs its own
-  version header. Files load once per entry compilation; cycles are errors.
+  absolute paths, and quoted paths are rejected. A filename without an extension
+  resolves directly to `.serializer`; explicit `include common.serializer;` remains
+  valid. Use the explicit form for dotted stems such as `order.v2.serializer` or
+  when targeting an older compiler. Keep physical files and CLI/CMake entry paths
+  suffixed `.serializer`; no extensionless file lookup is performed. Both include
+  spellings share the same dependency identity and do not affect wire data.
+  Every dependency needs its own version header. Files load once per entry
+  compilation; cycles are errors.
 - Reopened namespaces reuse their scope during parsing. Duplicate qualified
   classes/enums and namespace/type conflicts are errors; same leaf names in
   different namespaces are valid. Referenced types still precede their use.

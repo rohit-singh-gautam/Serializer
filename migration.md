@@ -98,8 +98,17 @@ duplicate basenames. See [navigation](docs/editor_extension.md#navigate-availabl
 
 ## Unquoted schema includes and namespace scopes
 
+Prefer `include sales/order;` with the updated compiler. It resolves directly to
+`sales/order.serializer` relative to the including file. Explicit `.serializer`
+includes remain accepted and are required by older compilers; retain the full
+spelling for dotted filenames such as `order.v2.serializer`. Files on disk and
+CLI/CMake input paths keep their extensions. Both spellings share include-once,
+cycle detection, and depfile tracking. This adds no schema version or wire-format
+change. Update VS Code to **1.1.3** or Visual Studio to **1.0.3** for shorthand
+highlighting; VS Code also resolves shorthand during navigation.
+
 To split a schema, move shared declarations into another versioned `.serializer`
-file and add `include common.serializer;` after the entry file's version header.
+file and add `include common;` after the entry file's version header.
 Paths are unquoted and relative to the including file. Generate only the entry:
 included declarations appear in its combined C++ header or Java compilation unit.
 Existing field order, IDs, names, and protocols are preserved; the wire format is unchanged.

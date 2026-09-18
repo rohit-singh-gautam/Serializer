@@ -1,6 +1,6 @@
 serializer version 1;
-include ../common/identity.serializer;
-include ../common/money.serializer;
+include ../common/identity;
+include ../common/money;
 
 namespace demo {
   class product stable_ids : public entity ("record", 1) {

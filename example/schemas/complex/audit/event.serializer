@@ -1,5 +1,5 @@
 serializer version 1;
-include ../common/identity.serializer;
+include ../common/identity;
 
 namespace demo {
   class event stable_ids : public entity ("record", 1) {

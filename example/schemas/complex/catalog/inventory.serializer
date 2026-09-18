@@ -1,5 +1,5 @@
 serializer version 1;
-include product.serializer;
+include product;
 
 namespace demo {
   class inventory stable_ids {

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.3
+
+- Package the shared grammar with extensionless schema include highlighting.
+- Retain explicit `.serializer` paths and reject unrelated extensions and directory-only paths.
+
 ## 1.0.2
 
 - Highlight unquoted schema includes, paths, comments, and semicolons.

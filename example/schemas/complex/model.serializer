@@ -1,7 +1,7 @@
 serializer version 1;
-include sales/order.serializer;
-include analytics/snapshot.serializer;
-include common/identity.serializer;
+include sales/order;
+include analytics/snapshot;
+include common/identity;
 
 class example_model stable_ids {
   public uint32 revision (1) { 1 };

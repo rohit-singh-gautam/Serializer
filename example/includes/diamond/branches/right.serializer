@@ -1,5 +1,5 @@
 serializer version 1;
-include ../shared/common.serializer;
+include ../shared/common;
 
 namespace demo {
   class right stable_ids : public account ("base", 5) {

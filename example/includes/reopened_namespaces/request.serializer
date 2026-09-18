@@ -1,5 +1,5 @@
 serializer version 1;
-include common.serializer;
+include common;
 
 // Reopen demo; account resolves to the class declared in common.serializer.
 namespace demo {

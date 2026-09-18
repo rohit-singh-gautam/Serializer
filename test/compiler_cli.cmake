@@ -120,7 +120,7 @@ succeed(-i "${schema}" -o "${cpp}" --cpp.format=false)
 file(MAKE_DIRECTORY "${DIRECTORY}/shared")
 file(WRITE "${DIRECTORY}/shared/common.serializer"
   "serializer version 1; namespace models { class account { public uint32 id (7); } }\n")
-file(WRITE "${schema}" "serializer version 1; include shared/common.serializer;\n"
+file(WRITE "${schema}" "serializer version 1; include shared/common;\n"
   "include shared/./common.serializer; namespace models { class request { public account owner; } }\n")
 set(depfile "${DIRECTORY}/model.d")
 succeed(-i "${schema}" -l cpp,java --cpp.output "${cpp}" --java.output "${java}"
@@ -143,7 +143,7 @@ reject("Depfile must not overwrite" -i "${schema}" -o "${cpp}" --cpp.format fals
 reject("Depfile requires" -i "${schema}" -o "${cpp}" --cpp.format false
   --depfile "${DIRECTORY}/absent/file.d")
 file(SHA256 "${depfile}" dependency_before)
-file(WRITE "${DIRECTORY}/shared/common.serializer" "serializer version 1; include absent.serializer;")
+file(WRITE "${DIRECTORY}/shared/common.serializer" "serializer version 1; include absent;")
 reject("absent.serializer" -i "${schema}" -o "${cpp}" --cpp.format false --depfile "${depfile}")
 file(SHA256 "${depfile}" dependency_after)
 if(NOT dependency_before STREQUAL dependency_after)

@@ -1,6 +1,6 @@
 serializer version 1;
-include ../common/address.serializer;
-include line.serializer;
+include ../common/address;
+include line;
 
 namespace demo {
   class shipment stable_ids {

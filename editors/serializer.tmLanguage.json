@@ -13,7 +13,7 @@
       "endCaptures": { "0": { "name": "punctuation.separator.serializer" } },
       "patterns": [
         { "include": "#comments" },
-        { "name": "string.unquoted.path.serializer", "match": "[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*\\.serializer(?=[\\s;]|/\\*|//|$)" },
+        { "name": "string.unquoted.path.serializer", "match": "(?:[A-Za-z0-9_.-]+/)*(?:[A-Za-z0-9_.-]+\\.serializer|\\.?[A-Za-z0-9_-]+)(?=[\\s;]|/\\*|//|$)" },
         { "name": "invalid.illegal.include.serializer", "match": "[^\\s;{}]+" }
       ]
     },

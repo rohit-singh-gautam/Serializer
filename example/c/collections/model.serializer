@@ -1,2 +1,2 @@
 serializer version 1;
-include ../../schemas/collections/model.serializer;
+include ../../schemas/collections/model;

@@ -1,8 +1,8 @@
 serializer version 1;
 
-include includes/left.serializer;
-include includes/right.serializer;
-include includes/../includes/common.serializer;
+include includes/left;
+include includes/right;
+include includes/../includes/common;
 
 namespace include_demo {
   class request stable_ids {

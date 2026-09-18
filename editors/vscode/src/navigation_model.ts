@@ -17,6 +17,16 @@ export interface SourceIndex {
   references: Array<Span & { name: string; scope: string[]; kind?: TypeSymbol['kind'] }>;
 }
 
+/** Resolve schema include shorthand without searching for alternate files or extensions. */
+function schemaIncludeName(name: string): string | undefined {
+  if (!/^(?!\/)[A-Za-z_0-9./-]+$/.test(name) || name.endsWith('/')) { return undefined; }
+  const filename = path.posix.basename(name);
+  if (filename === '.' || filename === '..') { return undefined; }
+  const extension = path.posix.extname(name);
+  if (extension === '.serializer') { return name; }
+  return extension === '' ? `${name}.serializer` : undefined;
+}
+
 /** Hide comments and literals while preserving UTF-16 offsets used by VS Code. */
 export function codeOnly(text: string): string {
   return text.replace(/\/\*[\s\S]*?(?:\*\/|$)|\/\/[^\r\n]*|(?:u8|u|U|L)?R"([^ ()\\\t\r\n]{0,16})\([\s\S]*?\)\1"|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'/g,
@@ -109,8 +119,8 @@ export function indexSource(text: string, schema: boolean): SourceIndex {
       // Whitespace/comments are legal around the directive, never inside the path.
       const first = tokens[i + 1];
       const last = tokens[end - 1];
-      const name = first && last ? text.slice(first.start, last.end) : '';
-      if (tokens[end]?.text === ';' && /^(?!\/)(?!.*\\)[A-Za-z_0-9./-]+\.serializer$/.test(name)) {
+      const name = schemaIncludeName(first && last ? text.slice(first.start, last.end) : '');
+      if (tokens[end]?.text === ';' && name !== undefined) {
         result.includes.push({ name, start: first.start, end: last.end });
       }
       i = end;

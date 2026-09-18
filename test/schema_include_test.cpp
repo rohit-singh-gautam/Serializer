@@ -9,6 +9,7 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <initializer_list>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -57,19 +58,24 @@ protected:
   }
 };
 
-// Nested and diamond includes share declaration identities and retain original wire IDs.
+// Mixed include spellings share declaration identities across diamonds and retain wire IDs.
 TEST_F(schema_include_test, relative_diamond_and_repeated_includes) {
   write("shared/common.serializer",
         "serializer version 1; class account { public uint32 id (17); }");
-  write("branch/left.serializer", "serializer version 1; include ../shared/common.serializer; "
+  write("branch/left.serializer", "serializer version 1; include ../shared/common; "
                                   "class left { public account value; }");
   write("branch/right.serializer", "serializer version 1; include ../shared/./common.serializer; "
                                    "class right : public account { }");
-  write("root.serializer", "serializer version 1; include branch/left.serializer; "
-                           "include branch/right.serializer; include shared/common.serializer; "
+  write("root.serializer", "serializer version 1; include branch/left; "
+                           "include branch/right.serializer; include shared/common; "
+                           "include shared/common.serializer; "
                            "class request { public left a; public right b; }");
   const auto parsed = schema::parser::parse_file(directory / "root.serializer");
   ASSERT_EQ(parsed.dependencies.size(), 4u);
+  for (const auto& dependency : parsed.dependencies) {
+    EXPECT_EQ(dependency.extension(), ".serializer");
+    EXPECT_EQ(dependency, std::filesystem::canonical(dependency));
+  }
   ASSERT_EQ(parsed.statements.size(), 4u);
   const auto& account = static_cast<const schema::class_node&>(*parsed.statements[0]);
   const auto& left = static_cast<const schema::class_node&>(*parsed.statements[1]);
@@ -84,10 +90,45 @@ TEST_F(schema_include_test, relative_diamond_and_repeated_includes) {
 // Includes accept comments/newlines between tokens while their path remains one bare token.
 TEST_F(schema_include_test, directive_comments) {
   write("common.serializer", "serializer version 1; class account {}");
-  write("root.serializer",
-        "serializer version 1; include/*why*/\n"
-        "common.serializer /*where*/ ; // done\n class request { public account owner; }");
-  EXPECT_EQ(schema::parser::parse_file(directory / "root.serializer").statements.size(), 2u);
+  for (const auto* name : {"common", "common.serializer"}) {
+    SCOPED_TRACE(name);
+    write("root.serializer", std::string{"serializer version 1; include/*why*/\n"} + name +
+                                 "/*where*/ ; // done\n class request { public account owner; }");
+    EXPECT_EQ(schema::parser::parse_file(directory / "root.serializer").statements.size(), 2u);
+  }
+}
+
+// Shorthand always selects the .serializer file, even when an extensionless file exists.
+TEST_F(schema_include_test, extensionless_resolution_has_no_fallback) {
+  write("common", "invalid schema that must never be opened");
+  write("common.serializer", "serializer version 1; class account {}");
+  write("root.serializer", "serializer version 1; include common;");
+  const auto parsed = schema::parser::parse_file(directory / "root.serializer");
+  ASSERT_EQ(parsed.dependencies.size(), 2u);
+  EXPECT_EQ(parsed.dependencies[1], std::filesystem::canonical(directory / "common.serializer"));
+  write("missing", "serializer version 1; class account {}");
+  write("root.serializer", "serializer version 1; include missing;");
+  reject("missing.serializer");
+  EXPECT_THROW(schema::parser::parse_file(directory / "missing"), std::invalid_argument);
+}
+
+// Dotted directories and hidden stems work; dotted filenames keep their explicit extension.
+TEST_F(schema_include_test, dotted_include_paths) {
+  for (const auto* name :
+       {"folder.v1/shared-types", "folder.v1/.common", "folder.v1/order.v2.serializer"}) {
+    SCOPED_TRACE(name);
+    std::string filename{name};
+    if (!filename.ends_with(".serializer")) {
+      filename += ".serializer";
+    }
+    write(filename, "serializer version 1; class account {}");
+    write("root.serializer", std::string{"serializer version 1; include "} + name + ";");
+    EXPECT_EQ(schema::parser::parse_file(directory / "root.serializer").dependencies.size(), 2u);
+  }
+  // Neither an existing dotted file nor its .serializer sibling permits another extension.
+  write("folder.v1/order.v2", "serializer version 1; class account {}");
+  write("root.serializer", "serializer version 1; include folder.v1/order.v2;");
+  reject("Expected an unquoted relative path with no extension or .serializer");
 }
 
 // Reject malformed tokens and includes in namespaces or after declarations.
@@ -95,6 +136,21 @@ TEST_F(schema_include_test, invalid_directives) {
   write("common.serializer", "serializer version 1; class account {}");
   constexpr std::string_view invalid[] = {"include;",
                                           "include",
+                                          "include common",
+                                          "include common extra;",
+                                          "include \"common\";",
+                                          "include <common>;",
+                                          "include /common;",
+                                          "include C:/common;",
+                                          "include folder\\common;",
+                                          "include common file;",
+                                          "include folder/;",
+                                          "include .;",
+                                          "include ..;",
+                                          "include folder/..;",
+                                          "include folder/.;",
+                                          "include common.;",
+                                          "include order.v2;",
                                           "include common.serializer",
                                           "include common.serializer extra;",
                                           "include \"common.serializer\";",
@@ -116,17 +172,19 @@ TEST_F(schema_include_test, invalid_directives) {
 
 // Cycles report the complete include chain instead of silently suppressing an active file.
 TEST_F(schema_include_test, include_cycles) {
-  write("root.serializer", "serializer version 1; include child.serializer;");
+  write("root.serializer", "serializer version 1; include child;");
   write("child.serializer", "serializer version 1; include root.serializer;");
   reject("Include cycle");
   reject("child.serializer");
-  write("root.serializer", "serializer version 1; include ./root.serializer;");
-  reject("Include cycle");
+  for (const auto* name : {"./root", "./root.serializer"}) {
+    write("root.serializer", std::string{"serializer version 1; include "} + name + ";");
+    reject("Include cycle");
+  }
 }
 
 // Errors in an included source identify that source, including missing/versionless files.
 TEST_F(schema_include_test, dependency_errors) {
-  write("root.serializer", "serializer version 1; include missing.serializer;");
+  write("root.serializer", "serializer version 1; include missing;");
   reject("missing.serializer");
   write("missing.serializer", "class account {}");
   reject("Expected first statement");
@@ -196,15 +254,15 @@ TEST_F(schema_include_test, namespace_type_conflicts) {
 // Excessive acyclic nesting fails predictably before exhausting the native call stack.
 TEST_F(schema_include_test, bounded_include_depth) {
   constexpr unsigned file_count = 32;
-  write("root.serializer", "serializer version 1; include file1.serializer;");
+  write("root.serializer", "serializer version 1; include file1;");
   for (unsigned index = 1; index < file_count; ++index) {
     write("file" + std::to_string(index) + ".serializer",
-          "serializer version 1; include file" + std::to_string(index + 1) + ".serializer;");
+          "serializer version 1; include file" + std::to_string(index + 1) + ";");
   }
   write("file31.serializer", "serializer version 1;");
   EXPECT_EQ(schema::parser::parse_file(directory / "root.serializer").dependencies.size(),
             file_count);
-  write("file31.serializer", "serializer version 1; include file32.serializer;");
+  write("file31.serializer", "serializer version 1; include file32;");
   write("file32.serializer", "serializer version 1;");
   reject("Maximum include depth");
 }

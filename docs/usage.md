@@ -105,7 +105,7 @@ Then compile an entry schema such as `schemas/request.serializer`:
 
 ```text
 serializer version 1;
-include common.serializer;
+include common;
 
 namespace demo {
   class request stable_ids {
@@ -114,7 +114,12 @@ namespace demo {
 }
 ```
 
-- Write `include path/to/common.serializer;` without quotes or angle brackets.
+- Prefer `include path/to/common;` without quotes or angle brackets. A filename
+  with no extension resolves directly to `path/to/common.serializer`; no extensionless
+  file or alternative extension is tried. Explicit `include path/to/common.serializer;`
+  remains supported. Dotted filenames require the full name, such as
+  `include path/to/order.v2.serializer;`. Physical files and CLI/CMake entry paths
+  retain `.serializer`. Older compilers require the explicit spelling.
   Use ASCII letters, digits, `_`, `-`, `.`, and forward slashes in a relative path;
   spaces, backslashes, absolute paths, and other extensions are rejected.
   `./` and `../` are supported. Paths resolve from the including file, independently
@@ -122,9 +127,10 @@ namespace demo {
 - Every file requires its own `serializer version 1;` header. Includes follow that
   header and precede all declarations, at file scope only.
 - Nested dependencies load before their includers. Repeated paths, normalized path
-  aliases, and diamond dependencies contribute declarations only once per entry
-  compilation. Include cycles and chains deeper than 32 files (including the
-  entry file) are errors. Diagnostics identify the failing file and include chain.
+  aliases, mixed shorthand/explicit spellings, and diamond dependencies contribute
+  declarations only once per entry compilation. Include cycles and chains deeper
+  than 32 files (including the entry file) are errors. Diagnostics identify the
+  resolved filename and include chain; depfiles record the actual `.serializer` files.
 - Namespace creation reuses the existing logical scope, including equivalent
   `namespace a::b` and nested namespace blocks. Source blocks retain their order.
   A second class or enum with the same qualified name, or a namespace/type name

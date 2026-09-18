@@ -1,7 +1,7 @@
 # Rohit Serializer for Visual Studio Code
 
 Edit `.serializer` schemas with syntax highlighting, bracket matching, comments,
-folding, and snippets. Version **1.1.2** includes navigation from includes and type
+folding, and snippets. Version **1.1.3** includes navigation from includes and type
 references to source schemas and existing generated C++ headers. Use the project's
 CMake configuration for the separate build and missing-header assistance commands.
 
@@ -18,9 +18,11 @@ This extension recognizes `.serializer`; it does not associate `.def` or `.struc
 Type `schema`, `include`, `class`, `field`, `enum`, or `namespace` to insert a snippet. Field
 snippets require you to choose an unused ID; they do not manage wire compatibility.
 
-The extension highlights `include common.serializer;` with separate keyword,
-unquoted path, and semicolon scopes. Relative paths such as `../shared/common.serializer`
-are supported. Place includes after the version header and before declarations;
+The extension highlights `include common;` with separate keyword,
+unquoted path, and semicolon scopes. Relative paths such as `../shared/common`
+resolve to `.serializer` files during navigation; explicit `.serializer` includes
+remain supported. The compiler must support shorthand to build these schemas.
+Place includes after the version header and before declarations;
 quoted paths and angle brackets are invalid. See [schema includes](../../docs/usage.md#share-declarations-with-includes).
 
 ## Install and use
@@ -57,7 +59,7 @@ available headers produce a picker; missing output produces no result or build p
 
 | Selected item | Go to Declaration | Go to Definition |
 | --- | --- | --- |
-| Schema `include types/account.serializer;` | Included schema | Existing header containing that schema's declarations |
+| Schema `include types/account;` | Included schema | Existing header containing that schema's declarations |
 | Class/enum declaration or type reference in a schema | Original schema declaration | Matching generated C++ type definition; schema declaration if unavailable |
 | C++ `#include <account.hpp>` | Entry schema | Existing generated header |
 | Generated class/enum type reference in C++ | Original schema declaration | Normal C++ language-service definition |

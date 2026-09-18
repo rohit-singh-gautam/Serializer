@@ -78,9 +78,26 @@ namespace outer { namespace inner { class request {
   }
 });
 
-test('schema includes and qualified class references navigate into source and merged output', async () => {
+test('include spellings resolve to schema filenames while retaining exact source ranges', () => {
+  for (const name of ['common', '../shared/common', './v1/shared-types', 'v1.2/common', '.common',
+    'common.serializer', '../shared/common.serializer', 'order.v2.serializer']) {
+    const source = `serializer version 1; include/*before*/\n${name}/*after*/;`;
+    const expected = name.endsWith('.serializer') ? name : `${name}.serializer`;
+    const includes = indexSource(source, true).includes;
+    assert.deepEqual(includes, [{ name: expected, start: source.indexOf(name), end: source.indexOf(name) + name.length }]);
+    assert.equal(source.slice(includes[0].start, includes[0].end), name);
+  }
+  for (const name of ['"common"', '<common>', '/common', 'C:/common', 'folder\\common',
+    'common.hpp', 'order.v2', 'common.', 'common extra', 'common/*inside*/path', 'folder/',
+    '.', '..', 'folder/.', 'folder/..']) {
+    assert.deepEqual(indexSource(`serializer version 1; include ${name};`, true).includes, [], name);
+  }
+});
+
+test('extensionless includes and qualified class references navigate into source and merged output', async () => {
   const state = fixture({
-    'request.serializer': 'serializer version 1; include types/account.serializer; namespace app { class request { public data::account owner; }}',
+    'request.serializer': 'serializer version 1; include types/account; namespace app { class request { public data::account owner; }}',
+    'types/account': 'an extensionless file must not shadow the schema',
     'types/account.serializer': 'serializer version 1; namespace data { class account {} }',
     'build/request.hpp': banner + 'namespace data { class account {}; } namespace app { class request {}; }',
     'build/request.hpp.d': `${escapeDependency(file('build/request.hpp'))}: ${escapeDependency(file('request.serializer'))} ${escapeDependency(file('types/account.serializer'))}`
@@ -95,6 +112,12 @@ test('schema includes and qualified class references navigate into source and me
   assert.deepEqual(selected(state, await resolver.schema(file('request.serializer'), state.at('request.serializer', 'data::account'), true)),
     [['build/request.hpp', 'account']]);
   assert.deepEqual(selected(state, await resolver.headers(file('types/account.serializer'))), [['build/request.hpp', '']]);
+});
+
+test('extensionless include navigation never falls back to an extensionless file', async () => {
+  const state = fixture({ 'request.serializer': 'serializer version 1; include missing;',
+    'missing': 'serializer version 1; class account {}' });
+  assert.deepEqual(await state.resolver().schema(file('request.serializer'), state.at('request.serializer', 'missing'), false), []);
 });
 
 test('type definitions fall back to the schema before generation while header actions stay empty', async () => {
@@ -151,10 +174,10 @@ test('nearest namespaces, global qualifiers, inheritance and container type posi
 });
 
 test('diamond and cyclic includes deduplicate declarations and terminate', async () => {
-  const state = fixture({ 'request.serializer': 'serializer version 1; include a.serializer; include b.serializer; class request { public account owner; }',
-    'a.serializer': 'serializer version 1; include common.serializer;',
+  const state = fixture({ 'request.serializer': 'serializer version 1; include a; include b.serializer; include common; include common.serializer; class request { public account owner; }',
+    'a.serializer': 'serializer version 1; include ./common;',
     'b.serializer': 'serializer version 1; include common.serializer;',
-    'common.serializer': 'serializer version 1; include request.serializer; class account {}' });
+    'common.serializer': 'serializer version 1; include request; class account {}' });
   assert.deepEqual(selected(state, await state.resolver().schema(file('request.serializer'), state.at('request.serializer', 'account'), false)),
     [['common.serializer', 'account']]);
 });

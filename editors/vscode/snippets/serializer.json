@@ -1,7 +1,7 @@
 {
   "Include": {
     "prefix": "include",
-    "body": "include ${1:common.serializer};$0",
+    "body": "include ${1:common};$0",
     "description": "Include a schema using an unquoted path relative to this file"
   },
   "Schema": {

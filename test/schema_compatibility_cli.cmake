@@ -1,10 +1,10 @@
 file(MAKE_DIRECTORY "${DIRECTORY}")
 file(WRITE "${DIRECTORY}/old.serializer"
-  "serializer version 1; include common.serializer; class record stable_ids { public child value (1); public string retired (2); }")
+  "serializer version 1; include common; class record stable_ids { public child value (1); public string retired (2); }")
 file(WRITE "${DIRECTORY}/common.serializer"
   "serializer version 1; class child stable_ids { public uint32 code (1); }")
 file(WRITE "${DIRECTORY}/new.serializer"
-  "serializer version 1; include common.serializer; class record stable_ids { public child value (1); }")
+  "serializer version 1; include common; class record stable_ids { public child value (1); }")
 file(WRITE "${DIRECTORY}/reserved.json"
   [[{"version":1,"reserved_fields":[{"type":"record","ids":[2],"names":["retired"]}]}]])
 

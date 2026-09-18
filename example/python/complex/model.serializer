@@ -1,2 +1,2 @@
 serializer version 1;
-include ../../schemas/complex/model.serializer;
+include ../../schemas/complex/model;

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.1.3
+
+- Highlight extensionless schema includes and use shorthand in the include snippet.
+- Resolve shorthand to `.serializer` files for declaration, definition, and
+  transitive include navigation while retaining explicit paths and source ranges.
+- Cover mixed spellings, dotted paths, cycles, missing files, and maintained schemas.
+
 ## 1.1.2
 
 - Resolve enum type prefixes in field defaults such as

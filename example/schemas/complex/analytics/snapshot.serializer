@@ -1,7 +1,7 @@
 serializer version 1;
-include ../catalog/inventory.serializer;
-include ../audit/event.serializer;
-include ../common/money.serializer;
+include ../catalog/inventory;
+include ../audit/event;
+include ../common/money;
 
 namespace demo {
   class snapshot stable_ids {

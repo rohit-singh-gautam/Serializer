@@ -3,7 +3,7 @@ file(MAKE_DIRECTORY "${DIRECTORY}/source/shared")
 file(WRITE "${DIRECTORY}/source/shared/common.serializer"
   "serializer version 1; class account { public uint32 id (7); }\n")
 file(WRITE "${DIRECTORY}/source/root.serializer"
-  "serializer version 1; include shared/common.serializer; class request { public account owner; }\n")
+  "serializer version 1; include shared/common; class request { public account owner; }\n")
 file(WRITE "${DIRECTORY}/source/output.ini" "[cpp]\nformat = false\n")
 set(source [=[
 cmake_minimum_required(VERSION 3.28)
@@ -40,7 +40,7 @@ file(SHA256 "${java}" java_before)
 file(WRITE "${DIRECTORY}/source/shared/leaf.serializer"
   "serializer version 1; enum state { pending, active }\n")
 file(WRITE "${DIRECTORY}/source/shared/common.serializer"
-  "serializer version 1; include leaf.serializer; class account { public uint32 id (7); public state status (8); }\n")
+  "serializer version 1; include leaf; class account { public uint32 id (7); public state status (8); }\n")
 run("${CMAKE_COMMAND}" --build "${DIRECTORY}/build" --target serializer_generated_headers serializer_generated_java)
 file(SHA256 "${cpp}" cpp_after)
 file(SHA256 "${java}" java_after)

@@ -1,5 +1,5 @@
 serializer version 1;
-include ../common/money.serializer;
+include ../common/money;
 
 namespace demo {
   class payment stable_ids {

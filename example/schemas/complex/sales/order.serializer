@@ -1,8 +1,8 @@
 serializer version 1;
-include ../people/customer.serializer;
-include line.serializer;
-include payment.serializer;
-include shipment.serializer;
+include ../people/customer;
+include line;
+include payment;
+include shipment;
 
 namespace demo {
   enum order_state {

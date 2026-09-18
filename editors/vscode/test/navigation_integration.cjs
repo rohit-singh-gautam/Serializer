@@ -14,7 +14,7 @@ async function runSuite() {
   const cpp = path.join(workspace, 'main.cpp');
   fs.mkdirSync(path.dirname(common), { recursive: true });
   fs.mkdirSync(path.dirname(header), { recursive: true });
-  fs.writeFileSync(input, 'serializer version 1;\ninclude types/account.serializer;\nclass request { public data::account owner; }\n');
+  fs.writeFileSync(input, 'serializer version 1;\ninclude types/account;\nclass request { public data::account owner; }\n');
   fs.writeFileSync(common, 'serializer version 1;\nnamespace data { class account {} }\n');
   fs.writeFileSync(header, banner + 'namespace data { class account {}; }\nclass request {};\n');
   fs.writeFileSync(cpp, '#include "build/request.hpp"\ndata::account value{};\n');
@@ -35,7 +35,7 @@ async function runSuite() {
     return targets.map(target => ({ uri: target.uri ?? target.targetUri,
       range: target.range ?? target.targetSelectionRange ?? target.targetRange }));
   }
-  for (const word of ['types/account.serializer', 'data::account']) {
+  for (const word of ['types/account', 'data::account']) {
     const declarations = await navigate(schema, word, false);
     assert.equal(declarations.length, 1, `schema declaration: ${word}`);
     assert.equal(declarations[0].uri.fsPath, common);

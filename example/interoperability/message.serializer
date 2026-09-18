@@ -1,5 +1,5 @@
 serializer version 1;
-include common.serializer;
+include common;
 
 namespace interop {
   class message stable_ids : public record ("origin", 1) {

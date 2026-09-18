@@ -1,5 +1,5 @@
 serializer version 1;
-include common.serializer;
+include common;
 
 namespace demo {
   class request stable_ids {

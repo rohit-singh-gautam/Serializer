@@ -1,8 +1,8 @@
 serializer version 1;
-include branches/left.serializer;
-include branches/right.serializer;
+include branches/left;
+include branches/right;
 // Already loaded through both branches; this does not define account again.
-include ./shared/common.serializer;
+include ./shared/common;
 
 namespace demo {
   class request stable_ids {

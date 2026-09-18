@@ -31,8 +31,10 @@ schemas and add the header, then update build references. Library callers using
 `parser::parse(input)` may continue parsing headerless fragments; any supplied
 header is validated. Use `parser::parse(input, true)` to require the file header.
 
-Unquoted directives such as `include common.serializer;` are allowed after the
-header and before declarations. Paths are relative to the including file. Each
+Unquoted directives such as `include common;` are allowed after the
+header and before declarations. Paths are relative to the including file; a filename
+without an extension resolves to `.serializer`. Explicit `include common.serializer;`
+also works. CLI input filenames still require `.serializer`. Each
 dependency has its own version header; repeated files are loaded once and their
 declarations join the entry schema's output. See [schema includes](usage.md#share-declarations-with-includes)
 for path restrictions, namespace handling, duplicate detection, and output limitations.

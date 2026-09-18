@@ -148,6 +148,11 @@ add_test(NAME serializer_compatibility_cli
     "-DDIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/compatibility_cli"
     -P "${CMAKE_CURRENT_SOURCE_DIR}/schema_compatibility_cli.cmake")
 
+add_test(NAME serializer_include_cli
+  COMMAND "${CMAKE_COMMAND}" "-DGENERATOR=$<TARGET_FILE:serializer>"
+    "-DDIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/include_cli"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/schema_include_cli.cmake")
+
 find_program(serializer_test_ninja NAMES ninja HINTS "${CMAKE_MAKE_PROGRAM}/..")
 if(CMAKE_GENERATOR MATCHES "Ninja")
   set(serializer_test_ninja "${CMAKE_MAKE_PROGRAM}")

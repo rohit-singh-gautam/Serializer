@@ -6,7 +6,7 @@ and all three standard binary protocols. Generated code stays in the build tree.
 
 | Folder | Demonstrates |
 | --- | --- |
-| [shared_types](shared_types/request.serializer) | `include common.serializer;`, a qualified class reference, and an included enum/default |
+| [shared_types](shared_types/request.serializer) | `include common;`, a qualified class reference, and an included enum/default |
 | [reopened_namespaces](reopened_namespaces/request.serializer) | Reopening `demo` across files, plus separate `demo::account` and `audit::account` types |
 | [diamond](diamond/request.serializer) | Two branches including the same file via `../`, an explicit repeated include, and inheritance from an included type |
 
@@ -14,12 +14,14 @@ Includes use bare paths and a semicolon:
 
 ```text
 serializer version 1;
-include common.serializer;
-include ../shared/types.serializer;
+include common;
+include ../shared/types;
 ```
 
-Paths resolve from the including file. Each included file has its own version
-header. Include files before declarations; do not wrap includes inside namespaces.
+Paths resolve from the including file, appending `.serializer` when the filename
+has no extension. Explicit `.serializer` includes remain valid. Each included file
+has its own version header. Include files before declarations; do not wrap includes
+inside namespaces.
 Generate the entry schema only: included declarations become part of that entry's
 header or Java outer class. Overlapping generated C++ headers can redefine shared
 types if used together. See the [complete include contract](../../docs/usage.md#share-declarations-with-includes).

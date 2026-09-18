@@ -1,6 +1,6 @@
 serializer version 1;
-include ../catalog/product.serializer;
-include ../common/money.serializer;
+include ../catalog/product;
+include ../common/money;
 
 namespace demo {
   class order_line stable_ids {

@@ -9,7 +9,7 @@ Optional [compression backends](compression.md) are currently C++ runtime featur
 Java's generated API has no new compression options; external standard libraries
 can compress/decompress its encoded bytes before calling the existing codecs.
 
-Schema directives such as `include common.serializer;` load reusable declarations
+Schema directives such as `include common;` load reusable declarations
 into the entry schema's Java output. Reopened namespace blocks share one static
 container; duplicate qualified types and namespace/type conflicts fail during
 parsing. See [include rules](usage.md#share-declarations-with-includes) and the

@@ -49,7 +49,8 @@ test('block comment state spans lines without highlighting keywords inside it', 
 
 test('unquoted includes highlight keywords, relative paths, comments and terminators', async () => {
   const grammar = await loadGrammar();
-  for (const file of ['common.serializer', '../shared/common.serializer', './v1/shared-types.serializer']) {
+  for (const file of ['common', '../shared/common', './v1/shared-types', 'v1.2/common', '.common',
+    'common.serializer', '../shared/common.serializer', './v1/shared-types.serializer', 'order.v2.serializer']) {
     const line = `include /* schema */ ${file}; // done`;
     const result = grammar.tokenizeLine(line, INITIAL);
     /** Find the innermost scope at the start of a directive token. */
@@ -62,12 +63,13 @@ test('unquoted includes highlight keywords, relative paths, comments and termina
     assert.equal(scope('done'), 'comment.line.double-slash.serializer');
     assert.equal(result.ruleStack.depth, 1);
   }
-  for (const file of ['"common.serializer"', '<common.serializer>', 'common.hpp']) {
+  for (const file of ['"common"', '<common>', '"common.serializer"', '<common.serializer>',
+    'common.hpp', 'order.v2', 'common.', '/common', 'folder/', '.', '..', 'folder/.', 'folder/..']) {
     const result = grammar.tokenizeLine(`include ${file};`, INITIAL);
     assert.ok(result.tokens.some(token => token.scopes.includes('invalid.illegal.include.serializer')));
   }
   const start = grammar.tokenizeLine('include /* dependency', INITIAL);
-  const finish = grammar.tokenizeLine('*/ common.serializer; class real {}', start.ruleStack);
+  const finish = grammar.tokenizeLine('*/ common; class real {}', start.ruleStack);
   assert.ok(finish.tokens.some(token => token.scopes.includes('string.unquoted.path.serializer')));
   assert.ok(finish.tokens.some(token => token.scopes.includes('entity.name.type.serializer')));
   assert.equal(finish.ruleStack.depth, 1);
@@ -93,7 +95,10 @@ test('all repository schemas tokenize without losing the outer grammar state', a
     for (const file of schemas(path.join(root, directory))) {
       let state = INITIAL;
       for (const line of fs.readFileSync(file, 'utf8').split(/\r?\n/)) {
-        state = grammar.tokenizeLine(line, state).ruleStack;
+        const result = grammar.tokenizeLine(line, state);
+        assert.ok(!result.tokens.some(token => token.scopes.includes('invalid.illegal.include.serializer')),
+          `${file}: ${line}`);
+        state = result.ruleStack;
       }
       assert.equal(state.depth, 1, file);
       ++files;

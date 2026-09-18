@@ -1053,6 +1053,8 @@ void parse_version_header(const rohit::type_check::schema_input_buffer auto& inp
 }
 
 namespace {
+constexpr std::string_view schema_extension{".serializer"};
+
 // Recognize an include keyword without accepting identifiers beginning with that spelling.
 bool starts_include(const rohit::type_check::schema_input_buffer auto& input) {
   constexpr std::string_view keyword{"include"};
@@ -1060,7 +1062,7 @@ bool starts_include(const rohit::type_check::schema_input_buffer auto& input) {
                               !is_identifier(static_cast<char>(input.curr()[keyword.size()])));
 }
 
-// Read a portable unquoted relative schema path, allowing comments between directive tokens.
+// Resolve a portable unquoted include to its schema filename without probing the filesystem.
 std::filesystem::path parse_include(const rohit::type_check::schema_input_buffer auto& input) {
   static_cast<void>(parse_identifier_impl(input));
   skip_whitespace_and_comment(input);
@@ -1076,11 +1078,14 @@ std::filesystem::path parse_include(const rohit::type_check::schema_input_buffer
     value.push_back(ch);
     ++input;
   }
-  const std::filesystem::path path{value};
-  if (value.empty() || path.is_absolute() || path.has_root_path() ||
-      path.extension() != ".serializer") {
-    throw exception::bad_input_data{input,
-                                    "Expected an unquoted relative .serializer path after include"};
+  std::filesystem::path path{value};
+  const auto filename = path.filename();
+  const auto extension = path.extension();
+  if (value.empty() || path.is_absolute() || path.has_root_path() || filename.empty() ||
+      filename == "." || filename == ".." ||
+      (!extension.empty() && extension != schema_extension)) {
+    throw exception::bad_input_data{
+        input, "Expected an unquoted relative path with no extension or .serializer after include"};
   }
   skip_whitespace_and_comment(input);
   if (input.full() || *input != ';') {
@@ -1088,6 +1093,9 @@ std::filesystem::path parse_include(const rohit::type_check::schema_input_buffer
         input, "Expected ';' after include path (use forward slashes, without quotes or spaces)"};
   }
   ++input;
+  if (extension.empty()) {
+    path += schema_extension;
+  }
   return path;
 }
 
@@ -1104,7 +1112,7 @@ class file_loader {
   // Append a file once; unwind diagnostics through every including file on failure.
   void load(const std::filesystem::path& path, std::size_t depth) {
     try {
-      if (path.extension() != ".serializer") {
+      if (path.extension() != schema_extension) {
         throw std::invalid_argument{"Input must use .serializer"};
       }
       const auto canonical = std::filesystem::canonical(path);
