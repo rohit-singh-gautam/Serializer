@@ -342,3 +342,15 @@ application-supplied error text is not automatically redacted.
 
 This is an implementation contract, not a completed security or portability
 qualification. See [the prepared validation targets](../qualification/README.md).
+
+## Portable owning implementations
+
+The C++ compiler generates native owning codecs for Java, JavaScript, Go, and C#
+using these existing four protocols. The new JS/Go/C# decoders require exact
+consumption and retain the documented missing/duplicate-field semantics. Their
+limits match the portable Java policy rather than C++ storage/work accounting.
+All portable strings require valid UTF-8 and JSON characters must be ASCII.
+JavaScript represents 64-bit fields with `bigint` and preserves full decimal JSON
+integer tokens. Binary map output is explicitly sorted; JSON text escaping can
+vary without changing values. See [portable language mappings and limits](portable_languages.md)
+and the [all-pairs verification](verification-multilanguage-2026-09-17.md).

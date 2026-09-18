@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer into C++ or Java applications from a provided repository or existing dependency. Use for .serializer schemas, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, schema compatibility checks and reservations, stream concepts and iostream adapters, exact fresh-value decoding, optional message compression, JSON or binary codecs, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
+description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, or C# applications from a provided repository or existing dependency. Use for .serializer schemas, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, schema compatibility checks and reservations, stream concepts and iostream adapters, exact fresh-value decoding, optional message compression, JSON or binary codecs, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
 ---
 
 # Serializer Integration
@@ -24,6 +24,8 @@ there instead of relying on the relative links.
 
 - Read [README.md](../../../README.md) for supported syntax and feature status.
 - Use [docs/usage.md](../../../docs/usage.md) for the schema, CMake, and codec examples.
+- Use [docs/portable_languages.md](../../../docs/portable_languages.md) for JS/TypeScript,
+  Go, C#, target SDKs, type mappings, limits, and five-language interoperability.
 - Use [docs/java.md](../../../docs/java.md) for pure Java 17+ generation, profiles,
   type mappings, supported schema features, limits, and protocol compatibility.
 - Use [docs/cmake_integration.md](../../../docs/cmake_integration.md) for the shipped
@@ -65,9 +67,9 @@ feature as a prerequisite without the user's request.
   classes/enums and namespace/type conflicts are errors; same leaf names in
   different namespaces are valid. Referenced types still precede their use.
 - Generate only the entry schema for a combined model. Included declarations are
-  emitted into that entry's C++ header or Java compilation unit; overlapping C++
+  emitted into each selected entry output; overlapping C++
   entry graphs can produce duplicate definitions when their headers are included
-  together. Both CMake helpers track transitive inputs using depfiles. Library
+  together. All generation helpers track transitive inputs using depfiles. Library
   callers use `parser::parse_file(path)` and pass its `statements` to the writers.
   See [include usage](../../../docs/usage.md#share-declarations-with-includes) and
   [paired C++/Java examples](../../../example/includes/README.md).
@@ -348,6 +350,42 @@ user instruction to defer generation/builds/tests and report what remains unveri
 - Keep Java runtime/build verification distinct from C++ source-only status notes.
   With tests and Java examples enabled, CTest exercises compiled Java and two-way
   interoperability, including exact binary bytes. Do not claim benchmark results.
+
+## Integrate JavaScript, Go, or C# output
+
+- Keep the `.serializer` compiler and generators in C++. Target SDKs execute or
+  compile generated consumers only. The tracked `.inc` files contain embedded
+  runtime source and must ship with compiler source distributions.
+- Select `js`, `go`, or `csharp`; add `typescript` for JS declarations. Use
+  language-specific output paths for multi-language generation. Pair `.mjs` with
+  `.d.mts`, or ES-module `.js` with `.d.ts`, using identical JS naming settings.
+- Read [portable language usage](../../../docs/portable_languages.md) before
+  choosing native types. JS 64-bit fields require `bigint`, Go constructors apply
+  schema defaults, and C# uses an output-file outer class. Namespace flattening
+  must remain collision-free. Preserve wire names and IDs across all targets.
+- Generate one combined schema per Go package. Use includes for shared types.
+  Native maps are sorted during output. Use owning schemas with portable literal
+  defaults, valid UTF-8 strings, supported map keys, and ASCII JSON characters.
+  Views, packed storage, arbitrary C++ expressions, native acceleration, Protobuf,
+  compression APIs, and configurable output-buffer reuse are not implemented.
+- Use exact-message decode and explicit limits for untrusted input. Generated
+  decoders return a fresh object only after validation; Go returns nil on failure.
+  Missing fields retain defaults, nested duplicates merge, and collections replace.
+  Do not route JS messages through ordinary JSON.parse/stringify because full-width
+  integers and duplicate-field semantics require generated codecs.
+- Integrate with `serializer_generate_source(TARGET name SCHEMA file LANGUAGE go
+  OUTPUT generated/schema.go OPTIONS --go.package app)` or invoke the C++ compiler
+  directly from npm, Go, or MSBuild build steps. The CMake helper tracks includes;
+  supply a host `GENERATOR` when cross-compiling.
+- Enable `SERIALIZER_BUILD_INTEROP_EXAMPLES=ON` to compile the
+  [shared five-language example](../../../example/interoperability/README.md).
+  Test every producer/consumer pair, all four protocols, and all union variants;
+  compare complete values and native binary bytes. Run malformed-input tests and
+  relevant TypeScript/browser checks when changing target runtimes.
+- Measure before making speed or allocation claims. The examples expose local
+  throughput checks and Go has an allocation benchmark. Preserve direct field
+  codecs, pre-encoded keys, checked capacity reservation, switch dispatch, and
+  exact wire bytes while optimizing. Report untested platforms explicitly.
 
 ## Implement the C++ codec calls
 

@@ -53,11 +53,20 @@ constexpr rohit::serializer::cli::commandline_option command_options[] = {
     {'o', "output", "file", "Output path when selecting exactly one language."},
     {'\0', "depfile", "file.d", "Write Make-style dependencies for all generated outputs."},
     {'c', "config", "file.ini", "Generator configuration; CLI options override its values."},
-    {'l', "language", "cpp|java", "Select output languages; repeat or comma-separate values.",
-     true},
+    {'l', "language", "cpp|java|js|typescript|go|csharp",
+     "Select output languages; repeat or comma-separate values.", true},
     {'\0', "cpp.output", "file.hpp", "C++ output path; required for multi-language generation."},
     {'\0', "java.output", "ClassName.java",
      "Java output path; required for multi-language generation."},
+    {'\0', "js.output", "schema.mjs", "JavaScript ES module output."},
+    {'\0', "typescript.output", "schema.d.mts", "TypeScript declarations matching JS output."},
+    {'\0', "go.output", "schema.go", "Go source output."},
+    {'\0', "csharp.output", "Schema.cs", "C# source output; filename supplies outer class."},
+    {'\0', "js.naming", "profile|preserve", "JS and TypeScript identifier naming."},
+    {'\0', "go.naming", "profile|preserve", "Go identifier naming."},
+    {'\0', "csharp.naming", "profile|preserve", "C# identifier naming."},
+    {'\0', "go.package", "name", "Go package (default generated)."},
+    {'\0', "csharp.namespace", "name", "C# namespace; empty clears it.", false, true},
     {'\0', "cpp.coding_standard", "profile",
      "serializer|core|google|llvm|gnu|cert|misra|autosar|qt"},
     {'\0', "cpp.naming", "profile|preserve", "C++ identifier naming policy."},
@@ -235,15 +244,35 @@ int main(const int argc, const char* argv[]) {
     if (!options.cpp.format && !options.cpp.format_file.empty()) {
       throw std::invalid_argument{"cpp.format_file requires cpp.format true"};
     }
+    for (const auto language : {"js", "go", "csharp"}) {
+      auto& settings = std::string_view{language} == "js"   ? options.js
+                       : std::string_view{language} == "go" ? options.go
+                                                            : options.csharp;
+      const auto key = std::string{language} + ".naming";
+      if (arguments.contains(key)) {
+        const auto& value = arguments.at(key);
+        if (value != "profile" && value != "preserve") {
+          throw std::invalid_argument{key + " must be profile or preserve"};
+        }
+        settings.rename_identifiers = value == "profile";
+      }
+    }
+    if (arguments.contains("go.package")) {
+      options.go.package_name = arguments.at("go.package");
+    }
+    if (arguments.contains("csharp.namespace")) {
+      options.csharp.namespace_name = arguments.at("csharp.namespace");
+    }
     const std::filesystem::path input_file{arguments.at("input")};
     if (input_file.extension() != ".serializer") {
       throw std::invalid_argument{
           "Input must use .serializer; rename the schema and add serializer version 1;"};
     }
     if (arguments.contains("output") && languages.size() != 1) {
-      throw std::invalid_argument{"Use --cpp.output and --java.output for multiple languages"};
+      throw std::invalid_argument{
+          "Use language-specific --<language>.output paths for multiple languages"};
     }
-    for (const auto language : {"cpp", "java"}) {
+    for (const auto language : {"cpp", "java", "js", "typescript", "go", "csharp"}) {
       if (arguments.contains(std::string{language} + ".output") &&
           std::find(languages.begin(), languages.end(), language) == languages.end()) {
         throw std::invalid_argument{"Output path supplied for unselected language: " +
@@ -278,6 +307,13 @@ int main(const int argc, const char* argv[]) {
       }
       if (language == "java" && extension != ".java") {
         throw std::invalid_argument{"Java output must have a .java extension"};
+      }
+      if ((language == "js" && extension != ".js" && extension != ".mjs") ||
+          (language == "go" && extension != ".go") ||
+          (language == "csharp" && extension != ".cs") ||
+          (language == "typescript" && !output_file.string().ends_with(".d.ts") &&
+           !output_file.string().ends_with(".d.mts"))) {
+        throw std::invalid_argument{"Invalid output extension for " + language};
       }
       const auto parent = output_file.parent_path();
       if ((!parent.empty() && !std::filesystem::is_directory(parent)) ||
@@ -340,8 +376,15 @@ int main(const int argc, const char* argv[]) {
       if (languages[index] == "java") {
         writer::java::write(*output, schema.statements, destinations[index].stem().string(),
                             options.java);
-      } else {
+      } else if (languages[index] == "cpp") {
         writer::cpp::write(*output, schema.statements, options.cpp);
+      } else {
+        const auto& language = languages[index];
+        const auto& settings = language == "go"       ? options.go
+                               : language == "csharp" ? options.csharp
+                                                      : options.js;
+        output->write(writer::portable::generate(schema.statements, language,
+                                                 destinations[index].stem().string(), settings));
       }
       outputs.push_back(std::move(output));
     }
@@ -351,7 +394,8 @@ int main(const int argc, const char* argv[]) {
       std::cout << "Generated " << destinations[index] << " (" << languages[index] << ", "
                 << (languages[index] == "java"
                         ? writer::java_coding_standard_name(options.java.standard)
-                        : writer::coding_standard_name(options.cpp.standard))
+                    : languages[index] == "cpp" ? writer::coding_standard_name(options.cpp.standard)
+                                                : "native")
                 << ")\n";
     }
     if (!depfile.empty()) {

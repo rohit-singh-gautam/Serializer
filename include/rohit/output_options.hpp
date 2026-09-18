@@ -27,11 +27,21 @@ struct java_options {
   std::string package_name{};
 };
 
+// Native naming and module configuration for portable owning backends.
+struct portable_options {
+  bool rename_identifiers{true};
+  std::string package_name{"generated"};
+  std::string namespace_name{"SerializerGenerated"};
+};
+
 struct output_options {
   // One language or a comma-separated list, validated by parse_output_languages.
   std::string language{"cpp"};
   cpp_options cpp{};
   java_options java{};
+  portable_options js{};
+  portable_options go{};
+  portable_options csharp{};
 };
 
 // Parse a nonempty comma-separated language list; reject unknown, empty, or repeated names.

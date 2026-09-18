@@ -1,0 +1,17 @@
+# Complete every producer before any consumer; each consumer checks all five producers.
+set(cpp_command "${CPP}")
+set(java_command "${JAVA}" -cp "${CLASSES}" Main)
+set(js_command "${NODE}" "${JS}")
+set(go_command "${GO}")
+set(csharp_command "${DOTNET}" "${CSHARP}")
+foreach(mode IN ITEMS emit verify)
+  foreach(language IN ITEMS cpp java js go csharp)
+    execute_process(COMMAND ${${language}_command} "${FIXTURES}" "${mode}"
+      RESULT_VARIABLE result OUTPUT_VARIABLE output ERROR_VARIABLE error TIMEOUT 45)
+    if(NOT result EQUAL 0)
+      message(FATAL_ERROR "${language} ${mode} failed (${result}):\n${output}\n${error}")
+    endif()
+    message(STATUS "${output}")
+  endforeach()
+endforeach()
+message(STATUS "Verified 5 producers x 5 consumers x 4 protocols x 3 union variants = 300 exchanges")

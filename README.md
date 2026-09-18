@@ -1,7 +1,9 @@
 # Serializer
 
-A C++20 schema compiler with C++ and pure Java output supporting JSON and three
-binary protocols. The C++ runtime API and default generated C++ use `snake_case`.
+A C++20 schema compiler with C++, Java, JavaScript/TypeScript, Go, and C# output
+supporting JSON and three binary protocols. The compiler and all generators remain
+entirely C++; generated portable codecs have no native runtime dependency. The
+C++ runtime API and default generated C++ use `snake_case`.
 Opt-in C++ codecs also support **Protobuf binary, ProtoJSON, and TextProto** through
 compile-time protocol templates, for both encoding and decoding. See
 [Protobuf codecs](docs/protobuf.md) for generation, schema mappings, and limitations.
@@ -305,7 +307,8 @@ platform checks and benchmarks.
 ### Output language and coding standard
 
 Keep target-language settings in a generator config, separate from the `.serializer`
-schema. Both C++ and Java output are implemented. For C++:
+schema. C++, Java, JavaScript, Go, and C# output are implemented, with optional
+TypeScript declarations for JavaScript. For C++:
 
 ```ini
 [output]
@@ -363,6 +366,27 @@ Enable `SERIALIZER_BUILD_JAVA_EXAMPLES=ON` to generate and compile the
 [Java examples](example/java/README.md) with JDK 17+. With tests enabled, CTest
 also runs malformed-input and two-way C++/Java compatibility checks. Every C++
 and Java style example has its own schema, config, and consumer folder.
+
+### JavaScript, Go, and C# output
+
+Generate standalone owning codecs for modern JavaScript, Go 1.22+, or .NET 8+:
+
+```sh
+serializer --input example/interoperability/message.serializer --language js,typescript,go,csharp --js.output schema.mjs --typescript.output schema.d.mts --go.output schema.go --csharp.output Schema.cs
+```
+
+Use `bigint` for JS 64-bit fields, `New<Type>()` for Go schema defaults, and the
+output filename's outer class for C#. These codecs implement the four native
+protocols, exact-message decoding, bounded input, and sorted map output. They
+use direct field access, pre-encoded keys, native switch dispatch, and explicit
+endian primitives. See [portable language APIs and limitations](docs/portable_languages.md).
+
+The [five-language example](example/interoperability/README.md) generates every
+language from one `.serializer` schema and verifies all producer/consumer pairs:
+300 exchanges across four protocols and three union alternatives. It includes
+Node and browser examples. Enable `SERIALIZER_BUILD_INTEROP_EXAMPLES=ON` to build
+it; target-language SDKs remain optional for ordinary compiler/runtime builds.
+See [verification and performance measurements](docs/verification-multilanguage-2026-09-17.md).
 
 ### CMake consumer integration
 

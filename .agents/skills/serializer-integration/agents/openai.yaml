@@ -1,6 +1,6 @@
 interface:
   display_name: "Serializer Integration"
-  short_description: "Integrate schemas, codecs, compression, and compatibility"
+  short_description: "Integrate C++, Java, JS, Go, and C# schemas and codecs"
 
 policy:
   allow_implicit_invocation: true

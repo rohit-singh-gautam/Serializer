@@ -1,7 +1,10 @@
 # Using Serializer in a C++ application
 
 For pure Java generation and runtime usage, see [Java output](java.md) and the
-[Java examples](../example/java/README.md). The workflow below is for C++.
+[Java examples](../example/java/README.md). For JavaScript/TypeScript, Go, and C#,
+see [portable language usage](portable_languages.md) and the
+[five-language interoperability example](../example/interoperability/README.md).
+All outputs share the C++ schema compiler. The workflow below is for C++.
 
 For Protobuf binary, ProtoJSON, or TextProto, enable `[cpp] protobuf = true` in
 the generator config and use `protobuf_binary`, `protojson`, or `textproto` as the

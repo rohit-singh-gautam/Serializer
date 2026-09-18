@@ -12,3 +12,6 @@ Generated output stays in the build tree.
 - [Java examples](java/README.md): a runnable pure Java round trip and three style profiles.
 - [Schema includes](includes/README.md): three paired C++/Java examples for shared
   types, reopened namespaces, and repeated/diamond includes.
+- [Five-language interoperability](interoperability/README.md): one shared schema,
+  independent C++/Java/JS/Go/C# producers and consumers, all 25 language pairs,
+  four protocols, a browser example, and optional throughput measurements.

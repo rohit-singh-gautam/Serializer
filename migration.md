@@ -11,6 +11,20 @@ See [compression verification](docs/verification-compression-2026-09-17.md).
 See the dated [verification record](docs/verification-2026-09-17.md) for the source
 revision, configurations, passing checks, and remaining validation work.
 
+## Additional native output languages
+
+JavaScript/TypeScript, Go, and C# output can be generated alongside existing C++
+and Java using the same C++ compiler. Existing wire bytes and CLI defaults are
+unchanged. Follow [portable language mappings](docs/portable_languages.md) when
+sharing schemas: use portable literal defaults and the common owning subset.
+Regenerate JS and declarations together. Generate one combined entry per Go
+package, and use generated constructors to apply schema defaults.
+
+C++ generation now spells the signed 64-bit minimum as a representable signed
+expression and adds an unsigned suffix to decimal `uint64` defaults. Regenerate
+headers using those defaults to avoid compiler-dependent literal diagnostics.
+Values and encoded bytes are unchanged.
+
 ## Optional compatibility checks and exact decoding
 
 Schema evolution checks are a separate read-only compiler mode:

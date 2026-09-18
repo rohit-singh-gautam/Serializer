@@ -208,8 +208,25 @@ std::string naming::full_type_name(const syntax_node* node) const {
   return "::" + result;
 }
 
-// Literal defaults are language-neutral enough to retain; declared enum references are resolved.
+// Retain C++ expressions, spell 64-bit boundary literals portably, and resolve enum names.
 std::string naming::default_value(const member& field) const {
+  if (field.modifier == member::modifier_type::none && !field.type_name_list.empty()) {
+    const auto first = field.default_value.find_first_not_of(" \t\r\n");
+    if (first != std::string::npos) {
+      const auto last = field.default_value.find_last_not_of(" \t\r\n");
+      const auto literal = field.default_value.substr(first, last - first + 1);
+      const auto& type = field.type_name_list.front();
+      // The positive magnitude of INT64_MIN is not a signed C++ decimal literal.
+      if (type.type == object_type::primitive && type.name == "int64" &&
+          literal == "-9223372036854775808") {
+        return "(-9223372036854775807LL - 1)";
+      }
+      if (type.type == object_type::primitive && type.name == "uint64" &&
+          std::all_of(literal.begin(), literal.end(), digit)) {
+        return literal + "ULL";
+      }
+    }
+  }
   if (!options.rename_identifiers || field.default_value.empty()) {
     return field.default_value;
   }

@@ -3,8 +3,8 @@
 Keep output choices in the **generator configuration**, separate from `.serializer` schemas.
 Schemas define names, IDs, types, defaults, and representations. Each application can
 select a language backend and its presentation rules without changing that contract.
-The **C++ and Java backends** are implemented. Other language names and sections
-are rejected. Java has independent `serializer`, `google`, and `oracle` profiles;
+The **C++, Java, JavaScript, Go, and C# backends** are implemented. The
+`typescript` output emits declarations for JS. Other language names are rejected. Java has independent `serializer`, `google`, and `oracle` profiles;
 see [Java configuration and profile scope](java.md#java-coding-styles). The C++
 configuration below remains the default.
 
@@ -37,7 +37,7 @@ short options, version reporting, and required `.serializer` version headers.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `[output] language` | `cpp` | Select `cpp`, `java`, or `cpp,java`; CLI spelling is `--language`. |
+| `[output] language` | `cpp` | Select `cpp`, `java`, `js`, `typescript`, `go`, `csharp`, or a comma-separated list. |
 | `[cpp] coding_standard` | `serializer` | Select a profile from the table below. |
 | `[cpp] naming` | `profile` | Rename target identifiers; `preserve` retains schema spellings. |
 | `[cpp] protobuf` | `false` | Generate direct Protobuf binary, ProtoJSON, and TextProto codecs; validate the [compatible schema subset](protobuf.md). |
@@ -195,3 +195,16 @@ generated, compiled, and executed on Windows during Java backend verification.
 Generator/configuration tests passed. The full C++ unit suite still has four
 failures; see the [verification notes](java.md#verification-performed-for-this-implementation).
 These checks do not establish whole-standard compliance or benchmark performance.
+
+## JavaScript, Go, and C# settings
+
+`[js]`, `[go]`, and `[csharp]` accept `naming = profile|preserve`. The default is
+native profile naming; no external formatter is invoked. TypeScript declarations
+share `[js]` settings. `[go] package` defaults to `generated`; `[csharp] namespace`
+defaults to `SerializerGenerated`. CLI overrides are `--js.naming`, `--go.naming`,
+`--go.package`, `--csharp.naming`, and `--csharp.namespace`. The optional C#
+namespace can be cleared with `--csharp.namespace=`.
+
+Use `--js.output`, `--typescript.output`, `--go.output`, and `--csharp.output` for
+multi-language destinations. The [portable language guide](portable_languages.md)
+covers naming, native type mappings, runtime APIs, and supported schema shapes.

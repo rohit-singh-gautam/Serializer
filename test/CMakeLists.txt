@@ -30,6 +30,7 @@ add_executable(core_serializer_test
   binary_view_iterator_test.cpp
   output_options_test.cpp
   java_writer_test.cpp
+  portable_writer_test.cpp
 )
 serializer_generate(TARGET core_serializer_test
   SCHEMAS ${schemas}
@@ -163,3 +164,12 @@ add_test(NAME serializer_clang_format_discovery
 if(SERIALIZER_BUILD_JAVA_EXAMPLES)
   include(java_tests.cmake)
 endif()
+
+if(SERIALIZER_BUILD_INTEROP_EXAMPLES)
+  include(portable_tests.cmake)
+endif()
+
+add_test(NAME serializer_portable_cli
+  COMMAND "${CMAKE_COMMAND}" "-DGENERATOR=$<TARGET_FILE:serializer>"
+    "-DDIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/portable_cli"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/portable_cli.cmake")

@@ -179,18 +179,27 @@ std::string_view coding_standard_name(coding_standard standard) {
 
 // Keep Java profile parsing independent from C++ presentation rules.
 java_coding_standard parse_java_coding_standard(std::string_view name) {
-  if (name == "serializer") { return java_coding_standard::serializer; }
-  if (name == "google") { return java_coding_standard::google; }
-  if (name == "oracle") { return java_coding_standard::oracle; }
+  if (name == "serializer") {
+    return java_coding_standard::serializer;
+  }
+  if (name == "google") {
+    return java_coding_standard::google;
+  }
+  if (name == "oracle") {
+    return java_coding_standard::oracle;
+  }
   throw std::invalid_argument{"Unknown Java coding standard: " + std::string{name}};
 }
 
 // Reject invalid profile values supplied by library callers.
 std::string_view java_coding_standard_name(java_coding_standard standard) {
   switch (standard) {
-  case java_coding_standard::serializer: return "serializer";
-  case java_coding_standard::google: return "google";
-  case java_coding_standard::oracle: return "oracle";
+  case java_coding_standard::serializer:
+    return "serializer";
+  case java_coding_standard::google:
+    return "google";
+  case java_coding_standard::oracle:
+    return "oracle";
   }
   throw std::invalid_argument{"Unknown Java coding standard"};
 }
@@ -202,7 +211,8 @@ std::vector<std::string> parse_output_languages(std::string_view names) {
   while (true) {
     const auto separator = names.find(',');
     const std::string name{trim(names.substr(0, separator))};
-    if (name != "cpp" && name != "java") {
+    if (name != "cpp" && name != "java" && name != "js" && name != "typescript" && name != "go" &&
+        name != "csharp") {
       throw std::invalid_argument{"Unsupported output language: " + name};
     }
     if (!seen.insert(name).second) {
@@ -237,7 +247,9 @@ output_options read_output_options(const std::filesystem::path& file) {
       }
       if (text.front() == '[' && text.back() == ']') {
         section = trim(text.substr(1, text.size() - 2));
-        if ((section != "output" && section != "cpp" && section != "java") || !sections.insert(section).second) {
+        if ((section != "output" && section != "cpp" && section != "java" && section != "js" &&
+             section != "go" && section != "csharp") ||
+            !sections.insert(section).second) {
           throw std::invalid_argument{"Unknown or repeated section: " + section};
         }
         continue;
@@ -263,6 +275,16 @@ output_options read_output_options(const std::filesystem::path& file) {
       if (section == "output" && key == "language") {
         result.language = value;
         parse_output_languages(value);
+      } else if ((section == "js" || section == "go" || section == "csharp") && key == "naming") {
+        if (value != "profile" && value != "preserve") {
+          throw std::invalid_argument{"Expected naming = profile or preserve"};
+        }
+        auto& settings = section == "js" ? result.js : section == "go" ? result.go : result.csharp;
+        settings.rename_identifiers = value == "profile";
+      } else if (section == "go" && key == "package") {
+        result.go.package_name = value;
+      } else if (section == "csharp" && key == "namespace") {
+        result.csharp.namespace_name = value;
       } else if (section == "cpp" && key == "protobuf") {
         result.cpp.protobuf = read_bool(value);
       } else if (section == "java" && key == "coding_standard") {

@@ -1,0 +1,42 @@
+# Optional target-language qualification; no target SDK is required for the C++ compiler.
+set(portable_directory "${CMAKE_CURRENT_BINARY_DIR}/portable")
+file(MAKE_DIRECTORY "${portable_directory}/javascript" "${portable_directory}/go" "${portable_directory}/csharp")
+foreach(language IN ITEMS js typescript go csharp)
+  if(language STREQUAL "js")
+    set(output "${portable_directory}/javascript/schema.mjs")
+  elseif(language STREQUAL "typescript")
+    set(output "${portable_directory}/javascript/schema.d.mts")
+  elseif(language STREQUAL "go")
+    set(output "${portable_directory}/go/schema.go")
+  else()
+    set(output "${portable_directory}/csharp/Schema.cs")
+  endif()
+  serializer_generate_source(TARGET serializer_portable_${language}_schema
+    SCHEMA portable/coverage.serializer OUTPUT "${output}" LANGUAGE "${language}"
+    OPTIONS --go.package main)
+endforeach()
+configure_file(portable/codec_test.mjs "${portable_directory}/javascript/codec_test.mjs" COPYONLY)
+configure_file(portable/consumer.mts "${portable_directory}/javascript/consumer.mts" COPYONLY)
+configure_file(portable/codec_test.go "${portable_directory}/go/codec_test.go" COPYONLY)
+configure_file("${PROJECT_SOURCE_DIR}/example/interoperability/go/go.mod" "${portable_directory}/go/go.mod" COPYONLY)
+configure_file(portable/CodecTest.cs "${portable_directory}/csharp/CodecTest.cs" COPYONLY)
+configure_file("${PROJECT_SOURCE_DIR}/example/interoperability/csharp/Interop.csproj" "${portable_directory}/csharp/Interop.csproj" COPYONLY)
+set(codec_dll "${portable_directory}/csharp/bin/Release/net8.0/Interop.dll")
+find_program(serializer_portable_node NAMES node REQUIRED)
+find_program(serializer_portable_go NAMES go REQUIRED)
+find_program(serializer_portable_dotnet NAMES dotnet REQUIRED)
+add_custom_command(OUTPUT "${codec_dll}"
+  COMMAND "${serializer_portable_dotnet}" build "${portable_directory}/csharp/Interop.csproj" --configuration Release -p:Platform=AnyCPU --nologo -v:q
+  DEPENDS "${portable_directory}/csharp/Schema.cs" "${portable_directory}/csharp/CodecTest.cs" "${portable_directory}/csharp/Interop.csproj" VERBATIM)
+add_custom_target(serializer_portable_codec_tests ALL DEPENDS "${codec_dll}")
+add_dependencies(serializer_portable_codec_tests serializer_portable_js_schema
+  serializer_portable_typescript_schema serializer_portable_go_schema serializer_portable_csharp_schema)
+add_test(NAME serializer_js_codecs COMMAND "${serializer_portable_node}" "${portable_directory}/javascript/codec_test.mjs")
+add_test(NAME serializer_go_codecs COMMAND "${serializer_portable_go}" test -count=1 ./...)
+set_tests_properties(serializer_go_codecs PROPERTIES WORKING_DIRECTORY "${portable_directory}/go")
+add_test(NAME serializer_csharp_codecs COMMAND "${serializer_portable_dotnet}" "${codec_dll}")
+find_program(serializer_tsc NAMES tsc tsc.cmd)
+if(serializer_tsc)
+  add_test(NAME serializer_typescript_declarations COMMAND "${serializer_tsc}" --strict --noEmit
+    --target ES2020 --module NodeNext --moduleResolution NodeNext "${portable_directory}/javascript/consumer.mts")
+endif()

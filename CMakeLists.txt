@@ -19,6 +19,7 @@ option(SERIALIZER_BUILD_STYLE_EXAMPLES "Build one example for each C++ output pr
 option(SERIALIZER_BUILD_IOSTREAM_EXAMPLES "Build standard and custom iostream examples" OFF)
 option(SERIALIZER_BUILD_COMPRESSION_EXAMPLES "Build examples for enabled message compression formats" OFF)
 option(SERIALIZER_BUILD_JAVA_EXAMPLES "Generate and compile pure Java examples (JDK 17+)" OFF)
+option(SERIALIZER_BUILD_INTEROP_EXAMPLES "Build five-language examples and interoperability tests" OFF)
 option(SERIALIZER_INSTALL "Install the library, compiler, and CMake integration" ${PROJECT_IS_TOP_LEVEL})
 option(SERIALIZER_ENABLE_SIMD "Accelerate schema scanning and runtime codecs on supported CPUs" ON)
 option(SERIALIZER_WITH_ZSTD "Enable standard Zstandard frame compression" OFF)
@@ -36,6 +37,10 @@ add_library(serializer_lib
   src/simd_dispatch.hpp
   src/runtime_simd.cpp
   src/cpp_writer.cpp
+  src/portable_writer.cpp
+  src/js_runtime.inc
+  src/go_runtime.inc
+  src/csharp_runtime.inc
   src/java_writer.cpp
   src/java_runtime.inc
   src/cpp_type_mapping.cpp
@@ -109,6 +114,7 @@ add_executable(Serializer::serializer ALIAS serializer)
 # The same generation API is available from add_subdirectory and the installed package.
 include(cmake/serializer_generate.cmake)
 include(cmake/serializer_generate_java.cmake)
+include(cmake/serializer_generate_source.cmake)
 
 if(SERIALIZER_INSTALL)
   include(CMakePackageConfigHelpers)
@@ -133,6 +139,7 @@ if(SERIALIZER_INSTALL)
   install(FILES "${CMAKE_CURRENT_BINARY_DIR}/SerializerConfig.cmake"
     "${CMAKE_CURRENT_BINARY_DIR}/SerializerConfigVersion.cmake"
     cmake/serializer_generate.cmake cmake/serializer_generate_java.cmake
+    cmake/serializer_generate_source.cmake
     cmake/serializer_compression.cmake
     DESTINATION "${serializer_package_directory}")
   install(FILES LICENSE DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/Serializer")
@@ -160,7 +167,7 @@ if(SERIALIZER_BUILD_TESTS OR SERIALIZER_BUILD_BENCHMARKS OR SERIALIZER_BUILD_FUZ
 endif()
 
 if(SERIALIZER_BUILD_TESTS OR SERIALIZER_BUILD_FUZZERS OR SERIALIZER_BUILD_IOSTREAM_EXAMPLES
-    OR SERIALIZER_BUILD_COMPRESSION_EXAMPLES)
+    OR SERIALIZER_BUILD_COMPRESSION_EXAMPLES OR SERIALIZER_BUILD_INTEROP_EXAMPLES)
   enable_testing()
 endif()
 if(SERIALIZER_BUILD_TESTS)
@@ -190,4 +197,8 @@ endif()
 
 if(SERIALIZER_BUILD_TESTS OR SERIALIZER_BUILD_STYLE_EXAMPLES OR SERIALIZER_BUILD_JAVA_EXAMPLES)
   add_subdirectory(example/includes)
+endif()
+
+if(SERIALIZER_BUILD_INTEROP_EXAMPLES)
+  add_subdirectory(example/interoperability)
 endif()

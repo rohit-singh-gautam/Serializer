@@ -1,5 +1,14 @@
 # CMake integration for consumers
 
+For JS, TypeScript declarations, Go, or C# source generation, use
+`serializer_generate_source(TARGET name SCHEMA file OUTPUT generated/schema.go
+LANGUAGE go OPTIONS --go.package application)`. It uses the same C++ host
+compiler and tracks transitive includes through depfiles. The helper ships with
+both `add_subdirectory` and installed packages; attach the target-language build
+as a dependent consumer step. See [portable output integration](portable_languages.md#build-integration-and-verification)
+and the [five-language example](../example/interoperability/README.md).
+
+
 For Java source generation, use `serializer_generate_java(TARGET name SCHEMA file
 OUTPUT Schema.java CONFIG java.ini)`. This creates a generation target without
 linking a C++ runtime into the application. See [Java CMake usage](java.md#cmake-and-verification).

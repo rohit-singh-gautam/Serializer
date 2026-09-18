@@ -59,9 +59,16 @@ values, and repeated non-repeatable options are errors.
 | `--output` | `-o` | Output file for exactly one selected language |
 | `--depfile` | | Optional Make-style dependency file for all selected outputs and their transitive schema/configuration inputs |
 | `--config` | `-c` | Optional generator INI configuration |
-| `--language` | `-l` | `cpp`, `java`, or a comma-separated list; repeatable |
+| `--language` | `-l` | `cpp`, `java`, `js`, `typescript`, `go`, `csharp`, or a comma-separated list; repeatable |
 | `--cpp.output` | | C++ `.h`, `.hpp`, or `.hxx` destination |
 | `--java.output` | | Java `.java` destination; filename supplies the outer class |
+| `--js.output` | | JavaScript ES module `.js` or `.mjs` destination |
+| `--typescript.output` | | Companion `.d.ts` or `.d.mts` declarations, using JS naming |
+| `--go.output` | | Standalone Go `.go` destination |
+| `--csharp.output` | | C# `.cs` destination; filename supplies outer class |
+| `--js.naming`, `--go.naming`, `--csharp.naming` | | `profile` or `preserve` |
+| `--go.package` | | Go package name, default `generated` |
+| `--csharp.namespace` | | C# namespace, default `SerializerGenerated`; empty clears it |
 | `--cpp.coding_standard` | | `serializer`, `core`, `google`, `llvm`, `gnu`, `cert`, `misra`, `autosar`, `qt` |
 | `--cpp.naming` | | `profile` or `preserve` |
 | `--cpp.format` | | `true` or `false` |
@@ -154,3 +161,12 @@ That historical implementation run retained four failures:
 `serialize_parser.access_type`, and `binary_view.edits_preserve_the_encoded_layout`.
 The later [verification record](verification-2026-09-17.md) records a passing full
 suite for its identified snapshot. No performance qualification is claimed here.
+
+## Portable native output
+
+`--language cpp,java,js,typescript,go,csharp` generates all five runtime languages
+and JS declarations from one parsed schema. Supply a distinct language-specific
+output path for each. JS/Go/C# generation is implemented in the C++ compiler and
+does not launch a target SDK. Their SDKs are only needed by applications and
+optional tests. See [portable languages](portable_languages.md) for native APIs,
+configuration, default construction, and common-schema limitations.
