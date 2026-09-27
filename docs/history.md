@@ -11,6 +11,9 @@ The companion [managed-state proposal](managed_state.md) develops authorization,
 merging, collaboration, distributed transactions, and external-effect boundaries.
 Both proposals use `managed` / `model_store` for the broader capability, with
 history as an optional feature. See its feature-selection and root-inference rules.
+The [application examples](managed_examples.md) cover a cylinder with a hole,
+accounting, a wordpad-style editor, and other domains. Graphics is an example,
+not a dependency or a restriction on the model.
 
 The schema and behavior contracts are language independent and intended for all
 supported output languages. C++ examples illustrate one possible API; an initial
@@ -64,8 +67,11 @@ recursively contain its own history.
 Only independently addressable entities require object IDs. An embedded point can
 remain part of its owning shape; changing that point then changes the shape's
 snapshot. A separately shared point needs its own ID and references from its users.
-Independently registered children should be represented by ID in parent records,
-so one transaction does not restore overlapping copies of the same entity.
+Independently registered children have identity links in the logical parent record,
+so one transaction does not restore overlapping copies of the same entity. A
+physical record may encode those links through a shared identity table and relative
+field IDs instead of repeating each full persistent ID; see
+[compact records](#compact-records-without-losing-identity).
 For changed-object history, a root/owner record covers its ordinary fields and
 collection membership metadata, while managed entity records cover their payloads.
 A whole-root checkpoint can include the entire collection; the initial snapshot
@@ -76,6 +82,110 @@ transaction candidates for writing. Callers must not retain mutable references,
 pointers, iterators, or mutable views obtained during an edit callback. After a
 commit or history navigation, callers resolve IDs again rather than relying on
 object addresses or container positions remaining unchanged.
+
+## Ownership and custom allocation
+
+The store controls managed-object lifetime. Application-supplied allocators provide
+storage without taking over that lifetime. Logical containment and physical storage
+ownership are separate: a difference owns its two cylinders logically, while the
+store coordinates their creation, publication, deletion, and historical versions.
+
+| Component | Lifetime responsibility |
+| --- | --- |
+| Application | Own the store, detached ordinary values, and any borrowed allocation resources. |
+| Model store | Own committed managed state, identity metadata, and retained history. |
+| Transaction | Own its private candidate; commit transfers the required storage into committed state, while revert discards it. |
+| Managed parent | Define containment and lifecycle relationships; it need not allocate each child separately. |
+| Allocation resource | Supply and reclaim storage when requested by the owning runtime component. |
+| Editor handle or entity ID | Locate an entity without owning its memory or extending its lifetime. |
+
+Applications request deletion through a transaction; they do not directly free
+managed objects or retain mutable aliases into store-owned state. Removing a live
+entity and reclaiming its historical payloads are separate decisions. See
+[deleted objects](#deleted-from-the-model-retained-in-history).
+
+### Runtime allocation resources
+
+Propose runtime configuration with standard defaults, not another schema keyword.
+In C++, use `std::pmr::memory_resource` or an adapter to it for allocation with a
+byte count and alignment. Its public allocation/deallocation operations and custom
+resource requirements are described in the C++ working draft's
+[interface](https://eel.is/c++draft/mem.res.public) and
+[resource contract](https://eel.is/c++draft/mem.res.private).
+
+```cpp
+// Proposed API: application-provided resources outlive all allocations using them.
+model_options options{
+  .state_resource = &object_pool,
+  .history_resource = &history_pool,
+  .scratch_resource = &temporary_pool
+};
+
+model_store<design> store{design{}, options};
+```
+
+These API names are illustrative and unimplemented. All three resources may use
+the same provider; separating them is optional:
+
+| Resource | Intended allocations |
+| --- | --- |
+| State | Store nodes, identity metadata, and payload storage supporting allocator propagation. |
+| History | Revision records, encoded snapshots/deltas, and retained immutable payload blocks. |
+| Scratch | Temporary encoding, comparison, and validation buffers with bounded operation lifetimes. |
+
+Committed candidate data must already have a suitable allocation lifetime, be
+copied into state storage before publication, or transfer ownership of its entire
+allocation region. It must never depend on scratch storage reset at transaction
+exit. A transaction arena is safe only when every allocation follows this rule.
+
+Track allocation provenance: each block returns to its matching resource with
+the correct size and alignment. Any later change of defaults affects new
+allocations only. Allocation failure discards the private candidate without
+partial publication. Cleanup and deallocation must not throw or depend on new
+allocations to report failure. Returning memory to a pool need not immediately
+release its reserved capacity to the operating system.
+
+### Construction, destruction, and resource lifetime
+
+Generated code or an explicit type adapter constructs, clones, and destroys
+payloads; the resource supplies and releases their storage. RAII guards destroy
+successfully constructed subobjects after partial failure and release storage
+exactly once. An allocator alone cannot define application-object clone/restore
+semantics. Default insertion copies or safely transfers a detached value into
+store-owned state; it does not adopt arbitrary raw pointers. A future explicit
+ownership-transfer API would need a unique owner, a matching non-throwing cleanup
+operation, and defined clone/restore behavior without external mutable aliases.
+
+Borrowed resources must outlive every allocation using them, including candidates,
+retained history, and reader pins. Initially, pins and transactions must close
+before store destruction. Pins surviving the store would need an owning storage/
+resource token rather than a dangling resource pointer. Workers must finish or
+transfer ownership safely before shutdown. Resource thread-safety must match all
+threads that allocate or reclaim storage; writer-only pools cannot automatically
+be shared with compression workers.
+
+Detached `clone_value()` results use their normal allocation policy or a separately
+supplied output resource that outlives the clone. They must not borrow a store's
+internal arena. Never serialize allocator pointers, callbacks, or memory reference
+counts. Loading selects resources again; persistent entity ID allocation remains
+independent of allocating memory addresses.
+
+### Scope across generated languages
+
+A store resource does not automatically redirect allocations inside existing
+ordinary `std::string`, `std::vector`, or application objects. Initial hooks can
+cover runtime metadata and history buffers. Full payload control requires
+allocator-aware generated storage or construction/clone/destruction adapters,
+including propagation through nested containers and decoding. Keep existing
+ordinary layouts, APIs, and allocator choices unless the application explicitly
+selects another representation. Document allocations outside the hook's scope.
+
+Native backends can expose appropriate allocator or allocation-callback interfaces.
+Garbage-collected backends generally keep ordinary object allocation under their
+runtime and expose buffer pools or storage providers where supported. Report actual
+support per backend. The common contract is controlled ownership, deterministic
+release of explicit resources, and atomic failure behavior, not an identical
+`free()` operation in every language.
 
 ## Managed members and inferred generation support
 
@@ -154,7 +264,7 @@ feature selector. `exclude(history)` remains the explicit value-field exclusion,
 
 Apply each exclusion to the declared member subtree: `exclude(history)` excludes history;
 `transient` excludes both history and persistence. These exclusions compose, so a
-transient descendant of a `exclude(history)` member is still omitted from persistence. Nested
+transient descendant of an `exclude(history)` member is still omitted from persistence. Nested
 `managed` annotations within that occurrence remain dormant, just as they do
 under an ordinary untracked occurrence. Reject combinations of `managed(...)`,
 `exclude(...)`, and `transient` on the same member. Excluding a child value does not
@@ -232,7 +342,7 @@ entries when history is pruned and no live state needs them. Plain current-root
 saves do not preserve this hidden state or a resumable undo graph.
 
 For the first overlay implementation, support fields under the root or an
-identified owner reached through fixed member paths. A `exclude(history)` collection
+identified owner reached through fixed member paths. An `exclude(history)` collection
 can be excluded as a whole. Excluded fields inside a history-owned variable
 collection require stable entry addressing; a list index is not sufficient.
 Reject unsupported paths until their lifecycle binding is defined. Do not silently
@@ -312,18 +422,27 @@ independent property. Existing schemas retain their current wire contract.
 | Plain construction | Ordinary values, no store or implicit object IDs; persistence exclusions still apply. |
 | Managed construction | Store-owned identities; only marked entity edges activate tracked children. |
 | Mutation | All managed persistent writes use controlled access or isolated callbacks; direct aliases cannot bypass transaction capture. |
-| Transaction boundary | Explicit commit; failure or cancellation leaves both undoable and excluded committed state unchanged. |
+| Transaction boundary | Explicit commit or successful scoped completion; failure, exceptional exit, or cancellation leaves both undoable and excluded committed state unchanged. |
 | Snapshot and restore | The same persistence/history projections, defaults, overlay lifetime, and cache invalidation rules. |
 | IDs and wire formats | Stable encoded identities and field numbers; use each backend's lossless integer representation, never a lossy numeric conversion. |
 | Notifications | Publish a complete state transition before notifying; excluded-only changes can notify without a new revision. |
 
 Generated API spelling and cleanup mechanisms can be idiomatic. C++ can use RAII,
-Rust ownership and drop guards, Java/Kotlin/C# scoped cleanup, Python context
-managers, Go deferred cleanup, JavaScript/TypeScript `try/finally`, and C explicit
-abort/release functions. These are possible API designs, not implemented bindings.
-Garbage collection or finalizers must not be relied upon to close a transaction:
-require deterministic scoped cleanup or explicit abort and reject conflicting
-operations until the active transaction closes.
+Rust ownership and drop guards, Python context managers, and other backends a
+scoped callback, `try/finally`, or explicit completion API. These are possible API
+designs, not implemented bindings. Every binding must distinguish successful exit
+from failure and publish a visible completion result. A Java/C# disposal method,
+Go deferred call, or JavaScript `finally` block alone does not identify success:
+use a wrapper that captures the body outcome or an explicit success flag. A normal
+error return needs explicit cancellation; it is not an exception. C needs explicit
+finish/revert and release paths. Rust error returns also need a result-aware wrapper
+or explicit cancellation; panic detection alone is insufficient.
+
+Garbage collection or finalizers must not be relied upon to close a transaction.
+Use deterministic scoped cleanup and reject conflicting operations until the
+active transaction closes. Async bindings must await a scoped completion API;
+never start an unobserved asynchronous commit from a finalizer. See
+[RAII and completion failures](#scoped-completion-and-raii).
 
 Platform restoration (Android, desktop, web, or server restart) changes where and
 when data is saved, not which fields undo restores. Specify a portable versioned
@@ -484,7 +603,8 @@ Managed construction uses a transaction factory:
 model_store<project> project_store{
   project{}, history_options{.mode = history_mode::tree}};
 
-auto transaction = project_store.begin_transaction("Create release task");
+transaction_outcome transaction_result;
+auto transaction = project_store.begin_transaction("Create release task", transaction_result);
 const auto task_id = transaction.root().tasks().insert(draft);
 {
   tracked_task editor = transaction.root().tasks().edit(task_id);
@@ -545,7 +665,22 @@ data. Unsupported reference mappings must fail rather than infer identity from
 arbitrary integers. The empty-template example above avoids that reconciliation
 by inserting its checklist entries directly through the managed factory.
 
-## Cylinder representations and member identity policy
+## Graphics example: cylinder with a hole
+
+Use a difference operation owning an outer cylinder and a hole cylinder as the
+main geometry example. The difference and its operands are independently managed;
+positions usually remain ordinary cylinder-owned values. The
+[complete schema and grouped edit](managed_examples.md#graphics-a-cylinder-with-a-hole)
+show that resizing both operands is one action, while changing only the cutter
+addresses that cutter's identity. This is a generic object system: the same
+contracts apply to [accounting](managed_examples.md#accounting-accounts-and-draft-journal-entries)
+and [wordpad](managed_examples.md#wordpad-paragraphs-formatting-and-selection).
+
+The smaller comparisons below isolate one operand's representation and position
+policy. They explain an optional identity boundary, not a requirement that every
+coordinate have an ID.
+
+### Cylinder representations and member identity policy
 
 Generate parallel APIs from one schema: the ordinary owning value keeps its
 existing name, and the history-aware companion uses the `tracked_` prefix.
@@ -564,7 +699,7 @@ class cylinder stable_ids {
   public managed point position (3);
 }
 
-class accounting stable_ids {
+class cylinder_collection stable_ids {
   public managed map(uint64) cylinder cylinders (1);
 }
 ```
@@ -575,7 +710,7 @@ orientation as ordinary schema fields; those do not change the identity policy.
 The point-only examples elsewhere use `point_document`, a separate root type.
 
 Managed members imply capability for their declaring types and require eligible
-targets. The leaf point declares `managed` explicitly. Accounting owns identified
+targets. The leaf point declares `managed` explicitly. The collection owns identified
 cylinders and each cylinder owns an identified point. An ordinary `cylinder`,
 including one created outside any store, still contains an ordinary `point`.
 The schema author chooses these identity boundaries. Serializer validates and
@@ -612,7 +747,8 @@ to committed state. A proposed edit of the marked cylinder above would be:
 
 ```cpp
 // Group changes to the cylinder and its identified point into one undo step.
-auto transaction = store.begin_transaction("Resize and move cylinder");
+transaction_outcome transaction_result;
+auto transaction = store.begin_transaction("Resize and move cylinder", transaction_result);
 {
   auto editor = transaction.root().cylinders().edit(cylinder_id);
   editor.set_height(120);
@@ -624,7 +760,7 @@ auto transaction = store.begin_transaction("Resize and move cylinder");
 transaction.commit();
 ```
 
-The cylinder and point contribute separate object changes to one revision. The
+The cylinder and point contribute separate logical object changes to one revision. The
 point does not acquire its own history manager, undo stack, or transaction.
 If `position` is unmarked instead, its API is a scoped plain-value edit:
 
@@ -675,7 +811,7 @@ class cylinder stable_ids managed {
   public point position (3);
 }
 
-class accounting stable_ids {
+class cylinder_collection stable_ids {
   public managed map(uint64) cylinder cylinders (1);
 }
 ```
@@ -723,7 +859,7 @@ managed point. Measure costs rather than assuming a one-field edit always favors
 a delta.
 
 The initial whole-root snapshot backend and periodic whole-root checkpoints can
-save the entire accounting state, including unchanged cylinders. Thus "only the
+save the entire collection state, including unchanged cylinders. Thus "only the
 point is saved" describes the changed-object record for an isolated point edit,
 not a promise about every checkpoint, save operation, or physical byte written.
 
@@ -883,12 +1019,14 @@ point local{};
 translate(local, 1, 2);
 
 // Proposed history API: copy the coordinates into a newly identified entry.
-auto creation = store.begin_transaction("Add point");
+transaction_outcome creation_result;
+auto creation = store.begin_transaction("Add point", creation_result);
 const auto point_id = creation.root().points().insert(local);
 creation.commit();
 
 // The same value-only operation edits a private candidate in one undo step.
-auto transaction = store.begin_transaction("Translate point");
+transaction_outcome transaction_result;
+auto transaction = store.begin_transaction("Translate point", transaction_result);
 transaction.update(point_id, [](point& candidate) {
   translate(candidate, 3, 4);
 });
@@ -931,12 +1069,14 @@ model_store<point_document> store{
   point_document{}, history_options{.mode = history_mode::tree}};
 
 // Insert one entity; the managed collection allocates its persistent ID.
-auto creation = store.begin_transaction("Add point");
+transaction_outcome creation_result;
+auto creation = store.begin_transaction("Add point", creation_result);
 const auto point_id = creation.root().points().insert(point{});
 creation.commit();
 
 // Both setters contribute to one transaction and one undo step.
-auto transaction = store.begin_transaction("Move point");
+transaction_outcome transaction_result;
+auto transaction = store.begin_transaction("Move point", transaction_result);
 {
   auto editor = transaction.root().points().edit(point_id);
   editor.set_x(10);
@@ -1154,7 +1294,8 @@ application methods without changing the generator:
 
 ```cpp
 // Proposed API: move a point as one user action, using a private candidate.
-auto transaction = store.begin_transaction("Move point");
+transaction_outcome transaction_result;
+auto transaction = store.begin_transaction("Move point", transaction_result);
 
 transaction.update(point_id, [](auto& value) {
   value.x = 10;
@@ -1280,15 +1421,92 @@ and invitations remain application responsibilities.
 4. **Commit:** publish the candidate root and its new history cursor together using
    a prepared, non-throwing state transition. A partially updated root must never
    become visible with an old history cursor.
-5. **Abort:** discard the candidate. Explicit cancellation, failed preparation, or
-   destruction of an uncommitted transaction leaves committed data and history
-   unchanged. The ID allocator may still have advanced.
+5. **Revert/abort:** discard the candidate on explicit cancellation, exceptional
+   scope exit, failed editing, or failed preparation. Committed data and history
+   remain unchanged. The ID allocator may still have advanced.
 
-RAII destruction aborts; it does not implicitly commit. Abort should discard
-private state rather than require allocating memory or decoding an undo record
-from a destructor. Application validation can run at commit so temporary candidate
-states, such as updating only one coordinate, need not satisfy every object-level
-invariant. Individual writes still enforce their own type and bounds requirements.
+Normal scope exit attempts commit unless the transaction has already committed,
+reverted, or failed. This revises the earlier abort-on-destruction proposal.
+Application validation runs on the completed candidate, so temporary states such
+as updating only one operand need not satisfy every object-level invariant.
+Individual writes still enforce their own type and bounds requirements.
+
+### Scoped completion and RAII
+
+Propose `begin_transaction(label, outcome)` returning a move-only RAII transaction.
+The required `transaction_outcome` is caller-owned, initialized before the
+transaction, and must outlive it. It records pending, committed, no-change,
+reverted, or failed status, with an optional revision ID and structured error.
+Explicit `commit()` returns the resulting revision token where applicable and
+reports failures to its caller; it also fills the outcome. Destruction uses the
+same validation and publication path but never throws. Earlier explicit-commit
+examples remain valid; automatic completion removes the requirement to call
+`commit()` merely to close a successful scope.
+
+```cpp
+// Proposed API: resize both operands and observe scope-completion failure.
+transaction_outcome outcome;
+{
+  auto transaction = store.begin_transaction("Resize hollow cylinder", outcome);
+  auto part = transaction.root().parts().edit(difference_id);
+  part.outer().set_height(120);
+  part.hole().set_height(120);
+} // Attempt commit once on successful scope exit.
+outcome.throw_if_failed();
+```
+
+| Exit condition | Required behavior |
+| --- | --- |
+| Normal scope exit with active, healthy candidate | Attempt prepare and commit; write the outcome. |
+| `transaction.revert()` | Discard the whole pending action and close it; destructor cannot commit it. |
+| Explicit `commit()` succeeds | Close once; later destruction only releases resources. |
+| Validation, policy, allocation, or encoding failure | Discard candidate; mark failed and report the error; never retry implicitly. |
+| Exception unwinds the transaction scope | Revert; do not commit a partially executed action. |
+| Transaction is moved | Transfer sole cleanup responsibility; moved-from guard becomes inert. |
+
+Keep `revert()` distinct from `store.undo()`: revert cancels an unpublished action;
+undo navigates an already committed revision. `abort()` can be a documented alias
+for revert rather than a second semantic operation. Reverting individual writes
+or supporting savepoints would be a separate API. A canceled/reverted outcome is
+observable even when it is not treated as a commit error.
+
+For C++, implement the destructor as `noexcept`; record the uncaught-exception
+count at construction and compare it at destruction on the same execution thread.
+Reject starting a transaction during stack unwinding. Any exception escaping the scope triggers rollback; a failed managed
+edit poisons the transaction even if the caller catches that failure inside the
+scope. An
+application error handled entirely inside the scope must call `revert()` if it
+invalidates the action; the guard cannot infer that from arbitrary control flow.
+The C++ working draft describes [stack unwinding](https://eel.is/c++draft/except.ctor)
+and [`uncaught_exceptions`](https://eel.is/c++draft/uncaught.exceptions).
+
+Prepare can still fail during normal destruction. Catch failures internally,
+release private resources, and record at least a fixed error code without further
+allocation in the already allocated outcome. Never silently present failed
+completion as success. The application must inspect the outcome after the scope,
+or use explicit `commit()` before returning success or launching a dependent
+operation. In particular, return expressions are evaluated before local guards
+are destroyed; a return computed inside the scope cannot report its later commit
+result. Process termination/crash is not a guaranteed cleanup path or a durable
+save. Do not perform file/network effects from the transaction destructor.
+
+Use RAII for candidate storage, locks, buffers, pins, and observer connections as
+well as the transaction guard. Candidate discard must not allocate or decode an
+inverse record. Close the writer slot on every failure path. Keep editor handles
+non-owning and scoped; disallow copying guards, cross-thread moves, and implicit
+completion of an existing active guard through move assignment. Failed begin
+must release everything acquired before it failed. The store and outcome must
+outlive their guard. Other backends must provide the equivalent deterministic
+contract described in the [language section](#contract-across-generated-languages).
+
+RAII alone does not bound retained history. Use one explicit store owner for the
+revision graph, IDs or non-owning links for parent/child relationships, and counted
+immutable pins where needed. Avoid cycles of owning pointers between the store,
+transactions, entities, and revisions. Pruning must release unreachable records;
+externally pinned revisions count toward the budget rather than appearing as
+unexplained leaks.
+
+### Grouping and history navigation
 
 Helper functions should receive the current transaction to join a larger action.
 Opening a second transaction on the same store is rejected in the initial version.
@@ -1386,6 +1604,144 @@ ID allocation follows the same non-reuse principle. Restoring an old file backup
 or forking a file for independent editing requires an explicit allocation-namespace
 policy if identities from the different copies might later meet.
 
+## Compact records without losing identity
+
+Persistent identity is a logical guarantee, not a requirement to repeat a UUID or
+object number beside every payload. Optimize the history envelope independently
+of the ordinary serializer payload and the entity ownership model.
+
+For a difference D owning cylinders O and H, a transaction that changes D's label
+and both operands may use one subtree record. A conceptual base identity table is:
+
+```text
+namespace: document_uuid
+base_revision: R10
+root_entity: D
+identity_bindings:
+  [field(2)] -> O
+  [field(3)] -> H
+changes:
+  []         -> D's changed ordinary fields
+  [field(2)] -> O's changed payload
+  [field(3)] -> H's changed payload
+```
+
+This is an illustrative envelope, not new `.serializer` grammar. Store a document
+namespace once and use compact local numbers or dictionary indexes. If retained
+revision R10 already contains these bindings and ownership has not changed, the
+transaction record can omit `identity_bindings` and encode children using only
+stable field paths. Decode the paths against that exact base revision's identity
+table, then recover canonical O/H identities before authorization, conflict
+checking, or notifications. Do not resolve a historic path against today's tree.
+
+The persistent child ID still exists in the checkpoint, identity dictionary, or
+creation/ownership record. A field ID identifies a slot, not the entity that has
+occupied it over time. Replacing H with H2 needs an explicit identity/link change;
+moving H preserves H but changes its path. Insertions must introduce fresh IDs,
+and deletion/undo must retain the old binding. Collection entries need an entity
+number, a stable key binding, or another validated element locator: a collection's
+field ID alone cannot distinguish its entries. Use explicit IDs whenever the
+necessary base mapping is absent or ambiguous.
+
+A decoder must reconstruct both before and after identity graphs exactly. Persist
+the base revision and record-format version, validate paths/types/uniqueness, and
+retain dependent dictionaries/checkpoints during pruning. Checkpoint compaction
+must rewrite dependencies before discarding their bases. Exporting a standalone
+revision must include the mappings needed to decode it. This is lossless ID
+compression, not removal of identity from managed objects.
+
+Packing parent and child changes together must not apply a child's payload twice.
+Choose one authoritative payload encoding per entity per side of the transaction;
+an optional index may point into that packed record. Permissions and logical
+changed-entity notifications remain per entity, even when the bytes are grouped.
+The same optimization applies to an entry with managed lines or a document with
+managed paragraphs; it is not specific to geometry.
+
+## Deleted from the model, retained in history
+
+Deletion removes an entity from the current ownership tree and live registry; it
+does not necessarily remove every stored version of that entity. For example,
+deleting difference D removes its exclusively owned O and H operands from the
+live design. A revision before deletion can still retain all three for undo.
+
+| Operation | Expected behavior |
+| --- | --- |
+| Current-state lookup of deleted H | Return not present; do not expose an editable historical object. |
+| Read H in an explicitly selected retained revision | Return that revision's immutable value if available and permitted. |
+| Undo the deletion | Restore the required subtree, links, payloads, and original D/O/H identities atomically. |
+| Create another hole | Allocate a new identity; neither equal values nor the old slot imply reuse. |
+| Save current state only | Omit deleted history-only entities; do not promise resumable undo. |
+| Save resumable history | Retain the snapshots/deltas and identity bindings needed to reconstruct the deleted entities. |
+
+A tombstone can describe deletion and preserve references to recovery records;
+it cannot recreate the object by itself without a retained payload or replay path.
+A future collaboration adapter may require deletion evidence until its protocol
+allows collection, independently of local undo pruning.
+
+Do not keep a mutable live object or graphics resource allocated merely because
+its ID appears in history. Serialized records, immutable shared payload blocks,
+or other bounded recovery data are sufficient. Release live caches/resources with
+RAII; rebuild them when restoring. References from surviving live objects follow
+the declared policy: reject deletion, remove/update references in the same
+transaction, or permit explicitly optional unresolved links. Owning cascades must
+also pass descendant authorization.
+
+An entity can be absent in one branch and present in another. Reclaim retained
+payloads only when no live state, retained revision/checkpoint, active candidate,
+explicit reader pin, or required recovery/replication record depends on them.
+Retain the excluded-state overlay while undo can restore its owner. Physical
+reclamation never rewinds the ID allocator or permits ordinary ID reuse. Account
+for retention and temporary buffers in the storage budget; retained recovery data
+is intentional retention, while unreachable unreleased allocations are leaks.
+
+Reference counts are an optional internal technique, not required fields on every
+managed object. The store can determine retention by reachability from live state,
+retained revisions/checkpoints, candidates, and pins. Shared immutable blocks may
+use reference counts for efficient reclamation; count stored versions or blocks,
+not merely mentions of a logical entity ID. An ID reference does not itself keep
+an object live. Rebuild counts from validated retained records on load rather than
+persisting process-local counters. Owning cycles need another reclamation strategy;
+ID-based revision links avoid making both parent and child links strong owners.
+
+## Storage and performance priorities
+
+Prefer correctness, compact bounded storage, and predictable editing latency over
+aggressive micro-optimization. A few milliseconds for a complete ordinary user
+action may be acceptable; this is a workload target to measure, not a guarantee
+for every action, device, or document size. Avoid paying that cost once per scalar
+setter: collect one action's first before-state and final after-state, then encode
+or coalesce it once at the transaction boundary.
+
+Start with a simple, bounded snapshot backend for correctness. Whole-root cloning
+and snapshots grow with document size, so they are not the intended large-document
+storage policy. Add changed-entity snapshots, immutable block sharing, compact ID
+tables, deduplication, and periodic checkpoints before pursuing tiny setter-level
+CPU savings. Choose a snapshot or delta according to total size and replay cost;
+a delta can cost more than copying a small entity. Byte deduplication must never
+merge the logical identities of two different objects with equal values.
+
+| Workload | Why latency can become critical | Possible policy |
+| --- | --- | --- |
+| Ordinary property/dialog edit | Typically one committed action at a time | Spend a small measured budget once per action. |
+| Pointer drag, freehand drawing, or animation editing | Candidate updates may arrive each frame or sample | Keep cheap previews and bounded candidate changes; commit a gesture or bounded chunk. |
+| Large text edit, paste, or multi-object operation | Payload size and allocation spikes dominate | Share immutable blocks, group changes, and avoid whole-document copies. |
+| Collaboration catch-up or automated batch processing | Many transactions arrive close together | Batch encoding where allowed, retain logical atomicity, and apply backpressure. |
+| Simulation, audio callback, or other real-time processing | Allocation, locking, compression, or I/O may exceed a hard deadline | Keep general history work off the critical callback; use a bounded handoff with an explicit overflow policy. |
+
+For illustration, a 60 Hz UI has about 16.7 ms per frame and a 120 Hz UI about
+8.3 ms for *all* work; repeated multi-millisecond history work would consume much
+of that budget. A setting dialog has a different latency profile from recording
+every brush sample. Do not advertise hard real-time guarantees for the general
+managed-state runtime.
+
+Measure transaction preparation/commit, preview updates, undo/redo, and load/save
+separately. Record median and tail latency, allocations, peak memory, retained
+bytes, and replay distance on small and large models. Set application budgets and
+keep ordinary codec paths unchanged. Moving compression/checkpoint construction
+to a worker is useful only with immutable input, bounded queues, lifecycle cleanup,
+and publication/durability rules; a background queue cannot silently drop required
+undo or turn an acknowledged durable save into an eventual promise.
+
 ## Persistence and schema evolution
 
 A separate versioned envelope should store the document ID, allocation metadata,
@@ -1424,9 +1780,10 @@ See [schema evolution](schema_evolution.md) and the [wire contract](wire_format.
 
 ## Implementation stages and required verification
 
-1. Add an optional C++ module with the root store, ID allocation, explicit
-   transactions, whole-root snapshots, and runtime linear/tree policies. Cloning
-   and retaining full roots costs work and storage proportional to root size per
+1. Add an optional C++ module with the root store, ID allocation, scoped
+   transactions with observable completion, whole-root snapshots, and runtime
+   linear/tree policies. Cloning and retaining full roots costs work and storage
+   proportional to root size per
    transaction/revision; measure this honestly.
 2. Implement the separate persistence/history projections, excluded-state overlay,
    and cache invalidation before accepting `exclude(history)` or `transient`. Add versioned
@@ -1455,10 +1812,33 @@ Implementation acceptance should cover:
 - Multiple objects, embedded changes, replacement, insertion, deletion, ordering,
   and references are restored together.
 - Callback, validation, allocation, encoding, and decoding failures leave the
-  committed state and history consistent; an uncommitted scope aborts safely.
+  committed state and history consistent. Normal scope exit commits once; revert,
+  exceptional exit, and failed edits prevent implicit publication. Destructor
+  completion failures reach the outcome without throwing or leaking resources.
 - Empty transactions and changes confirmed as reverted by the configured equality
   policy do not create nodes or destroy redo branches.
 - Nested transaction rejection and helper reuse follow the stated contract.
+- Explicit commit, automatic completion, no-op, early return, revert, exception,
+  allocation failure, and moved guards close the writer slot exactly once. Test
+  outcome lifetime, caught edit failures, and language-specific error-return paths.
+- Grouped edits in the hollow-cylinder, ledger, and wordpad examples retain the
+  same semantics regardless of packed or separate history records.
+- Compact nested records reconstruct exact child IDs from their declared bases.
+  Test replacement, moves, collections, standalone exports, corrupt mappings,
+  pruning dependencies, and reload; field IDs never substitute for missing identity.
+- Deleted entities disappear from live lookup but remain restorable with their IDs
+  in retained revisions. Undo, branches, overlay state, reference policies, pins,
+  and final reclamation neither lose required data nor leak unreachable storage.
+- Exercise custom resources through insertion, cloning, failed construction,
+  transaction completion/revert, decoding, undo, pruning, and store destruction.
+  Check matching deallocation, alignment, exactly-once destruction, and unchanged
+  committed state after allocation failure.
+- Verify allocator propagation into supported nested payloads and document any
+  allocations outside that support. Ordinary types retain their existing behavior.
+- No committed payload or detached clone may outlive its backing resource. Cover
+  scratch reset, arena transfer, pins, worker shutdown, and storage budgets.
+- Optional block reference counts rebuild correctly after load. Deletion preserves
+  retained versions; pruning releases the last unneeded version without owning cycles.
 - Generated editors route repeated setters, nested value changes, and collection
   changes to the correct entity and store; passing a handle to a helper retains
   the transaction, and handles cannot edit after commit/abort while their context

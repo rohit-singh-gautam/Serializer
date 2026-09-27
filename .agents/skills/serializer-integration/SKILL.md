@@ -29,6 +29,19 @@ there instead of relying on the relative links.
   Existing `stable_ids` identifies schema fields, not objects.
   Proposed change addresses combine a namespaced entity ID with a relative field-ID
   path; field IDs do not create independent entities or require delta storage.
+  Scoped transactions propose auto-commit on successful exit with an explicit
+  outcome, rollback on failure/cancellation, and deterministic resource cleanup.
+  Compact child addressing can omit repeated IDs only while preserving recoverable
+  identity bindings; deleted entities can remain in retained history without live
+  mutable objects. Storage budgets and measured latency guide optimization.
+  The proposed [ownership/allocation contract](../../../docs/history.md#ownership-and-custom-allocation)
+  keeps lifetime control in the store while permitting state/history/scratch
+  resources. These hooks are unimplemented, do not automatically redirect payload
+  container allocations, and require explicit backend support. Internal reference
+  counts remain optional and are separate from persistent entity identity.
+- Use the [managed examples](../../../docs/managed_examples.md) only for design
+  discussion: hollow-cylinder differences, accounting ledgers, wordpad documents,
+  and other models illustrate a generic facility, not implemented sample programs.
 - Treat [managed state](../../../docs/managed_state.md) as a companion proposal.
   Its `managed` / `model_store` naming, scoped authorization, merging, collaboration,
   distributed transactions, and external-effect handling are unimplemented.

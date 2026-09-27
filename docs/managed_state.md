@@ -11,6 +11,15 @@ can be added without allowing writes to bypass transaction rules. All contracts
 below apply across supported generated languages; API syntax and resource cleanup
 can remain idiomatic for each language.
 
+This is a generic facility. The [application examples](managed_examples.md) use a
+cylinder-with-hole difference, an accounting ledger, a wordpad-style editor, and
+other data models. Graphics ownership trees illustrate the rules without defining
+the subsystem's domain. See the history proposal for
+[RAII completion and failure reporting](history.md#scoped-completion-and-raii),
+[compact identity encoding](history.md#compact-records-without-losing-identity),
+[deleted-entity retention](history.md#deleted-from-the-model-retained-in-history),
+and [storage/performance priorities](history.md#storage-and-performance-priorities).
+
 ## Naming the broader capability
 
 Recommend **Serializer managed state** for the optional subsystem, `model_store`
@@ -401,6 +410,7 @@ as well; feature exclusion alone does not make a field transient.
 | --- | --- |
 | Serializer codecs | Encode declared persistent fields and decode bounded input. |
 | Model store | Own entities, resolve IDs, stage candidates, and publish valid state atomically. |
+| Allocation resource | Supply and reclaim storage according to runtime lifetime decisions. |
 | Authorization policy | Decide whether an application-supplied context may perform a particular operation on a target. |
 | History component | Retain revisions, navigate alternatives, and later prepare merges. |
 | Collaboration adapter | Exchange proposed changes, track acknowledgements, and resolve concurrent submissions. |
@@ -412,6 +422,22 @@ results, and history navigation. Each prepares a candidate and a complete semant
 change set, then performs authorization and domain validation before publication.
 The history component records accepted changes; it does not decide who is allowed
 to make them. The serialization core need not depend on any of these modules.
+
+The [ownership and allocation contract](history.md#ownership-and-custom-allocation)
+keeps lifetime control in the store while allowing runtime storage providers.
+State, history, and scratch resources may be configured separately; payload
+allocation support must be declared per backend. Resource pointers are never
+persistent identity or serialized data. Reference counts are an optional internal
+retention technique, not another schema field or mandatory entity property.
+
+Physical packing never changes semantic boundaries. A parent and its managed
+children can share one encoded record, with IDs recovered from a versioned identity
+table and relative field paths. Reconstruct canonical identities and the complete
+change set before permission checks or merge decisions. Normal scoped completion
+must run the same authorization and validation path as explicit commit; failure
+is reported without publication, including when completion is attempted by an
+RAII destructor. Deleted historical values are immutable until explicitly restored
+through a validated transaction or history navigation.
 
 ## Authorization on the design hierarchy
 

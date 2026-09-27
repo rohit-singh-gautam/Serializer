@@ -977,6 +977,17 @@ of snapshot/delta storage. The language-independent contract
 distinguishes saved `exclude(history)` fields from runtime-only `transient` caches and
 covers application restoration, including Android. It is a design proposal, not an
 implemented feature; its illustrative syntax and APIs are unavailable today.
+The [domain examples](docs/managed_examples.md) cover a cylinder with a hole,
+accounting, wordpad, and other applications. Scoped transactions propose automatic
+commit on successful exit, explicit revert, and observable completion failures.
+Compact nested records can avoid repeating child IDs while preserving persistent
+identity mappings. Retention rules distinguish deleted live objects from their
+recoverable historical versions; storage budgets and measured editing latency
+come before aggressive micro-optimization.
+The proposed [ownership and allocation contract](docs/history.md#ownership-and-custom-allocation)
+keeps managed lifetimes in the store and permits configurable state/history/scratch
+resources. It distinguishes optional internal reference counts from entity IDs
+and makes payload allocator propagation and backend limitations explicit.
 
 The companion [managed-state proposal](docs/managed_state.md) explores editable
 subtrees, application-supplied authorization, branch merging, collaboration,
