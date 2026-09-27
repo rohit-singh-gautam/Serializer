@@ -124,7 +124,7 @@ test('extensionless includes and qualified class references navigate into source
   assert.deepEqual(selected(state, await resolver.schema(file('request.serializer'), state.at('request.serializer', 'types/account'), false)),
     [['types/account.serializer', '']]);
   assert.deepEqual(selected(state, await resolver.schema(file('request.serializer'), state.at('request.serializer', 'types/account'), true)),
-    [['build/request.hpp', '']]);
+    [['types/account.serializer', '']]);
   assert.deepEqual(selected(state, await resolver.schema(file('request.serializer'), state.at('request.serializer', 'data::account'), false)),
     [['types/account.serializer', 'account']]);
   assert.deepEqual(selected(state, await resolver.schema(file('request.serializer'), state.at('request.serializer', 'data::account'), true)),

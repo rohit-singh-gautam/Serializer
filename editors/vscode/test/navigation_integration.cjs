@@ -45,7 +45,7 @@ async function runSuite() {
         '**/{.git,node_modules,.venv}/**')).map(uri => uri.fsPath));
     }
     assert.equal(definitions.length, 1, `schema definition: ${word}`);
-    assert.equal(definitions[0].uri.fsPath, header);
+    assert.equal(definitions[0].uri.fsPath, word === 'types/account' ? common : header);
   }
 
   // Reproduce a right-click inside an existing selection: VS Code keeps its active end.

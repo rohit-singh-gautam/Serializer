@@ -39,6 +39,10 @@ there instead of relying on the relative links.
   errors, editor configuration, and generating headers without compiling consumers.
 - Use [docs/editor_extension.md](../../../docs/editor_extension.md) for the optional
   VS Code extension, local VSIX installation, and CMake header assistance.
+- Both editor navigation actions open the included schema when invoked on an
+  `include`; a schema include can contribute multiple generated declarations and
+  has no single generated definition. Type-reference definitions still target the
+  matching generated declaration when available.
 - Use [Visual Studio extension](../../../editors/visual_studio/README.md) for the
   separate Visual Studio 2022/2026 x64 navigation package and its build/install steps.
 - Read [docs/wire_format.md](../../../docs/wire_format.md) when choosing protocols,
@@ -252,7 +256,7 @@ versioned snippets, and invokes the same targets through CMake Tools. Run the ro
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 1.1.6 is shared with the Visual Studio extension and is independent of
+version 1.1.7 is shared with the Visual Studio extension and is independent of
 compiler and schema versions. Keep both editor extension versions equal. Configure
 the consumer first, then use `Serializer: Generate Headers` or `Serializer:
 Diagnose Missing Header`. Set `serializer.headersTarget` for one consumer; keep

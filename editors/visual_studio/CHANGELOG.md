@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.7
+
+- Navigate from schema includes to the included schema for both Go to Declaration
+  and Go to Definition, independent of generated output languages.
+- Keep the release version synchronized with the Visual Studio Code extension.
+
 ## 1.1.6
 
 - Add direct Serializer source-download, compiler/runtime installation, and CMake

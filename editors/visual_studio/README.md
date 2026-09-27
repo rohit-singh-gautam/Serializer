@@ -1,6 +1,6 @@
 # Rohit Serializer for Visual Studio
 
-Version **1.1.6** provides `.serializer` highlighting and native navigation in
+Version **1.1.7** provides `.serializer` highlighting and native navigation in
 **Visual Studio 2022 and Visual Studio 2026 on Windows x64**. It shares the VS Code
 extension's grammar and schema/generated-output resolver. Custom type references
 such as `demo::order`, `demo::snapshot` and `demo::customer` use the active theme's
@@ -11,7 +11,9 @@ type and namespace colors.
 - **Go to Declaration** on a schema include or type opens its source declaration.
   Extensionless/transitive includes, qualified names, containers, bases, enum-default
   prefixes and whole-name selections are supported, including unsaved schemas.
-- **Go to Definition** (F12) and **Ctrl+click** on a schema prefer existing generated
+- On a schema include, **Go to Definition** opens the included schema too; an include
+  can contribute multiple declarations to generated output, so it has no single generated target.
+- **Go to Definition** (F12) and **Ctrl+click** on schema types prefer existing generated
   output; types fall back to their schema declaration when no output matches.
   Several destinations produce a picker.
 - **Go to Declaration** on a generated type declaration maps it to its originating
@@ -67,7 +69,7 @@ installation. It uses full-framework MSBuild with locked dependencies, bundles
 the current shared resolver, rebuilds and validates:
 
 ```text
-out/extensions/serializer-visual-studio-1.1.6.vsix
+out/extensions/serializer-visual-studio-1.1.7.vsix
 ```
 
 Close Visual Studio, double-click the VSIX, select the installation and restart

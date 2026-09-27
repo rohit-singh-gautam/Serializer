@@ -52,9 +52,11 @@ describes how to reproduce and extend validation.
 
 The optional [VS Code extension](editor_extension.md) supplies `.serializer`
 highlighting and a `schema` snippet with the required version header.
-It also navigates includes and type references: **Go to Declaration** opens the
-original schema, and **Go to Definition** opens matching generated output or
-falls back to the schema type declaration when no generated definition is available.
+It also navigates includes and type references: both **Go to Declaration** and
+**Go to Definition** on an include open the included schema, since an include can
+contribute multiple declarations to generated output. On a type reference,
+**Go to Definition** opens matching generated output or falls back to the schema
+type declaration when no generated definition is available.
 Enum type references inside field defaults, such as `AccountState` in
 `AccountState::WaitingForReview`, support both actions.
 For an entire schema, right-click its file in Explorer or its editor tab and

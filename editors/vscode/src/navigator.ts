@@ -151,8 +151,8 @@ export class Navigator {
     if (include) {
       const included = path.resolve(path.dirname(file), include.name);
       if (!await this.source(included)) { return []; }
-      if (!definition) { return [{ file: included, start: 0, end: 0 }]; }
-      return this.unique((await this.outputs(included, file)).map(header => ({ file: header, start: 0, end: 0 })));
+      // An include identifies a schema, which may contribute many generated declarations.
+      return [{ file: included, start: 0, end: 0 }];
     }
     const declarations = await this.declarations(file, offset);
     if (!definition) { return this.unique(declarations); }

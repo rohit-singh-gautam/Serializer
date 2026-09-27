@@ -1,7 +1,7 @@
 # Rohit Serializer for Visual Studio Code
 
 Edit `.serializer` schemas with syntax highlighting, bracket matching, comments,
-folding, and snippets. Version **1.1.6** includes navigation from includes and type
+folding, and snippets. Version **1.1.7** includes navigation from includes and type
 references to source schemas and existing generated code in all 11 output languages. Use the project's
 CMake configuration for the separate build and missing-header assistance commands.
 
@@ -77,14 +77,16 @@ available outputs produce a picker; missing output produces no result or build p
 
 | Selected item | Go to Declaration | Go to Definition |
 | --- | --- | --- |
-| Schema `include types/account;` | Included schema | Existing generated output containing that schema's declarations |
+| Schema `include types/account;` | Included schema | Included schema |
 | Class/enum declaration or type reference in a schema | Original schema declaration | Matching generated type definition; schema declaration if unavailable |
 | C/C++ `#include <account.hpp>` | Entry schema | Existing generated header |
 | Generated class/enum type reference in any supported language | Original schema declaration | Normal language-service definition |
 
 Use the editor's built-in **Go to Declaration** context-menu action. Qualified
 names such as `demo::order` work on either component and at the end of a selection.
-Schema declarations resolve independently of CMake Tools or generated files.
+Schema include navigation resolves to the included schema for both actions, since
+an include can contribute multiple declarations to generated output. Schema declarations
+resolve independently of CMake Tools or generated files.
 
 Navigation only reads available files. It never configures, builds, generates,
 saves a document, activates CMake Tools, or offers to generate a missing header.

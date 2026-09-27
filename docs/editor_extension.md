@@ -5,7 +5,7 @@ Serializer provides separate packages for VS Code and Visual Studio. Both use
 to the VS Code extension. For the Visual Studio VSIX, see
 [Visual Studio](#visual-studio-extension) below.
 
-Both extensions use release version **1.1.6**. Keep their versions equal and
+Both extensions use release version **1.1.7**. Keep their versions equal and
 increment them together for future changes, including changes to only one package.
 
 Both packages highlight custom type references such as `demo::order`,
@@ -20,7 +20,7 @@ Both resolve either spelling for navigation; VS Code also supplies a shorthand
 
 ## VS Code
 
-The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.6**, provides `.serializer`
+The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.7**, provides `.serializer`
 syntax highlighting, snippets, declaration/definition navigation, and CMake generated-header commands. Schemas use
 the current `serializer version 1;` header. Legacy `.def` and `.struct` names are
 not registered. Generation remains owned by the project's build rules. Navigation
@@ -67,13 +67,13 @@ Packaging compiles and bundles TypeScript, copies the canonical grammar, logo,
 and repository license into the extension, and writes:
 
 ```text
-out/extensions/serializer-vscode-1.1.6.vsix
+out/extensions/serializer-vscode-1.1.7.vsix
 ```
 
 From the repository root, install it with:
 
 ```sh
-code --install-extension out/extensions/serializer-vscode-1.1.6.vsix
+code --install-extension out/extensions/serializer-vscode-1.1.7.vsix
 ```
 
 Alternatively run **Extensions: Install from VSIX** and select the file. The
@@ -125,8 +125,10 @@ not consult CMake Tools. From C/C++ includes the action opens the entry schema;
 from caller type references in any supported output language it maps that
 language service's resolved generated type back to its original schema.
 
-**Go to Definition** on a schema include opens its existing generated output; on a
-schema type it selects the generated type definition, falling back to the original
+**Go to Definition** on a schema include opens the included schema, as does Go to
+Declaration: an include can contribute multiple declarations to generated output
+and has no single generated target. On a schema type it selects the generated type
+definition, falling back to the original
 schema declaration when no matching generated definition is available. This also
 works on `AccountState` inside a default such as `AccountState::WaitingForReview`;
 the enum value itself is not a type reference. Included `account.serializer`
@@ -339,7 +341,7 @@ outside this extension's implementation.
 ## Visual Studio extension
 
 The separate [Visual Studio package](../editors/visual_studio/README.md), version
-**1.1.6**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
+**1.1.7**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
 grammar, editing configuration and a native MEF navigation component using the
 same resolver as VS Code. The grammar's `fileTypes` associates `.serializer` files;
 a `.pkgdef` registers its grammar and editing configuration.
@@ -352,7 +354,7 @@ npm ci --prefix editors/vscode
 ```
 
 The script restores locked NuGet dependencies, rebuilds package intermediates, and writes
-`out/extensions/serializer-visual-studio-1.1.6.vsix`. Close Visual Studio,
+`out/extensions/serializer-visual-studio-1.1.7.vsix`. Close Visual Studio,
 double-click this VSIX, install into the desired instance, and restart Visual
 Studio. The root `install_extension.ps1` remains the VS Code installer.
 
