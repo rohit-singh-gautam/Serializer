@@ -24,9 +24,23 @@ there instead of relying on the relative links.
 
 - Read [README.md](../../../README.md) for supported syntax and feature status.
 - Treat [transactional history](../../../docs/history.md) as a design proposal only.
-  Its `history`, `no_history`, and `transient` modifiers, object IDs, history stores,
+  Its `managed`, `exclude(...)`, and `transient` modifiers, object IDs, model stores,
   edit transactions, and setter tracking are not implemented in any language backend.
   Existing `stable_ids` identifies schema fields, not objects.
+  Proposed change addresses combine a namespaced entity ID with a relative field-ID
+  path; field IDs do not create independent entities or require delta storage.
+- Treat [managed state](../../../docs/managed_state.md) as a companion proposal.
+  Its `managed` / `model_store` naming, scoped authorization, merging, collaboration,
+  distributed transactions, and external-effect handling are unimplemented.
+  Inferred companion generation and selectors such as `managed(history)` and
+  `managed(all except history)` are also proposed syntax, not supported features.
+  Plain containment does not activate nested managed annotations or infer managed
+  support for the containing class; generated capability and occurrence differ.
+  Managed targets must qualify through their own class marker or managed members;
+  an unmarked leaf target is an error in the proposal, not implicitly promoted.
+  `exclude(history, collaboration)` is a proposed ordinary-value exclusion that
+  preserves serialization and mandatory policy checks; it does not confer identity.
+  Authentication and invitation management remain application responsibilities.
 - Use [docs/usage.md](../../../docs/usage.md) for the schema, CMake, and codec examples.
 - Use [docs/portable_languages.md](../../../docs/portable_languages.md) for JS/TypeScript,
   Go, C#, target SDKs, type mappings, limits, and interoperability.

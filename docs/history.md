@@ -2,10 +2,15 @@
 
 Status: design proposal; not implemented. This document proposes an optional
 history module built on Serializer's existing codecs. Names such as
-`history_store`, `begin_transaction`, and `history_mode` below are illustrative
+`model_store`, `begin_transaction`, and `history_mode` below are illustrative
 APIs, not currently available headers, schema keywords, or runtime functions.
-The proposed `history`, `no_history`, and `transient` annotations below are also
+The proposed `managed`, `exclude(...)`, and `transient` annotations below are also
 unimplemented; the current compiler does not accept them.
+
+The companion [managed-state proposal](managed_state.md) develops authorization,
+merging, collaboration, distributed transactions, and external-effect boundaries.
+Both proposals use `managed` / `model_store` for the broader capability, with
+history as an optional feature. See its feature-selection and root-inference rules.
 
 The schema and behavior contracts are language independent and intended for all
 supported output languages. C++ examples illustrate one possible API; an initial
@@ -31,13 +36,16 @@ setter hooks, registry lookups, or extra serialization work. Applications using 
 module would pay for identity management, staging, and retained history explicitly.
 
 Branch merging, collaborative editing, distributed transactions, and reversal of
-external effects such as file writes or network requests are outside the initial
-scope. A data collection hierarchy and a history tree describe different things:
-one organizes current objects; the other organizes alternative revisions.
+external effects such as file writes or network requests remain future features.
+Their [design considerations and authorization boundaries](managed_state.md)
+should inform the initial transaction and identity interfaces. A data collection
+hierarchy and a history tree describe different things: one organizes current
+objects; the other organizes alternative revisions. Merge ancestry can later
+extend the revision tree into a graph.
 
 ## Root collection and ownership
 
-A proposed `history_store<accounting>` would coordinate these responsibilities:
+A proposed `model_store<accounting>` would coordinate these responsibilities:
 
 | Component | Responsibility |
 | --- | --- |
@@ -69,73 +77,87 @@ pointers, iterators, or mutable views obtained during an edit callback. After a
 commit or history navigation, callers resolve IDs again rather than relying on
 object addresses or container positions remaining unchanged.
 
-## Keyword choice and declaration context
+## Managed members and inferred generation support
 
-Use the bare keyword `history` on both classes and members. Its declaration
-context determines its role; explicit root/entity arguments add no information
-to these two uses. Its meaning covers transactions, undo/redo, and branching
-revisions. The generated `tracked_` class prefix describes how callers access managed state;
-the schema keyword describes the feature they are configuring.
-
-| Candidate keyword | Design tradeoff |
-| --- | --- |
-| `history` | Recommended: directly describes the retained revisions and navigation exposed by this module. |
-| `tracked` | A reasonable alternative, but can suggest only change detection or observation without retained revisions. |
-| `versioned` | Can be confused with schema versioning and compatibility, which this repository already treats separately. |
-| `undo` | Emphasizes one operation rather than the complete revision and identity model. |
-
-Class and member declarations give the keyword distinct, unambiguous roles.
-Plain value membership is the default and needs no annotation:
+Use `managed` for identity and controlled access; reserve `history` for the optional
+revision feature. A class that directly declares a managed member already needs
+generated support, so repeating a class marker is unnecessary. The store is created
+explicitly at runtime and owns the history data; ordinary instances remain plain.
 
 | Proposed annotation | Meaning |
 | --- | --- |
-| `history` on a class | Generate the root companion and store integration. |
-| `history` on a member | In the tracked parent representation, give that occurrence independent identity; on a supported collection, apply this to its entries. |
+| `managed` on a member | In the tracked parent representation, give that occurrence independent identity; on a supported collection, apply this to its entries. Include the selected profile's optional features. |
+| `managed(history)` on a member | Give it independent identity and history participation, with mandatory managed foundations and store authorization still applying. |
+| `managed(all except history)` on a member | Retain identity and the other selected features; save its current state without restoring it through undo. |
 | No member annotation | Use the ordinary value representation; a tracked owner records and restores its history-participating fields. |
+| Bare `managed` on a class | Declare managed capability; required for a managed target/root without managed members of its own. It does not create a store or change ordinary instances. |
 
-The same `history` spelling applies to a singleton class member and a
+The same `managed` spelling applies to a singleton class member and a
 supported collection of class values. On a collection it identifies each entry,
 not the container itself. The owning object records collection structure changes.
 No singular/plural keyword distinction is needed.
 
-The member annotation always has the same role for single objects and collection
-entries. The class annotation selects a document root. Neither use changes the
-meaning of the numeric field ID after a member name.
+Creating `model_store<project>` selects an eligible type's instance as a root.
+Managed members require targets with declared capability or capability inferred
+from their own managed members. An incoming managed reference does not grant it.
+Generation support never promotes an unmarked occurrence into an identified entity.
+All field IDs retain their existing schema meaning.
+
+A managed target can be a leaf class containing only scalar/value members, but
+that class must declare `managed` explicitly. Otherwise a managed member using
+that target is a schema error. See
+[managed leaf types](managed_state.md#managed-leaf-types-require-declared-capability).
+
+A class containing only an ordinary `project` member does not itself gain managed
+generation support merely because `project` declares managed tasks. That member
+uses the plain project and plain task representations. See the
+[plain-containment example](managed_state.md#plain-containment-does-not-propagate-managed-support)
+for the distinction between type eligibility, member representation, and edits
+recorded through an owning entity.
 
 Unannotated members use plain values, including when their owner is tracked.
 Only explicitly marked entity edges propagate the tracked representation.
 A separate value annotation is unnecessary. Runtime `history_mode::disabled`
 controls recording for a store and is a separate decision; it does not strip
-identities from managed objects or change the plain payload's wire format.
+identities from managed objects or change the plain payload's wire format. Bare
+`managed` refers to a pinned feature profile, not automatically activated services.
+See [feature selection](managed_state.md#feature-selection-with-one-keyword) for
+the proposed grammar, exclusions, dependencies, and language-independent behavior.
 
 ## Saving state independently of history
 
 Serialization, history participation, and independent entity identity are separate
 decisions. A field can need persistence without belonging to the user's undo stack.
-Use `no_history` for that case, and `transient` for runtime-only data that can be
+Use `exclude(history)` for that case, and `transient` for runtime-only data that can be
 discarded and rebuilt. These are proposed schema modifiers, not host-language
 keywords or currently supported Serializer syntax.
+
+`exclude(...)` accepts a list of optional features, for example
+`exclude(history, collaboration)`. This document develops its history behavior;
+see [ordinary value exclusions](managed_state.md#excluding-features-from-ordinary-values)
+for naming, multi-feature semantics, and synchronization boundaries.
 
 | Member policy | Saved by ordinary codecs | Restored by undo/redo | Independent entity ID in a tracked parent |
 | --- | --- | --- | --- |
 | No annotation | Yes | Yes, through its owner, except explicitly excluded descendants | No |
-| `history` | Yes | Yes, with entity lifecycle and ownership | Yes, for the object or each supported collection entry |
-| `no_history` | Yes | No; preserve the latest committed value | No |
+| `managed` | Yes | Yes, with entity lifecycle and ownership | Yes, for the object or each supported collection entry |
+| `managed(all except history)` | Yes | No; preserve current values, identities, and membership | Yes |
+| `exclude(history)` | Yes | No; preserve the latest committed value | No |
 | `transient` | No | No; invalidate/recompute when dependencies change | No |
 
-`!history` is technically possible as new grammar, but it is a weaker name for
-this contract. It looks like negating entity opt-in, whereas an unmarked member
-already has no independent identity and still participates in its owner's history.
-`no_history` explicitly excludes recording and restoration while retaining normal
-serialization. Prefer it to the compressed spelling `nohistory`. `transient`
-expresses a different persistence contract and must not be an alias for either.
+The bare `managed` row assumes an active profile including history. An explicit
+`managed(history)` has that history behavior too. `managed(all except history)`
+retains independent identity; `exclude(history)` keeps an ordinary value representation.
+Use `all except history` rather than symbolic `!history` or `~history` inside the
+feature selector. `exclude(history)` remains the explicit value-field exclusion, and
+`transient` expresses a separate exclusion from persistence as well as history.
 
-Apply each exclusion to the declared member subtree: `no_history` excludes history;
+Apply each exclusion to the declared member subtree: `exclude(history)` excludes history;
 `transient` excludes both history and persistence. These exclusions compose, so a
-transient descendant of a `no_history` member is still omitted from persistence. Nested
-`history` annotations within that occurrence remain dormant, just as they do
-under an ordinary untracked occurrence. Reject combinations of `history`,
-`no_history`, and `transient` on the same member. Excluding a child value does not
+transient descendant of a `exclude(history)` member is still omitted from persistence. Nested
+`managed` annotations within that occurrence remain dormant, just as they do
+under an ordinary untracked occurrence. Reject combinations of `managed(...)`,
+`exclude(...)`, and `transient` on the same member. Excluding a child value does not
 make its owning entity immortal: if undo removes the owner, the child is no longer
 visible either. Its behavior on restoration is specified below.
 
@@ -145,10 +167,10 @@ Selection, viewport position, expanded panels, and editor preferences can be sav
 without making navigation or preference changes into undo steps. For example:
 
 ```text
-class project stable_ids history {
-  public history map(uint64) task tasks (1);
-  public no_history uint64 selected_task_id (2);
-  public no_history double scroll_offset (3);
+class project stable_ids {
+  public managed map(uint64) task tasks (1);
+  public exclude(history) uint64 selected_task_id (2);
+  public exclude(history) double scroll_offset (3);
   public transient uint64 cached_completed_count;
   public transient bool completed_count_valid;
 }
@@ -178,10 +200,10 @@ belong in one model; it does not require all UI state to be embedded there.
 Ignoring a setter notification is insufficient: a later whole-object undo snapshot
 would otherwise overwrite excluded fields. The runtime needs two projections:
 
-- **Persistence projection:** all serialized fields, including `no_history`, plus
+- **Persistence projection:** all serialized fields, including `exclude(history)`, plus
   identity and optional history metadata in the recovery envelope.
 - **History projection:** only undoable values, entity identities, and ownership.
-  Exclude both `no_history` and `transient` from snapshots, deltas, equality used
+  Exclude both `exclude(history)` and `transient` from snapshots, deltas, equality used
   to detect history no-ops, and history checkpoints.
 
 Ordinary codecs retain the persistence projection. History must use generated
@@ -189,11 +211,11 @@ projection descriptors or dedicated record schemas; it cannot blindly replay an
 ordinary full serialization over the live object. For an edit from title A to B,
 followed by a scroll from 10 to 50, undo restores title A and keeps scroll 50.
 Reloading the saved session restores both values as last saved. A tree checkout
-also keeps the latest excluded state; `no_history` is not branch-local state.
+also keeps the latest excluded state; `exclude(history)` is not branch-local state.
 
-Stage `no_history` changes in the same transaction candidate as other writes.
+Stage `exclude(history)` changes in the same transaction candidate as other writes.
 Abort discards both kinds; commit publishes them atomically. A transaction that
-changes only `no_history` fields creates no revision and preserves redo branches,
+changes only `exclude(history)` fields creates no revision and preserves redo branches,
 but it is still a persistent-state change and must notify observers and autosave.
 Distinguish a history no-op from a persistence no-op. Maintain a save generation
 separate from the history revision ID: excluded changes and history navigation
@@ -210,7 +232,7 @@ entries when history is pruned and no live state needs them. Plain current-root
 saves do not preserve this hidden state or a resumable undo graph.
 
 For the first overlay implementation, support fields under the root or an
-identified owner reached through fixed member paths. A `no_history` collection
+identified owner reached through fixed member paths. A `exclude(history)` collection
 can be excluded as a whole. Excluded fields inside a history-owned variable
 collection require stable entry addressing; a list index is not sufficient.
 Reject unsupported paths until their lifecycle binding is defined. Do not silently
@@ -229,13 +251,13 @@ silently capturing excluded fields.
 Use `transient` for recomputable values, not authoritative document state. It has
 no wire ID or wire name and consumes no implicit field slot. This is a proposed
 extension to `stable_ids`: explicit IDs remain required for serialized fields and
-parents, including `no_history` fields. Reject explicit wire metadata on transient
+parents, including `exclude(history)` fields. Reject explicit wire metadata on transient
 members. Adding a transient member must not renumber existing serialized fields.
 
 Generated runtime storage initializes transient fields to their declared defaults;
 codecs omit them on output and do not accept them as serialized input fields.
 Fresh decoding, insertion, duplication, replacement, and `clone_value()` initialize
-them to defaults. Value cloning copies persistent data, including `no_history`,
+them to defaults. Value cloning copies persistent data, including `exclude(history)`,
 and starts with fresh caches. Native object-copy behavior can differ; applications
 using ordinary public fields remain responsible for their own cache validity.
 
@@ -263,7 +285,7 @@ every live runtime object. See the official
 [Android state-saving guidance](https://developer.android.com/topic/libraries/architecture/saving-states).
 
 For this proposal, save the document's current persistent fields and identities,
-the latest `no_history` state, and optionally the retained undo graph and overlay.
+the latest `exclude(history)` state, and optionally the retained undo graph and overlay.
 Use Android saved-state APIs for small restoration keys and application storage
 for a substantial document/history envelope. Reload persistent state, restore the
 optional history cursor, and invalidate transient caches. Storage scheduling and
@@ -274,8 +296,8 @@ modifier, which explicitly excludes serialization.
 
 ## Contract across generated languages
 
-The three modifiers belong to the `.serializer` language and must keep the same
-meaning across C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin,
+The modifiers and feature selectors belong to the `.serializer` language and must
+keep the same meaning across C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin,
 and C. Do not derive their behavior from a native language's similarly named
 modifier or a reflection library's default. Serializer-generated metadata and
 codecs define inclusion, identity, and restoration consistently.
@@ -313,8 +335,8 @@ Do not advertise support merely because a backend can parse the new modifiers.
 ## Proposed schema opt-in and generated code
 
 The initial library can work through explicit adapters without new schema syntax.
-For a later generator integration, use a specific `history` class attribute
-to request the history facade. Mark the owning collection with `history`
+For later generator integration, infer the containing class's companion support
+from managed members. Mark the owning collection with `managed`
 when its entries need independent identities. Identity belongs to an object's
 registered occurrence, not to its reusable payload class. These are proposed
 spellings, not accepted schema syntax today:
@@ -322,27 +344,27 @@ spellings, not accepted schema syntax today:
 ```text
 serializer version 1;
 
-class point stable_ids {
+class point stable_ids managed {
   public double x (1);
   public double y (2);
 }
 
-class point_document stable_ids history {
-  public history map(uint64) point points (1);
+class point_document stable_ids {
+  public managed map(uint64) point points (1);
   public point origin (2);
 }
 ```
 
 | Declaration | Proposed meaning |
 | --- | --- |
-| `history` on `point_document` | Generate the root editing facade and metadata needed to instantiate a history store. |
-| `history` on `points` | Treat this collection's entries as independently identified objects and generate its managed collection editor. |
+| `point_document` containing a managed member | Infer companion/descriptor generation; explicit store construction selects the root instance. |
+| `managed` on `points` | Treat this collection's entries as independently identified objects and generate its managed collection editor. |
 | `points` map key | Persist the point's object number; allocate it through the store and keep it immutable during ordinary edits. |
-| Plain `point` class | Remain reusable as coordinates, as an embedded value, or as a managed collection payload. |
+| `managed` on `point` | Declare capability for this leaf type while keeping ordinary point instances reusable as coordinates and embedded values. |
 | `origin` member | Track its value through the root's history without allocating it a separate object ID. |
 | `stable_ids` | Keep field numbers explicit for locating collections and nested members; it still does not allocate object IDs. |
 
-For this initial generation profile, `history` applies to direct
+For this initial generation profile, `managed` applies to direct
 `map(uint64)` members of the root with serializable owning class values.
 All such collections share the store's document-wide object-number allocator.
 An unannotated map is not automatically an identity registry. Existing input must
@@ -369,24 +391,25 @@ are referenced by IDs rather than owned at several locations.
 
 Require explicit serialized field and parent IDs on the root and types reached by
 generated editors; transient fields have no wire IDs. Adding these annotations
-must preserve previously emitted field numbers and names. The root annotation requests generation support;
-it does not automatically create a global store or begin recording on every
-standalone instance of the root type.
+must preserve previously emitted field numbers and names. Inferred or explicitly
+requested companion generation does not create a global store or begin recording
+on every standalone instance of the root type.
 
 Generate two layers:
 
 - **Payload layer:** existing owning root and `point` classes, with their
   normal codecs and unchanged payload layout. A standalone value remains usable
   without history. No history pointer or hidden ID field is inserted into it.
-- **History companion:** an additional generated header, for example
-  `point_document_history.hpp`, containing `tracked_point_document`, `tracked_point`,
-  collection editors, and a `history_traits<point_document>` specialization. Traits describe
+- **Managed companion:** an additional generated header, for example
+  `point_document_managed.hpp`, containing `tracked_point_document`, `tracked_point`,
+  collection editors, and a `model_traits<point_document>` specialization. Traits describe
   collection field IDs, payload types, ID access, and snapshot/restore adapters.
 
-Generate tracked companions for the root and types reached along explicitly
-marked entity edges. All ordinary payload classes are still generated. The
-payload class itself needs no history annotation. A `tracked_point` bound to a
-managed entry tracks that point's ID. The unmarked `origin` remains an ordinary
+Generate tracked companions only after checking root and target eligibility.
+Classes with managed members infer capability; leaf entity types declare the
+class marker explicitly. All ordinary payload classes remain available. A
+`tracked_point` bound to a managed entry tracks that point's ID. The unmarked
+`origin` remains an ordinary
 point, edited through a root callback that captures the root before changing it.
 
 The traits bind an object number to a typed collection lookup; they do not use a
@@ -394,9 +417,9 @@ memory address, RTTI name, or compiler-generated type hash as persistent identit
 Persistent records identify the application schema version and collection/type
 mapping so the correct decoder can be selected after a reload.
 
-The optional library would expose a generic `history_store<Root>`, transaction
+The optional library would expose a generic `model_store<Root>`, transaction
 support, typed edit handles, revision storage, and change subscriptions. A future
-CMake target such as `Serializer::serializer_history` could provide that runtime;
+CMake target such as `Serializer::serializer_model` could provide that runtime;
 it is a proposed target, not an existing build dependency. Only the companion
 header and opting-in consumers would depend on it.
 
@@ -422,7 +445,7 @@ class task_details stable_ids {
   public uint32 priority (2);
 }
 
-class checklist_item stable_ids {
+class checklist_item stable_ids managed {
   public string label (1);
   public bool completed (2);
 }
@@ -430,11 +453,11 @@ class checklist_item stable_ids {
 class task stable_ids {
   public string title (1);
   public task_details details (2);
-  public history map(uint64) checklist_item checklist (3);
+  public managed map(uint64) checklist_item checklist (3);
 }
 
-class project stable_ids history {
-  public history map(uint64) task tasks (1);
+class project stable_ids {
+  public managed map(uint64) task tasks (1);
 }
 ```
 
@@ -458,7 +481,7 @@ Managed construction uses a transaction factory:
 
 ```cpp
 // Proposed APIs: one project store owns all entity identities and revisions.
-history_store<project> project_store{
+model_store<project> project_store{
   project{}, history_options{.mode = history_mode::tree}};
 
 auto transaction = project_store.begin_transaction("Create release task");
@@ -538,11 +561,11 @@ Using the previously declared point type, a cylinder-focused root could be:
 class cylinder stable_ids {
   public double height (1);
   public double diameter (2);
-  public history point position (3);
+  public managed point position (3);
 }
 
-class accounting stable_ids history {
-  public history map(uint64) cylinder cylinders (1);
+class accounting stable_ids {
+  public managed map(uint64) cylinder cylinders (1);
 }
 ```
 
@@ -551,8 +574,8 @@ identity. A production coordinate model can include a third coordinate and
 orientation as ordinary schema fields; those do not change the identity policy.
 The point-only examples elsewhere use `point_document`, a separate root type.
 
-`history` requests the root companion and companions reached along marked
-entity edges. In the tracked form of this example, accounting owns identified
+Managed members imply capability for their declaring types and require eligible
+targets. The leaf point declares `managed` explicitly. Accounting owns identified
 cylinders and each cylinder owns an identified point. An ordinary `cylinder`,
 including one created outside any store, still contains an ordinary `point`.
 The schema author chooses these identity boundaries. Serializer validates and
@@ -563,10 +586,10 @@ implements the declared policy; it does not infer identity from the point type.
 | `public double height (1);` | Scalar getter/setter | No | Cylinder |
 | `public double diameter (2);` | Scalar getter/setter | No | Cylinder |
 | `public point position (3);` | Plain `point` read access and scoped edit callback by default | No | Cylinder |
-| `public history point position (3);` | `tracked_point` bound to its own entity record | Yes | Point, within the same root transaction |
+| `public managed point position (3);` | `tracked_point` bound to its own entity record | Yes | Point, within the same root transaction |
 
 The two `position` declarations are alternatives, not simultaneous fields.
-On a supported collection, `history` selects independent identity for
+On a supported collection, `managed` selects independent identity for
 each entry. Scalars keep field IDs but do not become separate entities. These
 annotations govern only the tracked representation; the plain `cylinder` always
 has an ordinary point-valued `position`, including when the annotation is present.
@@ -627,9 +650,82 @@ and IDs. Changes to these ownership policies require history-format migration.
 
 Nested entity identity is an extension beyond the initial managed root-map
 profile. It needs allocation, deletion, restoration, and persistence tests before
-being enabled. A limited first implementation should reject `history`
+being enabled. A limited first implementation should reject `managed`
 on singleton child members while retaining support for managed root maps, rather
 than claim nested identity support through setter generation alone.
+
+### Snapshot ownership for embedded and managed points
+
+An unmarked point is still serialized and participates in its managed cylinder's
+history. It has no independent entity ID or change record. The cylinder owns its
+history, including changes to only one nested coordinate. The following is a
+separate schema example with an ordinary point member:
+
+```text
+serializer version 1;
+
+class point stable_ids {
+  public uint32 x (1);
+  public uint32 y (2);
+}
+
+class cylinder stable_ids managed {
+  public double height (1);
+  public double diameter (2);
+  public point position (3);
+}
+
+class accounting stable_ids {
+  public managed map(uint64) cylinder cylinders (1);
+}
+```
+
+Here cylinder declares class-level capability because its members are all ordinary
+values. The managed `cylinders` collection therefore has an eligible payload type.
+Point needs no capability marker for this ordinary use. Explicit coordinate field
+IDs are required by `stable_ids`; they are schema identifiers, not object IDs.
+
+Assume history is enabled, an edit through the transaction API changes only
+`position.x`, and the backend stores changed-entity snapshots rather than whole-root checkpoints or field deltas:
+
+| Position declaration | Entity recorded | Complete before/after payload retained |
+| --- | --- | --- |
+| `public point position (3);` | Cylinder | Height, diameter, and the complete position, including both x and y. |
+| `public managed point position (3);` | Point | Both x and y; no cylinder payload record is needed when its fields and ownership link are unchanged. |
+
+For the second row, the point class must also declare `managed`, because it is a
+leaf managed target. Cylinder can retain its explicit marker, though its managed
+position would now imply capability. Both rows still group all edits in one
+transaction into one undo step.
+
+In the first row, the original cylinder snapshot is captured once and its final
+snapshot once; changing x alone does not mean saving only x. In the second row,
+the normalized cylinder history record refers to the point by identity and does
+not duplicate its mutable payload. The point edit therefore needs only the point
+record plus revision metadata. If the same transaction changes height, replaces
+the point identity, moves/deletes it, or changes other persistent owner data, the
+affected cylinder/ownership records must also be retained.
+
+This distinction concerns the ownership of history records, not ordinary save
+completeness. Saving a complete cylinder or document still includes the point's
+persistent data in either representation. `exclude(history)` explicitly removes
+a value from undo; `transient` removes it from normal persistence as well. Plain
+membership alone does neither. Complete history snapshots always mean the history
+projection, respecting those exclusions and independently managed child boundaries.
+
+Snapshot versus delta is a separate storage decision from entity ownership and
+the linear/tree history policy. A later backend can choose a full entity snapshot
+when a diff's metadata, comparison work, or replay cost outweighs its savings,
+and use a delta when useful. This choice can be per entity/record; persist its
+encoding and any required base reference so replay does not guess. In either case
+the same entity owns the record: cylinder for the embedded point, point for the
+managed point. Measure costs rather than assuming a one-field edit always favors
+a delta.
+
+The initial whole-root snapshot backend and periodic whole-root checkpoints can
+save the entire accounting state, including unchanged cylinders. Thus "only the
+point is saved" describes the changed-object record for an isolated point edit,
+not a promise about every checkpoint, save operation, or physical byte written.
 
 ### How the generator selects normal and tracked members
 
@@ -637,22 +733,22 @@ Resolve representation from the current occurrence, not from a global flag on
 its payload type:
 
 ```text
-child_is_entity = parent_is_tracked && member_has_history
+child_is_entity = parent_is_tracked && member_is_managed
 ```
 
 | Parent representation | Member annotation | Effective child |
 | --- | --- | --- |
 | Plain `cylinder` | None | Plain `point`, without ID |
-| Plain `cylinder` | `history` | Plain `point`, without ID |
+| Plain `cylinder` | `managed` | Plain `point`, without ID |
 | `tracked_cylinder` | None | Plain `point`, restored through the cylinder |
-| `tracked_cylinder` | `history` | `tracked_point`, with its own persistent ID |
+| `tracked_cylinder` | `managed` | `tracked_point`, with its own persistent ID |
 
 Use two generation passes over the same parsed schema:
 
 1. **Ordinary pass:** emit the existing owning classes and codecs. Every class
    member uses its ordinary type, and collections hold ordinary values. Preserve
-   history annotations in compiler metadata, but do not emit history IDs, context,
-   or allocation calls into this representation. Serialize `no_history` normally;
+   managed annotations in compiler metadata, but do not emit object IDs, context,
+   or allocation calls into this representation. Serialize `exclude(history)` normally;
    emit opted-in transient storage but omit it from codecs and wire numbering.
 2. **Tracked companion pass:** start at a requested root. Emit scalar accessors,
    plain-value read/scoped-edit access for unmarked members, and entity accessors
@@ -661,9 +757,13 @@ Use two generation passes over the same parsed schema:
    for one usage must not change unmarked usages of the same payload type. Emit
    separate projection metadata for excluded fields and controlled cache access.
 
-The parser stores a root capability flag on class declarations and independent
-identity/persistence/history properties on members as described above. The current
-representation and the member policy determine the generated access type. Do not
+The parser stores explicit class capability markers and member identity,
+persistence, and feature selectors. A semantic pass determines eligibility from
+each type's own class marker or managed members, then validates every managed
+target. Incoming uses never grant target capability or change ordinary occurrences.
+It resolves selectors against the pinned profile and validates
+dependencies and enclosing exclusions. The current representation and member
+policy determine the generated access type. Do not
 reuse the existing C++ `storage_mode` values for this purpose: owning objects and
 binary views already have a separate public contract. Separate companion types
 preserve existing normal class names, layouts, and call sites without adding a
@@ -722,7 +822,7 @@ tracked facade remain handles to the same entity; they are not deep clones.
 Allocation or conversion failure must not modify committed state.
 
 Deep value extraction recursively copies persistent strings, arrays, maps, and
-nested values, including `no_history` fields; transient fields start at defaults.
+nested values, including `exclude(history)` fields; transient fields start at defaults.
 With independently identified owned children, it materializes their values and
 drops separate identity metadata. Application-declared payload ID fields and
 integer map keys remain ordinary data and are not silently stripped. A bare point
@@ -827,7 +927,7 @@ With the optional generated editors, ordinary application use could look like:
 
 ```cpp
 // Proposed API: create an independently owned document with branching history.
-history_store<point_document> store{
+model_store<point_document> store{
   point_document{}, history_options{.mode = history_mode::tree}};
 
 // Insert one entity; the managed collection allocates its persistent ID.
@@ -917,6 +1017,86 @@ as an entity in the tracked shape, its accessor resolves the point's own ID and
 captures that entity instead. Nested field IDs are scoped by their complete path
 and declaring descriptor; a bare numeric field ID is not globally unique.
 
+### Entity IDs and field paths
+
+Use two levels of address: an entity ID resolves a managed object, and a field-ID
+path resolves a member inside that object's value. The `(1)` and `(2)` declarations
+on point coordinates do not allocate object IDs or independent registry entries.
+They let generated descriptors identify those fields relative to the correct
+owning type. A field can therefore be looked up through its owner and path even
+though its field number alone cannot locate a unique value across the model.
+
+The proposed language-independent address is:
+
+```text
+change_address = {
+  entity_id,
+  field_path: [field(field_id), ...]
+}
+```
+
+For the cylinder/point example, where position is cylinder field 3 and x is point
+field 1, use these canonical addresses:
+
+| Change | Entity resolved in the registry | Relative field path |
+| --- | --- | --- |
+| Change x on an independently managed point | Point ID | `[field(1)]` |
+| Change x on a point owned as an ordinary cylinder value | Cylinder ID | `[field(3), field(1)]` |
+| Change cylinder height | Cylinder ID | `[field(1)]` |
+| Replace the cylinder's position value or its managed ownership link | Cylinder ID | `[field(3)]` |
+
+`field(3)` selects position using the cylinder descriptor; the next `field(1)`
+selects x using the point descriptor. No point object ID is required for the
+embedded case. Names can be shown to users, but persistent paths use stable
+schema IDs. The point's field 1 and the cylinder's field 1 remain distinct because
+their declaring types and preceding path differ.
+
+Normalize an address at each managed entity boundary. A high-level edit expressed
+as cylinder.position.x resolves to the point's own ID when position is managed;
+its canonical change record is then point ID plus `[field(1)]`. An edit to which
+point the cylinder owns is a different change, addressed to cylinder field 3.
+Do not let alternate navigation paths bypass the target's permission checks or
+create duplicate history records for the same independently managed payload.
+
+Treat `entity_id` as a namespaced, persistent identifier. The existing proposal's
+`map(uint64)` profile uses document UUID plus allocated object number; the raw map
+key alone is not universally unique. A per-object UUID is another possible
+identity profile, with its own encoding and import rules. Neither field numbers
+nor a payload member named `taskid` implicitly supply this identity. Persist the
+namespace and allocation metadata so these addresses can be resolved after reload.
+
+Resolution always occurs against a specific store/transaction/revision context:
+the same entity can have different values on different history branches, or be
+absent in the selected revision. The registry selects its type descriptor, then
+each path segment is validated before access. Reject missing entities, wrong
+expected types, invalid paths, and stale base revisions according to the operation's
+contract. Stable field IDs survive compatible member renames; schema changes that
+alter a path's meaning require migration. An ordinary position's path identifies
+the owning slot, not a separate logical point that survives moving or replacement.
+
+Field paths describe change locations independently of storage encoding. Editing
+embedded x can report cylinder ID plus `[field(3), field(1)]` while retaining full
+cylinder before/after snapshots. Editing height in the same transaction adds
+`[field(1)]` to that entity's path set without another cylinder snapshot pair.
+With a managed point, its own snapshot or delta is retained instead. Whole-root
+checkpoints keep their broader storage scope without changing these addresses.
+
+Generated setters know the field path they attempt to edit. Arbitrary callbacks
+over ordinary values do not automatically reveal exact changed leaves: compute a
+descriptor-based comparison, or report an entity/subtree-level invalidation.
+An empty path addresses the whole entity, not proof that every field changed.
+Distinguish touched paths from final changed paths when writes are reverted or
+coalesced; do not label an over-approximation as an exact diff. Precise paths can
+help notifications and future deltas but are not required for object snapshots.
+
+For collections, use typed segments such as `field(3)`, `map_key(key)`, or
+`index(index)` rather than an ambiguous list of integers. An index-based address
+is valid only relative to its specified base state; inserting an earlier item
+can change its meaning. A durable reference to a particular collection entity
+should use its managed ID. Inheritance also needs the declared parent-ID path
+where applicable. Field-path details are proposed protocol data, not implemented
+reflection or lookup APIs today.
+
 Collection editors route insertion, erasure, and replacement through the same
 context. They preserve membership and ordering changes as well as object values.
 For custom application methods that need ordinary mutable fields, the explicit
@@ -937,7 +1117,7 @@ the store delivers one change batch to its subscribers, containing:
 - Each affected object ID and its generated type/collection descriptor.
 - Whether it was inserted, updated, or erased, with optional changed member paths.
 
-Transactions that change only `no_history` fields also publish a change batch,
+Transactions that change only `exclude(history)` fields also publish a change batch,
 with unchanged history revision IDs and the new save generation. Transient cache
 updates are not persistent changes; any cache-specific observation is separate.
 
@@ -1045,9 +1225,13 @@ member, or an entire array therefore produces one before/after pair for that obj
 Replacing the complete value through a proposed `replace(object_id, value)`
 operation preserves the ID; duplicating an entity allocates a new ID.
 
+The [cylinder/point comparison](#snapshot-ownership-for-embedded-and-managed-points)
+shows which object owns a nested edit and separates that decision from selecting
+a whole-entity snapshot, delta, or whole-root checkpoint.
+
 Snapshots must own their data. Retaining a pointer to a mutable object is not a
 snapshot. Undo restores only the history projection of persistent state; saved
-`no_history` values stay current and transient caches must be rebuilt as needed.
+`exclude(history)` values stay current and transient caches must be rebuilt as needed.
 
 | Changes inside one transaction | Retained logical change |
 | --- | --- |
@@ -1077,6 +1261,13 @@ general concurrent or multi-store transaction system. Publication and reading
 require a defined synchronization policy; other threads must not access mutable
 state without it.
 
+An optional [authorization policy](managed_state.md#authorization-on-the-design-hierarchy)
+must bind its access context to the transaction, cover every effective write,
+and revalidate under current policy at publication. This includes `exclude(history)`
+changes, bulk replacement, and history navigation. Denial aborts the complete
+candidate; disabled history recording does not bypass permissions. Authentication
+and invitations remain application responsibilities.
+
 1. **Begin:** retain the current revision and create a private candidate. The first
    implementation can clone the whole serialized root; later implementations can
    copy only touched objects while preserving isolation.
@@ -1085,7 +1276,7 @@ state without it.
 3. **Prepare:** validate the final candidate, build snapshots/change records, and
    prepare history links and all required allocations. No-op transactions create
    no revision and do not discard any redo branches. A history no-op may still
-   publish changed `no_history` fields and advance the save generation.
+   publish changed `exclude(history)` fields and advance the save generation.
 4. **Commit:** publish the candidate root and its new history cursor together using
    a prepared, non-throwing state transition. A partially updated root must never
    become visible with an old history cursor.
@@ -1137,7 +1328,7 @@ and either a snapshot or a change set. Child indexes can be reconstructed from
 parent links. The manager retains a current revision cursor.
 
 - Undo moves to the parent and restores its history projection, preserving the
-  latest `no_history` state and invalidating affected transient caches.
+  latest `exclude(history)` state and invalidating affected transient caches.
 - Redo selects a child. If there is more than one, the caller supplies the child
   revision ID instead of relying on an ambiguous default.
 - Checkout can restore a checkpoint and replay the path to a chosen revision.
@@ -1162,7 +1353,7 @@ provide branch merging or conflict resolution.
 
 | Identifier | Meaning |
 | --- | --- |
-| Schema field ID | Identifies a member within a schema; enforced explicitly by `stable_ids`. |
+| Schema field ID | Identifies a member within its declaring schema type; combined with an entity ID and field path for value lookup. Enforced explicitly by `stable_ids`. |
 | Object ID | Identifies one logical entity through edits, reloads, and history navigation. |
 | Revision ID | Identifies one committed history node. |
 | Document ID | Namespaces a saved document's entities and revision history. |
@@ -1172,6 +1363,9 @@ does not allocate object IDs. For one coordinated writer, a persisted document U
 and a monotonic `uint64` object number provide a practical identity. Independent
 writers or independently edited document copies need distinct allocation namespaces
 or object UUIDs, plus duplicate-ID validation when importing or combining data.
+These object identities and the [relative field paths](#entity-ids-and-field-paths)
+serve different purposes; assigning explicit schema IDs does not make every field
+a separately managed entity.
 
 Allocate an object ID once and persist it as ordinary data or in the store's
 envelope. Never derive it from a memory address, array position, display name,
@@ -1197,7 +1391,7 @@ policy if identities from the different copies might later meet.
 A separate versioned envelope should store the document ID, allocation metadata,
 codec and application-schema versions, history mode, current revision, and retained
 nodes with their required checkpoints or changes, plus current persistent state
-and the retained `no_history` overlay. History checkpoints exclude that overlay
+and the retained `exclude(history)` overlay. History checkpoints exclude that overlay
 and all transient fields. Saving only the current root preserves its declared
 identity keys but cannot resume its undo history or recover identities stored
 only in the envelope. In-memory records may
@@ -1235,7 +1429,7 @@ See [schema evolution](schema_evolution.md) and the [wire contract](wire_format.
    and retaining full roots costs work and storage proportional to root size per
    transaction/revision; measure this honestly.
 2. Implement the separate persistence/history projections, excluded-state overlay,
-   and cache invalidation before accepting `no_history` or `transient`. Add versioned
+   and cache invalidation before accepting `exclude(history)` or `transient`. Add versioned
    save/load and coherent recovery of the selected revision and excluded state.
 3. Add before/after records for touched objects and periodic checkpoints. Confirm
    that candidate construction, validation, and publication also avoid whole-root
@@ -1248,6 +1442,11 @@ See [schema evolution](schema_evolution.md) and the [wire contract](wire_format.
    Companion generation can first support root collections and owner-tracked child
    values; independent child identities require the additional ownership and
    conversion contracts above.
+
+Preserve the [managed-state extension boundaries](managed_state.md#boundaries-to-preserve-in-the-first-implementation)
+through these stages. Authorization hooks, complete change descriptions, and
+versioned persistence should not depend on implementing collaboration or distributed
+effects first. Those capabilities require separate implementations and verification.
 
 Implementation acceptance should cover:
 
@@ -1264,6 +1463,11 @@ Implementation acceptance should cover:
   changes to the correct entity and store; passing a handle to a helper retains
   the transaction, and handles cannot edit after commit/abort while their context
   remains alive. No safe use of a handle after context destruction is promised.
+- Address a managed point's x as point ID plus field 1, and an embedded point's x
+  as cylinder ID plus fields 3/1. Resolve repeated field numbers through the right
+  descriptors and namespace across reloads and selected revisions. Invalid paths,
+  missing entities, and stale collection indexes cannot silently edit another value.
+  Exact change paths, conservative invalidations, and stored snapshots remain distinct.
 - Schema opt-in preserves ordinary payload codecs and rejects unsupported entity
   ownership shapes rather than assigning ambiguous identities.
 - The same payload class works as a standalone value, embedded value, and managed
@@ -1274,6 +1478,12 @@ Implementation acceptance should cover:
 - Cylinder and point companions deep-copy values without history metadata or
   shared mutable storage. Unmarked children are ordinary values restored through
   their owner, and marked children acquire identity only in a tracked parent.
+- In changed-entity snapshot mode, editing only an embedded position's x stores
+  complete cylinder before/after payloads, including unchanged height, diameter,
+  and y. With a managed position and unchanged ownership, only the point receives
+  a changed-entity payload record; parent structural changes still require records.
+  Switching snapshot/delta representation preserves those ownership boundaries,
+  while whole-root checkpoints retain their separately documented scope.
 - The same annotated cylinder has a normal point in its ordinary representation
   and an identified point in its tracked representation. An unmarked ancestor
   keeps all descendants plain without rejecting their inactive annotations.
@@ -1294,9 +1504,18 @@ Implementation acceptance should cover:
 - IDs survive save/load, delete/undo, and branch creation; aborted transactions and
   old snapshots never rewind the allocator or cause ID reuse.
 - No-op comparison handles the documented floating-point and encoding policies.
-- Bare `history` is interpreted by class/member position with identical policy
-  semantics across backends; conflicting member annotations are rejected.
-- `no_history` values round-trip through ordinary codecs and recovery saves but
+- A class's own managed members infer capability without a redundant class marker;
+  normal construction stays plain and explicit store construction selects an
+  eligible root. Leaf managed targets/roots require a class marker; missing target
+  capability is an error and incoming uses never supply it implicitly. Inference
+  never promotes unmarked occurrences of a management-capable type.
+- Positive and `all except` selectors use the same pinned profile across backends;
+  unsupported features, contradictory dependencies, and invalid syntax are rejected.
+  Runtime activation is separate, and selectors cannot bypass authorization.
+- History-excluded managed subtrees retain current identities and membership across
+  navigation; parent snapshots cannot restore them incidentally. Owner lifecycle,
+  overlay persistence, pruning, and migration follow the documented exclusion rules.
+- `exclude(history)` values round-trip through ordinary codecs and recovery saves but
   survive undo, redo, and branch checkout at their latest committed values.
   Excluded-only commits notify and dirty persistence without a revision or loss
   of redo; abort discards excluded writes along with undoable writes.

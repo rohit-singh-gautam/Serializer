@@ -962,14 +962,29 @@ class person {
 
 The [object identity and transactional history proposal](docs/history.md) describes
 an optional root collection with stable object IDs, grouped edits, and runtime
-linear or branching undo/redo. It proposes bare `history` on root classes and
-explicit entity members, with ordinary values as the default. Separate
+linear or branching undo/redo. It proposes `managed` on entity members, with
+ordinary values as the default. Classes qualify through their own managed members
+or a class-level `managed` marker; a managed member targeting an unmarked leaf
+type is an error. Explicit `model_store` construction selects an eligible root. Separate
 plain and tracked companion classes apply member annotations only in a tracked
-parent. Project/task construction examples cover deep value copying, managed
-factories, and committed-change notifications. The language-independent contract
-distinguishes saved `no_history` fields from runtime-only `transient` caches and
+parent. Plain containment neither activates nested managed annotations nor implies
+companion generation for the containing class. Project/task examples cover deep
+value copying, managed factories, and committed-change notifications. Change
+addresses combine a persistent entity ID with a relative field-ID path, independently
+of snapshot/delta storage. The language-independent contract
+distinguishes saved `exclude(history)` fields from runtime-only `transient` caches and
 covers application restoration, including Android. It is a design proposal, not an
 implemented feature; its illustrative syntax and APIs are unavailable today.
+
+The companion [managed-state proposal](docs/managed_state.md) explores editable
+subtrees, application-supplied authorization, branch merging, collaboration,
+distributed transactions, and external effects. It recommends `managed` and
+`model_store` for the broader subsystem while retaining history as an optional
+component. Feature selectors such as `managed(history)` and
+`managed(all except history)` use a pinned feature profile and preserve mandatory
+authorization. `exclude(history, collaboration)` excludes named features for
+ordinary values while preserving serialization. These names and capabilities
+are proposals, not implemented features.
 
 1. Check for validity for default value.
 1. Store position of member variable in input stream.
