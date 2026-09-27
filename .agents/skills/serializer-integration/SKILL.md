@@ -23,6 +23,10 @@ the application's dependency/build configuration; resolve the following files
 there instead of relying on the relative links.
 
 - Read [README.md](../../../README.md) for supported syntax and feature status.
+- Treat [transactional history](../../../docs/history.md) as a design proposal only.
+  Its `history`, `no_history`, and `transient` modifiers, object IDs, history stores,
+  edit transactions, and setter tracking are not implemented in any language backend.
+  Existing `stable_ids` identifies schema fields, not objects.
 - Use [docs/usage.md](../../../docs/usage.md) for the schema, CMake, and codec examples.
 - Use [docs/portable_languages.md](../../../docs/portable_languages.md) for JS/TypeScript,
   Go, C#, target SDKs, type mappings, limits, and interoperability.
