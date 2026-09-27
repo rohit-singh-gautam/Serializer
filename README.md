@@ -60,12 +60,13 @@ headers before compiling against the updated API.
 **Getting started:** the [usage guide](docs/usage.md) covers schema authoring,
 automatic header generation with CMake, and decoding an exact message with limits.
 
-**VS Code:** [Rohit Serializer](docs/editor_extension.md) highlights
+**VS Code:** [Rohit Serializer](docs/editor_extension.md), for the
+[Serializer project](https://github.com/rohit-singh-gautam/Serializer), highlights
 `.serializer` files, supplies snippets, and provides CMake header-generation,
 schema declaration/generated-code navigation for every output language, and missing-include assistance. Run
 `./install_extension.ps1` from PowerShell to build and install the local extension
 (Node.js 22+, npm, and the VS Code CLI are required). Marketplace publication is pending.
-The VS Code extension version is **1.1.7**, with ID `rohitjairajsingh.serializer-language`
+The VS Code extension version is **1.1.8**, with ID `rohitjairajsingh.serializer-language`
 (Rohit Jairaj Singh). Both editor extensions share this release version, independent
 of the compiler version, and must be updated together.
 Use the built-in **Go to Declaration** for schema types and includes, including
@@ -79,14 +80,15 @@ It also supplies a dedicated 32×32 icon for `.serializer` files in Explorer and
 editor tabs when supported by the selected file icon theme.
 
 **Visual Studio:** a separate [Rohit Serializer VSIX](editors/visual_studio/README.md)
-version **1.1.7** supplies the shared grammar, editing configuration, and native
+for the [same Serializer project](https://github.com/rohit-singh-gautam/Serializer),
+version **1.1.8** supplies the shared grammar, editing configuration, and native
 schema navigation for Visual Studio 2022/2026 on Windows x64. Go to Declaration
 opens schema types/includes; Go to Definition and Ctrl+click open included schemas
 or find existing output for type references.
 Generated declarations in all 11 languages map back to their schemas. From caller
 code, first use the language service to reach the generated type. Build with
 `./editors/visual_studio/build.ps1`, then install
-`out/extensions/serializer-visual-studio-1.1.7.vsix` with Visual Studio's VSIX Installer.
+`out/extensions/serializer-visual-studio-1.1.8.vsix` with Visual Studio's VSIX Installer.
 Use existing CMake targets for generation. Both extensions highlight custom types,
 including `demo::order`, using the selected theme's type and namespace colors.
 

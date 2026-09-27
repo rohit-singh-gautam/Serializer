@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.1.8
+
+- Identify the Serializer GitHub repository directly in the package description
+  and at the start of the extension README.
+- Record the Windows runtime targets required by locked NuGet restore while
+  preserving dependency versions and the extension's Windows x64 target.
+- Keep the release version synchronized with the Visual Studio Code extension.
+
 ## 1.1.7
 
 - Navigate from schema includes to the included schema for both Go to Declaration

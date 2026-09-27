@@ -1,7 +1,10 @@
 # Rohit Serializer for Visual Studio Code
 
+This extension supports the [Serializer schema compiler and serialization library](https://github.com/rohit-singh-gautam/Serializer)
+maintained in that repository.
+
 Edit `.serializer` schemas with syntax highlighting, bracket matching, comments,
-folding, and snippets. Version **1.1.7** includes navigation from includes and type
+folding, and snippets. Version **1.1.8** includes navigation from includes and type
 references to source schemas and existing generated code in all 11 output languages. Use the project's
 CMake configuration for the separate build and missing-header assistance commands.
 

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.8
+
+- Identify the Serializer GitHub repository directly in the package description
+  and at the start of the extension README.
+- Keep the release version synchronized with the Visual Studio extension.
+
 ## 1.1.7
 
 - Navigate from schema includes to the included schema for both Go to Declaration

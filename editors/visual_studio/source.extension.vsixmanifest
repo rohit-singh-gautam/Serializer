@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011">
   <Metadata>
-    <Identity Id="Rohit.Serializer.VisualStudio.40c33349-6c7b-42a6-b843-390d7120b1b9" Version="1.1.7" Language="en-US" Publisher="Rohit Jairaj Singh" />
+    <Identity Id="Rohit.Serializer.VisualStudio.40c33349-6c7b-42a6-b843-390d7120b1b9" Version="1.1.8" Language="en-US" Publisher="Rohit Jairaj Singh" />
     <DisplayName>Rohit Serializer</DisplayName>
-    <Description xml:space="preserve">Schema declaration, generated definition and include navigation, syntax highlighting, and editing support for Serializer.</Description>
+    <Description xml:space="preserve">Editor support for Serializer (https://github.com/rohit-singh-gautam/Serializer): schema declaration, generated definition and include navigation, syntax highlighting, and editing support.</Description>
     <MoreInfo>https://github.com/rohit-singh-gautam/Serializer/tree/main/editors/visual_studio</MoreInfo>
     <License>LICENSE</License>
     <Icon>Resources\serializer_logo_128x128.png</Icon>
