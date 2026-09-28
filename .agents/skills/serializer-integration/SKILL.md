@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin, or C applications from a provided repository or existing dependency. Use for .serializer schemas, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, schema compatibility checks and reservations, stream concepts and iostream adapters, exact fresh-value decoding, optional message compression, JSON or binary codecs, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
+description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin, or C applications from a provided repository or existing dependency. Use for .serializer schemas, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, schema compatibility checks and reservations, stream concepts and iostream adapters, exact fresh-value decoding, optional message compression, JSON or binary codecs, database persistence guidance, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
 ---
 
 # Serializer Integration
@@ -23,6 +23,16 @@ the application's dependency/build configuration; resolve the following files
 there instead of relying on the relative links.
 
 - Read [README.md](../../../README.md) for supported syntax and feature status.
+- For database persistence, read the
+  [database integration guide](../../../docs/database_integration.md). Treat its
+  backend matrix as candidate storage mappings, not tested Serializer adapters.
+  Establish the database product, edition/version, SDK, and JSON/typed-document
+  or opaque-byte representation. Preserve integer widths, map entry arrays,
+  presence semantics, and metadata boundaries; reject unsupported values or use
+  an explicit reversible mapping. Use existing exact-message decoding on reads.
+  The proposed sink operations are not public APIs or generator options. Keep
+  dependencies optional and report actual provider verification separately from
+  codec or mock tests.
 - Use the [managed design index](../../../docs/managed/README.md) for the proposals.
   The [capability contract](../../../docs/managed/capabilities.md) now defines
   history, collaboration, authorization, and journal. Every managed

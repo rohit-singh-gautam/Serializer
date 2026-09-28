@@ -60,6 +60,12 @@ headers before compiling against the updated API.
 **Getting started:** the [usage guide](docs/usage.md) covers schema authoring,
 automatic header generation with CMake, and decoding an exact message with limits.
 
+**Database storage:** the [database integration guide](docs/database_integration.md)
+compares document databases, SQL JSON columns, and opaque binary storage, including
+MongoDB, Firebase, PostgreSQL, SQLite, and other targets. It describes required
+type mappings and a proposed sink boundary; database adapters are not implemented
+or qualified in this repository.
+
 **VS Code:** [Rohit Serializer](docs/editor_extension.md), for the
 [Serializer project](https://github.com/rohit-singh-gautam/Serializer), highlights
 `.serializer` files, supplies snippets, and provides CMake header-generation,

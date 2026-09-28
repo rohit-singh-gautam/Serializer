@@ -8,6 +8,11 @@ For Rust, Python, Swift, Kotlin, and C, see [native language APIs](native_langua
 and [four examples per language](../example/README.md).
 All outputs share the C++ schema compiler. The workflow below is for C++.
 
+For persistence, see [database storage and document sinks](database_integration.md).
+It covers candidate JSON, typed-document, and opaque-binary stores, plus lossless
+mapping requirements. Database clients and the proposed sink API are not included
+in Serializer; connect the existing codecs through an application-owned adapter.
+
 For Protobuf binary, ProtoJSON, or TextProto, enable `[cpp] protobuf = true` in
 the generator config and use `protobuf_binary`, `protojson`, or `textproto` as the
 `serialize_out`/`serialize_in` protocol template. These codecs require no external
