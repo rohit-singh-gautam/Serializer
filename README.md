@@ -962,7 +962,36 @@ class person {
 
 ## Roadmap
 
-The [object identity and transactional history proposal](docs/history.md) describes
+The [managed capabilities](docs/managed/capabilities.md) proposal covers history,
+collaboration, authorization, and journaling. Managed storage carries
+a mandatory persistent ID (`uint32` by default, centrally configurable), separate
+from ordinary payloads. [Journal recovery](docs/managed/journal.md)
+uses a base snapshot plus an appended or sidecar journal, with durable undo cursors,
+full Save replacement, and cleanup that preserves newer unsaved changes.
+These managed features and configuration switches are not implemented.
+
+The proposed [collaboration contract](docs/managed/collaboration.md) uses opaque
+sessions, atomic accepted changes, informational editing presence, and optional
+entity/subtree locks. Store-owned grants, leases, and sequenced replica caches
+support authoritative acceptance without per-object lock fields. Transport,
+authentication, and distributed authority infrastructure remain host concerns.
+The contract includes nonblocking cleanup, failure handling, and efficiency
+targets; it is not an implemented protocol or a measured performance claim.
+
+The [managed-state design index](docs/managed/README.md) groups the proposals under
+`docs/managed/`. The [data-structure design](docs/managed/data_structures.md) defines
+store state, revision graphs, snapshot/delta records, checkpoints, and deleted-object
+retention, with a [C++ class walkthrough](docs/managed/data_structures.md#c-class-walkthrough)
+using actual ordinary classes generated from a
+[draft example schema](docs/managed/walkthrough.serializer), with codec methods
+omitted. Runtime ownership and tracked editors remain proposals. The
+[language-binding design](docs/managed/language_bindings.md) proposes
+C++ `model_store<Root, support>` (with a `managed` alias) and component-based stores
+for other backends. Compiled capability, schema participation, and runtime
+linear/tree history policies remain separate. Managed APIs and behavior remain
+unimplemented.
+
+The [object identity and transactional history proposal](docs/managed/history.md) describes
 an optional root collection with stable object IDs, grouped edits, and runtime
 linear or branching undo/redo. It proposes `managed` on entity members, with
 ordinary values as the default. Classes qualify through their own managed members
@@ -977,19 +1006,24 @@ of snapshot/delta storage. The language-independent contract
 distinguishes saved `exclude(history)` fields from runtime-only `transient` caches and
 covers application restoration, including Android. It is a design proposal, not an
 implemented feature; its illustrative syntax and APIs are unavailable today.
-The [domain examples](docs/managed_examples.md) cover a cylinder with a hole,
+The [domain examples](docs/managed/managed_examples.md) cover a cylinder with a hole,
 accounting, wordpad, and other applications. Scoped transactions propose automatic
 commit on successful exit, explicit revert, and observable completion failures.
+The proposed [`execute_transaction`](docs/managed/history.md#callback-based-transaction-execution)
+convenience API passes a borrowed edit context to one synchronous callback and
+returns its completion outcome, using the same RAII transaction engine.
+All three forms remain supported: manual commit, automatic completion on normal
+scope exit, and callback execution, with explicit revert for cancellation.
 Compact nested records can avoid repeating child IDs while preserving persistent
 identity mappings. Retention rules distinguish deleted live objects from their
 recoverable historical versions; storage budgets and measured editing latency
 come before aggressive micro-optimization.
-The proposed [ownership and allocation contract](docs/history.md#ownership-and-custom-allocation)
+The proposed [ownership and allocation contract](docs/managed/history.md#ownership-and-custom-allocation)
 keeps managed lifetimes in the store and permits configurable state/history/scratch
 resources. It distinguishes optional internal reference counts from entity IDs
 and makes payload allocator propagation and backend limitations explicit.
 
-The companion [managed-state proposal](docs/managed_state.md) explores editable
+The companion [managed-state proposal](docs/managed/managed_state.md) explores editable
 subtrees, application-supplied authorization, branch merging, collaboration,
 distributed transactions, and external effects. It recommends `managed` and
 `model_store` for the broader subsystem while retaining history as an optional

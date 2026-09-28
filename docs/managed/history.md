@@ -2,10 +2,16 @@
 
 Status: design proposal; not implemented. This document proposes an optional
 history module built on Serializer's existing codecs. Names such as
-`model_store`, `begin_transaction`, and `history_mode` below are illustrative
+`model_store`, `begin_transaction`, `execute_transaction`, and `history_mode` are illustrative
 APIs, not currently available headers, schema keywords, or runtime functions.
 The proposed `managed`, `exclude(...)`, and `transient` annotations below are also
 unimplemented; the current compiler does not accept them.
+
+See the [design index](README.md), [concrete data structures](data_structures.md),
+and [C++/other-language bindings](language_bindings.md) for the store template,
+optional component storage, revision records, and deleted-object examples.
+`model_store<Root>` below uses a proposed pinned default capability set; the fuller
+C++ form is `model_store<Root, support>`, also expressible as a `managed` alias.
 
 The companion [managed-state proposal](managed_state.md) develops authorization,
 merging, collaboration, distributed transactions, and external-effect boundaries.
@@ -20,7 +26,17 @@ supported output languages. C++ examples illustrate one possible API; an initial
 C++ implementation would not establish support in other backends. Each backend
 needs its own generated accessors, transaction runtime, and verification. Tracked
 mutable binary views need a separate design. Current integration is documented in the
-[usage guide](usage.md) and [integration skill](../.agents/skills/serializer-integration/SKILL.md).
+[usage guide](../usage.md) and [integration skill](../../.agents/skills/serializer-integration/SKILL.md).
+
+## Revised managed identity and capabilities
+
+Every managed storage instance now carries a mandatory `persistent_id`, defaulting
+to `uint32` under central generation configuration. Normal value classes remain
+ID-free; a map key or sidecar alone is no longer the managed identity mechanism.
+See [capabilities and configuration](capabilities.md) for the shared contract and
+the four features: history, collaboration, authorization, journaling.
+See [incremental recovery](journal.md) for durable undo/navigation
+and base-file/journal handling, which are separate from user-visible history.
 
 ## Goals and boundaries
 
@@ -59,8 +75,8 @@ A proposed `model_store<accounting>` would coordinate these responsibilities:
 | Serializer codecs | Encode/decode snapshots and history records. |
 
 Composition avoids requiring every generated type to inherit a history-aware base
-class. An ID can be a collection key or belong to a wrapper around an existing
-generated value. It need not be inserted into every existing payload schema.
+class. A generated managed storage record carries its persistent-ID field and
+wraps or projects existing values. The ordinary payload schema stays unchanged.
 History data lives outside the application root, so a root snapshot does not
 recursively contain its own history.
 
@@ -478,27 +494,24 @@ class point_document stable_ids {
 | --- | --- |
 | `point_document` containing a managed member | Infer companion/descriptor generation; explicit store construction selects the root instance. |
 | `managed` on `points` | Treat this collection's entries as independently identified objects and generate its managed collection editor. |
-| `points` map key | Persist the point's object number; allocate it through the store and keep it immutable during ordinary edits. |
+| `points` map key | Application collection key; an explicit ID-key adapter may bind it to the managed record ID, but the key alone is not identity. |
 | `managed` on `point` | Declare capability for this leaf type while keeping ordinary point instances reusable as coordinates and embedded values. |
 | `origin` member | Track its value through the root's history without allocating it a separate object ID. |
 | `stable_ids` | Keep field numbers explicit for locating collections and nested members; it still does not allocate object IDs. |
 
-For this initial generation profile, `managed` applies to direct
-`map(uint64)` members of the root with serializable owning class values.
-All such collections share the store's document-wide object-number allocator.
-An unannotated map is not automatically an identity registry. Existing input must
-pass identity validation before the store adopts it; keys are never silently
-renumbered. Entity membership is established by the annotated owning collection,
-not by the value type or by finding a field named `id`. The same payload class may
-appear in several managed collections and in ordinary fields without ambiguity.
+For this collection example, `managed` applies to `map(uint64)` entries whose
+values have managed capability. `uint64` describes application keys, independently
+of the configured `uint32` default persistent object ID. Direct managed children
+use the same generated ID-bearing storage rule. All managed entities in a document
+share a collision-free allocation domain, including its root.
 
 At the C++ API boundary, insertion returns a typed identifier such as
-`entity_id<point>`, carrying the document identity and object number. The map
-persists the number; the outer envelope persists the document identity. A generic
-`transaction.update` uses this typed identifier or an explicitly selected payload
-type, so its callback has a known type. A raw integer alone does not tell a generic
-callback which class to edit. The store validates document, collection membership,
-and payload type before resolving an identifier.
+`entity_id<point>`, combining document scope and the record's persistent number.
+Generated collection editors distinguish application-key lookup from entity-ID
+lookup; they may maintain a derived index between them. Examples using an
+ID-keyed collection need an explicit binding adapter and equality validation.
+No payload field named `id`, `taskid`, or matching map key implicitly enables this
+binding. Validate document, membership, and payload type before resolving an ID.
 
 Other container/key types and nested managed collections need explicit binding
 rules before being supported. Reject unsupported uses of a modifier rather than
@@ -522,7 +535,9 @@ Generate two layers:
 - **Managed companion:** an additional generated header, for example
   `point_document_managed.hpp`, containing `tracked_point_document`, `tracked_point`,
   collection editors, and a `model_traits<point_document>` specialization. Traits describe
-  collection field IDs, payload types, ID access, and snapshot/restore adapters.
+  collection field IDs, payload types, configured persistent-ID fields, and
+  snapshot/restore adapters. Managed storage records include the mandatory ID;
+  temporary tracked editors borrow access to those records.
 
 Generate tracked companions only after checking root and target eligibility.
 Classes with managed members infer capability; leaf entity types declare the
@@ -659,9 +674,10 @@ map keys, is preserved by value cloning. Those keys must not be mistaken for a
 complete transferable entity identity without the document and ownership metadata.
 
 Inserting a nonempty detached entity subtree needs generated import rules: assign
-new entity IDs, remap keys of marked entity collections to their new numbers, and
-remap declared internal references. Unmarked maps keep their keys as ordinary
-data. Unsupported reference mappings must fail rather than infer identity from
+new entity IDs and remap declared internal references. Preserve application map
+keys; rewrite a key only when an explicit ID-key binding requires it. Unmarked
+maps keep their keys as ordinary data. Unsupported reference mappings must fail
+rather than infer identity from
 arbitrary integers. The empty-template example above avoids that reconciliation
 by inserting its checklist entries directly through the managed factory.
 
@@ -747,21 +763,23 @@ to committed state. A proposed edit of the marked cylinder above would be:
 
 ```cpp
 // Group changes to the cylinder and its identified point into one undo step.
-transaction_outcome transaction_result;
-auto transaction = store.begin_transaction("Resize and move cylinder", transaction_result);
-{
-  auto editor = transaction.root().cylinders().edit(cylinder_id);
-  editor.set_height(120);
-  editor.set_diameter(40);
-  auto position = editor.position();
-  position.set_x(10);
-  position.set_y(20);
-}
-transaction.commit();
+auto transaction_result = store.execute_transaction(
+  "Resize and move cylinder", [cylinder_id](auto& transaction) {
+    auto editor = transaction.root().cylinders().edit(cylinder_id);
+    editor.set_height(120);
+    editor.set_diameter(40);
+    auto position = editor.position();
+    position.set_x(10);
+    position.set_y(20);
+  });
+transaction_result.throw_if_failed();
 ```
 
 The cylinder and point contribute separate logical object changes to one revision. The
 point does not acquire its own history manager, undo stack, or transaction.
+The [callback transaction](#callback-based-transaction-execution) receives its
+edit context as an argument and captures the target ID by value. It commits only
+after the callback returns successfully; no explicit `commit()` is needed.
 If `position` is unmarked instead, its API is a scoped plain-value edit:
 
 ```cpp
@@ -775,8 +793,9 @@ editor.edit_position([](point& position) {
 That version records one changed cylinder, without a point ID or point record.
 
 Independent singleton child identity requires additional store metadata. A
-snapshot implementation can persist a mapping from owner ID/member slot to child
-ID alongside the plain value tree. A changed-object implementation must preserve
+snapshot implementation retains ID-bearing managed children and their owner links.
+A derived index maps owner/member slots to those IDs. A changed-object
+implementation must preserve
 that ownership link and record the child payload once, rather than embedding a
 second independently restorable copy in the parent record. The ordinary cylinder
 codec still encodes a point value; identity is in the explicit history envelope.
@@ -886,7 +905,9 @@ Use two generation passes over the same parsed schema:
    managed annotations in compiler metadata, but do not emit object IDs, context,
    or allocation calls into this representation. Serialize `exclude(history)` normally;
    emit opted-in transient storage but omit it from codecs and wire numbering.
-2. **Tracked companion pass:** start at a requested root. Emit scalar accessors,
+2. **Tracked companion pass:** start at a requested root. Emit managed storage
+   with a configured persistent-ID field for the root and each managed child,
+   then emit scalar accessors,
    plain-value read/scoped-edit access for unmarked members, and entity accessors
    plus ownership descriptors for marked members. Follow only marked edges when
    determining which child companions must be generated. A companion generated
@@ -925,7 +946,8 @@ excluded values copied, and transient caches initialized to defaults.
 In a normalized history backend, the cylinder's record can store a child ID and
 expose `tracked_point` through a generated accessor; it need not physically embed
 a second tracked object with another manager pointer. A snapshot backend can use
-the ordinary tree plus the identity sidecar described above. Both implementations
+a tree of generated managed storage records carrying their IDs, with a derived
+lookup index. Both implementations
 must expose the same representation and transaction semantics. Normal codecs
 continue to serialize normal geometry, while history save/load handles explicit
 identity metadata and ownership links.
@@ -992,17 +1014,17 @@ by value or reference, and serialize only its `x` and `y` fields. The point cont
 no ID, history pointer, transaction flag, or extra base class.
 
 An identified occurrence is conceptually an object ID paired with a `point` value.
-In the proposed map representation, the key already supplies the numeric ID, so
-there is no need to repeat it inside the value. The document envelope supplies
-the remaining identity namespace. A separate wrapper could provide the same
-separation for other ownership models if those are introduced later.
+The managed representation has a generated persistent ID field even inside a map.
+The document envelope supplies its namespace. A map key is separate application
+data unless an explicit adapter binds it to that ID; such a binding does not
+remove the managed field. Ordinary point values still contain only coordinates.
 
 | Use of `point` | Identity and history behavior |
 | --- | --- |
 | Local variable or ordinary function parameter | Coordinates only; no history participation. |
 | Standalone serialized point | Encode only the point schema's coordinate fields, using the selected codec's normal framing. |
 | `origin` embedded in the history root | Coordinates only in the payload; edits participate in the root's revision. |
-| Entry in the managed `points` collection | Collection key supplies identity; edits target that entity through a transaction. |
+| Entry in the managed `points` collection | Managed storage carries the configured persistent ID; edits target that entity through a transaction. |
 | Copied value read from a managed entry | Ordinary detached coordinates; the ID is not implicitly copied into the value. |
 
 For example, an existing value-only operation can be reused in either context:
@@ -1198,12 +1220,12 @@ point the cylinder owns is a different change, addressed to cylinder field 3.
 Do not let alternate navigation paths bypass the target's permission checks or
 create duplicate history records for the same independently managed payload.
 
-Treat `entity_id` as a namespaced, persistent identifier. The existing proposal's
-`map(uint64)` profile uses document UUID plus allocated object number; the raw map
-key alone is not universally unique. A per-object UUID is another possible
-identity profile, with its own encoding and import rules. Neither field numbers
-nor a payload member named `taskid` implicitly supply this identity. Persist the
-namespace and allocation metadata so these addresses can be resolved after reload.
+Treat `entity_id` as document namespace plus the managed record's configured
+persistent scalar ID (`uint32` by default, centrally selectable as `uint64`).
+Map keys and schema field numbers are separate. Neither a field named `taskid`
+nor a collection's numeric key implicitly supplies identity. Persist the identity
+format and allocation metadata so these addresses survive reload. Collaboration
+requires coordinated allocation or disjoint reserved ranges within that namespace.
 
 Resolution always occurs against a specific store/transaction/revision context:
 the same entity can have different values on different history branches, or be
@@ -1282,6 +1304,16 @@ publish revisions. In disabled mode, successful changes can still notify
 subscribers even though they produce no history revision IDs. Root-owned value
 changes identify the document root as their owner.
 
+For collaboration, distinguish a local candidate or local publication from an
+authoritatively accepted shared change; the adapter must expose acceptance status.
+The [collaboration contract](collaboration.md) defines separate accepted-change,
+editing-presence, and lock-update streams. Presence is temporary information and
+does not prevent edits. Session-owned entity/subtree locks are validated by the
+authority atomically with acceptance; undo, redo, and checkout obey current locks
+and permissions on every affected scope. Lock/presence state is never rewound by
+history or restored as editing rights from a saved document. RAII release can
+enqueue a request, while explicit completion and lease expiry handle delivery.
+
 ## Setters detect writes; transactions define history entries
 
 Do not make every `set_x` or `set_y` call immediately append a history entry.
@@ -1346,7 +1378,7 @@ through aliases, container mutation, nested mutable access, or replacement throu
 deserialization. A tracked facade must route all such writes through its edit
 boundary. Existing mutable binary view setters alter borrowed storage, which can
 also have other aliases; they cannot provide transaction isolation without private
-buffer ownership or copying. See [view lifetime requirements](views.md).
+buffer ownership or copying. See [view lifetime requirements](../views.md).
 
 Do not modify all current setters or hand-edit generated output for the initial
 implementation. A future generator option would need its own compatibility and
@@ -1397,6 +1429,19 @@ retaining an extra revision is safer than discarding a real change.
 
 ## Transaction lifecycle and failure behavior
 
+All three transaction forms remain supported; callback execution does not replace
+manual or scoped completion:
+
+| Form | Completion boundary |
+| --- | --- |
+| `begin_transaction(...)` with explicit `commit()` | The caller selects when to validate/publish; subsequent destruction only cleans up. |
+| `begin_transaction(...)` without explicit `commit()` | Normal scope exit attempts commit if the guard remains active and healthy; revert/failure/exception prevents it. |
+| `execute_transaction(label, callback)` | The wrapper completes once after successful callback return and returns the outcome; cancellation/failure prevents commit. |
+
+These are three ways to drive the same transaction engine, not different history
+formats or policies. The first two use the same guard: explicit commit is optional,
+not a separate manual-only mode that silently discards an uncommitted action.
+
 The initial design permits one active writer transaction per store. It is not a
 general concurrent or multi-store transaction system. Publication and reading
 require a defined synchronization policy; other threads must not access mutable
@@ -1431,6 +1476,74 @@ Application validation runs on the completed candidate, so temporary states such
 as updating only one operand need not satisfy every object-level invariant.
 Individual writes still enforce their own type and bounds requirements.
 
+### Callback-based transaction execution
+
+Prefer `execute_transaction(label, callback)` for an action that can finish in one
+synchronous callback. It returns a `[[nodiscard]] transaction_outcome` by value,
+after closing the transaction scope. It is a convenience wrapper over the same
+candidate, validation, coalescing, and publication machinery as `begin_transaction`,
+not a second transaction engine or an additional root clone.
+
+The C++ callback takes a borrowed edit context, conceptually
+`transaction_edit<Root>&`, and returns `void`. Using `auto& transaction` in a lambda
+avoids exposing that spelling at call sites. Capture external IDs explicitly,
+for example `[cylinder_id]`; an empty `[]` cannot access a surrounding local ID.
+The edit context supplies `root()`, scoped `update(...)`, and `revert()`, but no
+`commit()` or ownership transfer. This prevents an early callback commit followed
+by a later exception from violating the all-or-nothing action boundary. The
+wrapper alone owns and completes the underlying RAII guard.
+
+| Callback execution | Outcome and publication |
+| --- | --- |
+| Returns normally with a healthy candidate | Prepare and commit once; return committed or no-change. |
+| Calls `transaction.revert()` | Discard the candidate; return reverted, with no later automatic commit. |
+| Throws, or a managed edit fails | Discard/poison the candidate; return failed with structured error information. |
+| Final validation, permission, lock, allocation, or preparation fails before publication | Return failed; committed model/history remain unchanged. |
+| Begin fails, including a nested writer on the same store | Do not invoke the callback; return failed. |
+
+For the initial C++ convenience API, capture exceptions escaping the callback as
+a failed outcome, optionally retaining an exception handle; callers can use
+`throw_if_failed()` to raise the recorded failure after cleanup. Preserve at least
+a fixed error code without allocating on a failure path. Exceptions evaluating
+arguments or constructing a capture before entering `execute_transaction` remain
+ordinary caller exceptions. The initial callback must return exactly `void`:
+reject callbacks returning `bool`, a status, future, or coroutine task rather than
+silently discarding their result and committing. Do not automatically retry the
+callback after conflicts, because its application-side work may not be repeatable.
+
+A bare `return;` inside the callback means successful completion of the edits
+already made. Cancellation requires `transaction.revert(); return;`. A caught
+application error also requires explicit revert when it invalidates the action;
+a caught managed-edit failure leaves the transaction poisoned and cannot commit.
+Editing after revert/failure is rejected. Callbacks, contexts, editors, references,
+and mutable candidate views must not escape the synchronous scope. They cannot
+suspend, be retained for later execution, or move work to another thread.
+
+Use a templated forwarding callable in C++ so the wrapper need not allocate a
+`std::function`, copy the callable, or introduce virtual dispatch. The callback is
+invoked exactly once after a successful begin and never after a failed begin.
+Callback locals are destroyed before final validation/publication. These are design
+targets, not benchmark results. This adds no promise of allocation-free candidates
+or history storage; the existing allocation rules still apply.
+
+The returned outcome describes the configured completion boundary. For a local
+store it contains completed transaction status. A collaboration adapter must
+distinguish local completion from pending authoritative acceptance, and a journal
+adapter must expose durability or an indeterminate I/O outcome separately. The
+wrapper does not wait for a network response by default, and callback return does
+not establish shared acceptance or durability. Any pending submission owns its
+records independently after the edit scope closes; borrowed editors never escape.
+Once publication has occurred, notification/delivery failure cannot turn the
+operation into a claimed rollback. Follow the [collaboration](collaboration.md)
+and [journal](journal.md) outcome contracts.
+
+Keep `begin_transaction` for caller-controlled scopes and gestures spanning
+multiple events. Both forms retain RAII cleanup, explicit cancellation, and the
+same single-writer rule. Helpers join an action by accepting its edit context;
+calling `execute_transaction` recursively on the same store does not create an
+implicit savepoint. Other languages should expose equivalent callback completion
+without relying on finalizers; see [language bindings](language_bindings.md).
+
 ### Scoped completion and RAII
 
 Propose `begin_transaction(label, outcome)` returning a move-only RAII transaction.
@@ -1442,6 +1555,13 @@ reports failures to its caller; it also fills the outcome. Destruction uses the
 same validation and publication path but never throws. Earlier explicit-commit
 examples remain valid; automatic completion removes the requirement to call
 `commit()` merely to close a successful scope.
+
+In C++, leaving scope destroys the guard; that destruction is what triggers
+automatic completion. Its destructor cannot portably distinguish ordinary scope
+exit from an explicit `delete` or owning-pointer reset. Do not treat deleting a
+guard as cancellation. Prefer automatic storage; call `revert()` to cancel before
+any normal destruction. A moved-from, committed, reverted, or failed guard never
+commits on destruction. Exceptional stack unwinding reverts as specified below.
 
 ```cpp
 // Proposed API: resize both operands and observe scope-completion failure.
@@ -1472,10 +1592,10 @@ observable even when it is not treated as a commit error.
 
 For C++, implement the destructor as `noexcept`; record the uncaught-exception
 count at construction and compare it at destruction on the same execution thread.
-Reject starting a transaction during stack unwinding. Any exception escaping the scope triggers rollback; a failed managed
-edit poisons the transaction even if the caller catches that failure inside the
-scope. An
-application error handled entirely inside the scope must call `revert()` if it
+Reject starting a transaction during stack unwinding. Any exception escaping the
+scope triggers rollback; a failed managed edit poisons the transaction even if the
+caller catches that failure inside the scope. An application error handled entirely
+inside the scope must call `revert()` if it
 invalidates the action; the guard cannot infer that from arbitrary control flow.
 The C++ working draft describes [stack unwinding](https://eel.is/c++draft/except.ctor)
 and [`uncaught_exceptions`](https://eel.is/c++draft/uncaught.exceptions).
@@ -1521,12 +1641,18 @@ Automatic grouping by elapsed time or merging already committed actions is a
 separate convenience policy, not the transaction's correctness mechanism.
 
 Undo, redo, and branch checkout also prepare and validate a candidate before
-publication. Existing [fresh exact decoding](usage.md#decode-one-exact-message-into-a-fresh-value)
+publication. Existing [fresh exact decoding](../usage.md#decode-one-exact-message-into-a-fresh-value)
 helps prevent partial decode results from escaping, but does not make a later
 assignment, history update, or disk write atomic. Those guarantees belong to the
 new module.
 
 ## Linear and branching history at runtime
+
+These policies apply when the store supports history. The
+[revision-graph design](data_structures.md#a-revision-graph-with-a-runtime-retention-policy)
+shows `R0 -> R1 -> R2 -> R3`, undo twice to R1, and a new R4 branch that preserves
+R2/R3 in tree mode. Neither mode requires field-level differences: use root
+snapshots, changed-entity snapshots, or supported reversible deltas independently.
 
 | Proposed mode | Policy |
 | --- | --- |
@@ -1576,17 +1702,18 @@ provide branch merging or conflict resolution.
 | Revision ID | Identifies one committed history node. |
 | Document ID | Namespaces a saved document's entities and revision history. |
 
-The existing [`stable_ids` contract](../README.md#explicit-field-ids-with-stable_ids)
+The existing [`stable_ids` contract](../../README.md#explicit-field-ids-with-stable_ids)
 does not allocate object IDs. For one coordinated writer, a persisted document UUID
-and a monotonic `uint64` object number provide a practical identity. Independent
-writers or independently edited document copies need distinct allocation namespaces
-or object UUIDs, plus duplicate-ID validation when importing or combining data.
+and a monotonic configured object number (`uint32` by default) provide a scoped
+identity. Independent writers need an authority or disjoint durably reserved
+ranges; duplicate-ID checks and explicit namespace/import rules are required when
+combining independently edited copies. See [central ID policy](capabilities.md).
 These object identities and the [relative field paths](#entity-ids-and-field-paths)
 serve different purposes; assigning explicit schema IDs does not make every field
 a separately managed entity.
 
-Allocate an object ID once and persist it as ordinary data or in the store's
-envelope. Never derive it from a memory address, array position, display name,
+Allocate an object ID once in the generated managed storage's `persistent_id`
+field and persist it through the managed envelope; ordinary values stay ID-free. Never derive it from a memory address, array position, display name,
 mutable content, or schema field number. References use IDs and resolve through
 the registry.
 
@@ -1658,6 +1785,10 @@ The same optimization applies to an entry with managed lines or a document with
 managed paragraphs; it is not specific to geometry.
 
 ## Deleted from the model, retained in history
+
+The [record-level deletion example](data_structures.md#where-deleted-entities-are-stored)
+uses the same version/blob store as other history. An optional deleted-entity index
+is a lookup aid, not a second mutable repository of deleted objects.
 
 Deletion removes an entity from the current ownership tree and live registry; it
 does not necessarily remove every stored version of that entity. For example,
@@ -1748,9 +1879,9 @@ A separate versioned envelope should store the document ID, allocation metadata,
 codec and application-schema versions, history mode, current revision, and retained
 nodes with their required checkpoints or changes, plus current persistent state
 and the retained `exclude(history)` overlay. History checkpoints exclude that overlay
-and all transient fields. Saving only the current root preserves its declared
-identity keys but cannot resume its undo history or recover identities stored
-only in the envelope. In-memory records may
+and all transient fields. A managed current-state export retains the generated
+ID fields and document scope but cannot resume omitted undo history. An ordinary
+value export omits framework IDs entirely. In-memory records may
 use efficient native representations; persistent history stores serializable data,
 not function pointers, closures, or process addresses.
 
@@ -1776,15 +1907,14 @@ History migration must address all retained snapshots and changes, not only the
 current root. Retain a decoder/migration path for each supported application-schema
 version or explicitly decline to resume incompatible history. Schema language
 `version 1` and `stable_ids` do not identify the version of these saved messages.
-See [schema evolution](schema_evolution.md) and the [wire contract](wire_format.md#schema-evolution).
+See [schema evolution](../schema_evolution.md) and the [wire contract](../wire_format.md#schema-evolution).
 
 ## Implementation stages and required verification
 
 1. Add an optional C++ module with the root store, ID allocation, scoped
    transactions with observable completion, whole-root snapshots, and runtime
    linear/tree policies. Cloning and retaining full roots costs work and storage
-   proportional to root size per
-   transaction/revision; measure this honestly.
+   proportional to root size per transaction/revision; measure this honestly.
 2. Implement the separate persistence/history projections, excluded-state overlay,
    and cache invalidation before accepting `exclude(history)` or `transient`. Add versioned
    save/load and coherent recovery of the selected revision and excluded state.

@@ -9,6 +9,36 @@ accounting, text editing, project planning, and configuration editing need the
 same identity, ownership, transaction, and retention contracts. The application
 chooses entity boundaries and validates its own invariants. See the
 [history proposal](history.md) and [managed-state proposal](managed_state.md).
+The [data-structure walkthrough](data_structures.md#worked-records-for-the-cylinder-with-a-hole)
+shows the actual proposed entity-version references and branches for the graphics
+example. [Language bindings](language_bindings.md) explain how each backend can
+represent these records; return to the [design index](README.md) for all proposals.
+
+## Shared rules for every example
+
+All examples use the [four-feature capability design](capabilities.md): history,
+collaboration, authorization, and journaling. Every managed root and
+entity carries a generated `persistent_id`, defaulting to centrally configured
+`uint32`. Ordinary values remain ID-free. `map(uint64)` in these schemas describes
+an application key, not the ID type; generated managed storage has its own ID.
+
+A graphics application can journal geometry edits and checkpoint during idle time;
+an accounting application can combine recovery with separately retained audit
+records; wordpad can combine undo, shared editing, paragraph permissions, and
+journal recovery. Authorization does not require collaboration. Recovery persists saved
+fields even when they are excluded from undo; see [journal storage modes](journal.md#appended-and-sidecar-storage-modes).
+Stable IDs also support annotations, selective synchronization, and incremental
+recalculation without making those extra capabilities new keywords.
+
+Collaboration in every domain uses opaque sessions, not built-in user accounts.
+Session A can lock a difference object's owned subtree, an accounting draft entry,
+or a wordpad paragraph while session B edits a disjoint part. An ordinary embedded
+value is covered by its managed owner's lock. Presence merely reports an editing
+target; exclusive grants actually restrict managed edits. Coupled operations,
+such as moving a paragraph or posting entries across accounts, validate every
+affected scope and the application's invariants. The
+[collaboration contract](collaboration.md) defines authoritative acceptance,
+replica lock caches, expiry, and the application's transport responsibilities.
 
 ## Graphics: a cylinder with a hole
 
@@ -54,7 +84,8 @@ types would be additional application fields.
 
 Normal construction of `difference` creates two ordinary cylinders containing
 ordinary points. In `model_store<design>`, insertion into the managed `parts`
-collection allocates identities for the difference and both cylinders. It does
+collection allocates IDs for the difference and both cylinders and stores them
+in their generated managed representation; the design root also carries an ID. It does
 not allocate identities for their positions or for the computed volume.
 
 ```mermaid
@@ -75,22 +106,22 @@ invalidated rather than recorded as independent history entities.
 
 ```cpp
 // Proposed API: resize both operands as one validated user action.
-transaction_outcome outcome;
-{
-  auto transaction = store.begin_transaction("Resize hollow cylinder", outcome);
-  auto part = transaction.root().parts().edit(difference_id);
-  part.outer().set_height(120);
-  part.outer().set_diameter(40);
-  part.hole().set_height(120);
-  part.hole().set_diameter(20);
-} // Successful scope exit attempts one atomic commit.
-outcome.throw_if_failed(); // The destructor itself does not throw.
+auto outcome = store.execute_transaction(
+  "Resize hollow cylinder", [difference_id](auto& transaction) {
+    auto part = transaction.root().parts().edit(difference_id);
+    part.outer().set_height(120);
+    part.outer().set_diameter(40);
+    part.hole().set_height(120);
+    part.hole().set_diameter(20);
+  });
+outcome.throw_if_failed();
 ```
 
-The result object outlives the transaction. See
-[scoped transaction completion](history.md#scoped-completion-and-raii) for rollback,
-error reporting, and other language bindings. A canceled gesture calls
-`transaction.revert()` before leaving the scope.
+The wrapper completes the transaction before returning its result. See
+[callback execution](history.md#callback-based-transaction-execution) for rollback,
+error reporting, and cancellation. For a gesture spanning multiple input events,
+keep the caller-controlled [RAII transaction](history.md#scoped-completion-and-raii)
+and call `transaction.revert()` if the gesture is canceled.
 
 | User action | Logical history ownership |
 | --- | --- |

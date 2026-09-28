@@ -23,7 +23,34 @@ the application's dependency/build configuration; resolve the following files
 there instead of relying on the relative links.
 
 - Read [README.md](../../../README.md) for supported syntax and feature status.
-- Treat [transactional history](../../../docs/history.md) as a design proposal only.
+- Use the [managed design index](../../../docs/managed/README.md) for the proposals.
+  The [capability contract](../../../docs/managed/capabilities.md) now defines
+  history, collaboration, authorization, and journal. Every managed
+  storage instance has a generated persistent ID, default `uint32`, centrally
+  configurable through proposed `[managed] id_type` / `--managed.id_type` settings.
+  Those switches are not implemented. Plain values remain ID-free; map keys and
+  sidecar indexes cannot replace the managed ID field. Document scope, non-reuse,
+  durable allocation reservations, and collision-free replica allocation apply.
+  The [journal design](../../../docs/managed/journal.md) separates base/journal
+  durability from undo history and defines appended and sidecar storage modes.
+  Full Save durably publishes a replacement before retiring covered records;
+  preserve newer edits, retained history dependencies, and allocation metadata.
+  Changes may remain unsaved in the UI while durably journaled for recovery.
+  These modes and APIs are proposals. Active/required authorization cannot
+  be bypassed by member selectors. Imported/generated models must agree on ID type.
+  The [data structures](../../../docs/managed/data_structures.md) and
+  [language bindings](../../../docs/managed/language_bindings.md) describe optional
+  store components, `model_store<Root, support>` / `managed` in C++, other-language
+  composition, revision graphs, version records, and deleted-entity retention.
+  Use the [C++ class walkthrough](../../../docs/managed/data_structures.md#c-class-walkthrough)
+  for actual ordinary class excerpts from the [walkthrough schema](../../../docs/managed/walkthrough.serializer),
+  with codec functions omitted, and their proposed runtime ownership mapping.
+  Preserve generated access sections, qualified field types, initialization, and
+  storage metadata; do not present handwritten templates, optional fields, or
+  runtime pointers as current schema output. The example uses supported data
+  syntax, but its record IDs are illustrative. Managed behavior and the production
+  history wire format remain unimplemented contracts.
+- Treat [transactional history](../../../docs/managed/history.md) as a design proposal only.
   Its `managed`, `exclude(...)`, and `transient` modifiers, object IDs, model stores,
   edit transactions, and setter tracking are not implemented in any language backend.
   Existing `stable_ids` identifies schema fields, not objects.
@@ -31,18 +58,27 @@ there instead of relying on the relative links.
   path; field IDs do not create independent entities or require delta storage.
   Scoped transactions propose auto-commit on successful exit with an explicit
   outcome, rollback on failure/cancellation, and deterministic resource cleanup.
+  Prefer the proposed [callback transaction](../../../docs/managed/history.md#callback-based-transaction-execution)
+  `execute_transaction(label, callback)` for a single synchronous action. Pass a
+  borrowed edit context, capture external IDs, and return the outcome after scope
+  completion. The wrapper owns commit; callback revert/failure prevents it. Reject
+  accidental non-void/async C++ callbacks and never retry the callback implicitly.
+  Keep `begin_transaction` for caller-controlled lifetimes; neither API exists yet.
+  Preserve all three forms: begin with explicit commit, begin with automatic
+  completion on healthy normal scope exit, and callback execution. Commit closes
+  once; revert cancels. Guard deletion is not a distinct cancellation signal.
   Compact child addressing can omit repeated IDs only while preserving recoverable
   identity bindings; deleted entities can remain in retained history without live
   mutable objects. Storage budgets and measured latency guide optimization.
-  The proposed [ownership/allocation contract](../../../docs/history.md#ownership-and-custom-allocation)
+  The proposed [ownership/allocation contract](../../../docs/managed/history.md#ownership-and-custom-allocation)
   keeps lifetime control in the store while permitting state/history/scratch
   resources. These hooks are unimplemented, do not automatically redirect payload
   container allocations, and require explicit backend support. Internal reference
   counts remain optional and are separate from persistent entity identity.
-- Use the [managed examples](../../../docs/managed_examples.md) only for design
+- Use the [managed examples](../../../docs/managed/managed_examples.md) only for design
   discussion: hollow-cylinder differences, accounting ledgers, wordpad documents,
   and other models illustrate a generic facility, not implemented sample programs.
-- Treat [managed state](../../../docs/managed_state.md) as a companion proposal.
+- Treat [managed state](../../../docs/managed/managed_state.md) as a companion proposal.
   Its `managed` / `model_store` naming, scoped authorization, merging, collaboration,
   distributed transactions, and external-effect handling are unimplemented.
   Inferred companion generation and selectors such as `managed(history)` and
@@ -54,6 +90,16 @@ there instead of relying on the relative links.
   `exclude(history, collaboration)` is a proposed ordinary-value exclusion that
   preserves serialization and mandatory policy checks; it does not confer identity.
   Authentication and invitation management remain application responsibilities.
+  The [collaboration contract](../../../docs/managed/collaboration.md) specifies
+  opaque sessions, accepted batches, informational presence, and optional
+  authoritative entity/subtree locks. Keep grant/lease tables in the store,
+  separate from payloads, undo, and document recovery. Local cached checks do not
+  replace atomic authority validation/publication; trusted accepted replication
+  is distinct from authorizing the observing session to edit. Host adapters own
+  transport, trusted session binding, clocks, and any consensus/failover fencing.
+  RAII release must not wait for network I/O; expiry handles failed delivery.
+  Portable records must originate in schemas when implemented. The document's
+  interfaces, indexes, and efficiency targets are proposals, not current APIs.
 - Use [docs/usage.md](../../../docs/usage.md) for the schema, CMake, and codec examples.
 - Use [docs/portable_languages.md](../../../docs/portable_languages.md) for JS/TypeScript,
   Go, C#, target SDKs, type mappings, limits, and interoperability.

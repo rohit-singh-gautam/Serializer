@@ -5,6 +5,10 @@ extends the [transactional history proposal](history.md) with constraints to kee
 in mind during implementation. It does not add authentication, collaboration,
 distributed commits, or external-effect adapters to Serializer today.
 
+The [design index](README.md) also links the [data structures](data_structures.md)
+and [language bindings](language_bindings.md). Those define the optional store
+components, C++ support parameter, and portable revision/version records.
+
 The initial local history implementation can stay small. It should expose clear
 validation, identity, persistence, and publication boundaries so these features
 can be added without allowing writes to bypass transaction rules. All contracts
@@ -19,6 +23,15 @@ the subsystem's domain. See the history proposal for
 [compact identity encoding](history.md#compact-records-without-losing-identity),
 [deleted-entity retention](history.md#deleted-from-the-model-retained-in-history),
 and [storage/performance priorities](history.md#storage-and-performance-priorities).
+
+## Current capability set and identity contract
+
+The four proposed features are `history`, `collaboration`, `authorization`, and
+`journal`. Every managed instance has a generated persistent ID,
+`uint32` by default and centrally configurable; ordinary representations remain
+ID-free. See [capabilities](capabilities.md) for selectors, scope, configuration,
+and other differential-change scenarios, and [journaling](journal.md)
+for base snapshots, journals, undo cursors, checkpointing, and recovery.
 
 ## Naming the broader capability
 
@@ -162,9 +175,9 @@ unsupported ownership/features, and unavailable external adapters distinctly.
 Validate managed member declarations even when some runtime occurrences remain plain.
 
 `taskid` remains an ordinary application field. Its name and numeric type do not
-make it the managed identity. In this example, the store-controlled `uint64` map
-key and document identity supply that identity under the history proposal's
-collection rules; explicit binding would be needed to use a payload field instead.
+make it the managed identity. Generated managed storage carries a separate
+`persistent_id`, defaulting to `uint32`; document metadata supplies its scope.
+The map key remains application data unless explicitly bound to that ID.
 
 ### Plain containment does not propagate managed support
 
@@ -241,6 +254,8 @@ Recommend a positive list or an explicit set exclusion:
 | `managed(all)` | Explicit spelling of the same selection. |
 | `managed(history)` | History only, plus the mandatory managed foundation. |
 | `managed(history, collaboration)` | The named features, when supported together by the profile/backend. |
+| `managed(authorization)` | Request scoped permission support; active store policy still applies to all protected targets. |
+| `managed(journal)` | Record recoverable changes in an appended section or sidecar between full saves, without requiring undo history. |
 | `managed(all except history)` | All profile features except history. |
 | `managed(all except history, collaboration)` | All profile features except both named features. |
 
@@ -280,7 +295,9 @@ redefine `all` to mean whatever that backend happens to implement.
 
 Pin the profile rather than implicitly adding future features on a compiler
 upgrade. Moving to a new profile is an explicit configuration/migration decision.
-The exact profile registry and configuration spelling remain to be designed;
+The initial capability names are defined in [capabilities](capabilities.md).
+Central ID-type configuration is proposed there; the full profile registry and
+profile-selection configuration spelling remain to be designed;
 there is no corresponding compiler switch today. The table illustrates proposed
 selectors, not a claim that collaboration or every combination is implemented.
 
@@ -290,10 +307,20 @@ options choose which are active and provide any required policies/adapters. Bare
 recording. A history mode still selects disabled, linear, or tree behavior.
 Explicitly requested runtime features without generated support must fail clearly.
 
+The [store support parameter](language_bindings.md#support-participation-and-activation)
+or equivalent runtime factory sets another explicit upper bound. A history-only
+store can deliberately leave permitted collaboration inactive without redefining
+the schema profile. Generation must still diagnose unavailable selected schema
+features; store construction must reject unsupported requested activation or
+adapter dependencies. Mandatory identity/transaction/policy state is outside
+these optional feature choices.
+
 Independent identity, ownership validation, scoped mutation, and atomic local
 transaction publication are the managed foundation, not optional feature bits.
-`managed(history)` still needs them. Authorization enforced by the store is also
-a mandatory gate on every affected entity, regardless of its feature selector.
+`managed(history)` still needs them. Authorization is now a selectable store
+capability, usable locally as well as with collaboration. Once enabled or required
+by application/document policy, it is a mandatory gate on every affected entity,
+regardless of that entity's feature selector.
 It cannot be disabled with `managed(all except authorization)`; reject attempts
 to use selectors to bypass it. Per-target grants live in the authorization policy.
 
@@ -414,7 +441,7 @@ as well; feature exclusion alone does not make a field transient.
 | Authorization policy | Decide whether an application-supplied context may perform a particular operation on a target. |
 | History component | Retain revisions, navigate alternatives, and later prepare merges. |
 | Collaboration adapter | Exchange proposed changes, track acknowledgements, and resolve concurrent submissions. |
-| Persistence adapter | Durably record model state and any required journals or effect intents. |
+| Journal adapter | Durably record base snapshots and atomic change journals; recover current persistent state independently of user undo history. |
 | Application | Authenticate users, issue invitations, assign permissions, supply domain invariants, and integrate external systems. |
 
 Use one controlled publication path for local edits, incoming changes, merge
@@ -652,6 +679,12 @@ implement merge semantics.
 
 ## Collaborative editing
 
+The detailed [session, presence, and lock contract](collaboration.md) defines the
+Serializer interface boundary. Participants are opaque sessions; names such as
+Alice and Bob in discussion do not imply a user/account subsystem. The host maps
+trusted sessions to authorization contexts and transports records through sinks.
+Serializer manages state transitions and acceptance, without networking or login.
+
 A first collaboration layer can use one authoritative store. Clients submit
 proposed changes against a base revision, and the authority authorizes, validates,
 orders, and acknowledges accepted transactions. This extends the single-writer
@@ -682,7 +715,7 @@ because both values can be serialized.
 Online clients can obtain entity numbers from the authority. Offline creation
 requires disjoint preallocated ranges or a negotiated globally unique ID scheme;
 independent counters within one document can collide. An actor identifier in
-metadata does not fix collisions in an existing `map(uint64)` identity registry.
+metadata does not fix collisions between equal managed `persistent_id` fields.
 Changing the identity representation requires schema/envelope compatibility work.
 
 In a shared model, "undo my action" should normally create a validated new change
@@ -703,8 +736,24 @@ collaboration over protected subtrees.
 
 Implementation consideration now: distinguish transaction IDs from revision IDs,
 carry base versions and provenance, preserve transaction boundaries, and route
-incoming changes through the same authorization/validation pipeline. Keep transport
+incoming proposals through the authority's authorization/validation pipeline. Keep transport
 and identity providers replaceable rather than putting network login into codecs.
+
+Keep accepted changes, informational editing presence, and authoritative lock
+updates separate. Presence never prevents edits. Optional entity/subtree locks
+use store-owned grant/lease tables and sequenced replica caches, not per-payload
+lock fields. Local checks provide early feedback; authority validation and model
+publication share one atomic ordering boundary. Read-only sessions can apply
+trusted accepted replication without obtaining local edit permission.
+
+Grants bind session, target/scope, authority epoch, generation, and lease. Expiry
+or revocation invalidates delayed requests. Snapshot-plus-update handoff and gap
+detection keep replica caches usable; cached absence never guarantees freedom to
+edit. Moves, deletion, undo, and merge validate all affected scopes. Active locks
+and presence are outside document undo/recovery. The host supplies any consensus,
+failover fencing, and trusted session binding; disconnected replicas cannot
+independently promise exclusive shared locks. See the detailed contract for
+nonblocking RAII release and measured efficiency targets.
 
 ## Distributed transactions
 
