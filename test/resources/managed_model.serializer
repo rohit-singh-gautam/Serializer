@@ -1,0 +1,29 @@
+serializer version 1;
+
+// Low-level adapter compatibility fixtures. Schema-driven examples use managed_generated.serializer.
+
+namespace managed_test {
+  class point stable_ids {
+    public int32 x (1);
+    public int32 y (2);
+  }
+
+  class document stable_ids {
+    public array point points (1);
+  }
+
+  class point_record stable_ids {
+    public uint32 persistent_id (1);
+    public point value (2);
+  }
+
+  class document_record stable_ids {
+    public uint32 persistent_id (1);
+    public array point_record points (2);
+  }
+
+  class document_record64 stable_ids {
+    public uint64 persistent_id (1);
+    public document value (2);
+  }
+}

@@ -134,3 +134,19 @@ test('custom field, container, base and default types use theme type colors, not
     assert.ok(!tokens.find(token => token.startIndex <= offset && token.endIndex > offset).scopes.includes('entity.name.type.serializer'));
   }
 });
+
+test('managed declarations highlight the modifier before direct and collection types', async () => {
+  const grammar = await loadGrammar();
+  for (const line of ['class task stable_ids managed {', 'public managed task child (1);',
+    'public managed map(uint64) task tasks (2);', 'public managed array task tasks (3);']) {
+    const tokens = grammar.tokenizeLine(line, INITIAL).tokens;
+    const at = line.indexOf('managed');
+    assert.equal(tokens.find(token => token.startIndex <= at && token.endIndex > at).scopes.at(-1),
+      'storage.modifier.serializer');
+    const typeAt = line.lastIndexOf(' task ');
+    if (typeAt >= 0) {
+      assert.equal(tokens.find(token => token.startIndex <= typeAt + 1 && token.endIndex > typeAt + 1).scopes.at(-1),
+        'entity.name.type.serializer');
+    }
+  }
+});

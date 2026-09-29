@@ -1,5 +1,23 @@
 # Migrating to the snake_case Serializer API
 
+The optional [C++ managed interface](docs/managed/cpp_runtime.md) adds
+`Serializer::managed` and bare `managed` declarations. Regenerate managed headers:
+the default now puts `persistent_id` directly on the schema class, and store reads
+use `snapshot->name` rather than `snapshot->value.name`. Application field IDs stay
+unchanged, but the direct codec adds metadata key `0x3fffffff`/`persistent_id`.
+To retain the preceding ID-free payload and storage-wrapper API/wire format, set
+`[managed] separate_values = true` or `--managed.separate_values true` consistently.
+Default direct saves have a different schema binding; loading old wrapper saves
+requires that opt-in representation or an explicit migration. Width changes also
+require migration (`[managed] id_type = uint32|uint64`). Ordinary schemas without
+managed declarations remain unchanged; other-language managed backends are not
+implemented. The existing explicit managed occurrence boundaries still apply.
+
+New stores no longer require an application-supplied document namespace; omit the
+second constructor argument for automatic generation. Explicit IDs remain supported.
+Loading restores saved identity. Object IDs are document-local and allocated from 1
+upwards, with no renumbering/reuse on undo, deletion, or failed transactions.
+
 Optional [message compression](docs/compression.md) adds C++ overloads without
 changing existing bytes or calls. Rebuild the runtime with selected optional
 dependencies and regenerate owning headers for member/static options. Free

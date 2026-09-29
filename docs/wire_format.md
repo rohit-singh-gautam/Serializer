@@ -1,5 +1,24 @@
 # Wire format and decoding contract
 
+The optional [C++ managed runtime](managed/cpp_runtime.md) uses a separate
+[version-one envelope schema](../schemas/managed_records.serializer), encoded
+with the existing `binary_integer` protocol. It adds document/schema identity,
+allocation marks, and snapshot revisions. Schemas without managed declarations
+retain their codecs; managed class representation is described below.
+Its load requires matching application schema, ID width, and history mode; it is
+not the proposed journal or distributed collaboration wire protocol.
+Default managed classes serialize `persistent_id` under reserved integer key
+`1073741823` (`0x3fffffff`) or string key `persistent_id`, after their application
+fields in positional codecs. Application field IDs are not shifted. A conflicting
+metadata key/name is rejected. With `[managed] separate_values = true`, generated
+companions instead encode identity at field 1 and payload at field 2; ordinary
+payloads keep their ID-free representation. The direct and separated modes use
+different schema bindings, so envelopes are not interchangeable. The document
+namespace is generated automatically for new stores, while object IDs start at 1
+and increment within that document. Saved namespaces and allocation high-water
+marks are restored during load; deletion and undo never renumber surviving objects.
+Direct managed Protobuf output is currently unsupported.
+
 The opt-in C++ `protobuf_binary`, `protojson`, and `textproto` protocols have a
 separate [Protobuf mapping and decoding contract](protobuf.md). They do not use
 the custom binary layouts or ordinary JSON mapping documented below. Java

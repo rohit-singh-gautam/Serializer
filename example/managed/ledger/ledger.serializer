@@ -1,0 +1,13 @@
+serializer version 1;
+
+namespace ledger_example {
+  class entry stable_ids managed {
+    public string memo (1);
+    public int64 amount_minor_units (2);
+  }
+
+  class ledger stable_ids {
+    public string name (1);
+    public managed map(uint64) entry entries (2);
+  }
+}

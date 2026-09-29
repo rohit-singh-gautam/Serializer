@@ -12,6 +12,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(SERIALIZER_BUILD_TESTS "Build Serializer's tests" ${PROJECT_IS_TOP_LEVEL})
+option(SERIALIZER_BUILD_MANAGED "Build the optional C++ managed snapshot runtime records" OFF)
 option(SERIALIZER_BUILD_PROTOBUF_INTEROP_TESTS "Verify codecs against the official Protobuf runtime" OFF)
 option(SERIALIZER_BUILD_BENCHMARKS "Build separate codec timing and allocation tools" OFF)
 option(SERIALIZER_BUILD_FUZZERS "Build instrumented Clang libFuzzer targets and seed corpus tools" OFF)
@@ -130,6 +131,21 @@ include(cmake/serializer_generate.cmake)
 include(cmake/serializer_generate_java.cmake)
 include(cmake/serializer_generate_source.cmake)
 
+# Generate runtime records after the compiler, avoiding a compiler/library dependency cycle.
+if(SERIALIZER_BUILD_MANAGED)
+  include(cmake/serializer_find_clang_format.cmake)
+  serializer_find_clang_format()
+  add_library(serializer_managed INTERFACE)
+  set_target_properties(serializer_managed PROPERTIES EXPORT_NAME managed)
+  add_library(Serializer::managed ALIAS serializer_managed)
+  serializer_generate(TARGET serializer_managed SCHEMAS schemas/managed_records.serializer
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed/include/rohit"
+    CODING_STANDARD serializer)
+  target_include_directories(serializer_managed INTERFACE
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/managed/include>"
+    "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
+endif()
+
 if(SERIALIZER_INSTALL)
   include(CMakePackageConfigHelpers)
   set(serializer_package_directory "${CMAKE_INSTALL_LIBDIR}/cmake/Serializer")
@@ -144,6 +160,13 @@ if(SERIALIZER_INSTALL)
     LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
   )
+  if(SERIALIZER_BUILD_MANAGED)
+    install(TARGETS serializer_managed EXPORT SerializerTargets)
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/managed/include/rohit/managed_records.hpp"
+      DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/rohit")
+    install(FILES schemas/managed_records.serializer
+      DESTINATION "${CMAKE_INSTALL_DATADIR}/Serializer/schemas")
+  endif()
   install(DIRECTORY include/rohit DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
     FILES_MATCHING PATTERN "*.hpp")
   install(FILES "${CMAKE_CURRENT_BINARY_DIR}/generated/include/rohit/version.hpp"
@@ -188,6 +211,9 @@ endif()
 if(SERIALIZER_BUILD_TESTS)
   find_package(GTest CONFIG REQUIRED)
   add_subdirectory(test)
+endif()
+if(SERIALIZER_BUILD_MANAGED)
+  add_subdirectory(example/managed)
 endif()
 
 if(SERIALIZER_BUILD_BENCHMARKS OR SERIALIZER_BUILD_FUZZERS)

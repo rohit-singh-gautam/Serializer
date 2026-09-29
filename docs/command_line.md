@@ -80,6 +80,8 @@ values, and repeated non-repeatable options are errors.
 | `--cpp.coding_standard` | | `serializer`, `core`, `google`, `llvm`, `gnu`, `cert`, `misra`, `autosar`, `qt` |
 | `--cpp.naming` | | `profile` or `preserve` |
 | `--cpp.format` | | `true` or `false` |
+| `--managed.id_type` | | Document-local persistent ID width: `uint32` (default) or `uint64`; overrides `[managed] id_type` |
+| `--managed.separate_values` | | `true` generates ID-free values plus managed wrappers; `false` (default) puts IDs on the schema classes |
 | `--cpp.protobuf` | | `true` or `false`; enable compile-time [Protobuf codecs](protobuf.md) |
 | `--cpp.clang_format` | | clang-format 19+ executable |
 | `--cpp.format_file` | | Custom layout file; `--cpp.format_file=` clears a configured file |
@@ -185,3 +187,14 @@ See [new native targets](native_languages.md) for APIs and limitations.
 Internally, scalar CLI reads use `cli::first(parsed, name)`, which borrows the
 first value with checked lookup; repeated values remain available in `parsed`.
 No second, flattened argument map is constructed.
+
+## Managed C++ generation
+
+Bare `managed` class/member annotations generate classes with direct persistent
+IDs and transaction editors by default. Opt into ordinary classes plus managed
+companions with `--managed.separate_values true`. See the [managed interface](managed/cpp_runtime.md)
+for eligibility and representation rules. Configuration accepts `[managed]` with
+`id_type = uint32|uint64` and `separate_values = true|false`. Command-line settings
+take precedence. Every output sharing a model must use the same ID width and
+representation. Non-C++ managed generation
+and capability selectors are rejected; they never silently produce ordinary output.

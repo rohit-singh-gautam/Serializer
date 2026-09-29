@@ -1,11 +1,18 @@
 # Object identity and transactional history proposal
 
-Status: design proposal; not implemented. This document proposes an optional
-history module built on Serializer's existing codecs. Names such as
-`model_store`, `begin_transaction`, `execute_transaction`, and `history_mode` are illustrative
-APIs, not currently available headers, schema keywords, or runtime functions.
-The proposed `managed`, `exclude(...)`, and `transient` annotations below are also
-unimplemented; the current compiler does not accept them.
+Current C++ representation: managed schema classes carry `persistent_id` directly
+by default. Separate ID-free values/storage wrappers in the illustrations below
+require `[managed] separate_values = true`; see the [runtime contract](cpp_runtime.md).
+New documents get a namespace automatically. Root and managed descendants allocate
+IDs `1, 2, 3...` within that document only; saved IDs/counters survive reload,
+and undo/deletion never renumber survivors. Explicit member boundaries still apply.
+
+Status: broader design contract. The [C++ interface](cpp_runtime.md) implements
+bare `managed` declarations, generated storage/conversions/editors, central ID type
+configuration, all three transaction forms, linear/tree snapshots, and memory
+save/load. `exclude(...)`, `transient`, capability selectors, notifications, custom
+allocation, and optimized entity/delta storage remain proposals. Use the runtime
+guide for exact generated names and currently available APIs.
 
 See the [design index](README.md), [concrete data structures](data_structures.md),
 and [C++/other-language bindings](language_bindings.md) for the store template,
@@ -31,8 +38,8 @@ mutable binary views need a separate design. Current integration is documented i
 ## Revised managed identity and capabilities
 
 Every managed storage instance now carries a mandatory `persistent_id`, defaulting
-to `uint32` under central generation configuration. Normal value classes remain
-ID-free; a map key or sidecar alone is no longer the managed identity mechanism.
+to `uint32` under central generation configuration. Separate normal value classes
+are ID-free only when explicitly requested; a map key or sidecar alone is no longer the managed identity mechanism.
 See [capabilities and configuration](capabilities.md) for the shared contract and
 the four features: history, collaboration, authorization, journaling.
 See [incremental recovery](journal.md) for durable undo/navigation
@@ -76,7 +83,8 @@ A proposed `model_store<accounting>` would coordinate these responsibilities:
 
 Composition avoids requiring every generated type to inherit a history-aware base
 class. A generated managed storage record carries its persistent-ID field and
-wraps or projects existing values. The ordinary payload schema stays unchanged.
+exposes identity directly by default. Opt-in separated storage wraps existing
+values and keeps the ordinary payload schema unchanged.
 History data lives outside the application root, so a root snapshot does not
 recursively contain its own history.
 
@@ -469,12 +477,11 @@ Do not advertise support merely because a backend can parse the new modifiers.
 
 ## Proposed schema opt-in and generated code
 
-The initial library can work through explicit adapters without new schema syntax.
-For later generator integration, infer the containing class's companion support
-from managed members. Mark the owning collection with `managed`
-when its entries need independent identities. Identity belongs to an object's
-registered occurrence, not to its reusable payload class. These are proposed
-spellings, not accepted schema syntax today:
+The C++ compiler now infers containing-class eligibility from managed members.
+Mark an owning collection with `managed` when its entries need independent IDs;
+leaf types must declare `managed` themselves. Identity belongs to an occurrence,
+not every instance of its reusable type. This basic syntax is accepted today;
+the broader generation options and APIs later in this section remain proposals.
 
 ```text
 serializer version 1;
@@ -644,8 +651,10 @@ The task and checklist item are created as one user action. Undo removes both;
 redo restores their recorded IDs and values. The task details have no independent
 ID, and all edits to them belong to the task. A later transaction can edit the
 task or checklist item through their retained IDs without creating new entities.
-Nested entity collections in this example require the additional ownership
-backend described in this proposal; these calls are not available today.
+Nested managed collections are implemented in the C++ interface. This example
+uses broader proposed typed-ID and insertion conveniences; the current API uses
+`insert(key, plain_value)` for maps, `append(plain_value)` for arrays, and scalar
+document-scoped IDs. See [the exact interface](cpp_runtime.md).
 
 `insert(draft)` copies the supplied value into private transaction state and
 returns `entity_id<task>`. `edit(task_id)` returns a scoped `tracked_task` facade
@@ -1713,7 +1722,7 @@ serve different purposes; assigning explicit schema IDs does not make every fiel
 a separately managed entity.
 
 Allocate an object ID once in the generated managed storage's `persistent_id`
-field and persist it through the managed envelope; ordinary values stay ID-free. Never derive it from a memory address, array position, display name,
+field and persist it through the managed envelope; ordinary values stay ID-free in separate-values mode. Never derive it from a memory address, array position, display name,
 mutable content, or schema field number. References use IDs and resolve through
 the registry.
 
@@ -1911,6 +1920,12 @@ See [schema evolution](../schema_evolution.md) and the [wire contract](../wire_f
 
 ## Implementation stages and required verification
 
+The [C++ interface](cpp_runtime.md) implements schema-driven companions, typed
+editors, and the snapshot runtime with a versioned memory save/load envelope.
+Durable file publication, custom allocation, projections, and later stages below
+remain outstanding. The existing acceptance list describes the complete design,
+not a claim that all requirements have been implemented.
+
 1. Add an optional C++ module with the root store, ID allocation, scoped
    transactions with observable completion, whole-root snapshots, and runtime
    linear/tree policies. Cloning and retaining full roots costs work and storage
@@ -2043,10 +2058,11 @@ Implementation acceptance should cover:
 - Benchmarks compare disabled, snapshot, and changed-object operation as applicable;
   ordinary Serializer users retain their existing bytes and codec behavior.
 
-This documentation change implements none of these APIs. The examples have not
-been compiled, and no history tests, durability qualification, or performance
-benchmarks have been run. Future implementation must update the usage guide and
-integration skill to distinguish newly available functionality from remaining proposals.
+This acceptance list describes the complete design. The implemented C++ subset
+has compiled schema/editor examples and history tests described in the
+[runtime guide](cpp_runtime.md). Broader examples and other-language APIs here
+remain proposals; durable-file qualification and performance benchmarks are still
+outstanding. Keep the usage guide and integration skill aligned with each implemented increment.
 
 ## Related public designs
 

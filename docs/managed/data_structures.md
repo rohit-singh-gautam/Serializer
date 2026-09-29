@@ -1,10 +1,17 @@
 # Proposed managed-state data structures
 
-Status: managed-state runtime design only; its algorithms are not implemented.
-The logical layouts below are language-independent pseudocode, not C++ ABI layouts
-or a finalized wire-format schema. The C++ walkthrough separately uses a generatable
-ordinary data schema to demonstrate the proposed records. Return to the
-[design index](README.md) or see [language bindings](language_bindings.md).
+Current C++ representation: managed schema classes carry `persistent_id` directly
+by default. Separate ID-free values/storage wrappers in the illustrations below
+require `[managed] separate_values = true`; see the [runtime contract](cpp_runtime.md).
+New documents get a namespace automatically. Root and managed descendants allocate
+IDs `1, 2, 3...` within that document only; saved IDs/counters survive reload,
+and undo/deletion never renumber survivors. Explicit member boundaries still apply.
+
+Status: broader managed-state design. The [C++ interface](cpp_runtime.md)
+implements generated storage and editors with whole-root snapshot history. The
+records and walkthrough here illustrate future logical records, not its production
+envelope or automatic companion output. The walkthrough uses a generatable ordinary
+data schema; see the [design index](README.md) and [bindings](language_bindings.md).
 
 The [revised capability contract](capabilities.md) requires a generated
 `persistent_id` on every managed storage object (`uint32` by default, centrally
@@ -573,11 +580,12 @@ serialize cache fields as ordinary persistent fields to imitate that feature.
 
 ### Managed storage records with mandatory IDs
 
-These explicit schema classes model the default lowered representation that a
-future managed generator would emit. Each managed instance carries its own
-`persistent_id`, including the root. They use today's ordinary code generation;
-they do not make the new managed keywords or central ID switches implemented.
-Their metadata field numbers belong to the wrapper, not the ordinary payload.
+These explicit schema classes illustrate a lowered representation. Each managed
+instance carries its own `persistent_id`, including the root. The actual C++
+generator now accepts bare `managed` and central ID settings, using its own
+`managed_<type>_data` and `managed_<type>_storage` companions; see the
+[implemented interface](cpp_runtime.md). Metadata field numbers belong to the
+wrapper, not the ordinary payload.
 
 ```cpp
 class managed_cylinder_record {
@@ -1055,7 +1063,7 @@ Runtime behavior uses these records through the separate
 | `authorization_state` | Future generated policy/configuration records | Application-supplied context and active enforcement remain runtime behavior. |
 | `journal_state` | Future generated base/journal/manifest records | Storage adapter owns durable append, checkpointing, and recovery; see the recovery proposal. |
 | `transaction<design>` | A private candidate `design_state` and pending changes | Runtime RAII guard; context pointers, outcome references, and cleanup are not serialized fields. |
-| `tracked_cylinder` | A transaction's generated `cylinder`, resolved by entity ID | Proposed generated companion; managed companion generation is not implemented. |
+| `tracked_cylinder` | A transaction's generated `cylinder`, resolved by entity ID | Illustrative name; implemented C++ uses `cylinder_editor<Access>` and separate generated storage. |
 
 Native ownership templates and context pointers are not presented as generated
 data fields. Generating the runtime helpers themselves would require a separate
@@ -1105,5 +1113,7 @@ Future verification should cover:
   separately from wire compatibility.
 
 These are future acceptance requirements. The walkthrough verifies ordinary data
-class generation, not managed runtime behavior. No finalized history wire schema,
-managed backend implementation, or performance result is supplied by this document.
+class generation, not the complete managed runtime behavior. The implemented
+snapshot backend has its own [versioned record schema](../../schemas/managed_records.serializer)
+and tests described in the runtime guide. Optimized history formats and performance
+results remain outstanding.

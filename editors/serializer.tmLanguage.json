@@ -116,7 +116,7 @@
       }
     },
     {
-      "match": "\\b(public|protected|private)\\s+((?!(?:array|map|union)\\b)(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
+      "match": "\\b(public|protected|private|managed)\\s+((?!(?:array|map|union|managed)\\b)(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
       "captures": {
         "1": {
           "name": "storage.modifier.serializer"
@@ -208,7 +208,7 @@
     },
     {
       "name": "storage.modifier.serializer",
-      "match": "\\b(public|protected|private|stable_ids|owning|view|readonly|mutable|packed)\\b"
+      "match": "\\b(public|protected|private|stable_ids|managed|owning|view|readonly|mutable|packed)\\b"
     },
     {
       "name": "support.type.serializer",

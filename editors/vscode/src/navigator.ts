@@ -1,3 +1,4 @@
+import { managedNames } from './navigation_model';
 import * as path from 'node:path';
 import { fileKey, includeCandidates } from './model';
 import { cppIncludeAt, dependencySchemas, indexSource, resolveType, spanAt,
@@ -253,7 +254,8 @@ export class Navigator {
       const matches: Declaration[] = [];
       for (const schema of await this.graph(entry)) {
         for (const declaration of schema.index.symbols) {
-          if (declaration.kind === symbol.kind && outputNames(declaration.qualified, header, source!.text).includes(symbol.qualified)) {
+          if (declaration.kind === symbol.kind && [...outputNames(declaration.qualified, header, source!.text),
+            ...(/\.(hpp|h|hxx|hh)$/i.test(header) ? managedNames(declaration.qualified) : [])].includes(symbol.qualified)) {
             matches.push({ ...declaration, file: schema.file });
           }
         }

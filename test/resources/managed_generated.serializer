@@ -1,0 +1,15 @@
+serializer version 1;
+include ../../example/managed/design/design;
+include ../../example/managed/wordpad/wordpad;
+
+namespace generated_managed {
+  class empty_leaf stable_ids managed {}
+
+  class workspace stable_ids {
+    public managed design_example::design drawing (1);
+    public design_example::design template_design (2);
+    public managed design_example::marker cursor (3);
+    public managed wordpad_example::document notes (4);
+    public managed empty_leaf empty (5);
+  }
+}

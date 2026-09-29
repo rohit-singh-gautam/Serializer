@@ -8,6 +8,22 @@ For Rust, Python, Swift, Kotlin, and C, see [native language APIs](native_langua
 and [four examples per language](../example/README.md).
 All outputs share the C++ schema compiler. The workflow below is for C++.
 
+For a small introduction, work through the [point examples](../example/managed/README.md)
+in order: create a schema-generated managed point, inspect a transaction callback,
+then use the generated editor and complete managed transactions.
+Each example keeps the application model to x and y and explains its expected output.
+To follow the implementation, read the
+[store and transaction walkthrough](internals/managed_transactions.md).
+
+For grouped edits and undo/redo, see the optional
+[C++ managed interface](managed/cpp_runtime.md). Bare `managed` class/member
+annotations generate direct `persistent_id` fields and typed editors for manual,
+automatic, and callback transactions. Central ID settings support uint32 and uint64;
+`[managed] separate_values = true` opts into ID-free values plus storage wrappers.
+New stores create document namespaces automatically; object IDs start at 1 and
+increment within each document. Save/load preserves identities and allocation state.
+Journals, collaboration, selectors, and other-language managed runtimes remain proposals.
+
 For persistence, see [database storage and document sinks](database_integration.md).
 It covers candidate JSON, typed-document, and opaque-binary stores, plus lossless
 mapping requirements. Database clients and the proposed sink API are not included
@@ -36,6 +52,9 @@ see [build wrapper options](cmake_integration.md#build-this-repository).
 To open this repository in Visual Studio, select a Windows CMake preset and follow
 [Visual Studio folder builds](cmake_integration.md#visual-studio-folder-builds)
 for compiler environment setup and clearing an older Ninja/platform cache.
+If the cached Visual Studio installation was removed or moved, see
+[stale instance recovery](cmake_integration.md#recover-a-stale-visual-studio-instance)
+for refreshing CMake while reapplying your chosen build options.
 
 The schema compiler enables bounded SIMD scanning on supported x64 builds, with
 scalar fallbacks. This is automatic and needs no additional schema keyword; see

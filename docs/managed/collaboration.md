@@ -1,5 +1,12 @@
 # Collaboration sessions, presence, and edit locks
 
+Current C++ representation: managed schema classes carry `persistent_id` directly
+by default. Separate ID-free values/storage wrappers in the illustrations below
+require `[managed] separate_values = true`; see the [runtime contract](cpp_runtime.md).
+New documents get a namespace automatically. Root and managed descendants allocate
+IDs `1, 2, 3...` within that document only; saved IDs/counters survive reload,
+and undo/deletion never renumber survivors. Explicit member boundaries still apply.
+
 Status: design proposal only. These records, interfaces, lock policies, and runtime
 components are not implemented. See the [managed design index](README.md) and
 [capability contract](capabilities.md). Locking and editing presence are optional

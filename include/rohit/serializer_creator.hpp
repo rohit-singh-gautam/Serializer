@@ -25,6 +25,7 @@
 #include <functional>
 #include <memory>
 #include <span>
+#include <stdexcept>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -101,7 +102,9 @@ enum class access_type { error, private_access, protected_access, public_access 
 
 enum class object_type { unresolved, namespace_type, class_type, enum_type, primitive };
 
-enum class class_attributes : std::uint8_t { none = 0x00, packed = 0x01, stable_ids = 0x02 };
+enum class class_attributes : std::uint8_t {
+  none = 0x00, packed = 0x01, stable_ids = 0x02, managed = 0x04
+};
 
 struct namespace_node;
 
@@ -206,11 +209,13 @@ struct member {
   bool explicit_id{false};
 
   const syntax_node* key_node{};
+  bool managed{false};
+  bool fixed_name{false}; // Compiler-owned metadata retains its runtime ABI spelling.
 
   // Compare the relevant values without modifying either operand.
   bool operator==(const member& rhs) const {
     return access == rhs.access && modifier == rhs.modifier &&
-           type_name_list == rhs.type_name_list && name == rhs.name;
+           type_name_list == rhs.type_name_list && name == rhs.name && managed == rhs.managed;
   }
 };
 
@@ -250,6 +255,17 @@ struct class_node : public syntax_node {
   bool multiple_modes() const {
     return (storage_modes & (storage_modes - 1)) != 0;
   }
+  // Eligibility comes from this declaration, never from an incoming managed use.
+  bool supports_managed() const {
+    const auto managed_flag = static_cast<std::uint8_t>(class_attributes::managed);
+    if ((static_cast<std::uint8_t>(attributes) & managed_flag) != 0) {
+      return true;
+    }
+    for (const auto& field : member_list) {
+      if (field.managed) { return true; }
+    }
+    return false;
+  }
   // Initialize this object from the supplied storage or value state.
   class_node(const class_node&) = delete;
   // Assign the documented view or value state from the source object.
@@ -265,6 +281,18 @@ struct enum_node : public syntax_node {
 
   std::vector<std::string> enum_name_list{};
 };
+
+// Refuse managed declarations on backends without a managed runtime instead of losing semantics.
+inline void require_unmanaged_backend(const std::vector<std::unique_ptr<syntax_node>>& statements) {
+  for (const auto& node : statements) {
+    if (node->type == object_type::namespace_type) {
+      require_unmanaged_backend(static_cast<const namespace_node*>(node.get())->statements);
+    } else if (node->type == object_type::class_type &&
+               static_cast<const class_node*>(node.get())->supports_managed()) {
+      throw std::invalid_argument{"Managed generation is currently supported only by the C++ backend"};
+    }
+  }
+}
 
 // Combine the supplied attribute flags into the left operand.
 class_attributes& operator|=(class_attributes& lhs, const class_attributes& rhs);

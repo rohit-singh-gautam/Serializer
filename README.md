@@ -72,7 +72,7 @@ or qualified in this repository.
 schema declaration/generated-code navigation for every output language, and missing-include assistance. Run
 `./install_extension.ps1` from PowerShell to build and install the local extension
 (Node.js 22+, npm, and the VS Code CLI are required). Marketplace publication is pending.
-The VS Code extension version is **1.1.8**, with ID `rohitjairajsingh.serializer-language`
+The VS Code extension version is **1.1.9**, with ID `rohitjairajsingh.serializer-language`
 (Rohit Jairaj Singh). Both editor extensions share this release version, independent
 of the compiler version, and must be updated together.
 Use the built-in **Go to Declaration** for schema types and includes, including
@@ -87,14 +87,14 @@ editor tabs when supported by the selected file icon theme.
 
 **Visual Studio:** a separate [Rohit Serializer VSIX](editors/visual_studio/README.md)
 for the [same Serializer project](https://github.com/rohit-singh-gautam/Serializer),
-version **1.1.8** supplies the shared grammar, editing configuration, and native
+version **1.1.9** supplies the shared grammar, editing configuration, and native
 schema navigation for Visual Studio 2022/2026 on Windows x64. Go to Declaration
 opens schema types/includes; Go to Definition and Ctrl+click open included schemas
 or find existing output for type references.
 Generated declarations in all 11 languages map back to their schemas. From caller
 code, first use the language service to reach the generated type. Build with
 `./editors/visual_studio/build.ps1`, then install
-`out/extensions/serializer-visual-studio-1.1.8.vsix` with Visual Studio's VSIX Installer.
+`out/extensions/serializer-visual-studio-1.1.9.vsix` with Visual Studio's VSIX Installer.
 Use existing CMake targets for generation. Both extensions highlight custom types,
 including `demo::order`, using the selected theme's type and namespace colors.
 
@@ -138,6 +138,10 @@ GoogleTest, or provide an installed GoogleTest package through CMake. The wrappe
 do not install a compiler or clang-format. Java, benchmarks, and fuzzers remain
 opt-in. See [build wrapper options](docs/cmake_integration.md#build-this-repository)
 for build directories, configurations, and additional CMake settings.
+
+If CMake still selects a removed Visual Studio installation, follow
+[stale Visual Studio cache recovery](docs/cmake_integration.md#recover-a-stale-visual-studio-instance)
+to refresh the build configuration and reapply your nondefault options.
 
 On Windows, `./make.ps1 all` also restores locked npm dependencies and builds both
 editor extension packages in `out/extensions`, after the CMake build succeeds.
@@ -968,13 +972,37 @@ class person {
 
 ## Roadmap
 
+The [C++ managed interface](docs/managed/cpp_runtime.md) is available with
+`SERIALIZER_BUILD_MANAGED=ON` and `Serializer::managed`. Bare `managed` declarations
+generate direct `persistent_id` fields and typed transaction editors by default.
+Set `[managed] separate_values = true` to opt into ID-free values and storage wrappers.
+New stores generate document namespaces automatically; object IDs increment from 1
+within each document, and saved identities/counters survive reload.
+Start with the [eight small point examples](example/managed/README.md): schema-generated
+managed points, transaction callbacks, generated editors, commit, undo/redo, and cancellation.
+Each has its own folder, expected output, and a short explanation.
+For the implementation, read [how managed transactions work](docs/internals/managed_transactions.md):
+nested types, candidate ownership, callback forwarding, commit, and cleanup.
+The [ledger example](example/managed/ledger/README.md) uses
+`transaction.root().entries().edit(id).set_memo(...)` without handwritten adapters.
+Its annotated source and walkthrough explain document namespaces, object IDs, each
+transaction form, and the state preserved by undo and save/load.
+Manual/scoped/callback transactions, linear/tree history, and bounded memory save/load
+are implemented. IDs default to uint32; configure `[managed] id_type` or
+`--managed.id_type` for uint64. Schemas without managed declarations remain unchanged.
+Managed representation changes require saved-state migration.
+History currently retains whole-root snapshots. Feature selectors, exclusions,
+journals, authorization, collaboration, and other-language managed runtimes remain
+future work; unsupported syntax/backends fail explicitly.
+
 The [managed capabilities](docs/managed/capabilities.md) proposal covers history,
 collaboration, authorization, and journaling. Managed storage carries
-a mandatory persistent ID (`uint32` by default, centrally configurable), separate
-from ordinary payloads. [Journal recovery](docs/managed/journal.md)
+a mandatory persistent ID (`uint32` by default, centrally configurable). ID-free
+ordinary payloads are an opt-in representation. [Journal recovery](docs/managed/journal.md)
 uses a base snapshot plus an appended or sidecar journal, with durable undo cursors,
 full Save replacement, and cleanup that preserves newer unsaved changes.
-These managed features and configuration switches are not implemented.
+The full feature set remains a proposal; central persistent-ID configuration and
+the C++ identity/history subset are implemented.
 
 The proposed [collaboration contract](docs/managed/collaboration.md) uses opaque
 sessions, atomic accepted changes, informational editing presence, and optional
@@ -990,12 +1018,12 @@ store state, revision graphs, snapshot/delta records, checkpoints, and deleted-o
 retention, with a [C++ class walkthrough](docs/managed/data_structures.md#c-class-walkthrough)
 using actual ordinary classes generated from a
 [draft example schema](docs/managed/walkthrough.serializer), with codec methods
-omitted. Runtime ownership and tracked editors remain proposals. The
+omitted. These illustrative records differ from the implemented snapshot envelope. The
 [language-binding design](docs/managed/language_bindings.md) proposes
 C++ `model_store<Root, support>` (with a `managed` alias) and component-based stores
 for other backends. Compiled capability, schema participation, and runtime
-linear/tree history policies remain separate. Managed APIs and behavior remain
-unimplemented.
+linear/tree history policies remain separate. Consult the C++ runtime guide above
+for the implemented subset; the broader generated APIs remain proposals.
 
 The [object identity and transactional history proposal](docs/managed/history.md) describes
 an optional root collection with stable object IDs, grouped edits, and runtime
@@ -1010,12 +1038,12 @@ value copying, managed factories, and committed-change notifications. Change
 addresses combine a persistent entity ID with a relative field-ID path, independently
 of snapshot/delta storage. The language-independent contract
 distinguishes saved `exclude(history)` fields from runtime-only `transient` caches and
-covers application restoration, including Android. It is a design proposal, not an
-implemented feature; its illustrative syntax and APIs are unavailable today.
+covers application restoration, including Android. The broader projection and notification APIs remain proposals; bare `managed`
+and the typed C++ editor subset are documented in the runtime guide above.
 The [domain examples](docs/managed/managed_examples.md) cover a cylinder with a hole,
-accounting, wordpad, and other applications. Scoped transactions propose automatic
+accounting, wordpad, and other applications. Scoped C++ transactions provide automatic
 commit on successful exit, explicit revert, and observable completion failures.
-The proposed [`execute_transaction`](docs/managed/history.md#callback-based-transaction-execution)
+The implemented C++ [`execute_transaction`](docs/managed/history.md#callback-based-transaction-execution)
 convenience API passes a borrowed edit context to one synchronous callback and
 returns its completion outcome, using the same RAII transaction engine.
 All three forms remain supported: manual commit, automatic completion on normal

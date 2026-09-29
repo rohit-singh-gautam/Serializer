@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.1.10
+
+- Document default direct managed identities and opt-in separate value/storage output.
+- Verify navigation for both representations across all C++ naming profiles.
+- Keep both Rohit Serializer extension packages at the same version.
+
+## 1.1.9
+
+- Highlight `managed` class and member declarations for the C++ managed interface.
+- Resolve direct, array, and map member types after `managed`, including qualified names.
+- Navigate generated managed storage/data/editor declarations back to their schema types.
+- Keep both Rohit Serializer extension packages at the same version.
+
 ## 1.1.8
 
 - Identify the Serializer GitHub repository directly in the package description

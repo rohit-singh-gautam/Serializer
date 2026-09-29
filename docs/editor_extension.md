@@ -8,7 +8,7 @@ Serializer provides separate packages for VS Code and Visual Studio. Both use
 to the VS Code extension. For the Visual Studio VSIX, see
 [Visual Studio](#visual-studio-extension) below.
 
-Both extensions use release version **1.1.8**. Keep their versions equal and
+Both extensions use release version **1.1.10**. Keep their versions equal and
 increment them together for future changes, including changes to only one package.
 
 Both packages highlight custom type references such as `demo::order`,
@@ -23,7 +23,7 @@ Both resolve either spelling for navigation; VS Code also supplies a shorthand
 
 ## VS Code
 
-The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.8**, provides `.serializer`
+The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.10**, provides `.serializer`
 syntax highlighting, snippets, declaration/definition navigation, and CMake generated-header commands. Schemas use
 the current `serializer version 1;` header. Legacy `.def` and `.struct` names are
 not registered. Generation remains owned by the project's build rules. Navigation
@@ -70,13 +70,13 @@ Packaging compiles and bundles TypeScript, copies the canonical grammar, logo,
 and repository license into the extension, and writes:
 
 ```text
-out/extensions/serializer-vscode-1.1.8.vsix
+out/extensions/serializer-vscode-1.1.10.vsix
 ```
 
 From the repository root, install it with:
 
 ```sh
-code --install-extension out/extensions/serializer-vscode-1.1.8.vsix
+code --install-extension out/extensions/serializer-vscode-1.1.10.vsix
 ```
 
 Alternatively run **Extensions: Install from VSIX** and select the file. The
@@ -235,6 +235,17 @@ The fixture disables generated-output formatting so it does not need clang-forma
 
 ### Verification performed
 
+For version **1.1.10**, all 57 shared tests and 821 fresh-compiler navigation checks
+passed, including default direct managed classes and opt-in separated companions
+across every C++ profile. Both packages were rebuilt and the Visual Studio package
+validator passed. Installation and interactive IDE checks were not rerun.
+
+For version **1.1.9**, all 57 shared grammar/model/command/navigation tests passed.
+Fresh compiler output passed 659 bidirectional navigation checks across all 11
+output languages and all C++ profiles, including managed data/storage/editor
+companions. Both VSIX packages were rebuilt; the Visual Studio package validator
+passed. Installation and interactive editor-host tests were not rerun for this change.
+
 For both extensions at **1.1.8**, the package descriptions and opening README
 paragraphs identify the Serializer repository explicitly. All 54 existing VS Code
 grammar/model/command/navigation tests passed. Both VSIX packages were rebuilt;
@@ -357,7 +368,7 @@ outside this extension's implementation.
 ## Visual Studio extension
 
 The separate [Visual Studio package](../editors/visual_studio/README.md), version
-**1.1.8**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
+**1.1.10**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
 grammar, editing configuration and a native MEF navigation component using the
 same resolver as VS Code. The grammar's `fileTypes` associates `.serializer` files;
 a `.pkgdef` registers its grammar and editing configuration.
@@ -370,7 +381,7 @@ npm ci --prefix editors/vscode
 ```
 
 The script restores locked NuGet dependencies, rebuilds package intermediates, and writes
-`out/extensions/serializer-visual-studio-1.1.8.vsix`. Close Visual Studio,
+`out/extensions/serializer-visual-studio-1.1.10.vsix`. Close Visual Studio,
 double-click this VSIX, install into the desired instance, and restart Visual
 Studio. The root `install_extension.ps1` remains the VS Code installer.
 
@@ -392,3 +403,17 @@ Package checks verify identity, architecture, grammar/MEF registration, interpre
 dependencies and notices, and byte-for-byte agreement with canonical assets.
 See [verification](#verification-performed) and the package README for native-host
 coverage, build steps and resolver tests. Marketplace publication remains pending.
+
+## Managed interface support (1.1.10)
+
+Both packages highlight bare `managed` class/member annotations. Schema navigation
+skips this modifier and resolves direct, array, and map value types, including
+qualified names. Generated C++ `managed_<type>_data`, `managed_<type>_storage`, and
+`<type>_editor` declarations navigate back to the source schema. Forward schema
+navigation continues to prefer the ordinary generated type. Selectors and non-C++
+managed runtimes are not implemented; see the [managed API](managed/cpp_runtime.md).
+
+Default managed output places `persistent_id` on the schema class. The optional
+`[managed] separate_values = true` output retains ordinary classes and managed
+storage/data companions. Navigation qualification generates both representations
+across every C++ naming profile.

@@ -476,6 +476,14 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   auto access = parse_access_type_impl(in_stream);
   skip_whitespace_and_comment(in_stream);
   auto next_identifier = parse_hierarchical_identifier_impl(in_stream);
+  const bool managed = next_identifier == "managed";
+  if (managed) {
+    skip_whitespace_and_comment(in_stream);
+    if (*in_stream == '(') {
+      throw exception::bad_member_spec{in_stream, "Managed feature selectors are not implemented; use bare managed for the C++ history profile"};
+    }
+    next_identifier = parse_hierarchical_identifier_impl(in_stream);
+  }
   std::vector<std::string> enum_name_list{};
   std::vector<type_name> type_name_list{};
   auto member_modifier = parse_member_modifier(next_identifier);
@@ -521,7 +529,7 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   check_and_increase(in_stream, ';');
   validate_field_key(in_stream, new_id, display_name);
   return {access, member_modifier, type_name_list, name, display_name, new_id, key, default_value,
-          explicit_id};
+          explicit_id, nullptr, managed};
 } // parse_member_impl
 
 // Read a declaration keyword and distinguish misplaced includes from unknown declarations.
@@ -618,6 +626,8 @@ parse_class_header(const rohit::type_check::schema_input_buffer auto& in_stream,
       attributes |= class_attributes::packed;
     } else if (value == "stable_ids") {
       attributes |= class_attributes::stable_ids;
+    } else if (value == "managed") {
+      attributes |= class_attributes::managed;
     } else if (value == "view") {
       view = true;
     } else if (value == "owning") {
@@ -990,6 +1000,13 @@ void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream
         for (auto& type : member.type_name_list) {
           resolve_type(in_stream, type, variable_type_map);
           validate_nested_modes(in_stream, *class_ptr, type.resolved_node);
+          if (member.managed &&
+              (member.modifier == member::modifier_type::variant || !type.resolved_node ||
+               type.resolved_node->type != object_type::class_type ||
+               !static_cast<const class_node*>(type.resolved_node)->supports_managed())) {
+            throw exception::bad_member_type{in_stream,
+                "managed members require a class declared managed or containing its own managed member"};
+          }
         }
         if (member.modifier == member::modifier_type::map) {
           type_name key{std::string{member.key}, class_ptr->parent_namespace};

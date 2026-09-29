@@ -12,6 +12,7 @@ add_executable(core_serializer_test
   stream_concepts_test.cpp
   serializer_parser_test.cpp
   schema_version_test.cpp
+  managed_schema_test.cpp
   schema_compatibility_test.cpp
   schema_include_test.cpp
   schema_scan_test.cpp
@@ -46,6 +47,41 @@ elseif(UNIX)
 endif()
 
 add_test(NAME core_serializer_test COMMAND core_serializer_test)
+if(SERIALIZER_BUILD_MANAGED)
+  add_executable(managed_store_test managed_store_test.cpp managed_generated_test.cpp)
+  serializer_generate(TARGET managed_store_test SCHEMAS resources/managed_model.serializer resources/managed_generated.serializer
+    CONFIG resources/managed_separate.ini
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed")
+  target_link_libraries(managed_store_test PRIVATE Serializer::managed GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(managed_store_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(managed_store_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME managed_store_test COMMAND managed_store_test)
+  add_executable(managed_profile_test managed_profile_test.cpp)
+  serializer_generate(TARGET managed_profile_test SCHEMAS resources/managed_generated.serializer
+    CONFIG resources/managed_google64.ini CODING_STANDARD google
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed_google64")
+  target_link_libraries(managed_profile_test PRIVATE Serializer::managed GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(managed_profile_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(managed_profile_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME managed_profile_test COMMAND managed_profile_test)
+  add_executable(managed_direct_test managed_direct_test.cpp)
+  serializer_generate(TARGET managed_direct_test
+    SCHEMAS ../example/managed/ledger/ledger.serializer resources/managed_generated.serializer
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed_direct")
+  target_link_libraries(managed_direct_test PRIVATE Serializer::managed GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(managed_direct_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(managed_direct_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME managed_direct_test COMMAND managed_direct_test)
+endif()
 add_test(NAME serializer_native_cli
   COMMAND "${CMAKE_COMMAND}" "-DGENERATOR=$<TARGET_FILE:serializer>"
     "-DDIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/native_cli"

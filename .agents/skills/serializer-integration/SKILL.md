@@ -23,6 +23,30 @@ the application's dependency/build configuration; resolve the following files
 there instead of relying on the relative links.
 
 - Read [README.md](../../../README.md) for supported syntax and feature status.
+- Use the [C++ managed interface](../../../docs/managed/cpp_runtime.md) for
+  schema-driven identity and local snapshot history. Enable `SERIALIZER_BUILD_MANAGED`,
+  link `Serializer::managed`, and declare bare `managed` on eligible leaf classes
+  and independently identified members. Classes carry `persistent_id` directly by
+  default; `[managed] separate_values = true` opts into ID-free values and storage
+  wrappers. The compiler generates `model_traits` and typed editors such as
+  `transaction.root().entries().edit(id)`.
+  It provides manual/scoped/callback transactions, linear/tree snapshots, and
+  bounded memory save/load. Selectors, exclusions, custom allocation, durable
+  journals/files, authorization, collaboration, and other-language runtimes remain
+  future work. Do not present the complete proposals below as shipped behavior.
+  Omit the store constructor's document argument for automatic namespace creation;
+  explicit namespaces remain supported. Root/managed child IDs are allocated 1, 2,
+  3... within each document, not globally. Undo/deletion never renumber or recycle
+  consumed IDs; load restores the saved namespace and allocator high-water mark.
+  Default clones retain IDs; opt-in separate-values clones remove them. Switching
+  representations changes the wire binding and requires migration. Direct managed
+  Protobuf output is unsupported. Consult the runtime guide before accessing storage.
+- For explanations of the current C++ implementation, use the
+  [managed transaction walkthrough](../../../docs/internals/managed_transactions.md).
+  It follows the generated point example through store/candidate ownership,
+  nested transaction types, the borrowed callback facade, editor forwarding,
+  publication, failure, and cleanup. Keep diagrams vertical and distinguish
+  implemented behavior from the broader managed proposals.
 - For database persistence, read the
   [database integration guide](../../../docs/database_integration.md). Treat its
   backend matrix as candidate storage mappings, not tested Serializer adapters.
@@ -37,8 +61,8 @@ there instead of relying on the relative links.
   The [capability contract](../../../docs/managed/capabilities.md) now defines
   history, collaboration, authorization, and journal. Every managed
   storage instance has a generated persistent ID, default `uint32`, centrally
-  configurable through proposed `[managed] id_type` / `--managed.id_type` settings.
-  Those switches are not implemented. Plain values remain ID-free; map keys and
+  configurable through `[managed] id_type` / `--managed.id_type` (`uint32` or `uint64`).
+  Use the same setting for every shared output. Separate ID-free values are opt-in; map keys and
   sidecar indexes cannot replace the managed ID field. Document scope, non-reuse,
   durable allocation reservations, and collision-free replica allocation apply.
   The [journal design](../../../docs/managed/journal.md) separates base/journal
@@ -58,22 +82,28 @@ there instead of relying on the relative links.
   Preserve generated access sections, qualified field types, initialization, and
   storage metadata; do not present handwritten templates, optional fields, or
   runtime pointers as current schema output. The example uses supported data
-  syntax, but its record IDs are illustrative. Managed behavior and the production
-  history wire format remain unimplemented contracts.
-- Treat [transactional history](../../../docs/managed/history.md) as a design proposal only.
-  Its `managed`, `exclude(...)`, and `transient` modifiers, object IDs, model stores,
-  edit transactions, and setter tracking are not implemented in any language backend.
+  syntax, but its record IDs are illustrative. Opt-in generated C++ companions use
+  `managed_<type>_storage` with fixed `persistent_id`/`value` metadata and preserve
+  payload field IDs inside `value`. Optimized history formats remain proposals. The snapshot
+  runtime uses its own generated versioned envelope, described in the runtime guide.
+- Treat [transactional history](../../../docs/managed/history.md) as the broader
+  design contract. Bare `managed` and typed C++ setters are implemented;
+  `exclude(...)`, `transient`, and selectors remain unimplemented. Generation supports
+  public, unpacked owning classes without inheritance, unions, or recursive ownership;
+  unsupported shapes and non-C++ managed backends are rejected explicitly.
   Existing `stable_ids` identifies schema fields, not objects.
   Proposed change addresses combine a namespaced entity ID with a relative field-ID
   path; field IDs do not create independent entities or require delta storage.
-  Scoped transactions propose auto-commit on successful exit with an explicit
+  Scoped C++ transactions provide auto-commit on successful exit with an explicit
   outcome, rollback on failure/cancellation, and deterministic resource cleanup.
-  Prefer the proposed [callback transaction](../../../docs/managed/history.md#callback-based-transaction-execution)
+  Prefer the [callback transaction](../../../docs/managed/history.md#callback-based-transaction-execution)
   `execute_transaction(label, callback)` for a single synchronous action. Pass a
   borrowed edit context, capture external IDs, and return the outcome after scope
   completion. The wrapper owns commit; callback revert/failure prevents it. Reject
   accidental non-void/async C++ callbacks and never retry the callback implicitly.
-  Keep `begin_transaction` for caller-controlled lifetimes; neither API exists yet.
+  Keep `begin_transaction` for caller-controlled lifetimes. Both entry points exist
+  in the C++ runtime. Use generated `root()` editors; raw `update(callback)` remains
+  a trusted low-level escape hatch and must not leak aliases or rewrite IDs.
   Preserve all three forms: begin with explicit commit, begin with automatic
   completion on healthy normal scope exit, and callback execution. Commit closes
   once; revert cancels. Guard deletion is not a distinct cancellation signal.
@@ -88,15 +118,30 @@ there instead of relying on the relative links.
 - Use the [managed examples](../../../docs/managed/managed_examples.md) only for design
   discussion: hollow-cylinder differences, accounting ledgers, wordpad documents,
   and other models illustrate a generic facility, not implemented sample programs.
+  Start beginners with the [eight point examples](../../../example/managed/README.md),
+  each in its own folder and using a schema-generated managed point: store creation,
+  transaction callbacks, generated editors, explicit/scoped commit, undo/redo,
+  and cancellation. Use the real runtime throughout; do not replace the generated
+  point, editor, or access machinery with handwritten teaching implementations.
+  The callback example shows the existing low-level update API; generated editors
+  remain the recommended application interface.
+  Build all eight with `managed_point_examples`; each README shows expected output.
+  The separate [draft ledger example](../../../example/managed/ledger/README.md) is runnable
+  using actual `managed` declarations and generated editors without handwritten adapters.
+  Use its annotated source and walkthrough to explain document namespaces versus
+  object IDs/map keys/field IDs, transaction lifetimes, undo, and memory save/load.
+  The [hollow-cylinder](../../../example/managed/design/README.md) and
+  [wordpad](../../../example/managed/wordpad/README.md) schema examples have their
+  own folders and are compiled in integration tests.
 - Treat [managed state](../../../docs/managed/managed_state.md) as a companion proposal.
-  Its `managed` / `model_store` naming, scoped authorization, merging, collaboration,
+  Its broader generated `managed` interfaces, scoped authorization, merging, collaboration,
   distributed transactions, and external-effect handling are unimplemented.
-  Inferred companion generation and selectors such as `managed(history)` and
-  `managed(all except history)` are also proposed syntax, not supported features.
+  Inferred companion generation is implemented in C++; selectors such as
+  `managed(history)` and `managed(all except history)` remain proposed syntax.
   Plain containment does not activate nested managed annotations or infer managed
   support for the containing class; generated capability and occurrence differ.
   Managed targets must qualify through their own class marker or managed members;
-  an unmarked leaf target is an error in the proposal, not implicitly promoted.
+  an unmarked leaf target is a compiler error and is never implicitly promoted.
   `exclude(history, collaboration)` is a proposed ordinary-value exclusion that
   preserves serialization and mandatory policy checks; it does not confer identity.
   Authentication and invitation management remain application responsibilities.
@@ -255,6 +300,11 @@ The test target builds before running CTest. They require the same compiler,
 GoogleTest, and clang-format dependencies as direct CMake; Java, benchmarks, and
 fuzzers remain opt-in. See [wrapper options](../../../docs/cmake_integration.md#build-this-repository)
 for configurations, separate build directories, and CMake overrides.
+If a cached Visual Studio instance no longer exists, use
+`./make.ps1 configure -CMakeArgs '--fresh', '<required -D overrides>'` and reapply
+the build's nondefault settings before building again. Inspect/back up the cache
+first; do not preserve stale compiler paths or overwrite only the instance entry.
+See [cache recovery](../../../docs/cmake_integration.md#recover-a-stale-visual-studio-instance).
 On Windows, `./make.ps1 all` additionally packages both editor extensions after a
 successful CMake build. It requires Node.js 22+, npm and Visual Studio MSBuild,
 restores locked npm dependencies, and rejects unequal extension versions. Packages

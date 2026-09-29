@@ -1,5 +1,13 @@
 # CMake integration for consumers
 
+For the optional [C++ managed snapshot runtime](managed/cpp_runtime.md), enable
+`SERIALIZER_BUILD_MANAGED=ON` and link `Serializer::managed`. This native-build
+target generates its record header using the compiler and clang-format; it is
+exported by packages installed with the option enabled. Ordinary applications do
+not need this option. Schemas with `managed` declarations use the same
+`serializer_generate` helper; pass `CONFIG project.ini` for a shared `[managed]
+id_type = uint64` setting. See the [standalone ledger example](../example/managed/ledger/README.md).
+
 For JS, TypeScript declarations, Go, or C# source generation, use
 `serializer_generate_source(TARGET name SCHEMA file OUTPUT generated/schema.go
 LANGUAGE go OPTIONS --go.package application)`. It uses the same C++ host
@@ -115,6 +123,36 @@ GoogleTest, set `SERIALIZER_BUILD_TESTS=OFF` and
 `SERIALIZER_BUILD_COMPRESSION_EXAMPLES=ON`, build `serializer_compression_examples`,
 and run CTest with `-L serializer_compression_examples`. With every optional
 compression dependency disabled, only the uncompressed example is built.
+
+### Recover a stale Visual Studio instance
+
+If CMake reports `could not find specified instance of Visual Studio` after
+replacing or moving a Visual Studio installation, the build directory may still
+cache the old installation in `CMAKE_GENERATOR_INSTANCE`. A successful vcpkg
+compiler detection does not replace that cached generator instance.
+
+Refresh the affected CMake configuration using the wrapper's existing argument
+forwarding, then build normally:
+
+```powershell
+./make.ps1 configure -CMakeArgs '--fresh', '-DSERIALIZER_BUILD_MANAGED=ON'
+./make.ps1 all
+```
+
+`--fresh` resets `CMakeCache.txt` and the associated `CMakeFiles` configuration;
+it does not delete source files or the entire build directory. CMake rediscovers
+the installed compiler. Reapply any nondefault options, dependency paths, or
+formatter overrides previously supplied only through the cache. The managed
+option above is an example: include it when managed support is wanted. The
+wrapper continues to supply the configuration and the `VCPKG_ROOT` toolchain
+when set. Pass the same `-BuildDirectory` and `-Configuration` to both commands
+if the affected build uses nondefault values.
+
+Do not simply replace `CMAKE_GENERATOR_INSTANCE` in an initialized cache: other
+cached compiler and tool paths may still refer to the removed installation.
+Use a separate build directory when changing generators, architectures, or
+toolchains. A refresh cannot install a missing compiler; if discovery still
+fails, check that the required Visual Studio C++ build tools are installed.
 
 ### Visual Studio folder builds
 

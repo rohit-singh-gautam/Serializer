@@ -2,9 +2,9 @@ serializer version 1;
 
 // Generatable data-shape examples for data_structures.md, not a managed runtime.
 // These draft record IDs are illustrative, not a released history wire contract.
-// No proposed managed/exclude/transient syntax is used in this compilable subset.
+// This illustrative record schema uses ordinary fields, without managed/exclude/transient.
 // Managed record wrappers below explicitly model the lowered uint32 ID profile.
-// Central managed ID configuration itself is still an unimplemented proposal.
+// The actual C++ managed generator supports central uint32/uint64 ID configuration.
 
 class point stable_ids {
   public double x (1);

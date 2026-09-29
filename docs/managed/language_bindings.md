@@ -1,10 +1,17 @@
 # Proposed managed classes and language bindings
 
-Status: design sketches only. These APIs are not implemented or generated, and the
-code snippets are illustrative rather than compilable examples. See the
-[design index](README.md) and the common [data structures](data_structures.md).
-Native spellings and exact layout may differ;
-identity, projections, atomicity, and history interpretation must agree.
+Current C++ representation: managed schema classes carry `persistent_id` directly
+by default. Separate ID-free values/storage wrappers in the illustrations below
+require `[managed] separate_values = true`; see the [runtime contract](cpp_runtime.md).
+New documents get a namespace automatically. Root and managed descendants allocate
+IDs `1, 2, 3...` within that document only; saved IDs/counters survive reload,
+and undo/deletion never renumber survivors. Explicit member boundaries still apply.
+
+Status: broader design sketches. The [C++ interface](cpp_runtime.md) implements
+schema-driven identity, typed editors, transactions, and snapshot history. These
+broader sketches are not its exact API or generated output. Other-language managed
+runtimes remain proposals; their generators currently reject managed annotations.
+See the [design index](README.md) and [data structures](data_structures.md).
 
 The [C++ class walkthrough](data_structures.md#c-class-walkthrough) shows actual
 ordinary data classes generated from [walkthrough.serializer](walkthrough.serializer),

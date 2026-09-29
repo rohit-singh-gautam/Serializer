@@ -67,6 +67,7 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
     const maximumTypeDepth = 128;
     if (depth >= maximumTypeDepth) { return start + 1; }
     const token = tokens[start]?.text;
+    if (token === 'managed') { return typeReference(start + 1, depth + 1); }
     if (token === 'array') { return typeReference(start + 1, depth + 1); }
     if (token === 'map' && tokens[start + 1]?.text === '(') {
       const next = typeReference(start + 2, depth + 1);
@@ -251,4 +252,14 @@ export function cppIncludeAt(text: string, offset: number): (SchemaInclude & { q
   const pathStart = start + match[0].indexOf(match[1] ? '"' : '<') + 1;
   return offset >= pathStart && offset <= pathStart + name.length
     ? { name, start: pathStart, end: pathStart + name.length, quoted: !!match[1] } : undefined;
+}
+
+/** Map generated managed companions back to their original schema declaration. */
+export function managedNames(qualified: string): string[] {
+  const separator = qualified.lastIndexOf('::');
+  const scope = separator < 0 ? '' : qualified.slice(0, separator + 2);
+  const name = qualified.slice(separator + 2);
+  const leaf = separator < 0 ? qualified : name;
+  return [`managed_${leaf}_data`, `managed_${leaf}_storage`, `${leaf}_editor`]
+    .flatMap(companion => generatedNames(scope + companion));
 }

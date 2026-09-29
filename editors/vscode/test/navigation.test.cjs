@@ -369,3 +369,31 @@ test('include path endpoints navigate without accepting following comments', asy
     state.at('model.serializer', 'types/order') + 'types/order'.length, false)), [['types/order.serializer', '']]);
   assert.deepEqual(await state.resolver().schema(file('model.serializer'), state.at('model.serializer', 'types/order', true), false), []);
 });
+
+test('managed direct and collection references resolve with every qualified cursor boundary', async () => {
+  const schema = 'serializer version 1; namespace project { class task stable_ids managed {} ' +
+    'class root { public managed project::task child (1); public managed array project::task items (2); ' +
+    'public managed map(uint64) project::task tasks (3); } }';
+  const state = fixture({ 'managed.serializer': schema });
+  const references = indexSource(schema, true).references;
+  assert.equal(references.filter(reference => reference.name === 'managed').length, 0);
+  for (const match of schema.matchAll(/project::task/g)) {
+    for (let cursor = match.index; cursor <= match.index + match[0].length; ++cursor) {
+      assert.deepEqual(selected(state, await state.resolver().schema(file('managed.serializer'), cursor, false)),
+        [['managed.serializer', 'task']]);
+    }
+  }
+});
+
+test('managed generated companions map back without replacing ordinary forward navigation', async () => {
+  const schema = 'serializer version 1; namespace sample { class task managed {} }';
+  const state = fixture({ 'managed.serializer': schema,
+    'build/managed.hpp': banner + 'namespace sample { class task {}; class managed_task_data {}; ' +
+      'class managed_task_storage {}; template<typename Access> class task_editor {}; }' });
+  for (const companion of ['managed_task_data', 'managed_task_storage', 'task_editor']) {
+    assert.deepEqual(selected(state, await state.resolver().generatedDeclaration(file('build/managed.hpp'),
+      state.at('build/managed.hpp', companion))), [['managed.serializer', 'task']]);
+  }
+  assert.deepEqual(selected(state, await state.resolver().schema(file('managed.serializer'),
+    state.at('managed.serializer', 'task'), true)), [['build/managed.hpp', 'task']]);
+});

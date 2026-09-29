@@ -1,12 +1,23 @@
 # Serializer managed-state design
 
-Status: proposal only. No managed-state grammar, generated companions, runtime,
-history engine, collaboration adapter, or finalized record format is implemented.
-Ordinary Serializer codecs and generated payload classes remain the existing API.
-The walkthrough schema below is a generatable data-shape example using that API.
+Current C++ representation: managed schema classes carry `persistent_id` directly
+by default. Separate ID-free values/storage wrappers in the illustrations below
+require `[managed] separate_values = true`; see the [runtime contract](cpp_runtime.md).
+New documents get a namespace automatically. Root and managed descendants allocate
+IDs `1, 2, 3...` within that document only; saved IDs/counters survive reload,
+and undo/deletion never renumber survivors. Explicit member boundaries still apply.
+
+Status: design collection with an implemented C++ managed interface. Read the
+[implemented C++ API](cpp_runtime.md) for schema generation, typed editors, identity,
+all three transaction forms, snapshot history, and exact limitations. Selectors,
+exclusions, collaboration, authorization, journal, and other-language runtimes remain
+proposals. ID-free payload layouts/codecs are retained in opt-in separate-values mode. The walkthrough schema
+remains a separate illustrative data model.
 
 | Document | Read it for |
 | --- | --- |
+| [Implemented C++ runtime](cpp_runtime.md) | Optional build target, generated storage and typed editors, all three transaction forms, snapshot history, bounded save/load, and remaining work. |
+| [Transaction implementation walkthrough](../internals/managed_transactions.md) | Current C++ store and transaction ownership, callback flow, commit, and cleanup, illustrated with a point. |
 | [Capabilities and identity](capabilities.md) | Four managed features, mandatory uint32 IDs, central configuration, collaboration allocation, and additional uses. |
 | [Collaboration sessions and locks](collaboration.md) | Session-based synchronization, advisory presence, authoritative entity/subtree locks, replica caches, leases, failure handling, and efficiency targets. |
 | [Journal](journal.md) | Appended/sidecar modes, full Save replacement and cleanup, undo cursors, durability, and crash recovery of unsaved changes. |
@@ -19,7 +30,7 @@ The walkthrough schema below is a generatable data-shape example using that API.
 
 The four proposed optional features are `history`, `collaboration`, `authorization`,
 and `journal`. Every managed object has a generated persistent ID
-(default `uint32`, centrally configurable); normal value objects remain ID-free.
+(default `uint32`, centrally configurable); separate normal value objects are an opt-in representation.
 Active or required authorization cannot be bypassed by a member selector.
 
 Collaboration coordinates opaque sessions, not user accounts. Presence and lock
@@ -28,13 +39,14 @@ provides transport, trusted session binding, and authority infrastructure; Seria
 defines record exchange, validation, and atomic acceptance. Presence is informational;
 exclusive locking is an optional collaboration policy with authoritative enforcement.
 
-The proposed owning runtime is `model_store<Root, support>`; `managed<Root, support>`
-can be a C++ alias for the same type. Generated `tracked_` companions are temporary
-edit interfaces, not independently owning stores. Schema `managed` selects identity
+The owning C++ runtime is `model_store<Root, support>`; `managed<Root, support>`
+is a C++ alias for the same type. Implemented `<type>_editor<Access>` handles
+are temporary edit interfaces, not independently owning stores. Broader sketches
+use illustrative `tracked_` names. Schema `managed` selects identity
 boundaries within managed occurrences. Compile-time support, schema participation,
 and runtime activation are separate decisions.
 
-For one synchronous editing action, the proposed
+For one synchronous editing action, the C++
 [`execute_transaction(label, callback)`](history.md#callback-based-transaction-execution)
 passes a borrowed transaction edit context and returns its outcome after completion.
 The wrapper uses the same RAII engine as caller-controlled `begin_transaction`.

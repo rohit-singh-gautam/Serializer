@@ -1,8 +1,21 @@
 # Managed-state examples across application domains
 
-Status: design examples only. `managed`, `exclude(...)`, `transient`, and the
-transaction APIs below are not implemented. Each schema block is an independent
-example, not a file to compile with the current Serializer compiler.
+Current C++ representation: managed schema classes carry `persistent_id` directly
+by default. Separate ID-free values/storage wrappers in the illustrations below
+require `[managed] separate_values = true`; see the [runtime contract](cpp_runtime.md).
+New documents get a namespace automatically. Root and managed descendants allocate
+IDs `1, 2, 3...` within that document only; saved IDs/counters survive reload,
+and undo/deletion never renumber survivors. Explicit member boundaries still apply.
+
+Status: broader design examples. Bare `managed` and the C++ transaction/editor
+subset are implemented; selectors, `exclude(...)`, `transient`, and other advanced
+APIs below remain proposals. Each schema block is an independent example. See the
+[C++ interface](cpp_runtime.md) for exact supported syntax and generated names.
+
+For a runnable implementation, see the separate
+[C++ draft ledger example](../../example/managed/ledger/README.md). It uses the [C++ interface](cpp_runtime.md) with actual `managed` schema declarations
+and generated editors. The hollow-cylinder and wordpad schemas alongside it are
+also compiled and exercised in the managed tests.
 
 Managed state is a general data-model facility. Graphics is one application;
 accounting, text editing, project planning, and configuration editing need the
@@ -19,7 +32,7 @@ represent these records; return to the [design index](README.md) for all proposa
 All examples use the [four-feature capability design](capabilities.md): history,
 collaboration, authorization, and journaling. Every managed root and
 entity carries a generated `persistent_id`, defaulting to centrally configured
-`uint32`. Ordinary values remain ID-free. `map(uint64)` in these schemas describes
+`uint32`. Ordinary values are ID-free in the opt-in separate representation. `map(uint64)` in these schemas describes
 an application key, not the ID type; generated managed storage has its own ID.
 
 A graphics application can journal geometry edits and checkpoint during idle time;

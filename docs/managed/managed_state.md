@@ -1,9 +1,17 @@
 # Managed state, authorization, and collaboration proposal
 
-Status: design direction; not implemented in any language backend. This document
-extends the [transactional history proposal](history.md) with constraints to keep
-in mind during implementation. It does not add authentication, collaboration,
-distributed commits, or external-effect adapters to Serializer today.
+Current C++ representation: managed schema classes carry `persistent_id` directly
+by default. Separate ID-free values/storage wrappers in the illustrations below
+require `[managed] separate_values = true`; see the [runtime contract](cpp_runtime.md).
+New documents get a namespace automatically. Root and managed descendants allocate
+IDs `1, 2, 3...` within that document only; saved IDs/counters survive reload,
+and undo/deletion never renumber survivors. Explicit member boundaries still apply.
+
+Status: broader design direction. The [C++ interface](cpp_runtime.md) implements
+bare `managed` declarations, generated identity and editors, transactions, and
+snapshot history. This document extends the [history contract](history.md);
+authentication, authorization, collaboration, distributed commits, journals, and
+external-effect adapters remain unimplemented.
 
 The [design index](README.md) also links the [data structures](data_structures.md)
 and [language bindings](language_bindings.md). Those define the optional store
@@ -28,7 +36,7 @@ and [storage/performance priorities](history.md#storage-and-performance-prioriti
 
 The four proposed features are `history`, `collaboration`, `authorization`, and
 `journal`. Every managed instance has a generated persistent ID,
-`uint32` by default and centrally configurable; ordinary representations remain
+`uint32` by default and centrally configurable; opt-in separate ordinary representations remain
 ID-free. See [capabilities](capabilities.md) for selectors, scope, configuration,
 and other differential-change scenarios, and [journaling](journal.md)
 for base snapshots, journals, undo cursors, checkpointing, and recovery.
@@ -50,7 +58,8 @@ transactions remain useful when history recording is disabled.
 
 Use this naming consistently in the proposals. `history` names an optional
 feature, not a separate schema modifier; `managed` names participation in the
-broader subsystem. All syntax below remains unimplemented.
+broader subsystem. Bare `managed` is implemented in C++; feature selectors and
+exclusions below remain proposals.
 
 ```text
 serializer version 1;

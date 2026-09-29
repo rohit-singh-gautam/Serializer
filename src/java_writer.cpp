@@ -968,6 +968,7 @@ public:
 // Publish only a completely validated source file.
 std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,
                      std::string_view outer_class, const java_options& options) {
+  require_unmanaged_backend(statements);
   emitter generator{options, outer_class};
   return generator.generate(statements);
 }

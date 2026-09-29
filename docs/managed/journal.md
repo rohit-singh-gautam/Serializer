@@ -1,5 +1,12 @@
 # Journal and crash recovery
 
+Current C++ representation: managed schema classes carry `persistent_id` directly
+by default. Separate ID-free values/storage wrappers in the illustrations below
+require `[managed] separate_values = true`; see the [runtime contract](cpp_runtime.md).
+New documents get a namespace automatically. Root and managed descendants allocate
+IDs `1, 2, 3...` within that document only; saved IDs/counters survive reload,
+and undo/deletion never renumber survivors. Explicit member boundaries still apply.
+
 Status: proposal only. `journal`, journal formats, configuration,
 and storage adapters are not implemented. See [capabilities and ID rules](capabilities.md).
 

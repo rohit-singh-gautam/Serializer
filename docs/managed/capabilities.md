@@ -1,9 +1,17 @@
 # Managed capabilities and mandatory identity
 
-Status: revised design proposal, not implemented compiler/runtime support. This
-document defines the shared identity rules and the four proposed managed features.
-It supersedes earlier suggestions that a collection key alone supplies identity
-or that the default entity number is `uint64`. See the [index](README.md).
+Current C++ representation: managed schema classes carry `persistent_id` directly
+by default. Separate ID-free values/storage wrappers in the illustrations below
+require `[managed] separate_values = true`; see the [runtime contract](cpp_runtime.md).
+New documents get a namespace automatically. Root and managed descendants allocate
+IDs `1, 2, 3...` within that document only; saved IDs/counters survive reload,
+and undo/deletion never renumber survivors. Explicit member boundaries still apply.
+
+Status: revised design proposal with an implemented C++ identity/history subset.
+The [C++ interface](cpp_runtime.md) accepts bare `managed` declarations and centrally
+configured uint32/uint64 IDs. Selectors and the complete four-capability runtime
+remain unimplemented. This document defines their shared contracts and supersedes
+earlier suggestions that map keys alone provide identity or uint64 is the default.
 
 ## Four managed features
 
@@ -66,7 +74,7 @@ Session, replica, operation, lease, and grant IDs are distinct from entity IDs.
 Every managed instance, including the root, has a generated, persisted
 `persistent_id` field. Its scalar type defaults to `uint32`. It belongs to the
 managed storage representation, is assigned by the store, and is exposed read-only
-through tracked editors. Normal value classes remain ID-free as previously agreed.
+through tracked editors. Separate normal value classes are ID-free only when explicitly requested.
 A class-level `managed` marker requests managed capability and its ID-bearing
 representation; it does not activate management in every ordinary occurrence.
 
@@ -79,8 +87,9 @@ even then the managed record retains its authoritative ID and validates equality
 The framework metadata envelope/wrapper is separate from ordinary payload field
 numbering. Do not silently inject a new numbered member into the existing plain
 class or renumber its `stable_ids` fields. Generated names must diagnose collisions.
-The walkthrough's explicit wrapper schemas illustrate this separation; exact
-future companion/header generation is still to be implemented.
+The walkthrough's explicit wrappers illustrate this separation. The implemented
+C++ generator emits `managed_<type>_storage` wrappers and `<type>_editor` handles;
+see [the runtime guide](cpp_runtime.md) for exact names and supported shapes.
 
 An ordinary child point has no independent ID: changes use its nearest managed
 owner's ID plus a stable field path. A managed child point gets its own ID and
@@ -89,17 +98,17 @@ IDs, revision IDs, and operation IDs remain different concepts.
 
 ## Central configuration and compatibility
 
-Proposed configuration (not accepted by today's compiler):
+Implemented central C++ configuration:
 
 ```ini
 [managed]
 id_type = uint32
 ```
 
-Proposed compiler override:
+Implemented compiler override:
 
 ```text
-serializer --input model.serializer --managed.id_type uint64
+serializer --input model.serializer --output model.hpp --managed.id_type uint64
 ```
 
 Resolve `CLI override > project configuration > uint32 default`. Apply the effective

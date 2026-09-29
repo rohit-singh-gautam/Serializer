@@ -78,6 +78,9 @@ constexpr rohit::serializer::cli::commandline_option command_options[] = {
     {'\0', "cpp.format", "true|false", "Run clang-format (default true)."},
     {'\0', "cpp.protobuf", "true|false",
      "Generate direct Protobuf binary, ProtoJSON, and TextProto codecs."},
+    {'\0', "managed.id_type", "uint32|uint64", "Persistent managed ID type (default uint32)."},
+    {'\0', "managed.separate_values", "true|false",
+     "Generate separate ID-free values and managed storage (default false)."},
     {'\0', "cpp.clang_format", "executable", "clang-format 19+ executable (default clang-format)."},
     {'\0', "cpp.format_file", "file", "Custom layout; --cpp.format_file= clears it.", false, true},
     {'\0', "java.coding_standard", "profile", "serializer|google|oracle"},
@@ -222,6 +225,19 @@ int main(const int argc, const char* argv[]) {
         throw std::invalid_argument{"cpp.naming must be profile or preserve"};
       }
       options.cpp.rename_identifiers = value == "profile";
+    }
+    if (parsed.contains("managed.id_type")) {
+      options.cpp.managed_id_type = cli::first(parsed, "managed.id_type");
+      if (options.cpp.managed_id_type != "uint32" && options.cpp.managed_id_type != "uint64") {
+        throw std::invalid_argument{"managed.id_type must be uint32 or uint64"};
+      }
+    }
+    if (parsed.contains("managed.separate_values")) {
+      const auto& value = cli::first(parsed, "managed.separate_values");
+      if (value != "true" && value != "false") {
+        throw std::invalid_argument{"managed.separate_values must be true or false"};
+      }
+      options.cpp.managed_separate_values = value == "true";
     }
     if (parsed.contains("cpp.protobuf")) {
       const auto& value = cli::first(parsed, "cpp.protobuf");

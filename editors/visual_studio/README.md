@@ -3,7 +3,7 @@
 This extension supports the [Serializer schema compiler and serialization library](https://github.com/rohit-singh-gautam/Serializer)
 maintained in that repository.
 
-Version **1.1.8** provides `.serializer` highlighting and native navigation in
+Version **1.1.10** provides `.serializer` highlighting and native navigation in
 **Visual Studio 2022 and Visual Studio 2026 on Windows x64**. It shares the VS Code
 extension's grammar and schema/generated-output resolver. Custom type references
 such as `demo::order`, `demo::snapshot` and `demo::customer` use the active theme's
@@ -72,7 +72,7 @@ installation. It uses full-framework MSBuild with locked dependencies, bundles
 the current shared resolver, rebuilds and validates:
 
 ```text
-out/extensions/serializer-visual-studio-1.1.8.vsix
+out/extensions/serializer-visual-studio-1.1.10.vsix
 ```
 
 Close Visual Studio, double-click the VSIX, select the installation and restart
@@ -127,3 +127,15 @@ The [installation target](https://learn.microsoft.com/en-us/visualstudio/extensi
 covers Community, Professional and Enterprise through the Community target.
 ARM64 and earlier Visual Studio releases are not targeted. Grammar registration
 uses Microsoft's [language configuration support](https://learn.microsoft.com/en-us/visualstudio/extensibility/language-configuration?view=visualstudio).
+
+The C++ `managed` class/member keyword is highlighted and skipped when locating a
+member's type. Direct, array, and map managed references retain declaration and
+definition navigation. Generated managed data, storage, and editor class declarations
+map back to the original schema type; schema-to-output navigation still selects the
+ordinary class. Capability selectors and other-language managed runtimes remain
+unimplemented; see the [managed runtime guide](../../docs/managed/cpp_runtime.md).
+
+Managed classes now expose persistent IDs directly by default. Set
+`[managed] separate_values = true` (or `--managed.separate_values true`) when
+ID-free ordinary classes and managed storage companions are required. Navigation
+supports the direct schema class, its editor, and opt-in companion declarations.

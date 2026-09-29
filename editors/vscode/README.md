@@ -4,7 +4,7 @@ This extension supports the [Serializer schema compiler and serialization librar
 maintained in that repository.
 
 Edit `.serializer` schemas with syntax highlighting, bracket matching, comments,
-folding, and snippets. Version **1.1.8** includes navigation from includes and type
+folding, and snippets. Version **1.1.10** includes navigation from includes and type
 references to source schemas and existing generated code in all 11 output languages. Use the project's
 CMake configuration for the separate build and missing-header assistance commands.
 
@@ -191,3 +191,15 @@ success. There is no automatic build on file open/save.
 See the repository's [extension guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/editor_extension.md)
 for development, validation, and packaging instructions. This source distribution
 has not been published to Marketplace.
+
+The C++ `managed` class/member keyword is highlighted and skipped when locating a
+member's type. Direct, array, and map managed references retain declaration and
+definition navigation. Generated managed data, storage, and editor class declarations
+map back to the original schema type; schema-to-output navigation still selects the
+ordinary class. Capability selectors and other-language managed runtimes remain
+unimplemented; see the [managed runtime guide](../../docs/managed/cpp_runtime.md).
+
+Managed classes now expose persistent IDs directly by default. Set
+`[managed] separate_values = true` (or `--managed.separate_values true`) when
+ID-free ordinary classes and managed storage companions are required. Navigation
+supports the direct schema class, its editor, and opt-in companion declarations.

@@ -1,5 +1,14 @@
 # Serializer examples
 
+Start with the [eight C++ point examples](managed/README.md) for schema-generated
+managed points, transaction callbacks, generated editors, and history.
+Each has a separate folder and a short walkthrough with expected output.
+
+The optional [C++ managed draft ledger](managed/ledger/README.md) demonstrates schema-driven
+`managed` declarations, generated editors, three transaction forms, undo, and
+snapshot save/load. Enable `SERIALIZER_BUILD_MANAGED` to build it. Hollow-cylinder
+and wordpad schemas in their own subfolders are exercised by the integration tests.
+
 Each language has at least four runnable examples in its own folder:
 
 - [C++](cpp/README.md)

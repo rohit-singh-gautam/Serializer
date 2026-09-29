@@ -1,0 +1,31 @@
+serializer version 1;
+
+// Serialized runtime envelope records, not user model entities; no managed annotations belong here.
+
+// Version-one C++ snapshot-store envelope. Payloads use binary_integer codecs.
+namespace rohit {
+  namespace managed {
+    namespace records {
+      class revision stable_ids {
+        public uint64 number (1);
+        public uint64 parent (2);
+        public string label (3);
+        public array uint8 snapshot (4);
+      }
+
+      class envelope stable_ids {
+        public uint32 format_version (1);
+        public string schema_id (2);
+        public uint32 id_bits (3);
+        public uint64 document_high (4);
+        public uint64 document_low (5);
+        public uint64 allocated_id (6);
+        public uint64 revision_high_water (7);
+        public uint64 current_revision (8);
+        public uint32 mode (9);
+        public array uint8 current_snapshot (10);
+        public array revision revisions (11);
+      }
+    }
+  }
+}
