@@ -9,12 +9,16 @@
 #include <functional>
 #include <ios>
 #include <limits>
+#include <span>
 #include <sstream>
 #include <stdexcept>
 #include <string>
 #include <type_traits>
+#include <utility>
 
 namespace rohit {
+
+class file_stream;
 
 namespace detail {
 // Only standard string streams promise that view() describes the complete stable character area.
@@ -27,7 +31,8 @@ concept memory_input_stream =
 template <typename T>
 inline constexpr bool is_file_stream = std::same_as<std::remove_cvref_t<T>, std::ifstream> ||
                                        std::same_as<std::remove_cvref_t<T>, std::ofstream> ||
-                                       std::same_as<std::remove_cvref_t<T>, std::fstream>;
+                                       std::same_as<std::remove_cvref_t<T>, std::fstream> ||
+                                       std::same_as<std::remove_cvref_t<T>, file_stream>;
 
 inline constexpr std::size_t generic_stream_buffer_bytes = 8192;
 inline constexpr std::size_t file_stream_buffer_bytes = 64 * 1024;
@@ -38,23 +43,145 @@ inline constexpr std::size_t stream_buffer_bytes =
 
 // Write bytes without changing the caller's formatting, exception mask, or flush policy.
 // A failed write may already have delivered a prefix to the external destination.
-inline void write_stream_bytes(type_check::byte_output_stream auto& output,
-                               const std::uint8_t* bytes, std::size_t size) {
-  if (output.fail()) {
-    throw std::ios_base::failure{"Output stream is not writable"};
-  }
-  constexpr auto maximum_write_bytes =
-      static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max());
-  while (size != 0) {
-    const auto count = std::min(size, maximum_write_bytes);
-    output.write(reinterpret_cast<const char*>(bytes), static_cast<std::streamsize>(count));
+inline void write_stream_bytes(type_check::output_stream auto& output, const std::uint8_t* bytes,
+                               std::size_t size) {
+  if constexpr (type_check::output_buffer<decltype(output)>) {
+    output.append(bytes, size);
+  } else {
     if (output.fail()) {
-      throw std::ios_base::failure{"Unable to write complete message"};
+      throw std::ios_base::failure{"Output stream is not writable"};
     }
-    bytes += count;
-    size -= count;
+    constexpr auto maximum_write_bytes =
+        static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max());
+    while (size != 0) {
+      const auto count = std::min(size, maximum_write_bytes);
+      output.write(reinterpret_cast<const char*>(bytes), static_cast<std::streamsize>(count));
+      if (output.fail()) {
+        throw std::ios_base::failure{"Unable to write complete message"};
+      }
+      bytes += count;
+      size -= count;
+    }
   }
 }
+
+// Forward a borrowed byte range without creating a concatenated output buffer.
+inline void write_stream_bytes(type_check::output_stream auto& output,
+                               std::span<const std::uint8_t> bytes) {
+  write_stream_bytes(output, bytes.data(), bytes.size());
+}
+
+// Fill at most the requested range, stopping at EOF; errors are never mistaken for a short tail.
+// Unlike read_stream_bytes(), this does not consume subsequent messages or read through EOF.
+inline std::size_t read_stream_some(type_check::input_stream auto& input,
+                                    std::span<std::uint8_t> output) {
+  if constexpr (type_check::input_buffer<decltype(input)>) {
+    const auto count = std::min(output.size(), input.remaining_buffer());
+    if (count != 0) {
+      const auto* source = input.get_curr_and_increase_unchecked(count);
+      std::copy_n(source, count, output.data());
+    }
+    return count;
+  } else {
+    if (input.bad() || (input.fail() && !input.eof())) {
+      throw std::ios_base::failure{"Input stream is not readable"};
+    }
+    std::size_t total{};
+    while (total < output.size() && !input.eof()) {
+      const auto count =
+          std::min(output.size() - total,
+                   static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max()));
+      try {
+        input.read(reinterpret_cast<char*>(output.data() + total),
+                   static_cast<std::streamsize>(count));
+      } catch (const std::ios_base::failure&) {
+        if (input.bad() || !input.eof()) {
+          throw;
+        }
+      }
+      const auto received = input.gcount();
+      if (received < 0 || static_cast<std::size_t>(received) > count || input.bad() ||
+          (input.fail() && !input.eof())) {
+        throw std::ios_base::failure{"Unable to read stream record"};
+      }
+      total += static_cast<std::size_t>(received);
+      if (static_cast<std::size_t>(received) != count && !input.eof()) {
+        throw std::ios_base::failure{"Incomplete stream read without EOF"};
+      }
+    }
+    return total;
+  }
+}
+
+// Read one exact bounded range, rejecting EOF without touching any following record.
+inline void read_stream_exact(type_check::input_stream auto& input,
+                              std::span<std::uint8_t> output) {
+  if (read_stream_some(input, output) != output.size()) {
+    throw std::ios_base::failure{"Incomplete stream record"};
+  }
+}
+
+// Borrow an existing output stream and an explicit durable-sync policy. The policy owns no bytes:
+// it must persist this exact destination, not reopen an unrelated path. No default policy exists.
+// Call sync explicitly; destruction neither flushes nor closes the borrowed stream.
+template <type_check::output_stream Output, typename Synchronize>
+  requires std::invocable<Synchronize&>
+class durable_output_adapter {
+  Output& output_;
+  [[no_unique_address]] Synchronize synchronize_;
+  bool failed_{};
+
+public:
+  // Keep the destination alive for this adapter's lifetime; the policy may borrow its native owner.
+  durable_output_adapter(Output& output, Synchronize synchronize)
+      : output_{output}, synchronize_{std::move(synchronize)} {}
+
+  // Satisfy the standard byte-sink contract while preserving native buffer alias handling.
+  void write(const char* bytes, std::streamsize size) {
+    if (fail() || size < 0) {
+      throw std::ios_base::failure{"Durable output is not writable"};
+    }
+    try {
+      write_stream_bytes(output_, reinterpret_cast<const std::uint8_t*>(bytes),
+                         static_cast<std::size_t>(size));
+    } catch (...) {
+      failed_ = true;
+      throw;
+    }
+  }
+
+  // Surface both adapter failures and failures already recorded by a borrowed byte stream.
+  bool fail() const {
+    if constexpr (type_check::byte_output_stream<Output>) {
+      return failed_ || output_.fail();
+    } else {
+      return failed_;
+    }
+  }
+
+  // Drain Serializer scratch storage and iostream buffers before invoking backend durability.
+  // A failed synchronization fences this adapter; construct a new one only after recovery.
+  void sync() {
+    if (fail()) {
+      throw std::ios_base::failure{"Durable output has failed"};
+    }
+    try {
+      if constexpr (requires { output_.finish(); }) {
+        output_.finish();
+      }
+      if constexpr (requires { output_.flush(); }) {
+        output_.flush();
+      }
+      if (fail()) {
+        throw std::ios_base::failure{"Unable to drain durable output"};
+      }
+      std::invoke(synchronize_);
+    } catch (...) {
+      failed_ = true;
+      throw;
+    }
+  }
+};
 
 // Adapt a byte sink to the contiguous reservation API, flushing between complete reservations.
 // Large single reservations grow the scratch buffer; aliases retain native buffer semantics.

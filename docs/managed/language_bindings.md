@@ -8,7 +8,8 @@ IDs `1, 2, 3...` within that document only; saved IDs/counters survive reload,
 and undo/deletion never renumber survivors. Explicit member boundaries still apply.
 
 Status: broader design sketches. The [C++ interface](cpp_runtime.md) implements
-schema-driven identity, typed editors, transactions, and snapshot history. These
+schema-driven identity, typed editors, transactions, snapshot history, and
+[synchronous native-file journals](journal.md). These
 broader sketches are not its exact API or generated output. Other-language managed
 runtimes remain proposals; their generators currently reject managed annotations.
 See the [design index](README.md) and [data structures](data_structures.md).
@@ -38,7 +39,7 @@ Journaling need not depend on either representation or its revision IDs.
 The broader capability sketches below are proposals, not the current
 public signature.
 
-Future collaboration, journal, and authorization capabilities should compose
+The future compile-time collaboration, journal, and authorization capability selectors should compose
 independently of this one history policy. Each enabled capability contributes its
 own storage and transaction hooks; disabled capabilities contribute no component
 state. A journal's durable sequence and recovery retention are independent of

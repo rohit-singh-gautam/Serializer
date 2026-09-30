@@ -9,8 +9,8 @@ and undo/deletion never renumber survivors. Explicit member boundaries still app
 
 Status: broader design direction. The [C++ interface](cpp_runtime.md) implements
 bare `managed` declarations, generated identity and editors, transactions, and
-snapshot history. This document extends the [history contract](history.md);
-authentication, authorization, collaboration, distributed commits, journals, and
+snapshot history, and [synchronous journaling](journal.md). This document extends
+the [history contract](history.md); authentication, authorization, collaboration, distributed commits, and
 external-effect adapters remain unimplemented.
 
 The [design index](README.md) also links the [data structures](data_structures.md)

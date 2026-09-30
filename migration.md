@@ -64,6 +64,18 @@ only in linear mode. Loading over-budget histories still fails instead of evicti
 imported states. `max_revisions` remains the retained-state count option for both
 policies; linear entries do not carry revision IDs.
 
+Synchronous [file journaling](docs/managed/journal.md) wraps existing managed
+memory envelopes in the base without changing their versions. Version-two journal
+records append individual serialized snapshots and small control operations; the
+earlier full-envelope journal format is rejected. To adopt it, construct/load a
+store and call `create_journal` at a new path; reopen with `recover_journal` into
+an unattached store. Use `save_journal` for a full durable Save. Existing raw
+memory envelopes are not journal containers, and `save()` remains a memory export.
+Extend exhaustive `transaction_status` handling for `indeterminate`: a write may
+have committed on disk while the live model stayed unchanged. Destroy/recover the
+store before retrying. No schema regeneration, editor package change, or selector
+syntax is required for this runtime API.
+
 Optional [message compression](docs/compression.md) adds C++ overloads without
 changing existing bytes or calls. Rebuild the runtime with selected optional
 dependencies and regenerate owning headers for member/static options. Free
@@ -724,3 +736,15 @@ Interoperability consumers moved from `example/interoperability/<language>` to
 [the runner and SDK requirements](example/README.md). The earlier CMake option
 still runs its five-runtime subset; the full suite uses
 `SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES`.
+
+## Durable file stream integration
+
+`rohit::file_stream` in `<rohit/file_stream.hpp>` implements the existing byte-stream
+concepts, so generated serialization calls require no schema regeneration. Link
+`Serializer::serializer_lib` and rebuild the runtime/consumers together. Native
+journal I/O moved into this reusable stream implementation; the managed store owns
+an internal storage-independent journal sink. Existing path-based journal calls,
+version-two records, memory-stream APIs, and full-Save history behavior are unchanged.
+`managed_journal_stream.hpp` adds bounded frame helpers for buffers and iostreams;
+see [usage](docs/usage.md#file-streams-and-journal-records) for explicit synchronization
+and borrowed-payload lifetimes. No database backend is introduced.

@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin, or C applications from a provided repository or existing dependency. Use for .serializer schemas, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, schema compatibility checks and reservations, stream concepts and iostream adapters, exact fresh-value decoding, optional message compression, JSON or binary codecs, database persistence guidance, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
+description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin, or C applications from a provided repository or existing dependency. Use for .serializer schemas, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, schema compatibility checks and reservations, stream concepts, durable file streams and iostream adapters, exact fresh-value decoding, managed journal/crash recovery, optional message compression, JSON or binary codecs, database persistence guidance, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
 ---
 
 # Serializer Integration
@@ -35,8 +35,9 @@ there instead of relying on the relative links.
   `model_store<Root, history_mode::linear|tree|disabled, Labels, Traits>` (choose one enum
   value; linear is the default). Each specialization stores only its selected
   representation. `store_options` has no mode field; `reset_history()` clears
-  enabled history without switching modes. Collaboration/journal/authorization
-  remain separate proposed capabilities, not supported template arguments.
+  enabled history without switching modes. Runtime journaling is independent of
+  history mode; collaboration/authorization and schema capability selectors
+  remain proposals, not supported template arguments.
   Labels default to `history_labels::disabled`, with no string member or serialized
   label field. Opt in with the third argument `history_labels::enabled`; custom
   traits are the fourth argument. Enabled stores accept named and unnamed
@@ -54,8 +55,26 @@ there instead of relying on the relative links.
   default label-free saves use version 3. Label-enabled linear/tree stores preserve
   versions 2/1. Loads must match history mode and label policy; cross-policy saves
   require explicit migration. Linear saves contain ordered entries and a cursor.
-  Selectors, exclusions, custom allocation, durable
-  journals/files, authorization, collaboration, and other-language runtimes remain
+  Use `create_journal(path, journal_storage_mode::appended|sidecar, options)` for a
+  new durable baseline, `recover_journal(path, options)` to reopen into an
+  unattached store, and `save_journal()` for full Save. Commits, undo/redo/checkout,
+  history reset, and ID reservations flush before publication. Both representations,
+  ID widths, history modes, and optional labels are supported.
+  `journal_dirty()` compares values with the full-Save baseline; memory `save()`
+  does not clear it. `journal_sequence()` advances independently of undo position.
+  Handle `transaction_status::indeterminate` / `journal_indeterminate_error` by
+  destroying the fenced store and recovering into a fresh one before further writes;
+  never blindly retry editing callbacks. `load()` cannot bypass an attached journal.
+  Each edit writes its already serialized snapshot once with compact length/CRC
+  framing (snapshot bytes + 41 bytes for unlabeled linear history, + 33 for
+  unlabeled tree/disabled). Navigation/reservations use 33-byte control records.
+  Only base creation/full Save encodes the complete envelope and retained history.
+  There is no per-edit envelope encoding, byte-diff pass, snapshot output-buffer
+  copy, or history deque copy. A retained native handle avoids reopening/seeking
+  for each append. Use journal record/file budgets with store decoding limits. See the [journal guide](../../../docs/managed/journal.md)
+  for versioned framing, single-writer locking, platform flush assumptions, and
+  limitations. Selectors, exclusions, custom allocation, background checkpoints,
+  delta journals, authorization, collaboration, and other-language runtimes remain
   future work. Do not present the complete proposals below as shipped behavior.
   Omit the store constructor's document argument for automatic namespace creation;
   explicit namespaces remain supported. Root/managed child IDs are allocated 1, 2,
@@ -97,7 +116,9 @@ there instead of relying on the relative links.
   Full Save durably publishes a replacement before retiring covered records;
   preserve newer edits, retained history dependencies, and allocation metadata.
   Changes may remain unsaved in the UI while durably journaled for recovery.
-  These modes and APIs are proposals. Active/required authorization cannot
+  These storage modes now have the synchronous C++ implementation described above;
+  selector syntax and broader delta/checkpoint/distributed contracts remain proposals.
+  Active/required authorization cannot
   be bypassed by member selectors. Imported/generated models must agree on ID type.
   The [data structures](../../../docs/managed/data_structures.md) and
   [language bindings](../../../docs/managed/language_bindings.md) describe optional
@@ -708,6 +729,27 @@ user instruction to defer generation/builds/tests and report what remains unveri
   remain valid. Keep memory-stream
   storage stable while decoding. Never imply that concepts prove lifetime or
   alias safety. See [stream contracts](../../../docs/usage.md#stream-concepts-and-implicit-adapters).
+- Use `<rohit/file_stream.hpp>` for a reusable owning file stream supporting both
+  generated serialization and journals. `file_stream` satisfies existing byte-stream
+  concepts and adds `sync()`, absolute `seek()`, `truncate()`, and `size()`.
+  `file_open_mode::create` is exclusive; `update` preserves existing file bytes;
+  `read` is read-only; `lock` owns a stable exclusive writer lock. Keep it
+  thread-confined. Serialization and destruction never implicitly sync.
+  Memory streams in `stream.hpp` remain memory-only implementations.
+  `managed_journal_stream.hpp` provides bounded `write_journal_frame` /
+  `read_journal_frame` helpers accepting native/custom buffers, iostreams, and
+  file streams. Buffer reads borrow payloads; byte-stream reads own bounded
+  payloads. Preserve input lifetimes and use the managed path APIs when a full
+  document container, locking, sequence allocation, and recovery are required.
+  Optional persistence concepts do not change ordinary stream requirements.
+  `durable_output_adapter` requires a real host synchronization policy for the
+  exact borrowed destination; plain iostream flushing is insufficient. Never
+  claim a memory stream is persistent merely because framing succeeds.
+  The managed store owns a journal sink; its implemented file adapter uses these
+  stream facilities. Database sinks require an implemented and tested Serializer
+  database adapter. None currently exists; do not add speculative database support.
+  See [file streams](../../../docs/usage.md#file-streams-and-journal-records) and the
+  [runnable journal example](../../../example/managed/journal/README.md).
 - Open binary files in binary mode. Adapters borrow streams, retain exception masks,
   and leave explicit flushing/closing to the caller. I/O failures can consume input
   or write an output prefix; decode errors may partially update destinations.

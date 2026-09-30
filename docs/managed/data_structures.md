@@ -1067,7 +1067,7 @@ Runtime behavior uses these records through the separate
 | `version_store` | `version_store_record` | Runtime methods enforce immutability, allocation, lookup, and pruning. |
 | `history_state` | `history_record` | Runtime methods implement branch navigation and retention. |
 | `authorization_state` | Future generated policy/configuration records | Application-supplied context and active enforcement remain runtime behavior. |
-| `journal_state` | Future generated base/journal/manifest records | Storage adapter owns durable append, checkpointing, and recovery; see the recovery proposal. |
+| `journal_state` | Broader proposed generated records; the current C++ journal sink and file adapter use a full base with framed snapshots/control records | Native-file adapter implements durable append, full Save, and recovery; delta records and background checkpoints remain proposals. See the [journal guide](journal.md). |
 | `transaction<design>` | A private candidate `design_state` and pending changes | Runtime RAII guard; context pointers, outcome references, and cleanup are not serialized fields. |
 | `tracked_cylinder` | A transaction's generated `cylinder`, resolved by entity ID | Illustrative name; implemented C++ uses `cylinder_editor<Access>` and separate generated storage. |
 

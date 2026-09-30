@@ -72,6 +72,7 @@ Each model has its own folder:
 
 | Example | Contents |
 | --- | --- |
+| [Journal](journal/README.md) | Runnable appended/sidecar lifecycle, no-change writes, recovery, undo/redo, and full Save. |
 | [Ledger](ledger/README.md) | Runnable C++ program, schema, CMake target, and transaction/save-load walkthrough. |
 | [Design](design/README.md) | Hollow-cylinder schema used by the managed integration tests. |
 | [Wordpad](wordpad/README.md) | Paragraph-array schema used by the managed integration tests. |

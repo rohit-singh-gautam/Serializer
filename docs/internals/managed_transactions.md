@@ -5,7 +5,10 @@ This is a source walkthrough of the implemented C++ runtime in
 [point schema](../../example/managed/plain_point/point.serializer) and
 [point program](../../example/managed/plain_point/main.cpp). It describes the
 default direct-storage representation, where the generated point contains
-x, y, and persistent_id.
+x, y, and persistent_id. The point example has no attached journal; its commit
+path below publishes directly after preparing history. With a journal attached,
+the runtime first flushes the already serialized candidate snapshot with compact
+framing; it preallocates the new history entry without copying retained snapshots. See [journal publication and uncertain outcomes](../managed/journal.md#durable-decisions-and-files).
 
 For public API usage, see the [C++ runtime guide](../managed/cpp_runtime.md).
 The wider [managed design documents](../managed/README.md) also contain proposals;
@@ -369,7 +372,8 @@ candidate_ does not destroy the newly published point.
 | Successful unchanged commit | Existing point | no_change |
 | Explicit revert before publication | Existing point | reverted |
 | Exception unwinds a manually scoped transaction | Existing point | reverted; the original exception continues |
-| Mutation or commit failure | Existing point | failed with a recorded error |
+| Mutation or commit failure before durable writes | Existing point | failed with a recorded error |
+| Uncertain journal write, when attached | Existing point; disk may differ | indeterminate; recover before writing |
 
 A mutation exception marks the transaction failed even if application code later
 catches that exception. Earlier candidate edits cannot silently commit afterward.
@@ -520,4 +524,7 @@ editors, lifetime invalidation, moves, and collection changes.
 
 This walkthrough was checked against the current source and generated point
 output. It adds documentation only; it does not introduce a different runtime
-or implement collaboration, authorization, or journaling.
+or implement collaboration or authorization. With a journal attached, the runtime
+now preallocates the new history entry and flushes the existing snapshot bytes
+before nonthrowing publication; see [journal boundaries](../managed/journal.md#durable-decisions-and-files).
+Unjournaled transactions retain the deque publication path described above.

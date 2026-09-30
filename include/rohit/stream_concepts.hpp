@@ -95,6 +95,32 @@ concept input_stream = input_buffer<T> || byte_input_stream<T>;
 template <typename T>
 concept output_stream = output_buffer<T> || byte_output_stream<T>;
 
+// Optional persistence capabilities; ordinary buffers and iostreams need not provide them.
+// sync() must commit preceding writes to the backend's documented durable boundary or throw.
+template <typename T>
+concept durable_output_stream = output_stream<T> && requires(T& value) {
+  { value.sync() } -> std::same_as<void>;
+};
+
+// Absolute positioning is separate from byte transport and need not exist on sequential streams.
+template <typename T>
+concept seekable_stream =
+    (input_stream<T> || output_stream<T>) && requires(T& value, std::uint64_t offset_bytes) {
+      { value.seek(offset_bytes) } -> std::same_as<void>;
+    };
+
+// Recovery may remove a validated incomplete tail only on an explicitly truncatable destination.
+template <typename T>
+concept truncatable_stream = output_stream<T> && requires(T& value, std::uint64_t size_bytes) {
+  { value.truncate(size_bytes) } -> std::same_as<void>;
+};
+
+// A stable external size permits bounds checks before recovery allocates its input buffer.
+template <typename T>
+concept sized_stream = requires(const T& value) {
+  { value.size() } -> std::convertible_to<std::uint64_t>;
+};
+
 // Compatibility names now describe capabilities, without requiring a base class.
 template <typename T>
 concept stream = input_buffer<T> && output_buffer<T>;

@@ -1897,8 +1897,9 @@ not function pointers, closures, or process addresses.
 The first durable operation can save one coherent committed envelope through a
 temporary file and platform-appropriate replacement. Atomic visibility and survival
 of a crash or power loss are separate guarantees: durability requires the necessary
-flush and filesystem handling before acknowledging a durable save. Journaled commits
-can follow later with framing, integrity checks, and explicit recovery rules.
+flush and filesystem handling before acknowledging a durable save. The current
+[synchronous journal adapter](journal.md) implements framed snapshot commits and small control records,
+integrity checks, and explicit recovery rules.
 An in-memory transaction commit does not imply that it has been saved to disk.
 
 Load and replay enforce bounded input, node counts, depth, and expanded storage;
@@ -1922,8 +1923,9 @@ See [schema evolution](../schema_evolution.md) and the [wire contract](../wire_f
 
 The [C++ interface](cpp_runtime.md) implements schema-driven companions, typed
 editors, and the snapshot runtime with a versioned memory save/load envelope.
-Durable file publication, custom allocation, projections, and later stages below
-remain outstanding. The existing acceptance list describes the complete design,
+It also implements [durable file publication and snapshot journals](journal.md).
+Custom allocation, projections, delta/checkpoint optimization, and the broader
+capability stages below remain outstanding. The existing acceptance list describes the complete design,
 not a claim that all requirements have been implemented.
 
 1. Add an optional C++ module with the root store, ID allocation, scoped

@@ -7,6 +7,7 @@ if(NOT TARGET Serializer::managed)
   message(FATAL_ERROR "Build/install Serializer with SERIALIZER_BUILD_MANAGED=ON")
 endif()
 add_subdirectory(ledger)
+add_subdirectory(journal)
 
 # Build the point lessons independently, or all together through this target.
 add_custom_target(managed_point_examples)

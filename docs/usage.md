@@ -22,7 +22,11 @@ automatic, and callback transactions. Central ID settings support uint32 and uin
 `[managed] separate_values = true` opts into ID-free values plus storage wrappers.
 New stores create document namespaces automatically; object IDs start at 1 and
 increment within each document. Save/load preserves identities and allocation state.
-Journals, collaboration, selectors, and other-language managed runtimes remain proposals.
+Synchronous [journal and crash recovery](managed/journal.md) is available through
+`create_journal`, `recover_journal`, and `save_journal`, with appended or sidecar
+files. Commits and history navigation flush before publication; `journal_dirty()`
+tracks unsaved values independently. Collaboration, selectors, and other-language
+managed runtimes remain proposals.
 
 To bound linear history for the generated point in the
 [history example](../example/managed/history/main.cpp):
@@ -454,8 +458,8 @@ not control Serializer's wire encoding. No automatic protocol detection occurs.
 | --- | --- |
 | `input_buffer` / `output_buffer` | Bind the concrete buffer directly; preserve contiguous scans, scalar batching, alias handling, and allocation policy. |
 | `std::istringstream` / `std::stringstream` input | Borrow `view()` from the current read position; avoid an encoded-message copy. |
-| `std::ifstream` / `std::fstream` input | Read into the final owned message buffer in up to 64 KiB batches. No seeking or regular-file assumption is required. |
-| `std::ofstream` / `std::fstream` output | Implicit scratch-buffer adapter with an initial 64 KiB capacity; drain completed batches as needed. |
+| `std::ifstream` / `std::fstream` / `rohit::file_stream` input | Read into the final owned message buffer in up to 64 KiB batches. No seeking or regular-file assumption is required. |
+| `std::ofstream` / `std::fstream` / `rohit::file_stream` output | Implicit scratch-buffer adapter with an initial 64 KiB capacity; drain completed batches as needed. |
 | Other byte sources/sinks, including erased standard-stream references | Generic adapter with 8 KiB read batches or initial output capacity. |
 
 Type recognition uses the static type. Passing a string or file stream as a base
@@ -536,6 +540,12 @@ The concept contracts are:
   capability. Compatibility `type_check::stream` now means an input/output buffer;
   `write_stream` identifies readable buffer views, including `fixed_buffer`.
 
+Optional capabilities add storage behavior without changing memory-stream requirements:
+`durable_output_stream` adds explicit `sync()`, `seekable_stream` adds absolute
+`seek(offset_bytes)`, `truncatable_stream` adds `truncate(size_bytes)`, and
+`sized_stream` exposes the physical size. Capability checks do not prove durability;
+implementations must honor the documented synchronization and failure contract.
+
 Concepts check expressions and types; implementations must also uphold these
 lifetime, bounds, aliasing, and failure contracts. Input cursor advancement and
 output range acquisition must not throw after the caller has checked/reserved them.
@@ -571,6 +581,81 @@ All seven large-schema iostream examples also passed in a standalone Clang 21
 build with GoogleTest disabled.
 The subsequent [verification record](verification-2026-09-17.md) includes the full
 Linux GoogleTest suite. Performance benchmarks have not been run.
+
+### File streams and journal records
+
+`<rohit/stream.hpp>` continues to provide memory streams. Include
+`<rohit/file_stream.hpp>` for `rohit::file_stream`, an owning Windows/POSIX file
+stream conforming to the same byte input/output concepts. It works with existing
+generated serialization APIs and uses the same implicit 64 KiB batching policy as
+concrete standard file streams:
+
+```cpp
+#include <rohit/file_stream.hpp>
+
+{
+  rohit::file_stream output{"person.bin", rohit::file_open_mode::create};
+  demo::person::serialize<rohit::serializer::binary_integer>(output, original);
+  output.sync(); // Explicit durable synchronization; serialization itself does not sync.
+  rohit::sync_parent_directory("person.bin"); // Persist the new directory entry on POSIX.
+}
+{
+  rohit::file_stream input{"person.bin", rohit::file_open_mode::read};
+  auto value = demo::person::deserialize<rohit::serializer::binary_integer>(input);
+}
+```
+
+`create` is exclusive and rejects an existing file. `update` opens an existing file
+without truncation; writes start at the current position. `read` opens read-only.
+`lock` acquires an exclusive nonblocking lock on a stable lock file. Keep streams
+thread-confined. Destruction closes the handle and releases a lock; it never
+implicitly syncs. Use `seek(offset_bytes)` to reposition and reset EOF state,
+`size()` to inspect physical length, and `truncate(size_bytes)` followed by `sync()`
+to durably resize and position at the new end. `sync_parent_directory(path)` and
+`publish_file(source, target, replace)` provide the file lifecycle operations used
+by the journal adapter; publish only a synced same-directory replacement, then
+sync its parent. Platform/filesystem durability assumptions are described in the
+[journal guide](managed/journal.md#durable-decisions-and-files).
+
+`write_stream_bytes` now accepts either an output buffer or byte sink.
+`read_stream_some` and `read_stream_exact` read a bounded range without consuming
+later records or requiring an EOF-delimited message. The existing whole-message
+codec adapter behavior is unchanged.
+
+`<rohit/managed_journal_stream.hpp>` supplies `write_journal_frame(output, parts,
+sequence, previous_crc, options)` and `read_journal_frame(input, sequence,
+previous_crc, options)`. These use the existing stream concepts, including custom
+buffers, `stringstream`, `fstream`, base iostream references, and `file_stream`.
+Frame writing returns its checksum and does not flush; all payload parts must stay
+valid and unchanged through the call, independently of destination storage. Frame
+reading consumes exactly one record, verifies it, and returns an optional
+`journal_frame`. `payload()` borrows contiguous input (keep it alive and unchanged)
+or owns a bounded payload read from a byte stream. An incomplete final record
+returns no value; byte streams consume the partial prefix, while input buffers
+remain unadvanced. Corruption, invalid sequencing, excessive lengths, and I/O
+failures throw. The existing version-two wire bytes and per-edit sizes are unchanged.
+These low-level helpers do not create a managed document container or manage locks,
+sequence allocation, or recovery publication; use the managed journal APIs for that.
+
+`durable_output_adapter(output, synchronize)` borrows a supported output stream
+and an explicit host synchronization policy. Calling `sync()` first drains
+Serializer scratch buffers and flushes an iostream, then invokes the policy.
+The policy must make that exact destination durable and throw on failure; it must
+not merely reopen a pathname or silently do nothing. The adapter latches failures
+and blocks subsequent writes/syncs. Ordinary `std::ofstream::flush()` alone is not
+a portable durable-storage guarantee. Memory streams and plain iostreams do not
+automatically satisfy `durable_output_stream`, and destructors do not synchronize.
+For built-in durable files, prefer `file_stream` directly.
+
+There is no database sink in this release. Add one only with an implemented and
+tested Serializer adapter for that database; the database integration guide is
+proposal/guidance only.
+
+Verification for the file-stream/journal refactor: all 47 configured MSVC CTest
+targets passed, including eight new stream tests, the runnable journal example,
+and the journal interruption matrix. GCC compiled the new stream tests with
+warnings as errors, and all 120 process-crash recovery checks passed under WSL.
+No throughput benchmark or physical power-cut qualification was performed.
 
 ### Choose the protocol
 

@@ -9,8 +9,8 @@ and undo/deletion never renumber survivors. Explicit member boundaries still app
 
 Status: design collection with an implemented C++ managed interface. Read the
 [implemented C++ API](cpp_runtime.md) for schema generation, typed editors, identity,
-all three transaction forms, snapshot history, and exact limitations. Selectors,
-exclusions, collaboration, authorization, journal, and other-language runtimes remain
+all three transaction forms, snapshot history, synchronous file journals, and exact limitations. Selectors,
+exclusions, collaboration, authorization, and other-language runtimes remain
 proposals. ID-free payload layouts/codecs are retained in opt-in separate-values mode. The walkthrough schema
 remains a separate illustrative data model.
 
@@ -48,7 +48,7 @@ Implemented `<type>_editor<Access>` handles
 are temporary edit interfaces, not independently owning stores. Broader sketches
 use illustrative `tracked_` names. Schema `managed` selects identity
 boundaries within managed occurrences. Broader capability combinations remain
-proposals; future collaboration/journal selection is independent of history mode.
+proposals; runtime journaling and future collaboration selection are independent of history mode.
 
 For one synchronous editing action, the C++
 [`execute_transaction(callback)`](cpp_runtime.md#all-three-transaction-forms)

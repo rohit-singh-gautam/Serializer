@@ -10,6 +10,7 @@ add_executable(core_serializer_test
   deserialize_exact_test.cpp
   compression_test.cpp
   stream_concepts_test.cpp
+  file_stream_test.cpp
   serializer_parser_test.cpp
   schema_version_test.cpp
   managed_schema_test.cpp
@@ -70,7 +71,7 @@ if(SERIALIZER_BUILD_MANAGED)
     target_compile_options(managed_profile_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
   endif()
   add_test(NAME managed_profile_test COMMAND managed_profile_test)
-  add_executable(managed_direct_test managed_direct_test.cpp)
+  add_executable(managed_direct_test managed_direct_test.cpp managed_journal_test.cpp)
   serializer_generate(TARGET managed_direct_test
     SCHEMAS ../example/managed/ledger/ledger.serializer resources/managed_generated.serializer
     OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed_direct")
@@ -81,6 +82,24 @@ if(SERIALIZER_BUILD_MANAGED)
     target_compile_options(managed_direct_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
   endif()
   add_test(NAME managed_direct_test COMMAND managed_direct_test)
+  add_executable(managed_journal_crash_helper managed_journal_crash_helper.cpp)
+  serializer_generate(TARGET managed_journal_crash_helper
+    SCHEMAS ../example/managed/ledger/ledger.serializer
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed_journal_crash")
+  target_link_libraries(managed_journal_crash_helper PRIVATE Serializer::managed)
+  if(MSVC)
+    target_compile_options(managed_journal_crash_helper PRIVATE /W4 /WX)
+  else()
+    target_compile_options(managed_journal_crash_helper PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  find_package(Python3 COMPONENTS Interpreter QUIET)
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME managed_journal_crash_test
+      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/managed_journal_crash_test.py"
+        --helper "$<TARGET_FILE:managed_journal_crash_helper>"
+        --directory "${CMAKE_CURRENT_BINARY_DIR}/journal_crash")
+    set_tests_properties(managed_journal_crash_test PROPERTIES TIMEOUT 180)
+  endif()
   add_executable(managed_history_allocation_failure_test managed_history_allocation_failure_test.cpp)
   target_link_libraries(managed_history_allocation_failure_test PRIVATE Serializer::managed)
   if(MSVC)

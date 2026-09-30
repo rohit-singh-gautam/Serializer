@@ -1,8 +1,9 @@
 # C++ managed interface
 
-Status: implemented C++ schema generation and local snapshot history. Bare
+Status: implemented C++ schema generation, local snapshot history, and synchronous
+file journaling/crash recovery. Bare
 `managed` class/member declarations generate storage, conversions, identity
-traversal, and typed transaction editors. Collaboration, authorization, journal,
+traversal, and typed transaction editors. Collaboration, authorization,
 feature selectors, exclusions, notifications, and other-language managed runtimes
 remain proposals. Unsupported selectors/backends are rejected rather than ignored.
 
@@ -235,8 +236,9 @@ has an empty history slot. Dispatch uses `if constexpr`; there is no runtime mod
 selector, variant, or pair of optional history pointers. Disabled stores retain
 managed identity and transactions but have no undo/redo/checkout/reset API.
 `store_options` configures limits and decoding, not history mode.
-Collaboration, authorization, and journals remain unimplemented. Their future
-capability selection is independent of this mutually exclusive history policy;
+Synchronous file journals work with each history policy; see
+[journal and recovery](journal.md#using-the-implemented-journal). Collaboration and
+authorization remain unimplemented. Broader capability selection is independent of this history policy;
 several such capabilities could coexist with one selected history representation.
 
 ### Optional labels
@@ -297,7 +299,7 @@ it does not imply that linear entries have revision IDs.
 Tree history keeps its revision map and rejects over-budget commits, preserving
 all branches until an explicit reset. The other history container is absent from the type.
 
-Linear commit no longer copies the history container or scans every retained state;
+Unjournaled linear commit does not copy the history container or scan every retained state;
 it prepares one entry and touches only states being removed. Undo/redo select
 adjacent entries in constant time, without searching revision IDs. Restoring
 the full snapshot still requires decoding and validation in either mode.
@@ -329,9 +331,42 @@ explicit migration of the current state and retained history. Ordinary schema
 compatibility checks describe ordinary payload codecs, not managed save migration.
 
 Reloading an older save into the same live document preserves higher allocation
-marks. A new process knows only reservations actually saved; durable allocation
-reservations and journal/file publication remain future work. Memory save/load is
-not crash-safe filesystem saving.
+marks. Without journaling, a new process knows only allocation marks actually saved.
+An attached journal durably reserves every ID before returning it, including IDs
+consumed by canceled edits. Memory `save()` alone is not crash-safe filesystem saving.
+
+### Journal and crash recovery
+
+`create_journal(path, journal_storage_mode::appended|sidecar, options)` creates a
+new durable baseline. `recover_journal(path, options)` restores and opens an
+existing document into an unattached store. `save_journal()` publishes a full Save
+without discarding retained history. Journal writes cover commits, navigation,
+history resets, and ID reservations before live publication.
+`journal_dirty()` compares current values with the last full Save;
+`journal_sequence()` advances independently of the history cursor.
+
+All three transaction forms report uncertain durable writes as
+`transaction_status::indeterminate`; `throw_if_failed()` rethrows the
+`journal_indeterminate_error`. When `journal_needs_recovery()` is true, destroy
+the store and recover into a fresh one before further writes. Do not retry the
+editing callback blindly. `load()` cannot bypass an attached journal.
+
+The store owns a storage-independent journal sink. Its current file adapter uses
+`rohit::file_stream`; shared framing accepts existing Serializer buffers and
+standard streams. See [stream integration](../usage.md#file-streams-and-journal-records).
+Database sinks are not implemented.
+
+The adapter is a synchronous, single-writer snapshot journal implementation
+for Windows and POSIX. It supports both representations, both ID widths, every
+history mode, and optional labels. Per-record/per-file budgets, generation
+binding, integrity checks, incomplete-tail repair, and durable replacement are
+documented in the [journal guide](journal.md), including filesystem assumptions
+and the complete version-two framing contract. Each edit writes its existing
+serialized snapshot once, with 41 bytes of overhead for default linear history
+(33 for unlabeled tree/disabled). Navigation/reservations are 33-byte records.
+History and document/schema metadata are written in full only at base creation or
+full Save. Linear commits preallocate a tail entry and publish retention changes
+after the flush, without copying the history container.
 
 Begin decodes a complete root; commit validates and encodes it. Revisions currently
 retain whole-root snapshots, even when only one independently managed child changes.
@@ -342,7 +377,8 @@ all decoded objects, indexes, temporary buffers, or externally pinned roots.
 
 Feature selectors (`managed(...)`), `exclude(...)`, `transient`, notifications,
 custom allocators, history-preserving policy changes, delta/checkpoint optimization,
-merging, journals, authorization, collaboration, and other-language runtimes remain
+merging, delta journals, background recovery checkpoints, authorization, collaboration,
+and other-language runtimes remain
 unimplemented. The compiler rejects unsupported managed syntax and backends.
 
 ## Verification
@@ -372,5 +408,17 @@ managed tests, four default direct-identity tests, and the generated Google/uint
 profile test. Both editor packages were rebuilt at 1.1.10; 57 shared tests and
 821 fresh-generated navigation checks passed across both representations.
 The default ledger example also built and ran against a locally installed package.
-Interactive IDE installation, sanitizer qualification, durable-file recovery,
-and performance measurements were not part of this verification.
+Interactive IDE installation, sanitizer qualification, and performance measurements
+were not part of that earlier verification. Journal verification is described below.
+
+The journal changes add native-file tests and abrupt-process-exit recovery checks
+for appended and sidecar modes. The Windows MSVC build and all 47 configured CTest
+checks passed, including 16 managed checks and the subprocess crash matrix.
+The optimized append path is checked for exact byte growth over 100 retained edits.
+Eight stream tests additionally cover generated file serialization, framing across
+buffers/iostreams/files, EOF/seek/truncate, and explicit synchronization failures.
+The runnable journal example verifies both physical modes and full-Save reopening.
+The same 120 process-crash recovery checks passed with GCC under WSL on the
+mounted workspace; the independent Python reader verifies version-two framing.
+Power-cut testing, physical disk exhaustion, and network-filesystem qualification
+were not performed.

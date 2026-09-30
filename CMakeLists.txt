@@ -33,6 +33,13 @@ option(SERIALIZER_WITH_ZLIB "Enable gzip, zlib, and raw DEFLATE compression" OFF
 include(cmake/serializer_compression.cmake)
 
 add_library(serializer_lib
+  src/file_stream.cpp
+  include/rohit/file_stream.hpp
+  src/managed_file_journal.cpp
+  include/rohit/managed_file_journal.hpp
+  include/rohit/managed_journal_stream.hpp
+  src/managed_journal.cpp
+  include/rohit/managed_journal.hpp
   src/compression.cpp
   include/rohit/compression.hpp
   src/parser.cpp

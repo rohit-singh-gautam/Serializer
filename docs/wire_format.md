@@ -33,7 +33,19 @@ Version-one linear/disabled saves and cross-label-policy loads are rejected; no
 automatic migration is provided. Persistent object IDs and their high-water marks are
 preserved independently of history. Over-budget imports fail without pruning.
 
-These envelopes are not the proposed journal or collaboration wire protocol.
+The [version-two journal container](managed/journal.md#version-two-file-contract)
+uses these unchanged envelopes for its base. Subsequent frames contain one existing
+serialized root snapshot or a small control record. Length/checksum framing,
+implicit sequence chaining, commit CRCs, and base/sidecar generation binding protect
+recovery. It is a separate file format,
+not trailing bytes accepted by ordinary exact-message decoding. Collaboration
+wire protocols remain proposals.
+
+The file-stream/journal-stream refactor preserves the managed journal version-two
+framing byte for byte. Memory buffers, standard byte streams, and `file_stream`
+share the same record writer/reader; synchronization is an explicit backend
+capability, not an additional serialized field.
+
 Schemas without managed declarations retain their codecs.
 Default managed classes serialize `persistent_id` under reserved integer key
 `1073741823` (`0x3fffffff`) or string key `persistent_id`, after their application

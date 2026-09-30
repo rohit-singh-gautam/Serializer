@@ -1007,8 +1007,23 @@ query undo/redo labels; see the [labeled point example](example/managed/labeled_
 Disabled labels have no string member or serialized label field. Default saves
 use format version 3; label-enabled linear/tree stores retain versions 2/1.
 Saved histories must match the receiving label policy; see [migration](migration.md).
-Feature selectors, exclusions,
-journals, authorization, collaboration, and other-language managed runtimes remain
+`<rohit/file_stream.hpp>` provides an owning file stream for both ordinary generated
+serialization and journaling. It uses the existing stream concepts and adds explicit
+`sync()`, `seek()`, and `truncate()` capabilities; memory streams in `stream.hpp`
+keep their existing contract. Journal frame readers/writers also accept Serializer
+buffers and supported iostream adapters. See [file streams and journal records](docs/usage.md#file-streams-and-journal-records).
+The [runnable journal example](example/managed/journal/README.md) demonstrates both
+file modes, recovery, undo/redo, and full Save.
+Database sinks require an implemented, tested Serializer database adapter; none is
+currently implemented.
+
+Synchronous [journal and crash recovery](docs/managed/journal.md) now supports
+appended and sidecar files: `create_journal`, `recover_journal`, and `save_journal`
+append each already serialized snapshot once with compact framing, preserve undo/redo and allocated IDs,
+and track unsaved values separately from durability. `journal_dirty()` and
+`journal_sequence()` expose those independent positions. Uncertain I/O reports
+`transaction_status::indeterminate` and blocks writes until recovery.
+Feature selectors, exclusions, authorization, collaboration, and other-language managed runtimes remain
 future work; unsupported syntax/backends fail explicitly.
 
 The [managed capabilities](docs/managed/capabilities.md) proposal covers history,
@@ -1018,7 +1033,7 @@ ordinary payloads are an opt-in representation. [Journal recovery](docs/managed/
 uses a base snapshot plus an appended or sidecar journal, with durable undo cursors,
 full Save replacement, and cleanup that preserves newer unsaved changes.
 The full feature set remains a proposal; central persistent-ID configuration and
-the C++ identity/history subset are implemented.
+the C++ identity/history runtime and synchronous snapshot journaling are implemented.
 
 The proposed [collaboration contract](docs/managed/collaboration.md) uses opaque
 sessions, atomic accepted changes, informational editing presence, and optional
@@ -1039,7 +1054,7 @@ omitted. These illustrative records differ from the implemented snapshot envelop
 C++ `model_store<Root, support>` (with a `managed` alias) and component-based stores
 for other backends. These broader capability sketches differ from the implemented
 `model_store<Root, Mode, Labels, Traits>` API, whose history mode is a template argument.
-Future collaboration/journal capabilities are separate from history policy. Consult the C++ runtime guide above
+Runtime journaling and future collaboration capabilities are separate from history policy. Consult the C++ runtime guide above
 for the implemented subset; the broader generated APIs remain proposals.
 
 The [object identity and transactional history proposal](docs/managed/history.md) describes

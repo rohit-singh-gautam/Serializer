@@ -7,8 +7,254 @@ New documents get a namespace automatically. Root and managed descendants alloca
 IDs `1, 2, 3...` within that document only; saved IDs/counters survive reload,
 and undo/deletion never renumber survivors. Explicit member boundaries still apply.
 
-Status: proposal only. `journal`, journal formats, configuration,
-and storage adapters are not implemented. See [capabilities and ID rules](capabilities.md).
+Status: implemented synchronous C++ journaling and crash recovery for
+`model_store<Root, Mode, Labels, Traits>`, with appended and sidecar native-file
+adapters. Each edit appends its already serialized root snapshot once; compact
+control records persist navigation, reservations, and reset. Schema capability
+selectors, field/entity deltas, background checkpoints, asynchronous flushes,
+and other-language journal readers remain proposals. See the
+[implemented C++ runtime](cpp_runtime.md) and [broader capability design](capabilities.md).
+
+A [runnable C++ example](../../example/managed/journal/README.md) demonstrates both
+file modes, closing before full Save, replay, undo/redo, and full checkpointing.
+
+## Using the implemented journal
+
+Enable `SERIALIZER_BUILD_MANAGED`, link `Serializer::managed`, and use an existing
+bare-`managed` schema. No generator option or schema selector is needed:
+
+```cpp
+using store_type = rohit::managed::model_store<ledger_example::ledger>;
+{
+  store_type store{ledger_example::ledger{"Ledger"}};
+  store.create_journal("ledger.srj", rohit::managed::journal_storage_mode::sidecar);
+  store.execute_transaction([](auto& transaction) {
+    transaction.root().set_name("Edited ledger");
+  }).throw_if_failed(); // The complete edit is flushed before committed is reported.
+  const bool unsaved = store.journal_dirty(); // true, despite durable recovery data
+  store.save_journal(); // Replace the base, retain history, and clear the saved baseline.
+}
+{
+  store_type reopened{ledger_example::ledger{}};
+  reopened.recover_journal("ledger.srj");
+  reopened.undo(); // Navigation is itself journaled before the cursor is published.
+}
+```
+
+- `create_journal(path, mode, options)` creates a new saved baseline exclusively.
+  It rejects an existing document. `appended` is the default mode.
+- `recover_journal(path, options)` validates the base and replays complete
+  snapshot/control records, repairs only an incomplete final record, and acquires
+  the writer role. It preserves the original store on validation/I/O failure.
+  Recover into an unattached store; after an indeterminate operation,
+  destroy the old store and recover into a new one. Recovery rejects replacing a
+  same-document live store if doing so would discard higher allocation marks.
+- Changed transactions, `undo`, `redo`, tree `checkout`, and `reset_history` flush
+  the required snapshot or control record before nonthrowing in-memory publication. All
+  three transaction forms use this boundary. No-op transactions do not append.
+- Every allocated object ID has a separate durable reservation before it is
+  returned. Canceled/failed edits can therefore advance `journal_sequence()`
+  without changing values or dirty state. No ID returned by this writer is reused
+  after recovery. Both uint32 and uint64 identities are supported.
+- `save_journal()` synchronously replaces the base with the current envelope,
+  including retained undo/redo branches, labels, IDs, and allocation marks. It
+  does not increment the operation sequence. The thread-confined writer rejects
+  concurrent/reentrant edits during Save, so no newer suffix can be lost.
+- `journal_dirty()` compares current persistent values and identities with the
+  last full Save. Undoing back to those values clears it; history/cursor metadata
+  and allocation reservations alone do not mark values dirty. `save()` still
+  returns a memory envelope and does not clear dirty state. `load()` is rejected
+  while a journal is attached; import a memory envelope before creating a journal.
+- `journal_sequence()` is monotonic across edits, navigation, reservations, and
+  full Saves. Document namespace plus sequence identifies a durable operation,
+  independently of any undo revision. Recovery never invokes editing callbacks
+  or repeats external effects. After uncertainty, inspect recovered state and
+  sequence before deciding whether an application action needs retrying; there
+  is no automatic callback retry or external-effect deduplication service.
+
+`journal_options` bounds each frame payload (`max_record_bytes`, default 64 MiB)
+and physical file (`max_file_bytes`, default 1 GiB). Store decoding and history
+budgets also apply. Recovery reads bounded files into memory and borrows record
+slices; these limits are not a total process-memory budget. An over-budget append
+fails before writing; a full Save can reclaim covered records.
+
+The edit path does **not** encode an envelope, re-encode retained history, make a
+byte diff, or copy the serialized snapshot into another output buffer. It sends
+stack metadata, an optional borrowed label, and the existing snapshot buffer to
+the retained native file handle. It computes integrity over those buffers and
+flushes before publication. The writer does not reopen or seek the file per edit.
+Linear history preallocates one tail entry, appends the record, then performs
+nonthrowing retention/cursor changes; on failure it removes that unselected entry.
+It does not copy the history deque or prior snapshots. Tree commits likewise
+preallocate only the new revision node, removing it if publication fails.
+
+| Operation | Bytes appended, including framing |
+| --- | --- |
+| Edit, default unlabeled linear history | Serialized root snapshot size + **41** |
+| Edit, unlabeled tree or disabled history | Serialized root snapshot size + **33** |
+| Labels enabled | Add 8 bytes for label length plus the label bytes to an edit |
+| Undo/redo/checkout | **33** |
+| ID reservation | **33** |
+| History reset | **25** |
+
+The complete envelope, including retained history and schema/document metadata,
+is written only when creating the base or performing a full Save. Snapshot size
+still scales with the root being serialized; changed-entity/field deltas are not
+implemented. The tests assert exact append sizes across 100 retained edits, so
+per-edit disk growth cannot silently become proportional to accumulated history.
+No end-to-end throughput benchmark or latency guarantee is claimed.
+
+## Stream and file adapter boundary
+
+`managed_journal.hpp` defines storage-independent journal options, errors, and the
+internal `journal_sink` commit/recovery interface. The managed store owns that sink.
+`managed_journal_stream.hpp` handles frame encoding and bounded record reading through
+existing `input_stream`/`output_stream` concepts. Serializer memory/custom buffers,
+standard narrow iostreams, and `file_stream` use identical version-two frame bytes.
+Buffer recovery borrows payload slices; byte-stream recovery owns each bounded payload.
+
+`file_stream.hpp` is a reusable owning file stream for ordinary serialization as well
+as journals. Native read/write/sync/seek/truncate operations and atomic file
+publication live in this stream layer. `managed_file_journal.cpp` is the concrete
+file adapter: it binds streams to paths, owns the writer lock, selects generations,
+rotates sidecars, and enforces uncertain-outcome fencing. The existing path-based
+managed APIs remain convenience entrypoints for this backend. There is no database
+adapter; database journaling is deferred until Serializer implements and tests that
+backend. The low-level frame helpers alone do not provide a complete managed document
+or claim persistent durability for memory/plain iostream sinks.
+
+See [file stream usage](../usage.md#file-streams-and-journal-records) for generated
+serialization, bounded reads, optional capability concepts, and explicit host-policy
+adaptation of an iostream. Frame emission does not flush; managed file commits call
+`file_stream::sync()` before publishing the live state. Full Save retains its existing
+complete-envelope behavior; this stream refactor does not change history retention.
+
+## Durable decisions and files
+
+One store owns the document through its stable `<path>.lock` file. Windows uses an
+exclusive native handle; POSIX uses nonblocking `flock`. The lock is released by
+process exit and the lock file deliberately remains. All writers must cooperate
+and use the same canonical path; hard-link aliases and network filesystem locking
+are outside this contract. Do not remove/replace the lock file while a writer may
+exist. External file modifications are unsupported.
+
+In appended mode, `<path>` contains the base header and base envelope frame,
+followed by committed snapshot/control frames. In sidecar mode, `<path>` contains only the
+base header and frame. Its generation selects
+`<path>.journal-<generation_high>-<generation_low>`, which contains a matching
+header and subsequent frames. A missing sidecar fails recovery, including an empty
+one; a stale or substituted sidecar cannot be attached by filename alone.
+
+Full Save writes and flushes a new generation first, creating the matching
+companion first in sidecar mode. It then atomically publishes the base through a
+same-directory rename/replacement. That base is the generation-selection manifest;
+there is no separately mutable manifest. Only after publication does the writer
+switch destinations and best-effort remove the known old companion. Failure before
+publication leaves the previous generation recoverable. Failure after publication
+may leave obsolete companions or `.pending-<generation>` files; recovery uses only
+the generation selected by the base. Automatic scanning/deletion of crash leftovers
+is not implemented. Cleanup failure cannot invalidate a successful Save.
+
+Windows issues `FlushFileBuffers` and `MoveFileExW` with `MOVEFILE_WRITE_THROUGH`;
+POSIX uses `fsync`, atomic `rename` (exclusive initial creation uses `link`), and
+parent-directory `fsync`. Durability depends on the filesystem/device honoring those
+operations. Process-interruption tests do not certify power-loss behavior on every
+filesystem, network share, or device. See the platform contracts for
+[FlushFileBuffers](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-flushfilebuffers),
+[MoveFileExW](https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-movefileexw),
+[fsync](https://man7.org/linux/man-pages/man2/fsync.2.html), and
+[rename](https://man7.org/linux/man-pages/man2/rename.2.html).
+
+A failure after issuing an append or attempting base publication throws
+`journal_indeterminate_error` (with the underlying exception nested). Transaction
+outcomes report `transaction_status::indeterminate`; `throw_if_failed()` rethrows
+it. The live candidate stays unpublished and `journal_needs_recovery()` is true.
+Further transactions, navigation, memory export, and full Save are blocked. Reads
+can still inspect the old live state, which may differ from disk. Recovery replays
+complete records, validates the final application state, flushes recovered bytes,
+and resumes at the next sequence. Validation, budget, and pre-write preparation
+failures remain ordinary failures and leave a healthy writer usable.
+
+`journal_options::fault_injector` is a qualification hook, not a change-notification
+API. It may throw or terminate at `journal_io_event` boundaries. It must not reenter
+the store or perform application effects. Exceptions from best-effort cleanup are
+ignored because publication has already succeeded.
+
+## Version-two file contract
+
+Framing integers are unsigned 64-bit little-endian wire words, independent of
+native object layout. CRCs use CRC-64/ECMA-182 (polynomial
+`0x42f0e1eba9ea3693`, initial value and final XOR zero, non-reflected). Checksums
+are integrity checks, not authentication.
+
+The 72-byte file header contains, in order:
+
+1. Magic `0x00314c4e4a5a5253`.
+2. Container version **2** (the superseded full-envelope journal format is rejected).
+3. Storage mode: appended `1`, sidecar `2`.
+4. File kind: base `1`, companion `2`.
+5. Generation high word.
+6. Generation low word (the pair must be nonzero).
+7. Base operation sequence (initially zero).
+8. Base frame CRC.
+9. CRC of the preceding 64 header bytes.
+
+Each frame has just a **16-byte header** (payload length, header CRC), the payload,
+and an **8-byte commit CRC**. Sequence and previous CRC are implicit integrity
+inputs, avoiding repeated fields. Let `seed` be CRC over the little-endian sequence
+followed by the previous frame CRC. The header CRC extends `seed` over the 8-byte
+length. The commit CRC extends `seed` over the complete header and payload.
+The base uses the file-header sequence and previous CRC zero; subsequent records
+advance sequence by exactly one, starting from the base frame CRC in either mode.
+This detects reordered, duplicated, or missing frames without storing sequence or
+chain words in each record. Sequence overflow fails.
+
+The base payload is the unchanged managed envelope, binding document namespace,
+schema/profile fingerprint, ID width, history mode, label policy, allocation marks,
+and retained snapshots. Its existing versions 1/2/3 remain unchanged. Subsequent
+payloads start with one operation byte:
+
+| Tag | Following payload |
+| --- | --- |
+| Edit `1` | Linear-only uint64 front-eviction count; uint64 transaction allocation boundary; enabled-label-only uint64 label length and label bytes; remainder is the existing serialized root snapshot. |
+| Select `2` | uint64 linear cursor index or tree revision ID. |
+| Reserve `3` | uint64 next allocated object ID, required to advance by one. |
+| Reset `4` | No additional bytes. |
+
+An edit drops a linear redo suffix, applies exactly the writer's front-eviction
+count, and appends the new snapshot. Tree edits allocate the next revision with
+the selected revision as parent. The base's mode and label policy determine the
+record layout. Recovery rejects malformed operations, identity changes, impossible
+cursor/eviction decisions, and budgets exceeded at any replay point; it never
+silently prunes to different reader limits. It invokes schema validation while
+replaying and application validation on the final state, without editing callbacks.
+
+Ordinary Serializer decoders receive only exact envelope/snapshot slices; journal
+bytes are not accepted as trailing ordinary-message data. Base/companion headers
+must match except for file kind. Complete integrity failures, missing dependencies,
+unsupported versions, and trailing bytes in a sidecar base are errors. A short
+final record is ignored and durably truncated only after the reconstructed model
+validates. A complete damaged final record is an error, not a rollback instruction.
+
+## Verification
+
+Tests cover both physical modes, byte-by-byte final-frame truncation, complete
+corruption, sequence gaps, stale/missing sidecars, writer exclusion, bounded
+recovery, dirty-state restoration, undo/redo and branch retention, reset, labels,
+direct and separate-values representations, and uint64 reservations. Injected
+append/Save failures exercise uncertain outcomes and transactional live state.
+`managed_journal_crash_test` launches fresh processes and exits without destructors
+at append, reservation, undo, Save, and tail-repair boundaries, then checks repeated
+recovery. These are process-crash and injected-I/O tests, not physical disk-full or
+power-cut qualification. See the runtime guide for the tested platforms.
+
+## Further design and optimizations
+
+The sections below preserve the broader design. Selector syntax, typed deltas,
+background checkpoints, asynchronous acknowledgements,
+replication, and persistent excluded-value overlays are not implemented. The current
+adapter realizes their core durability/identity rules using a full base plus
+framed snapshots/control records and one synchronous writer.
 
 ## Meaning and naming
 
@@ -99,7 +345,7 @@ document namespace, identity type/format, schema/profile versions, and generatio
 Recovery loads the matching base and applies complete committed journal batches
 after its checkpoint sequence.
 
-This is an architectural proposal, not a requirement to use a database engine.
+The architecture does not require a database engine.
 SQLite's documented [WAL design](https://www.sqlite.org/wal.html) provides a useful
 precedent for a base file plus appended changes and checkpointing. Its
 [atomic-commit discussion](https://www.sqlite.org/atomiccommit.html) also explains
@@ -242,8 +488,8 @@ and repeated recovery. Check undo/redo/branch recovery, persistent values exclud
 from history, deletion restoration, ID exhaustion and durable range reservations.
 Test a crash after durable commit but before live publication/acknowledgement,
 including duplicate operation retry. Verify both ID widths and all backend readers
-against the same record fixtures. No journal runtime or recovery testing is supplied
-by the current ordinary-class walkthrough.
+against the same record fixtures. The ordinary-class walkthrough does not supply
+these broader distributed/exclusion features; current runtime tests are listed above.
 
 Exercise both storage modes: frame boundaries in an appended file, stale or missing
 sidecars, interrupted full Save, edits arriving during Save, and a crash after new

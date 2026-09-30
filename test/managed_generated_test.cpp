@@ -3,9 +3,13 @@
 #include <rohit/managed.hpp>
 
 #include <cstdint>
+#include <filesystem>
+#include <string>
+#include <system_error>
 #include <optional>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 namespace {
 namespace managed = rohit::managed;
@@ -160,4 +164,35 @@ TEST(managed_generated, invalid_map_operations_are_atomic) {
     EXPECT_THROW(transaction.root().notes().paragraphs().edit(1), std::out_of_range);
   });
   EXPECT_EQ(result.status, managed::transaction_status::failed);
+}
+
+// The opt-in values/storage representation journals ownership edits and complete retained snapshots.
+TEST(managed_generated, separate_values_journal_round_trip) {
+  const auto id = managed::make_document_id();
+  const auto directory = std::filesystem::current_path() / ("split-journal-" + std::to_string(id.high));
+  ASSERT_TRUE(std::filesystem::create_directory(directory));
+  const auto path = directory / "document";
+  std::vector<std::uint8_t> expected;
+  {
+    store_type store{initial_value()};
+    store.create_journal(path);
+    store.execute_transaction([](auto& tx) {
+      tx.root().notes().paragraphs().append({"Journaled paragraph"});
+      tx.root().cursor().position().set_x(42);
+    }).throw_if_failed();
+    expected = store.save();
+  }
+  {
+    store_type store{root{}};
+    store.recover_journal(path);
+    EXPECT_EQ(store.save(), expected);
+    EXPECT_EQ(store.clone_value().cursor.position.x, 42);
+    store.undo();
+    EXPECT_EQ(store.clone_value().cursor.position.x, 5);
+    EXPECT_FALSE(store.journal_dirty());
+    store.redo();
+    EXPECT_EQ(store.clone_value().notes.paragraphs.back().text, "Journaled paragraph");
+  }
+  std::error_code ignored;
+  std::filesystem::remove_all(directory, ignored);
 }
