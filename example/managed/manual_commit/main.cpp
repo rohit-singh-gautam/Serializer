@@ -9,7 +9,7 @@ int main() {
   rohit::managed::transaction_outcome outcome;
 
   {
-    auto transaction = store.begin_transaction("Move point", outcome);
+    auto transaction = store.begin_transaction(outcome);
     auto editor = transaction.root();
     editor.set_x(10);
     editor.set_y(20);

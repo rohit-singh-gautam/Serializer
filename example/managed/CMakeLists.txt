@@ -11,10 +11,10 @@ add_subdirectory(ledger)
 # Build the point lessons independently, or all together through this target.
 add_custom_target(managed_point_examples)
 foreach(lesson IN ITEMS plain_point callback access managed_edit
-    manual_commit scope_commit history revert)
+    manual_commit scope_commit history revert labeled_history)
   add_subdirectory("${lesson}")
 endforeach()
-foreach(kind IN ITEMS plain callback access edit manual scoped history revert)
+foreach(kind IN ITEMS plain callback access edit manual scoped history revert labeled_history)
   set(point_target "managed_point_${kind}")
   add_dependencies(managed_point_examples "${point_target}")
   if(MSVC)

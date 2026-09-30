@@ -1,12 +1,40 @@
 # Wire format and decoding contract
 
-The optional [C++ managed runtime](managed/cpp_runtime.md) uses a separate
-[version-one envelope schema](../schemas/managed_records.serializer), encoded
-with the existing `binary_integer` protocol. It adds document/schema identity,
-allocation marks, and snapshot revisions. Schemas without managed declarations
-retain their codecs; managed class representation is described below.
-Its load requires matching application schema, ID width, and history mode; it is
-not the proposed journal or distributed collaboration wire protocol.
+The optional [C++ managed runtime](managed/cpp_runtime.md) uses generated
+[envelope schemas](../schemas/managed_records.serializer), encoded with the existing
+`binary_integer` protocol. They add document/schema identity, object-ID allocation
+marks, and snapshot history. Loading requires matching schema, ID width, and
+compile-time history mode and label policy; the wire mode cannot switch the store specialization.
+
+Labels are compile-time disabled by default. Such stores use format version 3:
+`records::unlabeled_envelope` for tree, `records::unlabeled_state_envelope` for
+linear/disabled. Unlabeled tree revisions omit label key 3, keeping number key 1,
+parent key 2, and snapshot key 4. Unlabeled linear entries omit label key 1,
+keeping snapshot key 2. Omitted keys are not reused. There is no label field,
+not even an empty-string placeholder.
+
+With `history_labels::enabled`, tree stores retain the version-one
+`records::envelope` with numbered revisions,
+parent links, current revision, and revision high-water mark. Tree records may
+arrive in any order but must form one valid rooted tree with a matching current
+snapshot. Revision IDs are not reused when reloading an older live-document save.
+
+Label-enabled linear stores use version-two `records::state_envelope`. Common fields
+keep keys 1-6, 9, and 10. Keys 7, 8, and 11 from the tree envelope are not reused.
+Field 12 is an ordered array of entries (`history_entry` with label key 1 and
+snapshot key 2 when enabled, `unlabeled_history_entry` with snapshot key 2 otherwise);
+field 13 is a zero-based uint64 cursor. Linear envelopes require a nonempty array,
+a cursor within bounds, and an entry at that index equal to `current_snapshot`.
+All historical models and count/byte limits are validated before publication.
+Order is meaningful and is never sorted by the loader. No revision IDs, parents,
+or revision high-water marks are present. Disabled envelopes require empty entries
+and cursor zero. All other validation below applies to both label policies.
+Version-one linear/disabled saves and cross-label-policy loads are rejected; no
+automatic migration is provided. Persistent object IDs and their high-water marks are
+preserved independently of history. Over-budget imports fail without pruning.
+
+These envelopes are not the proposed journal or collaboration wire protocol.
+Schemas without managed declarations retain their codecs.
 Default managed classes serialize `persistent_id` under reserved integer key
 `1073741823` (`0x3fffffff`) or string key `persistent_id`, after their application
 fields in positional codecs. Application field IDs are not shifted. A conflicting

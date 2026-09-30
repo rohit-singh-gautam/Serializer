@@ -10,16 +10,15 @@
 TEST(managed_profile, google_uint64_generation_and_round_trip) {
   namespace managed = rohit::managed;
   using value_type = generated_managed::Workspace;
-  using store_type = managed::model_store<value_type, managed::supported_mechanism::none>;
+  using store_type = managed::model_store<value_type, managed::history_mode::disabled>;
   static_assert(std::same_as<store_type::id_type, std::uint64_t>);
   managed::store_options options;
-  options.mode = managed::history_mode::disabled;
   store_type store{value_type{}, {5, 6}, options};
-  auto envelope = managed::detail::decode<managed::records::envelope>(store.save(), {});
+  auto envelope = managed::detail::decode<managed::records::unlabeled_state_envelope>(store.save(), {});
   envelope.allocated_id = std::numeric_limits<std::uint32_t>::max();
   store.load(managed::detail::encode(envelope));
   std::uint64_t shape_id{};
-  const auto result = store.execute_transaction("Create wide IDs", [&](auto& transaction) {
+  const auto result = store.execute_transaction([&](auto& transaction) {
     auto shapes = transaction.root().Drawing().Shapes();
     shape_id = shapes.insert(100, {{80, 40, {1, 2}}, {80, 20, {1, 2}}});
     auto outer = shapes.edit(shape_id).Outer();

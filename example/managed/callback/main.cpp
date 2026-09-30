@@ -13,7 +13,7 @@ void move_point(point& value) {
 int main() {
   rohit::managed::model_store<point> store{point{1, 2}};
 
-  const auto outcome = store.execute_transaction("Move point", [](auto& transaction) {
+  const auto outcome = store.execute_transaction([](auto& transaction) {
     transaction.update(move_point);
   });
   outcome.throw_if_failed();

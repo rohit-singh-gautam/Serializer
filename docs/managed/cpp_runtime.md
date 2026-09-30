@@ -7,13 +7,15 @@ feature selectors, exclusions, notifications, and other-language managed runtime
 remain proposals. Unsupported selectors/backends are rejected rather than ignored.
 
 For a step-by-step introduction using only a point with x and y, start with the
-[eight point examples](../../example/managed/README.md). Each generates a managed
+[nine point examples](../../example/managed/README.md). Each generates a managed
 point from a schema and demonstrates the actual store, callbacks, generated editor,
 or transaction lifecycle.
 
 For a source-level explanation of `model_store`, its nested transaction types,
 and the setter-to-candidate call path, see
 [how managed transactions work](../internals/managed_transactions.md).
+For channels, callback forwarding, and collection target resolution, see the
+[managed editor walkthrough](../internals/managed_editors.md).
 
 ## Build and include
 
@@ -157,7 +159,7 @@ std::uint32_t entry_id{};
 // Explicit commit.
 managed::transaction_outcome manual;
 {
-  auto transaction = store.begin_transaction("Add entry", manual);
+  auto transaction = store.begin_transaction(manual);
   entry_id = transaction.root().entries().insert(100, {"Supplies", 1500});
   transaction.commit();
 }
@@ -166,13 +168,13 @@ manual.throw_if_failed();
 // Successful normal scope exit auto-commits unless canceled or failed.
 managed::transaction_outcome scoped;
 {
-  auto transaction = store.begin_transaction("Adjust amount", scoped);
+  auto transaction = store.begin_transaction(scoped);
   transaction.root().entries().edit(entry_id).set_amount_minor_units(1800);
 }
 scoped.throw_if_failed();
 
 // One synchronous lambda, with a borrowed edit context.
-auto result = store.execute_transaction("Describe entry", [entry_id](auto& transaction) {
+auto result = store.execute_transaction([entry_id](auto& transaction) {
   transaction.root().entries().edit(entry_id).set_memo("Office supplies");
 });
 result.throw_if_failed();
@@ -219,22 +221,108 @@ from ownership changes by snapshot comparison alone.
 
 ## History, persistence, and limitations
 
-`store_options.mode` selects `disabled`, `linear` (default), or `tree` at runtime.
-`model_store<Root, supported_mechanism::none>` with disabled mode omits the history
-container while retaining managed identity. Only `none` and `history` are implemented
-capability values; bare `managed` uses this available local profile.
+History mode is a template argument, fixed for the lifetime of the store:
 
-`undo()` follows the parent; `redo_children()` lists alternatives; `redo(revision)`
-requires a direct child; `checkout(revision)` restores a retained revision. Editing
-after undo discards the redo suffix in linear mode and preserves it in tree mode.
-No-op transactions preserve redo. `reset_history(mode)` explicitly discards all
-history while retaining current state and allocation marks. Deleted entities need
+```cpp
+using linear_store = rohit::managed::model_store<point>; // Linear by default.
+using tree_store = rohit::managed::model_store<point, rohit::managed::history_mode::tree>;
+using identity_store = rohit::managed::model_store<point, rohit::managed::history_mode::disabled>;
+```
+
+`model_store<Root, Mode, Labels, Traits>` and its `managed` alias contain only the selected
+history storage. Linear has a deque/cursor, tree has a revision map, and disabled
+has an empty history slot. Dispatch uses `if constexpr`; there is no runtime mode
+selector, variant, or pair of optional history pointers. Disabled stores retain
+managed identity and transactions but have no undo/redo/checkout/reset API.
+`store_options` configures limits and decoding, not history mode.
+Collaboration, authorization, and journals remain unimplemented. Their future
+capability selection is independent of this mutually exclusive history policy;
+several such capabilities could coexist with one selected history representation.
+
+### Optional labels
+
+The third template argument is `history_labels::disabled` by default. These stores
+have no label string in transactions or history entries and emit no label wire
+field. Use `execute_transaction(callback)` or `begin_transaction(outcome)`.
+
+```cpp
+using named_store = rohit::managed::model_store<
+    point, rohit::managed::history_mode::linear,
+    rohit::managed::history_labels::enabled>;
+named_store store{point{1, 2}};
+store.execute_transaction("Move point", [](auto& transaction) {
+  transaction.root().set_x(10);
+}).throw_if_failed();
+const auto action = store.undo_label(); // "Move point"
+store.undo();
+const auto redo_action = store.redo_label(); // "Move point"
+```
+
+Enabled stores accept both named and unnamed forms; an unnamed action has an empty
+label. `undo_label()` names the action that undo would reverse; `redo_label()` names
+the next action. Tree mode uses `redo_label(revision)` and requires a direct child
+of the current revision. These getters require an idle store and return string
+copies, which remain valid after edits or eviction. Unavailable undo/redo throws
+`std::out_of_range`. Names are metadata, not action IDs; duplicate names are valid.
+Labels follow committed actions only: failed, canceled, and no-op edits add no name.
+They count toward `max_history_bytes` when enabled. Enabling labels with disabled
+history is a compile-time error. Custom `Traits` is now the fourth template argument.
+See the [complete point example](../../example/managed/labeled_history/README.md).
+
+### Navigation and retention
+
+Linear stores expose `undo()` and parameterless `redo()`. Their entries contain
+only snapshots by default (plus labels when enabled), and the cursor is a deque index. They have no revision
+numbers, revision counters, `checkout()`, or `redo_children()`.
+Tree stores expose `undo()`, `redo_children()`, `redo(revision)`, and
+`checkout(revision)`; tree entries retain revision IDs and explicit parents.
+Editing after undo discards the redo suffix in linear mode and preserves it in
+tree mode. Failed, canceled, and no-op transactions preserve redo.
+
+Use `Store::outcome_type` for manual guards in code supporting either policy.
+Linear and disabled stores return `transaction_outcome` (status and exception).
+Tree stores return `tree_transaction_outcome`, which additionally supplies
+`revision` for branch selection. Persistent object IDs remain independent of history.
+
+Linear history uses a deque of snapshots and a cursor. `max_revisions` counts all
+retained states, including the current state and any redo states; it defaults to
+1024. Set it to 100 for at most 99 undo steps when the cursor is at the newest state.
+After removing redo, a changed commit evicts oldest states until both the count
+and `max_history_bytes` limits fit. Bytes count encoded snapshots plus labels when enabled.
+A single new state that cannot fit fails without changing the model or history.
+A limit of one retains only the current state; zero cannot hold an enabled baseline
+(use disabled mode instead). Eviction never recycles persistent object IDs.
+The retained-state limit keeps its existing name `max_revisions` for both policies;
+it does not imply that linear entries have revision IDs.
+Tree history keeps its revision map and rejects over-budget commits, preserving
+all branches until an explicit reset. The other history container is absent from the type.
+
+Linear commit no longer copies the history container or scans every retained state;
+it prepares one entry and touches only states being removed. Undo/redo select
+adjacent entries in constant time, without searching revision IDs. Restoring
+the full snapshot still requires decoding and validation in either mode.
+
+`reset_history()` explicitly discards all history while retaining current state
+and allocation marks. It starts a baseline in the same template-selected mode;
+it cannot change a linear store into a tree store. Deleted entities need
 no live graveyard: retained snapshots restore their original IDs and values.
 
 `save()` returns bytes with document/schema identity, ID width, allocation marks,
-current snapshot/cursor, mode, and retained revisions. `load(bytes)` validates a
-fresh candidate before atomic replacement. Invalid identity, ancestry, cursor,
-schema, width, mode, or bounded decoding leaves the open document unchanged.
+current snapshot/cursor, mode, and retained history. Labels disabled (the default)
+uses format version 3: `records::unlabeled_state_envelope` for linear/disabled,
+`records::unlabeled_envelope` for tree. No label fields are emitted.
+Label-enabled stores preserve `records::state_envelope` version 2 for linear and
+`records::envelope` version 1 for tree. Linear entries retain order and a zero-based
+cursor, with no revision IDs, parents, or revision high-water mark. Disabled
+history has no entries and cursor zero.
+`load(bytes)` validates a fresh candidate before atomic replacement. History mode
+and label policy must match. Older saves require the corresponding enabled-label
+specialization or explicit migration; no automatic converter is supplied.
+Loading also rejects histories exceeding the
+configured limits rather than silently evicting imported states. Invalid identity,
+ancestry, cursor, schema, width, mode, or bounded decoding leaves the open document
+unchanged. Linear loads validate every entry and require the selected entry's
+snapshot to equal the saved current snapshot.
 The compiler derives a conservative schema fingerprint from reachable field/type
 contracts and the ID width; it is not a security signature. Schema changes require
 explicit migration of the current state and retained history. Ordinary schema
@@ -268,7 +356,17 @@ backends. Runtime tests additionally cover budgets, malformed loads, reentrancy,
 ID exhaustion, and canceled allocation. See `managed_store_test`,
 `managed_direct_test`, `managed_profile_test`, and `core_serializer_test` in CTest.
 
-Verified on Windows with MSVC 19.51, C++20, and warnings treated as errors:
+The deque retention and optional-label changes were built on Windows with MSVC 19.51, C++20, and
+warnings treated as errors. All 14 managed CTest checks passed, including the
+runtime suites, nine point examples, ledger example, and isolated deque allocation
+failure test. Coverage includes count/byte eviction, redo preservation on failure,
+pruned save/load, same-mode resets, cross-mode load rejection, compile-time API
+availability, legacy linear envelope rejection, navigation validation failure,
+allocation failure before history removal with both label policies, optional label
+navigation and persistence, label-free entry size, and cross-label load rejection.
+No performance benchmark or other-platform qualification was run for this change.
+
+Earlier full-project qualification on Windows with MSVC 19.51 and C++20:
 35/35 configured CTest checks passed, including 226 core tests, 20 split/runtime
 managed tests, four default direct-identity tests, and the generated Google/uint64
 profile test. Both editor packages were rebuilt at 1.1.10; 57 shared tests and

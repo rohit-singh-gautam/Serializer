@@ -10,6 +10,8 @@ x, y, and persistent_id.
 For public API usage, see the [C++ runtime guide](../managed/cpp_runtime.md).
 The wider [managed design documents](../managed/README.md) also contain proposals;
 this walkthrough explains the code that exists today.
+For the details of channels, resolvers, and collection editors, continue with
+[how managed editors work](managed_editors.md).
 
 ## Start with two point objects
 
@@ -80,7 +82,7 @@ call its private constructor and failure handler.
 | `model_store<point>` | Your application | Keeps the committed model, encoded snapshot, IDs, and history. |
 | `model_store<point>::transaction` | Caller of begin_transaction, or a local variable inside execute_transaction | Owns one candidate and completes or cancels the edit. |
 | `model_store<point>::transaction_edit` | execute_transaction | Borrows the transaction and exposes editing operations to your callback. |
-| `transaction_outcome` | Caller for manual transactions; execute_transaction for callback transactions | Records completion status, revision, and any exception. |
+| `transaction_outcome` | Caller for manual transactions; execute_transaction for callback transactions | Records completion status and any exception; tree outcomes additionally carry a revision ID. |
 
 The transaction has a pointer to the outcome as well as to the store. Both must
 outlive a manually held transaction. Neither pointer owns its target.
@@ -95,13 +97,16 @@ The template declaration is:
 
 ```cpp
 template <typename Root,
-          supported_mechanism Support = supported_mechanism::history,
+          history_mode Mode = history_mode::linear,
+          history_labels Labels = history_labels::disabled,
           typename Traits = model_traits<Root>>
 class model_store;
 ```
 
-`Root` is your generated model type, here `point`. `Support` selects which
-implemented capability the store contains. `Traits` is the generated binding
+`Root` is your generated model type, here `point`. `Mode` selects one history
+representation at compile time: disabled, linear, or tree. `Labels` optionally
+adds action names; by default their storage and named overloads are absent.
+`Traits` is the generated binding
 that tells the generic runtime how to work with this model.
 
 In the default point output, the generated specialization
@@ -116,30 +121,30 @@ The important store fields in managed.hpp are:
 | --- | --- |
 | `current_` | Shared pointer to the immutable committed point. |
 | `snapshot_` | Encoded bytes of that same committed state. |
-| `history_` | Retained revision records, containing encoded snapshots. |
+| `history_` | A template-specialized slot: linear deque/cursor/byte count, tree revision map, or empty disabled storage. |
 | `identities_` | Index of the current managed IDs and their type keys. |
 | `allocated_id_` | Highest object ID allocated in this store. |
-| `current_revision_` | Currently selected revision. |
-| `revision_high_water_` | Highest revision number allocated. |
+| `history_.current_revision` | Tree only: currently selected revision ID. |
+| `history_.revision_high_water` | Tree only: highest revision ID allocated. |
 | `writer_active_` | Whether this store already has an active transaction. |
 | `callback_active_` | Whether validation is running; not whether your outer edit lambda is running. |
 | `thread_` | Thread on which the store was created. |
 
 Constructing `store{point{1, 2}}` uses the generated traits to adopt the point,
 assign its ID, validate it, and encode it. The store then creates its immutable
-current value and initial revision. In this new document the point ID and
-initial revision number both happen to be 1, but they identify different things.
+current value and initial linear history entry. The point's persistent ID starts
+at 1; the linear history cursor starts at index 0. Linear entries have no revision IDs.
 
 The decoded `current_` makes reads convenient. The encoded `snapshot_` is the
 source used to construct a transaction candidate. Retained history holds encoded
-revision snapshots, not mutable pointers into that candidate.
+snapshots, not mutable pointers into that candidate.
 
 ## Read the point example in execution order
 
 The central part of the example is:
 
 ```cpp
-const auto outcome = store.execute_transaction("Move point", [](auto& transaction) {
+const auto outcome = store.execute_transaction([](auto& transaction) {
   auto editor = transaction.root();
   editor.set_x(10);
   editor.set_y(20);
@@ -149,16 +154,17 @@ outcome.throw_if_failed();
 
 ### 1. execute_transaction creates the real transaction
 
-Inside `model_store::execute_transaction`, these statements are the start of
+Inside the shared `model_store::execute_transaction_impl`, these statements start
 the successful path:
 
 ```cpp
-transaction_outcome outcome;
-auto scope = begin_transaction(label, outcome);
+outcome_type outcome;
+auto scope = transaction{*this, outcome, std::move(label)};
 transaction_edit edit{scope};
 std::invoke(std::forward<Callable>(callback), edit);
 ```
 
+`label` is empty metadata by default; the enabled specialization owns a string.
 This is an excerpt: the actual method surrounds the operations with exception
 handling and scopes that complete the transaction before returning the outcome.
 
@@ -201,7 +207,7 @@ The transaction fields that support this work are:
 | `store_` | Borrowed pointer to the store; null after closure or move-from. |
 | `outcome_` | Borrowed pointer to the completion result. |
 | `candidate_` | Unique ownership of the mutable candidate. |
-| `label_` | Label to store on a new history revision. |
+| `label_storage<Labels>` base | Empty by default; contains a string only with `history_labels::enabled`. |
 | `allocation_base_` | Object-ID high-water mark when editing began. |
 | `exceptions_` | Uncaught-exception count used by the destructor. |
 | `editing_` | Whether a candidate update callback is currently executing. |
@@ -307,13 +313,17 @@ Read `transaction::commit()` in this order:
    The root ID must stay the same, and IDs cannot be illegally reused or retyped.
 3. **Encode.** Serialize the candidate and enforce snapshot budgets.
 4. **Detect no change.** If the bytes match snapshot_, close with no_change.
-   Keep the existing revision and redo history.
+   Keep the existing selected state and redo history.
 5. **Prepare publication.** Transfer candidate ownership into a local immutable
-   shared pointer. Allocate the next revision and prepare a temporary revision map.
-   In enabled history mode, add a record containing the new snapshot and label.
-6. **Publish.** After preparation and budget checks succeed, swap the prepared
-   history, current pointer, snapshot bytes, and identity index into the store.
-   Update the revision numbers and outcome.
+   shared pointer. Only tree mode allocates a revision ID. Linear mode prepares one entry
+   and calculates redo removal and oldest-state eviction. Tree mode copies its map,
+   adds the new snapshot record, and checks its budget.
+6. **Publish.** Linear mode first appends the prepared entry. If deque allocation
+   fails, existing history is unchanged. After successful insertion, nonthrowing
+   swaps/pops remove redo and evict oldest states. Tree mode swaps its prepared map.
+   Both modes then swap the current pointer, snapshot bytes, and identity index,
+   and update the outcome (plus revision counters in tree mode). No throwing work follows the
+   history publication.
 7. **Close.** Invalidate editor access and release the store's writer flag.
 
 The local shared pointer in step 5 is not yet the published store value.
@@ -426,10 +436,68 @@ editors are the recommended application interface.
 This exact layering is a design choice, not a C++ requirement. Simplifying it
 would still need to preserve lifetime checks, failure behavior, and target
 resolution. The current implementation decodes the whole root at begin, encodes
-it at commit, and copies the retained revision map when preparing a changed
-history-enabled commit. Function-pointer forwarding also introduces indirect
+it at commit. Linear mode appends one deque entry without copying retained history;
+tree mode still copies the revision map when preparing a changed commit.
+Function-pointer forwarding also introduces indirect
 calls. The implementation is not a minimal-cost way to assign two integers;
 it implements the broader transaction and history guarantees.
+
+## How the linear history deque works
+
+`detail::history_storage<Mode, Labels>` is specialized at compile time. Linear stores
+contain only linear storage; tree stores contain only tree storage. Disabled stores
+have an empty slot. There is no runtime variant or pair of history pointers.
+`if constexpr` compiles only the selected history operations. `reset_history()`
+clears the selected history without changing its type.
+
+`detail::linear_history<Labels>` owns three things: `entries` (a standard
+`std::deque<history_entry<Labels>>`), `cursor` (an index into it), and `bytes` (the sum of
+retained snapshot sizes, plus labels if enabled). Each entry owns an encoded
+snapshot. The default empty label base adds no string storage; enabling labels
+adds a string to each entry and transaction. There are no revision IDs, parent fields, revision counters, or lookup
+index. `linear_history` coordinates history behavior around `std::deque`; it does
+not implement a custom deque. Tree mode uses separate revision records with IDs
+and explicit parents because a revision can have several children.
+
+For a limit of three states, the sequence below shows both kinds of removal:
+
+```mermaid
+flowchart TD
+  A["Deque: x, xy, xyz<br/>Cursor: xyz"]
+  B["Undo<br/>Deque: x, xy, xyz<br/>Cursor: xy"]
+  C["Commit xya<br/>Deque: x, xy, xya<br/>Cursor: xya"]
+  D["Commit xyab<br/>Deque: xy, xya, xyab<br/>Cursor: xyab"]
+  A --> B
+  B -->|Discard redo xyz| C
+  C -->|Evict oldest x| D
+```
+
+`append()` computes which states will survive without changing the deque. It first
+pushes the new entry at the back, where deque insertion can allocate and fail
+without changing retained entries. When redo exists, it swaps the new entry into
+the first redo position, then pops the remaining suffix. Finally it pops the
+oldest entries and updates the cursor and byte count. These final operations are
+nonthrowing; they need no copy of the retained prefix. Temporarily, both the new
+entry and states awaiting removal coexist, so retention budgets are not peak
+memory limits.
+
+`undo()` and `redo()` change the cursor only after decoding and validating the
+selected snapshot succeeds. Linear history has no `checkout(number)` or
+`redo_children()` API. Its transaction outcome has no revision field.
+`save()` writes entries in deque order plus the cursor index; no parent
+links or revision numbers are emitted. `load()` validates the cursor, every entry,
+and retention limits before replacing history. It does not prune incoming data.
+Default label-free saves use version 3 and omit label fields. Opt-in labeled
+linear/tree stores preserve versions 2/1. Loads must match both history mode and
+label policy; incompatible saves require explicit migration. Tree stores keep
+their revision APIs. See [optional labels](../managed/cpp_runtime.md#optional-labels)
+for the public API. Label storage is selected with templates and `if constexpr`,
+not a runtime flag or an always-present empty string.
+
+`max_revisions = 100` retains at most 100 states, including the current state.
+At the newest state this gives up to 99 undo steps. The byte limit may evict more.
+One state is enough to continue editing with no undo; zero is valid only for a
+store specialized with `history_mode::disabled`. A single oversized entry fails and leaves redo intact.
 
 ## Source reading order
 

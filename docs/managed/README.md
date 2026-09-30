@@ -18,6 +18,7 @@ remains a separate illustrative data model.
 | --- | --- |
 | [Implemented C++ runtime](cpp_runtime.md) | Optional build target, generated storage and typed editors, all three transaction forms, snapshot history, bounded save/load, and remaining work. |
 | [Transaction implementation walkthrough](../internals/managed_transactions.md) | Current C++ store and transaction ownership, callback flow, commit, and cleanup, illustrated with a point. |
+| [Editor implementation walkthrough](../internals/managed_editors.md) | Channel lifetime, callback forwarding, target resolution, and map/array editor behavior. |
 | [Capabilities and identity](capabilities.md) | Four managed features, mandatory uint32 IDs, central configuration, collaboration allocation, and additional uses. |
 | [Collaboration sessions and locks](collaboration.md) | Session-based synchronization, advisory presence, authoritative entity/subtree locks, replica caches, leases, failure handling, and efficiency targets. |
 | [Journal](journal.md) | Appended/sidecar modes, full Save replacement and cleanup, undo cursors, durability, and crash recovery of unsaved changes. |
@@ -39,15 +40,18 @@ provides transport, trusted session binding, and authority infrastructure; Seria
 defines record exchange, validation, and atomic acceptance. Presence is informational;
 exclusive locking is an optional collaboration policy with authoritative enforcement.
 
-The owning C++ runtime is `model_store<Root, support>`; `managed<Root, support>`
-is a C++ alias for the same type. Implemented `<type>_editor<Access>` handles
+The owning C++ runtime is `model_store<Root, Mode, Labels, Traits>`; `managed` is an alias
+with the same arguments. `Mode` selects disabled, linear (default), or tree history
+at compile time; each specialization contains only its selected storage. `Labels`
+defaults to `history_labels::disabled`; `history_labels::enabled` opts into names.
+Implemented `<type>_editor<Access>` handles
 are temporary edit interfaces, not independently owning stores. Broader sketches
 use illustrative `tracked_` names. Schema `managed` selects identity
-boundaries within managed occurrences. Compile-time support, schema participation,
-and runtime activation are separate decisions.
+boundaries within managed occurrences. Broader capability combinations remain
+proposals; future collaboration/journal selection is independent of history mode.
 
 For one synchronous editing action, the C++
-[`execute_transaction(label, callback)`](history.md#callback-based-transaction-execution)
+[`execute_transaction(callback)`](cpp_runtime.md#all-three-transaction-forms)
 passes a borrowed transaction edit context and returns its outcome after completion.
 The wrapper uses the same RAII engine as caller-controlled `begin_transaction`.
 Normal callback return attempts commit; revert or failure prevents publication.

@@ -24,6 +24,43 @@ New stores create document namespaces automatically; object IDs start at 1 and
 increment within each document. Save/load preserves identities and allocation state.
 Journals, collaboration, selectors, and other-language managed runtimes remain proposals.
 
+To bound linear history for the generated point in the
+[history example](../example/managed/history/main.cpp):
+
+```cpp
+rohit::managed::store_options options;
+options.max_revisions = 100; // Includes the current state; at most 99 undo steps.
+rohit::managed::model_store<point> store{
+    point{1, 2}, rohit::managed::make_document_id(), options};
+```
+
+Successful changed commits discard redo after undo, then evict oldest states to
+meet revision and byte limits. Failed, canceled, and no-op edits preserve history.
+Select tree history with `model_store<point, history_mode::tree>` or disable it
+with `model_store<point, history_mode::disabled>` (both names in `rohit::managed`).
+The choice is compile-time; `store_options` has no mode selector. Linear stores
+use `undo()` and `redo()`, with no revision IDs or `checkout()`. Only tree stores
+provide `redo(revision)`, `redo_children()`, and `checkout(revision)`. Tree mode
+preserves branches and rejects over-budget commits instead. Loading a
+save rejects excess history rather than trimming it; see the
+[retention contract](managed/cpp_runtime.md#history-persistence-and-limitations).
+Labels are disabled by default. Use `store.execute_transaction(callback)` or
+`store.begin_transaction(outcome)` without a name. To enable names:
+
+```cpp
+using named_store = rohit::managed::model_store<
+    point, rohit::managed::history_mode::linear,
+    rohit::managed::history_labels::enabled>;
+```
+
+This also enables `execute_transaction("Move point", callback)`,
+`begin_transaction("Move point", outcome)`, `undo_label()`, and `redo_label()`.
+Tree stores use `redo_label(revision)`. See the
+[labeled point example](../example/managed/labeled_history/README.md).
+Default saves use format version 3 with label fields omitted. Label-enabled
+linear/tree stores retain versions 2/1; loads require the same label policy.
+See [migration notes](../migration.md).
+
 For persistence, see [database storage and document sinks](database_integration.md).
 It covers candidate JSON, typed-document, and opaque-binary stores, plus lossless
 mapping requirements. Database clients and the proposed sink API are not included

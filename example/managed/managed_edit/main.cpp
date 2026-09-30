@@ -7,7 +7,7 @@
 int main() {
   rohit::managed::model_store<point> store{point{1, 2}};
 
-  const auto outcome = store.execute_transaction("Move point", [](auto& transaction) {
+  const auto outcome = store.execute_transaction([](auto& transaction) {
     auto editor = transaction.root();
     editor.set_x(10);
     editor.set_y(20);

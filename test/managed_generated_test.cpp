@@ -44,7 +44,7 @@ TEST(managed_generated, identity_boundaries_and_value_editing) {
   const auto cylinder_id = before->value.drawing.value.shapes.at(100).value.outer.persistent_id;
   const auto point_id = before->value.cursor.value.position.persistent_id;
   auto result =
-      store.execute_transaction("Resize hollow cylinder", [shape_id, point_id](auto& transaction) {
+      store.execute_transaction([shape_id, point_id](auto& transaction) {
         auto shape = transaction.root().drawing().shapes().edit(shape_id);
         auto outer = shape.outer();
         outer.set_height(120);
@@ -77,7 +77,7 @@ TEST(managed_generated, editor_lifetime_and_move) {
   using editor_type = decltype(std::declval<store_type::transaction&>().root());
   std::optional<editor_type> saved;
   {
-    auto first = store.begin_transaction("Move guard", outcome);
+    auto first = store.begin_transaction(outcome);
     saved.emplace(first.root());
     auto second = std::move(first);
     saved->notes().set_title("Changed");
@@ -94,7 +94,7 @@ TEST(managed_generated, array_insert_erase_and_stale_editor) {
   store_type store{initial_value(), {1, 2}};
   const auto first_id = store.read()->value.notes.value.paragraphs.front().persistent_id;
   std::uint32_t added_id{};
-  auto result = store.execute_transaction("Append and edit", [&](auto& transaction) {
+  auto result = store.execute_transaction([&](auto& transaction) {
     auto paragraphs = transaction.root().notes().paragraphs();
     auto first = paragraphs.edit(first_id);
     added_id = paragraphs.append({"Third"});
@@ -105,7 +105,7 @@ TEST(managed_generated, array_insert_erase_and_stale_editor) {
   EXPECT_EQ(store.clone_value().notes.paragraphs.back().text, "Updated third");
   managed::transaction_outcome failed;
   {
-    auto transaction = store.begin_transaction("Stale edit", failed);
+    auto transaction = store.begin_transaction(failed);
     auto paragraphs = transaction.root().notes().paragraphs();
     auto first = paragraphs.edit(first_id);
     paragraphs.erase(first_id);
@@ -118,25 +118,25 @@ TEST(managed_generated, array_insert_erase_and_stale_editor) {
 // Tree history retains deleted objects and abandoned futures with their original identities.
 TEST(managed_generated, deleted_entities_tree_reload_and_scoped_commit) {
   managed::store_options options;
-  options.mode = managed::history_mode::tree;
-  store_type store{initial_value(), {1, 2}, options};
+  using tree_store = managed::model_store<root, managed::history_mode::tree>;
+  tree_store store{initial_value(), {1, 2}, options};
   const auto old_id = store.read()->value.drawing.value.shapes.at(100).persistent_id;
-  managed::transaction_outcome removed;
+  tree_store::outcome_type removed;
   {
-    auto transaction = store.begin_transaction("Delete shape", removed);
+    auto transaction = store.begin_transaction(removed);
     transaction.root().drawing().shapes().erase(old_id);
   }
   removed.throw_if_failed();
   EXPECT_TRUE(store.clone_value().drawing.shapes.empty());
   store.undo();
   std::uint32_t replacement_id{};
-  const auto branched = store.execute_transaction("New branch", [&](auto& transaction) {
+  const auto branched = store.execute_transaction([&](auto& transaction) {
     auto shapes = transaction.root().drawing().shapes();
     replacement_id = shapes.insert(200, {{60, 30, {0, 0}}, {60, 10, {0, 0}}});
   });
   branched.throw_if_failed();
   EXPECT_GT(replacement_id, old_id);
-  store_type restored{root{}, {3, 4}, options};
+  tree_store restored{root{}, {3, 4}, options};
   restored.load(store.save());
   EXPECT_EQ(restored.read()->value.drawing.value.shapes.at(100).persistent_id, old_id);
   restored.undo();
@@ -149,14 +149,14 @@ TEST(managed_generated, deleted_entities_tree_reload_and_scoped_commit) {
 TEST(managed_generated, invalid_map_operations_are_atomic) {
   store_type store{initial_value(), {1, 2}};
   const auto id = store.read()->value.drawing.value.shapes.at(100).persistent_id;
-  auto result = store.execute_transaction("Duplicate", [&](auto& transaction) {
+  auto result = store.execute_transaction([&](auto& transaction) {
     auto shapes = transaction.root().drawing().shapes();
     shapes.edit(id).outer().set_height(7);
     EXPECT_THROW(shapes.insert(100, {}), std::invalid_argument);
   });
   EXPECT_EQ(result.status, managed::transaction_status::failed);
   EXPECT_EQ(store.clone_value().drawing.shapes.at(100).outer.height, 80);
-  result = store.execute_transaction("Wrong collection", [](auto& transaction) {
+  result = store.execute_transaction([](auto& transaction) {
     EXPECT_THROW(transaction.root().notes().paragraphs().edit(1), std::out_of_range);
   });
   EXPECT_EQ(result.status, managed::transaction_status::failed);

@@ -8,8 +8,14 @@ IDs `1, 2, 3...` within that document only; saved IDs/counters survive reload,
 and undo/deletion never renumber survivors. Explicit member boundaries still apply.
 
 Status: broader managed-state design. The [C++ interface](cpp_runtime.md)
-implements generated storage and editors with whole-root snapshot history. The
-records and walkthrough here illustrate future logical records, not its production
+implements generated storage and editors with whole-root snapshot history. Its
+template-selected linear mode contains a deque/cursor with oldest-state eviction;
+linear entries contain snapshots, with parameterless undo/redo. Labels are absent
+by default and can be enabled with the `history_labels::enabled` template argument. Only
+the tree specialization contains a revision map with IDs, explicit parents, and
+revision-addressed navigation. Disabled history has
+an empty slot. These are exclusive compile-time choices, not runtime alternatives. See the [implementation walkthrough](../internals/managed_transactions.md#how-the-linear-history-deque-works).
+The records and walkthrough here illustrate future logical records, not its production
 envelope or automatic companion output. The walkthrough uses a generatable ordinary
 data schema; see the [design index](README.md) and [bindings](language_bindings.md).
 

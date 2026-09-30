@@ -53,7 +53,7 @@ TEST(managed_direct, nested_sequence_and_owned_values) {
 TEST(managed_direct, edit_undo_reload_and_monotonic_allocation) {
   store_type store{ledger{"Ledger", {{10, {"One", 100}}}}};
   const auto original = store.read();
-  auto changed = store.execute_transaction("Edit", [](auto& transaction) {
+  auto changed = store.execute_transaction([](auto& transaction) {
     auto entry = transaction.root().entries().edit(2);
     entry.set_memo("Updated");
     entry.set_amount_minor_units(200);
@@ -64,7 +64,7 @@ TEST(managed_direct, edit_undo_reload_and_monotonic_allocation) {
   EXPECT_EQ(original->entries.at(10).memo, "One");
   store.undo();
   EXPECT_EQ(store.read()->entries.at(10).amount_minor_units, 100);
-  auto canceled = store.execute_transaction("Cancel insert", [](auto& transaction) {
+  auto canceled = store.execute_transaction([](auto& transaction) {
     EXPECT_EQ(transaction.root().entries().insert(20, {"Canceled", 300}), 3u);
     transaction.revert();
   });
@@ -75,12 +75,11 @@ TEST(managed_direct, edit_undo_reload_and_monotonic_allocation) {
   EXPECT_EQ(restored.document().low, store.document().low);
   EXPECT_EQ(restored.read()->persistent_id, 1u);
   EXPECT_EQ(restored.clone_value().entries.at(10).persistent_id, 2u);
-  auto inserted = restored.execute_transaction("Insert", [](auto& transaction) {
+  auto inserted = restored.execute_transaction([](auto& transaction) {
     EXPECT_EQ(transaction.root().entries().insert(20, {"New", 400}), 4u);
   });
   inserted.throw_if_failed();
-  auto deleted = restored.execute_transaction(
-      "Delete", [](auto& transaction) { transaction.root().entries().erase(2); });
+  auto deleted = restored.execute_transaction([](auto& transaction) { transaction.root().entries().erase(2); });
   deleted.throw_if_failed();
   EXPECT_EQ(restored.read()->entries.at(20).persistent_id, 4u);
   restored.undo();

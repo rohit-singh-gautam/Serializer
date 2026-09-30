@@ -18,6 +18,52 @@ second constructor argument for automatic generation. Explicit IDs remain suppor
 Loading restores saved identity. Object IDs are document-local and allocated from 1
 upwards, with no renumbering/reuse on undo, deletion, or failed transactions.
 
+History mode is now selected by `model_store<Root, Mode, Labels, Traits>` at compile time.
+Use `history_mode::linear` (the default), `history_mode::tree`, or
+`history_mode::disabled` as the second template argument. Replace the former
+`supported_mechanism::none` with `history_mode::disabled`; remove `options.mode`
+assignments. Replace `reset_history(mode)` with `reset_history()` only when clearing
+the current history: changing its mode is no longer supported. Different modes
+are different store types, and loads must match the receiving specialization.
+The `managed` alias follows the same template arguments. Wire mode values remain
+unchanged; the wire format also depends on the compile-time label policy.
+
+Linear stores now use parameterless `redo()` and no longer provide
+`checkout(revision)`, `redo(revision)`, or `redo_children()`. Use a tree store when
+revision-addressed navigation is required. Manual generic code should declare
+`Store::outcome_type`: linear/disabled use `transaction_outcome` with status/error;
+tree uses `tree_transaction_outcome` and additionally provides `revision`.
+Revision counters exist only in tree storage. Object IDs are unaffected.
+
+Labels are now disabled by default. Replace `execute_transaction(label, callback)`
+with `execute_transaction(callback)` and `begin_transaction(label, outcome)` with
+`begin_transaction(outcome)`, or retain names by selecting
+`model_store<Root, Mode, history_labels::enabled>`. Enabled stores accept both forms
+and expose `undo_label()` plus linear `redo_label()` or tree `redo_label(revision)`.
+Move a custom `Traits` argument from the third position to the fourth, inserting
+`history_labels::disabled` or `history_labels::enabled` before it.
+
+Default saves use version 3 with label fields entirely omitted, for both tree and
+linear/disabled history. Label-enabled linear/tree stores preserve versions 2/1.
+Loads must match the label policy and history mode; no automatic migration tool
+is supplied. To read existing labeled linear/tree saves, enable labels. A converter
+between label policies must explicitly add/discard names while preserving all
+snapshots, selection, document/object IDs, and allocation marks.
+Linear saves contain ordered snapshots and a zero-based cursor, with no revision
+IDs or parent links. Older version-one linear/disabled saves additionally require
+validating the old chain and translating its selected revision into an index.
+Disabled saves contain no history and cannot enable labels.
+
+Linear managed history now uses a deque and evicts oldest retained states on
+changed commits when `max_revisions` or `max_history_bytes` would be exceeded.
+Previously reaching either limit rejected the commit. The count includes the
+current state; one permits editing without undo, while zero cannot hold an enabled
+baseline. Oversized individual states still fail atomically. Tree mode retains its
+existing reject-on-limit behavior. New changed edits after undo still discard redo
+only in linear mode. Loading over-budget histories still fails instead of evicting
+imported states. `max_revisions` remains the retained-state count option for both
+policies; linear entries do not carry revision IDs.
+
 Optional [message compression](docs/compression.md) adds C++ overloads without
 changing existing bytes or calls. Rebuild the runtime with selected optional
 dependencies and regenerate owning headers for member/static options. Free

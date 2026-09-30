@@ -31,7 +31,30 @@ there instead of relying on the relative links.
   wrappers. The compiler generates `model_traits` and typed editors such as
   `transaction.root().entries().edit(id)`.
   It provides manual/scoped/callback transactions, linear/tree snapshots, and
-  bounded memory save/load. Selectors, exclusions, custom allocation, durable
+  bounded memory save/load. Select history at compile time with
+  `model_store<Root, history_mode::linear|tree|disabled, Labels, Traits>` (choose one enum
+  value; linear is the default). Each specialization stores only its selected
+  representation. `store_options` has no mode field; `reset_history()` clears
+  enabled history without switching modes. Collaboration/journal/authorization
+  remain separate proposed capabilities, not supported template arguments.
+  Labels default to `history_labels::disabled`, with no string member or serialized
+  label field. Opt in with the third argument `history_labels::enabled`; custom
+  traits are the fourth argument. Enabled stores accept named and unnamed
+  transactions and provide `undo_label()` plus linear `redo_label()` or tree
+  `redo_label(revision)`. Disabled history cannot enable labels.
+  Linear history uses `std::deque` entries containing snapshots (optional labels) and a
+  cursor, with parameterless `undo()`/`redo()` and no revision IDs or checkout.
+  Only tree stores provide `redo(revision)`, `redo_children()`, and `checkout()`.
+  Use `Store::outcome_type` for manual generic code; only tree outcomes include
+  `revision`. Linear history evicts oldest
+  states to meet count/byte limits; `max_revisions = 100` includes the current
+  state and allows at most 99 undo steps. A changed commit after undo drops redo;
+  failed, canceled, and no-op edits preserve it. Tree mode retains its map and
+  rejects over-budget commits. Loads reject excess history without pruning;
+  default label-free saves use version 3. Label-enabled linear/tree stores preserve
+  versions 2/1. Loads must match history mode and label policy; cross-policy saves
+  require explicit migration. Linear saves contain ordered entries and a cursor.
+  Selectors, exclusions, custom allocation, durable
   journals/files, authorization, collaboration, and other-language runtimes remain
   future work. Do not present the complete proposals below as shipped behavior.
   Omit the store constructor's document argument for automatic namespace creation;
@@ -47,6 +70,10 @@ there instead of relying on the relative links.
   nested transaction types, the borrowed callback facade, editor forwarding,
   publication, failure, and cleanup. Keep diagrams vertical and distinguish
   implemented behavior from the broader managed proposals.
+  The companion [editor walkthrough](../../../docs/internals/managed_editors.md)
+  explains channel type erasure, resolver captures, generated getter/setter calls,
+  and map/array identity checks. Editors avoid retaining element addresses;
+  they resolve the target afresh and reject missing entities or closed transactions.
 - For database persistence, read the
   [database integration guide](../../../docs/database_integration.md). Treat its
   backend matrix as candidate storage mappings, not tested Serializer adapters.
@@ -97,7 +124,8 @@ there instead of relying on the relative links.
   Scoped C++ transactions provide auto-commit on successful exit with an explicit
   outcome, rollback on failure/cancellation, and deterministic resource cleanup.
   Prefer the [callback transaction](../../../docs/managed/history.md#callback-based-transaction-execution)
-  `execute_transaction(label, callback)` for a single synchronous action. Pass a
+  `execute_transaction(callback)` for a single synchronous action (supply a leading
+  label only with `history_labels::enabled`). Pass a
   borrowed edit context, capture external IDs, and return the outcome after scope
   completion. The wrapper owns commit; callback revert/failure prevents it. Reject
   accidental non-void/async C++ callbacks and never retry the callback implicitly.
@@ -118,14 +146,16 @@ there instead of relying on the relative links.
 - Use the [managed examples](../../../docs/managed/managed_examples.md) only for design
   discussion: hollow-cylinder differences, accounting ledgers, wordpad documents,
   and other models illustrate a generic facility, not implemented sample programs.
-  Start beginners with the [eight point examples](../../../example/managed/README.md),
+  Start beginners with the [nine point examples](../../../example/managed/README.md),
   each in its own folder and using a schema-generated managed point: store creation,
   transaction callbacks, generated editors, explicit/scoped commit, undo/redo,
-  and cancellation. Use the real runtime throughout; do not replace the generated
+  cancellation, and optional labels. Only `labeled_history` opts into names;
+  the first eight and the ledger example use unnamed transactions.
+  Use the real runtime throughout; do not replace the generated
   point, editor, or access machinery with handwritten teaching implementations.
   The callback example shows the existing low-level update API; generated editors
   remain the recommended application interface.
-  Build all eight with `managed_point_examples`; each README shows expected output.
+  Build all nine with `managed_point_examples`; each README shows expected output.
   The separate [draft ledger example](../../../example/managed/ledger/README.md) is runnable
   using actual `managed` declarations and generated editors without handwritten adapters.
   Use its annotated source and walkthrough to explain document namespaces versus

@@ -15,6 +15,10 @@ and y. Every example generates its point class and editor from a local
 | 6 | [Scope-exit commit](scope_commit/README.md) | Destruction, automatic completion, and checking the outcome. |
 | 7 | [History](history/README.md) | Undo and redo of both coordinates as one action. |
 | 8 | [Revert](revert/README.md) | Cancel an unpublished edit. |
+| 9 | [Optional labels](labeled_history/README.md) | Enable transaction names at compile time and display undo/redo labels. |
+
+Labels are disabled by default. The first eight examples and ledger use unnamed
+transactions; only `labeled_history` opts into storing names.
 
 Each README includes expected output. Start with `plain_point` for the smallest
 managed program. The `callback` example exposes the real low-level candidate
@@ -34,9 +38,9 @@ cmake -S . -B out/managed-points -DSERIALIZER_BUILD_MANAGED=ON -DSERIALIZER_BUIL
 cmake --build out/managed-points --config Release --target managed_point_examples
 ```
 
-The aggregate target builds all eight examples. To build just one, use its
+The aggregate target builds all nine examples. To build just one, use its
 target name, such as `--target managed_point_edit`. Each folder's README lists
-its target. All eight require schema generation and `Serializer::managed`.
+its target. All nine require schema generation and `Serializer::managed`.
 
 Executables are under `out/managed-points/example/managed/<example-folder>/`.
 Multi-config generators add a `Release/` subdirectory; Windows adds `.exe`.
@@ -52,7 +56,7 @@ With a single-config generator, run
 `-DCMAKE_BUILD_TYPE=Release`.
 
 When using an existing repository build with `SERIALIZER_BUILD_TESTS=ON`
-(and GoogleTest available), all eight are registered with CTest:
+(and GoogleTest available), all nine are registered with CTest:
 
 ```sh
 cmake --build out/build/managed-ninja --config Release --target managed_point_examples

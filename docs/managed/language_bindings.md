@@ -25,6 +25,29 @@ carries `persistent_id`, defaulting to `uint32` under central configuration.
 The [recovery design](journal.md) separates durable journal sequence
 from history cursor and requires platform storage adapters.
 
+## History policy and independent capabilities
+
+`Labels` defaults to `history_labels::disabled`; enable it explicitly for action
+names. It is independent of the linear/tree choice.
+
+The implemented API is `model_store<Root, Mode, Labels, Traits>`, with `Mode` fixed at
+compile time to disabled, linear, or tree. Only that history representation is
+stored. Linear history has ordered snapshots and a cursor, with `undo()`/`redo()`
+and no revision IDs. Only tree history provides revision-based navigation.
+Journaling need not depend on either representation or its revision IDs.
+The broader capability sketches below are proposals, not the current
+public signature.
+
+Future collaboration, journal, and authorization capabilities should compose
+independently of this one history policy. Each enabled capability contributes its
+own storage and transaction hooks; disabled capabilities contribute no component
+state. A journal's durable sequence and recovery retention are independent of
+undo revisions and deque eviction. Collaboration tracks accepted shared changes
+and requires its own conflict/undo semantics; choosing tree history does not itself
+implement collaboration. Authorization checks permission before publication.
+These components require concrete protocols and failure guarantees before they
+can be exposed as supported template options.
+
 ## C++: a capability template is appropriate
 
 The suggested `template <typename Root, supported_mechanism support>` shape works

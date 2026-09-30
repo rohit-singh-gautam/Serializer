@@ -978,11 +978,13 @@ generate direct `persistent_id` fields and typed transaction editors by default.
 Set `[managed] separate_values = true` to opt into ID-free values and storage wrappers.
 New stores generate document namespaces automatically; object IDs increment from 1
 within each document, and saved identities/counters survive reload.
-Start with the [eight small point examples](example/managed/README.md): schema-generated
+Start with the [nine small point examples](example/managed/README.md): schema-generated
 managed points, transaction callbacks, generated editors, commit, undo/redo, and cancellation.
 Each has its own folder, expected output, and a short explanation.
 For the implementation, read [how managed transactions work](docs/internals/managed_transactions.md):
 nested types, candidate ownership, callback forwarding, commit, and cleanup.
+The companion [managed editor walkthrough](docs/internals/managed_editors.md)
+explains channels, target resolution, and map/array editor lifetimes.
 The [ledger example](example/managed/ledger/README.md) uses
 `transaction.root().entries().edit(id).set_memo(...)` without handwritten adapters.
 Its annotated source and walkthrough explain document namespaces, object IDs, each
@@ -991,7 +993,21 @@ Manual/scoped/callback transactions, linear/tree history, and bounded memory sav
 are implemented. IDs default to uint32; configure `[managed] id_type` or
 `--managed.id_type` for uint64. Schemas without managed declarations remain unchanged.
 Managed representation changes require saved-state migration.
-History currently retains whole-root snapshots. Feature selectors, exclusions,
+History mode is selected at compile time: `model_store<Root>` defaults to linear;
+`model_store<Root, history_mode::tree>` selects tree, and `history_mode::disabled`
+omits history. Each specialization contains only its selected storage.
+History currently retains whole-root snapshots. Default linear history uses a deque
+and cursor, with no revision IDs or revision lookup. Its `undo()`/`redo()` navigate
+adjacent entries, evicting oldest states to meet count/byte limits; tree history retains
+branches in a map and rejects commits exceeding those limits. A changed linear commit
+after undo discards redo. Labels are disabled by default: use
+`execute_transaction(callback)` or `begin_transaction(outcome)` with no name.
+Opt in with `model_store<Root, Mode, history_labels::enabled>` to store names and
+query undo/redo labels; see the [labeled point example](example/managed/labeled_history/README.md).
+Disabled labels have no string member or serialized label field. Default saves
+use format version 3; label-enabled linear/tree stores retain versions 2/1.
+Saved histories must match the receiving label policy; see [migration](migration.md).
+Feature selectors, exclusions,
 journals, authorization, collaboration, and other-language managed runtimes remain
 future work; unsupported syntax/backends fail explicitly.
 
@@ -1021,8 +1037,9 @@ using actual ordinary classes generated from a
 omitted. These illustrative records differ from the implemented snapshot envelope. The
 [language-binding design](docs/managed/language_bindings.md) proposes
 C++ `model_store<Root, support>` (with a `managed` alias) and component-based stores
-for other backends. Compiled capability, schema participation, and runtime
-linear/tree history policies remain separate. Consult the C++ runtime guide above
+for other backends. These broader capability sketches differ from the implemented
+`model_store<Root, Mode, Labels, Traits>` API, whose history mode is a template argument.
+Future collaboration/journal capabilities are separate from history policy. Consult the C++ runtime guide above
 for the implemented subset; the broader generated APIs remain proposals.
 
 The [object identity and transactional history proposal](docs/managed/history.md) describes

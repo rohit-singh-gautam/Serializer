@@ -81,6 +81,18 @@ if(SERIALIZER_BUILD_MANAGED)
     target_compile_options(managed_direct_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
   endif()
   add_test(NAME managed_direct_test COMMAND managed_direct_test)
+  add_executable(managed_history_allocation_failure_test managed_history_allocation_failure_test.cpp)
+  target_link_libraries(managed_history_allocation_failure_test PRIVATE Serializer::managed)
+  if(MSVC)
+    # Only header-local history containers are exercised; no STL values cross the runtime ABI.
+    # Debug iterator proxies may allocate inside noexcept moves, so inject with release iterators.
+    target_compile_definitions(managed_history_allocation_failure_test PRIVATE _ITERATOR_DEBUG_LEVEL=0)
+    target_compile_options(managed_history_allocation_failure_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(managed_history_allocation_failure_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME managed_history_allocation_failure_test COMMAND managed_history_allocation_failure_test)
+  set_tests_properties(managed_history_allocation_failure_test PROPERTIES TIMEOUT 60)
 endif()
 add_test(NAME serializer_native_cli
   COMMAND "${CMAKE_COMMAND}" "-DGENERATOR=$<TARGET_FILE:serializer>"

@@ -10,7 +10,7 @@ int main() {
   const auto before = store.read();
   std::cout << "before update: (" << before->x << ", " << before->y << ")\n";
 
-  const auto outcome = store.execute_transaction("Move point", [](auto& transaction) {
+  const auto outcome = store.execute_transaction([](auto& transaction) {
     auto editor = transaction.root();
     editor.set_x(10);
     editor.set_y(20);

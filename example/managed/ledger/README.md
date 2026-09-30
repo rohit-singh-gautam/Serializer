@@ -117,9 +117,10 @@ successful insertion will replace it with the allocated entry ID.
 `managed::transaction_outcome inserted` creates a caller-owned pending outcome.
 It precedes the inner block so it outlives the transaction guard.
 
-`store.begin_transaction("Add draft entry", inserted)` creates an owning RAII
+`store.begin_transaction(inserted)` creates an owning RAII
 guard with an isolated candidate and reserves the store's single active writer.
-The string labels the action in history; it does not write a log or create a UI.
+Labels are disabled by default, so these actions do not allocate or store names.
+See the [optional-label example](../labeled_history/README.md) to enable them.
 
 | Expression | Meaning |
 | --- | --- |
@@ -137,7 +138,7 @@ action as one undo step and fills `inserted`. Explicit commit failures throw.
 The closing brace destroys the completed guard without committing a second time.
 
 `inserted.throw_if_failed()` rethrows a recorded failure. An outcome contains
-status, revision, and an optional exception. Status may be pending, committed,
+status and an optional exception. Only tree-store outcomes also carry a revision ID. Status may be pending, committed,
 no_change, reverted, or failed; the helper does not treat cancellation or no change
 as an error. Application variables such as `entry_id` are outside rollback: use an
 inserted ID as a published identity only after successful completion.
@@ -145,7 +146,7 @@ inserted ID as a published identity only after successful completion.
 ### Automatic scope completion
 
 `adjusted` is another outcome declared outside its transaction scope.
-`begin_transaction("Adjust draft amount", adjusted)` begins the second action.
+`begin_transaction(adjusted)` begins the second action.
 `entries().edit(entry_id)` selects the same entry, and
 `set_amount_minor_units(1800)` changes only the candidate.
 
@@ -158,7 +159,7 @@ Several setters in the block would still form one undo step.
 
 ### Callback transaction
 
-`execute_transaction("Describe draft", [entry_id](auto& transaction) { ... })`
+`execute_transaction([entry_id](auto& transaction) { ... })`
 creates and completes the guard internally. `[entry_id]` copies the scalar ID,
 not the object. `auto& transaction` receives a borrowed transaction-edit facade.
 The callback runs synchronously once, returns void, and must not retain its facade
@@ -171,7 +172,7 @@ Callback/commit exceptions are recorded in the returned `const auto described`;
 
 ### Undo
 
-`store.undo()` moves to the parent revision after all guards have closed. It undoes
+`store.undo()` moves to the preceding linear entry after all guards have closed. It undoes
 only the description action; the amount adjustment and object identity survive.
 Undo at the baseline would throw because there is no preceding revision.
 
@@ -193,8 +194,8 @@ is made before saving.
 
 `const auto bytes = store.save()` creates an owned byte vector containing the
 versioned managed envelope: namespace, schema binding, ID width, current snapshot,
-allocator/revision high-water marks, history mode, retained revisions, and cursor.
-The undone description revision is retained for redo. This is memory serialization;
+object-ID allocation high-water mark, history mode, ordered history entries, and cursor.
+The undone description entry is retained for parameterless `redo()`. This is memory serialization;
 it does not write/flush a file or provide durable journaling or network management.
 
 `ledger_store restored{ledger_example::ledger{"Temporary"}}` constructs a

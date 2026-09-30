@@ -18,7 +18,7 @@ int main() {
   // Manual commit; the outcome must outlive the transaction guard.
   managed::transaction_outcome inserted;
   {
-    auto transaction = store.begin_transaction("Add draft entry", inserted);
+    auto transaction = store.begin_transaction(inserted);
     entry_id = transaction.root().entries().insert(draft_key, {"Supplies", 1500});
     transaction.commit();
   }
@@ -27,13 +27,13 @@ int main() {
   // Normal scope exit commits; check the outcome after guard destruction.
   managed::transaction_outcome adjusted;
   {
-    auto transaction = store.begin_transaction("Adjust draft amount", adjusted);
+    auto transaction = store.begin_transaction(adjusted);
     transaction.root().entries().edit(entry_id).set_amount_minor_units(1800);
   }
   adjusted.throw_if_failed();
 
   // The callback form completes the transaction before returning.
-  const auto described = store.execute_transaction("Describe draft", [entry_id](auto& transaction) {
+  const auto described = store.execute_transaction([entry_id](auto& transaction) {
     transaction.root().entries().edit(entry_id).set_memo("Office supplies");
   });
   described.throw_if_failed();
