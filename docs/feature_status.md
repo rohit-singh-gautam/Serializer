@@ -54,6 +54,12 @@ standard test build or independently with `SERIALIZER_BUILD_IOSTREAM_EXAMPLES=ON
 
 ## Schemas and generated languages
 
+[Schema generics](generics.md) support type parameters, nested applications,
+named concrete roots, and expansion across all eleven outputs. C++ has template
+aliases for schema-instantiated combinations. Generic managed/views, inheritance,
+unions, value parameters, specialization, and open native generic APIs remain
+unsupported. The existing storage-mode templates are independent.
+
 Language-specific output profiles select layouts and naming conventions. Schemas use
 `.serializer` and begin with `serializer version 1;`. Share declarations with `include
 common;` before any declarations. Paths are unquoted and relative to the including file;

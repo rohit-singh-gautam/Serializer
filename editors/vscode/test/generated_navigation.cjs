@@ -42,8 +42,9 @@ async function verify(entry, directory, options = [], selectedOutputs = outputs)
   let checks = 0;
   for (const schema of schemas) {
     for (const symbol of schema.index.symbols) {
+      if (symbol.typeParameter) { continue; }
       const definitions = await resolver.schema(schema.file, symbol.end, true);
-      assert.equal(definitions.length, files.length, `${symbol.qualified}: expected every generated language, got ${definitions.map(item => path.basename(item.file))}`);
+      assert.equal(new Set(definitions.map(item => item.file)).size, files.length, `${symbol.qualified}: expected every generated language, got ${definitions.map(item => path.basename(item.file))}`);
       for (const offset of [symbol.start, symbol.end - 1]) {
         assert.deepEqual(await resolver.schema(schema.file, offset, true), definitions,
           `${symbol.qualified}: schema boundary ${offset}`);
@@ -77,6 +78,7 @@ async function main() {
   fs.mkdirSync(parent, { recursive: true });
   const directory = fs.mkdtempSync(path.join(parent, 'generated-navigation-'));
   let checks = await verify(path.join(repository, 'example/schemas/complex/model.serializer'), path.join(directory, 'complex'));
+  checks += await verify(path.join(repository, 'test/resources/generics.serializer'), path.join(directory, 'generics'));
   const input = path.join(directory, 'acronyms.serializer');
   fs.writeFileSync(input, `serializer version 1;
 namespace HTTPModels { enum HTTPState { Ready } class HTTPRecord { public HTTPState StateValue; } }
@@ -90,6 +92,8 @@ namespace Names_ { class Value_Type {} }
   for (const profile of ['serializer', 'core', 'google', 'llvm', 'gnu', 'cert', 'misra', 'autosar', 'qt']) {
     checks += await verify(input, path.join(directory, `cpp-${profile}`),
       ['--cpp.coding_standard', profile], { cpp: outputs.cpp });
+    checks += await verify(path.join(repository, 'test/resources/generics.serializer'),
+      path.join(directory, `generics-cpp-${profile}`), ['--cpp.coding_standard', profile], { cpp: outputs.cpp });
   }
   for (const profile of ['serializer', 'core', 'google', 'llvm', 'gnu', 'cert', 'misra', 'autosar', 'qt']) {
     checks += await verify(path.join(repository, 'test/resources/managed_generated.serializer'),

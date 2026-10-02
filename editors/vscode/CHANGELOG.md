@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.13
+
+- Highlight generic parameters, nested type arguments, and named instantiations.
+- Navigate generic parameters and arguments, named roots, and concrete generated types across all output languages.
+- Keep both editor packages synchronized with schema generic support.
+
 ## 1.1.12
 
 - Follow native type definitions from aliases and variables in the explicit Go to Schema Declaration command.

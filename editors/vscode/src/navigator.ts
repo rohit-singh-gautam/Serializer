@@ -164,10 +164,12 @@ export class Navigator {
         if (!generated) { continue; }
         const names = outputNames(declaration.qualified, header, generated.text);
         const matches = (generated?.index.symbols ?? []).filter(symbol =>
-          symbol.definition && symbol.kind === declaration.kind && names.includes(symbol.qualified));
+          symbol.definition && symbol.kind === declaration.kind &&
+          (names.includes(symbol.qualified) || symbol.schemaQualified === declaration.qualified));
         // Preserve distinct identifiers in naming=preserve outputs that normalize alike.
         const preferredName = names.find(name => matches.some(symbol => symbol.qualified === name));
-        for (const symbol of matches.filter(symbol => symbol.qualified === preferredName)) {
+        for (const symbol of matches.filter(symbol => preferredName ? symbol.qualified === preferredName :
+            symbol.schemaQualified === declaration.qualified)) {
           targets.push({ file: header, start: symbol.start, end: symbol.end });
         }
       }
@@ -254,8 +256,9 @@ export class Navigator {
       const matches: Declaration[] = [];
       for (const schema of await this.graph(entry)) {
         for (const declaration of schema.index.symbols) {
-          if (declaration.kind === symbol.kind && [...outputNames(declaration.qualified, header, source!.text),
-            ...(/\.(hpp|h|hxx|hh)$/i.test(header) ? managedNames(declaration.qualified) : [])].includes(symbol.qualified)) {
+          if (declaration.kind === symbol.kind && (symbol.schemaQualified === declaration.qualified ||
+            [...outputNames(declaration.qualified, header, source!.text),
+            ...(/\.(hpp|h|hxx|hh)$/i.test(header) ? managedNames(declaration.qualified) : [])].includes(symbol.qualified))) {
             matches.push({ ...declaration, file: schema.file });
           }
         }

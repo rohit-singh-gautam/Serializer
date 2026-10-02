@@ -12,6 +12,12 @@ For Rust, Python, Swift, Kotlin, and C, see [native language APIs](native_langua
 and [four examples per language](../example/README.md).
 All outputs share the C++ schema compiler. The workflow below is for C++.
 
+For reusable parameterized models, follow [schema generics](generics.md).
+`class result<T>` can be used as `result<person>` in fields or exposed as a
+named root with `instantiate person_result = result<person>;`. All backends
+receive concrete codecs; C++ additionally provides aliases for the applications
+declared in the schema. Generic syntax does not change the selected wire protocol.
+
 For a small introduction, work through the [point examples](../example/managed/README.md)
 in order: create a schema-generated managed point, inspect a transaction callback,
 then use the generated editor and complete managed transactions.

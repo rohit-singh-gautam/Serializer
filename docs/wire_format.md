@@ -1,5 +1,11 @@
 # Wire format and decoding contract
 
+[Schema generics](generics.md) are expanded before codec generation. Each concrete
+application encodes exactly like an equivalent ordinary class; no parameter names,
+type tags, or generic envelope bytes are added. Both peers must agree on the
+concrete type. Substitution preserves declared IDs, wire names, order, and defaults;
+changing an argument is subject to the existing compatibility rules.
+
 The optional [C++ managed runtime](managed/cpp_runtime.md) uses generated
 [envelope schemas](../schemas/managed_records.serializer), encoded with the existing
 `binary_integer` protocol. They add document/schema identity, object-ID allocation

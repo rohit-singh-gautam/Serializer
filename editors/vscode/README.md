@@ -4,7 +4,7 @@ This extension supports the [Serializer schema compiler and serialization librar
 maintained in that repository.
 
 Edit `.serializer` schemas with syntax highlighting, bracket matching, comments,
-folding, and snippets. Version **1.1.12** includes navigation from includes and type
+folding, and snippets. Version **1.1.13** includes navigation from includes and type
 references to source schemas and existing generated code in all 11 output languages. Use the project's
 CMake configuration for the separate build and missing-header assistance commands.
 
@@ -184,6 +184,13 @@ Serializer output channels. Cancellation and unsuccessful builds do not report
 success. There is no automatic build on file open/save.
 
 ## Limits
+
+Generic declarations (`class box<T>`), nested type arguments, and named roots
+(`instantiate root = box<uint32>;`) are highlighted and indexed. Parameters
+navigate to their local declaration. Generic definitions navigate to their C++
+alias or concrete generated models in the other languages; unused definitions
+fall back to the schema. Generated concrete classes navigate back to the generic
+definition. See [schema generics](../../docs/generics.md) for compiler limits.
 
 - Build assistance requires an already configured CMake Tools project. It works
   through CMake with Makefile, Ninja, and Visual Studio generators; handwritten

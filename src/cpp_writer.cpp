@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <set>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -1328,6 +1329,71 @@ public:
     }
   }
 
+  // Expose only schema-instantiated combinations; unsupported arguments remain incomplete bindings.
+  void write_generic_aliases(rohit::type_check::output_buffer auto& output,
+                            const std::vector<std::unique_ptr<syntax_node>>& statements) {
+    std::map<std::string, std::vector<const class_node*>> families{};
+    std::set<std::string> occupied{};
+    const auto collect = [&](const auto& self, const auto& nodes) -> void {
+      for (const auto& node : nodes) {
+        occupied.insert(full_type_name(node.get()));
+        if (node->type == object_type::namespace_type) {
+          self(self, static_cast<const namespace_node&>(*node).statements);
+        } else if (node->type == object_type::class_type) {
+          const auto& object = static_cast<const class_node&>(*node);
+          if (!object.generic_name.empty()) { families[object.generic_name].push_back(&object); }
+        }
+      }
+    };
+    collect(collect, statements);
+    for (const auto& [name, instances] : families) {
+      const auto separator = name.rfind("::");
+      const auto base = separator == std::string::npos ? name : name.substr(separator + 2);
+      std::string scope{};
+      for (std::size_t begin = 0; separator != std::string::npos && begin < separator;) {
+        const auto end = name.find("::", begin);
+        if (!scope.empty()) { scope += "::"; }
+        scope += namespace_name(name.substr(begin, end - begin));
+        begin = end + 2;
+      }
+      const auto alias = type_name(base);
+      const auto binding = type_name(base + "_serializer_binding");
+      std::vector<std::unique_ptr<syntax_node>> alias_declarations{};
+      for (auto identifier : {base, base + "_serializer_binding"}) {
+        alias_declarations.push_back(std::make_unique<class_node>(object_type::class_type,
+            std::move(identifier), nullptr, class_attributes::none, std::vector<parent>{}));
+      }
+      validate_names(alias_declarations);
+      const auto prefix = scope.empty() ? "::" : "::" + scope + "::";
+      if (!occupied.insert(prefix + alias).second || !occupied.insert(prefix + binding).second) {
+        throw std::invalid_argument{"Generated C++ generic alias collision: " + name};
+      }
+      if (!scope.empty()) { output.write("namespace ", scope, " {\n"); }
+      std::string parameters{}, arguments{};
+      for (std::size_t index = 0; index < instances.front()->generic_arguments.size(); ++index) {
+        if (index != 0) { parameters += ", "; arguments += ", "; }
+        const auto parameter = "T" + std::to_string(index);
+        parameters += "typename " + parameter;
+        arguments += parameter;
+      }
+      output.write("// Bind schema-declared instantiations to their concrete wire types.\n",
+          "template <", parameters, "> struct ", binding, ";\n",
+          "template <", parameters, "> using ", alias, " = typename ", binding,
+          "<", arguments, ">::type;\n");
+      for (const auto* instance : instances) {
+        output.write("template <> struct ", binding, "<");
+        for (std::size_t index = 0; index < instance->generic_arguments.size(); ++index) {
+          if (index != 0) { output.write(", "); }
+          const auto& argument = instance->generic_arguments[index];
+          output.write(storage_type_name(argument.name, argument.resolved_node));
+        }
+        output.write("> { using type = ", full_type_name(instance), "; };\n");
+      }
+      if (!scope.empty()) { output.write("} // namespace ", scope, "\n"); }
+      output.write("\n");
+    }
+  }
+
   // Generate a complete C++ header while retaining the parsed schema and original wire names.
   void emit(rohit::type_check::output_buffer auto& out_stream,
             const std::vector<std::unique_ptr<syntax_node>>& statements) {
@@ -1360,6 +1426,7 @@ public:
                      "#include <utility>\n"
                      "#include <vector>\n\n");
     write_statement_list(out_stream, statements);
+    write_generic_aliases(out_stream, statements);
     managed_.write(out_stream);
   }
 };

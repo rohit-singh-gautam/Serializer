@@ -5,6 +5,21 @@ const { test } = require('node:test');
 const { Registry, INITIAL } = require('vscode-textmate');
 const onig = require('vscode-oniguruma');
 
+test('generic declarations, nested arguments and explicit instantiations retain type scopes', async () => {
+  const grammar = await loadGrammar();
+  const line = 'class box<T> { public array box<lib::person> values; } instantiate root = box<box<uint32>>;';
+  const tokens = grammar.tokenizeLine(line, INITIAL).tokens;
+  for (const word of ['box', 'T', 'person', 'root']) {
+    const offset = line.indexOf(word);
+    assert.equal(tokens.find(token => token.startIndex <= offset && token.endIndex > offset).scopes.at(-1),
+      'entity.name.type.serializer', word);
+  }
+  const offset = line.indexOf('uint32');
+  assert.equal(tokens.find(token => token.startIndex <= offset && token.endIndex > offset).scopes.at(-1),
+    'support.type.serializer');
+  assert.equal(grammar.tokenizeLine(line, INITIAL).ruleStack.depth, 1);
+});
+
 /** Tokenize real TextMate rules with the same regex engine used by VS Code. */
 async function loadGrammar() {
   const wasm = fs.readFileSync(require.resolve('vscode-oniguruma/release/onig.wasm'));

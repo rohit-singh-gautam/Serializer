@@ -45,6 +45,26 @@ internal static class NavigationTest {
           throw new Exception("Cancelled navigation did not stop");
         } catch (OperationCanceledException) { }
       }
+      if (args.Length > 2) {
+        var genericOutput = Path.GetFullPath(args[2]);
+        var genericModel = Path.GetFullPath(Path.Combine(repository, "example/generics/result.serializer"));
+        var genericText = File.ReadAllText(genericModel);
+        live[genericModel] = genericText;
+        var genericStart = genericText.IndexOf("result<T>", StringComparison.Ordinal);
+        var definitions = NavigationRunner.Resolve(genericModel, genericStart, true, genericOutput, live, CancellationToken.None);
+        Require(definitions.Select(item => Path.GetExtension(item.file)).Distinct().Count() == 11,
+          "generic definitions in all eleven output languages");
+        foreach (var definition in definitions) {
+          var source = NavigationRunner.Resolve(definition.file, definition.end, false, genericOutput, live, CancellationToken.None);
+          Require(source.Length == 1 && source[0].file == genericModel && source[0].start == genericStart,
+            "generic reverse mapping " + definition.file);
+          ++checks;
+        }
+        var parameter = genericText.IndexOf("T value", StringComparison.Ordinal);
+        var local = NavigationRunner.Resolve(genericModel, parameter, false, genericOutput, live, CancellationToken.None);
+        Require(local.Length == 1 && local[0].start == genericStart + "result<".Length, "generic parameter declaration");
+        ++checks;
+      }
       Console.WriteLine("Visual Studio shared resolver passed: " + checks + " source/output checks, real .NET interpreter, all 11 languages, selection endpoints, unsaved includes and cancellation.");
       return 0;
     } catch (Exception error) { Console.Error.WriteLine(error); return 1; }

@@ -390,6 +390,20 @@ feature as a prerequisite without the user's request.
 
 ## Author or evolve the schema
 
+- Use [schema generics](../../../docs/generics.md) for reusable owning models:
+  `class result<T>` with direct, array, map, and nested type applications.
+  `instantiate person_result = result<person>;` creates a named concrete root.
+  Declare definitions and arguments before use, including across includes.
+  All eleven backends expand concrete applications; C++ additionally exposes
+  template aliases only for schema-declared applications. Do not claim arbitrary
+  host C++ types or native generics in other languages are supported. Unused
+  generic definitions emit no model. Generic views/managed classes, inheritance,
+  unions, value parameters, specialization, and variadic parameters are unsupported.
+  Preserve field IDs/names/order and compare expanded contracts with the existing
+  compatibility checker. Parameters add no wire metadata. Prefer named roots over
+  compiler-owned hexadecimal instance names in application code.
+  Use the [runnable generic examples](../../../example/generics/README.md) for
+  C++ aliases and the shared all-language four-protocol runner.
 - Use `.serializer` files beginning with `serializer version 1;`, before declarations
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
@@ -595,7 +609,7 @@ versioned snippets, and invokes the same targets through CMake Tools. Run the ro
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 1.1.12 is shared with the Visual Studio extension and is independent of
+version 1.1.13 is shared with the Visual Studio extension and is independent of
 compiler and schema versions. Keep both editor extension versions equal.
 Both package descriptions and READMEs identify the
 [Serializer repository](https://github.com/rohit-singh-gautam/Serializer). Configure

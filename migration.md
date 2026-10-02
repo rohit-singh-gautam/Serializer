@@ -1,5 +1,15 @@
 # Migrating to the snake_case Serializer API
 
+## Schema generics
+
+Regenerate with the current compiler before using `class result<T>` or
+`instantiate root = result<uint32>;`; older compilers cannot parse these additions
+to schema version 1. Existing non-generic schemas and their wire encodings are
+unchanged. Concrete applications preserve ordinary field/codec semantics, without
+automatic type tags. A changed type argument still requires compatibility review.
+See [schema generics](docs/generics.md) for the finite C++ bindings and other-language
+concrete APIs. Editor extensions 1.1.13 recognize the new syntax.
+
 ## Independent managed features
 
 Rebuild consumers and `Serializer::managed`: store layouts and generated private

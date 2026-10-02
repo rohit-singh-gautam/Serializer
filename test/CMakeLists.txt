@@ -1,6 +1,6 @@
 set(schemas)
 foreach(fixture IN ITEMS enum person test1 array map variable assessment views storage_reuse
-    fixed_fields constant_names includes wire_compatibility)
+    fixed_fields constant_names includes wire_compatibility generics)
   list(APPEND schemas "${CMAKE_CURRENT_SOURCE_DIR}/resources/${fixture}.serializer")
 endforeach()
 
@@ -13,6 +13,7 @@ add_executable(core_serializer_test
   file_stream_test.cpp
   serializer_parser_test.cpp
   schema_version_test.cpp
+  schema_generics_test.cpp
   managed_schema_test.cpp
   managed_lowering_test.cpp
   schema_compatibility_test.cpp
@@ -49,6 +50,12 @@ elseif(UNIX)
 endif()
 
 add_test(NAME core_serializer_test COMMAND core_serializer_test)
+find_package(Python3 3.10 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+  add_test(NAME serializer_generic_python
+    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/example/generics/run.py"
+      --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/generic_python")
+endif()
 if(SERIALIZER_BUILD_MANAGED)
   add_executable(managed_collaboration_test managed_collaboration_test.cpp
     managed_collaboration_ownership_test.cpp managed_collaboration_proposal_test.cpp

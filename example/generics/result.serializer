@@ -1,0 +1,33 @@
+serializer version 1;
+
+namespace generic_demo {
+  class result<T> stable_ids {
+    public bool success (1);
+    public T value (2);
+    public string message (3);
+  }
+
+  class person stable_ids {
+    public string name (1);
+    public uint32 age (2);
+  }
+
+  class batch<T> stable_ids {
+    public array T values (1);
+  }
+
+  instantiate person_result = result<person>;
+  instantiate count_result = result<uint32>;
+
+  class response stable_ids {
+    public result<person> person_result (1);
+    public result<uint32> count_result (2);
+    public batch<result<uint32>> history (3);
+  }
+
+  class equivalent_response stable_ids {
+    public person_result person_result (1);
+    public count_result count_result (2);
+    public batch<result<uint32>> history (3);
+  }
+}

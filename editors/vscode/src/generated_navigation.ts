@@ -5,6 +5,21 @@ export const navigationLanguages = ['serializer', 'cpp', 'c', 'java', 'javascrip
   'typescript', 'typescriptreact', 'go', 'csharp', 'rust', 'python', 'swift', 'kotlin'];
 export const outputPattern = '**/*.{hpp,h,hxx,hh,java,js,mjs,cjs,ts,mts,cts,go,cs,rs,py,swift,kt,d}';
 
+/** Decode compiler-owned concrete generic identities after any output naming profile. */
+function bindGenericSources(index: SourceIndex): SourceIndex {
+  for (const symbol of index.symbols) {
+    const match = /^serializerinstance([0-9a-f]+)$/i.exec(symbol.name.replace(/_/g, ''));
+    if (!match || match[1].length % 2 !== 0 || match[1].length > 8192) { continue; }
+    let identity = '';
+    for (let offset = 0; offset < match[1].length; offset += 2) {
+      identity += String.fromCharCode(parseInt(match[1].slice(offset, offset + 2), 16));
+    }
+    const family = /^([A-Za-z_]\w*(?:::[A-Za-z_]\w*)*)</.exec(identity);
+    if (family) { symbol.schemaQualified = family[1]; }
+  }
+  return index;
+}
+
 /** Recognize emitted file types, including TypeScript companion declarations. */
 export function outputLanguage(file: string): string | undefined {
   const extension = path.extname(file).toLowerCase();
@@ -74,7 +89,7 @@ export function indexGeneratedSource(text: string, file: string): SourceIndex {
         }
       }
     }
-    return result;
+    return bindGenericSources(result);
   }
   const code = generatedCode(text, language ?? '');
   const patterns: Record<string, RegExp> = {
@@ -103,7 +118,7 @@ export function indexGeneratedSource(text: string, file: string): SourceIndex {
         declaration: match.index!, body: start, definition: false });
     }
   }
-  return { symbols, includes: [], references: [] };
+  return bindGenericSources({ symbols, includes: [], references: [] });
 }
 
 /** Reproduce namespace containers/flattening and preserve/profile type spellings per language. */

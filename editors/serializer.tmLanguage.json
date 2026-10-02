@@ -41,7 +41,7 @@
       "include": "#strings"
     },
     {
-      "match": "\\b(namespace|class|enum)\\s+([A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
+      "match": "\\b(namespace|class|enum|instantiate)\\s+([A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
       "captures": {
         "1": {
           "name": "storage.type.serializer"
@@ -50,6 +50,13 @@
           "name": "entity.name.type.serializer"
         }
       }
+    },
+    {
+      "match": "\\b[A-Za-z_][A-Za-z_0-9]*(?=\\s*<)",
+      "name": "entity.name.type.serializer"
+    },
+    {
+      "include": "#generic_arguments"
     },
     {
       "match": "(\\{)\\s*((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)(::)([A-Za-z_][A-Za-z_0-9]*)(?=\\s*\\})",
@@ -204,7 +211,7 @@
     },
     {
       "name": "storage.type.serializer",
-      "match": "\\b(namespace|class|enum|array|map|union)\\b"
+      "match": "\\b(namespace|class|enum|instantiate|array|map|union)\\b"
     },
     {
       "name": "storage.modifier.serializer",
@@ -297,6 +304,35 @@
         {
           "name": "entity.name.type.serializer",
           "match": "[A-Za-z_][A-Za-z_0-9]*"
+        }
+      ]
+    },
+    "generic_arguments": {
+      "begin": "<",
+      "end": ">|(?=[;{}])",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.group.serializer"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.group.serializer"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#generic_arguments"
+        },
+        {
+          "include": "#type_name"
+        },
+        {
+          "name": "punctuation.separator.serializer",
+          "match": ","
         }
       ]
     }

@@ -19,7 +19,9 @@
 #include <rohit/version.hpp>
 
 #include "schema_scan.hpp"
+#include "schema_generics.hpp"
 
+#include <algorithm>
 #include <charconv>
 #include <concepts>
 #include <cstdint>
@@ -321,6 +323,29 @@ parse_hierarchical_identifier_impl(const rohit::type_check::schema_input_buffer 
   return {reinterpret_cast<const char*>(begin), available - in_stream.remaining_buffer()};
 } // parse_hierarchical_identifier_impl
 
+// Parse bounded, nested schema type arguments without consuming the following member name.
+type_name parse_type_expression(const rohit::type_check::schema_input_buffer auto& input,
+                                namespace_node* scope, std::size_t depth = 0) {
+  constexpr std::size_t maximum_type_depth = 32;
+  if (depth >= maximum_type_depth) {
+    throw exception::bad_member_type{input, "Maximum generic type depth (32) exceeded"};
+  }
+  type_name result{parse_hierarchical_identifier_impl(input), scope};
+  skip_whitespace_and_comment(input);
+  if (!input.full() && *input == '<') {
+    ++input;
+    do {
+      skip_whitespace_and_comment(input);
+      result.arguments.push_back(parse_type_expression(input, scope, depth + 1));
+      if (input.full() || *input != ',') { break; }
+      ++input;
+    } while (true);
+    check_and_increase(input, '>');
+    skip_whitespace_and_comment(input);
+  }
+  return result;
+}
+
 // Invoke the callback for each whitespace-separated identifier.
 void space_separated_identifier_impl(const rohit::type_check::schema_input_buffer auto& in_stream,
                                      std::function<void(std::string&&)> fn) {
@@ -380,19 +405,20 @@ void parse_member_type_union(const rohit::type_check::schema_input_buffer auto& 
   int count{0};
   while (true) {
     skip_whitespace_and_comment(in_stream);
-    auto type_name = parse_hierarchical_identifier_impl(in_stream);
+    auto type = parse_type_expression(in_stream, declared_namespace);
     skip_whitespace_and_comment(in_stream);
     if (*in_stream == '=') {
       ++in_stream;
       skip_whitespace_and_comment(in_stream);
       auto enum_name = parse_identifier_impl(in_stream);
-      type_name_list.emplace_back(std::move(type_name), std::move(enum_name), declared_namespace);
+      type.enum_name = std::move(enum_name);
       skip_whitespace_and_comment(in_stream);
     } else {
       std::string enum_name{"e_" + std::to_string(count)};
-      type_name_list.emplace_back(std::move(type_name), std::move(enum_name), declared_namespace);
+      type.enum_name = std::move(enum_name);
       ++count;
     }
+    type_name_list.push_back(std::move(type));
     if (*in_stream != ',') {
       break;
     }
@@ -411,8 +437,7 @@ void parse_member_type_map(const rohit::type_check::schema_input_buffer auto& in
   key = parse_hierarchical_identifier_impl(in_stream);
   check_and_increase(in_stream, ')');
   skip_whitespace_and_comment(in_stream);
-  auto type_name = parse_hierarchical_identifier_impl(in_stream);
-  type_name_list.emplace_back(std::move(type_name), declared_namespace);
+  type_name_list.push_back(parse_type_expression(in_stream, declared_namespace));
 } // parse_member_type_map
 
 // Reject unrepresentable field IDs and keys reserved for object terminators.
@@ -475,25 +500,27 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
                          const std::uint32_t id, namespace_node* declared_namespace) {
   auto access = parse_access_type_impl(in_stream);
   skip_whitespace_and_comment(in_stream);
-  auto next_identifier = parse_hierarchical_identifier_impl(in_stream);
-  const bool managed = next_identifier == "managed";
+  auto next_type = parse_type_expression(in_stream, declared_namespace);
+  const bool managed = next_type.name == "managed";
   if (managed) {
     skip_whitespace_and_comment(in_stream);
     if (*in_stream == '(') {
       throw exception::bad_member_spec{in_stream, "Managed feature selectors are not implemented; use bare managed for the C++ history profile"};
     }
-    next_identifier = parse_hierarchical_identifier_impl(in_stream);
+    next_type = parse_type_expression(in_stream, declared_namespace);
   }
   std::vector<std::string> enum_name_list{};
   std::vector<type_name> type_name_list{};
-  auto member_modifier = parse_member_modifier(next_identifier);
+  auto member_modifier = parse_member_modifier(next_type.name);
+  if (member_modifier != member::modifier_type::none && !next_type.arguments.empty()) {
+    throw exception::bad_member_type{in_stream, "Collection modifiers do not accept type arguments"};
+  }
   std::string key{};
   if (member_modifier == member::modifier_type::none) {
-    type_name_list.emplace_back(std::move(next_identifier), declared_namespace);
+    type_name_list.push_back(std::move(next_type));
   } else if (member_modifier == member::modifier_type::array) {
     skip_whitespace_and_comment(in_stream);
-    auto type_name = parse_hierarchical_identifier_impl(in_stream);
-    type_name_list.emplace_back(std::move(type_name), declared_namespace);
+    type_name_list.push_back(parse_type_expression(in_stream, declared_namespace));
   } else if (member_modifier == member::modifier_type::map) {
     parse_member_type_map(in_stream, declared_namespace, type_name_list, key);
   } else if (member_modifier == member::modifier_type::variant) {
@@ -543,6 +570,9 @@ object_type parse_object_type(const rohit::type_check::schema_input_buffer auto&
   }
   if (object_type == "enum") {
     return object_type::enum_type;
+  }
+  if (object_type == "instantiate") {
+    return object_type::instantiation;
   }
   if (object_type == "include") {
     throw exception::bad_object_type{
@@ -619,6 +649,30 @@ parse_class_header(const rohit::type_check::schema_input_buffer auto& in_stream,
   skip_whitespace_and_comment(in_stream);
   auto name = parse_identifier_impl(in_stream);
   skip_whitespace_and_comment(in_stream);
+  std::vector<std::string> parameters{};
+  if (!in_stream.full() && *in_stream == '<') {
+    ++in_stream;
+    do {
+      skip_whitespace_and_comment(in_stream);
+      auto parameter = parse_identifier_impl(in_stream);
+      constexpr std::string_view reserved_parameters[] = {
+          "array", "map", "union", "managed", "class", "namespace", "enum", "instantiate",
+          "serializer", "version", "include", "public", "protected", "private", "owning",
+          "readonly", "mutable", "view", "stable_ids", "packed"};
+      if (std::find(parameters.begin(), parameters.end(), parameter) != parameters.end() ||
+          std::find(std::begin(reserved_parameters), std::end(reserved_parameters), parameter) !=
+              std::end(reserved_parameters) ||
+          !serializer::get_cpp_type_or_empty(parameter).empty() || parameter == name) {
+        throw exception::bad_class{in_stream, "Duplicate or reserved generic parameter: " + parameter};
+      }
+      parameters.push_back(std::move(parameter));
+      skip_whitespace_and_comment(in_stream);
+      if (in_stream.full() || *in_stream != ',') { break; }
+      ++in_stream;
+    } while (true);
+    check_and_increase(in_stream, '>');
+    skip_whitespace_and_comment(in_stream);
+  }
   auto attributes{class_attributes::none};
   bool view{}, owning{}, readonly{}, mutable_view{};
   space_separated_identifier_impl(in_stream, [&](std::string&& value) {
@@ -664,6 +718,7 @@ parse_class_header(const rohit::type_check::schema_input_buffer auto& in_stream,
       ((!view || owning) ? static_cast<unsigned>(storage_mode::owning) : 0u) |
       (readonly ? static_cast<unsigned>(storage_mode::read_only_view) : 0u) |
       (mutable_view ? static_cast<unsigned>(storage_mode::mutable_view) : 0u));
+  result->type_parameters = std::move(parameters);
   return result;
 }
 
@@ -797,6 +852,18 @@ parse_statement_list(const rohit::type_check::schema_input_buffer auto& in_strea
       statements.emplace_back(parse_namespace(in_stream, parent_namespace, declarations));
     } else if (object_type == object_type::enum_type) {
       statements.emplace_back(parse_enum(in_stream, parent_namespace, declarations));
+    } else if (object_type == object_type::instantiation) {
+      skip_whitespace_and_comment(in_stream);
+      auto name = parse_identifier_impl(in_stream);
+      skip_whitespace_and_comment(in_stream);
+      check_and_increase(in_stream, '=');
+      skip_whitespace_and_comment(in_stream);
+      auto node = std::make_unique<class_node>(object_type::class_type, std::move(name),
+          parent_namespace, class_attributes::none, std::vector<parent>{});
+      node->instance_of.push_back(parse_type_expression(in_stream, parent_namespace));
+      check_and_increase(in_stream, ';');
+      register_declaration(in_stream, *node, declarations);
+      statements.push_back(std::move(node));
     } else {
       std::string error_text{
           "Bad identifier type it must be one of 'class' or 'namespace' case sensitive."};
@@ -891,6 +958,7 @@ syntax_node* find_declared_type(const std::string& name, namespace_node* current
 // Preserve resolved declaration identity so generated nested classes select the correct mode.
 void resolve_type(const rohit::type_check::schema_input_buffer auto& input, type_name& type,
                   const std::unordered_map<std::string, syntax_node*>& types) {
+  if (type.type != object_type::unresolved) { return; }
   if (auto* node = find_declared_type(type.name, type.declared_namespace, types)) {
     if (node->type == object_type::namespace_type) {
       throw exception::bad_member_type{input, "Namespace cannot be used as a type: " + type.name};
@@ -978,52 +1046,57 @@ void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream
                     std::vector<std::unique_ptr<rohit::serializer::syntax_node>>& statements,
                     std::unordered_map<std::string, syntax_node*>& variable_type_map) {
   for (auto& statement : statements) {
-    switch (statement->type) {
-    case object_type::namespace_type: {
-      auto namespace_ptr = dynamic_cast<namespace_node*>(statement.get());
-      register_declaration(in_stream, *namespace_ptr, variable_type_map);
-      resolve_member(in_stream, namespace_ptr->statements, variable_type_map);
-    } break;
+    try {
+      switch (statement->type) {
+      case object_type::namespace_type: {
+        auto namespace_ptr = dynamic_cast<namespace_node*>(statement.get());
+        register_declaration(in_stream, *namespace_ptr, variable_type_map);
+        resolve_member(in_stream, namespace_ptr->statements, variable_type_map);
+      } break;
 
-    case object_type::class_type: {
-      register_declaration(in_stream, *statement, variable_type_map);
-      auto class_ptr = dynamic_cast<class_node*>(statement.get());
-      for (auto& base : class_ptr->parents) {
-        auto* node = find_declared_type(base.name, base.current_namespace, variable_type_map);
-        if (!node || node == class_ptr || node->type != object_type::class_type) {
-          throw exception::bad_class{in_stream, "Parent must name a previously declared class"};
+      case object_type::class_type: {
+        register_declaration(in_stream, *statement, variable_type_map);
+        auto class_ptr = dynamic_cast<class_node*>(statement.get());
+        for (auto& base : class_ptr->parents) {
+          auto* node = find_declared_type(base.name, base.current_namespace, variable_type_map);
+          if (!node || node == class_ptr || node->type != object_type::class_type) {
+            throw exception::bad_class{in_stream, "Parent must name a previously declared class"};
+          }
+          base.parent_class = static_cast<class_node*>(node);
+          validate_nested_modes(in_stream, *class_ptr, node);
         }
-        base.parent_class = static_cast<class_node*>(node);
-        validate_nested_modes(in_stream, *class_ptr, node);
-      }
-      for (auto& member : class_ptr->member_list) {
-        for (auto& type : member.type_name_list) {
-          resolve_type(in_stream, type, variable_type_map);
-          validate_nested_modes(in_stream, *class_ptr, type.resolved_node);
-          if (member.managed &&
-              (member.modifier == member::modifier_type::variant || !type.resolved_node ||
-               type.resolved_node->type != object_type::class_type ||
-               !static_cast<const class_node*>(type.resolved_node)->supports_managed())) {
-            throw exception::bad_member_type{in_stream,
-                "managed members require a class declared managed or containing its own managed member"};
+        for (auto& member : class_ptr->member_list) {
+          for (auto& type : member.type_name_list) {
+            resolve_type(in_stream, type, variable_type_map);
+            validate_nested_modes(in_stream, *class_ptr, type.resolved_node);
+            if (member.managed &&
+                (member.modifier == member::modifier_type::variant || !type.resolved_node ||
+                 type.resolved_node->type != object_type::class_type ||
+                 !static_cast<const class_node*>(type.resolved_node)->supports_managed())) {
+              throw exception::bad_member_type{in_stream,
+                  "managed members require a class declared managed or containing its own managed member"};
+            }
+          }
+          if (member.modifier == member::modifier_type::map) {
+          type_name key{std::string{member.key}, member.type_name_list.front().declared_namespace};
+            resolve_type(in_stream, key, variable_type_map);
+            member.key_node = key.resolved_node;
+            validate_nested_modes(in_stream, *class_ptr, member.key_node, true);
           }
         }
-        if (member.modifier == member::modifier_type::map) {
-          type_name key{std::string{member.key}, class_ptr->parent_namespace};
-          resolve_type(in_stream, key, variable_type_map);
-          member.key_node = key.resolved_node;
-          validate_nested_modes(in_stream, *class_ptr, member.key_node, true);
-        }
+        validate_view_names(in_stream, *class_ptr);
+      } break;
+
+      case object_type::enum_type:
+        register_declaration(in_stream, *statement, variable_type_map);
+        break;
+
+      default:
+        break;
       }
-      validate_view_names(in_stream, *class_ptr);
-    } break;
-
-    case object_type::enum_type:
-      register_declaration(in_stream, *statement, variable_type_map);
-      break;
-
-    default:
-      break;
+    } catch (const std::exception& error) {
+      if (statement->source_path.empty()) { throw; }
+      throw std::invalid_argument{statement->source_path + ": " + error.what()};
     }
   }
 }
@@ -1161,7 +1234,15 @@ class file_loader {
       if (!input.full()) {
         throw exception::bad_input_data{input, "Unexpected trailing schema input"};
       }
-      resolve_member(input, statements, types);
+      const auto locate = [&](const auto& self, auto& nodes) -> void {
+        for (auto& node : nodes) {
+          node->source_path = canonical.generic_string();
+          if (node->type == object_type::namespace_type) {
+            self(self, static_cast<namespace_node&>(*node).statements);
+          }
+        }
+      };
+      locate(locate, statements);
       for (auto& statement : statements) {
         result.statements.push_back(std::move(statement));
       }
@@ -1175,6 +1256,13 @@ public:
   // Return the complete compilation unit only after every dependency has been validated.
   parsed_schema run(const std::filesystem::path& path) {
     load(path, 0);
+    try {
+      const auto input = rohit::make_stream_from_file(path);
+      lower_generics(input, result.statements);
+      resolve_member(input, result.statements, types);
+    } catch (const std::exception& error) {
+      throw std::invalid_argument{path.generic_string() + ": " + error.what()};
+    }
     return std::move(result);
   }
 };
@@ -1195,6 +1283,7 @@ parse_schema(const rohit::type_check::schema_input_buffer auto& in_stream, bool 
     throw exception::bad_input_data{in_stream, "Unexpected trailing schema input"};
   }
   std::unordered_map<std::string, syntax_node*> variable_type_map;
+  lower_generics(in_stream, statements);
   resolve_member(in_stream, statements, variable_type_map);
   return statements;
 }

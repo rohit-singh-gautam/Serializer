@@ -1,4 +1,14 @@
 {
+  "Generic class": {
+    "prefix": "generic",
+    "body": ["class ${1:result}<${2:T}> stable_ids {", "  public $2 ${3:value} (1);", "  $0", "}"],
+    "description": "Declare a reusable owning class with a schema type parameter"
+  },
+  "Instantiation": {
+    "prefix": "instantiate",
+    "body": "instantiate ${1:count_result} = ${2:result}<${3:uint32}>;$0",
+    "description": "Expose a generic schema application as a named concrete root"
+  },
   "Include": {
     "prefix": "include",
     "body": "include ${1:common};$0",

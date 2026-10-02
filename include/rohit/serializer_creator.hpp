@@ -100,7 +100,7 @@ void to_lower_in_place(std::string& value);
 
 enum class access_type { error, private_access, protected_access, public_access };
 
-enum class object_type { unresolved, namespace_type, class_type, enum_type, primitive };
+enum class object_type { unresolved, namespace_type, class_type, enum_type, primitive, instantiation };
 
 enum class class_attributes : std::uint8_t {
   none = 0x00, packed = 0x01, stable_ids = 0x02, managed = 0x04
@@ -115,12 +115,14 @@ struct syntax_node {
   object_type type;
   std::string name;
   namespace_node* parent_namespace{nullptr};
+  std::string source_path{};
   // Initialize this object from the supplied storage or value state.
   syntax_node(object_type type, std::string&& name, namespace_node* parent_namespace)
       : type{type}, name{std::move(name)}, parent_namespace{parent_namespace} {}
   // Initialize this object from the supplied storage or value state.
   syntax_node(syntax_node&& base)
-      : type{base.type}, name{std::move(base.name)}, parent_namespace{base.parent_namespace} {}
+      : type{base.type}, name{std::move(base.name)}, parent_namespace{base.parent_namespace},
+        source_path{std::move(base.source_path)} {}
   // Release resources owned by this object.
   virtual ~syntax_node() = default;
   // Initialize this object from the supplied storage or value state.
@@ -158,7 +160,8 @@ struct type_name {
   // Initialize this object from the supplied storage or value state.
   type_name(const type_name& rhs)
       : name{rhs.name}, enum_name{rhs.enum_name}, declared_namespace{rhs.declared_namespace},
-        defined_namespace{rhs.defined_namespace}, type{rhs.type}, resolved_node{rhs.resolved_node} {}
+        defined_namespace{rhs.defined_namespace}, type{rhs.type}, resolved_node{rhs.resolved_node},
+        arguments{rhs.arguments} {}
   // Assign the documented view or value state from the source object.
   type_name& operator=(const type_name& rhs) {
     name = rhs.name;
@@ -167,6 +170,7 @@ struct type_name {
     defined_namespace = rhs.defined_namespace;
     type = rhs.type;
     resolved_node = rhs.resolved_node;
+    arguments = rhs.arguments;
     return *this;
   }
 
@@ -176,6 +180,7 @@ struct type_name {
   namespace_node* defined_namespace{};
   object_type type{object_type::unresolved};
   const syntax_node* resolved_node{};
+  std::vector<type_name> arguments{};
 
   // Resolve this syntax node name relative to its containing namespace.
   std::string get_full_name() const {
@@ -192,7 +197,7 @@ struct type_name {
   // Compare the relevant values without modifying either operand.
   bool operator==(const type_name& rhs) const {
     return name == rhs.name && enum_name == rhs.enum_name &&
-           declared_namespace == rhs.declared_namespace;
+           declared_namespace == rhs.declared_namespace && arguments == rhs.arguments;
   }
 };
 
@@ -237,6 +242,11 @@ struct class_node : public syntax_node {
   std::uint8_t storage_modes{static_cast<std::uint8_t>(storage_mode::owning)};
   std::vector<parent> parents;
   std::vector<member> member_list{};
+  std::vector<std::string> type_parameters{};
+  std::vector<type_name> instance_of{};
+  // Concrete instances retain their schema identity for C++ template aliases and tooling.
+  std::string generic_name{};
+  std::vector<type_name> generic_arguments{};
   // Initialize this object from the supplied storage or value state.
   class_node(object_type type, std::string&& name, namespace_node* parent_namespace,
              class_attributes attributes, std::vector<parent>&& parents)
@@ -246,7 +256,9 @@ struct class_node : public syntax_node {
   class_node(class_node&& rhs)
       : syntax_node{std::move(rhs)}, attributes{rhs.attributes}, storage_modes{rhs.storage_modes},
         parents{std::move(rhs.parents)},
-        member_list{std::move(rhs.member_list)} {}
+        member_list{std::move(rhs.member_list)}, type_parameters{std::move(rhs.type_parameters)},
+        instance_of{std::move(rhs.instance_of)}, generic_name{std::move(rhs.generic_name)},
+        generic_arguments{std::move(rhs.generic_arguments)} {}
   // Report whether this schema requests a particular generated representation.
   bool has_mode(storage_mode mode) const {
     return (storage_modes & static_cast<std::uint8_t>(mode)) != 0;

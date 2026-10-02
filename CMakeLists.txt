@@ -251,6 +251,10 @@ if(SERIALIZER_BUILD_TESTS OR SERIALIZER_BUILD_STYLE_EXAMPLES OR SERIALIZER_BUILD
   add_subdirectory(example/includes)
 endif()
 
+if(SERIALIZER_BUILD_TESTS OR SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
+  add_subdirectory(example/generics)
+endif()
+
 if(SERIALIZER_BUILD_INTEROP_EXAMPLES)
   add_subdirectory(example/interoperability)
 endif()
@@ -274,6 +278,12 @@ if(SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
     COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/test/native/run.py"
       --compiler "$<TARGET_FILE:serializer>" --build "${PROJECT_BINARY_DIR}/native_codecs"
       ${native_example_options})
+  add_test(NAME serializer_generic_languages
+    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/example/generics/run.py"
+      --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_lib>"
+      --build "${PROJECT_BINARY_DIR}/generic_languages" --language all
+      "--wsl-languages=${SERIALIZER_EXAMPLE_WSL_LANGUAGES}")
+  set_tests_properties(serializer_generic_languages PROPERTIES TIMEOUT 1800 LABELS serializer_native)
   set_tests_properties(serializer_language_examples serializer_native_codecs PROPERTIES
     TIMEOUT 1800 LABELS serializer_native)
   foreach(feature IN ITEMS history journal collaboration authentication)

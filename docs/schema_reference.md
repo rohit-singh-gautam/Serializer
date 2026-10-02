@@ -48,6 +48,14 @@ and `mutable`. Their order does not matter. `packed` controls generated native
 C++ layout, depends on compiler support, and cannot be combined with `view`.
 Binary serialization always encodes fields individually.
 
+### Generic owning classes
+
+Declare type parameters with `class result<T>` and use applications such as
+`result<uint32>` in fields. `instantiate count_result = result<uint32>;` creates
+a named concrete root. Multiple parameters and nested applications are supported.
+See [schema generics](generics.md) for complete examples, C++ template aliases,
+cross-language expansion, and the owning-only first-release restrictions.
+
 ### Owning objects and buffer views
 
 | Class header | Generated modes | Class template |

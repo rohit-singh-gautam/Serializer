@@ -16,6 +16,8 @@ export interface TypeSymbol extends Span {
   body: number;
   declaration: number;
   definition: boolean;
+  schemaQualified?: string;
+  typeParameter?: boolean;
 }
 export interface SourceIndex {
   symbols: TypeSymbol[];
@@ -86,7 +88,17 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
     const name = qualified(start);
     if (!name) { return start + 1; }
     result.references.push({ ...name, scope: [...currentScope()] });
-    return name.next;
+    let next = name.next;
+    if (tokens[next]?.text === '<') {
+      ++next;
+      while (next < tokens.length && !['>', ';', '}'].includes(tokens[next].text)) {
+        next = typeReference(next, depth + 1);
+        if (tokens[next]?.text !== ',') { break; }
+        ++next;
+      }
+      if (tokens[next]?.text === '>') { ++next; }
+    }
+    return next;
   }
 
   /** Index only the enum type prefix of a field default, excluding its value and quoted text. */
@@ -131,6 +143,20 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
         result.includes.push({ name, start: first.start, end: last.end });
       }
       i = end;
+    } else if (!schema && token.text === 'using' && tokens[i + 2]?.text === '=' &&
+        tokens[i + 3]?.text === 'typename') {
+      const name = tokens[i + 1];
+      result.symbols.push({ ...name, name: name.text, qualified: [...currentScope(), name.text].join('::'),
+        kind: 'class', body: name.start, declaration: token.start, definition: true });
+    } else if (schema && token.text === 'instantiate') {
+      const name = tokens[i + 1];
+      if (name && tokens[i + 2]?.text === '=') {
+        const qualifiedName = [...currentScope(), name.text].join('::');
+        result.symbols.push({ ...name, name: name.text, qualified: qualifiedName, kind: 'class',
+          body: name.start, declaration: token.start, definition: true });
+        result.references.push({ ...name, name: qualifiedName, scope: [] });
+        typeReference(i + 3);
+      }
     } else if (schema && ['public', 'private', 'protected'].includes(token.text)) {
       defaultReference(typeReference(i + 1));
     } else if (token.text === 'class' || token.text === 'struct' || token.text === 'enum') {
@@ -141,11 +167,15 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
       if (!name || !/^[A-Za-z_]\w*$/.test(name.text)) { continue; }
       let body = nameIndex + 1;
       // Generated storage-mode specializations retain the same public schema type name.
-      if (!schema && tokens[body]?.text === '<') {
+      const parameters: Token[] = [];
+      if (tokens[body]?.text === '<') {
         let depth = 0;
         do {
           if (tokens[body].text === '<') { ++depth; }
           if (tokens[body].text === '>') { --depth; }
+          if (schema && depth === 1 && /^[A-Za-z_]\w*$/.test(tokens[body].text)) {
+            parameters.push(tokens[body]);
+          }
           ++body;
         } while (body < tokens.length && depth > 0);
       }
@@ -153,6 +183,16 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
       if (!schema && !['{', ':', 'final', ';'].includes(tokens[body]?.text)) { continue; }
       while (body < tokens.length && !['{', ';', '}'].includes(tokens[body].text)) { ++body; }
       if (tokens[body]?.text !== '{' && (schema || tokens[body]?.text !== ';')) { continue; }
+      if (schema && parameters.length) {
+        const scope = [...currentScope(), name.text];
+        namespaceBodies.set(body, scope);
+        for (const parameter of parameters) {
+          const qualifiedName = [...scope, parameter.text].join('::');
+          result.symbols.push({ ...parameter, name: parameter.text, qualified: qualifiedName, kind: 'class',
+            body: parameter.start, declaration: parameter.start, definition: true, typeParameter: true });
+          result.references.push({ ...parameter, name: qualifiedName, scope: [] });
+        }
+      }
       const symbol: TypeSymbol = { name: name.text,
         qualified: [...currentScope(), name.text].join('::'),
         kind: token.text === 'enum' ? 'enum' : 'class', start: name.start, end: name.end,
