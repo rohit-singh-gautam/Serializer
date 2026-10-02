@@ -387,6 +387,16 @@ acknowledged operation-compaction protocol yet. Presence tombstones likewise cou
 toward their lifetime budget. A full lock outbox must be pruned before further
 transitions; earlier expiry transitions can already have completed.
 
+The authority's optional seventh `Features` argument defaults to `store_features::all`;
+`store_features::collaboration` compiles out its journal storage and API. Authentication
+and authorization checks remain part of collaboration. With `history_mode::disabled`,
+undo/redo APIs, per-session stacks, inverse snapshots and contribution-version tables
+are absent. Accepted snapshots and compact changed-field/ownership addresses remain
+necessary for ordered synchronization, conflict detection and retry deduplication.
+Inverse requests are rejected. History-enabled authorities preserve their existing behavior.
+
+Each candidate is encoded once by the store. The authority reuses those prepared bytes,
+and baseline polling copies the existing committed snapshot without re-encoding it.
 Accepted batches carry the complete current model snapshot and transaction metadata.
 Retained before snapshots and encoded field metadata count against `max_retained_bytes`;
 `max_tracked_fields` (default 100000) bounds projection and version tombstones.

@@ -1008,6 +1008,14 @@ Managed representation changes require saved-state migration.
 History mode is selected at compile time: `model_store<Root>` defaults to linear;
 `model_store<Root, history_mode::tree>` selects tree, and `history_mode::disabled`
 omits history. Each specialization contains only its selected storage.
+Journal and collaboration can also be compiled out with the fifth template argument:
+`model_store<Root, Mode, Labels, Traits, store_features::none|journal|collaboration|all>`
+(select one value). `all` preserves existing defaults; `none` plus linear/tree history
+selects history only. Journal-only and collaboration-only stores use disabled history
+with the matching feature value. Disabled features have no attachment storage or runtime
+checks, and their store APIs are unavailable. Authentication remains host-owned and
+belongs to collaboration, not a standalone store feature. See the
+[feature selection examples](docs/managed/cpp_runtime.md#independent-store-features).
 History currently retains whole-root snapshots. Default linear history uses a deque
 and cursor, with no revision IDs or revision lookup. Its `undo()`/`redo()` navigate
 adjacent entries, evicting oldest states to meet count/byte limits; tree history retains
@@ -1035,7 +1043,7 @@ append each already serialized snapshot once with compact framing, preserve undo
 and track unsaved values separately from durability. `journal_dirty()` and
 `journal_sequence()` expose those independent positions. Uncertain I/O reports
 `transaction_status::indeterminate` and blocks writes until recovery.
-Feature selectors, exclusions, built-in authorization policies, and other-language managed runtimes remain
+Schema feature selectors, exclusions, built-in authorization policies, and other-language managed runtimes remain
 future work; unsupported syntax/backends fail explicitly.
 
 The [managed capabilities](docs/managed/capabilities.md) proposal covers history,

@@ -4,7 +4,7 @@ Status: implemented C++ schema generation, local snapshot history, and synchrono
 file journaling/crash recovery. Bare
 `managed` class/member declarations generate storage, conversions, identity
 traversal, and typed transaction editors. Built-in authorization policies,
-feature selectors, exclusions, notifications, and other-language managed runtimes
+schema feature selectors, exclusions, notifications, and other-language managed runtimes
 remain proposals. Unsupported selectors/backends are rejected rather than ignored.
 
 The [collaboration runtime](collaboration_runtime.md) now wraps this store with
@@ -245,16 +245,54 @@ using tree_store = rohit::managed::model_store<point, rohit::managed::history_mo
 using identity_store = rohit::managed::model_store<point, rohit::managed::history_mode::disabled>;
 ```
 
-`model_store<Root, Mode, Labels, Traits>` and its `managed` alias contain only the selected
+`model_store<Root, Mode, Labels, Traits, Features>` and its `managed` alias contain only the selected
 history storage. Linear has a deque/cursor, tree has a revision map, and disabled
 has an empty history slot. Dispatch uses `if constexpr`; there is no runtime mode
 selector, variant, or pair of optional history pointers. Disabled stores retain
 managed identity and transactions but have no undo/redo/checkout/reset API.
 `store_options` configures limits and decoding, not history mode.
 Synchronous file journals work with each history policy; see
-[journal and recovery](journal.md#using-the-implemented-journal). Collaboration and
-authorization remain unimplemented. Broader capability selection is independent of this history policy;
-several such capabilities could coexist with one selected history representation.
+[journal and recovery](journal.md#using-the-implemented-journal). Store-owned
+[collaboration](local_collaboration.md) composes with these policies. Built-in inherited
+authorization and schema capability selectors remain proposals.
+
+### Independent store features
+
+The fifth template argument is `store_features::all` by default. Select `none`,
+`journal`, or `collaboration` to remove unused attachment storage and execution paths.
+The first four argument positions and the `managed` alias remain compatible.
+
+```cpp
+namespace managed = rohit::managed;
+using traits = managed::model_traits<point>;
+using history_only = managed::model_store<point, managed::history_mode::linear,
+    managed::history_labels::disabled, traits, managed::store_features::none>;
+using journal_only = managed::model_store<point, managed::history_mode::disabled,
+    managed::history_labels::disabled, traits, managed::store_features::journal>;
+using collaboration_only = managed::model_store<point, managed::history_mode::disabled,
+    managed::history_labels::disabled, traits, managed::store_features::collaboration>;
+```
+
+`history_only` has no journal or collaboration API, pointers, flags or saved-journal
+baseline. `journal_only` has no history containers/limits or collaboration attachment.
+`collaboration_only` has no journal storage or retained undo history. Pending snapshots,
+identity mappings, retry bytes, conflict detection and trusted-session checks remain
+necessary collaboration state. Acknowledged client transactions are removed after the
+receive cursor catches up. History-disabled authorities reject inverse requests and do
+not retain inverse snapshots, undo/redo stacks or contribution-version history.
+
+An authority's seventh argument selects `store_features::collaboration` (without journal)
+or `all`; it must include collaboration. The session facade exposes the same selection
+as its `authority<Root, Mode, Labels, Traits, Features>` alias. Authentication and session
+creation remain host responsibilities; there is no independent authentication feature.
+All configurations retain model ownership, persistent identity, bounded decoding,
+validation, thread confinement and transactional publication.
+
+Tree history maintains retained-byte totals incrementally, checking each prospective
+append in constant time. Load validates all retained entries and restores the counter;
+failed publication does not advance it. Model envelopes and ordinary journal framing
+are unchanged. See [checkpoint migration](../../migration.md#independent-managed-features)
+for the new history-free collaboration checkpoint binding.
 
 ### Optional labels
 

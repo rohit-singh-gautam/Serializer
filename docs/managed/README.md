@@ -42,15 +42,19 @@ provides transport, trusted session binding, and authority infrastructure; Seria
 defines record exchange, validation, and atomic acceptance. Presence is informational;
 exclusive locking is an optional collaboration policy with authoritative enforcement.
 
-The owning C++ runtime is `model_store<Root, Mode, Labels, Traits>`; `managed` is an alias
+The owning C++ runtime is `model_store<Root, Mode, Labels, Traits, Features>`; `managed` is an alias
 with the same arguments. `Mode` selects disabled, linear (default), or tree history
 at compile time; each specialization contains only its selected storage. `Labels`
 defaults to `history_labels::disabled`; `history_labels::enabled` opts into names.
+`Features` independently selects `store_features::none`, `journal`, `collaboration`,
+or `all` (default). See [feature selection](cpp_runtime.md#independent-store-features).
+Disabled history also omits collaborative undo storage; authentication remains part
+of the host's collaboration/session integration.
 Implemented `<type>_editor<Access>` handles
 are temporary edit interfaces, not independently owning stores. Broader sketches
 use illustrative `tracked_` names. Schema `managed` selects identity
-boundaries within managed occurrences. Broader capability combinations remain
-proposals; runtime journaling and the collaboration wrapper are independent of history mode.
+boundaries within managed occurrences. Schema selectors and per-member exclusions
+remain proposals; explicit store-level feature selection is implemented.
 
 For one synchronous editing action, the C++
 [`execute_transaction(callback)`](cpp_runtime.md#all-three-transaction-forms)

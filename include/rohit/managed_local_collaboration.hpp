@@ -1,6 +1,7 @@
 #pragma once
 
 #include <rohit/managed_collaboration.hpp>
+#include <rohit/managed_record_budget.hpp>
 
 #include <algorithm>
 #include <functional>
@@ -36,19 +37,40 @@ public:
   using accepted_type = typename record_types::accepted_change;
   using proposal_type = typename record_types::change_proposal;
   using result_type = basic_collaboration_result<Session, Policy>;
-  using state_type = collaboration::client_state;
-  using transaction_type = collaboration::client_transaction;
+  using state_type = std::conditional_t<Store::has_history, collaboration::client_state,
+                                        collaboration::pending_client_state>;
+  using transaction_type = typename decltype(state_type::transactions)::value_type;
+  using checkpoint_type = std::conditional_t<Store::has_history, collaboration::client_checkpoint,
+                                             collaboration::pending_client_checkpoint>;
 
 private:
-  static constexpr std::string_view checkpoint_binding = "serializer.collaboration.client.v1";
+  static constexpr std::string_view checkpoint_binding =
+      Store::has_history ? "serializer.collaboration.client.v1"
+                         : "serializer.collaboration.pending.v1";
   Store& store_;
   Session session_;
   collaboration_client_options options_;
   std::shared_ptr<state_type> state_;
   std::shared_ptr<state_type> prepared_{};
   std::vector<collaboration::grant_reference> grants_{};
-  std::uint32_t action_{static_cast<std::uint32_t>(collaboration_history_action::edit)};
-  std::uint64_t target_{};
+  struct no_history {
+    static constexpr std::uint32_t action =
+        static_cast<std::uint32_t>(collaboration_history_action::edit);
+    static constexpr std::uint64_t target = 0;
+  };
+  struct history_action_state {
+    std::uint32_t action{static_cast<std::uint32_t>(collaboration_history_action::edit)};
+    std::uint64_t target{};
+    std::vector<std::uint64_t> saved_redo{};
+    std::uint64_t saved_tip{};
+  };
+#if defined(_MSC_VER)
+  [[msvc::no_unique_address]]
+#else
+  [[no_unique_address]]
+#endif
+  std::conditional_t<Store::has_history, history_action_state, no_history> history_action_{};
+  bool prepared_in_place_{};
   bool busy_{};
   bool receive_only_{};
   std::optional<std::uint64_t> last_poll_{};
@@ -67,11 +89,11 @@ private:
       if (owner.busy_) {
         throw std::logic_error{"Reentrant collaboration operation"};
       }
-      owner.busy_ = owner.store_.collaboration_busy_ = true;
+      owner.busy_ = owner.store_.collaboration_state_.busy = true;
     }
     // Release only transient guards; durable decisions are never rolled back here.
     ~operation_scope() {
-      owner.busy_ = owner.store_.collaboration_busy_ = false;
+      owner.busy_ = owner.store_.collaboration_state_.busy = false;
     }
   };
 
@@ -90,11 +112,16 @@ private:
     // Commit a native operation and matching outbox state in the same frame.
     void append(std::span<const std::uint8_t> prefix, std::span<const std::uint8_t> label,
                 std::span<const std::uint8_t> snapshot) override {
-      std::vector<std::uint8_t> record;
+      std::size_t record_bytes = 0;
       for (const auto part : {prefix, label, snapshot}) {
-        if (part.size() > owner_.options_.max_state_bytes - record.size()) {
+        if (part.size() > owner_.options_.max_state_bytes - record_bytes) {
           throw std::length_error{"Client journal record budget exceeded"};
         }
+        record_bytes += part.size();
+      }
+      std::vector<std::uint8_t> record;
+      record.reserve(record_bytes);
+      for (const auto part : {prefix, label, snapshot}) {
         record.insert(record.end(), part.begin(), part.end());
       }
       const auto bytes = owner_.checkpoint(2, std::move(record),
@@ -120,25 +147,50 @@ private:
     return static_cast<std::uint32_t>(value);
   }
   // Index only validated, contiguous transaction numbers.
-  static transaction_type& transaction(state_type& state, std::uint64_t number) {
-    if (number == 0 || number > state.transactions.size()) {
-      throw std::invalid_argument{"Unknown local transaction"};
+  static auto& transaction(auto& state, std::uint64_t number) {
+    if constexpr (Store::has_history) {
+      if (number == 0 || number > state.transactions.size()) {
+        throw std::invalid_argument{"Unknown local transaction"};
+      }
+      return state.transactions[static_cast<std::size_t>(number - 1)];
+    } else {
+      const auto found =
+          std::ranges::lower_bound(state.transactions, number, {}, &transaction_type::number);
+      if (found == state.transactions.end() || found->number != number) {
+        throw std::invalid_argument{"Unknown pending transaction"};
+      }
+      return *found;
     }
-    return state.transactions[static_cast<std::size_t>(number - 1)];
   }
-  // Encode a coherent session/model checkpoint under an independent client-state budget.
-  std::vector<std::uint8_t> checkpoint(std::uint32_t kind, std::vector<std::uint8_t> model,
-                                       const state_type& state) const {
+  // History-free transactions can only submit ordinary edits.
+  static std::uint32_t action(const transaction_type& item) {
+    if constexpr (Store::has_history) {
+      return item.action;
+    } else {
+      static_cast<void>(item);
+      return static_cast<std::uint32_t>(collaboration_history_action::edit);
+    }
+  }
+  // Check retained state against recovery limits without encoding or allocating a checkpoint.
+  void check_state_budget(const state_type& state) const {
     if (state.transactions.size() > options_.max_transactions) {
       throw std::length_error{"Client transaction budget exhausted"};
     }
-    auto bytes = encode_collaboration_record(
-        collaboration::client_checkpoint{kind, std::move(model), state,
-                                         std::string{checkpoint_binding}},
+    auto limits = store_.options_.decode;
+    limits.max_input_bytes = options_.max_state_bytes;
+    detail::record_budget budget{limits};
+    budget.check(detail::checkpoint_view<state_type>{2, {}, state, checkpoint_binding});
+  }
+  // Encode a coherent checkpoint only for explicit Save or attached durable publication.
+  std::vector<std::uint8_t> checkpoint(std::uint32_t kind, std::vector<std::uint8_t> model,
+                                       const state_type& state) const {
+    auto limits = store_.options_.decode;
+    limits.max_input_bytes = options_.max_state_bytes;
+    detail::record_budget budget{limits};
+    budget.check(detail::checkpoint_view<state_type>{kind, model, state, checkpoint_binding});
+    return encode_collaboration_record(
+        detail::checkpoint_view<state_type>{kind, model, state, checkpoint_binding},
         options_.max_state_bytes);
-    // Never durably publish a checkpoint that this store's recovery limits cannot read.
-    static_cast<void>(decode_checkpoint(bytes));
-    return bytes;
   }
   // Export the original managed envelope without recursively wrapping the attached session.
   std::vector<std::uint8_t> model_bytes(const Store& store) const {
@@ -199,11 +251,23 @@ private:
   }
   // Metadata-only decisions also precede any network send or model publication.
   void commit(state_type next, std::unique_ptr<Store> model = {}) {
+    if constexpr (!Store::has_history) {
+      std::erase_if(next.transactions, [&](const auto& item) {
+        return item.status == status(pending_change_status::discarded) ||
+               (item.status == status(pending_change_status::accepted) &&
+                item.accepted_sequence <= next.sequence);
+      });
+    }
     auto prepared = std::make_shared<state_type>(std::move(next));
-    const auto bytes = checkpoint(1, model_bytes(model ? *model : store_), *prepared);
-    if (store_.journal_) {
-      auto& journal = static_cast<client_journal&>(*store_.journal_);
-      store_.journal_operation([&] { journal.sink->append(bytes); });
+    check_state_budget(*prepared);
+    if constexpr (Store::has_journal) {
+      if (store_.journal_state_.sink) {
+        // Metadata-only decisions reuse the current durable model instead of encoding it again.
+        const auto bytes =
+            model ? checkpoint(1, model_bytes(*model), *prepared) : checkpoint(2, {}, *prepared);
+        auto& journal = static_cast<client_journal&>(*store_.journal_state_.sink);
+        store_.journal_operation([&] { journal.sink->append(bytes); });
+      }
     }
     if (model) {
       swap_model(*model);
@@ -417,7 +481,7 @@ private:
     auto& item = transaction(next, next.pending.front());
     const auto operation = allocate_operation(next);
     collaboration::model_change change;
-    if (item.action == static_cast<std::uint32_t>(collaboration_history_action::edit)) {
+    if (action(item) == static_cast<std::uint32_t>(collaboration_history_action::edit)) {
       change.format_version = collaboration_model_change_version;
       change.base_allocated_id = change.allocated_id = next.allocated_id;
       std::map<std::uint64_t, std::uint64_t> ids;
@@ -440,15 +504,17 @@ private:
       });
       change.snapshot = encode(value);
     } else {
-      const auto& target = transaction(next, item.target);
-      if (target.epoch != next.context.epoch || target.operation == 0) {
-        item.status = status(pending_change_status::uncertain);
-        commit(std::move(next));
-        return;
+      if constexpr (Store::has_history) {
+        const auto& target = transaction(next, item.target);
+        if (target.epoch != next.context.epoch || target.operation == 0) {
+          item.status = status(pending_change_status::uncertain);
+          commit(std::move(next));
+          return;
+        }
+        change.format_version = collaboration_history_change_version;
+        change.history_action = action(item);
+        change.target_operation = target.operation;
       }
-      change.format_version = collaboration_history_change_version;
-      change.history_action = item.action;
-      change.target_operation = target.operation;
     }
     proposal_type request{
         next.context,
@@ -502,7 +568,7 @@ private:
             decode_collaboration_record<collaboration::model_change>(request.command);
         const bool stale =
             detail::same_domain(latest.context, request.context) &&
-            item.action == static_cast<std::uint32_t>(collaboration_history_action::edit) &&
+            action(item) == static_cast<std::uint32_t>(collaboration_history_action::edit) &&
             (latest.sequence > request.base_sequence ||
              latest.allocated_id > command.base_allocated_id);
         item.status =
@@ -636,77 +702,172 @@ public:
     auto model = replacement(next, batch.snapshot, batch.allocated_id);
     commit(std::move(next), std::move(model));
   }
-  // Capture normal manual, scoped and callback store commits without replaying application code.
+  // Capture one edit. Unpinned, non-journal state is appended in place with bounded rollback;
+  // pinned readers and journal callbacks retain the immutable copy-on-write preparation path.
   void prepare(const std::vector<std::uint8_t>& snapshot, std::string_view label) override {
     if (state_->context.epoch == 0) {
       throw std::logic_error{"Join collaboration before editing"};
     }
-    auto next = std::make_shared<state_type>(*state_);
-    const auto number = detail::next_collaboration_sequence(next->transactions.size());
-    next->transactions.push_back(
-        {number, action_, target_, store_.snapshot_, snapshot, 0, 0,
-         status(pending_change_status::queued), grants_, false,
-         target_ == 0 ? std::string{label} : transaction(*next, target_).label});
-    next->pending.push_back(number);
-    if (action_ == static_cast<std::uint32_t>(collaboration_history_action::edit)) {
-      next->undo.push_back(number);
-      next->redo.clear();
-    } else if (action_ == static_cast<std::uint32_t>(collaboration_history_action::undo)) {
-      next->undo.pop_back();
-      next->redo.push_back(number);
-    } else {
-      next->redo.pop_back();
-      next->undo.push_back(number);
+    if (state_->transactions.size() >= options_.max_transactions) {
+      throw std::length_error{"Client transaction budget exhausted"};
     }
-    static_cast<void>(checkpoint(2, {}, *next));
-    prepared_ = std::move(next);
+    const bool in_place = (state_.use_count() == 1) && !store_.journal_state_.sink;
+    auto next = in_place ? state_ : std::make_shared<state_type>(*state_);
+    transaction_type item;
+    if constexpr (Store::has_history) {
+      item.number = detail::next_collaboration_sequence(next->transactions.size());
+      item.action = history_action_.action;
+      item.target = history_action_.target;
+      item.label = history_action_.target == 0 ? std::string{label}
+                                               : transaction(*next, history_action_.target).label;
+    } else {
+      item.number = detail::next_collaboration_sequence(next->next_transaction);
+      static_cast<void>(label);
+    }
+    item.before = store_.snapshot_;
+    item.after = snapshot;
+    item.status = status(pending_change_status::queued);
+    item.grants = grants_;
+    const auto number = item.number;
+    next->transactions.push_back(std::move(item));
+    bool pending_added = false;
+    bool history_changed = false;
+    try {
+      next->pending.push_back(number);
+      pending_added = true;
+      if constexpr (Store::has_history) {
+        if (history_action_.action ==
+            static_cast<std::uint32_t>(collaboration_history_action::edit)) {
+          next->undo.push_back(number);
+          history_action_.saved_redo.swap(next->redo);
+        } else if (history_action_.action ==
+                   static_cast<std::uint32_t>(collaboration_history_action::undo)) {
+          next->redo.push_back(number);
+          history_action_.saved_tip = next->undo.back();
+          next->undo.pop_back();
+        } else {
+          next->undo.push_back(number);
+          history_action_.saved_tip = next->redo.back();
+          next->redo.pop_back();
+        }
+      }
+      history_changed = true;
+      check_state_budget(*next);
+    } catch (...) {
+      if (history_changed) {
+        rollback_history(*next);
+      }
+      if (pending_added) {
+        next->pending.pop_back();
+      }
+      next->transactions.pop_back();
+      throw;
+    }
+    if constexpr (!Store::has_history) {
+      next->next_transaction = number;
+    }
+    prepared_in_place_ = in_place;
+    if (!in_place) {
+      prepared_ = std::move(next);
+    }
   }
-  // The store calls this only after durable model publication can no longer fail.
+
+private:
+  // Restore stack changes without allocation; removed tips retain their original vector capacity.
+  void rollback_history(state_type& state) noexcept {
+    if constexpr (Store::has_history) {
+      if (history_action_.action ==
+          static_cast<std::uint32_t>(collaboration_history_action::edit)) {
+        state.undo.pop_back();
+        state.redo.swap(history_action_.saved_redo);
+      } else if (history_action_.action ==
+                 static_cast<std::uint32_t>(collaboration_history_action::undo)) {
+        state.redo.pop_back();
+        state.undo.push_back(history_action_.saved_tip);
+      } else {
+        state.undo.pop_back();
+        state.redo.push_back(history_action_.saved_tip);
+      }
+    } else {
+      static_cast<void>(state);
+    }
+  }
+
+public:
+  // The store calls this after its model publication can no longer fail; no callbacks intervene.
   void publish() noexcept override {
-    state_.swap(prepared_);
-    prepared_.reset();
+    if (!prepared_in_place_) {
+      state_.swap(prepared_);
+      prepared_.reset();
+    }
+    prepared_in_place_ = false;
+    if constexpr (Store::has_history) {
+      history_action_.saved_redo.clear();
+    }
   }
-  // A rejected local transaction cannot leave pending work or history behind.
+  // Undo provisional appends or discard a private copy; retained pins never observe preparation.
   void abort() noexcept override {
+    if (prepared_in_place_) {
+      rollback_history(*state_);
+      state_->pending.pop_back();
+      state_->transactions.pop_back();
+      if constexpr (!Store::has_history) {
+        --state_->next_transaction;
+      }
+      prepared_in_place_ = false;
+    }
     prepared_.reset();
+    if constexpr (Store::has_history) {
+      history_action_.saved_redo.clear();
+    }
   }
   // Local labels follow their transaction through synchronization, undo/redo and recovery.
   std::string history_label(bool redo) const override {
-    const auto& stack = redo ? state_->redo : state_->undo;
-    if (stack.empty()) {
-      throw std::out_of_range{"No collaborative history label"};
+    if constexpr (!Store::has_history) {
+      static_cast<void>(redo);
+      throw std::logic_error{"Collaborative history is disabled"};
+    } else {
+      const auto& stack = redo ? state_->redo : state_->undo;
+      if (stack.empty()) {
+        throw std::out_of_range{"No collaborative history label"};
+      }
+      return transaction(*state_, stack.back()).label;
     }
-    return transaction(*state_, stack.back()).label;
   }
   // Reverse local intent immediately through the store's existing transaction/validation mechanism.
   void undo(bool redo) override {
-    operation_scope scope{*this};
-    const auto& stack = redo ? state_->redo : state_->undo;
-    if (stack.empty()) {
-      throw std::out_of_range{"No collaborative undo/redo transaction"};
-    }
-    const auto& item = transaction(*state_, stack.back());
-    if (item.invalidated) {
-      throw detail::collaboration_history_conflict{};
-    }
-    auto desired = decode(item.before);
-    auto expected = decode(item.after);
-    auto identities = store_.inspect(desired, store_.allocated_id_);
-    action_ = static_cast<std::uint32_t>(redo ? collaboration_history_action::redo
-                                              : collaboration_history_action::undo);
-    target_ = item.number;
-    store_.restoration_identities_ = &identities;
-    store_.collaboration_busy_ = false;
-    const auto outcome = store_.execute_transaction([&](auto& edit) {
-      edit.update([&](auto& value) {
-        detail::collaboration_history_merger merger{store_.options_.max_snapshot_bytes};
-        traits::merge_collaboration(value, expected, desired, merger);
+    if constexpr (!Store::has_history) {
+      static_cast<void>(redo);
+      throw std::logic_error{"Collaborative history is disabled"};
+    } else {
+      operation_scope scope{*this};
+      const auto& stack = redo ? state_->redo : state_->undo;
+      if (stack.empty()) {
+        throw std::out_of_range{"No collaborative undo/redo transaction"};
+      }
+      const auto& item = transaction(*state_, stack.back());
+      if (item.invalidated) {
+        throw detail::collaboration_history_conflict{};
+      }
+      auto desired = decode(item.before);
+      auto expected = decode(item.after);
+      auto identities = store_.inspect(desired, store_.allocated_id_);
+      history_action_.action = static_cast<std::uint32_t>(
+          redo ? collaboration_history_action::redo : collaboration_history_action::undo);
+      history_action_.target = item.number;
+      store_.collaboration_state_.restoration = &identities;
+      store_.collaboration_state_.busy = false;
+      const auto outcome = store_.execute_transaction([&](auto& edit) {
+        edit.update([&](auto& value) {
+          detail::collaboration_history_merger merger{store_.options_.max_snapshot_bytes};
+          traits::merge_collaboration(value, expected, desired, merger);
+        });
       });
-    });
-    store_.restoration_identities_ = nullptr;
-    action_ = static_cast<std::uint32_t>(collaboration_history_action::edit);
-    target_ = 0;
-    outcome.throw_if_failed();
+      store_.collaboration_state_.restoration = nullptr;
+      history_action_.action = static_cast<std::uint32_t>(collaboration_history_action::edit);
+      history_action_.target = 0;
+      outcome.throw_if_failed();
+    }
   }
   // Refresh remote changes, retry uncertain delivery exactly, and submit the FIFO until blocked/bounded.
   void synchronize() override {
@@ -895,25 +1056,27 @@ public:
     next.pending.clear();
     next.in_flight.clear();
     next.in_flight_ids.clear();
-    next.undo.clear();
-    next.redo.clear();
-    for (const auto& item : next.transactions) {
-      if (item.status != status(pending_change_status::accepted) || item.invalidated) {
-        continue;
-      }
-      if (item.action == static_cast<std::uint32_t>(collaboration_history_action::edit)) {
-        next.undo.push_back(item.number);
-        next.redo.clear();
-      } else if (item.action == static_cast<std::uint32_t>(collaboration_history_action::undo)) {
-        if (!next.undo.empty()) {
-          next.undo.pop_back();
+    if constexpr (Store::has_history) {
+      next.undo.clear();
+      next.redo.clear();
+      for (const auto& item : next.transactions) {
+        if (item.status != status(pending_change_status::accepted) || item.invalidated) {
+          continue;
         }
-        next.redo.push_back(item.number);
-      } else {
-        if (!next.redo.empty()) {
-          next.redo.pop_back();
+        if (action(item) == static_cast<std::uint32_t>(collaboration_history_action::edit)) {
+          next.undo.push_back(item.number);
+          next.redo.clear();
+        } else if (action(item) == static_cast<std::uint32_t>(collaboration_history_action::undo)) {
+          if (!next.undo.empty()) {
+            next.undo.pop_back();
+          }
+          next.redo.push_back(item.number);
+        } else {
+          if (!next.redo.empty()) {
+            next.redo.pop_back();
+          }
+          next.undo.push_back(item.number);
         }
-        next.undo.push_back(item.number);
       }
     }
     auto model = replacement(next, next.acknowledged, store_.allocated_id_);
@@ -960,9 +1123,16 @@ private:
     }
     for (std::size_t index = 0; index < state.transactions.size(); ++index) {
       const auto& item = state.transactions[index];
-      if (item.number != index + 1 || item.action < 1 || item.action > 3 ||
-          item.target >= item.number || (item.action == 1) != (item.target == 0) ||
-          item.status < 1 || item.status > 8 || item.operation > state.next_operation) {
+      if constexpr (Store::has_history) {
+        if (item.number != index + 1 || item.action < 1 || item.action > 3 ||
+            item.target >= item.number || (item.action == 1) != (item.target == 0)) {
+          throw std::invalid_argument{"Invalid client history transaction"};
+        }
+      } else if (item.number == 0 || item.number > state.next_transaction ||
+                 (index != 0 && state.transactions[index - 1].number >= item.number)) {
+        throw std::invalid_argument{"Invalid pending transaction number"};
+      }
+      if (item.status < 1 || item.status > 8 || item.operation > state.next_operation) {
         throw std::invalid_argument{"Invalid client transaction"};
       }
       for (const auto* bytes : {&item.before, &item.after}) {
@@ -974,11 +1144,9 @@ private:
       }
     }
     for (const auto number : state.pending) {
-      if (number == 0 || number > state.transactions.size() || !pending.insert(number).second ||
-          state.transactions[static_cast<std::size_t>(number - 1)].status ==
-              status(pending_change_status::accepted) ||
-          state.transactions[static_cast<std::size_t>(number - 1)].status ==
-              status(pending_change_status::discarded)) {
+      if (!pending.insert(number).second ||
+          transaction(state, number).status == status(pending_change_status::accepted) ||
+          transaction(state, number).status == status(pending_change_status::discarded)) {
         throw std::invalid_argument{"Invalid client pending queue"};
       }
     }
@@ -992,11 +1160,13 @@ private:
         throw std::invalid_argument{"Missing pending transaction"};
       }
     }
-    for (const auto& stack : {state.undo, state.redo}) {
-      std::set<std::uint64_t> seen;
-      for (const auto number : stack) {
-        if (number == 0 || number > state.transactions.size() || !seen.insert(number).second) {
-          throw std::invalid_argument{"Invalid client history stack"};
+    if constexpr (Store::has_history) {
+      for (const auto& stack : {state.undo, state.redo}) {
+        std::set<std::uint64_t> seen;
+        for (const auto number : stack) {
+          if (number == 0 || number > state.transactions.size() || !seen.insert(number).second) {
+            throw std::invalid_argument{"Invalid client history stack"};
+          }
         }
       }
     }
@@ -1004,13 +1174,12 @@ private:
       const auto request =
           decode_collaboration_record<proposal_type>(state.in_flight, store_.options_.decode);
       if (state.pending.empty() ||
-          request.operation !=
-              state.transactions[static_cast<std::size_t>(state.pending.front() - 1)].operation ||
+          request.operation != transaction(state, state.pending.front()).operation ||
           request.operation == 0 || request.operation > state.next_operation ||
           request.context.document_high != state.context.document_high ||
           request.context.document_low != state.context.document_low ||
           (request.context.epoch != state.context.epoch &&
-           state.transactions[static_cast<std::size_t>(state.pending.front() - 1)].status !=
+           transaction(state, state.pending.front()).status !=
                status(pending_change_status::uncertain)) ||
           Policy::less(request.session, session_) || Policy::less(session_, request.session)) {
         throw std::invalid_argument{"Invalid client outstanding request"};
@@ -1028,10 +1197,10 @@ private:
     }
   }
   // Read one bounded wrapper, rejecting foreign journals and malformed frame kinds.
-  collaboration::client_checkpoint decode_checkpoint(std::span<const std::uint8_t> bytes) const {
+  checkpoint_type decode_checkpoint(std::span<const std::uint8_t> bytes) const {
     auto limits = store_.options_.decode;
     limits.max_input_bytes = options_.max_state_bytes;
-    auto result = decode_collaboration_record<collaboration::client_checkpoint>(bytes, limits);
+    auto result = decode_collaboration_record<checkpoint_type>(bytes, limits);
     if (result.binding != checkpoint_binding || (result.kind != 1 && result.kind != 2)) {
       throw std::invalid_argument{"Invalid collaboration checkpoint format"};
     }
@@ -1042,7 +1211,7 @@ public:
   // Memory restore is atomic and requires the same application session; it never sends network messages.
   void load(const std::vector<std::uint8_t>& bytes) override {
     operation_scope scope{*this};
-    if (store_.journal_ || state_->context.epoch != 0) {
+    if (store_.journal_state_.sink || state_->context.epoch != 0) {
       throw std::logic_error{"Restore collaboration into a fresh attached store"};
     }
     auto checkpoint = decode_checkpoint(bytes);
@@ -1058,99 +1227,119 @@ public:
   // Journal creation uses the existing exclusive file adapter with one atomic model/session baseline.
   void create_journal(const std::filesystem::path& path, journal_storage_mode mode,
                       journal_options options) override {
-    operation_scope scope{*this};
-    if (store_.journal_ || state_->context.epoch == 0) {
-      throw std::logic_error{"Join before opening a new client journal"};
+    if constexpr (!Store::has_journal) {
+      throw std::logic_error{"Journaling is compiled out of this store"};
+    } else {
+      operation_scope scope{*this};
+      if (store_.journal_state_.sink || state_->context.epoch == 0) {
+        throw std::logic_error{"Join before opening a new client journal"};
+      }
+      auto journal = std::make_unique<client_journal>(*this);
+      auto saved = store_.snapshot_;
+      const auto bytes = save();
+      store_.journal_operation([&] {
+        journal->sink = detail::create_file_journal(path, mode, bytes, std::move(options),
+                                                    store_.journal_state_.indeterminate);
+      });
+      store_.journal_state_.saved_snapshot.swap(saved);
+      store_.journal_state_.sink = std::move(journal);
     }
-    auto journal = std::make_unique<client_journal>(*this);
-    auto saved = store_.snapshot_;
-    const auto bytes = save();
-    store_.journal_operation([&] {
-      journal->sink = detail::create_file_journal(path, mode, bytes, std::move(options),
-                                                  store_.journal_open_indeterminate_);
-    });
-    store_.saved_snapshot_.swap(saved);
-    store_.journal_ = std::move(journal);
   }
   // Replay the same native model operations and their paired session state before repairing a torn tail.
   void recover_journal(const std::filesystem::path& path, journal_options options) override {
-    operation_scope scope{*this};
-    if (store_.journal_ || state_->context.epoch != 0) {
-      throw std::logic_error{"Recover collaboration into a fresh attached store"};
-    }
-    auto model =
-        std::unique_ptr<Store>{new Store{typename Store::recovery_tag{}, store_.options_, {}}};
-    auto next = std::make_shared<state_type>();
-    auto journal = std::make_unique<client_journal>(*this);
-    std::vector<std::uint8_t> saved;
-    store_.journal_operation([&] {
-      journal->sink = detail::recover_file_journal(
-          path, std::move(options), [&](bool base, std::span<const std::uint8_t> bytes) {
-            auto checkpoint = decode_checkpoint(bytes);
-            if (base && checkpoint.kind != 1) {
-              throw std::invalid_argument{"Invalid client journal base"};
-            }
-            if (!base && (checkpoint.state.context.document_high != next->context.document_high ||
-                          checkpoint.state.context.document_low != next->context.document_low ||
-                          checkpoint.state.next_operation < next->next_operation ||
-                          checkpoint.state.transactions.size() < next->transactions.size() ||
-                          checkpoint.state.allocated_id < next->allocated_id ||
-                          (checkpoint.state.context.epoch == next->context.epoch &&
-                           checkpoint.state.sequence < next->sequence))) {
-              throw std::invalid_argument{"Regressing collaboration journal state"};
-            }
-            const auto previous_allocated = model->allocated_id_;
-            if (checkpoint.kind == 1) {
-              model->load(checkpoint.model);
-            } else if (!checkpoint.model.empty()) {
-              model->replay_journal_record(checkpoint.model);
-            }
-            if (!base && model->allocated_id_ < previous_allocated) {
-              throw std::invalid_argument{"Regressing client identity reservation"};
-            }
-            validate_state(checkpoint.state, *model);
-            *next = std::move(checkpoint.state);
-            if (base) {
-              saved = model->snapshot_;
-            }
-          });
-      if (store_.validate_) {
-        store_.validate_(*model->current_);
+    if constexpr (!Store::has_journal) {
+      throw std::logic_error{"Journaling is compiled out of this store"};
+    } else {
+      operation_scope scope{*this};
+      if (store_.journal_state_.sink || state_->context.epoch != 0) {
+        throw std::logic_error{"Recover collaboration into a fresh attached store"};
       }
-      journal->sink->finish_recovery();
-    });
-    swap_model(*model);
-    state_.swap(next);
-    store_.saved_snapshot_.swap(saved);
-    store_.journal_ = std::move(journal);
+      auto model =
+          std::unique_ptr<Store>{new Store{typename Store::recovery_tag{}, store_.options_, {}}};
+      auto next = std::make_shared<state_type>();
+      auto journal = std::make_unique<client_journal>(*this);
+      std::vector<std::uint8_t> saved;
+      store_.journal_operation([&] {
+        journal->sink = detail::recover_file_journal(
+            path, std::move(options), [&](bool base, std::span<const std::uint8_t> bytes) {
+              auto checkpoint = decode_checkpoint(bytes);
+              if (base && checkpoint.kind != 1) {
+                throw std::invalid_argument{"Invalid client journal base"};
+              }
+              if (!base && (checkpoint.state.context.document_high != next->context.document_high ||
+                            checkpoint.state.context.document_low != next->context.document_low ||
+                            checkpoint.state.next_operation < next->next_operation ||
+                            (Store::has_history &&
+                             checkpoint.state.transactions.size() < next->transactions.size()) ||
+                            checkpoint.state.allocated_id < next->allocated_id ||
+                            (checkpoint.state.context.epoch == next->context.epoch &&
+                             checkpoint.state.sequence < next->sequence))) {
+                throw std::invalid_argument{"Regressing collaboration journal state"};
+              }
+              if constexpr (!Store::has_history) {
+                if (!base && checkpoint.state.next_transaction < next->next_transaction) {
+                  throw std::invalid_argument{"Regressing pending transaction allocation"};
+                }
+              }
+              const auto previous_allocated = model->allocated_id_;
+              if (checkpoint.kind == 1) {
+                model->load(checkpoint.model);
+              } else if (!checkpoint.model.empty()) {
+                model->replay_journal_record(checkpoint.model);
+              }
+              if (!base && model->allocated_id_ < previous_allocated) {
+                throw std::invalid_argument{"Regressing client identity reservation"};
+              }
+              validate_state(checkpoint.state, *model);
+              *next = std::move(checkpoint.state);
+              if (base) {
+                saved = model->snapshot_;
+              }
+            });
+        if (store_.validate_) {
+          store_.validate_(*model->current_);
+        }
+        journal->sink->finish_recovery();
+      });
+      swap_model(*model);
+      state_.swap(next);
+      store_.journal_state_.saved_snapshot.swap(saved);
+      store_.journal_state_.sink = std::move(journal);
+    }
   }
 };
 
 // Associate typed collaboration state with the existing store, preserving its editor and transaction APIs.
-template <typename Root, history_mode Mode, history_labels Labels, typename Traits>
+template <typename Root, history_mode Mode, history_labels Labels, typename Traits,
+          store_features Features>
 template <typename Session, typename Policy>
-store_collaboration<model_store<Root, Mode, Labels, Traits>, Session, Policy>&
-model_store<Root, Mode, Labels, Traits>::collaborate(Session session,
-                                                     collaboration_client_options options) {
+store_collaboration<model_store<Root, Mode, Labels, Traits, Features>, Session, Policy>&
+model_store<Root, Mode, Labels, Traits, Features>::collaborate(Session session,
+                                                               collaboration_client_options options)
+  requires(has_collaboration)
+{
   require_idle();
-  if (collaboration_ || journal_) {
+  if (collaboration_state_.attachment || journal_state_.sink) {
     throw std::logic_error{"Attach collaboration once, before opening its journal"};
   }
   auto attachment = std::make_unique<store_collaboration<model_store, Session, Policy>>(
       *this, std::move(session), options);
   auto& result = *attachment;
-  collaboration_ = std::move(attachment);
+  collaboration_state_.attachment = std::move(attachment);
   return result;
 }
 
 // A mismatched requested session type fails explicitly; session identity is never silently converted.
-template <typename Root, history_mode Mode, history_labels Labels, typename Traits>
+template <typename Root, history_mode Mode, history_labels Labels, typename Traits,
+          store_features Features>
 template <typename Session, typename Policy>
-store_collaboration<model_store<Root, Mode, Labels, Traits>, Session, Policy>&
-model_store<Root, Mode, Labels, Traits>::collaboration() {
+store_collaboration<model_store<Root, Mode, Labels, Traits, Features>, Session, Policy>&
+model_store<Root, Mode, Labels, Traits, Features>::collaboration()
+  requires(has_collaboration)
+{
   check_thread();
-  auto* result =
-      dynamic_cast<store_collaboration<model_store, Session, Policy>*>(collaboration_.get());
+  auto* result = dynamic_cast<store_collaboration<model_store, Session, Policy>*>(
+      collaboration_state_.attachment.get());
   if (!result) {
     throw std::logic_error{"No collaboration attachment for this session type"};
   }

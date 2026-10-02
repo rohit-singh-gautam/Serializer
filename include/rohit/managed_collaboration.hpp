@@ -283,7 +283,8 @@ inline bool same_collaboration_ancestry(const collaboration_entities& before,
 template <typename Root, history_mode Mode = history_mode::linear,
           history_labels Labels = history_labels::disabled, typename Traits = model_traits<Root>,
           typename Session = std::uint64_t,
-          typename SessionTraits = collaboration_session_traits<Session>>
+          typename SessionTraits = collaboration_session_traits<Session>,
+          store_features Features = store_features::all>
 class collaboration_authority {
 public:
   using session_type = Session;
@@ -296,7 +297,8 @@ public:
   using lock_snapshot_type = typename records_type::lock_snapshot;
   using editing_presence_type = typename records_type::editing_presence;
   using result_type = basic_collaboration_result<Session, SessionTraits>;
-  using store_type = model_store<Root, Mode, Labels, Traits>;
+  using store_type = model_store<Root, Mode, Labels, Traits, Features>;
+  static_assert(store_type::has_collaboration, "An authority requires collaboration");
   using storage_type = typename store_type::storage_type;
   using edit_type = typename store_type::transaction_edit;
   using command_handler = std::function<void(edit_type&, std::span<const std::uint8_t>)>;
@@ -305,17 +307,23 @@ public:
   using lock_policy = std::function<bool(const session_type&, std::uint64_t, edit_lock_scope)>;
 
 private:
-  struct session_state {
-    bool active{true};
-    bool writable{true};
+  static constexpr bool has_history = Mode != history_mode::disabled;
+  struct no_history {};
+  struct session_history {
     std::vector<std::uint64_t> undo{};
     std::vector<std::uint64_t> redo{};
   };
-  struct retained_operation {
+  struct session_state : std::conditional_t<has_history, session_history, no_history> {
+    bool active{true};
+    bool writable{true};
+  };
+  struct retained_history {
+    std::vector<std::uint8_t> before{};
+  };
+  struct retained_operation : std::conditional_t<has_history, retained_history, no_history> {
     std::vector<std::uint8_t> request{};
     std::uint32_t kind{};
     std::shared_ptr<result_type> result{};
-    std::vector<std::uint8_t> before{};
   };
   struct active_lock {
     lock_grant_type grant{};
@@ -331,15 +339,13 @@ private:
   using operation_less = detail::collaboration_operation_less<Session, SessionTraits>;
   const std::thread::id thread_{std::this_thread::get_id()};
   collaboration_options options_{};
-  store_options store_options_{};
+  detail::store_configuration<store_type::has_history> store_options_{store_options{}};
   command_handler handler_{};
   change_policy policy_{};
   lock_policy lock_policy_{};
   std::unique_ptr<store_type> store_{};
   collaboration::domain domain_{};
   detail::collaboration_entities entities_{};
-  detail::collaboration_field_versions field_versions_{};
-  detail::collaboration_entity_versions entity_versions_{};
   std::map<session_type, session_state, session_less> sessions_{};
   std::map<operation_key, retained_operation, operation_less> operations_{};
   std::map<std::uint64_t, active_lock> locks_{};
@@ -350,29 +356,58 @@ private:
   std::uint64_t lock_sequence_{};
   std::uint64_t now_ms_{};
   bool busy_{};
-  bool fenced_{};
-  bool journal_attached_{};
+  struct journal_fence {
+    bool fenced{};
+  };
+  struct no_journal_fence {
+    static constexpr bool fenced = false;
+  };
+#if defined(_MSC_VER)
+  [[msvc::no_unique_address]]
+#else
+  [[no_unique_address]]
+#endif
+  std::conditional_t<store_type::has_journal, journal_fence, no_journal_fence> journal_state_{};
   const change_proposal_type* proposal_{};
   result_type* preparing_{};
   const collaboration::model_change* decoded_change_{}; // Borrowed for one synchronous submission.
   detail::collaboration_entities prepared_entities_{};
   std::shared_ptr<accepted_change_type> prepared_batch_{};
-  detail::collaboration_field_versions prepared_field_versions_{};
-  detail::collaboration_entity_versions prepared_entity_versions_{};
-  std::vector<std::uint8_t> prepared_before_{};
-  std::vector<std::uint64_t> prepared_undo_{};
-  std::vector<std::uint64_t> prepared_redo_{};
+  struct inverse_state {
+    detail::collaboration_entity_versions prepared_entity_versions{};
+    detail::collaboration_field_versions prepared_field_versions{};
+    detail::collaboration_entity_versions entity_versions{};
+    detail::collaboration_field_versions field_versions{};
+    std::vector<std::uint8_t> before{};
+    std::vector<std::uint64_t> undo{};
+    std::vector<std::uint64_t> redo{};
+    const retained_operation* reversing{};
+    collaboration_history_action action{collaboration_history_action::edit};
+    typename store_type::identity_table restoration{};
+  };
+#if defined(_MSC_VER)
+  [[msvc::no_unique_address]]
+#else
+  [[no_unique_address]]
+#endif
+  std::conditional_t<has_history, inverse_state, no_history> inverse_{};
   std::size_t prepared_bytes_{};
-  const retained_operation* reversing_{};
-  collaboration_history_action history_action_{collaboration_history_action::edit};
-  typename store_type::identity_table restoration_identities_{};
+
+  // Borrow this authority through a non-owning callback; the authority owns and outlives the store.
+  void bind_store(store_type& store) {
+    store.collaboration_state_.prepare_context = this;
+    store.collaboration_state_.prepare = [](void* owner, const storage_type& candidate,
+                                            const std::vector<std::uint8_t>& snapshot) {
+      static_cast<collaboration_authority*>(owner)->validate_candidate(candidate, snapshot);
+    };
+  }
 
   // Reject cross-thread and callback reentry before touching authority state.
   void check_access() const {
     if (thread_ != std::this_thread::get_id() || busy_) {
       throw std::logic_error{"Collaboration authority is thread-confined and non-reentrant"};
     }
-    if (fenced_) {
+    if (journal_state_.fenced) {
       throw journal_indeterminate_error{
           "Collaboration authority requires recovery in a fresh epoch"};
     }
@@ -433,7 +468,7 @@ private:
     }
     const auto size = request.size();
     auto result = std::make_shared<result_type>();
-    operations_.emplace(key, retained_operation{std::move(request), kind, result});
+    operations_.emplace(key, retained_operation{{}, std::move(request), kind, result});
     retained_bytes_ += size;
     return {std::move(result), true};
   }
@@ -499,110 +534,148 @@ private:
   // Prepare history and active contribution versions before any journal publication can succeed.
   void prepare_history(const storage_type& candidate, const detail::collaboration_entities& next,
                        accepted_change_type& batch) {
-    const auto before = collect_fields(*store_->read());
-    const auto after = collect_fields(candidate);
-    std::set<detail::collaboration_field_address> addresses;
-    for (const auto& [address, value] : before) {
-      static_cast<void>(value);
-      addresses.insert(address);
-    }
-    for (const auto& [address, value] : after) {
-      static_cast<void>(value);
-      addresses.insert(address);
-    }
-    std::set<std::uint64_t> relocated;
-    for (const auto& [id, value] : entities_) {
-      static_cast<void>(value);
-      if (!detail::same_collaboration_ancestry(entities_, next, id)) {
-        relocated.insert(id);
+    if constexpr (!has_history) {
+      const auto before = collect_fields(*store_->read());
+      const auto after = collect_fields(candidate);
+      batch.history.action = static_cast<std::uint32_t>(collaboration_history_action::edit);
+      // Addresses and ownership changes support pending-edit conflict detection, not undo.
+      for (const auto& [address, bytes] : before) {
+        const auto found = after.find(address);
+        if (found == after.end() || found->second != bytes) {
+          collaboration::field_change field;
+          field.entity = address.first;
+          field.field = address.second;
+          batch.history.fields.push_back(std::move(field));
+        }
       }
-    }
-    for (const auto& [id, value] : next) {
-      static_cast<void>(value);
-      if (!entities_.contains(id)) {
-        relocated.insert(id);
+      for (const auto& [address, bytes] : after) {
+        static_cast<void>(bytes);
+        if (!before.contains(address)) {
+          collaboration::field_change field;
+          field.entity = address.first;
+          field.field = address.second;
+          batch.history.fields.push_back(std::move(field));
+        }
       }
-    }
-    prepared_field_versions_ = field_versions_;
-    prepared_entity_versions_ = entity_versions_;
-    detail::collaboration_field_versions restored_fields;
-    detail::collaboration_entity_versions restored_entities;
-    if (reversing_) {
-      const auto& previous = reversing_->result->accepted->history;
-      for (const auto& field : previous.fields) {
-        restored_fields.emplace(detail::collaboration_field_address{field.entity, field.field},
-                                field.before_version);
+      for (const auto& [id, entity] : entities_) {
+        static_cast<void>(entity);
+        if (!detail::same_collaboration_ancestry(entities_, next, id)) {
+          batch.history.dependencies.push_back({id, 0, batch.sequence});
+        }
       }
-      for (const auto& dependency : previous.dependencies) {
-        restored_entities.emplace(dependency.entity, dependency.before_version);
+      const auto metadata = encode_collaboration_record(batch.history, options_.max_retained_bytes);
+      if (metadata.size() > options_.max_retained_bytes - retained_bytes_ - batch.snapshot.size()) {
+        throw std::length_error{"Collaboration change byte budget exhausted"};
       }
-    }
-    auto& history = batch.history;
-    history.action = static_cast<std::uint32_t>(history_action_);
-    history.target_operation = reversing_ ? reversing_->result->accepted->operation : 0;
-    std::set<std::uint64_t> dependencies = relocated;
-    for (const auto& address : addresses) {
-      const auto old = before.find(address);
-      const auto current = after.find(address);
-      const bool changed =
-          old == before.end() || current == after.end() || old->second != current->second;
-      if (!changed && !relocated.contains(address.first)) {
-        continue;
-      }
-      collaboration::field_change field;
-      field.entity = address.first;
-      field.field = address.second;
-      field.before_present = old != before.end();
-      field.after_present = current != after.end();
-      if (field.before_present) {
-        field.before = old->second;
-      }
-      if (field.after_present) {
-        field.after = current->second;
-      }
-      field.before_version = detail::collaboration_version(field_versions_, address);
-      field.after_version = changed ? batch.sequence : field.before_version;
-      if (const auto restored = restored_fields.find(address); restored != restored_fields.end()) {
-        field.after_version = restored->second;
-      }
-      prepared_field_versions_[address] = field.after_version;
-      history.fields.push_back(std::move(field));
-      dependencies.insert(address.first);
-    }
-    for (const auto id : dependencies) {
-      const auto before_version = detail::collaboration_version(entity_versions_, id);
-      auto after_version = relocated.contains(id) ? batch.sequence : before_version;
-      if (const auto restored = restored_entities.find(id); restored != restored_entities.end()) {
-        after_version = restored->second;
-      }
-      prepared_entity_versions_[id] = after_version;
-      history.dependencies.push_back({id, before_version, after_version});
-    }
-    if (prepared_field_versions_.size() > options_.max_tracked_fields ||
-        prepared_entity_versions_.size() > options_.max_tracked_fields) {
-      throw std::length_error{"Collaboration version budget exhausted"};
-    }
-    const auto& session = sessions_.at(proposal_->session);
-    prepared_undo_ = session.undo;
-    prepared_redo_ = session.redo;
-    if (history_action_ == collaboration_history_action::edit) {
-      prepared_undo_.push_back(proposal_->operation);
-      prepared_redo_.clear();
-    } else if (history_action_ == collaboration_history_action::undo) {
-      prepared_undo_.pop_back();
-      prepared_redo_.push_back(proposal_->operation);
+      prepared_bytes_ = batch.snapshot.size() + metadata.size();
     } else {
-      prepared_redo_.pop_back();
-      prepared_undo_.push_back(proposal_->operation);
-    }
-    prepared_before_ = detail::encode(*store_->read(), store_options_.max_snapshot_bytes);
-    const auto metadata = encode_collaboration_record(history, options_.max_retained_bytes);
-    prepared_bytes_ = 0;
-    for (const auto size : {batch.snapshot.size(), prepared_before_.size(), metadata.size()}) {
-      if (size > options_.max_retained_bytes - retained_bytes_ - prepared_bytes_) {
-        throw std::length_error{"Collaboration history byte budget exhausted"};
+      const auto before = collect_fields(*store_->read());
+      const auto after = collect_fields(candidate);
+      std::set<detail::collaboration_field_address> addresses;
+      for (const auto& [address, value] : before) {
+        static_cast<void>(value);
+        addresses.insert(address);
       }
-      prepared_bytes_ += size;
+      for (const auto& [address, value] : after) {
+        static_cast<void>(value);
+        addresses.insert(address);
+      }
+      std::set<std::uint64_t> relocated;
+      for (const auto& [id, value] : entities_) {
+        static_cast<void>(value);
+        if (!detail::same_collaboration_ancestry(entities_, next, id)) {
+          relocated.insert(id);
+        }
+      }
+      for (const auto& [id, value] : next) {
+        static_cast<void>(value);
+        if (!entities_.contains(id)) {
+          relocated.insert(id);
+        }
+      }
+      inverse_.prepared_field_versions = inverse_.field_versions;
+      inverse_.prepared_entity_versions = inverse_.entity_versions;
+      detail::collaboration_field_versions restored_fields;
+      detail::collaboration_entity_versions restored_entities;
+      if (inverse_.reversing) {
+        const auto& previous = inverse_.reversing->result->accepted->history;
+        for (const auto& field : previous.fields) {
+          restored_fields.emplace(detail::collaboration_field_address{field.entity, field.field},
+                                  field.before_version);
+        }
+        for (const auto& dependency : previous.dependencies) {
+          restored_entities.emplace(dependency.entity, dependency.before_version);
+        }
+      }
+      auto& history = batch.history;
+      history.action = static_cast<std::uint32_t>(inverse_.action);
+      history.target_operation =
+          inverse_.reversing ? inverse_.reversing->result->accepted->operation : 0;
+      std::set<std::uint64_t> dependencies = relocated;
+      for (const auto& address : addresses) {
+        const auto old = before.find(address);
+        const auto current = after.find(address);
+        const bool changed =
+            old == before.end() || current == after.end() || old->second != current->second;
+        if (!changed && !relocated.contains(address.first)) {
+          continue;
+        }
+        collaboration::field_change field;
+        field.entity = address.first;
+        field.field = address.second;
+        field.before_present = old != before.end();
+        field.after_present = current != after.end();
+        if (field.before_present) {
+          field.before = old->second;
+        }
+        if (field.after_present) {
+          field.after = current->second;
+        }
+        field.before_version = detail::collaboration_version(inverse_.field_versions, address);
+        field.after_version = changed ? batch.sequence : field.before_version;
+        if (const auto restored = restored_fields.find(address);
+            restored != restored_fields.end()) {
+          field.after_version = restored->second;
+        }
+        inverse_.prepared_field_versions[address] = field.after_version;
+        history.fields.push_back(std::move(field));
+        dependencies.insert(address.first);
+      }
+      for (const auto id : dependencies) {
+        const auto before_version = detail::collaboration_version(inverse_.entity_versions, id);
+        auto after_version = relocated.contains(id) ? batch.sequence : before_version;
+        if (const auto restored = restored_entities.find(id); restored != restored_entities.end()) {
+          after_version = restored->second;
+        }
+        inverse_.prepared_entity_versions[id] = after_version;
+        history.dependencies.push_back({id, before_version, after_version});
+      }
+      if (inverse_.prepared_field_versions.size() > options_.max_tracked_fields ||
+          inverse_.prepared_entity_versions.size() > options_.max_tracked_fields) {
+        throw std::length_error{"Collaboration version budget exhausted"};
+      }
+      const auto& session = sessions_.at(proposal_->session);
+      inverse_.undo = session.undo;
+      inverse_.redo = session.redo;
+      if (inverse_.action == collaboration_history_action::edit) {
+        inverse_.undo.push_back(proposal_->operation);
+        inverse_.redo.clear();
+      } else if (inverse_.action == collaboration_history_action::undo) {
+        inverse_.undo.pop_back();
+        inverse_.redo.push_back(proposal_->operation);
+      } else {
+        inverse_.redo.pop_back();
+        inverse_.undo.push_back(proposal_->operation);
+      }
+      inverse_.before = store_->snapshot_;
+      const auto metadata = encode_collaboration_record(history, options_.max_retained_bytes);
+      prepared_bytes_ = 0;
+      for (const auto size : {batch.snapshot.size(), inverse_.before.size(), metadata.size()}) {
+        if (size > options_.max_retained_bytes - retained_bytes_ - prepared_bytes_) {
+          throw std::length_error{"Collaboration history byte budget exhausted"};
+        }
+        prepared_bytes_ += size;
+      }
     }
   }
 
@@ -635,24 +708,24 @@ private:
     for (const auto& field : accepted.history.fields) {
       const detail::collaboration_field_address address{field.entity, field.field};
       const auto current = fields.find(address);
-      if (detail::collaboration_version(field_versions_, address) != field.after_version ||
+      if (detail::collaboration_version(inverse_.field_versions, address) != field.after_version ||
           (current != fields.end()) != field.after_present ||
           (current != fields.end() && current->second != field.after)) {
         reject_candidate(collaboration_status::conflict);
       }
     }
     for (const auto& dependency : accepted.history.dependencies) {
-      if (detail::collaboration_version(entity_versions_, dependency.entity) !=
+      if (detail::collaboration_version(inverse_.entity_versions, dependency.entity) !=
           dependency.after_version) {
         reject_candidate(collaboration_status::conflict);
       }
     }
     const auto expected = detail::decode<storage_type>(accepted.snapshot, store_options_.decode);
     const auto desired = detail::decode<storage_type>(target.before, store_options_.decode);
-    restoration_identities_ = store_->inspect(desired, store_->allocated_id());
-    store_->restoration_identities_ = &restoration_identities_;
-    reversing_ = &target;
-    history_action_ = action;
+    inverse_.restoration = store_->inspect(desired, store_->allocated_id());
+    store_->collaboration_state_.restoration = &inverse_.restoration;
+    inverse_.reversing = &target;
+    inverse_.action = action;
     try {
       edit.update([&](storage_type& current) {
         detail::collaboration_history_merger merger{store_options_.max_snapshot_bytes};
@@ -667,7 +740,11 @@ private:
   void apply_model_change(edit_type& edit) {
     const auto& change = *decoded_change_;
     if (change.format_version == collaboration_history_change_version) {
-      apply_history_change(edit, change);
+      if constexpr (has_history) {
+        apply_history_change(edit, change);
+      } else {
+        throw std::invalid_argument{"Collaborative history is disabled"};
+      }
       return;
     }
     if (change.format_version != collaboration_model_change_version || change.history_action != 0 ||
@@ -689,7 +766,8 @@ private:
   }
 
   // Validate the actual semantic diff and prepare replication bytes before store publication.
-  void validate_candidate(const storage_type& candidate) {
+  void validate_candidate(const storage_type& candidate,
+                          const std::vector<std::uint8_t>& snapshot) {
     if (!proposal_) {
       return; // Initial construction and explicit document restore have no collaboration request.
     }
@@ -764,7 +842,7 @@ private:
     batch->session = proposal_->session;
     batch->operation = proposal_->operation;
     batch->allocated_id = store_->allocated_id();
-    batch->snapshot = detail::encode(candidate, store_options_.max_snapshot_bytes);
+    batch->snapshot = snapshot;
     if (batch->snapshot.size() > options_.max_retained_bytes - retained_bytes_) {
       throw std::length_error{"Collaboration accepted snapshot budget exceeded"};
     }
@@ -802,9 +880,8 @@ public:
         storage_options.max_snapshot_bytes == 0) {
       throw std::invalid_argument{"Invalid collaboration authority configuration"};
     }
-    store_ = std::make_unique<store_type>(
-        std::move(initial), document, storage_options,
-        [this](const storage_type& candidate) { validate_candidate(candidate); });
+    store_ = std::make_unique<store_type>(std::move(initial), document, storage_options);
+    bind_store(*store_);
     domain_ = {records_type::command_protocol,
                std::string{Traits::schema_id},
                std::numeric_limits<typename Traits::id_type>::digits,
@@ -851,7 +928,9 @@ public:
         throw std::invalid_argument{"Invalid collaboration session codec or encoding budget"};
       }
     }
-    sessions_.emplace(session, session_state{true, writable});
+    session_state state;
+    state.writable = writable;
+    sessions_.emplace(session, std::move(state));
   }
 
   // Update host permission for future operations; retries retain their original outcome.
@@ -921,30 +1000,36 @@ public:
       result->status = collaboration_status::conflict;
       return result;
     }
-    auto& session = sessions_.at(proposal.session);
     auto& retained = operations_.at({proposal.session, proposal.operation});
     proposal_ = &proposal;
     preparing_ = result.get();
     decoded_change_ = &decoded_change;
-    history_action_ = collaboration_history_action::edit;
+    if constexpr (has_history) {
+      inverse_.action = collaboration_history_action::edit;
+    }
     const auto outcome =
         store_->execute_transaction([&](auto& edit) { handler_(edit, proposal.command); });
     proposal_ = nullptr;
     preparing_ = nullptr;
     decoded_change_ = nullptr;
-    store_->restoration_identities_ = nullptr;
-    reversing_ = nullptr;
-    restoration_identities_.clear();
+    if constexpr (has_history) {
+      store_->collaboration_state_.restoration = nullptr;
+      inverse_.reversing = nullptr;
+      inverse_.restoration.clear();
+    }
     result->error = outcome.error;
     if (outcome.status == transaction_status::committed) {
       entities_.swap(prepared_entities_);
       sequence_ = prepared_batch_->sequence;
       retained_bytes_ += prepared_bytes_;
-      field_versions_.swap(prepared_field_versions_);
-      entity_versions_.swap(prepared_entity_versions_);
-      session.undo.swap(prepared_undo_);
-      session.redo.swap(prepared_redo_);
-      retained.before.swap(prepared_before_);
+      if constexpr (has_history) {
+        inverse_.field_versions.swap(inverse_.prepared_field_versions);
+        inverse_.entity_versions.swap(inverse_.prepared_entity_versions);
+        auto& session = sessions_.at(proposal.session);
+        session.undo.swap(inverse_.undo);
+        session.redo.swap(inverse_.redo);
+        retained.before.swap(inverse_.before);
+      }
       result->accepted = std::move(prepared_batch_);
       result->status = collaboration_status::accepted;
       // Deleted targets lose advisory presence; grants remain fenced until release/expiry.
@@ -960,27 +1045,35 @@ public:
       result->status = collaboration_status::reverted;
     } else if (outcome.status == transaction_status::indeterminate) {
       result->status = collaboration_status::indeterminate;
-      fenced_ = true;
+      if constexpr (store_type::has_journal) {
+        journal_state_.fenced = true;
+      }
     }
     prepared_batch_.reset();
     prepared_entities_.clear();
-    prepared_field_versions_.clear();
-    prepared_entity_versions_.clear();
-    prepared_before_.clear();
-    prepared_undo_.clear();
-    prepared_redo_.clear();
+    if constexpr (has_history) {
+      inverse_.prepared_field_versions.clear();
+      inverse_.prepared_entity_versions.clear();
+      inverse_.before.clear();
+      inverse_.undo.clear();
+      inverse_.redo.clear();
+    }
     return result;
   }
 
   // Inspect this application's undo tip; zero means empty, not a permission or conflict guarantee.
-  std::uint64_t undo_operation(const session_type& session) const {
+  std::uint64_t undo_operation(const session_type& session) const
+    requires(has_history)
+  {
     check_access();
     const auto& state = sessions_.at(session);
     return state.undo.empty() ? 0 : state.undo.back();
   }
 
   // Redo reverses the accepted undo transaction, preserving its current dependency checks.
-  std::uint64_t redo_operation(const session_type& session) const {
+  std::uint64_t redo_operation(const session_type& session) const
+    requires(has_history)
+  {
     check_access();
     const auto& state = sessions_.at(session);
     return state.redo.empty() ? 0 : state.redo.back();
@@ -989,12 +1082,7 @@ public:
   // Capture a join/reconnect baseline atomically with its accepted cursor on the owner thread.
   accepted_change_type snapshot() const {
     check_access();
-    return {domain_,
-            sequence_,
-            session_type{},
-            0,
-            store_->allocated_id(),
-            detail::encode(*store_->read(), store_options_.max_snapshot_bytes)};
+    return {domain_, sequence_, session_type{}, 0, store_->allocated_id(), store_->snapshot_};
   }
 
   // Return immutable accepted batches in order; transport/sink failures cannot roll back acceptance.
@@ -1198,12 +1286,11 @@ public:
   // Restore before opening sessions. The host supplies a fresh fenced epoch to this authority.
   void load_document(const std::vector<std::uint8_t>& bytes) {
     operation_scope guard{*this};
-    if (!sessions_.empty() || sequence_ != 0 || journal_attached_) {
+    if (!sessions_.empty() || sequence_ != 0 || store_->journal_state_.sink) {
       throw std::logic_error{"Restore collaboration document before opening sessions"};
     }
-    auto replacement = std::make_unique<store_type>(
-        Root{}, make_document_id(), store_options_,
-        [this](const storage_type& candidate) { validate_candidate(candidate); });
+    auto replacement = std::make_unique<store_type>(Root{}, make_document_id(), store_options_);
+    bind_store(*replacement);
     replacement->load(bytes);
     auto entities = collect(*replacement->read());
     const auto document = replacement->document();
@@ -1216,37 +1303,42 @@ public:
   // Enable existing synchronous document durability; accepted outcomes follow the journal flush.
   void create_journal(const std::filesystem::path& path,
                       journal_storage_mode mode = journal_storage_mode::appended,
-                      journal_options options = {}) {
+                      journal_options options = {})
+    requires(store_type::has_journal)
+  {
     operation_scope guard{*this};
     try {
       store_->create_journal(path, mode, std::move(options));
-      journal_attached_ = true;
+
     } catch (const journal_indeterminate_error&) {
-      fenced_ = true;
+      journal_state_.fenced = true;
       throw;
     }
   }
 
   // Publish a full document Save without changing the collaboration cursor or temporary rights.
-  void save_journal() {
+  void save_journal()
+    requires(store_type::has_journal)
+  {
     operation_scope guard{*this};
     try {
       store_->save_journal();
     } catch (const journal_indeterminate_error&) {
-      fenced_ = true;
+      journal_state_.fenced = true;
       throw;
     }
   }
 
   // Reopen durable document state in a fresh authority before binding sessions or accepting edits.
-  void recover_journal(const std::filesystem::path& path, journal_options options = {}) {
+  void recover_journal(const std::filesystem::path& path, journal_options options = {})
+    requires(store_type::has_journal)
+  {
     operation_scope guard{*this};
-    if (!sessions_.empty() || sequence_ != 0 || journal_attached_) {
+    if (!sessions_.empty() || sequence_ != 0 || store_->journal_state_.sink) {
       throw std::logic_error{"Recover collaboration document before opening sessions"};
     }
-    auto replacement = std::make_unique<store_type>(
-        Root{}, make_document_id(), store_options_,
-        [this](const storage_type& candidate) { validate_candidate(candidate); });
+    auto replacement = std::make_unique<store_type>(Root{}, make_document_id(), store_options_);
+    bind_store(*replacement);
     replacement->recover_journal(path, std::move(options));
     auto entities = collect(*replacement->read());
     const auto document = replacement->document();
@@ -1254,7 +1346,6 @@ public:
     entities_.swap(entities);
     domain_.document_high = document.high;
     domain_.document_low = document.low;
-    journal_attached_ = true;
   }
 };
 
@@ -1275,7 +1366,8 @@ public:
   using editing_presence_type = typename records_type::editing_presence;
 
 private:
-  using store_type = model_store<Root, history_mode::disabled, history_labels::disabled, Traits>;
+  using store_type = model_store<Root, history_mode::disabled, history_labels::disabled, Traits,
+                                 store_features::none>;
   store_type store_;
   store_options options_{};
   collaboration::domain domain_{};
@@ -1574,8 +1666,10 @@ struct collaboration_session {
   using result = basic_collaboration_result<Session, SessionTraits>;
   using lock_cache = basic_collaboration_lock_cache<Session, SessionTraits>;
   template <typename Root, history_mode Mode = history_mode::linear,
-            history_labels Labels = history_labels::disabled, typename Traits = model_traits<Root>>
-  using authority = collaboration_authority<Root, Mode, Labels, Traits, Session, SessionTraits>;
+            history_labels Labels = history_labels::disabled, typename Traits = model_traits<Root>,
+            store_features Features = store_features::all>
+  using authority =
+      collaboration_authority<Root, Mode, Labels, Traits, Session, SessionTraits, Features>;
   template <typename Root, typename Traits = model_traits<Root>>
   using replica = collaboration_replica<Root, Traits, Session, SessionTraits>;
 };

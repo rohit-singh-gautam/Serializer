@@ -35,9 +35,17 @@ namespace rohit::managed {
 enum class history_mode : std::uint32_t { disabled = 0, linear = 1, tree = 2 };
 // Optional action descriptions are compiled out by default.
 enum class history_labels { disabled, enabled };
+// Runtime attachments can be compiled out independently; defaults preserve existing callers.
+enum class store_features { none, journal, collaboration, all };
+
+#if defined(_MSC_VER)
+#define SERIALIZER_MANAGED_EMPTY_MEMBER [[msvc::no_unique_address]]
+#else
+#define SERIALIZER_MANAGED_EMPTY_MEMBER [[no_unique_address]]
+#endif
 // Only the authority may restore identities from its own validated, retained history.
 template <typename Root, history_mode Mode, history_labels Labels, typename Traits,
-          typename Session, typename SessionTraits>
+          typename Session, typename SessionTraits, store_features Features>
 class collaboration_authority;
 enum class transaction_status { pending, committed, no_change, reverted, failed, indeterminate };
 
@@ -99,6 +107,69 @@ template <typename Root>
 struct model_traits;
 
 namespace detail {
+
+// History-free stores retain only limits used by their model and decoder.
+template <bool History>
+struct store_configuration : store_options {
+  // Preserve the caller's configured history and model limits.
+  explicit store_configuration(store_options options) : store_options{options} {}
+};
+template <>
+struct store_configuration<false> {
+  static constexpr std::size_t max_revisions = 0;
+  static constexpr std::size_t max_history_bytes = 0;
+  std::size_t max_snapshot_bytes;
+  serializer::decode_limits decode;
+  // History limits have no storage or runtime role in a history-free specialization.
+  explicit store_configuration(store_options options)
+      : max_snapshot_bytes{options.max_snapshot_bytes}, decode{options.decode} {}
+  // Reconstruct options only when building an isolated recovery or synchronization receiver.
+  operator store_options() const {
+    store_options result;
+    result.max_revisions = max_revisions;
+    result.max_history_bytes = max_history_bytes;
+    result.max_snapshot_bytes = max_snapshot_bytes;
+    result.decode = decode;
+    return result;
+  }
+};
+
+// Disabled attachments are compile-time null constants and occupy no object storage.
+template <bool Enabled>
+struct store_journal_storage {
+  static constexpr journal_sink* sink = nullptr;
+  static constexpr bool indeterminate = false;
+};
+template <>
+struct store_journal_storage<true> {
+  std::unique_ptr<journal_sink> sink{};
+  bool indeterminate{};
+  std::vector<std::uint8_t> saved_snapshot{};
+};
+
+template <bool History, typename IdentityTable>
+struct store_restoration_storage {
+  static constexpr const IdentityTable* restoration = nullptr;
+};
+template <typename IdentityTable>
+struct store_restoration_storage<true, IdentityTable> {
+  const IdentityTable* restoration{};
+};
+
+template <bool Enabled, typename Storage, typename IdentityTable, bool History = true>
+struct store_collaboration_storage {
+  static constexpr collaboration_attachment* attachment = nullptr;
+  static constexpr bool busy = false;
+  static constexpr const IdentityTable* restoration = nullptr;
+};
+template <typename Storage, typename IdentityTable, bool History>
+struct store_collaboration_storage<true, Storage, IdentityTable, History>
+    : store_restoration_storage<History, IdentityTable> {
+  std::unique_ptr<collaboration_attachment> attachment{};
+  bool busy{};
+  void* prepare_context{};
+  void (*prepare)(void*, const Storage&, const std::vector<std::uint8_t>&){};
+};
 
 // Encode with the existing keyed codec; native object layout is never a snapshot.
 template <typename Value>
@@ -208,12 +279,11 @@ struct linear_history {
     entries.push_back(std::move(node));
     publish_append(plan);
   }
-
 };
 
 template <history_labels Labels>
-using tree_revision = std::conditional_t<Labels == history_labels::enabled,
-                                         records::revision, records::unlabeled_revision>;
+using tree_revision = std::conditional_t<Labels == history_labels::enabled, records::revision,
+                                         records::unlabeled_revision>;
 
 template <history_labels Labels>
 using tree_history = std::map<std::uint64_t, std::shared_ptr<const tree_revision<Labels>>>;
@@ -235,12 +305,14 @@ struct history_storage<history_mode::linear, Labels> : linear_history<Labels> {
 template <history_labels Labels>
 struct history_storage<history_mode::tree, Labels> {
   tree_history<Labels> revisions{};
+  std::size_t bytes{};
   std::uint64_t current_revision{1};
   std::uint64_t revision_high_water{1};
 
   // Publish a prepared tree without allocating or moving retained records.
   void swap(history_storage& other) noexcept {
     revisions.swap(other.revisions);
+    std::swap(bytes, other.bytes);
     std::swap(current_revision, other.current_revision);
     std::swap(revision_high_water, other.revision_high_water);
   }
@@ -250,17 +322,25 @@ struct history_storage<history_mode::tree, Labels> {
 
 // Single-thread-confined owning snapshot store. Adapters and callbacks must not leak mutable aliases.
 template <typename Root, history_mode Mode = history_mode::linear,
-          history_labels Labels = history_labels::disabled, typename Traits = model_traits<Root>>
+          history_labels Labels = history_labels::disabled, typename Traits = model_traits<Root>,
+          store_features Features = store_features::all>
 class model_store {
   template <typename, typename, typename>
   friend class store_collaboration;
-  template <typename, history_mode, history_labels, typename, typename, typename>
+  template <typename, history_mode, history_labels, typename, typename, typename, store_features>
   friend class collaboration_authority;
 
 public:
+  static constexpr bool has_journal =
+      Features == store_features::journal || Features == store_features::all;
+  static constexpr bool has_collaboration =
+      Features == store_features::collaboration || Features == store_features::all;
+  static constexpr bool has_history = Mode != history_mode::disabled;
+  static_assert(Features == store_features::none || Features == store_features::journal ||
+                Features == store_features::collaboration || Features == store_features::all);
   using traits_type = Traits;
-  using outcome_type = std::conditional_t<Mode == history_mode::tree,
-                                          tree_transaction_outcome, transaction_outcome>;
+  using outcome_type =
+      std::conditional_t<Mode == history_mode::tree, tree_transaction_outcome, transaction_outcome>;
   using storage_type = typename Traits::storage_type;
   using id_type = typename Traits::id_type;
   static_assert(std::same_as<id_type, std::uint32_t> || std::same_as<id_type, std::uint64_t>);
@@ -272,40 +352,38 @@ public:
                 Mode == history_mode::tree);
 
 private:
-  static constexpr bool has_history = Mode != history_mode::disabled;
   static constexpr bool has_labels = Labels == history_labels::enabled;
-  static constexpr std::uint32_t format_version = has_labels ? (Mode == history_mode::tree ? 1 : 2) : 3;
+  static constexpr std::uint32_t format_version =
+      has_labels ? (Mode == history_mode::tree ? 1 : 2) : 3;
   using label_type = detail::label_storage<Labels>;
   using entry_type = detail::history_entry<Labels>;
   using revision_type = detail::tree_revision<Labels>;
-  using saved_entry_type = std::conditional_t<has_labels,
-                                              records::history_entry, records::unlabeled_history_entry>;
-  using tree_envelope_type = std::conditional_t<has_labels,
-                                                records::envelope, records::unlabeled_envelope>;
-  using state_envelope_type = std::conditional_t<has_labels,
-                                                 records::state_envelope, records::unlabeled_state_envelope>;
-  using envelope_type = std::conditional_t<Mode == history_mode::tree,
-                                           tree_envelope_type, state_envelope_type>;
+  using saved_entry_type =
+      std::conditional_t<has_labels, records::history_entry, records::unlabeled_history_entry>;
+  using tree_envelope_type =
+      std::conditional_t<has_labels, records::envelope, records::unlabeled_envelope>;
+  using state_envelope_type =
+      std::conditional_t<has_labels, records::state_envelope, records::unlabeled_state_envelope>;
+  using envelope_type =
+      std::conditional_t<Mode == history_mode::tree, tree_envelope_type, state_envelope_type>;
   using identity_table = std::map<id_type, std::string>;
   using history_type = detail::history_storage<Mode, Labels>;
 
   document_id document_{};
-  store_options options_{};
+  detail::store_configuration<has_history> options_{store_options{}};
   std::shared_ptr<const storage_type> current_{};
   std::vector<std::uint8_t> snapshot_{};
   identity_table identities_{};
-  const identity_table* restoration_identities_{};
-  std::unique_ptr<detail::collaboration_attachment> collaboration_{};
-  bool collaboration_busy_{};
+  SERIALIZER_MANAGED_EMPTY_MEMBER
+  detail::store_collaboration_storage<has_collaboration, storage_type, identity_table, has_history>
+      collaboration_state_{};
   std::uint64_t allocated_id_{};
   bool writer_active_{};
   bool callback_active_{};
   const std::thread::id thread_{std::this_thread::get_id()};
   std::function<void(const storage_type&)> validate_{};
-  [[no_unique_address]] detail::history_storage<Mode, Labels> history_{};
-  std::unique_ptr<detail::journal_sink> journal_{};
-  bool journal_open_indeterminate_{};
-  std::vector<std::uint8_t> saved_snapshot_{};
+  SERIALIZER_MANAGED_EMPTY_MEMBER detail::history_storage<Mode, Labels> history_{};
+  SERIALIZER_MANAGED_EMPTY_MEMBER detail::store_journal_storage<has_journal> journal_state_{};
 
   struct recovery_tag {};
 
@@ -316,12 +394,15 @@ private:
 
   // Preserve the uncertainty of issued durable writes in all transaction completion forms.
   transaction_status failure_status() const noexcept {
-    return journal_open_indeterminate_ || (journal_ && journal_->needs_recovery())
-        ? transaction_status::indeterminate : transaction_status::failed;
+    return journal_state_.indeterminate ||
+                   (journal_state_.sink && journal_state_.sink->needs_recovery())
+               ? transaction_status::indeterminate
+               : transaction_status::failed;
   }
 
   // Block reentrant store mutation from storage hooks and restore the guard on every exception.
   void journal_operation(auto&& operation) {
+    static_assert(has_journal);
     if (callback_active_) {
       throw std::logic_error{"Reentrant managed journal operation"};
     }
@@ -331,7 +412,7 @@ private:
       callback_active_ = false;
     } catch (const journal_indeterminate_error&) {
       // Creation can publish a file before returning its adapter; fence that case as well.
-      journal_open_indeterminate_ = true;
+      journal_state_.indeterminate = true;
       callback_active_ = false;
       throw;
     } catch (...) {
@@ -342,8 +423,8 @@ private:
 
   // Export prepared state without publishing it; existing envelope wire versions remain unchanged.
   std::vector<std::uint8_t> encode_state(const std::vector<std::uint8_t>& snapshot,
-                                        const history_type& history,
-                                        std::uint64_t allocated_id) const {
+                                         const history_type& history,
+                                         std::uint64_t allocated_id) const {
     envelope_type envelope;
     envelope.format_version = format_version;
     envelope.schema_id = std::string{Traits::schema_id};
@@ -383,14 +464,16 @@ private:
 
   // Persist navigation, reservation, or reset with a fixed stack buffer and no model encoding.
   void journal_control(detail::journal_record_kind kind, std::uint64_t argument = 0) {
-    if (journal_) {
-      std::array<std::uint8_t, 1 + journal_word_bytes> record{};
-      record.front() = static_cast<std::uint8_t>(kind);
-      const auto length = kind == detail::journal_record_kind::reset ? 1 : record.size();
-      if (length != 1) {
-        detail::journal_put_word(record, 1, argument);
+    if constexpr (has_journal) {
+      if (journal_state_.sink) {
+        std::array<std::uint8_t, 1 + journal_word_bytes> record{};
+        record.front() = static_cast<std::uint8_t>(kind);
+        const auto length = kind == detail::journal_record_kind::reset ? 1 : record.size();
+        if (length != 1) {
+          detail::journal_put_word(record, 1, argument);
+        }
+        journal_operation([&] { journal_state_.sink->append(std::span{record}.first(length)); });
       }
-      journal_operation([&] { journal_->append(std::span{record}.first(length)); });
     }
   }
 
@@ -398,39 +481,42 @@ private:
   // prior history, document/schema metadata, and unchanged base bytes are never re-encoded here.
   void journal_edit(const std::vector<std::uint8_t>& snapshot, const label_type& action,
                     std::uint64_t allocation_base, std::size_t evicted) {
-    if (collaboration_) {
+    if (collaboration_state_.attachment) {
       if constexpr (has_labels) {
-        collaboration_->prepare(snapshot, action.label);
+        collaboration_state_.attachment->prepare(snapshot, action.label);
       } else {
-        collaboration_->prepare(snapshot, {});
+        collaboration_state_.attachment->prepare(snapshot, {});
       }
     }
-    if (!journal_) {
-      return;
-    }
-    constexpr auto prefix_bytes = 1 + journal_word_bytes *
-        (1 + (Mode == history_mode::linear ? 1 : 0) + (has_labels ? 1 : 0));
-    std::array<std::uint8_t, prefix_bytes> prefix{};
-    prefix.front() = static_cast<std::uint8_t>(restoration_identities_
-                                                   ? detail::journal_record_kind::restore_edit
-                                                   : detail::journal_record_kind::edit);
-    std::size_t offset = 1;
-    if constexpr (Mode == history_mode::linear) {
-      detail::journal_put_word(prefix, offset, evicted);
+    if constexpr (has_journal) {
+      if (!journal_state_.sink) {
+        return;
+      }
+      constexpr auto prefix_bytes =
+          1 +
+          journal_word_bytes * (1 + (Mode == history_mode::linear ? 1 : 0) + (has_labels ? 1 : 0));
+      std::array<std::uint8_t, prefix_bytes> prefix{};
+      prefix.front() = static_cast<std::uint8_t>(collaboration_state_.restoration
+                                                     ? detail::journal_record_kind::restore_edit
+                                                     : detail::journal_record_kind::edit);
+      std::size_t offset = 1;
+      if constexpr (Mode == history_mode::linear) {
+        detail::journal_put_word(prefix, offset, evicted);
+        offset += journal_word_bytes;
+      } else {
+        static_cast<void>(evicted);
+      }
+      detail::journal_put_word(prefix, offset, allocation_base);
       offset += journal_word_bytes;
-    } else {
-      static_cast<void>(evicted);
+      std::span<const std::uint8_t> label;
+      if constexpr (has_labels) {
+        detail::journal_put_word(prefix, offset, action.label.size());
+        label = {reinterpret_cast<const std::uint8_t*>(action.label.data()), action.label.size()};
+      } else {
+        static_cast<void>(action);
+      }
+      journal_operation([&] { journal_state_.sink->append(prefix, label, snapshot); });
     }
-    detail::journal_put_word(prefix, offset, allocation_base);
-    offset += journal_word_bytes;
-    std::span<const std::uint8_t> label;
-    if constexpr (has_labels) {
-      detail::journal_put_word(prefix, offset, action.label.size());
-      label = {reinterpret_cast<const std::uint8_t*>(action.label.data()), action.label.size()};
-    } else {
-      static_cast<void>(action);
-    }
-    journal_operation([&] { journal_->append(prefix, label, snapshot); });
   }
 
   // Replay stored bytes into an isolated receiver. Never invoke editing callbacks or external effects.
@@ -452,7 +538,8 @@ private:
         throw std::invalid_argument{"History reset in a history-disabled journal"};
       }
     }
-    if (kind == detail::journal_record_kind::reserve || kind == detail::journal_record_kind::select) {
+    if (kind == detail::journal_record_kind::reserve ||
+        kind == detail::journal_record_kind::select) {
       const auto argument = detail::journal_get_word(record, offset);
       if (offset != record.size()) {
         throw std::invalid_argument{"Trailing managed journal control bytes"};
@@ -500,7 +587,8 @@ private:
     if (length > options_.max_snapshot_bytes || length > options_.decode.max_input_bytes) {
       throw std::length_error{"Managed journal snapshot budget exceeded"};
     }
-    std::vector<std::uint8_t> snapshot{record.begin() + static_cast<std::ptrdiff_t>(offset), record.end()};
+    std::vector<std::uint8_t> snapshot{record.begin() + static_cast<std::ptrdiff_t>(offset),
+                                       record.end()};
     auto value = detail::decode<storage_type>(snapshot, options_.decode);
     auto identities = inspect(value, allocated_id_);
     if (value.persistent_id != current_->persistent_id || snapshot == snapshot_) {
@@ -554,8 +642,9 @@ private:
         if constexpr (has_labels) {
           node->label = std::move(action.label);
         }
+        const auto bytes = tree_append_bytes(history_, *node);
         history_.revisions.emplace(node->number, node);
-        check_history(history_.revisions);
+        history_.bytes = bytes;
         history_.current_revision = node->number;
         history_.revision_high_water = node->number;
       }
@@ -575,10 +664,11 @@ private:
   // Require a closed writer for navigation and export; callbacks cannot reenter the store.
   void require_idle() const {
     check_thread();
-    if (writer_active_ || callback_active_ || collaboration_busy_) {
+    if (writer_active_ || callback_active_ || collaboration_state_.busy) {
       throw std::logic_error{"Managed store already has an active operation"};
     }
-    if (journal_open_indeterminate_ || (journal_ && journal_->needs_recovery())) {
+    if (journal_state_.indeterminate ||
+        (journal_state_.sink && journal_state_.sink->needs_recovery())) {
       throw journal_indeterminate_error{"Reopen the managed journal before further operations"};
     }
   }
@@ -646,21 +736,20 @@ private:
     return history_.revision_high_water + 1;
   }
 
-  // Validate all retained encoded bytes and labels without arithmetic overflow.
-  void check_history(const auto& revisions) const {
-    if (revisions.size() > options_.max_revisions) {
+  // Check one prospective tree append in constant time, before allocation or durable publication.
+  std::size_t tree_append_bytes(const history_type& history, const revision_type& node) const
+    requires(Mode == history_mode::tree)
+  {
+    if (history.revisions.size() >= options_.max_revisions) {
       throw std::length_error{"Managed revision budget exceeded"};
     }
-    std::size_t remaining = options_.max_history_bytes;
-    for (const auto& [number, node] : revisions) {
-      static_cast<void>(number);
-      for (const auto size : {node->snapshot.size(), detail::label_bytes<Labels>(*node)}) {
-        if (size > remaining) {
-          throw std::length_error{"Managed history byte budget exceeded"};
-        }
-        remaining -= size;
-      }
+    const auto labels = detail::label_bytes<Labels>(node);
+    if (node.snapshot.size() > options_.max_history_bytes ||
+        labels > options_.max_history_bytes - node.snapshot.size() ||
+        history.bytes > options_.max_history_bytes - node.snapshot.size() - labels) {
+      throw std::length_error{"Managed history byte budget exceeded"};
     }
+    return history.bytes + node.snapshot.size() + labels;
   }
 
   // Prepare a fresh baseline in the compile-time history mode without modifying retained state.
@@ -676,8 +765,8 @@ private:
       auto node = std::make_shared<revision_type>();
       node->number = history_.current_revision;
       node->snapshot = snapshot_;
+      result.bytes = tree_append_bytes(result, *node);
       result.revisions.emplace(history_.current_revision, std::move(node));
-      check_history(result.revisions);
     }
     return result;
   }
@@ -756,8 +845,7 @@ public:
     // Acquire the sole writer only after candidate construction has succeeded.
     transaction(model_store& store, outcome_type& outcome, label_type label = {})
         : label_type{std::move(label)}, store_{&store}, outcome_{&outcome},
-          allocation_base_{store.allocated_id_},
-          exceptions_{std::uncaught_exceptions()} {
+          allocation_base_{store.allocated_id_}, exceptions_{std::uncaught_exceptions()} {
       store.require_idle();
       if (exceptions_ != 0) {
         throw std::logic_error{"Cannot begin a transaction during stack unwinding"};
@@ -938,9 +1026,13 @@ public:
         }
         for (const auto& [id, type] : identities) {
           const auto previous = store.identities_.find(id);
-          const bool restored = store.restoration_identities_ &&
-                                store.restoration_identities_->contains(id) &&
-                                store.restoration_identities_->at(id) == type;
+          bool restored = false;
+          if constexpr (has_collaboration && has_history) {
+            if (const auto* restoration = store.collaboration_state_.restoration) {
+              const auto found = restoration->find(id);
+              restored = found != restoration->end() && found->second == type;
+            }
+          }
           if ((previous != store.identities_.end() && previous->second != type) ||
               (previous == store.identities_.end() && id <= allocation_base_ && !restored)) {
             throw std::invalid_argument{"Cannot reuse or retype a managed identity"};
@@ -948,6 +1040,21 @@ public:
         }
         auto snapshot = detail::encode(*candidate_, store.options_.max_snapshot_bytes);
         store.check_snapshot(snapshot);
+        if constexpr (has_collaboration) {
+          if (store.collaboration_state_.prepare) {
+            // Authority policies have the same reentry boundary as application validation.
+            store.callback_active_ = true;
+            try {
+              store.collaboration_state_.prepare(store.collaboration_state_.prepare_context,
+                                                 *candidate_, snapshot);
+              store.callback_active_ = false;
+            } catch (...) {
+              store.callback_active_ = false;
+              throw;
+            }
+            outcome_->throw_if_failed();
+          }
+        }
         if (snapshot == store.snapshot_) {
           if constexpr (Mode == history_mode::tree) {
             outcome_->revision = store.history_.current_revision;
@@ -966,8 +1073,8 @@ public:
             const auto plan = store.history_.prepare_append(entry, store.options_);
             store.history_.entries.push_back(std::move(entry));
             try {
-              store.journal_edit(snapshot, static_cast<const label_type&>(*this),
-                                 allocation_base_, plan.evict_count);
+              store.journal_edit(snapshot, static_cast<const label_type&>(*this), allocation_base_,
+                                 plan.evict_count);
             } catch (...) {
               // The unselected tail is private while the writer is active; failure restores it exactly.
               store.history_.entries.pop_back();
@@ -983,15 +1090,17 @@ public:
               node->label = this->label;
             }
             node->snapshot = snapshot;
+            const auto bytes = store.tree_append_bytes(store.history_, *node);
             const auto inserted = store.history_.revisions.emplace(revision, std::move(node)).first;
             try {
-              store.check_history(store.history_.revisions);
-              store.journal_edit(snapshot, static_cast<const label_type&>(*this), allocation_base_, 0);
+              store.journal_edit(snapshot, static_cast<const label_type&>(*this), allocation_base_,
+                                 0);
             } catch (...) {
               // Only the new, unselected node is provisional; retained nodes are never copied.
               store.history_.revisions.erase(inserted);
               throw;
             }
+            store.history_.bytes = bytes;
             store.history_.revision_high_water = revision;
             store.history_.current_revision = revision;
             outcome_->revision = revision;
@@ -1002,13 +1111,13 @@ public:
         store.current_.swap(published);
         store.snapshot_.swap(snapshot);
         store.identities_.swap(identities);
-        if (store.collaboration_) {
-          store.collaboration_->publish();
+        if (store.collaboration_state_.attachment) {
+          store.collaboration_state_.attachment->publish();
         }
         close(transaction_status::committed);
       } catch (...) {
-        if (store_->collaboration_) {
-          store_->collaboration_->abort();
+        if (store_->collaboration_state_.attachment) {
+          store_->collaboration_state_.attachment->abort();
         }
         fail(std::current_exception());
         throw;
@@ -1051,47 +1160,57 @@ public:
   template <typename Session = std::uint64_t,
             typename Policy = collaboration_session_traits<Session>>
   store_collaboration<model_store, Session, Policy>&
-  collaborate(Session session, collaboration_client_options options = {});
+  collaborate(Session session, collaboration_client_options options = {})
+    requires(has_collaboration);
 
   // Access the attached session's typed synchronization state without changing ownership.
   template <typename Session = std::uint64_t,
             typename Policy = collaboration_session_traits<Session>>
-  store_collaboration<model_store, Session, Policy>& collaboration();
+  store_collaboration<model_store, Session, Policy>& collaboration()
+    requires(has_collaboration);
 
   // Exchange queued transactions and remote changes through the associated transport.
-  void synchronize() {
+  void synchronize()
+    requires(has_collaboration)
+  {
     require_idle();
-    if (!collaboration_) {
+    if (!collaboration_state_.attachment) {
       throw std::logic_error{"Managed store has no collaboration session"};
     }
-    collaboration_->synchronize();
+    collaboration_state_.attachment->synchronize();
   }
 
   // Send the next pending transaction independently of remote-change application.
-  void send_pending() {
+  void send_pending()
+    requires(has_collaboration)
+  {
     require_idle();
-    if (!collaboration_) {
+    if (!collaboration_state_.attachment) {
       throw std::logic_error{"Managed store has no collaboration session"};
     }
-    collaboration_->send_pending();
+    collaboration_state_.attachment->send_pending();
   }
 
   // Apply ordered remote changes and reconcile local intent without submitting new local work.
-  void receive_changes() {
+  void receive_changes()
+    requires(has_collaboration)
+  {
     require_idle();
-    if (!collaboration_) {
+    if (!collaboration_state_.attachment) {
       throw std::logic_error{"Managed store has no collaboration session"};
     }
-    collaboration_->receive_changes();
+    collaboration_state_.attachment->receive_changes();
   }
 
   // Call from the owner's event loop; network work occurs only when the interval is due.
-  bool synchronize_if_due(std::uint64_t now_ms) {
+  bool synchronize_if_due(std::uint64_t now_ms)
+    requires(has_collaboration)
+  {
     require_idle();
-    if (!collaboration_) {
+    if (!collaboration_state_.attachment) {
       throw std::logic_error{"Managed store has no collaboration session"};
     }
-    return collaboration_->synchronize_if_due(now_ms);
+    return collaboration_state_.attachment->synchronize_if_due(now_ms);
   }
 
   // Return an immutable pin whose lifetime can extend across commits and navigation.
@@ -1194,8 +1313,8 @@ public:
     requires(has_labels && has_history)
   {
     require_idle();
-    if (collaboration_) {
-      return collaboration_->history_label(false);
+    if (collaboration_state_.attachment) {
+      return collaboration_state_.attachment->history_label(false);
     }
     if constexpr (Mode == history_mode::linear) {
       if (history_.cursor != 0) {
@@ -1215,8 +1334,8 @@ public:
     requires(has_labels && Mode == history_mode::linear)
   {
     require_idle();
-    if (collaboration_) {
-      return collaboration_->history_label(true);
+    if (collaboration_state_.attachment) {
+      return collaboration_state_.attachment->history_label(true);
     }
     const auto next = history_.cursor + 1;
     if (next >= history_.entries.size()) {
@@ -1256,7 +1375,7 @@ public:
     requires(Mode == history_mode::tree)
   {
     require_idle();
-    if (collaboration_) {
+    if (collaboration_state_.attachment) {
       throw std::logic_error{"Shared history uses collaborative undo/redo, not branch checkout"};
     }
     const auto found = history_.revisions.find(revision);
@@ -1272,8 +1391,8 @@ public:
     requires(has_history)
   {
     require_idle();
-    if (collaboration_) {
-      collaboration_->undo(false);
+    if (collaboration_state_.attachment) {
+      collaboration_state_.attachment->undo(false);
       return;
     }
     if constexpr (Mode == history_mode::linear) {
@@ -1296,8 +1415,8 @@ public:
     requires(Mode == history_mode::linear)
   {
     require_idle();
-    if (collaboration_) {
-      collaboration_->undo(true);
+    if (collaboration_state_.attachment) {
+      collaboration_state_.attachment->undo(true);
       return;
     }
     const auto next = history_.cursor + 1;
@@ -1324,7 +1443,7 @@ public:
     requires(has_history)
   {
     require_idle();
-    if (collaboration_) {
+    if (collaboration_state_.attachment) {
       throw std::logic_error{"Collaboration history is retained with pending synchronization"};
     }
     auto history = make_history();
@@ -1335,8 +1454,8 @@ public:
   // Export a coherent memory envelope; this does not mark the journaled document saved.
   std::vector<std::uint8_t> save() const {
     require_idle();
-    if (collaboration_) {
-      return collaboration_->save();
+    if (collaboration_state_.attachment) {
+      return collaboration_state_.attachment->save();
     }
     return encode_state(snapshot_, history_, allocated_id_);
   }
@@ -1344,42 +1463,46 @@ public:
   // Create a durable saved baseline at a new path and journal all subsequent persistent operations.
   void create_journal(const std::filesystem::path& path,
                       journal_storage_mode mode = journal_storage_mode::appended,
-                      journal_options options = {}) {
+                      journal_options options = {})
+    requires(has_journal)
+  {
     require_idle();
-    if (collaboration_) {
-      collaboration_->create_journal(path, mode, std::move(options));
+    if (collaboration_state_.attachment) {
+      collaboration_state_.attachment->create_journal(path, mode, std::move(options));
       return;
     }
-    if (journal_) {
+    if (journal_state_.sink) {
       throw std::logic_error{"Managed store already owns a journal"};
     }
     auto saved = snapshot_;
     auto bytes = save();
     check_journal_envelope(bytes);
     journal_operation([&] {
-      journal_ = detail::create_file_journal(path, mode, bytes, std::move(options),
-                                               journal_open_indeterminate_);
+      journal_state_.sink = detail::create_file_journal(path, mode, bytes, std::move(options),
+                                                        journal_state_.indeterminate);
     });
-    saved_snapshot_.swap(saved);
+    journal_state_.saved_snapshot.swap(saved);
   }
 
   // Recover into an unattached store atomically, then acquire responsibility for future durable writes.
   // Destroy/recreate a fenced store before calling this; recovery never reruns editing callbacks.
-  void recover_journal(const std::filesystem::path& path, journal_options options = {}) {
+  void recover_journal(const std::filesystem::path& path, journal_options options = {})
+    requires(has_journal)
+  {
     require_idle();
-    if (collaboration_) {
-      collaboration_->recover_journal(path, std::move(options));
+    if (collaboration_state_.attachment) {
+      collaboration_state_.attachment->recover_journal(path, std::move(options));
       return;
     }
-    if (journal_) {
+    if (journal_state_.sink) {
       throw std::logic_error{"Recover into a store without an attached journal"};
     }
     // Intermediate replay validates schema invariants; application validation runs once on the result.
     model_store recovered{recovery_tag{}, options_, {}};
     std::vector<std::uint8_t> saved;
     journal_operation([&] {
-      auto journal = detail::recover_file_journal(path, std::move(options),
-          [&](bool base, std::span<const std::uint8_t> bytes) {
+      auto journal = detail::recover_file_journal(
+          path, std::move(options), [&](bool base, std::span<const std::uint8_t> bytes) {
             if (base) {
               recovered.load({bytes.begin(), bytes.end()});
               saved = recovered.snapshot_;
@@ -1392,7 +1515,8 @@ public:
       if (document_.high == recovered.document_.high && document_.low == recovered.document_.low) {
         if (allocated_id_ > recovered.allocated_id_ ||
             current_->persistent_id != recovered.current_->persistent_id) {
-          throw std::invalid_argument{"Recovery would discard live document identity; use a fresh store"};
+          throw std::invalid_argument{
+              "Recovery would discard live document identity; use a fresh store"};
         }
         if constexpr (Mode == history_mode::tree) {
           if (history_.revision_high_water > recovered.history_.revision_high_water) {
@@ -1403,7 +1527,7 @@ public:
       try {
         journal->finish_recovery();
       } catch (...) {
-        journal_open_indeterminate_ = journal->needs_recovery();
+        journal_state_.indeterminate = journal->needs_recovery();
         throw;
       }
       // Nothing below allocates or calls application code after the recovered state becomes durable.
@@ -1413,61 +1537,70 @@ public:
       current_.swap(recovered.current_);
       snapshot_.swap(recovered.snapshot_);
       identities_.swap(recovered.identities_);
-      saved_snapshot_.swap(saved);
+      journal_state_.saved_snapshot.swap(saved);
       document_ = recovered.document_;
       allocated_id_ = recovered.allocated_id_;
-      journal_.swap(journal);
+      journal_state_.sink.swap(journal);
     });
   }
 
   // Flush and atomically replace the base with all current history and allocator dependencies.
   // The synchronous, thread-confined writer cannot admit edits during this Save.
-  void save_journal() {
+  void save_journal()
+    requires(has_journal)
+  {
     require_idle();
-    if (!journal_) {
+    if (!journal_state_.sink) {
       throw std::logic_error{"Managed store has no journal"};
     }
     auto saved = snapshot_;
     auto bytes = save();
-    if (!collaboration_) {
+    if (!collaboration_state_.attachment) {
       check_journal_envelope(bytes);
     }
-    journal_operation([&] { journal_->save(bytes); });
-    saved_snapshot_.swap(saved);
+    journal_operation([&] { journal_state_.sink->save(bytes); });
+    journal_state_.saved_snapshot.swap(saved);
   }
 
   // Compare current persistent values/identities with the last full Save, independently of history.
-  bool journal_dirty() const {
+  bool journal_dirty() const
+    requires(has_journal)
+  {
     check_thread();
-    if (!journal_) {
+    if (!journal_state_.sink) {
       throw std::logic_error{"Managed store has no journal"};
     }
-    return snapshot_ != saved_snapshot_;
+    return snapshot_ != journal_state_.saved_snapshot;
   }
 
   // Return acknowledged durable operation identity; reservations and history navigation also advance it.
-  std::uint64_t journal_sequence() const {
+  std::uint64_t journal_sequence() const
+    requires(has_journal)
+  {
     check_thread();
-    if (!journal_) {
+    if (!journal_state_.sink) {
       throw std::logic_error{"Managed store has no journal"};
     }
-    return journal_->sequence();
+    return journal_state_.sink->sequence();
   }
 
   // Distinguish an uncertain disk decision from an ordinary validation or preparation failure.
-  bool journal_needs_recovery() const {
+  bool journal_needs_recovery() const
+    requires(has_journal)
+  {
     check_thread();
-    return journal_open_indeterminate_ || (journal_ && journal_->needs_recovery());
+    return journal_state_.indeterminate ||
+           (journal_state_.sink && journal_state_.sink->needs_recovery());
   }
 
   // Validate the entire history before replacing this document; reject malformed or incompatible data.
   void load(const std::vector<std::uint8_t>& bytes) {
     require_idle();
-    if (collaboration_) {
-      collaboration_->load(bytes);
+    if (collaboration_state_.attachment) {
+      collaboration_state_.attachment->load(bytes);
       return;
     }
-    if (journal_) {
+    if (journal_state_.sink) {
       throw std::logic_error{"Cannot replace a journaled document with a memory envelope"};
     }
     auto envelope = detail::decode<envelope_type>(bytes, options_.decode);
@@ -1479,7 +1612,8 @@ public:
       throw std::invalid_argument{"Incompatible managed envelope"};
     }
     if constexpr (Mode == history_mode::tree) {
-      if (envelope.current_revision == 0 || envelope.current_revision > envelope.revision_high_water) {
+      if (envelope.current_revision == 0 ||
+          envelope.current_revision > envelope.revision_high_water) {
         throw std::invalid_argument{"Invalid managed tree cursor"};
       }
     } else if constexpr (Mode == history_mode::linear) {
@@ -1585,10 +1719,11 @@ public:
         if (roots != 1 || !found_current) {
           throw std::invalid_argument{"Invalid managed history cursor"};
         }
+        history.bytes = options_.max_history_bytes - remaining_history_bytes;
         history.current_revision = envelope.current_revision;
-        history.revision_high_water = same_document
-            ? std::max(history_.revision_high_water, envelope.revision_high_water)
-            : envelope.revision_high_water;
+        history.revision_high_water =
+            same_document ? std::max(history_.revision_high_water, envelope.revision_high_water)
+                          : envelope.revision_high_water;
       }
       history_.swap(history);
     }
@@ -1598,12 +1733,14 @@ public:
     document_ = {envelope.document_high, envelope.document_low};
     allocated_id_ =
         same_document ? std::max(allocated_id_, envelope.allocated_id) : envelope.allocated_id;
-
   }
 };
 
 template <typename Root, history_mode Mode = history_mode::linear,
-          history_labels Labels = history_labels::disabled, typename Traits = model_traits<Root>>
-using managed = model_store<Root, Mode, Labels, Traits>;
+          history_labels Labels = history_labels::disabled, typename Traits = model_traits<Root>,
+          store_features Features = store_features::all>
+using managed = model_store<Root, Mode, Labels, Traits, Features>;
+
+#undef SERIALIZER_MANAGED_EMPTY_MEMBER
 
 } // namespace rohit::managed

@@ -314,16 +314,17 @@ Read `transaction::commit()` in this order:
 1. **Check state.** Require an active transaction and no candidate callback in progress.
 2. **Validate.** Run generated and application validation; inspect identities.
    The root ID must stay the same, and IDs cannot be illegally reused or retyped.
-3. **Encode.** Serialize the candidate and enforce snapshot budgets.
+3. **Encode.** Serialize the candidate and enforce snapshot budgets. An authority
+   prepares acceptance from these same bytes under the validation reentry guard.
 4. **Detect no change.** If the bytes match snapshot_, close with no_change.
    Keep the existing selected state and redo history.
 5. **Prepare publication.** Transfer candidate ownership into a local immutable
    shared pointer. Only tree mode allocates a revision ID. Linear mode prepares one entry
-   and calculates redo removal and oldest-state eviction. Tree mode copies its map,
-   adds the new snapshot record, and checks its budget.
+   and calculates redo removal and oldest-state eviction. Tree mode checks its incremental
+   byte/count budget and inserts one provisional snapshot node into its map.
 6. **Publish.** Linear mode first appends the prepared entry. If deque allocation
    fails, existing history is unchanged. After successful insertion, nonthrowing
-   swaps/pops remove redo and evict oldest states. Tree mode swaps its prepared map.
+   swaps/pops remove redo and evict oldest states. Tree mode publishes its selected revision and prepared byte total.
    Both modes then swap the current pointer, snapshot bytes, and identity index,
    and update the outcome (plus revision counters in tree mode). No throwing work follows the
    history publication.
@@ -441,7 +442,7 @@ This exact layering is a design choice, not a C++ requirement. Simplifying it
 would still need to preserve lifetime checks, failure behavior, and target
 resolution. The current implementation decodes the whole root at begin, encodes
 it at commit. Linear mode appends one deque entry without copying retained history;
-tree mode still copies the revision map when preparing a changed commit.
+tree mode also inserts only its new node and checks its incremental byte total.
 Function-pointer forwarding also introduces indirect
 calls. The implementation is not a minimal-cost way to assign two integers;
 it implements the broader transaction and history guarantees.

@@ -52,7 +52,7 @@ if(SERIALIZER_BUILD_MANAGED)
   add_executable(managed_collaboration_test managed_collaboration_test.cpp
     managed_collaboration_ownership_test.cpp managed_collaboration_proposal_test.cpp
     managed_collaboration_session_test.cpp managed_collaboration_history_test.cpp
-    managed_local_collaboration_test.cpp)
+    managed_local_collaboration_test.cpp managed_feature_test.cpp)
   serializer_generate(TARGET managed_collaboration_test
     SCHEMAS resources/collaboration_commands.serializer ../example/managed/ledger/ledger.serializer
     resources/collaboration_model.serializer

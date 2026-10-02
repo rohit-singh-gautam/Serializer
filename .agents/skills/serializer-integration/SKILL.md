@@ -36,9 +36,16 @@ there instead of relying on the relative links.
   value; linear is the default). Each specialization stores only its selected
   representation. `store_options` has no mode field; `reset_history()` clears
   enabled history without switching modes. Runtime journaling is independent of
-  history mode. The store-owned collaboration attachment below composes with each mode;
-  built-in authorization policies and schema capability selectors remain proposals,
-  not supported template arguments.
+  history mode. A fifth template argument independently selects `store_features::none`,
+  `journal`, `collaboration`, or `all` (the compatible default). Use `none` with linear/tree
+  history for history-only stores; pair disabled history with `journal` or `collaboration`
+  for those isolated configurations. Disabled features have no attachment storage/checks
+  and their store APIs are unavailable. Identity, validation and transactions remain core.
+  The authority's seventh argument and session facade's fifth authority argument accept
+  `collaboration` to remove journals. Authentication remains host-owned within collaboration;
+  standalone authentication is not a store feature. Built-in authorization policies and
+  schema capability selectors remain proposals. See
+  [feature selection](../../../docs/managed/cpp_runtime.md#independent-store-features).
   Labels default to `history_labels::disabled`, with no string member or serialized
   label field. Opt in with the third argument `history_labels::enabled`; custom
   traits are the fourth argument. Enabled stores accept named and unnamed
@@ -237,8 +244,12 @@ there instead of relying on the relative links.
   each lock request for exact retries; reserving an ID does not enqueue that request.
   See the [store locks example](../../../example/managed/collaboration/locks.cpp).
   Tree branch checkout/reset are unavailable while attached; collaborative redo on
-  a tree store uses `store.collaboration().undo(true)`. Disabled native history still
-  queues edits. Labels survive sync/recovery. An attached journal uses the existing
+  a tree store uses `store.collaboration().undo(true)`. Disabled history retains only
+  outstanding synchronization work; it has no undo stacks, inverse archive or history labels.
+  Completed client transactions are removed once their accepted sequence is received;
+  local transaction numbers remain monotonic. History-free authorities reject inverse
+  requests and omit undo stacks, inverse snapshots and contribution-version tables.
+  Enabled history labels survive sync/recovery. An attached journal uses the existing
   store journal pointer and file adapter with one model/session wrapper per frame.
   Attach the same session to a fresh store before load/recovery, then synchronize;
   ordinary model readers cannot open client checkpoint format 1. Save preserves
@@ -246,8 +257,16 @@ there instead of relying on the relative links.
   Offline persistent IDs are client-local, mapped durably to authority IDs; use
   `remote_id`/`local_id` at server/UI boundaries. Do not remap arbitrary integer
   fields, map keys or application references. Client transactions/state bytes and
-  authority command/history budgets are bounded; retained records count and no
-  automatic compaction is implemented. See the [local example](../../../example/managed/collaboration/local_sync.cpp).
+  authority command/history budgets are bounded. Enabled histories retain records;
+  disabled histories compact completed client work. History-free client checkpoints use
+  `serializer.collaboration.pending.v1`; older disabled-history client checkpoints require
+  [explicit migration](../../../migration.md#independent-managed-features). History-enabled
+  client checkpoints and ordinary model/journal bytes remain unchanged. The store encodes
+  each candidate once for authority publication. Non-journal synchronization uses a
+  generated-field budget visitor instead of encoding/decoding checkpoints. Unpinned local
+  appends without a journal reuse retained buffers; pins and journal callbacks keep
+  copy-on-write preparation. Checkpoints borrow their state during encoding. Tree history
+  checks incremental retained-byte totals rather than rescanning revisions. See the [local example](../../../example/managed/collaboration/local_sync.cpp).
   The lower-level acknowledged-state API remains available. Use
   `replica.propose(session, operation, callback[, grants])`; the callback runs once
   on an isolated draft using generated transaction editors. No application command

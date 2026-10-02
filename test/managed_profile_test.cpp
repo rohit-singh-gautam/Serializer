@@ -14,7 +14,7 @@
 TEST(managed_profile, local_collaboration_with_uint64_ids) {
   namespace managed = rohit::managed;
   using root = generated_managed::Workspace;
-  managed::collaboration_authority<root, managed::history_mode::disabled> authority{root{}, 1};
+  managed::collaboration_authority<root> authority{root{}, 1};
   auto envelope = managed::detail::decode<managed::records::unlabeled_state_envelope>(
       authority.save_document(), {});
   envelope.allocated_id = std::numeric_limits<std::uint32_t>::max();
@@ -34,6 +34,7 @@ TEST(managed_profile, local_collaboration_with_uint64_ids) {
   store.synchronize();
   EXPECT_EQ(store.read()->notes_.paragraphs_.front().persistent_id, id);
   EXPECT_EQ(authority.read()->notes_.paragraphs_.front().text_, "Local");
+  EXPECT_EQ(store.collaboration().pending_count(), 0u);
 }
 
 // Generated traversal follows naming profiles and preserves identities above the uint32 limit.
@@ -61,13 +62,9 @@ TEST(managed_profile, collaboration_with_uint64_and_disabled_history) {
             std::numeric_limits<std::uint32_t>::max());
   const auto identity = replica.read()->notes_.paragraphs_.front().persistent_id;
   const auto undo = authority.submit_change(replica.undo(1, 2), 1, 0);
-  ASSERT_EQ(undo->status, managed::collaboration_status::accepted);
-  replica.apply_accepted_change(*undo->accepted, authority.context());
-  EXPECT_TRUE(replica.read()->notes_.paragraphs_.empty());
-  const auto redo = authority.submit_change(replica.redo(1, 3), 1, 0);
-  ASSERT_EQ(redo->status, managed::collaboration_status::accepted);
-  replica.apply_accepted_change(*redo->accepted, authority.context());
-  EXPECT_EQ(replica.read()->notes_.paragraphs_.front().persistent_id, identity);
+  EXPECT_EQ(undo->status, managed::collaboration_status::failed);
+  EXPECT_EQ(authority.sequence(), 1u);
+  EXPECT_EQ(authority.read()->notes_.paragraphs_.front().persistent_id, identity);
 }
 
 // Profile-renamed payloads retain fixed runtime metadata and true 64-bit persistent identities.

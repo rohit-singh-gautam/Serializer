@@ -8,7 +8,7 @@ IDs `1, 2, 3...` within that document only; saved IDs/counters survive reload,
 and undo/deletion never renumber survivors. Explicit member boundaries still apply.
 
 Status: implemented synchronous C++ journaling and crash recovery for
-`model_store<Root, Mode, Labels, Traits>`, with appended and sidecar native-file
+`model_store<Root, Mode, Labels, Traits, Features>`, with appended and sidecar native-file
 adapters. Each edit appends its already serialized root snapshot once; compact
 control records persist navigation, reservations, and reset. Schema capability
 selectors, field/entity deltas, background checkpoints, asynchronous flushes,
@@ -17,6 +17,11 @@ and other-language journal readers remain proposals. See the
 
 A [runnable C++ example](../../example/managed/journal/README.md) demonstrates both
 file modes, closing before full Save, replay, undo/redo, and full checkpointing.
+
+Journal support requires `store_features::journal` or the default `all`. A history-free
+journal-only store also selects `history_mode::disabled`. Other feature policies have
+no journal attachment, saved baseline or journal store API. See
+[feature selection](cpp_runtime.md#independent-store-features).
 
 ## Using the implemented journal
 

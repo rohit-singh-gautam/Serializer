@@ -55,6 +55,23 @@ Sessions default to `std::uint64_t`. Pass a value of the intended type, for exam
 policy; see [session policies](collaboration_runtime.md#application-owned-sessions).
 Use one active client writer per application session in an authority epoch.
 
+## Selecting collaboration without other features
+
+Use `model_store<Root, history_mode::disabled, history_labels::disabled,
+model_traits<Root>, store_features::collaboration>` for a client without journal or
+undo history. The authority accepts `store_features::collaboration` as its seventh
+argument; the session facade accepts it as the fifth argument of `authority<...>`.
+Existing defaults remain `all`. See [feature selection](cpp_runtime.md#independent-store-features).
+
+History-free clients retain before/after snapshots only for outstanding edits,
+reconciliation and delivery awaiting receipt. They have no undo/redo stacks or label
+storage. Completed transactions are removed after the receive cursor reaches their
+accepted sequence; discarded work is released. Local transaction numbers never recycle.
+`state()` pins the pending state; retain such a pin explicitly if the application needs
+an archive. History-free authorities retain accepted snapshots and retry evidence for
+synchronization, but omit inverse snapshots, undo stacks and contribution-version history.
+They reject undo/redo requests. Authentication stays in the host's session/transport layer.
+
 ## Journal cadence and synchronization cadence
 
 The journal flushes every committed transaction before publishing it. ID reservations
@@ -114,7 +131,8 @@ and order are one field: concurrent insertions into the same container can confl
 This is not a CRDT or arbitrary application-specific conflict resolver.
 
 `session.pending_count()` and `session.pending_status()` expose the oldest pending
-outcome. `session.state()` pins all records, including rejected and archived drafts.
+outcome. `session.state()` pins retained records. History-enabled clients include
+rejected and archived drafts; history-free clients retain outstanding work only.
 Known outcomes are `queued`, `accepted`, `conflict`, `denied`, `obsolete_grant`,
 `failed`, `uncertain` and `discarded`.
 
@@ -150,8 +168,8 @@ checks undo against its accepted history, current authorization and grants. Unre
 remote fields survive; conflicting remote contributions invalidate undo. Transaction
 labels survive synchronization and recovery. Native tree stores support editing and
 undo; `store.collaboration().undo(true)` requests collaborative redo. Arbitrary tree
-checkout and `reset_history` are rejected while attached. Disabled native history
-still records pending synchronization; native undo APIs remain unavailable.
+checkout and `reset_history` are rejected while attached. Disabled history records only
+pending synchronization and has no undo/redo stacks or native undo API.
 
 The [store undo example](../../example/managed/collaboration/undo.cpp) uses
 `execute_transaction`, `undo`, and `redo` for all document modifications. An undo
@@ -198,6 +216,10 @@ its own binding and is not readable as an ordinary model save. `save_journal()`
 preserves synchronization state, including unsent work. `journal_dirty()` still tracks
 document values relative to Save; it does not mean the outbox is empty.
 
+History-enabled client checkpoints retain their existing binding and bytes. History-free
+clients use `serializer.collaboration.pending.v1` and generated pending-only records;
+rebuild the managed target and follow [migration](../../migration.md#independent-managed-features).
+
 ## Host coordination and operation IDs
 
 Presence and lease acquisition/renewal/release remain host coordination APIs; all
@@ -222,11 +244,19 @@ for retries. The store continues to manage exact retries of document changes.
 ## Resource limits
 
 Client options bound retained transactions (4096 by default), encoded state (256 MiB)
-and submissions per synchronization (256). Accepted and archived records count too;
-there is no automatic compaction. Size limits reject the local commit atomically.
-Store decoder limits and authority command/history/entity budgets also apply. Every
-checkpoint is checked against its recovery decoder before publication. Provision both sides for the
-workload. Current payloads contain full model snapshots, and retained field projections
+and submissions per synchronization (256). With history enabled, accepted and archived
+records count too and remain retained. With history disabled, completed transactions
+are compacted after ordered receipt, so this limit bounds outstanding work. Size limits
+reject the local commit atomically. Store decoder limits and authority command/history/
+entity budgets also apply. Recovery budgets are checked by an allocation-free
+generated-field visitor rather
+than encoding and decoding a checkpoint on every change. Checkpoints are encoded only
+for explicit Save or an attached journal. Non-journal, unpinned local appends reuse
+retained snapshot buffers with rollback on preflight failure. Pinned readers and journal
+callbacks use copy-on-write preparation to preserve immutable inspection and atomicity.
+Journal wrappers borrow existing state during encoding rather than copying it into a
+second generated envelope. Journaled metadata-only decisions use a kind-2 checkpoint
+with empty model bytes, reusing the already durable model. Provision both sides for the workload. Current payloads contain full model snapshots, and retained field projections
 and history add CPU/memory costs. Multi-authority peer-to-peer ordering, automatic
 transport reconnect, durable authority history across epochs and other-language
 collaboration runtimes remain outside this implementation.

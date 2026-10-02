@@ -325,7 +325,7 @@ TEST(collaboration_history, denied_undo_cannot_leak_identity_restoration) {
   EXPECT_EQ(authority.read()->entries.at(100).persistent_id, 2u);
 }
 
-// Both journal layouts recover restored identities even when local snapshot history is disabled.
+// Both journal layouts recover identities restored by enabled collaborative history.
 TEST(collaboration_history, journal_recovers_deletion_undo) {
   for (const auto mode :
        {managed::journal_storage_mode::appended, managed::journal_storage_mode::sidecar}) {
@@ -335,7 +335,7 @@ TEST(collaboration_history, journal_recovers_deletion_undo) {
     ASSERT_TRUE(std::filesystem::create_directory(directory));
     const auto path = directory / "document";
     using durable_authority =
-        managed::collaboration_authority<ledger, managed::history_mode::disabled>;
+        managed::collaboration_authority<ledger, managed::history_mode::linear>;
     {
       durable_authority authority{ledger{"Original", {{100, {"Entry", 5}}}}, 1, document};
       authority.create_journal(path, mode);

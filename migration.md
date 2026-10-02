@@ -1,5 +1,29 @@
 # Migrating to the snake_case Serializer API
 
+## Independent managed features
+
+Rebuild consumers and `Serializer::managed`: store layouts and generated private
+client records have changed. `model_store` and `managed` accept a fifth argument
+`store_features::none`, `journal`, `collaboration`, or `all`. Existing four-argument
+code defaults to `all`; ordinary model/journal formats remain compatible. Select
+`none` with linear/tree history for history-only use; combine disabled history with
+`journal` or `collaboration` for the isolated features. See the
+[examples](docs/managed/cpp_runtime.md#independent-store-features).
+
+`history_mode::disabled` now also disables collaborative undo on clients and authorities.
+Callers that relied on collaborative undo despite disabled native history must select
+linear/tree history. Authority `undo_operation`/`redo_operation` are unavailable when
+history is disabled, and incoming inverse requests are rejected. The authority's seventh
+feature argument and the session facade's fifth authority argument can disable journals.
+
+History-enabled client checkpoint format/binding is unchanged. History-free clients use
+`serializer.collaboration.pending.v1`, without undo/redo stacks, historical labels or
+archived completed transactions. Earlier `serializer.collaboration.client.v1` checkpoints
+from history-disabled stores are not accepted by this new policy. Recover them with the
+previous runtime, resolve/persist outstanding delivery under that runtime, then join a
+fresh client under the new runtime. Do not discard unresolved requests to force migration.
+Host-managed archives can retain an explicit `state()` pin before pending-only compaction.
+
 ## Store-owned local collaboration
 
 For immediate local editing, include `<rohit/managed_collaboration.hpp>`, attach a

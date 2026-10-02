@@ -574,6 +574,27 @@ authority epoch. Client history durability does not restore authority deduplicat
 or grant/version tables. See [local collaboration](managed/local_collaboration.md)
 for recovery prerequisites, validation, budgets and explicit conflict resolution.
 
+### History-free collaboration checkpoints
+
+`pending_client_checkpoint` retains wrapper IDs 1..4 but uses binding
+`serializer.collaboration.pending.v1` and `pending_client_state`. Its state retains
+client-state field IDs 1..11 and 14..16, omits undo/redo fields 12/13, and adds the
+monotonic local transaction watermark at field 17. State format version remains 1
+within this distinct binding. `pending_client_transaction` retains IDs 1, 4..10 and
+12 from `client_transaction`; history action, target and label fields 2/3/11 are absent.
+Transactions are sorted by their nonzero local number, which can have gaps after
+compaction; pending FIFO entries reference these numbers, not vector positions.
+Acknowledged transactions remain until their accepted sequence is received, then are
+removed; outstanding and uncertain work remains. Recovery checks the monotonic watermark
+instead of requiring the transaction array length to grow forever.
+
+History-enabled checkpoint bytes, ordinary model envelopes, native journal framing and
+authority protocol versions are unchanged. History-free authorities use edit action 1
+and compact field/ownership conflict addresses; they omit inverse values/version history
+and reject history requests. Clients must not infer undo support from the protocol
+version alone. Checkpoint policy changes require explicit migration; readers do not
+silently drop archived transactions or inverse history.
+
 ## Diagnostics
 
 `rohit::exception::base_parser::code()` exposes `invalid_input`, `invalid_type`,

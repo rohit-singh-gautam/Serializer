@@ -88,7 +88,13 @@ Successful changed commits discard redo after undo, then evict oldest states to
 meet revision and byte limits. Failed, canceled, and no-op edits preserve history.
 Select tree history with `model_store<point, history_mode::tree>` or disable it
 with `model_store<point, history_mode::disabled>` (both names in `rohit::managed`).
-The choice is compile-time; `store_options` has no mode selector. Linear stores
+The choice is compile-time; `store_options` has no mode selector.
+The fifth argument independently selects `store_features::none`, `journal`,
+`collaboration`, or `all` (the compatible default), after the fourth traits argument.
+For example, `model_store<point, history_mode::linear, history_labels::disabled,
+model_traits<point>, store_features::none>` is history-only. Pair disabled history
+with `journal` or `collaboration` for those isolated configurations. Omitted store
+APIs are unavailable at compile time; see [feature selection](managed/cpp_runtime.md#independent-store-features). Linear stores
 use `undo()` and `redo()`, with no revision IDs or `checkout()`. Only tree stores
 provide `redo(revision)`, `redo_children()`, and `checkout(revision)`. Tree mode
 preserves branches and rejects over-budget commits instead. Loading a

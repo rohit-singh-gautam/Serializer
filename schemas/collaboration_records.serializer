@@ -123,6 +123,41 @@ namespace rohit {
         public client_state state (3);
         public string binding (4);
       }
+      // History-free clients retain only outstanding synchronization/retry transactions.
+      class pending_client_transaction stable_ids {
+        public uint64 number (1);
+        public array uint8 before (4);
+        public array uint8 after (5);
+        public uint64 operation (6);
+        public uint64 epoch (7);
+        public uint32 status (8);
+        public array grant_reference grants (9);
+        public bool invalidated (10);
+        public uint64 accepted_sequence (12);
+      }
+      class pending_client_state stable_ids {
+        public uint32 format_version (1);
+        public string session_format (2);
+        public array uint8 session (3);
+        public domain context (4);
+        public array uint8 acknowledged (5);
+        public uint64 sequence (6);
+        public uint64 allocated_id (7);
+        public uint64 next_operation (8);
+        public array client_identity identities (9);
+        public array pending_client_transaction transactions (10);
+        public array uint64 pending (11);
+        public array uint8 in_flight (14);
+        public array client_identity in_flight_ids (15);
+        public uint64 sync_interval_ms (16);
+        public uint64 next_transaction (17);
+      }
+      class pending_client_checkpoint stable_ids {
+        public uint32 kind (1);
+        public array uint8 model (2);
+        public pending_client_state state (3);
+        public string binding (4);
+      }
       // action: 1 acquire, 2 renew, 3 release; scope: 1 entity, 2 owned subtree.
       class lock_request stable_ids {
         public domain context (1);
