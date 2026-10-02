@@ -403,7 +403,8 @@ feature as a prerequisite without the user's request.
   compatibility checker. Parameters add no wire metadata. Prefer named roots over
   compiler-owned hexadecimal instance names in application code.
   Use the [runnable generic examples](../../../example/generics/README.md) for
-  C++ aliases and the shared all-language four-protocol runner.
+  C++ aliases and dedicated consumers under `example/<language>/generics`.
+  The shared all-language runner checks typed nested edits and all four protocols.
 - Use `.serializer` files beginning with `serializer version 1;`, before declarations
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing

@@ -1,9 +1,10 @@
 # C++ examples
 
-Four runnable examples live directly under `example/cpp`:
+Four standard examples and a generic example live directly under `example/cpp`:
 
 | Folder | What it demonstrates |
 | --- | --- |
+| [generics](generics/) | Nested schema applications, typed payload edits, and all four protocols |
 | [basic](basic/) | Scalars, full-width IDs, a wire-name override, defaults, and a typed field edit |
 | [collections](collections/) | Typed arrays, maps, enums, Unicode, embedded NUL, and integer boundaries |
 | [complex](complex/) | An order archive spanning 13 shared schema files, nested/diamond includes, parent composition, orders, customers, inventory, payments, shipments, audit unions, and aggregate maps |
@@ -28,3 +29,9 @@ four codecs, and write the result. The runner compares all resulting JSON data
 against the independent fixture, including exact 64-bit integers. The fourth
 program accepts `<fixtures-directory> emit|verify`; the runner supplies the
 producer manifest and runs every producer before any consumer.
+
+Run the generic example separately:
+
+```sh
+python example/generics/run.py --compiler build/serializer --language cpp
+```

@@ -1,4 +1,4 @@
-"""Compile the generic schema with real SDKs and exercise the existing four-protocol consumers."""
+"""Compile the generic schema with real SDKs and exercise dedicated four-protocol consumers."""
 import argparse
 import importlib.util
 import json
@@ -33,18 +33,21 @@ def main():
     fixture = args.build / 'fixture.json'
     fixture.write_text(json.dumps(value), encoding='utf-8')
     value['revision'] += 1
+    # Each consumer edits only the direct payload, not its array or map copies.
+    value = json.loads(json.dumps(value))
+    value['payload']['value']['key'] = 7
     for language in languages:
         directory = args.build / language
         directory.mkdir(parents=True, exist_ok=True)
         target = 'js' if language == 'javascript' else language
-        command = [args.compiler, '--input', ROOT / 'example/generics/model.serializer',
+        command = [args.compiler, '--input', ROOT / 'example' / language / 'generics/model.serializer',
                    '--language', target, '--output', directory / examples.OUTPUTS[language],
                    '--cpp.format', 'false', '--go.package', 'main', '--kotlin.package=']
         examples.run(command)
         if language == 'typescript':
-            examples.run([args.compiler, '--input', ROOT / 'example/generics/model.serializer',
+            examples.run([args.compiler, '--input', ROOT / 'example' / language / 'generics/model.serializer',
                           '--language', 'js', '--output', directory / 'schema.mjs'])
-        consumer = runner.build(language, 'basic', directory)
+        consumer = runner.build(language, 'generics', directory)
         output = directory / 'result.json'
         examples.run([*consumer, runner.path(language, fixture), runner.path(language, output)])
         if json.loads(output.read_text(encoding='utf-8')) != value:

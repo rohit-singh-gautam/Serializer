@@ -52,12 +52,27 @@ root is a distinct concrete class with the same fields and wire representation.
 
 ## Every output language
 
-[run.py](run.py) generates this schema and reuses the maintained basic consumers
-in each language. Each consumer reads an independently constructed JSON fixture,
-increments `revision`, round-trips all four native protocols, and verifies its
+[run.py](run.py) generates each language's schema entry and builds its dedicated
+generic consumer. Each consumer reads an independently constructed JSON fixture,
+increments `revision`, sets the nested `payload.value.key` to `7`, round-trips all
+four native protocols, and verifies its
 complete positional representation. The runner also checks every output field
 against the fixture, including nested collections, UTF-8, embedded NUL, and a
 maximum-width `uint32` value.
+
+| Language | Dedicated example |
+| --- | --- |
+| C++ | [Template aliases and typed fields](../cpp/generics/README.md) |
+| Java | [Concrete generic models](../java/generics/README.md) |
+| JavaScript | [Concrete generic models](../javascript/generics/README.md) |
+| TypeScript | [Typed generic models](../typescript/generics/README.md) |
+| Go | [Concrete generic models](../go/generics/README.md) |
+| C# | [Concrete generic models](../csharp/generics/README.md) |
+| Rust | [Owned generic models](../rust/generics/README.md) |
+| Python | [Concrete generic models](../python/generics/README.md) |
+| Swift | [Concrete generic models](../swift/generics/README.md) |
+| Kotlin | [Concrete generic models](../kotlin/generics/README.md) |
+| C | [Owned generic models and cleanup](../c/generics/README.md) |
 
 Run the Python example alone, or select SDKs explicitly:
 

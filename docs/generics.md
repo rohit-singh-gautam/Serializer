@@ -135,7 +135,9 @@ have several generated destinations; an unused definition falls back to its
 schema location.
 
 Run the [generic examples](../example/generics/README.md) for a C++ template-alias
-executable and all-language four-protocol consumers. See the
+executable and dedicated four-protocol consumers in `example/<language>/generics`.
+Each consumer edits a typed nested payload; the runner checks that arrays and maps
+retain their independent values. See the
 [compiled fixture](../test/resources/generics.serializer),
 [schema reference](schema_reference.md), and [usage guide](usage.md).
 

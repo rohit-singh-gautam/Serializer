@@ -2,7 +2,8 @@
 
 The [generic schema examples](generics/README.md) demonstrate `result<T>`, multiple
 parameters, nested applications, arrays/maps, named roots, and C++ template aliases.
-They include a CMake C++ executable and a runner for all eleven language backends.
+They include a CMake C++ executable, dedicated `generics` consumers in every
+language folder, and a runner for all eleven language backends.
 
 Start with the [eight C++ point examples](managed/README.md) for schema-generated
 managed points, transaction callbacks, generated editors, and history.

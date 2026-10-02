@@ -76,7 +76,8 @@ complete message with explicit limits, or run the [basic C++ example](example/cp
 Reusable [schema generics](docs/generics.md), such as `class result<T>`, expand
 to concrete models in every language. C++ also exposes template aliases for
 schema-declared applications; `instantiate person_result = result<person>;`
-provides a readable named root.
+provides a readable named root. Dedicated [generic examples](example/generics/README.md)
+for all eleven languages edit nested payloads and verify all four protocols.
 
 All languages use the same schema compiler. Their generated APIs and runtime
 requirements are documented separately.
