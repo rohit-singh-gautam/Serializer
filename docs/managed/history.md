@@ -1711,7 +1711,7 @@ provide branch merging or conflict resolution.
 | Revision ID | Identifies one committed history node. |
 | Document ID | Namespaces a saved document's entities and revision history. |
 
-The existing [`stable_ids` contract](../../README.md#explicit-field-ids-with-stable_ids)
+The existing [`stable_ids` contract](../schema_reference.md#explicit-field-ids-with-stable_ids)
 does not allocate object IDs. For one coordinated writer, a persisted document UUID
 and a monotonic configured object number (`uint32` by default) provide a scoped
 identity. Independent writers need an authority or disjoint durably reserved

@@ -307,7 +307,7 @@ Applications using pre-generated headers also link `Serializer::serializer_lib`
 for the shared runtime helpers. Bulk array reads/writes remain enabled when SIMD is disabled.
 This is separate from output coding profiles and requires no schema syntax
 changes. See the
-[README](../README.md#simd-in-the-schema-compiler) for scope and validation status.
+[performance guide](performance.md#simd-in-the-schema-compiler) for scope and validation status.
 
 ## Use an installed package
 

@@ -22,7 +22,14 @@ skill has been copied or installed elsewhere, locate the matching checkout from
 the application's dependency/build configuration; resolve the following files
 there instead of relying on the relative links.
 
-- Read [README.md](../../../README.md) for supported syntax and feature status.
+- Start with [README.md](../../../README.md) for the project overview and first-use workflow.
+  Follow the [schema reference](../../../docs/schema_reference.md),
+  [build and generation guide](../../../docs/build_and_generation.md), and
+  [feature status](../../../docs/feature_status.md) for detailed contracts and limitations.
+  For a first introduction to history, journals, collaboration, and host authorization,
+  read the [managed features overview](../../../docs/managed/getting_started.md) and
+  [authorization guide](../../../docs/managed/authorization.md).
+  See [agent setup](../../../docs/agent_integration.md) for discovery and use from another project.
 - Use the [C++ managed interface](../../../docs/managed/cpp_runtime.md) for
   schema-driven identity and local snapshot history. Enable `SERIALIZER_BUILD_MANAGED`,
   link `Serializer::managed`, and declare bare `managed` on eligible leaf classes

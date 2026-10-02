@@ -1,5 +1,9 @@
 # Serializer managed-state design
 
+New to these features? Start with the
+[history, journal, collaboration, and authorization overview](getting_started.md).
+It introduces the implemented features before the API contracts and proposals below.
+
 Current C++ representation: managed schema classes carry `persistent_id` directly
 by default. Separate ID-free values/storage wrappers in the illustrations below
 require `[managed] separate_values = true`; see the [runtime contract](cpp_runtime.md).
@@ -16,6 +20,8 @@ remains a separate illustrative data model.
 
 | Document | Read it for |
 | --- | --- |
+| [Getting started](getting_started.md) | History, journal, collaboration, and authorization concepts, setup, and runnable examples. |
+| [Authorization](authorization.md) | Trusted sessions, writable gates, host policy hooks, and what the application must implement. |
 | [Implemented C++ runtime](cpp_runtime.md) | Optional build target, generated storage and typed editors, all three transaction forms, snapshot history, bounded save/load, and remaining work. |
 | [Local store collaboration](local_collaboration.md) | Normal store transactions, store-owned sessions/outbox, immediate local undo, separate send/receive, periodic synchronization and client recovery. |
 | [Implemented C++ collaboration](collaboration_runtime.md) | Authority/replica APIs, application-owned session types, generated change records, conditional undo/redo, retries, conflicts, presence, entity/subtree leases, host policy hooks, limits, and five runnable examples. |

@@ -1,1238 +1,210 @@
 # Serializer
 
-A C++20 schema compiler with C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python,
-Swift, Kotlin, and C output
-supporting JSON and three binary protocols. The compiler and all generators remain
-entirely C++; generated portable codecs have no native runtime dependency. The
-C++ runtime API and default generated C++ use `snake_case`.
-Opt-in C++ codecs also support **Protobuf binary, ProtoJSON, and TextProto** through
-compile-time protocol templates, for both encoding and decoding. See
-[Protobuf codecs](docs/protobuf.md) for generation, schema mappings, and limitations.
-ProtoJSON duplicate ordinary fields replace earlier values, including nested objects
-and later `null`; binary Protobuf retains its message-merging rules. TextProto checks
-decoded string storage budgets before growing strings. See the
-[finalization verification record](docs/verification-finalization-2026-09-18.md).
-C++ stream APIs use structural C++20 concepts: custom implementations need no
-`rohit::stream` base class. Generated calls accept standard streams directly through
-implicit adapters. Memory input streams borrow their unread storage; file streams
-use larger I/O batches; custom contiguous buffers retain the direct codec path.
-Generated owning classes also provide a static pair:
-`Type::serialize<Protocol>(stream, value)` and
-`Type::deserialize<Protocol>(stream[, limits])`, which returns a new object.
-Use `object.serialize_in<Protocol>(stream, limits)` to supply explicit decode
-limits, or omit the second argument to retain the defaults.
-See [stream concepts and adapters](docs/usage.md#stream-concepts-and-implicit-adapters).
-Optional C++ [message compression](docs/compression.md) supports standard Zstandard,
-LZ4, gzip, zlib, and raw DEFLATE formats through separately enabled dependencies.
-Generated member/static calls accept compression options; free helpers support
-existing headers. Calls validate one complete frame with independent input,
-output, and window limits. Additional formats can supply a custom backend. See
-[examples](docs/usage.md#compress-complete-messages) and the
-[compression verification record](docs/verification-compression-2026-09-17.md).
-The [compression examples](example/compression/README.md) provide runnable programs
-for all five built-in formats, uncompressed output, and a custom backend. Build
-enabled formats with `SERIALIZER_BUILD_COMPRESSION_EXAMPLES=ON` or the standard
-test build; select dependencies separately with `SERIALIZER_WITH_*`.
-The [iostream examples](example/iostream/README.md) provide seven runnable memory,
-file, buffered, and custom stream examples with a shared 52-class, 645-field schema.
-They run in the standard test build or independently with
-`SERIALIZER_BUILD_IOSTREAM_EXAMPLES=ON`.
-Language-specific output profiles select layouts and naming conventions.
-Schemas use `.serializer` and begin with `serializer version 1;`.
-Share declarations with `include common;` before any declarations.
-Paths are unquoted and relative to the including file; `.serializer` is appended
-when the filename has no extension. Explicit `include common.serializer;` remains
-supported. Includes are loaded once per entry schema and emitted together in its
-generated output. Namespace scopes are reused during parsing; duplicate types
-and namespace/type conflicts are rejected.
-See [schema includes](docs/usage.md#share-declarations-with-includes) and the
-[paired C++/Java examples](example/includes/README.md).
-Quoted defaults preserve literal spaces, for example
-`public string label { "schema default" };`; escaping the space is unnecessary.
-Run `serializer --version` for compiler version **1.0.0** and supported schema versions.
-See [command-line options](docs/command_line.md) for multi-language generation and overrides.
-See [Java output](docs/java.md) for dependency-free Java 17+ codecs and
-[all examples](example/README.md) for self-contained example folders.
+Define your data once in a `.serializer` schema, then generate classes and codecs
+for JSON and binary serialization. Serializer includes a C++20 schema compiler,
+a C++ runtime, and generators for multiple languages.
 
-The [managed wire examples](example/managed/multilanguage/README.md) qualify
-history, journal-baseline, collaboration, and opaque-session records across
-language codecs. These are record-exchange tests, not ports of the managed runtime;
-native managed engines outside C++ remain unimplemented.
-Kotlin accepts the contextual property name `field`, used by collaboration records,
-while preserving its wire spelling and field ID.
+**Supported outputs:** C++, Java, JavaScript, TypeScript declarations, Go, C#,
+Rust, Python, Swift, Kotlin, and C. TypeScript uses the JavaScript runtime.
 
-**Existing callers:** follow the [migration guide](migration.md) and regenerate
-headers before compiling against the updated API.
+**Start here:** [Usage guide](docs/usage.md) · [Runnable examples](example/README.md) ·
+[CMake integration](docs/cmake_integration.md)
 
-**Getting started:** the [usage guide](docs/usage.md) covers schema authoring,
-automatic header generation with CMake, and decoding an exact message with limits.
+**Using a coding agent?** Give it the
+[Serializer integration skill](.agents/skills/serializer-integration/SKILL.md).
 
-**Database storage:** the [database integration guide](docs/database_integration.md)
-compares document databases, SQL JSON columns, and opaque binary storage, including
-MongoDB, Firebase, PostgreSQL, SQLite, and other targets. It describes required
-type mappings and a proposed sink boundary; database adapters are not implemented
-or qualified in this repository.
+## How it works
 
-**VS Code:** [Rohit Serializer](docs/editor_extension.md), for the
-[Serializer project](https://github.com/rohit-singh-gautam/Serializer), highlights
-`.serializer` files, supplies snippets, and provides CMake header-generation,
-schema declaration/generated-code navigation for every output language, and missing-include assistance. Run
-`./install_extension.ps1` from PowerShell to build and install the local extension
-(Node.js 22+, npm, and the VS Code CLI are required). Marketplace publication is pending.
-The VS Code extension version is **1.1.12**, with ID `rohitjairajsingh.serializer-language`
-(Rohit Jairaj Singh). Both editor extensions share this release version, independent
-of the compiler version, and must be updated together.
-Use the built-in **Go to Declaration** for schema types and includes, including
-qualified names and whole-name selections. Go to Definition on includes opens the
-included schema; on type references it resolves enum types in defaults and falls
-back to the schema when generated code is unavailable.
-**Go to Type Definition** on a schema type opens its source declaration. All three
-actions accept declaration keywords and forward/reversed `class ledger` selections.
-Generated-code navigation supports all 11 outputs, using dependency files for
-renamed outputs and flattened/nested language names; caller type references
-require that language's definition provider. The explicit **Serializer: Go to Schema
-Declaration** command also follows native type definitions through aliases and variables.
-Managed ledger targets require `SERIALIZER_BUILD_MANAGED=ON`, including after a clean
-build; CMake Tools must use that same configuration for C++ navigation.
-See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
-and [navigation setup](docs/editor_extension.md#navigate-available-schemas-and-headers).
-It also supplies a dedicated 32×32 icon for `.serializer` files in Explorer and
-editor tabs when supported by the selected file icon theme.
+1. Describe your types, fields, and defaults in a `.serializer` file.
+2. Run the compiler, or let CMake generate code during your build.
+3. Use the generated classes to read and write your chosen format.
 
-**Visual Studio:** a separate [Rohit Serializer VSIX](editors/visual_studio/README.md)
-for the [same Serializer project](https://github.com/rohit-singh-gautam/Serializer),
-version **1.1.12** supplies the shared grammar, editing configuration, and native
-schema navigation for Visual Studio 2022/2026 on Windows x64. Go to Declaration
-opens schema types/includes; Go to Definition and Ctrl+click open included schemas
-or find existing output for type references.
-Go to Type Definition opens the source schema type; generated-language type lookup
-remains with the native language service in both editors.
-When editing the extension's C# sources, select
-[`serializer_editors.sln`](editors/visual_studio/serializer_editors.sln) to avoid
-loading temporary project copies from build directories.
-Generated declarations in all 11 languages map back to their schemas. From caller
-code, first use the language service to reach the generated type. Build with
-`./editors/visual_studio/build.ps1`, then install
-`out/extensions/serializer-visual-studio-1.1.12.vsix` with Visual Studio's VSIX Installer.
-Use existing CMake targets for generation. Both extensions highlight custom types,
-including `demo::order`, using the selected theme's type and namespace colors.
+The compiler and generators are written in C++. Generated non-C++ codecs run in
+their target language without a native Serializer runtime dependency.
+
+## Get started
+
+### 1. Write a schema
+
+Save this as `person.serializer`:
+
+```text
+serializer version 1;
+
+namespace demo {
+  class person {
+    public string name;
+    public uint32 age;
+  }
+}
+```
+
+Every schema begins with `serializer version 1;`. Each field declares its access
+level, type, and name. Start with [schema examples](docs/schema_examples.md) for
+arrays, maps, enums, and defaults.
+
+### 2. Generate code
+
+After [building or installing Serializer](docs/cmake_integration.md), run the
+compiler to generate a C++ header:
+
+```sh
+serializer --input person.serializer --output person.hpp
+```
+
+Use [output configuration](docs/output_configuration.md) to choose a language or
+naming profile. The [command-line guide](docs/command_line.md) lists all options.
+
+### 3. Add it to your build
+
+For a C++ application with Serializer already added as a CMake dependency:
+
+```cmake
+add_executable(my_app main.cpp)
+serializer_generate(TARGET my_app SCHEMAS person.serializer)
+```
+
+A normal build generates the header and supplies the include directory, runtime
+library, and C++20 requirement. See [CMake integration](docs/cmake_integration.md)
+for complete source-dependency and installed-package setups.
+
+Next, follow the [C++ usage guide](docs/usage.md) to serialize a value and decode a
+complete message with explicit limits, or run the [basic C++ example](example/cpp/basic/README.md).
+
+## Choose a language
+
+All languages use the same schema compiler. Their generated APIs and runtime
+requirements are documented separately.
+
+| Output | Guide | Examples |
+| --- | --- | --- |
+| C++ | [Usage and decoding](docs/usage.md) | [C++ examples](example/cpp/README.md) |
+| Java | [Java 17+ codecs](docs/java.md) | [Java examples](example/java/README.md) |
+| JavaScript / TypeScript | [Portable language APIs](docs/portable_languages.md) | [JavaScript](example/javascript/README.md), [TypeScript](example/typescript/README.md) |
+| Go / C# | [Portable language APIs](docs/portable_languages.md) | [Go](example/go/README.md), [C#](example/csharp/README.md) |
+| Rust / Python / Swift / Kotlin / C | [Native language APIs](docs/native_languages.md) | [All language examples](example/README.md) |
+
+The [build and generation guide](docs/build_and_generation.md) includes compiler
+commands for each language group and explains naming profiles.
+
+## Choose a format
+
+Serializer supports four native protocols across its generated language codecs.
+
+| Format | How fields are represented |
+| --- | --- |
+| JSON | Named fields in readable text |
+| Positional binary | Values in schema order, without field keys |
+| Integer-key binary | A numeric field ID before each value |
+| String-key binary | A wire field name before each value |
+
+Native binary codecs default to little-endian byte order. Strings require valid
+UTF-8; use `array uint8` for arbitrary bytes. Read the
+[wire-format contract](docs/wire_format.md) before exchanging data between systems.
+
+C++ also offers optional [Protobuf binary, ProtoJSON, and TextProto codecs](docs/protobuf.md).
+These are separate from the four native protocols.
+
+For evolving schemas, use [explicit field IDs](docs/schema_reference.md#explicit-field-ids-with-stable_ids)
+and the [schema compatibility checker](docs/schema_evolution.md). Stable IDs alone
+do not make native readers accept unknown fields.
+
+## Build and test
+
+The default development build needs CMake 3.28+, a C++20 compiler and standard
+library, clang-format 19+, and GoogleTest. See the
+[requirements and setup guide](docs/cmake_integration.md#build-this-repository)
+for dependency installation and optional tools.
+
+On Linux with GNU Make:
+
+```sh
+make all
+make test
+```
+
+On Windows with PowerShell:
+
+```powershell
+./make.ps1 all
+./make.ps1 test
+```
+
+Windows `all` also packages both editor extensions. It requires Node.js 22+, npm,
+and Visual Studio MSBuild; it does not install the packages. The `test` and
+`configure` targets remain CMake-only.
+
+For direct CMake commands, presets, builds without GoogleTest, and troubleshooting,
+see [build and generation](docs/build_and_generation.md#build-and-test).
+
+## Editor support
+
+Both **Rohit Serializer** extensions highlight `.serializer` files and provide
+navigation between schemas and existing generated output in all 11 output languages.
+The extensions are separate from the compiler and runtime.
+
+| Editor | What it adds | Setup |
+| --- | --- | --- |
+| Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editor_extension.md) |
+| Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
+
+Both extensions use release version **1.1.12**, independent of compiler version
+**1.0.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
+for supported destinations and language-service prerequisites.
+
+## Explore advanced features
+
+Start with these only when your application needs them.
+
+For application editing, start with the
+[history, journal, collaboration, and authorization guide](docs/managed/getting_started.md).
+It explains what each feature does, how they work together, and what your
+application must provide.
+
+| Need | Guide |
+| --- | --- |
+| Share declarations across schemas | [Includes](docs/usage.md#share-declarations-with-includes) |
+| Read or update encoded C++ data through borrowed views | [Buffer views](docs/views.md) |
+| Use standard streams or durable files | [Streams and adapters](docs/usage.md#stream-concepts-and-implicit-adapters), [file streams](docs/usage.md#file-streams-and-journal-records) |
+| Compress complete C++ messages | [Compression](docs/compression.md) |
+| Group edits and support undo/redo in C++ | [Managed runtime](docs/managed/cpp_runtime.md), [small examples](example/managed/README.md) |
+| Recover managed state after a crash | [Journaling](docs/managed/journal.md) |
+| Synchronize edits between managed stores | [Local collaboration](docs/managed/local_collaboration.md) |
+| Control which sessions may publish edits or acquire locks | [Authorization](docs/managed/authorization.md) |
+| Understand runtime and generated-code optimizations | [Performance features](docs/performance.md) |
+| Plan database persistence | [Database integration](docs/database_integration.md) |
+
+Native managed runtimes outside C++ and Serializer database adapters are not
+implemented. The [feature status guide](docs/feature_status.md) separates available
+features from proposals and records their limitations.
 
 ## Integrate with a coding agent
 
-**Agent entry point: [Serializer integration skill](.agents/skills/serializer-integration/SKILL.md).**
-When this repository is supplied for integration, read that file for schema,
-CMake, generated-code, and codec instructions. [AGENTS.md](AGENTS.md) also directs
-agents to it. Users can give their agent this request, adapting the checkout path:
+Give your agent this request, adapting the dependency path:
 
 ```text
 Read vendor/Serializer/.agents/skills/serializer-integration/SKILL.md
 and use it to integrate Serializer into this application's CMake build.
 ```
 
-This works by providing the file directly, including from another project's root.
-For skill discovery and invocation, see [repository agent skill](#repository-agent-skill).
-
-## Build and test
-
-With CMake, a C++20-or-newer compiler and standard library, clang-format 19+, and
-GoogleTest available:
-
-```sh
-# Linux (GNU Make)
-make all
-make test
-```
-
-```powershell
-# Windows (PowerShell; GNU Make is not required)
-# all also packages both editor extensions; requires Node.js 22+, npm and Visual Studio MSBuild
-./make.ps1 all
-./make.ps1 test
-```
-
-Both wrappers default to Release and configure/build all enabled CMake targets,
-including tests and C++ style examples on a fresh cache. `test` builds first and
-runs CTest; `configure` only configures. Set `VCPKG_ROOT` to use its toolchain for
-GoogleTest, or provide an installed GoogleTest package through CMake. The wrappers
-do not install a compiler or clang-format. Java, benchmarks, and fuzzers remain
-opt-in. See [build wrapper options](docs/cmake_integration.md#build-this-repository)
-for build directories, configurations, and additional CMake settings.
-
-If CMake still selects a removed Visual Studio installation, follow
-[stale Visual Studio cache recovery](docs/cmake_integration.md#recover-a-stale-visual-studio-instance)
-to refresh the build configuration and reapply your nondefault options.
-
-On Windows, `./make.ps1 all` also restores locked npm dependencies and builds both
-editor extension packages in `out/extensions`, after the CMake build succeeds.
-This requires Node.js 22+, npm, and Visual Studio 2022/2026 or Build Tools with
-MSBuild. It checks that extension versions match and stops on packaging failures;
-neither package is installed. Run `./editors/build.ps1` to build only the two
-extension packages. The `configure` and `test` targets remain CMake-only.
-
-If configuration reports a missing clang-format, install version 19 or newer and
-rerun `make all`. On Ubuntu/Debian with that package available, use
-`sudo apt install clang-format-19`. Installing Clang alone does not necessarily
-install clang-format. See [formatter setup](docs/cmake_integration.md#formatter-setup)
-for Windows and custom installation paths.
-The [build requirements](docs/cmake_integration.md#build-this-repository) distinguish
-default and optional tools; [vcpkg package builds](docs/cmake_integration.md#vcpkg-package-builds)
-disable development targets and do not require their dependencies.
-
-To build only the enabled CMake targets, use:
-
-```sh
-cmake -S . -B build
-cmake --build build --config Debug
-ctest --test-dir build -C Debug --output-on-failure
-```
-
-The existing platform presets use vcpkg through `VCPKG_ROOT`. Windows presets
-use Ninja with an externally selected x64 compiler environment. Visual Studio
-sets up that environment when opening the folder; for command-line builds, run
-these commands in an x64 Native Tools Command Prompt with Ninja on `PATH`:
-
-```sh
-cmake --preset DebugWindows
-cmake --build --preset DebugWindows
-ctest --test-dir out/build/DebugWindows -C Debug --output-on-failure
-```
-
-After updating an older Windows preset, delete the CMake cache and reconfigure
-in Visual Studio to clear any cached platform setting. See
-[Visual Studio folder builds](docs/cmake_integration.md#visual-studio-folder-builds)
-for setup and the Ninja/platform error explanation.
-
-When embedding the library, add this repository with `add_subdirectory` and link
-to `Serializer::serializer_lib`. It supplies the public include path and C++20
-requirement. The `serializer_generate` helper below handles that linkage for
-schema consumers. Installed packages expose the same targets and helper through
-`find_package(Serializer CONFIG REQUIRED)`.
-Use `-DSERIALIZER_BUILD_TESTS=OFF` for a standalone build without GoogleTest.
-
-C++20 is the minimum language mode and the build default. A newer mode selected
-with `CMAKE_CXX_STANDARD`, such as `-DCMAKE_CXX_STANDARD=23`, is preserved. Public
-headers also check the language mode when used outside CMake.
-
-Regenerate LLVM-profile headers after updating to the storage-donor naming fix.
-This prevents a parameter/template-type collision and changes local names only,
-not APIs or wire data.
-The runtime also accepts mapped views through a little-endian `binary_none`
-encoder's `serialize_out(view)` call. Empty identifier input reports a schema
-diagnostic before attempting to read the stream.
-
-Current results and outstanding checks are recorded in the dated
-[verification record](docs/verification-2026-09-17.md), tied to its source revision
-and build configurations. Earlier portability checks reported 13 CTest targets on Linux x64 with
-GCC 15.2 and Clang 21.1, and Windows x64 with MSVC 19.51. The Windows x86 vcpkg
-package and installed-consumer round trips have also been checked. Native macOS,
-Android, and ARM Linux builds still require their CI runners; these local checks
-do not establish support for every vcpkg triplet.
-
-The `rohit::byteswap` helper forwards supported integers directly to
-`std::byteswap` when `__cpp_lib_byteswap >= 202110L`; otherwise it uses a constexpr
-C++20 fallback. Supported floating-point values are converted through their
-integer bit representations. `rohit::change_endian` accepts supported scalar
-types and little/big byte orders, with compile-time rejection of unsupported
-types and mixed native byte order. Booleans are unchanged.
-
-Generate a header by running the built executable:
-
-```sh
-serializer --input example/config/config.serializer --output config.hpp
-```
-
-Format C++ files with the repository's `.clang-format`; see
-[CodingStandard.md](CodingStandard.md) for naming and coding rules.
-
-### SIMD in the schema compiler
-
-`SERIALIZER_ENABLE_SIMD=ON` is the build default. The `.serializer` parser scans whitespace,
-comments, and identifier spans in blocks, then constructs each identifier string
-once. On x64, the baseline scanner uses 16-byte SSE2 blocks; supported MSVC, GCC,
-and Clang builds also include a separately compiled 32-byte AVX2 scanner selected
-after CPU/OS checks. Short spans and other architectures use scalar scanning.
-Vector loads stay within the input bounds and require no trailing padding.
-
-This is an internal schema-compiler optimization. No `simd` schema keyword or
-output-profile setting is needed. The same build option also controls the shared
-runtime optimizations below; generated methods call these helpers normally.
-Use `-DSERIALIZER_ENABLE_SIMD=OFF` when configuring a source build to disable the
-explicit SIMD scanners. See [CMake integration](docs/cmake_integration.md) for
-consumer configuration and [qualification](qualification/README.md#schema-scanner-validation)
-for the boundary cases and [verification results](docs/verification-2026-09-17.md).
-Timing comparisons remain outstanding; no measured speedup is claimed.
-
-### SIMD in runtime serialization
-
-All C++ protocols use the shared runtime paths automatically:
-
-- Compact and formatted JSON scan ordinary string spans with SSE2/AVX2 on supported
-  x64 CPUs. UTF-8 validation and escaping rules remain unchanged. Escaped strings
-  write directly into reserved stream storage, with a source snapshot only when
-  expanding output overlaps its input. JSON input uses the same bounded scanners.
-- Native JSON and ProtoJSON input scan long whitespace runs in SSE2/AVX2 blocks,
-  advancing and charging the consumed run once. Short gaps and tails stay scalar.
-  Only space, tab, line feed, and carriage return are accepted; input/work budgets
-  bound every scan. See [JSON whitespace scanning](docs/runtime_simd.md#simd-json-whitespace-scanning).
-- Positional, integer-key, and string-key binary output write eligible contiguous
-  integer and floating-point arrays in one payload reservation. Matching byte
-  order uses a bulk copy; differing byte order uses SIMD swaps with scalar tails.
-  The count prefix, keys, scalar bits, and wire bytes are unchanged.
-- Binary input bulk-decodes the same numeric arrays after checking the complete
-  payload and resource budgets. Matching byte order uses a copy; differing byte
-  order uses SIMD swaps. Work charges and partial results on failure are preserved.
-- Binary strings use a dedicated bounded UTF-8 validator: AVX2 checks complete
-  Unicode sequences, while the baseline accelerates ASCII with SSE2/word scans
-  and validates Unicode scalarly. Quotes, controls, and embedded NULs are valid
-  ASCII here. See [binary text validation](docs/runtime_simd.md#binary-utf-8-validation).
-- Nested objects, maps, and unions use these paths for their contained strings
-  and arrays. Individual scalars, compact integers, enums, and packed boolean
-  vectors retain their existing scalar handling. JSON numeric formatting still uses
-  scalar conversion. Binary views already copy their encoded bytes in bulk;
-  individual view setters retain scalar updates.
-
-Link consumers to `Serializer::serializer_lib`, including users of pre-generated
-headers. CPU dispatch and vector instructions live in compiled helpers, keeping
-ISA flags out of consumer code. `SERIALIZER_ENABLE_SIMD=OFF` disables the explicit
-schema and runtime SIMD backends; bulk array reads/writes and direct JSON output remain.
-Short inputs and unsupported architectures use scalar fallbacks. No input/output
-padding is required. See [runtime SIMD details](docs/runtime_simd.md), including
-the prepared validation matrix. Rebuild the runtime library and consumers to use
-the whitespace scanner; schema headers do not need regeneration. See the
-[verification record](docs/verification-2026-09-17.md) for unit and sanitizer/fuzz
-coverage. Other runtime benchmarks remain outstanding; binary UTF-8 measurements
-are recorded in [UTF-8 verification](docs/verification-utf8-2026-09-18.md).
-
-### Reusing destination storage
-
-C++ JSON and all three native binary codecs reuse eligible nested string/vector
-buffers and map nodes when decoding into an existing collection. Regenerated
-owning classes pass storage donors through typed field access, while each incoming
-element still starts with fresh schema defaults. Collection replacement, duplicate
-map keys, resource limits, and partial-failure behavior remain unchanged.
-
-Reuse the destination across messages and create a fresh decoder for each message's
-budget. No schema keyword or caller opt-in is needed. Java and the optional Protobuf
-codecs retain their existing replacement paths. See [destination reuse](docs/usage.md#reuse-destination-storage)
-for limitations and an example. Focused tests pass in the configurations in the
-[verification record](docs/verification-2026-09-17.md); performance measurements
-remain outstanding.
-
-### Batching generated fixed-width fields
-
-Regenerated C++ owning serializers group consecutive fixed-width scalar fields in
-batches of up to 16. All native binary output modes reserve once per batch, then
-encode each field separately, including existing IDs or names. Positional binary
-input checks a complete batch's range, work budget, and Boolean values together;
-if it cannot safely complete the batch, it uses the original scalar reads to retain
-partial results and diagnostics. Keyed input keeps per-field dispatch.
-
-No schema option is needed. Wire bytes, byte order, and object padding rules remain
-unchanged. JSON, Protobuf, and custom protocols without batch hooks retain their
-existing calls. A failed output reservation writes none of the current batch;
-earlier output remains. See [field batching](docs/usage.md#batch-generated-fixed-width-fields)
-for boundaries and the [verification record](docs/verification-2026-09-17.md)
-for results. Performance measurements remain outstanding.
-
-### Pre-encoding constant field names
-
-Regenerated C++ owning serializers prepare constant JSON and string-key binary
-field names at compile time. JSON copies a prequoted name without rescanning it
-for escaping; string-key binary copies the compact length and name together.
-Fixed-field binary batches use these same constants and a compile-time total size.
-Parent names, renamed wire keys, and union alternative keys are included; JSON's
-fixed map wrapper names are also pre-encoded by the runtime.
-
-No schema option is needed. Wire bytes and formatting remain unchanged, and
-custom protocols without the optional name hook still receive `std::string_view`.
-This trades some compiler work and constant storage for less repeated encoding
-work; it does not shrink messages or add storage to each object. See
-[constant field names](docs/usage.md#pre-encode-constant-field-names) for scope,
-failure behavior, and examples. See the [verification record](docs/verification-2026-09-17.md)
-for generation and test results. Performance measurements remain outstanding.
-
-### Reducing repeated JSON string scans
-
-C++ JSON string helpers retain escape boundaries from their validation pass.
-Unescaped input copies directly into reusable destination storage; escaped input
-and output copy known plain prefixes/suffixes without scanning them again. Only
-the region between the first and last escapes needs further escape processing.
-All UTF-8, escape, resource-limit, and output-reservation checks remain active.
-
-This is automatic with the updated runtime headers and needs no regenerated schema
-code or option. It works with SIMD enabled or disabled and adds no per-string
-allocation for scan metadata. See [JSON scan reuse](docs/usage.md#reduce-repeated-json-scans)
-for scope and remaining passes. The [verification record](docs/verification-2026-09-17.md)
-separates passing unit tests and bounded sanitizer/fuzz runs from outstanding
-platform checks and benchmarks.
-
-### Output language and coding standard
-
-Keep target-language settings in a generator config, separate from the `.serializer`
-schema. C++, Java, JavaScript, Go, C#, Rust, Python, Swift, Kotlin, and C output are implemented, with optional
-TypeScript declarations for JavaScript. For C++:
-
-```ini
-[output]
-language = cpp
-
-[cpp]
-coding_standard = google
-naming = profile
-format = true
-```
-
-```sh
-serializer --input account.serializer --output account.hpp --config serializer_output.ini
-```
-
-Supported profiles: `serializer` (default), `core`, `google`, `llvm`, `gnu`,
-`cert`, `misra`, `autosar`, and `qt`. They select presentation rules and rename
-schema-derived C++ identifiers while retaining wire names and IDs. Runtime-required
-method names remain fixed. `--cpp.naming preserve` retains earlier C++ names.
-These presets do not establish full compliance with a coding standard.
-
-See [configuration and naming rules](docs/output_configuration.md) and
-[examples for every profile](example/coding_styles/README.md). Formatting runs
-at generation time; runtime consumers do not need clang-format. Config-file
-paths are relative to the config; CLI overrides take precedence. A custom
-`format_file` can supply organization-specific clang-format rules.
-
-CMake detects clang-format 19+ for test/example builds from its normal program
-search paths and, on Windows, standard LLVM and Visual Studio installations.
-Fresh build directories repeat discovery without a manually configured path.
-Set `SERIALIZER_CLANG_FORMAT_EXECUTABLE` only to select a specific installation;
-explicit paths are also checked for a runnable version 19+. If none is installed,
-install LLVM or Visual Studio's C++ Clang tools and configure again.
-The standard test build includes all profile examples; a build with tests disabled
-can opt into them with `SERIALIZER_BUILD_STYLE_EXAMPLES=ON`. All nine C++ style
-examples were generated, built, and run on Windows during Java backend validation;
-see [current verification and historical results](docs/java.md#verification-performed-for-this-implementation).
-
-### Pure Java output
-
-Generate owning Java classes and direct codecs with no native runtime dependency:
-
-```sh
-serializer --input example/java/round_trip/account.serializer --output AccountSchema.java --config example/java/round_trip/java.ini
-```
-
-Java profiles are `serializer`, `google`, and `oracle`, selected with
-`--java.coding_standard`. They use conventional Java naming; `--java.naming preserve`
-retains valid schema identifiers. These are presentation presets, not full guide
-compliance. Java supports owning objects, enums, arrays, maps, unions, and parent
-composition across all four protocols. Views and packed layout are rejected.
-See [Java usage, limits, and compatibility](docs/java.md).
-
-Enable `SERIALIZER_BUILD_JAVA_EXAMPLES=ON` to generate and compile the
-[Java examples](example/java/README.md) with JDK 17+. With tests enabled, CTest
-also runs malformed-input and two-way C++/Java compatibility checks. Every C++
-and Java style example has its own schema, config, and consumer folder.
-
-### JavaScript, Go, and C# output
-
-Generate standalone owning codecs for modern JavaScript, Go 1.22+, or .NET 8+:
-
-```sh
-serializer --input example/interoperability/message.serializer --language js,typescript,go,csharp --js.output schema.mjs --typescript.output schema.d.mts --go.output schema.go --csharp.output Schema.cs
-```
-
-Use `bigint` for JS 64-bit fields, `New<Type>()` for Go schema defaults, and the
-output filename's outer class for C#. These codecs implement the four native
-protocols, exact-message decoding, bounded input, and sorted map output. They
-use direct field access, pre-encoded keys, native switch dispatch, and explicit
-endian primitives. See [portable language APIs and limitations](docs/portable_languages.md).
-
-The [language examples](example/README.md) provide four runnable programs per
-language, including a complex model spanning 13 included schema files. The shared
-interoperability matrix checks every direction across ten runtimes plus a typed
-TypeScript consumer: 1,452 exchanges covering four protocols and three union
-alternatives. Enable `SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES=ON` and run CTest
-with all SDKs installed. The smaller five-runtime matrix remains available via
-`SERIALIZER_BUILD_INTEROP_EXAMPLES=ON`.
-
-### Rust, Python, Swift, Kotlin, and C output
-
-```sh
-serializer --input example/interoperability/message.serializer --language rust,python,swift,kotlin,c --rust.output schema.rs --python.output schema.py --swift.output Schema.swift --kotlin.output Schema.kt --c.output schema.h
-```
-
-These standalone codecs use native owning types and the same four wire protocols.
-C exposes explicit initialization/free functions and transactional decode; Swift
-uses exact UTF-8 `WireString` map keys; Kotlin preserves unsigned widths and uses
-primitive numeric arrays. See [APIs, SDKs, ownership, and limits](docs/native_languages.md)
-and the [verification record](docs/verification-native-2026-09-18.md).
-The [finalization fixes](migration.md#finalization-correctness-fixes) correct
-large floating defaults in Rust/C output and leading U+FEFF preservation in
-Windows Swift. Regenerate the affected sources when updating the compiler.
-
-### CMake consumer integration
-
-Serializer ships its generation helper in [cmake/serializer_generate.cmake](cmake/serializer_generate.cmake).
-After adding Serializer as a dependency, a consumer needs:
-
-```cmake
-add_executable(my_app main.cpp)
-serializer_generate(TARGET my_app SCHEMAS schemas/account.serializer)
-```
-
-A normal build of `my_app` builds the generator when using the source dependency,
-generates `account.hpp`, and supplies the generated include directory, runtime
-library, and C++20 requirement. Schema and generator changes trigger regeneration.
-Use `CONFIG output.ini` to select output profiles. See the
-[CMake integration guide](docs/cmake_integration.md) for complete source-dependency
-and installed-package examples, options, and shared schemas.
-
-This integration works independently of editor settings. `.vscode/*` remains
-ignored. For VS Code, select CMake Tools as the C/C++ configuration provider so it
-receives the consumer's include paths. The real header must also exist: configure
-and build once, or generate just the headers in an already configured build:
-
-```sh
-cmake --build build --config Debug --target serializer_generated_headers
-```
-
-No custom VS Code task or Serializer IntelliSense extension is required. See the
-[IntelliSense guide](docs/intellisense.md) for the repository presets and
-profile-specific includes. The optional [VS Code extension](docs/editor_extension.md)
-exposes the same build targets through commands and diagnoses missing includes.
-The extension also provides **Go to Declaration** to source schemas and **Go to
-Definition** to existing generated C++ headers for includes and schema types.
-C++ type references use the C++ language service to find their originating schema.
-Right-click a `.serializer` file in Explorer or its editor tab and choose
-**Serializer: Go to Implementation** to open its available generated header.
-Navigation and **Open Generated Header** only use available files: they never
-build, configure, save inputs, or prompt for generation. See
-[navigation details and limitations](docs/editor_extension.md#navigate-available-schemas-and-headers).
-Source builds and installed-package generation have
-been checked on Windows; see [compiler verification](docs/command_line.md#verification).
-The extension's Windows editor-host generation smoke test passed; see
-[extension verification](docs/editor_extension.md#verification-performed) for scope.
-Live C/C++ IntelliSense reparsing remains unverified.
-
-## Language Construct
-
-Every `.serializer` file starts with `serializer version 1;` before declarations.
-The declaration snippets below omit this header. Complete files in `example/`
-include it. See [schema versioning](docs/command_line.md#schema-files).
-
-### Namespace
-This directly maps to C++ name space this can be hierarchical. This can be similar to C++ syntax like "A::B::C".
-```
-namespace A { namespace B { } }
-```
-is equivalent to
-```
-namespace A::B { }
-```
-
-### Class
-
-Use `class` in schema files. Every member explicitly states `public`, `protected`,
-or `private`. Members end with a semicolon; class and enum declarations do not.
-
-```text
-class person {
-  public string name;
-  public uint32 age;
-}
-```
-
-Class attributes go after the class name and before an optional parent list.
-Implemented attributes are `stable_ids`, `packed`, `owning`, `view`, `readonly`,
-and `mutable`. Their order does not matter. `packed` controls generated native
-C++ layout, depends on compiler support, and cannot be combined with `view`.
-Binary serialization always encodes fields individually.
-
-### Owning objects and buffer views
-
-| Class header | Generated modes | Class template |
-| --- | --- | --- |
-| `class person` or `class person owning` | Owning | No |
-| `class person view` | Read-only and mutable views | Yes |
-| `class person view readonly` | Read-only view | No |
-| `class person view mutable` | Mutable view | No |
-| `class person view mutable readonly` | Both views | Yes |
-| `class person view owning` | Owning and both views | Yes |
-| `class person view owning readonly` | Owning and read-only view | Yes |
-| `class person owning mutable view` | Owning and mutable view | Yes |
-
-`readonly` and `mutable` require `view`; either restricts the enabled view modes.
-With multiple modes, select `person<rohit::serializer::storage_mode::owning>`,
-`person<rohit::serializer::storage_mode::read_only_view>`, or
-`person<rohit::serializer::storage_mode::mutable_view>`. Only requested modes exist.
-With one mode, use `person` directly.
-
-Generated views map **little-endian positional binary (`binary_none`)** through
-`person::map(span, limits)`. Getters access mapped fields; mutable setters update
-existing bytes without changing field sizes. Strings require the same byte length.
-Arrays, maps, nested objects, and active union alternatives have borrowed accessors.
-Array and map views provide sequential `begin()`/`end()` iterators. Prefer range-based
-loops for variable-length collections to avoid rescanning earlier entries on each index.
-See [the view usage guide](docs/views.md) for examples, nested-mode requirements,
-lifetimes, mutation limits, and compilation costs.
-
-All binary codecs default to **little-endian** fixed-width integers and floating
-point. Inspect `Protocol::wire_endian` or `View::wire_endian` in C++; views also
-expose `key_type`. Explicit codec byte-order selection is documented in
-[the wire-format contract](docs/wire_format.md#byte-order).
-Messages contain no automatic byte-order marker. Both endpoints must agree on it.
-
-Wire byte order is independent of machine byte order: the same scalar values use
-identical wire bytes on little- and big-endian machines. Collection ordering is a
-separate contract: high-byte `map(char)` keys retain historical backend/compiler
-ordering, so equivalent maps need not produce identical bytes. For new portable
-byte-keyed maps, prefer `map(uint8)`; see [map ordering](docs/wire_format.md#map-ordering).
-Other language backends currently use the
-little-endian wire profile; explicit big-endian wire selection is a C++ feature.
-The [interoperability runner](example/interoperability/README.md) pins positional
-output to shared frozen bytes and can include emulated big-endian C/C++ hosts.
-See [cross-endian verification](docs/verification-cross-endian-2026-09-18.md)
-for the exercised matrix and its scope.
-
-Strings require valid UTF-8 in every language, including C++ binary codecs and
-mapped views. Embedded NULs remain valid; use `array uint8` for arbitrary bytes.
-Older C++ binary strings containing invalid UTF-8 are now rejected; see
-[migration](migration.md#binary-string-validation).
-Validation is strict by default. C++ owning binary codecs also offer an explicit
-compile-time `binary_text_validation::unchecked` policy for already validated
-or otherwise guaranteed-valid text. It removes runtime text scans, not bounds or
-resource checks. Invalid UTF-8 remains outside the cross-language contract.
-See [policy selection](docs/usage.md#choose-c-binary-text-validation); JSON, mapped
-views, and other language runtimes remain strict. Rebuild the runtime and C++
-consumers together; schema regeneration is unnecessary for this policy.
-
-Independent legacy big-endian and current little-endian fixtures exercise explicit
-protocol selection. The schema-language version does not identify message byte
-order or wire version. See the [verification record](docs/verification-2026-09-17.md).
-
-### Explicit field IDs with `stable_ids`
-
-`stable_ids` tells the generator: **every field and parent must have an explicit
-numeric ID**. It is useful for schemas that evolve while using integer-key binary.
-
-Without explicit IDs, numbers follow declaration order: `name` above gets ID 1
-and `age` gets ID 2. Inserting a field before them changes those implicit IDs.
-Assigning IDs explicitly preserves their identity when declarations move:
-
-```text
-class person stable_ids {
-  public string name (1);
-  public uint32 age (2);
-}
-```
-
-Adding `public string country;` to that class fails generation with
-`stable_ids requires explicit field and parent IDs`. Assign a new unused ID:
-
-```text
-public string country (3);
-```
-
-Explicit IDs already work without the keyword; `stable_ids` prevents accidentally
-omitting one. Adding the keyword to an existing schema should preserve its current
-IDs, including any previously implicit IDs. It does not compare schema history or
-prevent a person from manually changing or reusing an ID.
-
-Parents and members share the containing class's ID space. A parent's own fields
-have their own ID space:
-
-```text
-class employee stable_ids : public person ("person", 1) {
-  public uint64 employee_id (2);
-}
-```
-
-IDs must be unique within that class and in `1..0x3fffffff`; zero ends an
-integer-key object. JSON and string-key binary identify fields by their wire
-names. Positional binary still depends on declaration order even with explicit IDs.
-Keyed readers reject unknown fields, so stable IDs alone do not make old readers
-accept added fields. See [schema evolution](docs/wire_format.md#schema-evolution).
-
-Use the separate [schema compatibility checker](docs/schema_evolution.md) to
-compare revisions and enforce a persistent policy of reserved field IDs/names:
-
-```sh
-serializer --input current.serializer --check-against previous.serializer \
-  --compatibility-protocol binary_integer --compatibility-direction backward \
-  --compatibility-policy compatibility.json
-```
-
-It checks identity/type changes, positional order, and enum/union ordinals, and
-distinguishes native unknown-field rejection from Protobuf binary skipping.
-This does not introduce a new native wire format or a `reserved` schema keyword.
-
-`stable_ids` is independent of `view` and is not required for mapping buffers.
-Views use positional binary, so field order and types must still match.
-`inplace` and `simd` are not implemented schema keywords.
-
-### Datatypes
-|Type|C++ Type|Size byte|Common name|
-|---|---|---|---|
-|char|char|1|Character|
-|int8|int8_t|1|integer|
-|int16|int16_t|2|integer|
-|int32|int32_t|4|integer|
-|int64|int64_t|8|integer|
-|uint8|uint8_t|1|unsigned integer|
-|uint16|uint16_t|2|unsigned integer|
-|uint32|uint32_t|4|unsigned integer|
-|uint64|uint64_t|8|unsigned integer|
-|float|float|4|Floating point|
-|double|double|8|Floating point|
-|bool|bool|1|Bool|
-|string|std::string|variable|String|
-
-## Collection types
-Following collecting types are supported
-1. Array
-1. Map
-
-## Comments
-"//" till new line and anything under "/*" and "*/" will be ignore.
-
-## Serializer Type
-Output is template based, hence one of following serializer can be used:
-1. JSON
-1. Binary
-  1. Positional Binary
-  1. ID based indexing
-  1. String based indexing
-
-if ```cpp test::person pr``` is name of your class different serializer can be applied as follows:
-
-JSON Serializer support.
-```cpp
-pr.serialize_out<rohit::serializer::json>(stream);
-pr.serialize_in<rohit::serializer::json>(stream);
-```
-
-JSON Output Serializer support with beautification
-```cpp
-rohit::serializer::json_out<true> json_out { fullstream1, rohit::serializer::format::beautify };
-pr.serialize_out(json_out);
-```
-
-There are three predefined format
-1. ```cpp rohit::serializer::format::compress ```
-1. ```cpp rohit::serializer::format::beautify ```
-1. ```cpp rohit::serializer::format::beautify_vertical ```
-
-More can be generated using structure ```cpp rohit::serializer::write_format ```
-
-`format::compress` selects compact JSON formatting; it does not compress data.
-For exact fresh-value decoding, use
-`rohit::serializer::deserialize_exact<Value, Protocol>(input[, limits])`.
-It decodes a candidate and calls `finish()` before returning; input may still be
-consumed on failure. See [the helper's contract](docs/usage.md#decode-one-exact-message-into-a-fresh-value).
-Existing member and static decoding APIs retain their behavior.
-For wire details, schema evolution, decoder limits, and failure behavior, see
-[the wire-format contract](docs/wire_format.md). Optional timing, allocation,
-and fuzz targets are described in [qualification](qualification/README.md).
-
-`SERIALIZER_BUILD_FUZZERS=ON` builds a separate runtime with libFuzzer coverage,
-AddressSanitizer, and UndefinedBehaviorSanitizer, including compiled SIMD helpers.
-Four targets cover native codecs, mapped views, optional Protobuf codecs, and
-scalar/baseline/dispatched SIMD comparisons. A deterministic corpus generator and
-CTest seed replay work without GoogleTest. See [fuzzing](qualification/README.md#fuzzing)
-for Clang prerequisites, corpus controls, bounded campaigns, and verification scope.
-
-Positional binary writes fields in schema order without field IDs, names, or an
-object terminator. Both ends must agree on field order and types. Unions still
-write an alternative index before their payload.
-
-```cpp
-pr.serialize_out<rohit::serializer::binary_none>(stream);
-pr.serialize_in<rohit::serializer::binary_none>(stream);
-```
-
-Integer-key binary writes a compact numeric ID before each field and ID zero
-after each object. IDs occupy one to four bytes and must be in `1..0x3fffffff`.
-Schema declarations can specify an ID, for example `public uint8 count (3);`.
-
-```cpp
-pr.serialize_out<rohit::serializer::binary_integer>(stream);
-pr.serialize_in<rohit::serializer::binary_integer>(stream);
-```
-
-String-key binary writes a length-prefixed wire name before each field and an
-empty-name terminator after each object. The wire name defaults to the member
-name; a declaration such as `public uint8 count ("total", 3);` overrides both its
-wire name and numeric ID. Empty wire names are rejected. Union names include the
-selected alternative as `field:alternative`.
-
-```cpp
-pr.serialize_out<rohit::serializer::binary_string>(stream);
-pr.serialize_in<rohit::serializer::binary_string>(stream);
-```
-
-For one `uint8` field with value `7`, numeric ID `3`, and wire name `total`:
-
-| Mode | Encoded bytes (hex) |
-| --- | --- |
-| Positional | `07` |
-| Integer-key | `03 07 00` |
-| String-key | `05 74 6f 74 61 6c 07 00` |
-
-Only IDs, lengths, numeric enum values, and union indices use the compact integer
-encoding. Ordinary integer fields retain their declared byte width. Negative
-compact integers and values above `0x3fffffff` throw `std::out_of_range` before
-writing that integer.
-
-## Example
-### Simple class
-Below input:
-```cpp
-namespace test {
-class person {
-    public string name;
-    public uint64 ID;
-}
-}
-```
-This will result in:
-```cpp
-/////////////////////////////////////////////////////////
-// This is auto genarated file using serializer. Must  //
-// not be manually edited. For more information refer  //
-// to https://github.com/rohit-singh-gautam/Serializer //
-/////////////////////////////////////////////////////////
-#pragma once
-#include <rohit/serializer.hpp>
-
-namespace test {
-class person {
-public:
-  std::string name { };
-  std::uint64_t ID { };
-
-  template <typename SerializeOutProtocol>
-  void serialize_out(SerializeOutProtocol& serializer_protocol) const;
-  template <template<rohit::serializer::serialize_type> class SerializerProtocol>
-  void serialize_out(rohit::type_check::output_stream auto& stream) const;
-  template <typename SerializeInProtocol>
-  void serialize_in(SerializeInProtocol& serializer_protocol);
-  template <template<rohit::serializer::serialize_type> class SerializerProtocol>
-  void serialize_in(rohit::type_check::input_stream auto&& stream);
-}; // class person
-}
-```
-
-### Array
-```cpp
-namespace arraytest {
-class person {
-    public string name;
-    public uint64 ID;
-}
-
-class personlist {
-    public uint64 listid;
-    public array person list;
-}
-}
-```
-
-Above input will generate:
-```cpp
-/////////////////////////////////////////////////////////
-// This is auto genarated file using serializer. Must  //
-// not be manually edited. For more information refer  //
-// to https://github.com/rohit-singh-gautam/Serializer //
-/////////////////////////////////////////////////////////
-#pragma once
-#include <rohit/serializer.hpp>
-
-namespace arraytest {
-class person {
-public:
-  std::string name { };
-  std::uint64_t ID { };
-
-  template <typename SerializeOutProtocol>
-  void serialize_out(SerializeOutProtocol& serializer_protocol) const;
-  template <template<rohit::serializer::serialize_type> class SerializerProtocol>
-  void serialize_out(rohit::type_check::output_stream auto& stream) const;
-  template <typename SerializeInProtocol>
-  void serialize_in(SerializeInProtocol& serializer_protocol);
-  template <template<rohit::serializer::serialize_type> class SerializerProtocol>
-  void serialize_in(rohit::type_check::input_stream auto&& stream);
-}; // class person
-
-class personlist {
-public:
-  std::uint64_t listid { };
-  std::vector<person> list { };
-
-  template <typename SerializeOutProtocol>
-  void serialize_out(SerializeOutProtocol& serializer_protocol) const;
-  template <template<rohit::serializer::serialize_type> class SerializerProtocol>
-  void serialize_out(rohit::type_check::output_stream auto& stream) const;
-  template <typename SerializeInProtocol>
-  void serialize_in(SerializeInProtocol& serializer_protocol);
-  template <template<rohit::serializer::serialize_type> class SerializerProtocol>
-  void serialize_in(rohit::type_check::input_stream auto&& stream);
-}; // class personlist
-
-} // namespace arraytest
-```
-
-### Map
-```cpp
-namespace maptest {
-class person {
-    public string name;
-    public uint64 ID;
-}
-
-class personlist {
-    public uint64 listid;
-    public map(uint64) person list;
-}
-}
-```
-Above code will result in below C++ code
-```cpp
-/////////////////////////////////////////////////////////
-// This is auto genarated file using serializer. Must  //
-// not be manually edited. For more information refer  //
-// to https://github.com/rohit-singh-gautam/Serializer //
-/////////////////////////////////////////////////////////
-#pragma once
-#include <rohit/serializer.hpp>
-
-namespace maptest {
-class person {
-public:
-  std::string name { };
-  std::uint64_t ID { };
-
-  template <typename SerializeOutProtocol>
-  void serialize_out(SerializeOutProtocol& serializer_protocol) const;
-  template <template<rohit::serializer::serialize_type> class SerializerProtocol>
-  void serialize_out(rohit::type_check::output_stream auto& stream) const;
-  template <typename SerializeInProtocol>
-  void serialize_in(SerializeInProtocol& serializer_protocol);
-  template <template<rohit::serializer::serialize_type> class SerializerProtocol>
-  void serialize_in(rohit::type_check::input_stream auto&& stream);
-}; // class person
-
-class personlist {
-public:
-  std::uint64_t listid { };
-  std::map<std::uint64_t, person> list { };
-
-  template <typename SerializeOutProtocol>
-  void serialize_out(SerializeOutProtocol& serializer_protocol) const;
-  template <template<rohit::serializer::serialize_type> class SerializerProtocol>
-  void serialize_out(rohit::type_check::output_stream auto& stream) const;
-  template <typename SerializeInProtocol>
-  void serialize_in(SerializeInProtocol& serializer_protocol);
-  template <template<rohit::serializer::serialize_type> class SerializerProtocol>
-  void serialize_in(rohit::type_check::input_stream auto&& stream);
-}; // class personlist
-
-} // namespace maptest
-```
-
-### Enum
-This is a specialize case where in string and JSON mode value name will be serialized in other binary mode its positional ID will be serialized.
-
-Example of CPP:
-```cpp
-namespace enumtest {
-enum testenum {
-    test1,
-    test2,
-    test3,
-    test4,
-    test5,
-    test6
-}
-
-class test {
-    public testenum te;
-}
-}
-```
-
-### Member Modifier
-Member can have custom numeric ID for indexing with integer or custom string for indexing with string. This can be done by adding number or a string in double quote inside a round bracket after definition of member variable.
-
-Example:
-```cpp
-namespace test {
-class person {
-    public string name ("Name", 3);
-    public uint64 ID ("id", 4);
-}
-}
-```
-
-Similar parameter can also be added for parent class definition example:
-```cpp
-namespace test {
-class personex : public person ("Person", 5) {
-    public uint64 ID ("id", 6);
-}
-}
-```
-
-### Default value
-Default value can be added for member variable by adding a value in braces after definition of member variable example:
-```cpp
-namespace test {
-class person {
-    public string name {"None"}("Name", 3);
-    public uint64 ID ("id", 4) { 4 };
-}
-}
-```
-
-## Roadmap
-
-The [C++ managed interface](docs/managed/cpp_runtime.md) is available with
-`SERIALIZER_BUILD_MANAGED=ON` and `Serializer::managed`. Bare `managed` declarations
-generate direct `persistent_id` fields and typed transaction editors by default.
-Set `[managed] separate_values = true` to opt into ID-free values and storage wrappers.
-New stores generate document namespaces automatically; object IDs increment from 1
-within each document, and saved identities/counters survive reload.
-Start with the [nine small point examples](example/managed/README.md): schema-generated
-managed points, transaction callbacks, generated editors, commit, undo/redo, and cancellation.
-Each has its own folder, expected output, and a short explanation.
-For the implementation, read [how managed transactions work](docs/internals/managed_transactions.md):
-nested types, candidate ownership, callback forwarding, commit, and cleanup.
-The companion [managed editor walkthrough](docs/internals/managed_editors.md)
-explains channels, target resolution, and map/array editor lifetimes.
-The [ledger example](example/managed/ledger/README.md) uses
-`transaction.root().entries().edit(id).set_memo(...)` without handwritten adapters.
-Its annotated source and walkthrough explain document namespaces, object IDs, each
-transaction form, and the state preserved by undo and save/load.
-Manual/scoped/callback transactions, linear/tree history, and bounded memory save/load
-are implemented. IDs default to uint32; configure `[managed] id_type` or
-`--managed.id_type` for uint64. Schemas without managed declarations remain unchanged.
-Managed representation changes require saved-state migration.
-History mode is selected at compile time: `model_store<Root>` defaults to linear;
-`model_store<Root, history_mode::tree>` selects tree, and `history_mode::disabled`
-omits history. Each specialization contains only its selected storage.
-Journal and collaboration can also be compiled out with the fifth template argument:
-`model_store<Root, Mode, Labels, Traits, store_features::none|journal|collaboration|all>`
-(select one value). `all` preserves existing defaults; `none` plus linear/tree history
-selects history only. Journal-only and collaboration-only stores use disabled history
-with the matching feature value. Disabled features have no attachment storage or runtime
-checks, and their store APIs are unavailable. Authentication remains host-owned and
-belongs to collaboration, not a standalone store feature. See the
-[feature selection examples](docs/managed/cpp_runtime.md#independent-store-features).
-History currently retains whole-root snapshots. Default linear history uses a deque
-and cursor, with no revision IDs or revision lookup. Its `undo()`/`redo()` navigate
-adjacent entries, evicting oldest states to meet count/byte limits; tree history retains
-branches in a map and rejects commits exceeding those limits. A changed linear commit
-after undo discards redo. Labels are disabled by default: use
-`execute_transaction(callback)` or `begin_transaction(outcome)` with no name.
-Opt in with `model_store<Root, Mode, history_labels::enabled>` to store names and
-query undo/redo labels; see the [labeled point example](example/managed/labeled_history/README.md).
-Disabled labels have no string member or serialized label field. Default saves
-use format version 3; label-enabled linear/tree stores retain versions 2/1.
-Saved histories must match the receiving label policy; see [migration](migration.md).
-`<rohit/file_stream.hpp>` provides an owning file stream for both ordinary generated
-serialization and journaling. It uses the existing stream concepts and adds explicit
-`sync()`, `seek()`, and `truncate()` capabilities; memory streams in `stream.hpp`
-keep their existing contract. Journal frame readers/writers also accept Serializer
-buffers and supported iostream adapters. See [file streams and journal records](docs/usage.md#file-streams-and-journal-records).
-The [runnable journal example](example/managed/journal/README.md) demonstrates both
-file modes, recovery, undo/redo, and full Save.
-Database sinks require an implemented, tested Serializer database adapter; none is
-currently implemented.
-
-Synchronous [journal and crash recovery](docs/managed/journal.md) now supports
-appended and sidecar files: `create_journal`, `recover_journal`, and `save_journal`
-append each already serialized snapshot once with compact framing, preserve undo/redo and allocated IDs,
-and track unsaved values separately from durability. `journal_dirty()` and
-`journal_sequence()` expose those independent positions. Uncertain I/O reports
-`transaction_status::indeterminate` and blocks writes until recovery.
-Schema feature selectors, exclusions, built-in authorization policies, and other-language managed runtimes remain
-future work; unsupported syntax/backends fail explicitly.
-
-The [managed capabilities](docs/managed/capabilities.md) proposal covers history,
-collaboration, authorization, and journaling. Managed storage carries
-a mandatory persistent ID (`uint32` by default, centrally configurable). ID-free
-ordinary payloads are an opt-in representation. [Journal recovery](docs/managed/journal.md)
-uses a base snapshot plus an appended or sidecar journal, with durable undo cursors,
-full Save replacement, and cleanup that preserves newer unsaved changes.
-The full feature set remains a proposal; central persistent-ID configuration and
-the C++ identity/history runtime, synchronous snapshot journaling, and snapshot collaboration are implemented.
-
-The implemented [C++ collaboration runtime](docs/managed/collaboration_runtime.md)
-provides `collaboration_authority`, replicas with isolated proposal drafts, atomic snapshot acceptance,
-base-sequence conflicts, exact operation retries, advisory presence, entity/subtree
-leases, and ordered lock caches. Start with the [collaboration examples](example/managed/collaboration/README.md).
-For immediate local editing, attach a session with `store.collaborate(session)` to
-the existing `model_store`, then use normal generated setters and transactions.
-The store journals each commit and retains a durable outbox when a journal is attached.
-Call `store.synchronize()` explicitly or `store.synchronize_if_due(now_ms)` from the
-owner-thread timer; `send_pending()` and `receive_changes()` are also separate APIs.
-Local undo/redo uses the same transaction mechanism and the ordinary `model_store`
-journal API. The [store undo example](example/managed/collaboration/undo.cpp) uses
-`execute_transaction`, `undo`, and `redo` with separate journaled client stores;
-`synchronize()` handles submission and receiving accepted changes. Host lock requests
-reserve IDs with `store.collaboration().reserve_operation_id()` so they share the
-store's persisted operation counter without collisions; see the
-[store locks example](example/managed/collaboration/locks.cpp). See the
-[store integration guide](docs/managed/local_collaboration.md) and
-[local synchronization example](example/managed/collaboration/local_sync.cpp).
-Conflicts retain local work and expose received state separately for resolution.
-The lower-level acknowledged-state API remains available:
-Use `replica.propose(session, operation, [](auto& edit) { ... })` with generated
-editors; the default authority accepts these proposals without a handwritten
-command schema or dispatcher. Custom server command handlers remain optional.
-Accepted transactions now include serialized field-change records with author/operation
-identity, stable entity/field addresses, before/after values, contribution versions,
-and ownership dependencies. `replica.undo(session, operation)` and `replica.redo(...)`
-create atomic, conditional history requests for the same acceptance path. They preserve
-unrelated edits and reject same-field or ownership conflicts, including equal-value
-intervening writes. See the
-[history contract](docs/managed/collaboration_runtime.md#conditional-collaborative-undo-and-redo).
-Upgrade both peers and regenerate managed headers: history-bearing collaboration uses
-protocols 5/6 (uint64 sessions) or 7/8 (custom sessions). Model save formats are unchanged.
-Authority contribution history lasts only for its epoch. Store clients persist their
-local history, pending work and exact retries with the same journal pointer; a new
-authority epoch retains uncertain work for explicit reconciliation. Plain replicas
-continue to expose acknowledged state.
-The examples combine a server authority and separate client replicas in one process;
-session IDs do not encode whether a client is local, remote, or read-only.
-Applications own session creation, storage, connection binding, and lifetime.
-`std::uint64_t` is the default; use `collaboration_session<std::string>` or
-`collaboration_session<std::uint32_t>` for other IDs, or supply a session policy
-for a custom value type. Proposals, results, locks, presence, and policy hooks keep
-that type without an imposed numeric registry. See the [session example](example/managed/collaboration/sessions.cpp).
-Generated ownership traversal checks the actual diff; optional host policy hooks
-gate changes and locks. Coordination records originate in `.serializer` schemas.
-Transport, trusted session binding, and distributed authority fencing remain host
-concerns. The [broader contract](docs/managed/collaboration.md) includes future
-optimization and distributed features. This version retains retry state for its
-bounded epoch and sends full snapshots. Store clients merge disjoint fields before
-submission; same-field/ownership conflicts remain explicit. Offline IDs use persisted
-local-to-authority mappings; ordinary application integer references are not remapped.
-
-The [managed-state design index](docs/managed/README.md) groups the proposals under
-`docs/managed/`. The [data-structure design](docs/managed/data_structures.md) defines
-store state, revision graphs, snapshot/delta records, checkpoints, and deleted-object
-retention, with a [C++ class walkthrough](docs/managed/data_structures.md#c-class-walkthrough)
-using actual ordinary classes generated from a
-[draft example schema](docs/managed/walkthrough.serializer), with codec methods
-omitted. These illustrative records differ from the implemented snapshot envelope. The
-[language-binding design](docs/managed/language_bindings.md) proposes
-C++ `model_store<Root, support>` (with a `managed` alias) and component-based stores
-for other backends. These broader capability sketches differ from the implemented
-`model_store<Root, Mode, Labels, Traits>` API, whose history mode is a template argument.
-Runtime journaling and collaboration are separate from history policy. Consult the C++ runtime guide above
-for the implemented subset; the broader generated APIs remain proposals.
-
-The [object identity and transactional history proposal](docs/managed/history.md) describes
-an optional root collection with stable object IDs, grouped edits, and runtime
-linear or branching undo/redo. It proposes `managed` on entity members, with
-ordinary values as the default. Classes qualify through their own managed members
-or a class-level `managed` marker; a managed member targeting an unmarked leaf
-type is an error. Explicit `model_store` construction selects an eligible root. Separate
-plain and tracked companion classes apply member annotations only in a tracked
-parent. Plain containment neither activates nested managed annotations nor implies
-companion generation for the containing class. Project/task examples cover deep
-value copying, managed factories, and committed-change notifications. Change
-addresses combine a persistent entity ID with a relative field-ID path, independently
-of snapshot/delta storage. The language-independent contract
-distinguishes saved `exclude(history)` fields from runtime-only `transient` caches and
-covers application restoration, including Android. The broader projection and notification APIs remain proposals; bare `managed`
-and the typed C++ editor subset are documented in the runtime guide above.
-The [domain examples](docs/managed/managed_examples.md) cover a cylinder with a hole,
-accounting, wordpad, and other applications. Scoped C++ transactions provide automatic
-commit on successful exit, explicit revert, and observable completion failures.
-The implemented C++ [`execute_transaction`](docs/managed/history.md#callback-based-transaction-execution)
-convenience API passes a borrowed edit context to one synchronous callback and
-returns its completion outcome, using the same RAII transaction engine.
-All three forms remain supported: manual commit, automatic completion on normal
-scope exit, and callback execution, with explicit revert for cancellation.
-Compact nested records can avoid repeating child IDs while preserving persistent
-identity mappings. Retention rules distinguish deleted live objects from their
-recoverable historical versions; storage budgets and measured editing latency
-come before aggressive micro-optimization.
-The proposed [ownership and allocation contract](docs/managed/history.md#ownership-and-custom-allocation)
-keeps managed lifetimes in the store and permits configurable state/history/scratch
-resources. It distinguishes optional internal reference counts from entity IDs
-and makes payload allocator propagation and backend limitations explicit.
-
-The companion [managed-state proposal](docs/managed/managed_state.md) explores editable
-subtrees, application-supplied authorization, branch merging, collaboration,
-distributed transactions, and external effects. It recommends `managed` and
-`model_store` for the broader subsystem while retaining history as an optional
-component. Feature selectors such as `managed(history)` and
-`managed(all except history)` use a pinned feature profile and preserve mandatory
-authorization. `exclude(history, collaboration)` excludes named features for
-ordinary values while preserving serialization. These names and capabilities
-are proposals, not implemented features.
-
-1. Check for validity for default value.
-1. Store position of member variable in input stream.
-1. Bit field.
-
-## Repository agent skill
-
-The [serializer-integration skill](.agents/skills/serializer-integration/SKILL.md)
-guides an agent through using this library in a C++ application: schema design,
-`stable_ids` adoption, generated headers, protocol selection, and bounded input.
-
-### Why the directory starts with a dot
-
-A leading `.` is a hidden-directory convention, not a Git ignore rule. This skill
-is tracked in Git and included with the source repository. The repository's
-`.gitignore` excludes `.vscode/*` but does not exclude `.agents/`. Keep `.agents`
-when copying or packaging the checkout; some file browsers and shell wildcards
-omit hidden entries.
-
-It follows the open [Agent Skills format](https://agentskills.io/specification):
-a folder with a `SKILL.md` containing YAML `name` and `description`, followed by
-Markdown instructions. Repository discovery locations are host-specific. This
-repository uses Codex's `.agents/skills` convention:
-
-```text
-.agents/skills/serializer-integration/
-  SKILL.md
-  agents/openai.yaml
-```
-
-### Automatic discovery and explicit use
-
-The YAML file under `agents/` supplies Codex UI metadata and permits automatic
-invocation when an integration task matches the skill description. Codex discovers
-repository skills from the working directory through the repository root. In the
-CLI or IDE extension, select this skill with `$serializer-integration` or `/skills`.
-See [Codex skill discovery](https://learn.chatgpt.com/docs/build-skills#where-codex-loads-local-skills).
-
-Example request:
-
-```text
-Use $serializer-integration to add Serializer to my C++ application,
-define a person schema with stable_ids, and decode integer-key binary
-messages with explicit resource limits.
-```
-
-### Use from a consuming project
-
-Codex's ancestor-directory scan does not automatically load a nested dependency's
-skill from the consuming project's root. Use the direct-path request above, or
-add this instruction to the application's own `AGENTS.md`, adapting the path:
-
-```markdown
-When integrating or changing Serializer usage, read and follow
-vendor/Serializer/.agents/skills/serializer-integration/SKILL.md.
-```
-
-For skill-selector discovery in that project, copy the complete
-`serializer-integration` folder into its `.agents/skills/`. Keep that copy aligned
-with the Serializer version in use and retain the matching checkout for linked
-documentation. Other agents have their own discovery rules; providing the direct
-file path lets them read the same instructions without relying on automatic scanning.
-These instructions accompany the source checkout; the CMake binary installation
-does not currently install the skill or its documentation.
-
-[AGENTS.md](AGENTS.md#usage-documentation-and-repository-skill) requires changes to
-keep this README and the skill current together.
+The skill covers schemas, generation, codec selection, and bounded decoding.
+Keep the tracked `.agents/skills/serializer-integration/` directory when copying
+or packaging the source repository.
+
+See [agent discovery and setup](docs/agent_integration.md) for automatic discovery
+and use from a consuming project.
+
+## Reference and project status
+
+- [Schema and protocol reference](docs/schema_reference.md): types, field IDs, views, and protocol examples.
+- [Schema examples](docs/schema_examples.md): small declarations you can adapt.
+- [Migration guide](migration.md): upgrade requirements and compatibility changes.
+- [Feature status and roadmap](docs/feature_status.md): implemented behavior and future work.
+- [Verification record](docs/verification-2026-09-17.md): tested revisions, configurations, and outstanding checks.
+- [Qualification](qualification/README.md): interoperability, fuzzing, and performance workflows.
+- [Coding standard](CodingStandard.md) and [agent instructions](AGENTS.md): repository contribution rules.
+- [License](LICENSE).
+
+When updating an existing application, check the migration guide and regenerate
+affected output before rebuilding. Verification records describe specific tested
+configurations; they do not establish support for every platform or toolchain.

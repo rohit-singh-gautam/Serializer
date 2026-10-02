@@ -1,5 +1,9 @@
 # Using Serializer in a C++ application
 
+New to the project? Start with the [project overview](../README.md#get-started).
+For editing and persistence concepts, read the
+[history, journal, collaboration, and authorization introduction](managed/getting_started.md).
+
 For pure Java generation and runtime usage, see [Java output](java.md) and the
 [Java examples](../example/java/README.md). For JavaScript/TypeScript, Go, and C#,
 see [portable language usage](portable_languages.md) and the
@@ -328,7 +332,7 @@ changes positional binary order and can change emitted field order. Older keyed
 readers still reject newly added fields. Removing/reusing IDs, changing field
 types, and renumbering enum or union alternatives need an application versioning
 decision. See the [complete evolution rules](wire_format.md#schema-evolution) and
-the [README examples](../README.md#explicit-field-ids-with-stable_ids).
+the [schema reference](schema_reference.md#explicit-field-ids-with-stable_ids).
 
 `view`, `owning`, `readonly`, and `mutable` select generated representations;
 see [the view guide](views.md). `inplace` and `simd` are not accepted keywords.
@@ -1075,7 +1079,7 @@ Use the [Serializer integration skill](../.agents/skills/serializer-integration/
 to apply this workflow to an existing application. When supplying a Serializer
 checkout to an agent, give it that file's path directly; skill installation is
 not required for direct use. The [README](../README.md#integrate-with-a-coding-agent)
-provides a copyable request, and its [discovery guide](../README.md#repository-agent-skill)
+provides a copyable request, and its [discovery guide](agent_integration.md)
 explains automatic selection and use from a consuming project's root.
 
 ## Compress complete messages
