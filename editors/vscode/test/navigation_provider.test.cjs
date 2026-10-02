@@ -63,7 +63,7 @@ function harness({ trusted = true, active = false, model } = {}) {
       showQuickPick: async items => { calls.push('pick'); return items[0]; } },
     languages: {
       registerDeclarationProvider: (selector, provider) => { providers.selector = selector; providers.declaration = provider; return disposable; },
-      registerDefinitionProvider: (_selector, provider) => { providers.definition = provider; return disposable; },
+      registerDefinitionProvider: (selector, provider) => { providers.definitionSelector = selector; providers.definition = provider; return disposable; },
       registerTypeDefinitionProvider: (selector, provider) => { providers.typeSelector = selector; providers.typeDefinition = provider; return disposable; }
     },
     commands: { registerCommand: (name, callback) => { commands.set(name, callback); return disposable; },
@@ -123,7 +123,7 @@ test('ledger declaration, definition and type definition accept names, keywords 
       assert.equal(target.getText().slice(target.offsetAt(targets[0].range.start), target.offsetAt(targets[0].range.end)), 'ledger');
     }
   }
-  assert.deepEqual(state.providers.typeSelector, { language: 'serializer', scheme: 'file' },
+  assert.deepEqual(state.providers.typeSelector, ['file', 'git'].map(scheme => ({ language: 'serializer', scheme })),
     'native generated-language type providers remain in charge');
 });
 
@@ -432,4 +432,60 @@ test('missing generated output in every language remains missing after all navig
   }
   assert.ok(state.calls.every(call => ['vscode.executeDefinitionProvider', 'vscode.executeTypeDefinitionProvider'].includes(call)),
     'navigation does not activate CMake, invoke a build or offer a generation prompt');
+});
+
+/** Model the read-only Git index tab independently of the working-tree text. */
+function gitDocument(state, name, text) {
+  const original = state.document(name);
+  const uri = { scheme: 'git', fsPath: original.uri.fsPath + '.git',
+    query: JSON.stringify({ path: original.uri.fsPath, ref: '~' }),
+    toString: () => `git://${original.uri.fsPath}?index` };
+  return { ...original, uri, getText: () => text,
+    offsetAt: position => text.split('\n').slice(0, position.line).reduce((sum, line) => sum + line.length + 1, 0) + position.character,
+    positionAt: offset => { const before = text.slice(0, offset).split('\n'); return { line: before.length - 1, character: before.at(-1).length }; } };
+}
+
+test('Git index providers resolve the displayed include at every cursor boundary', async () => {
+  const state = harness({ trusted: false });
+  const name = 'example/swift/generics/model.serializer';
+  state.put(name, 'serializer version 1; include wrong;');
+  state.put('example/generics/model.serializer', 'serializer version 1; class included {}');
+  const text = 'serializer version 1;\n// staged content differs\ninclude ../../generics/model;\n';
+  const doc = gitDocument(state, name, text);
+  // A dirty working buffer must not replace the selected Git snapshot.
+  state.vscode.workspace.textDocuments.push(state.document(name));
+  const start = text.indexOf('../../generics/model');
+  for (const [selector, provider, method] of [
+    ['selector', 'declaration', 'provideDeclaration'],
+    ['definitionSelector', 'definition', 'provideDefinition'],
+    ['typeSelector', 'typeDefinition', 'provideTypeDefinition']
+  ]) {
+    assert.ok(state.providers[selector].some(item => item.language === 'serializer' && item.scheme === 'git'));
+    for (let offset = start; offset <= start + '../../generics/model'.length; ++offset) {
+      const targets = await state.providers[provider][method](doc, doc.positionAt(offset), state.cancellation);
+      assert.equal(targets.length, 1);
+      assert.equal(targets[0].uri.fsPath, path.join(root, 'example/generics/model.serializer'));
+      assert.equal(targets[0].uri.scheme, 'file');
+    }
+  }
+  assert.deepEqual(state.calls, []);
+});
+
+test('Git generic parameters retain snapshot locations and qualified arguments follow current includes', async () => {
+  const state = harness({ trusted: false });
+  state.put('model.serializer', 'serializer version 1; class different {}');
+  state.put('middle.serializer', 'include types;');
+  state.put('types.serializer', 'namespace data { class person {} }');
+  const text = 'serializer version 1;\ninclude middle;\nclass box<T> { public T value; }\ninstantiate root = box<data::person>;';
+  const doc = gitDocument(state, 'model.serializer', text);
+  const parameter = text.indexOf('T value');
+  const targets = await state.providers.typeDefinition.provideTypeDefinition(doc, doc.positionAt(parameter), state.cancellation);
+  assert.equal(targets.length, 1);
+  assert.equal(targets[0].uri, doc.uri);
+  assert.deepEqual(targets[0].range.start, doc.positionAt(text.indexOf('T>')));
+  const argument = text.indexOf('data::person');
+  const included = await state.providers.declaration.provideDeclaration(doc, doc.positionAt(argument), state.cancellation);
+  assert.equal(included[0].uri.fsPath, path.join(root, 'types.serializer'));
+  // Requests against the ordinary file still use its own content.
+  assert.equal((await state.request('model.serializer', 'different', false)).length, 1);
 });

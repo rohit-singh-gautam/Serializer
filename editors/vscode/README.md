@@ -4,7 +4,7 @@ This extension supports the [Serializer schema compiler and serialization librar
 maintained in that repository.
 
 Edit `.serializer` schemas with syntax highlighting, bracket matching, comments,
-folding, and snippets. Version **1.1.13** includes navigation from includes and type
+folding, and snippets. Version **1.1.14** includes navigation from includes and type
 references to source schemas and existing generated code in all 11 output languages. Use the project's
 CMake configuration for the separate build and missing-header assistance commands.
 
@@ -72,6 +72,13 @@ The project still needs Serializer, a C++20 compiler, CMake 3.28+, and clang-for
 19+ when output formatting is enabled. This extension does not bundle those tools.
 
 ## Declaration and definition navigation
+
+Git index and history tabs (including read-only `(Index)` views) support the
+same declaration, definition, and type-definition actions. Cursor offsets and
+local symbols come from the displayed snapshot. Includes, other schema files,
+and generated output resolve against the current workspace; this does not
+reconstruct a historical checkout. With an older extension, open the working
+file from Explorer to use navigation, or install 1.1.14 and reload VS Code.
 
 Caller navigation depends on the language service's active project configuration.
 For this repository's managed ledger examples/tests, use

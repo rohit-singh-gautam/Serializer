@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.1.14
+
+- Synchronize with VS Code Git-view navigation fixes; Visual Studio behavior is unchanged.
+
 ## 1.1.13
 
 - Highlight generic parameters, nested type arguments, and named instantiations.

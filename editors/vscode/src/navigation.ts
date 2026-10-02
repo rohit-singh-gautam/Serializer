@@ -12,6 +12,18 @@ const maximumCachedCharacters = 16 * 1024 * 1024;
 const maximumFileBytes = 16 * 1024 * 1024;
 interface CachedFile { stamp: string; text: string }
 
+/** Map a Git snapshot to its working path; its query retains the real path when the tab adds .git. */
+function sourceUri(uri: vscode.Uri): vscode.Uri {
+  if (uri.scheme !== 'git') { return uri; }
+  const data: unknown = JSON.parse(uri.query);
+  if (!data || typeof data !== 'object' || !('path' in data)
+    || typeof data.path !== 'string' || !path.isAbsolute(data.path)) {
+    throw new Error('Git navigation requires an absolute source path.');
+  }
+  return vscode.Uri.file(data.path);
+}
+
+
 /** Register passive navigation; no code path activates CMake Tools, configures, saves or builds. */
 export function registerNavigation(context: vscode.ExtensionContext): void {
   const cache = new Map<string, CachedFile>();
@@ -21,7 +33,7 @@ export function registerNavigation(context: vscode.ExtensionContext): void {
     const uri = vscode.Uri.file(file);
     const key = fileKey(file);
     const open = vscode.workspace.textDocuments.find(document =>
-      document.uri.scheme === 'file' && fileKey(document.uri.fsPath) === key);
+      document.uri.scheme === 'file' && fileKey(sourceUri(document.uri).fsPath) === key);
     if (open) { return open.getText(); }
     try {
       const stat = await vscode.workspace.fs.stat(uri);
@@ -59,8 +71,8 @@ export function registerNavigation(context: vscode.ExtensionContext): void {
   /** Discover existing workspace outputs, including ignored build directories and legacy headers. */
   async function discover(document: vscode.TextDocument, model: CodeModel.Configuration | undefined,
     token: vscode.CancellationToken): Promise<NavigationFiles> {
-    const folder = vscode.workspace.getWorkspaceFolder(document.uri);
-    const base = folder ?? vscode.Uri.file(path.dirname(document.uri.fsPath));
+    const folder = vscode.workspace.getWorkspaceFolder(sourceUri(document.uri));
+    const base = folder ?? vscode.Uri.file(path.dirname(sourceUri(document.uri).fsPath));
     // Only null disables files.exclude as well as search.exclude; a custom exclusion
     // glob still inherits files.exclude in VS Code and can hide every build output.
     const [schemaUris, candidates] = await Promise.all([
@@ -70,6 +82,9 @@ export function registerNavigation(context: vscode.ExtensionContext): void {
     const schemas = [...new Set([...schemaUris, ...vscode.workspace.textDocuments.map(item => item.uri)]
       .filter(uri => uri.scheme === 'file' && uri.fsPath.endsWith('.serializer') && !excludedDirectories.test(uri.fsPath))
       .map(uri => uri.fsPath))];
+    if (document.languageId === 'serializer' && !schemas.includes(sourceUri(document.uri).fsPath)) {
+      schemas.push(sourceUri(document.uri).fsPath);
+    }
     // Active configuration outputs take precedence over other build trees/profiles.
     const registered = model ? generatedHeaders(model).map(header => header.path) : [];
     for (const project of model?.projects ?? []) {
@@ -122,19 +137,24 @@ export function registerNavigation(context: vscode.ExtensionContext): void {
   /** Create a cancellable request using only available files and an optional CMake snapshot. */
   async function navigator(document: vscode.TextDocument, token: vscode.CancellationToken,
     withoutConfiguration = false): Promise<Navigator> {
-    const model = withoutConfiguration ? undefined : await configuration(document.uri);
-    return new Navigator({ read, files: () => discover(document, model, token),
-      includeDirectories: model ? sourceIncludes(model, document.uri.fsPath).map(group => group.directories) : [],
+    const model = withoutConfiguration ? undefined : await configuration(sourceUri(document.uri));
+    // A staged/historical buffer can differ from the working file, including line offsets.
+    const current = fileKey(sourceUri(document.uri).fsPath);
+    const readSnapshot = async (file: string): Promise<string | undefined> =>
+      fileKey(file) === current ? document.getText() : read(file);
+    return new Navigator({ read: readSnapshot, files: () => discover(document, model, token),
+      includeDirectories: model ? sourceIncludes(model, sourceUri(document.uri).fsPath).map(group => group.directories) : [],
       cancelled: () => token.isCancellationRequested });
   }
 
   /** Convert offsets to editor locations using the same live contents used during resolution. */
-  async function locations(targets: NavigationTarget[], token: vscode.CancellationToken): Promise<vscode.Location[]> {
+  async function locations(targets: NavigationTarget[], token: vscode.CancellationToken, source: vscode.TextDocument): Promise<vscode.Location[]> {
     const result: vscode.Location[] = [];
     for (const target of targets) {
       if (token.isCancellationRequested) { return []; }
       try {
-        const document = await vscode.workspace.openTextDocument(vscode.Uri.file(target.file));
+        const document = fileKey(target.file) === fileKey(sourceUri(source.uri).fsPath)
+          ? source : await vscode.workspace.openTextDocument(vscode.Uri.file(target.file));
         result.push(new vscode.Location(document.uri,
           new vscode.Range(document.positionAt(target.start), document.positionAt(target.end))));
       } catch { /* A deleted or inaccessible destination is a navigation miss. */ }
@@ -151,14 +171,14 @@ export function registerNavigation(context: vscode.ExtensionContext): void {
     const include = ['cpp', 'c'].includes(document.languageId) && cppIncludeAt(document.getText(), offset);
     const resolver = await navigator(document, token, !include);
     if (document.languageId === 'serializer') {
-      return locations(await resolver.schema(document.uri.fsPath, offset, false), token);
+      return locations(await resolver.schema(sourceUri(document.uri).fsPath, offset, false), token, document);
     }
     if (include) {
-      return locations(await resolver.cppInclude(document.uri.fsPath, offset, false), token);
+      return locations(await resolver.cppInclude(sourceUri(document.uri).fsPath, offset, false), token, document);
     }
     // A generated declaration itself can be resolved without a language service.
-    const local = await resolver.generatedDeclaration(document.uri.fsPath, offset);
-    if (local.length) { return locations(local, token); }
+    const local = await resolver.generatedDeclaration(sourceUri(document.uri).fsPath, offset);
+    if (local.length) { return locations(local, token, document); }
     if (token.isCancellationRequested) { return []; }
     const resolved = await vscode.commands.executeCommand<Array<vscode.Location | vscode.LocationLink>>(
       resolveType ? 'vscode.executeTypeDefinitionProvider' : 'vscode.executeDefinitionProvider', document.uri, position) ?? [];
@@ -173,7 +193,7 @@ export function registerNavigation(context: vscode.ExtensionContext): void {
         targets.push(...await resolver.generatedDeclaration(uri.fsPath, header.offsetAt(selection.start), header.offsetAt(selection.end)));
       } catch { /* Other providers may return destinations that no longer exist. */ }
     }
-    return locations(targets, token);
+    return locations(targets, token, document);
   }
 
   /** Resolve schema definitions and C++ includes; C++ class definitions remain with its language service. */
@@ -184,9 +204,9 @@ export function registerNavigation(context: vscode.ExtensionContext): void {
     }
     const resolver = await navigator(document, token);
     const targets = document.languageId === 'serializer'
-      ? await resolver.schema(document.uri.fsPath, document.offsetAt(position), true)
-      : await resolver.cppInclude(document.uri.fsPath, document.offsetAt(position), true);
-    return locations(targets, token);
+      ? await resolver.schema(sourceUri(document.uri).fsPath, document.offsetAt(position), true)
+      : await resolver.cppInclude(sourceUri(document.uri).fsPath, document.offsetAt(position), true);
+    return locations(targets, token, document);
   }
 
   /** Keep missing providers/projects/files silent in standard navigation actions. */
@@ -197,7 +217,8 @@ export function registerNavigation(context: vscode.ExtensionContext): void {
     };
   }
 
-  const selector = navigationLanguages.map(language => ({ language, scheme: 'file' }));
+  const selector = navigationLanguages.flatMap(language =>
+    ['file', 'git'].map(scheme => ({ language, scheme })));
   const declarationProvider = provider(declarations);
   // Explicit schema lookup may follow aliases/variables; native declarations retain their own meaning.
   const typeDeclarationProvider = provider((document, position, token) => declarations(document, position, token, true));
@@ -207,7 +228,7 @@ export function registerNavigation(context: vscode.ExtensionContext): void {
     selector.filter(item => ['serializer', 'cpp', 'c'].includes(item.language)),
     { provideDefinition: provider(definitions) }),
     // Schema types are defined in their source; generated-language type lookup stays native.
-    vscode.languages.registerTypeDefinitionProvider({ language: 'serializer', scheme: 'file' }, {
+    vscode.languages.registerTypeDefinitionProvider(selector.filter(item => item.language === 'serializer'), {
       provideTypeDefinition: declarationProvider
     }));
 
@@ -223,13 +244,13 @@ export function registerNavigation(context: vscode.ExtensionContext): void {
   /** Use the clicked file's URI for Explorer/tab actions, or the active schema from the palette. */
   async function openGeneratedHeader(uri?: vscode.Uri, allLanguages = false): Promise<void> {
     const schema = uri ?? vscode.window.activeTextEditor?.document.uri;
-    if (!schema || schema.scheme !== 'file' || !schema.fsPath.endsWith('.serializer')) { return; }
+    if (!schema || !['file', 'git'].includes(schema.scheme) || !sourceUri(schema).fsPath.endsWith('.serializer')) { return; }
     const cancellation = new vscode.CancellationTokenSource();
     try {
       const document = await vscode.workspace.openTextDocument(schema);
       const resolver = await navigator(document, cancellation.token);
-      const targets = await locations(await (allLanguages ? resolver.implementations(schema.fsPath)
-        : resolver.headers(schema.fsPath)), cancellation.token);
+      const targets = await locations(await (allLanguages ? resolver.implementations(sourceUri(schema).fsPath)
+        : resolver.headers(sourceUri(schema).fsPath)), cancellation.token, document);
       if (targets.length) { await show(targets); }
     } catch { /* Opening available output never offers or invokes generation. */ }
     finally { cancellation.dispose(); }

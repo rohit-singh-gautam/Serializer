@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.1.14
+
+- Restore declaration, definition, and type-definition actions in read-only Git index and history tabs.
+- Resolve cursor positions from the displayed snapshot and external destinations from the current workspace.
+
 ## 1.1.13
 
 - Highlight generic parameters, nested type arguments, and named instantiations.

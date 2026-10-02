@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const vscode = require('vscode');
 const manifest = require('../package.json');
 
@@ -203,6 +204,40 @@ async function runSuite() {
   assert.equal((await navigate(missingDocument, 'missing', true))[0].uri.fsPath, missing);
   await vscode.commands.executeCommand('serializer.openGeneratedHeader', missingDocument.uri);
   assert.equal(fs.existsSync(path.join(workspace, 'build/missing.hpp')), false);
+  // Reproduce a real staged Git tab whose contents differ from its working file.
+  const repository = path.join(workspace, 'git-index');
+  const stagedFile = path.join(repository, 'example/swift/generics/model.serializer');
+  const includedFile = path.join(repository, 'example/generics/model.serializer');
+  fs.mkdirSync(path.dirname(stagedFile), { recursive: true });
+  fs.mkdirSync(path.dirname(includedFile), { recursive: true });
+  const snapshot = 'serializer version 1;\ninclude ../../generics/model;\nclass box<T> { public T value; }\n';
+  fs.writeFileSync(stagedFile, snapshot);
+  fs.writeFileSync(includedFile, 'serializer version 1; class included {}');
+  execFileSync('git', ['init', repository]);
+  execFileSync('git', ['-C', repository, 'add', '.']);
+  fs.writeFileSync(stagedFile, 'serializer version 1; include wrong;');
+  const git = await vscode.extensions.getExtension('vscode.git').activate();
+  const api = git.getAPI(1);
+  const gitRepository = await api.openRepository(vscode.Uri.file(repository));
+  assert.ok(gitRepository, 'Git extension opened the staged example repository');
+  await gitRepository.status();
+  const stagedUri = api.toGitUri(vscode.Uri.file(stagedFile), '~');
+  const staged = await vscode.workspace.openTextDocument(stagedUri);
+  assert.equal(staged.getText(), snapshot);
+  assert.equal(staged.languageId, 'serializer');
+  for (const definition of [false, true]) {
+    assert.equal((await navigate(staged, '../../generics/model', definition))[0].uri.fsPath, includedFile);
+  }
+  const stagedEditor = await vscode.window.showTextDocument(staged);
+  const includePosition = staged.positionAt(snapshot.indexOf('../../generics/model'));
+  stagedEditor.selection = new vscode.Selection(includePosition, includePosition);
+  await vscode.commands.executeCommand('editor.action.revealDefinition');
+  assert.equal(vscode.window.activeTextEditor.document.uri.fsPath, includedFile);
+  const parameters = await vscode.commands.executeCommand('vscode.executeTypeDefinitionProvider',
+    stagedUri, staged.positionAt(snapshot.indexOf('T value')));
+  assert.equal(parameters[0].uri.toString(), stagedUri.toString());
+  assert.equal(staged.offsetAt(parameters[0].range.start), snapshot.indexOf('T>'));
+  console.log('Git index navigation passed using the real Git provider and Go to Definition action.');
   console.log('Serializer navigation host passed: native declaration/definition/type definition for ledger keywords and selections in both directions, live schema type definition, complex model selections, real TypeScript class/enum resolution, schema and C++ includes/types, AUTOSAR enum defaults, schema fallback, merged output, ignored build directory, unsaved buffers, missing output, and no CMake/build dependency.');
   if (cppExtension) { console.log(`Verified native Microsoft C/C++ ${cppExtension.packageJSON.version} navigation.`); }
 }

@@ -610,7 +610,7 @@ versioned snippets, and invokes the same targets through CMake Tools. Run the ro
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 1.1.13 is shared with the Visual Studio extension and is independent of
+version 1.1.14 is shared with the Visual Studio extension and is independent of
 compiler and schema versions. Keep both editor extension versions equal.
 Both package descriptions and READMEs identify the
 [Serializer repository](https://github.com/rohit-singh-gautam/Serializer). Configure
@@ -619,7 +619,10 @@ Diagnose Missing Header`. Set `serializer.headersTarget` for one consumer; keep
 profile include paths separate. Its IntelliSense command explicitly updates the
 selected folder's C/C++ provider. Generation saves dirty schema/INI/CMake inputs
 in that folder and requires workspace trust. Declaration/definition navigation
-and `Serializer: Open Generated Header` only read available files; never invoke
+and `Serializer: Open Generated Header` only read available files. VS Code Git
+index/history tabs use the displayed snapshot for local symbols and offsets;
+includes and generated destinations resolve against the current workspace,
+not a historical checkout. Never invoke
 generation or configuration to satisfy navigation, or offer generation for a
 missing destination. Declaration opens the originating schema, while definition
 prefers existing generated output in any supported language and falls back to the original schema type

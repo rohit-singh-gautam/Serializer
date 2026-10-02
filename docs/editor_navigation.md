@@ -7,6 +7,22 @@ Version 1.1.4 synchronized both editor extension release versions. Subsequent
 build-tooling releases keep them equal. Version 1.1.11 additionally registers schema
 type-definition navigation and accepts declaration keywords/whole declarations.
 
+## Git index and history views (1.1.14)
+
+VS Code previously registered navigation only for `file:` documents, so its
+read-only Git `(Index)` tabs omitted **Go to Definition**. Version 1.1.14 also
+registers `git:` providers and maps Git's source-path metadata to the workspace.
+It reads the displayed snapshot for cursor offsets and local symbols, preserving
+the snapshot URI for local destinations. Includes and generated output use the
+current workspace, including unsaved dependencies, rather than historical files.
+
+Verification passed all 70 editor unit/provider tests and the isolated VS Code
+navigation suite. The host test stages the Swift generic schema entry in a real
+Git repository, changes the working file, and follows its staged include with
+the actual **Go to Definition** action. It also checks that a generic parameter's
+type definition stays in the staged document. Both 1.1.14 packages were rebuilt;
+the VS Code package was installed locally. Visual Studio was not reinstalled.
+
 ## Reproduced causes
 
 - The installed VS Code extension was 1.1.2. The repository was already at 1.1.3,

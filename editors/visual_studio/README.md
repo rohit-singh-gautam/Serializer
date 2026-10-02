@@ -3,7 +3,7 @@
 This extension supports the [Serializer schema compiler and serialization library](https://github.com/rohit-singh-gautam/Serializer)
 maintained in that repository.
 
-Version **1.1.13** provides `.serializer` highlighting and native navigation in
+Version **1.1.14** provides `.serializer` highlighting and native navigation in
 **Visual Studio 2022 and Visual Studio 2026 on Windows x64**. It shares the VS Code
 extension's grammar and schema/generated-output resolver. Custom type references
 such as `demo::order`, `demo::snapshot` and `demo::customer` use the active theme's
@@ -84,7 +84,7 @@ installation. It uses full-framework MSBuild with locked dependencies, bundles
 the current shared resolver, rebuilds and validates:
 
 ```text
-out/extensions/serializer-visual-studio-1.1.13.vsix
+out/extensions/serializer-visual-studio-1.1.14.vsix
 ```
 
 Close Visual Studio, double-click the VSIX, select the installation and restart
