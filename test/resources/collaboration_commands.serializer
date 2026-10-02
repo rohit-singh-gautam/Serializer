@@ -1,0 +1,12 @@
+serializer version 1;
+
+namespace collaboration_example {
+  // Application commands are separate from model snapshots and transport envelopes.
+  class ledger_command stable_ids {
+    public uint32 action (1);
+    public uint32 entry_id (2);
+    public uint64 key (3);
+    public string memo (4);
+    public int64 amount_minor_units (5);
+  }
+}

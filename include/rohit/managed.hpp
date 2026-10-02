@@ -1,8 +1,9 @@
 #pragma once
 
+#include <rohit/managed_collaboration_hooks.hpp>
 #include <rohit/managed_editor.hpp>
-#include <rohit/managed_journal.hpp>
 #include <rohit/managed_file_journal.hpp>
+#include <rohit/managed_journal.hpp>
 #include <rohit/managed_records.hpp>
 #include <rohit/serializer.hpp>
 
@@ -34,6 +35,10 @@ namespace rohit::managed {
 enum class history_mode : std::uint32_t { disabled = 0, linear = 1, tree = 2 };
 // Optional action descriptions are compiled out by default.
 enum class history_labels { disabled, enabled };
+// Only the authority may restore identities from its own validated, retained history.
+template <typename Root, history_mode Mode, history_labels Labels, typename Traits,
+          typename Session, typename SessionTraits>
+class collaboration_authority;
 enum class transaction_status { pending, committed, no_change, reverted, failed, indeterminate };
 
 // Completion belongs to the caller and must outlive a manually scoped transaction.
@@ -247,7 +252,13 @@ struct history_storage<history_mode::tree, Labels> {
 template <typename Root, history_mode Mode = history_mode::linear,
           history_labels Labels = history_labels::disabled, typename Traits = model_traits<Root>>
 class model_store {
+  template <typename, typename, typename>
+  friend class store_collaboration;
+  template <typename, history_mode, history_labels, typename, typename, typename>
+  friend class collaboration_authority;
+
 public:
+  using traits_type = Traits;
   using outcome_type = std::conditional_t<Mode == history_mode::tree,
                                           tree_transaction_outcome, transaction_outcome>;
   using storage_type = typename Traits::storage_type;
@@ -283,6 +294,9 @@ private:
   std::shared_ptr<const storage_type> current_{};
   std::vector<std::uint8_t> snapshot_{};
   identity_table identities_{};
+  const identity_table* restoration_identities_{};
+  std::unique_ptr<detail::collaboration_attachment> collaboration_{};
+  bool collaboration_busy_{};
   std::uint64_t allocated_id_{};
   bool writer_active_{};
   bool callback_active_{};
@@ -384,13 +398,22 @@ private:
   // prior history, document/schema metadata, and unchanged base bytes are never re-encoded here.
   void journal_edit(const std::vector<std::uint8_t>& snapshot, const label_type& action,
                     std::uint64_t allocation_base, std::size_t evicted) {
+    if (collaboration_) {
+      if constexpr (has_labels) {
+        collaboration_->prepare(snapshot, action.label);
+      } else {
+        collaboration_->prepare(snapshot, {});
+      }
+    }
     if (!journal_) {
       return;
     }
     constexpr auto prefix_bytes = 1 + journal_word_bytes *
         (1 + (Mode == history_mode::linear ? 1 : 0) + (has_labels ? 1 : 0));
     std::array<std::uint8_t, prefix_bytes> prefix{};
-    prefix.front() = static_cast<std::uint8_t>(detail::journal_record_kind::edit);
+    prefix.front() = static_cast<std::uint8_t>(restoration_identities_
+                                                   ? detail::journal_record_kind::restore_edit
+                                                   : detail::journal_record_kind::edit);
     std::size_t offset = 1;
     if constexpr (Mode == history_mode::linear) {
       detail::journal_put_word(prefix, offset, evicted);
@@ -451,7 +474,8 @@ private:
       }
       return;
     }
-    if (kind != detail::journal_record_kind::edit) {
+    if (kind != detail::journal_record_kind::edit &&
+        kind != detail::journal_record_kind::restore_edit) {
       throw std::invalid_argument{"Unsupported managed journal operation"};
     }
     std::uint64_t evicted = 0;
@@ -485,7 +509,8 @@ private:
     for (const auto& [id, type] : identities) {
       const auto old = identities_.find(id);
       if ((old != identities_.end() && old->second != type) ||
-          (old == identities_.end() && id <= allocation_base)) {
+          (old == identities_.end() && id <= allocation_base &&
+           kind != detail::journal_record_kind::restore_edit)) {
         throw std::invalid_argument{"Journal edit reuses or retypes an identity"};
       }
     }
@@ -550,7 +575,7 @@ private:
   // Require a closed writer for navigation and export; callbacks cannot reenter the store.
   void require_idle() const {
     check_thread();
-    if (writer_active_ || callback_active_) {
+    if (writer_active_ || callback_active_ || collaboration_busy_) {
       throw std::logic_error{"Managed store already has an active operation"};
     }
     if (journal_open_indeterminate_ || (journal_ && journal_->needs_recovery())) {
@@ -913,8 +938,11 @@ public:
         }
         for (const auto& [id, type] : identities) {
           const auto previous = store.identities_.find(id);
+          const bool restored = store.restoration_identities_ &&
+                                store.restoration_identities_->contains(id) &&
+                                store.restoration_identities_->at(id) == type;
           if ((previous != store.identities_.end() && previous->second != type) ||
-              (previous == store.identities_.end() && id <= allocation_base_)) {
+              (previous == store.identities_.end() && id <= allocation_base_ && !restored)) {
             throw std::invalid_argument{"Cannot reuse or retype a managed identity"};
           }
         }
@@ -974,8 +1002,14 @@ public:
         store.current_.swap(published);
         store.snapshot_.swap(snapshot);
         store.identities_.swap(identities);
+        if (store.collaboration_) {
+          store.collaboration_->publish();
+        }
         close(transaction_status::committed);
       } catch (...) {
+        if (store_->collaboration_) {
+          store_->collaboration_->abort();
+        }
         fail(std::current_exception());
         throw;
       }
@@ -1013,6 +1047,53 @@ public:
   model_store(model_store&&) = delete;
   model_store& operator=(model_store&&) = delete;
 
+  // Associate an application-owned session with this store; include managed_collaboration.hpp.
+  template <typename Session = std::uint64_t,
+            typename Policy = collaboration_session_traits<Session>>
+  store_collaboration<model_store, Session, Policy>&
+  collaborate(Session session, collaboration_client_options options = {});
+
+  // Access the attached session's typed synchronization state without changing ownership.
+  template <typename Session = std::uint64_t,
+            typename Policy = collaboration_session_traits<Session>>
+  store_collaboration<model_store, Session, Policy>& collaboration();
+
+  // Exchange queued transactions and remote changes through the associated transport.
+  void synchronize() {
+    require_idle();
+    if (!collaboration_) {
+      throw std::logic_error{"Managed store has no collaboration session"};
+    }
+    collaboration_->synchronize();
+  }
+
+  // Send the next pending transaction independently of remote-change application.
+  void send_pending() {
+    require_idle();
+    if (!collaboration_) {
+      throw std::logic_error{"Managed store has no collaboration session"};
+    }
+    collaboration_->send_pending();
+  }
+
+  // Apply ordered remote changes and reconcile local intent without submitting new local work.
+  void receive_changes() {
+    require_idle();
+    if (!collaboration_) {
+      throw std::logic_error{"Managed store has no collaboration session"};
+    }
+    collaboration_->receive_changes();
+  }
+
+  // Call from the owner's event loop; network work occurs only when the interval is due.
+  bool synchronize_if_due(std::uint64_t now_ms) {
+    require_idle();
+    if (!collaboration_) {
+      throw std::logic_error{"Managed store has no collaboration session"};
+    }
+    return collaboration_->synchronize_if_due(now_ms);
+  }
+
   // Return an immutable pin whose lifetime can extend across commits and navigation.
   std::shared_ptr<const storage_type> read() const {
     check_thread();
@@ -1029,6 +1110,12 @@ public:
   document_id document() const {
     check_thread();
     return document_;
+  }
+
+  // Read the non-reusable allocation watermark, including reservations by an active candidate.
+  std::uint64_t allocated_id() const {
+    check_thread();
+    return allocated_id_;
   }
 
   // Begin an unnamed action; disabled-label stores create no label storage.
@@ -1107,6 +1194,9 @@ public:
     requires(has_labels && has_history)
   {
     require_idle();
+    if (collaboration_) {
+      return collaboration_->history_label(false);
+    }
     if constexpr (Mode == history_mode::linear) {
       if (history_.cursor != 0) {
         return history_.entries[history_.cursor].label;
@@ -1125,6 +1215,9 @@ public:
     requires(has_labels && Mode == history_mode::linear)
   {
     require_idle();
+    if (collaboration_) {
+      return collaboration_->history_label(true);
+    }
     const auto next = history_.cursor + 1;
     if (next >= history_.entries.size()) {
       throw std::out_of_range{"No managed redo label"};
@@ -1163,6 +1256,9 @@ public:
     requires(Mode == history_mode::tree)
   {
     require_idle();
+    if (collaboration_) {
+      throw std::logic_error{"Shared history uses collaborative undo/redo, not branch checkout"};
+    }
     const auto found = history_.revisions.find(revision);
     if (found == history_.revisions.end()) {
       throw std::out_of_range{"Managed revision is unavailable"};
@@ -1176,6 +1272,10 @@ public:
     requires(has_history)
   {
     require_idle();
+    if (collaboration_) {
+      collaboration_->undo(false);
+      return;
+    }
     if constexpr (Mode == history_mode::linear) {
       if (history_.cursor != 0) {
         checkout_linear(history_.cursor - 1);
@@ -1196,6 +1296,10 @@ public:
     requires(Mode == history_mode::linear)
   {
     require_idle();
+    if (collaboration_) {
+      collaboration_->undo(true);
+      return;
+    }
     const auto next = history_.cursor + 1;
     if (next >= history_.entries.size()) {
       throw std::out_of_range{"No managed redo state"};
@@ -1220,6 +1324,9 @@ public:
     requires(has_history)
   {
     require_idle();
+    if (collaboration_) {
+      throw std::logic_error{"Collaboration history is retained with pending synchronization"};
+    }
     auto history = make_history();
     journal_control(detail::journal_record_kind::reset);
     history_.swap(history);
@@ -1228,6 +1335,9 @@ public:
   // Export a coherent memory envelope; this does not mark the journaled document saved.
   std::vector<std::uint8_t> save() const {
     require_idle();
+    if (collaboration_) {
+      return collaboration_->save();
+    }
     return encode_state(snapshot_, history_, allocated_id_);
   }
 
@@ -1236,6 +1346,10 @@ public:
                       journal_storage_mode mode = journal_storage_mode::appended,
                       journal_options options = {}) {
     require_idle();
+    if (collaboration_) {
+      collaboration_->create_journal(path, mode, std::move(options));
+      return;
+    }
     if (journal_) {
       throw std::logic_error{"Managed store already owns a journal"};
     }
@@ -1253,6 +1367,10 @@ public:
   // Destroy/recreate a fenced store before calling this; recovery never reruns editing callbacks.
   void recover_journal(const std::filesystem::path& path, journal_options options = {}) {
     require_idle();
+    if (collaboration_) {
+      collaboration_->recover_journal(path, std::move(options));
+      return;
+    }
     if (journal_) {
       throw std::logic_error{"Recover into a store without an attached journal"};
     }
@@ -1311,7 +1429,9 @@ public:
     }
     auto saved = snapshot_;
     auto bytes = save();
-    check_journal_envelope(bytes);
+    if (!collaboration_) {
+      check_journal_envelope(bytes);
+    }
     journal_operation([&] { journal_->save(bytes); });
     saved_snapshot_.swap(saved);
   }
@@ -1343,6 +1463,10 @@ public:
   // Validate the entire history before replacing this document; reject malformed or incompatible data.
   void load(const std::vector<std::uint8_t>& bytes) {
     require_idle();
+    if (collaboration_) {
+      collaboration_->load(bytes);
+      return;
+    }
     if (journal_) {
       throw std::logic_error{"Cannot replace a journaled document with a memory envelope"};
     }

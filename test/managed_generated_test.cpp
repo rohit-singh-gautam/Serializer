@@ -1,12 +1,13 @@
 #include <gtest/gtest.h>
 #include <managed_generated.hpp>
 #include <rohit/managed.hpp>
+#include <rohit/managed_collaboration.hpp>
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <string>
 #include <system_error>
-#include <optional>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -35,6 +36,60 @@ root initial_value() {
   return value;
 }
 } // namespace
+
+// Separate-value wrappers preserve ownership boundaries and replicate generated nested edits.
+TEST(managed_generated, collaboration_with_separate_values_and_tree_labels) {
+  using authority_type = managed::collaboration_authority<root, managed::history_mode::tree,
+                                                          managed::history_labels::enabled>;
+  authority_type authority{initial_value(), 1};
+  authority.open_session(1);
+  managed::collaboration_replica<root> replica;
+  replica.synchronize(authority.snapshot(), authority.context());
+  const auto proposal = replica.propose(1, 1, [](auto& tx) {
+    tx.root().cursor().position().set_x(99);
+    auto paragraphs = tx.root().notes().paragraphs();
+    const auto id = paragraphs.append({"Draft"});
+    paragraphs.edit(id).set_text("Shared");
+  });
+  const auto result = authority.submit_change(proposal, 1, 0);
+  ASSERT_EQ(result->status, managed::collaboration_status::accepted);
+  EXPECT_EQ(replica.apply_accepted_change(*result->accepted, authority.context()),
+            managed::replication_status::applied);
+  EXPECT_EQ(replica.read()->value.cursor.value.position.value.x, 99);
+  EXPECT_EQ(replica.read()->value.notes.value.paragraphs.back().value.text, "Shared");
+  EXPECT_EQ(replica.read()->value.template_design.shapes.at(100).outer.position.x, 1);
+  const auto undo = authority.submit_change(replica.undo(1, 2), 1, 0);
+  ASSERT_EQ(undo->status, managed::collaboration_status::accepted);
+  replica.apply_accepted_change(*undo->accepted, authority.context());
+  EXPECT_EQ(replica.read()->value.cursor.value.position.value.x, 5);
+  EXPECT_EQ(replica.read()->value.notes.value.paragraphs.size(), 2u);
+  const auto redo = authority.submit_change(replica.redo(1, 3), 1, 0);
+  ASSERT_EQ(redo->status, managed::collaboration_status::accepted);
+  replica.apply_accepted_change(*redo->accepted, authority.context());
+  EXPECT_EQ(replica.read()->value.notes.value.paragraphs.back().value.text, "Shared");
+}
+
+// Attached collaboration uses the same generated separated-value editors and normal store transactions.
+TEST(managed_generated, local_collaboration_with_separate_values) {
+  managed::collaboration_authority<root> authority{initial_value(), 1};
+  authority.open_session(1);
+  managed::collaboration_transport transport{authority, std::uint64_t{1}};
+  store_type store{root{}};
+  store.collaborate(std::uint64_t{1}).bind(transport);
+  store.synchronize();
+  store
+      .execute_transaction([](auto& edit) {
+        edit.root().cursor().position().set_x(99);
+        edit.root().notes().paragraphs().append({"Local"});
+      })
+      .throw_if_failed();
+  EXPECT_EQ(store.read()->value.cursor.value.position.value.x, 99);
+  store.undo();
+  store.redo();
+  store.synchronize();
+  EXPECT_EQ(authority.read()->value.cursor.value.position.value.x, 99);
+  EXPECT_EQ(authority.read()->value.notes.value.paragraphs.back().value.text, "Local");
+}
 
 // Identity follows managed occurrence boundaries, not mere eligibility or application map keys.
 TEST(managed_generated, identity_boundaries_and_value_editing) {

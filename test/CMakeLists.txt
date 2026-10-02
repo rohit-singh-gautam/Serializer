@@ -49,6 +49,21 @@ endif()
 
 add_test(NAME core_serializer_test COMMAND core_serializer_test)
 if(SERIALIZER_BUILD_MANAGED)
+  add_executable(managed_collaboration_test managed_collaboration_test.cpp
+    managed_collaboration_ownership_test.cpp managed_collaboration_proposal_test.cpp
+    managed_collaboration_session_test.cpp managed_collaboration_history_test.cpp
+    managed_local_collaboration_test.cpp)
+  serializer_generate(TARGET managed_collaboration_test
+    SCHEMAS resources/collaboration_commands.serializer ../example/managed/ledger/ledger.serializer
+    resources/collaboration_model.serializer
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/collaboration")
+  target_link_libraries(managed_collaboration_test PRIVATE Serializer::managed GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(managed_collaboration_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(managed_collaboration_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME managed_collaboration_test COMMAND managed_collaboration_test)
   add_executable(managed_store_test managed_store_test.cpp managed_generated_test.cpp)
   serializer_generate(TARGET managed_store_test SCHEMAS resources/managed_model.serializer resources/managed_generated.serializer
     CONFIG resources/managed_separate.ini

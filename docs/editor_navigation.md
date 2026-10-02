@@ -4,8 +4,8 @@ This records the VS Code 1.1.4 navigation repair and the new Visual Studio 1.0.4
 navigation implementation, with verification on Windows. Both use the same
 schema/generated-output resolver and custom-type highlighting grammar.
 Version 1.1.4 synchronized both editor extension release versions. Subsequent
-build-tooling releases keep them equal; the navigation implementation described
-here is unchanged.
+build-tooling releases keep them equal. Version 1.1.11 additionally registers schema
+type-definition navigation and accepts declaration keywords/whole declarations.
 
 ## Reproduced causes
 
@@ -88,6 +88,10 @@ language; a recognized generated declaration can be mapped directly.
 
 ## Regression coverage
 
+- The ledger example covers declaration, definition and type definition on keywords,
+  names and forward/reversed selections; type definition uses source declarations
+  and leaves generated-language type providers unchanged. Live transitive schema
+  types and comments between keywords/names have dedicated regression coverage.
 - Unit/provider tests exercise the actual complex model, cursor endpoints,
   extensionless/transitive includes, enum defaults, language registrations,
   C typedefs, TypeScript aliases, duplicate provider results, preserved names,
@@ -114,3 +118,55 @@ for completed runs. Linux/macOS, remote extension hosts and the remaining extern
 language services have not been exercised interactively. Semantic diagnostics,
 completion and schema member/function navigation remain outside the implemented
 feature set.
+
+## Navigation coverage matrix
+
+Version 1.1.12 adds a real CMake/C++ project regression using the managed ledger
+schema and three caller files with repeated `using ledger` aliases. A clean build
+does not itself repair missing project configuration: `SERIALIZER_BUILD_MANAGED`
+defaults to OFF, and CMake Tools must configure the same build and provide the
+source target's include paths to Microsoft C/C++. The two targets in the test
+deliberately generate the same qualified type and header filename from different
+schema paths, so matching by name alone cannot pass.
+
+Navigation must never generate files, configure a project, save buffers or prompt
+to build. Only an explicit generation/build command may create missing output.
+The project test verifies this before it explicitly builds the fixture headers.
+
+| Case | Required result | Automated coverage |
+| --- | --- | --- |
+| Schema class/enum declaration, keyword or qualified reference | Declaration/type definition select the source; definition selects available generated output, otherwise source | Shared/provider tests and native VS Code/Visual Studio commands |
+| Every identifier cursor position, selection endpoint and forward/reversed selection | Exact destination identifier; comments/whitespace do not become types | Shared/provider tests; 6,007 fresh-output checks; both editor hosts |
+| CRLF, Unicode before a symbol, unsaved schema/include edits | Correct UTF-16 ranges from live buffers; never save | Provider, shared and editor-host tests |
+| Direct/transitive, extensionless, diamond/cyclic and missing includes | Resolve the owning schema; deduplicate cycles; no fabricated destination | Shared tests and native schema/include checks |
+| Enum defaults, inheritance, containers, namespace collisions | Resolve type operands, preserve scope; ignore field/value names and literals | Shared tests and fresh compiler output |
+| Generated class/enum, C typedef, TypeScript alias, managed companions | Reverse to exact schema ownership and naming profile | All 11 fresh compiler output languages, nine C++ and three Java profiles |
+| Qualified C++ type on the RHS of `using ledger = ledger_example::ledger` | Definition/type definition reach the generated class; declaration includes its schema | CMake/C++ host with three duplicate caller aliases |
+| C++ alias use, alias chain and variable | Native declaration/definition retain local meaning; type definition reaches the generated class | CMake/C++ host with real language service |
+| Explicit VS Code schema command on those aliases/variables | Map the native type-definition destination to its schema if ordinary definition stops locally | Provider and CMake/C++ host tests |
+| Same basename and qualified type in different CMake targets | Use the compiler's include order and exact output owner | Shared/provider and CMake/C++ host tests |
+| Other configuration, quoted local shadow, ordinary header/type | Preserve native results; do not borrow another target/profile's type | Model/shared/provider and native C++ tests |
+| Header not generated, deleted output, schema moved or stale `.d` target | No guessed origin or automatic generation; schema-side definition may fall back to source | Provider/shared tests and configure-only C++ host check |
+| Missing native provider, empty result, duplicate results, non-file destination | Silent miss or deduplicated valid schema destinations | Provider tests |
+| Cancelled request, untrusted workspace, inactive CMake, ignored build tree | Read-only lookup, bounded work, no CMake activation or build | Shared/provider and editor-host tests |
+| Visual Studio caller language service | First navigate natively to generated type, then Go to Declaration | Documented adapter boundary; shared output mapping and native reverse check |
+
+`Go to Declaration` can show both the native generated class and its schema in VS
+Code because provider results are merged. Use **Serializer: Go to Schema Declaration**
+for a schema-only destination. On a generated class itself, Definition and Type
+Definition may return the current class; VS Code may then invoke its configured
+alternative command (commonly references). Equal destinations for these commands
+on a class are valid; three unrelated caller aliases for a qualified type are not.
+
+Run `npm test`, `npm run test:navigation:generated`, `npm run test:navigation` and
+`npm run test:navigation:project` in `editors/vscode`. The last command requires
+`SERIALIZER_COMPILER`, `SERIALIZER_CMAKE_TOOLS_PATH` and `SERIALIZER_CPP_TOOLS_PATH`;
+set `VSCODE_EXECUTABLE_PATH` to reuse the installed editor and
+`SERIALIZER_TEST_CMAKE_GENERATOR` if the default Ninja generator is unsuitable.
+It creates its own workspace with spaces and does not change the user's project.
+
+This matrix covers implemented behavior, not full semantic language servers.
+Native C++ and TypeScript are verified separately from the compiler-format checks.
+Native Java, C#, Go, Rust, Python, Swift and Kotlin services, Linux/macOS, remote
+hosts, symlink workspaces and every editor/provider version remain separate
+integration environments, not claims established by the shared tests.

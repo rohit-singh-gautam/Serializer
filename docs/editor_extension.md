@@ -8,7 +8,7 @@ Serializer provides separate packages for VS Code and Visual Studio. Both use
 to the VS Code extension. For the Visual Studio VSIX, see
 [Visual Studio](#visual-studio-extension) below.
 
-Both extensions use release version **1.1.10**. Keep their versions equal and
+Both extensions use release version **1.1.12**. Keep their versions equal and
 increment them together for future changes, including changes to only one package.
 
 Both packages highlight custom type references such as `demo::order`,
@@ -23,7 +23,7 @@ Both resolve either spelling for navigation; VS Code also supplies a shorthand
 
 ## VS Code
 
-The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.10**, provides `.serializer`
+The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.12**, provides `.serializer`
 syntax highlighting, snippets, declaration/definition navigation, and CMake generated-header commands. Schemas use
 the current `serializer version 1;` header. Legacy `.def` and `.struct` names are
 not registered. Generation remains owned by the project's build rules. Navigation
@@ -70,13 +70,13 @@ Packaging compiles and bundles TypeScript, copies the canonical grammar, logo,
 and repository license into the extension, and writes:
 
 ```text
-out/extensions/serializer-vscode-1.1.10.vsix
+out/extensions/serializer-vscode-1.1.12.vsix
 ```
 
 From the repository root, install it with:
 
 ```sh
-code --install-extension out/extensions/serializer-vscode-1.1.10.vsix
+code --install-extension out/extensions/serializer-vscode-1.1.12.vsix
 ```
 
 Alternatively run **Extensions: Install from VSIX** and select the file. The
@@ -139,6 +139,16 @@ may be emitted in `request.hpp`, so navigation follows include relationships.
 Caller definitions continue to use their language service. The extension
 also supplies generated-header locations for literal C/C++ includes.
 
+**Go to Type Definition** on schema types selects their source class/enum declaration,
+including qualified references and unsaved transitive includes. On an include it
+opens the included schema. The provider is restricted to `.serializer`; native type
+lookup in generated languages remains unchanged. Field names and primitives have no
+schema type-definition destination.
+
+All three commands recognize declaration keywords as well as names, including forward
+and reversed selections of `class ledger`. On the declaration itself, declaration and
+type definition select the same schema name; definition opens matching generated code.
+
 These actions and **Open Generated Header** never save, configure, build, generate,
 activate CMake Tools, or offer generation. Unresolved types and missing header-only
 destinations return no result; schema type definitions can still use the source fallback.
@@ -154,7 +164,10 @@ regenerated or represented as current.
 
 Caller type references require their installed language's definition provider.
 VS Code merges providers' declaration results; **Serializer: Go to Schema Declaration**
-is available in the Command Palette for only schema destinations. The normal
+is available in the Command Palette for only schema destinations. If ordinary
+definition stops at an alias or variable, this explicit command asks the native
+type-definition provider for the underlying generated type. Native declaration,
+definition and type-definition commands retain their language semantics. The normal
 context menu uses the native action, and other providers remain enabled.
 For precise mapping, retain the compiler's `--depfile` output in the workspace.
 For example, `--output generated/schema.py --depfile generated/schema.py.d`
@@ -168,6 +181,21 @@ See the [navigation investigation](editor_navigation.md) for the reported failur
 editor API findings, regression coverage and remaining verification boundaries.
 
 ## Development and tests
+
+For this repository's managed ledger examples/tests, enable the optional targets:
+
+```powershell
+./make.ps1 all -CMakeArgs '-DSERIALIZER_BUILD_MANAGED=ON'
+```
+
+Pass the option again after removing the CMake cache. The default is OFF, so a
+successful clean default build can omit `ledger.hpp` and the managed test targets.
+Select that same build/configuration in CMake Tools and run **Serializer: Configure
+IntelliSense** to supply per-target include paths to Microsoft C/C++. Do not merge
+all generated directories into one global include path. Building VSIX files does
+not install them or reload the editor. See the
+[coverage matrix](editor_navigation.md#navigation-coverage-matrix) for command
+semantics, missing-file behavior and verification boundaries.
 
 The canonical TextMate grammar is `editors/serializer.tmLanguage.json`. Do not
 edit the ignored copy under `editors/vscode/syntaxes`; packaging refreshes it.
@@ -218,6 +246,13 @@ its real definition provider; otherwise the test supplies a controlled C++ provi
 both directions. It also covers acronym/digit naming and preserve profiles using
 fresh output and a shared depfile. It does not require the target-language SDKs.
 
+`npm run test:navigation:project` additionally uses the installed CMake Tools and
+Microsoft C/C++ extensions, specified by `SERIALIZER_CMAKE_TOOLS_PATH` and
+`SERIALIZER_CPP_TOOLS_PATH`. It explicitly generates the actual managed ledger
+schema into separate target directories, then checks qualified references, aliases,
+alias chains, variables, native editor actions and schema-only lookup. It first
+verifies that navigation before generation leaves missing output missing.
+
 `npm run test:integration` launches an isolated VS Code extension host and a real
 CMake consumer under `out/extension-tests`. It requires CMake, a C++20 compiler,
 and an installed CMake Tools extension. Set:
@@ -234,6 +269,37 @@ consumer compilation, and a malformed schema leaving the prior header intact.
 The fixture disables generated-output formatting so it does not need clang-format.
 
 ### Verification performed
+
+Version **1.1.12** passed 66 shared/provider tests, 6,007 fresh-compiler navigation
+checks across all 11 output languages, and 117 checks in the new CMake Tools /
+Microsoft C/C++ host. That host covers duplicate aliases, alias chains, variables,
+target-specific headers, native commands and reversed selections. Navigation before
+explicit generation leaves output missing; provider tests repeat that requirement
+for every output language. The existing VS Code host also passed its schema,
+include, unsaved-buffer and real TypeScript service checks.
+
+The exact `ledger_example::ledger` expression in this checkout's
+`test/managed_direct_test.cpp` was separately verified with CMake Tools pointing
+at `out/build/make-Release` and `SERIALIZER_BUILD_MANAGED=ON`: declaration included
+the ledger schema, and definition/type definition reached
+`test/managed_direct/ledger.hpp` in that build. No unrelated test aliases appeared.
+Both 1.1.12 packages were rebuilt, validated and installed. The Visual Studio .NET
+resolver passed 42 checks, and the installed native Visual Studio 2026 host passed
+all declaration/definition/type-definition, selection and reverse-navigation checks.
+Native non-C++/TypeScript language services and other platforms remain unverified;
+see the [coverage matrix](editor_navigation.md#navigation-coverage-matrix).
+
+Version **1.1.11** adds schema type-definition navigation and declaration-keyword
+support. All 60 shared tests, 821 fresh-compiler navigation checks and the isolated
+VS Code native-command test passed, including forward/reversed `class ledger`
+selections. The Visual Studio .NET resolver passed 42 checks across all 11 languages.
+Both VSIX packages were rebuilt and installed; native Visual Studio verification
+passed declaration, definition and type-definition commands for `class ledger`
+selections in both directions, plus existing complex-model and reverse-navigation
+checks. Mixed line endings in the local ledger schema were normalized before the
+host run. Both C# projects passed locked restore through `dotnet` and Visual Studio
+MSBuild after aligning their Windows runtime identifiers. The repository's editor
+solution limits project discovery to the maintained extension/test projects.
 
 For version **1.1.10**, all 57 shared tests and 821 fresh-compiler navigation checks
 passed, including default direct managed classes and opt-in separated companions
@@ -368,7 +434,7 @@ outside this extension's implementation.
 ## Visual Studio extension
 
 The separate [Visual Studio package](../editors/visual_studio/README.md), version
-**1.1.10**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
+**1.1.12**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
 grammar, editing configuration and a native MEF navigation component using the
 same resolver as VS Code. The grammar's `fileTypes` associates `.serializer` files;
 a `.pkgdef` registers its grammar and editing configuration.
@@ -381,16 +447,24 @@ npm ci --prefix editors/vscode
 ```
 
 The script restores locked NuGet dependencies, rebuilds package intermediates, and writes
-`out/extensions/serializer-visual-studio-1.1.10.vsix`. Close Visual Studio,
+`out/extensions/serializer-visual-studio-1.1.12.vsix`. Close Visual Studio,
 double-click this VSIX, install into the desired instance, and restart Visual
 Studio. The root `install_extension.ps1` remains the VS Code installer.
 
 Use native **Go to Declaration** on schema includes/types or generated type
 declarations. **Go to Definition** and **Ctrl+click** in schemas prefer existing
-generated output and fall back to the original schema type. All 11 output languages
+generated output and fall back to the original schema type. **Go to Type Definition**
+opens source schema types/includes, leaving other languages to their native services.
+All 11 output languages
 are supported through dependency metadata and generated-name mapping. From caller
 code, first reach the generated declaration with that language's native service;
 the adapter does not request external definition locations as VS Code does.
+
+For C# editing of the extension, select `editors/visual_studio/serializer_editors.sln`
+with VS Code's workspace `dotnet.defaultSolution` setting. This avoids loading
+temporary source copies and third-party projects under `out/`. Both maintained
+projects declare Windows runtime targets explicitly to keep editor/Visual Studio
+dependency restores consistent.
 
 The resolver runs in-process; Node.js is only required at build time. Navigation
 captures unsaved documents and performs bounded, cancellable background lookup.

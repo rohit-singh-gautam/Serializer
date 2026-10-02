@@ -146,6 +146,7 @@ if(SERIALIZER_BUILD_MANAGED)
   set_target_properties(serializer_managed PROPERTIES EXPORT_NAME managed)
   add_library(Serializer::managed ALIAS serializer_managed)
   serializer_generate(TARGET serializer_managed SCHEMAS schemas/managed_records.serializer
+    schemas/collaboration_records.serializer
     OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed/include/rohit"
     CODING_STANDARD serializer)
   target_include_directories(serializer_managed INTERFACE
@@ -170,8 +171,9 @@ if(SERIALIZER_INSTALL)
   if(SERIALIZER_BUILD_MANAGED)
     install(TARGETS serializer_managed EXPORT SerializerTargets)
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/managed/include/rohit/managed_records.hpp"
+      "${CMAKE_CURRENT_BINARY_DIR}/managed/include/rohit/collaboration_records.hpp"
       DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/rohit")
-    install(FILES schemas/managed_records.serializer
+    install(FILES schemas/managed_records.serializer schemas/collaboration_records.serializer
       DESTINATION "${CMAKE_INSTALL_DATADIR}/Serializer/schemas")
   endif()
   install(DIRECTORY include/rohit DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"

@@ -48,6 +48,49 @@ async function runSuite() {
     assert.equal(definitions[0].uri.fsPath, word === 'types/account' ? common : header);
   }
 
+  // Exercise all three actual editor actions on the reported class, including reversed selections.
+  const ledger = path.join(workspace, 'ledger.serializer');
+  const ledgerHeader = path.join(workspace, 'build/ledger.hpp');
+  fs.copyFileSync(path.resolve(__dirname, '../../../example/managed/ledger/ledger.serializer'), ledger);
+  fs.writeFileSync(ledgerHeader, banner + 'namespace ledger_example { class ledger {}; }\n');
+  fs.writeFileSync(`${ledgerHeader}.d`, `${escape(ledgerHeader)}: ${escape(ledger)}\n`);
+  const ledgerDocument = await vscode.workspace.openTextDocument(ledger);
+  const classOffset = ledgerDocument.getText().indexOf('class ledger');
+  for (const [command, destination] of [
+    ['editor.action.revealDeclaration', ledger], ['editor.action.revealDefinition', ledgerHeader],
+    ['editor.action.goToTypeDefinition', ledger]
+  ]) {
+    for (const [startOffset, endOffset] of [[classOffset, classOffset],
+      [classOffset, classOffset + 'class ledger'.length],
+      [classOffset + 'class '.length, classOffset + 'class ledger'.length]]) {
+      const start = ledgerDocument.positionAt(startOffset);
+      const end = ledgerDocument.positionAt(endOffset);
+      for (const reversed of [false, true]) {
+        const editor = await vscode.window.showTextDocument(ledgerDocument);
+        editor.selection = reversed ? new vscode.Selection(end, start) : new vscode.Selection(start, end);
+        await vscode.commands.executeCommand(command);
+        const active = vscode.window.activeTextEditor;
+        assert.equal(active.document.uri.fsPath, destination, `${command}, reversed=${reversed}`);
+        const word = active.document.getWordRangeAtPosition(active.selection.active);
+        assert.equal(word && active.document.getText(word), 'ledger',
+          `${command}, reversed=${reversed}, cursor=${JSON.stringify(active.selection.active)}`);
+      }
+    }
+  }
+
+  // Type definition resolves the live source type even when it has no generated representation.
+  const renamed = new vscode.WorkspaceEdit();
+  const ledgerName = classOffset + 'class '.length;
+  renamed.replace(ledgerDocument.uri, new vscode.Range(ledgerDocument.positionAt(ledgerName),
+    ledgerDocument.positionAt(ledgerName + 'ledger'.length)), 'unsaved_ledger');
+  await vscode.workspace.applyEdit(renamed);
+  const typeTargets = await vscode.commands.executeCommand('vscode.executeTypeDefinitionProvider',
+    ledgerDocument.uri, ledgerDocument.positionAt(ledgerName + 'unsaved_ledger'.length));
+  assert.equal(typeTargets.length, 1);
+  assert.equal(typeTargets[0].uri.fsPath, ledger);
+  assert.equal(ledgerDocument.getText(typeTargets[0].range), 'unsaved_ledger');
+  assert.ok(!fs.readFileSync(ledger, 'utf8').includes('unsaved_ledger'));
+
   // Reproduce a right-click inside an existing selection: VS Code keeps its active end.
   const complexDirectory = path.join(workspace, 'complex');
   fs.cpSync(path.resolve(__dirname, '../../../example/schemas/complex'), complexDirectory, { recursive: true });
@@ -160,7 +203,7 @@ async function runSuite() {
   assert.equal((await navigate(missingDocument, 'missing', true))[0].uri.fsPath, missing);
   await vscode.commands.executeCommand('serializer.openGeneratedHeader', missingDocument.uri);
   assert.equal(fs.existsSync(path.join(workspace, 'build/missing.hpp')), false);
-  console.log('Serializer navigation host passed: native Go to Declaration with complex model selections in both directions, real TypeScript class/enum resolution, schema and C++ includes/types, AUTOSAR enum defaults, schema fallback, merged output, ignored build directory, unsaved buffers, missing output, and no CMake/build dependency.');
+  console.log('Serializer navigation host passed: native declaration/definition/type definition for ledger keywords and selections in both directions, live schema type definition, complex model selections, real TypeScript class/enum resolution, schema and C++ includes/types, AUTOSAR enum defaults, schema fallback, merged output, ignored build directory, unsaved buffers, missing output, and no CMake/build dependency.');
   if (cppExtension) { console.log(`Verified native Microsoft C/C++ ${cppExtension.packageJSON.version} navigation.`); }
 }
 

@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.1.12
+
+- Follow native type definitions from aliases and variables in the explicit Go to Schema Declaration command.
+- Preserve ordinary language-service declaration, definition and type-definition behavior.
+- Test real managed ledger generation with CMake Tools, duplicate aliases, target-specific headers and missing output.
+- Cover stale ownership metadata, unresolved providers, CRLF/UTF-16 positions and generated identifier boundaries in all 11 languages.
+- Document the navigation contract, coverage matrix and managed-target configuration after a clean build.
+
+## 1.1.11
+
+- Add native Go to Type Definition for schema types, resolving their source declarations.
+- Navigate from class/struct/enum keywords, including reversed whole-declaration selections.
+- Cover the ledger example, live transitive types and native editor commands with regression tests.
+- Preserve generated-language type providers and keep both extension versions synchronized.
+- Document the C# editor-project solution to avoid loading temporary build-tree projects.
+
 ## 1.1.10
 
 - Document default direct managed identities and opt-in separate value/storage output.

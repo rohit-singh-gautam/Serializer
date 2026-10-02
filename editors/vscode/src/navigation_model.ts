@@ -162,6 +162,10 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
         namespaceBodies.set(body, [...currentScope(), name.text]);
       }
       if (schema) {
+        // Recognize the keyword as well as the name, including reversed `class name` selections.
+        // Keep separate spans so comments between them never become navigation references.
+        result.references.push({ start: token.start, end: token.end,
+          name: symbol.qualified, scope: [] });
         result.references.push({ start: name.start, end: name.end,
           name: symbol.qualified, scope: [] });
       }

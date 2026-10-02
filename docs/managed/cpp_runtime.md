@@ -3,9 +3,24 @@
 Status: implemented C++ schema generation, local snapshot history, and synchronous
 file journaling/crash recovery. Bare
 `managed` class/member declarations generate storage, conversions, identity
-traversal, and typed transaction editors. Collaboration, authorization,
+traversal, and typed transaction editors. Built-in authorization policies,
 feature selectors, exclusions, notifications, and other-language managed runtimes
 remain proposals. Unsupported selectors/backends are rejected rather than ignored.
+
+The [collaboration runtime](collaboration_runtime.md) now wraps this store with
+authoritative snapshot acceptance, retry handling, client proposal drafts, read-only
+observation, advisory presence, entity/subtree locks, and host policy hooks. Generated
+editors can author ordinary shared edits without application command adapters.
+Session IDs default to `uint64_t`; `collaboration_session<Session, SessionTraits>`
+selects application-owned string, unsigned integer, or custom session types.
+See its [runnable examples](../../example/managed/collaboration/README.md).
+For immediate local editing, attach a session with `store.collaborate(session)` and
+keep using the existing transaction/edit APIs. The store owns pending synchronization,
+local collaborative undo and recovery state; `synchronize`, `send_pending`,
+`receive_changes` and caller-driven timer ticks control exchange. See
+[local collaboration](local_collaboration.md) for setup and limits.
+It uses a separate header and generated ownership traversal; ordinary local stores
+have no collaboration state or additional setter checks.
 
 For a step-by-step introduction using only a point with x and y, start with the
 [nine point examples](../../example/managed/README.md). Each generates a managed
@@ -377,11 +392,17 @@ all decoded objects, indexes, temporary buffers, or externally pinned roots.
 
 Feature selectors (`managed(...)`), `exclude(...)`, `transient`, notifications,
 custom allocators, history-preserving policy changes, delta/checkpoint optimization,
-merging, delta journals, background recovery checkpoints, authorization, collaboration,
+merging, delta journals, background recovery checkpoints, built-in authorization policies,
 and other-language runtimes remain
 unimplemented. The compiler rejects unsupported managed syntax and backends.
 
 ## Verification
+
+For collaboration verification and its remaining qualification work, see the
+[collaboration runtime](collaboration_runtime.md#verification). Its addition passed
+all 52 configured CTest checks on Windows after the collaborative undo addition;
+the records below describe
+earlier managed-store and journal qualifications.
 
 Automated tests compile real managed schemas and exercise plain/managed occurrence
 boundaries, nested editors, all transaction forms, atomic failure, lifetime checks,

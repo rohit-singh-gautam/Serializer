@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.1.12
+
+- Synchronize with the VS Code navigation regression release; Visual Studio command behavior is unchanged.
+- Expand shared generated-output boundary checks across all 11 languages and document the coverage matrix.
+- Clarify native alias navigation, generated metadata ownership and managed-target build prerequisites.
+
+## 1.1.11
+
+- Add native Go to Type Definition for schema types, resolving their source declarations.
+- Navigate from class/struct/enum keywords, including reversed whole-declaration selections.
+- Cover the ledger example, live transitive types and native editor commands with regression tests.
+- Preserve generated-language type providers and keep both extension versions synchronized.
+- Align C# and Visual Studio restore runtime targets and provide an editor-project solution.
+
 ## 1.1.10
 
 - Document default direct managed identities and opt-in separate value/storage output.

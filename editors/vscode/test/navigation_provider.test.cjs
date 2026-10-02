@@ -63,13 +63,15 @@ function harness({ trusted = true, active = false, model } = {}) {
       showQuickPick: async items => { calls.push('pick'); return items[0]; } },
     languages: {
       registerDeclarationProvider: (selector, provider) => { providers.selector = selector; providers.declaration = provider; return disposable; },
-      registerDefinitionProvider: (_selector, provider) => { providers.definition = provider; return disposable; }
+      registerDefinitionProvider: (_selector, provider) => { providers.definition = provider; return disposable; },
+      registerTypeDefinitionProvider: (selector, provider) => { providers.typeSelector = selector; providers.typeDefinition = provider; return disposable; }
     },
     commands: { registerCommand: (name, callback) => { commands.set(name, callback); return disposable; },
       executeCommand: async (name, ...args) => {
-        assert.equal(name, 'vscode.executeDefinitionProvider');
+        assert.ok(['vscode.executeDefinitionProvider', 'vscode.executeTypeDefinitionProvider'].includes(name));
         calls.push(name);
-        return providers.cpp ? providers.cpp(...args) : [];
+        const resolve = name === 'vscode.executeDefinitionProvider' ? providers.cpp : providers.type;
+        return resolve ? resolve(...args) : [];
       } }
   };
   const file = path.resolve(__dirname, '../out/navigation.js');
@@ -97,6 +99,56 @@ test('navigation works in Restricted Mode and never accesses build APIs or saves
   assert.equal((await state.request('account.serializer', 'account', true)).length, 1);
   await state.commands.get('serializer.openGeneratedHeader')(doc.uri);
   assert.deepEqual(state.calls, ['open:account.hpp']);
+});
+
+test('ledger declaration, definition and type definition accept names, keywords and selection endpoints', async () => {
+  const state = harness({ active: true });
+  const source = fs.readFileSync(path.resolve(__dirname, '../../../example/managed/ledger/ledger.serializer'), 'utf8');
+  state.put('ledger.serializer', source);
+  state.put('build/ledger.hpp', banner + 'namespace ledger_example { class ledger {}; }');
+  const document = state.document('ledger.serializer');
+  const name = source.indexOf('class ledger') + 'class '.length;
+  const offsets = new Set([source.indexOf('class ledger'), source.indexOf('class ledger') + 'class'.length]);
+  for (let offset = name; offset <= name + 'ledger'.length; ++offset) { offsets.add(offset); }
+  for (const offset of offsets) {
+    const position = document.positionAt(offset);
+    for (const [provider, method, generated] of [
+      ['declaration', 'provideDeclaration', false], ['definition', 'provideDefinition', true],
+      ['typeDefinition', 'provideTypeDefinition', false]
+    ]) {
+      const targets = await state.providers[provider][method](document, position, state.cancellation);
+      assert.equal(targets.length, 1, `${provider} at ${offset}`);
+      assert.equal(targets[0].uri.fsPath, path.join(root, generated ? 'build/ledger.hpp' : 'ledger.serializer'));
+      const target = state.document(targets[0].uri.fsPath);
+      assert.equal(target.getText().slice(target.offsetAt(targets[0].range.start), target.offsetAt(targets[0].range.end)), 'ledger');
+    }
+  }
+  assert.deepEqual(state.providers.typeSelector, { language: 'serializer', scheme: 'file' },
+    'native generated-language type providers remain in charge');
+});
+
+test('schema type definition follows live transitive qualified types without CMake or output', async () => {
+  const state = harness({ active: true });
+  state.put('root.serializer', 'serializer version 1; include middle; class root { public demo::renamed value; }');
+  state.put('middle.serializer', 'serializer version 1; include types;');
+  state.put('types.serializer', 'serializer version 1; namespace demo { class original {} }');
+  const original = state.document('types.serializer');
+  const liveText = original.getText().replace('original', 'renamed');
+  state.vscode.workspace.textDocuments.push({ ...original, getText: () => liveText,
+    save: () => assert.fail('type navigation saved an unsaved schema') });
+  const document = state.document('root.serializer');
+  const start = document.getText().indexOf('demo::renamed');
+  for (let offset = start; offset <= start + 'demo::renamed'.length; ++offset) {
+    const targets = await state.providers.typeDefinition.provideTypeDefinition(document,
+      document.positionAt(offset), state.cancellation);
+    assert.equal(targets.length, 1);
+    assert.equal(targets[0].uri.fsPath, original.uri.fsPath);
+    assert.equal(targets[0].range.start.character, liveText.indexOf('renamed'));
+  }
+  assert.deepEqual(state.calls, []);
+  state.cancellation.isCancellationRequested = true;
+  assert.deepEqual(await state.providers.typeDefinition.provideTypeDefinition(document,
+    document.positionAt(start), state.cancellation), []);
 });
 
 test('inactive CMake Tools remains inactive and absent generated output is silent', async () => {
@@ -250,4 +302,134 @@ test('manifest uses native declaration menus and activates every supported langu
   }
   assert.ok(!manifest.contributes.menus['editor/context'].some(item => item.command === 'serializer.goToSchemaDeclaration'));
   assert.ok(manifest.contributes.commands.some(item => item.command === 'serializer.goToSchemaDeclaration'));
+});
+
+test('caller mappings use the resolved header owner despite duplicate qualified names and aliases', async () => {
+  const state = harness();
+  const escape = value => path.join(root, value).replaceAll('\\', '/').replace(/[ #:]/g, '\\$&');
+  for (const profile of ['direct', 'collaboration']) {
+    state.put(`${profile}/ledger.serializer`, 'serializer version 1; namespace ledger_example { class ledger {} }');
+    state.put(`build/${profile}/ledger.hpp`, banner + 'namespace ledger_example { class ledger {}; }');
+    state.put(`build/${profile}/ledger.hpp.d`, `${escape(`build/${profile}/ledger.hpp`)}: ${escape(`${profile}/ledger.serializer`)}`);
+    state.put(`${profile}.cpp`, 'using ledger = ledger_example::ledger;');
+    const header = state.document(`build/${profile}/ledger.hpp`);
+    const start = header.positionAt(header.getText().indexOf('class ledger'));
+    const end = header.positionAt(header.getText().indexOf('class ledger') + 'class ledger'.length);
+    state.providers.cpp = () => [{ targetUri: header.uri, targetRange: { start, end } }];
+    const document = state.document(`${profile}.cpp`);
+    const first = document.getText().lastIndexOf('ledger');
+    for (let offset = first; offset <= first + 'ledger'.length; ++offset) {
+      const targets = await state.providers.declaration.provideDeclaration(document, document.positionAt(offset), state.cancellation);
+      assert.deepEqual(targets.map(target => target.uri.fsPath), [path.join(root, profile, 'ledger.serializer')]);
+    }
+  }
+});
+
+test('unresolved aliases and unrelated native symbols never guess a schema by spelling', async () => {
+  const state = harness();
+  state.put('ledger.serializer', 'serializer version 1; class ledger {}');
+  state.put('build/ledger.hpp', banner + 'class ledger {};');
+  state.put('main.cpp', 'using ledger = missing::ledger; ledger value;');
+  state.put('other.cpp', 'using ledger = other::ledger;');
+  state.put('ordinary.hpp', 'class ledger {};');
+  const document = state.document('main.cpp');
+  for (const file of ['main.cpp', 'other.cpp', 'ordinary.hpp']) {
+    const target = state.document(file);
+    const position = target.positionAt(target.getText().indexOf('ledger'));
+    state.providers.cpp = () => [new state.vscode.Location(target.uri, new state.vscode.Range(position, position))];
+    assert.deepEqual(await state.request('main.cpp', 'ledger', false), [], file);
+  }
+  for (const result of [[], undefined, [{ targetUri: { scheme: 'untitled' } }]]) {
+    state.providers.cpp = () => result;
+    assert.deepEqual(await state.request('main.cpp', 'ledger', false), []);
+  }
+  state.providers.cpp = () => assert.fail('cancelled navigation reached another provider');
+  state.cancellation.isCancellationRequested = true;
+  assert.deepEqual(await state.providers.declaration.provideDeclaration(document, { line: 0, character: 0 }, state.cancellation), []);
+});
+
+test('stale or deleted schema metadata cannot silently choose another ledger schema', async () => {
+  const state = harness();
+  const escape = value => path.join(root, value).replaceAll('\\', '/').replace(/[ #:]/g, '\\$&');
+  state.put('ledger.serializer', 'serializer version 1; class ledger {}');
+  state.put('build/ledger.hpp', banner + 'class ledger {};');
+  state.put('main.cpp', 'ledger value;');
+  const header = state.document('build/ledger.hpp');
+  const position = header.positionAt(header.getText().indexOf('ledger'));
+  state.providers.cpp = () => [{ uri: header.uri, range: { start: position, end: position } }];
+  for (const depfile of [`${escape('build/ledger.hpp')}: ${escape('old/ledger.serializer')}`,
+    `${escape('old/ledger.hpp')}: ${escape('ledger.serializer')}`, 'invalid metadata']) {
+    state.put('build/ledger.hpp.d', depfile);
+    assert.deepEqual(await state.request('main.cpp', 'ledger', false), [], depfile);
+  }
+  state.put('build/ledger.hpp.d', `${escape('build/ledger.hpp')}: ${escape('ledger.serializer')}`);
+  assert.equal((await state.request('main.cpp', 'ledger', false)).length, 1);
+  state.files.delete(header.uri.fsPath);
+  assert.deepEqual(await state.request('main.cpp', 'ledger', false), []);
+});
+
+test('CRLF and UTF-16 offsets preserve live schema and generated selection ranges', async () => {
+  const state = harness();
+  state.put('ledger.serializer', '// \u{1f4d2}\r\nserializer version 1;\r\nnamespace demo {\r\n  class ledger {}\r\n}\r\n');
+  state.put('build/ledger.hpp', banner + '// \u{1f4d2}\r\nnamespace demo {\r\nclass ledger {};\r\n}\r\n');
+  for (const [file, provider, method, expected] of [
+    ['ledger.serializer', 'definition', 'provideDefinition', 'build/ledger.hpp'],
+    ['build/ledger.hpp', 'declaration', 'provideDeclaration', 'ledger.serializer']
+  ]) {
+    const document = state.document(file);
+    const offset = document.getText().indexOf('ledger');
+    for (let index = offset; index <= offset + 'ledger'.length; ++index) {
+      const results = await state.providers[provider][method](document, document.positionAt(index), state.cancellation);
+      assert.equal(results.length, 1);
+      const target = state.document(expected);
+      assert.equal(results[0].uri.fsPath, target.uri.fsPath);
+      assert.equal(target.getText().slice(target.offsetAt(results[0].range.start), target.offsetAt(results[0].range.end)), 'ledger');
+    }
+  }
+});
+
+test('explicit schema command follows native alias types without changing ordinary declarations', async () => {
+  const state = harness();
+  state.put('ledger.serializer', 'serializer version 1; class ledger {}');
+  state.put('build/ledger.hpp', banner + 'class ledger {};');
+  state.put('main.cpp', 'using alias = ledger; alias value;');
+  const document = state.document('main.cpp');
+  const header = state.document('build/ledger.hpp');
+  const aliasPosition = document.positionAt(document.getText().indexOf('alias'));
+  const typePosition = header.positionAt(header.getText().indexOf('ledger'));
+  state.providers.cpp = () => [{ uri: document.uri, range: { start: aliasPosition, end: aliasPosition } }];
+  state.providers.type = () => [{ uri: header.uri, range: { start: typePosition, end: typePosition } }];
+  assert.deepEqual(await state.request('main.cpp', 'alias value', false), []);
+  assert.ok(!state.calls.includes('vscode.executeTypeDefinitionProvider'));
+  const position = document.positionAt(document.getText().indexOf('alias value'));
+  state.vscode.window.activeTextEditor = { document, selection: { start: position, active: position } };
+  await state.commands.get('serializer.goToSchemaDeclaration')();
+  assert.deepEqual(state.calls.slice(-2), ['vscode.executeTypeDefinitionProvider', 'open:ledger.serializer']);
+  state.providers.type = () => [];
+  await state.commands.get('serializer.goToSchemaDeclaration')();
+  assert.equal(state.calls.at(-1), 'vscode.executeTypeDefinitionProvider', 'missing native type is a silent miss');
+});
+
+test('missing generated output in every language remains missing after all navigation requests', async () => {
+  const state = harness({ trusted: false });
+  state.put('ledger.serializer', 'serializer version 1; class ledger {}');
+  const originalFiles = () => [...state.files.entries()];
+  for (const language of ['cpp', 'c', 'java', 'javascript', 'typescript', 'go', 'csharp', 'rust', 'python', 'swift', 'kotlin']) {
+    state.put(`consumer.${language}`, 'ledger value');
+    const document = state.document(`consumer.${language}`, language);
+    state.providers.cpp = () => [{ uri: state.vscode.Uri.file(path.join(root, 'missing', `ledger.${language}`)),
+      range: { start: { line: 0, character: 0 }, end: { line: 0, character: 6 } } }];
+    state.providers.type = state.providers.cpp;
+    const before = originalFiles();
+    assert.deepEqual(await state.providers.declaration.provideDeclaration(document, { line: 0, character: 0 }, state.cancellation), []);
+    state.vscode.window.activeTextEditor = { document, selection: { start: { line: 0, character: 0 } } };
+    await state.commands.get('serializer.goToSchemaDeclaration')();
+    const schema = state.document('ledger.serializer');
+    await state.commands.get('serializer.openGeneratedHeader')(schema.uri);
+    await state.commands.get('serializer.goToImplementation')(schema.uri);
+    assert.deepEqual(originalFiles(), before, language);
+    assert.ok(!state.calls.some(call => call.startsWith('open:')));
+  }
+  assert.ok(state.calls.every(call => ['vscode.executeDefinitionProvider', 'vscode.executeTypeDefinitionProvider'].includes(call)),
+    'navigation does not activate CMake, invoke a build or offer a generation prompt');
 });

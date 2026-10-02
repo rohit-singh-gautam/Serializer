@@ -9,7 +9,8 @@ and undo/deletion never renumber survivors. Explicit member boundaries still app
 
 Status: broader design sketches. The [C++ interface](cpp_runtime.md) implements
 schema-driven identity, typed editors, transactions, snapshot history, and
-[synchronous native-file journals](journal.md). These
+[synchronous native-file journals](journal.md), plus a separate
+[collaboration authority/replica wrapper](collaboration_runtime.md). These
 broader sketches are not its exact API or generated output. Other-language managed
 runtimes remain proposals; their generators currently reject managed annotations.
 See the [design index](README.md) and [data structures](data_structures.md).

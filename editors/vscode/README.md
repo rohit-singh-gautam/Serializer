@@ -4,7 +4,7 @@ This extension supports the [Serializer schema compiler and serialization librar
 maintained in that repository.
 
 Edit `.serializer` schemas with syntax highlighting, bracket matching, comments,
-folding, and snippets. Version **1.1.10** includes navigation from includes and type
+folding, and snippets. Version **1.1.12** includes navigation from includes and type
 references to source schemas and existing generated code in all 11 output languages. Use the project's
 CMake configuration for the separate build and missing-header assistance commands.
 
@@ -73,6 +73,21 @@ The project still needs Serializer, a C++20 compiler, CMake 3.28+, and clang-for
 
 ## Declaration and definition navigation
 
+Caller navigation depends on the language service's active project configuration.
+For this repository's managed ledger examples/tests, use
+`./make.ps1 all -CMakeArgs '-DSERIALIZER_BUILD_MANAGED=ON'`, select that same build
+in CMake Tools, and run **Serializer: Configure IntelliSense**. Removing the build
+cache resets the optional managed targets to OFF unless the option is passed again.
+Building packages does not install them or reload the editor.
+
+For `using ledger = ledger_example::ledger;`, selecting the right-hand type should
+resolve the generated class. Selecting a later use of the left-hand alias normally
+opens the `using` declaration; **Go to Type Definition** follows its underlying class.
+**Serializer: Go to Schema Declaration** follows either to the original schema,
+including through alias chains and variables when a native type provider is available.
+The [coverage matrix](../../docs/editor_navigation.md#navigation-coverage-matrix)
+records required cases and remaining native-host verification limits.
+
 Right-click a `.serializer` file in **Explorer** or its **editor tab**, then choose
 **Serializer: Go to Implementation** to open existing generated output.
 The command uses the clicked file, even when another editor is active. Multiple
@@ -84,6 +99,14 @@ available outputs produce a picker; missing output produces no result or build p
 | Class/enum declaration or type reference in a schema | Original schema declaration | Matching generated type definition; schema declaration if unavailable |
 | C/C++ `#include <account.hpp>` | Entry schema | Existing generated header |
 | Generated class/enum type reference in any supported language | Original schema declaration | Normal language-service definition |
+
+**Go to Type Definition** on a schema type opens its source class/enum declaration,
+including qualified references and unsaved included schemas. On includes it opens
+the included schema. Generated-language type definition remains with that language's
+provider. Schema field names and primitive types have no type-definition destination.
+All three actions accept the `class`/`struct`/`enum` keyword or the type name, including
+forward and reversed `class ledger` selections. Declaration and type definition on
+`ledger` in its own declaration select the same name; definition prefers generated output.
 
 Use the editor's built-in **Go to Declaration** context-menu action. Qualified
 names such as `demo::order` work on either component and at the end of a selection.

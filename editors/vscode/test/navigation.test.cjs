@@ -319,6 +319,20 @@ test('preserved names that normalize alike remain distinct in both directions', 
   }
 });
 
+test('declaration keywords resolve types without making intervening comments or attributes navigable', async () => {
+  const source = 'serializer version 1; class /*ledger comment*/ ledger stable_ids {} enum state { ready }';
+  const state = fixture({ 'ledger.serializer': source });
+  for (const [keyword, name] of [['class', 'ledger stable_ids'], ['enum', 'state {']]) {
+    for (let offset = source.indexOf(keyword); offset <= source.indexOf(keyword) + keyword.length; ++offset) {
+      assert.deepEqual(selected(state, await state.resolver().schema(file('ledger.serializer'), offset, false)),
+        [['ledger.serializer', name.split(' ')[0]]]);
+    }
+  }
+  for (const word of ['ledger comment', 'stable_ids', 'ready']) {
+    assert.deepEqual(await state.resolver().schema(file('ledger.serializer'), source.indexOf(word), false), []);
+  }
+});
+
 test('generated indices ignore multiline literals and keep Rust lifetimes and TypeScript enum aliases', () => {
   const cases = [
     ['schema.py', '"""\nclass Fake:\n    pass\n"""\nclass Real:\n    pass', ['Real']],

@@ -426,7 +426,9 @@ generated entity. Lock deadlines use the authority's monotonic clock contract.
 
 All concrete portable records must originate in `.serializer`, just like the
 C++ walkthrough below. That schema currently covers model/history data only;
-it does not yet generate collaboration records or implement these indexes.
+it does not contain collaboration records. Implemented snapshot collaboration uses
+the separate [record schema](../../schemas/collaboration_records.serializer) and
+[C++ wrapper](collaboration_runtime.md); the optimized indexes above remain proposals.
 Presence/grants are not part of a document snapshot or undo revision. A recovered
 document reacquires coordination rights; a durable authority log, if needed, has
 its own recovery/fencing contract. See [replica failure handling](collaboration.md#replica-lock-caches-and-failure-handling).

@@ -456,6 +456,99 @@ class managed_writer {
     write_managed_text(output, "    return result;\n  }\n");
   }
 
+  // Describe owned values and child identity edges without copying or serializing child subtrees.
+  void write_collaboration_traversal(auto& output, const managed_class& item) {
+    write_managed_text(output,
+        "  // Traverse ownership and entity-local fields for collaboration conflict/lock checks.\n"
+        "  static void visit_collaboration(const storage_type& storage, id_type parent, auto& visitor) {\n"
+        "    visitor.begin_entity(storage.persistent_id, parent);\n");
+    for (const auto& field : item.source->member_list) {
+      const auto value = std::string{separate_values_ ? "storage.value." : "storage."} +
+                         field_name(field.name);
+      if (!field.managed) {
+        write_managed_text(output, "    visitor.value(", value, ");\n");
+      } else if (field.modifier == member::modifier_type::none) {
+        write_managed_text(output, "    visitor.value(", value, ".persistent_id);\n");
+      } else {
+        write_managed_text(output, "    visitor.value(static_cast<::std::uint64_t>(", value,
+                           ".size()));\n    for (const auto& child : ", value, ") {\n");
+        if (field.modifier == member::modifier_type::map) {
+          write_managed_text(output, "      visitor.value(child.first);\n");
+        }
+        write_managed_text(output, "      visitor.value(child",
+                           field.modifier == member::modifier_type::map ? ".second" : "",
+                           ".persistent_id);\n    }\n");
+      }
+    }
+    write_managed_text(output, "    visitor.end_entity();\n");
+    for (const auto& field : item.source->member_list) {
+      if (!field.managed) {
+        continue;
+      }
+      const auto traits = "model_traits<" +
+                          full_type_name(field.type_name_list.front().resolved_node) + ">";
+      const auto value = std::string{separate_values_ ? "storage.value." : "storage."} +
+                         field_name(field.name);
+      if (field.modifier == member::modifier_type::none) {
+        write_managed_text(output, "    visitor.edge(", field.id, "u, 0u);\n    ", traits,
+                           "::visit_collaboration(", value,
+                           ", storage.persistent_id, visitor);\n");
+      } else {
+        if (field.modifier != member::modifier_type::map) {
+          write_managed_text(output, "    { ::std::uint64_t index = 0;\n");
+        }
+        write_managed_text(output, "    for (const auto& child : ", value, ") {\n      visitor.edge(",
+                           field.id, "u, ",
+                           field.modifier == member::modifier_type::map ? "child.first" : "index++",
+                           ");\n      ", traits,
+                           "::visit_collaboration(child",
+                           field.modifier == member::modifier_type::map ? ".second" : "",
+                           ", storage.persistent_id, visitor);\n    }\n");
+        if (field.modifier != member::modifier_type::map) {
+          write_managed_text(output, "    }\n");
+        }
+      }
+    }
+    write_managed_text(output, "  }\n");
+  }
+
+  // Expose stable field addresses and typed three-way reversal without exposing editor aliases.
+  void write_collaboration_history(auto& output, const managed_class& item) {
+    write_managed_text(
+        output,
+        "  // Collect entity/field addresses and ownership membership for selective history.\n"
+        "  static void visit_collaboration_fields(const storage_type& storage, auto& visitor) {\n"
+        "    static_cast<void>(storage); static_cast<void>(visitor);\n");
+    for (const auto& field : item.source->member_list) {
+      const auto value =
+          std::string{separate_values_ ? "storage.value." : "storage."} + field_name(field.name);
+      const auto method =
+          field.managed ? "template owned<model_traits<" +
+                              full_type_name(field.type_name_list.front().resolved_node) + ">>"
+                        : "value";
+      write_managed_text(output, "    visitor.", method, "(storage.persistent_id, ", field.id,
+                         "u, ", value, ");\n");
+    }
+    write_managed_text(
+        output,
+        "  }\n"
+        "  // Reverse only changed fields, preserving unrelated current values.\n"
+        "  static void merge_collaboration(storage_type& current, const storage_type& expected,\n"
+        "                                  const storage_type& desired, auto& merger) {\n"
+        "    static_cast<void>(current); static_cast<void>(expected);\n"
+        "    static_cast<void>(desired); static_cast<void>(merger);\n");
+    for (const auto& field : item.source->member_list) {
+      const auto member = std::string{separate_values_ ? ".value." : "."} + field_name(field.name);
+      const auto method =
+          field.managed ? "template owned<model_traits<" +
+                              full_type_name(field.type_name_list.front().resolved_node) + ">>"
+                        : "value";
+      write_managed_text(output, "    merger.", method, "(current.persistent_id, ", field.id,
+                         "u, current", member, ", expected", member, ", desired", member, ");\n");
+    }
+    write_managed_text(output, "  }\n");
+  }
+
   // Generate all companions and traits; no handwritten adapters are required by consumers.
   void write_managed(auto& output) {
     for (const auto& item : managed_classes) {
@@ -520,9 +613,12 @@ class managed_writer {
               field.modifier == member::modifier_type::map ? ".second" : "", ", visitor); }\n");
         }
       }
+      write_managed_text(output, "  }\n");
+      write_collaboration_traversal(output, item);
+      write_collaboration_history(output, item);
       write_managed_text(
           output,
-          "  }\n  // Structural decoding and store identity checks precede application "
+          "  // Structural decoding and store identity checks precede application "
           "validation.\n"
           "  static void validate(const storage_type&) {}\n"
           "  // Bind the generated editor without exposing writable identity metadata.\n"

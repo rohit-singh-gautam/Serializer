@@ -10,13 +10,15 @@ and undo/deletion never renumber survivors. Explicit member boundaries still app
 Status: design collection with an implemented C++ managed interface. Read the
 [implemented C++ API](cpp_runtime.md) for schema generation, typed editors, identity,
 all three transaction forms, snapshot history, synchronous file journals, and exact limitations. Selectors,
-exclusions, collaboration, authorization, and other-language runtimes remain
+exclusions, built-in authorization policies, and other-language runtimes remain
 proposals. ID-free payload layouts/codecs are retained in opt-in separate-values mode. The walkthrough schema
 remains a separate illustrative data model.
 
 | Document | Read it for |
 | --- | --- |
 | [Implemented C++ runtime](cpp_runtime.md) | Optional build target, generated storage and typed editors, all three transaction forms, snapshot history, bounded save/load, and remaining work. |
+| [Local store collaboration](local_collaboration.md) | Normal store transactions, store-owned sessions/outbox, immediate local undo, separate send/receive, periodic synchronization and client recovery. |
+| [Implemented C++ collaboration](collaboration_runtime.md) | Authority/replica APIs, application-owned session types, generated change records, conditional undo/redo, retries, conflicts, presence, entity/subtree leases, host policy hooks, limits, and five runnable examples. |
 | [Transaction implementation walkthrough](../internals/managed_transactions.md) | Current C++ store and transaction ownership, callback flow, commit, and cleanup, illustrated with a point. |
 | [Editor implementation walkthrough](../internals/managed_editors.md) | Channel lifetime, callback forwarding, target resolution, and map/array editor behavior. |
 | [Capabilities and identity](capabilities.md) | Four managed features, mandatory uint32 IDs, central configuration, collaboration allocation, and additional uses. |
@@ -48,7 +50,7 @@ Implemented `<type>_editor<Access>` handles
 are temporary edit interfaces, not independently owning stores. Broader sketches
 use illustrative `tracked_` names. Schema `managed` selects identity
 boundaries within managed occurrences. Broader capability combinations remain
-proposals; runtime journaling and future collaboration selection are independent of history mode.
+proposals; runtime journaling and the collaboration wrapper are independent of history mode.
 
 For one synchronous editing action, the C++
 [`execute_transaction(callback)`](cpp_runtime.md#all-three-transaction-forms)

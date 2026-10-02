@@ -1,0 +1,8 @@
+serializer version 1;
+include ../../example/managed/ledger/ledger;
+
+namespace collaboration_test {
+  class workspace stable_ids {
+    public managed map(uint64) ledger_example::ledger ledgers (1);
+  }
+}

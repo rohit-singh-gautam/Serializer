@@ -72,29 +72,41 @@ or qualified in this repository.
 schema declaration/generated-code navigation for every output language, and missing-include assistance. Run
 `./install_extension.ps1` from PowerShell to build and install the local extension
 (Node.js 22+, npm, and the VS Code CLI are required). Marketplace publication is pending.
-The VS Code extension version is **1.1.9**, with ID `rohitjairajsingh.serializer-language`
+The VS Code extension version is **1.1.12**, with ID `rohitjairajsingh.serializer-language`
 (Rohit Jairaj Singh). Both editor extensions share this release version, independent
 of the compiler version, and must be updated together.
 Use the built-in **Go to Declaration** for schema types and includes, including
 qualified names and whole-name selections. Go to Definition on includes opens the
 included schema; on type references it resolves enum types in defaults and falls
 back to the schema when generated code is unavailable.
+**Go to Type Definition** on a schema type opens its source declaration. All three
+actions accept declaration keywords and forward/reversed `class ledger` selections.
 Generated-code navigation supports all 11 outputs, using dependency files for
 renamed outputs and flattened/nested language names; caller type references
-require that language's definition provider. See [navigation](docs/editor_extension.md#navigate-available-schemas-and-headers).
+require that language's definition provider. The explicit **Serializer: Go to Schema
+Declaration** command also follows native type definitions through aliases and variables.
+Managed ledger targets require `SERIALIZER_BUILD_MANAGED=ON`, including after a clean
+build; CMake Tools must use that same configuration for C++ navigation.
+See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
+and [navigation setup](docs/editor_extension.md#navigate-available-schemas-and-headers).
 It also supplies a dedicated 32×32 icon for `.serializer` files in Explorer and
 editor tabs when supported by the selected file icon theme.
 
 **Visual Studio:** a separate [Rohit Serializer VSIX](editors/visual_studio/README.md)
 for the [same Serializer project](https://github.com/rohit-singh-gautam/Serializer),
-version **1.1.9** supplies the shared grammar, editing configuration, and native
+version **1.1.12** supplies the shared grammar, editing configuration, and native
 schema navigation for Visual Studio 2022/2026 on Windows x64. Go to Declaration
 opens schema types/includes; Go to Definition and Ctrl+click open included schemas
 or find existing output for type references.
+Go to Type Definition opens the source schema type; generated-language type lookup
+remains with the native language service in both editors.
+When editing the extension's C# sources, select
+[`serializer_editors.sln`](editors/visual_studio/serializer_editors.sln) to avoid
+loading temporary project copies from build directories.
 Generated declarations in all 11 languages map back to their schemas. From caller
 code, first use the language service to reach the generated type. Build with
 `./editors/visual_studio/build.ps1`, then install
-`out/extensions/serializer-visual-studio-1.1.9.vsix` with Visual Studio's VSIX Installer.
+`out/extensions/serializer-visual-studio-1.1.12.vsix` with Visual Studio's VSIX Installer.
 Use existing CMake targets for generation. Both extensions highlight custom types,
 including `demo::order`, using the selected theme's type and namespace colors.
 
@@ -1023,7 +1035,7 @@ append each already serialized snapshot once with compact framing, preserve undo
 and track unsaved values separately from durability. `journal_dirty()` and
 `journal_sequence()` expose those independent positions. Uncertain I/O reports
 `transaction_status::indeterminate` and blocks writes until recovery.
-Feature selectors, exclusions, authorization, collaboration, and other-language managed runtimes remain
+Feature selectors, exclusions, built-in authorization policies, and other-language managed runtimes remain
 future work; unsupported syntax/backends fail explicitly.
 
 The [managed capabilities](docs/managed/capabilities.md) proposal covers history,
@@ -1033,15 +1045,59 @@ ordinary payloads are an opt-in representation. [Journal recovery](docs/managed/
 uses a base snapshot plus an appended or sidecar journal, with durable undo cursors,
 full Save replacement, and cleanup that preserves newer unsaved changes.
 The full feature set remains a proposal; central persistent-ID configuration and
-the C++ identity/history runtime and synchronous snapshot journaling are implemented.
+the C++ identity/history runtime, synchronous snapshot journaling, and snapshot collaboration are implemented.
 
-The proposed [collaboration contract](docs/managed/collaboration.md) uses opaque
-sessions, atomic accepted changes, informational editing presence, and optional
-entity/subtree locks. Store-owned grants, leases, and sequenced replica caches
-support authoritative acceptance without per-object lock fields. Transport,
-authentication, and distributed authority infrastructure remain host concerns.
-The contract includes nonblocking cleanup, failure handling, and efficiency
-targets; it is not an implemented protocol or a measured performance claim.
+The implemented [C++ collaboration runtime](docs/managed/collaboration_runtime.md)
+provides `collaboration_authority`, replicas with isolated proposal drafts, atomic snapshot acceptance,
+base-sequence conflicts, exact operation retries, advisory presence, entity/subtree
+leases, and ordered lock caches. Start with the [collaboration examples](example/managed/collaboration/README.md).
+For immediate local editing, attach a session with `store.collaborate(session)` to
+the existing `model_store`, then use normal generated setters and transactions.
+The store journals each commit and retains a durable outbox when a journal is attached.
+Call `store.synchronize()` explicitly or `store.synchronize_if_due(now_ms)` from the
+owner-thread timer; `send_pending()` and `receive_changes()` are also separate APIs.
+Local undo/redo uses the same transaction mechanism and the ordinary `model_store`
+journal API. The [store undo example](example/managed/collaboration/undo.cpp) uses
+`execute_transaction`, `undo`, and `redo` with separate journaled client stores;
+`synchronize()` handles submission and receiving accepted changes. Host lock requests
+reserve IDs with `store.collaboration().reserve_operation_id()` so they share the
+store's persisted operation counter without collisions; see the
+[store locks example](example/managed/collaboration/locks.cpp). See the
+[store integration guide](docs/managed/local_collaboration.md) and
+[local synchronization example](example/managed/collaboration/local_sync.cpp).
+Conflicts retain local work and expose received state separately for resolution.
+The lower-level acknowledged-state API remains available:
+Use `replica.propose(session, operation, [](auto& edit) { ... })` with generated
+editors; the default authority accepts these proposals without a handwritten
+command schema or dispatcher. Custom server command handlers remain optional.
+Accepted transactions now include serialized field-change records with author/operation
+identity, stable entity/field addresses, before/after values, contribution versions,
+and ownership dependencies. `replica.undo(session, operation)` and `replica.redo(...)`
+create atomic, conditional history requests for the same acceptance path. They preserve
+unrelated edits and reject same-field or ownership conflicts, including equal-value
+intervening writes. See the
+[history contract](docs/managed/collaboration_runtime.md#conditional-collaborative-undo-and-redo).
+Upgrade both peers and regenerate managed headers: history-bearing collaboration uses
+protocols 5/6 (uint64 sessions) or 7/8 (custom sessions). Model save formats are unchanged.
+Authority contribution history lasts only for its epoch. Store clients persist their
+local history, pending work and exact retries with the same journal pointer; a new
+authority epoch retains uncertain work for explicit reconciliation. Plain replicas
+continue to expose acknowledged state.
+The examples combine a server authority and separate client replicas in one process;
+session IDs do not encode whether a client is local, remote, or read-only.
+Applications own session creation, storage, connection binding, and lifetime.
+`std::uint64_t` is the default; use `collaboration_session<std::string>` or
+`collaboration_session<std::uint32_t>` for other IDs, or supply a session policy
+for a custom value type. Proposals, results, locks, presence, and policy hooks keep
+that type without an imposed numeric registry. See the [session example](example/managed/collaboration/sessions.cpp).
+Generated ownership traversal checks the actual diff; optional host policy hooks
+gate changes and locks. Coordination records originate in `.serializer` schemas.
+Transport, trusted session binding, and distributed authority fencing remain host
+concerns. The [broader contract](docs/managed/collaboration.md) includes future
+optimization and distributed features. This version retains retry state for its
+bounded epoch and sends full snapshots. Store clients merge disjoint fields before
+submission; same-field/ownership conflicts remain explicit. Offline IDs use persisted
+local-to-authority mappings; ordinary application integer references are not remapped.
 
 The [managed-state design index](docs/managed/README.md) groups the proposals under
 `docs/managed/`. The [data-structure design](docs/managed/data_structures.md) defines
@@ -1054,7 +1110,7 @@ omitted. These illustrative records differ from the implemented snapshot envelop
 C++ `model_store<Root, support>` (with a `managed` alias) and component-based stores
 for other backends. These broader capability sketches differ from the implemented
 `model_store<Root, Mode, Labels, Traits>` API, whose history mode is a template argument.
-Runtime journaling and future collaboration capabilities are separate from history policy. Consult the C++ runtime guide above
+Runtime journaling and collaboration are separate from history policy. Consult the C++ runtime guide above
 for the implemented subset; the broader generated APIs remain proposals.
 
 The [object identity and transactional history proposal](docs/managed/history.md) describes

@@ -44,11 +44,17 @@ async function verify(entry, directory, options = [], selectedOutputs = outputs)
     for (const symbol of schema.index.symbols) {
       const definitions = await resolver.schema(schema.file, symbol.end, true);
       assert.equal(definitions.length, files.length, `${symbol.qualified}: expected every generated language, got ${definitions.map(item => path.basename(item.file))}`);
+      for (const offset of [symbol.start, symbol.end - 1]) {
+        assert.deepEqual(await resolver.schema(schema.file, offset, true), definitions,
+          `${symbol.qualified}: schema boundary ${offset}`);
+      }
       for (const target of definitions) {
-        const declarations = await resolver.generatedDeclaration(target.file, target.end);
-        assert.deepEqual(declarations.map(item => [fileKey(item.file), item.start, item.end]),
-          [[fileKey(schema.file), symbol.start, symbol.end]], `${symbol.qualified} from ${target.file}`);
-        ++checks;
+        for (let offset = target.start; offset <= target.end; ++offset) {
+          const declarations = await resolver.generatedDeclaration(target.file, offset);
+          assert.deepEqual(declarations.map(item => [fileKey(item.file), item.start, item.end]),
+            [[fileKey(schema.file), symbol.start, symbol.end]], `${symbol.qualified} from ${target.file} at ${offset}`);
+          ++checks;
+        }
         if (/\.hpp$/.test(target.file)) {
           const generated = indexSource(fs.readFileSync(target.file, 'utf8'), false);
           for (const companion of generated.symbols.filter(item => managedNames(symbol.qualified).includes(item.qualified))) {

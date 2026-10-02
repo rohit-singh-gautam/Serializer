@@ -1,5 +1,113 @@
 # Migrating to the snake_case Serializer API
 
+## Store-owned local collaboration
+
+For immediate local editing, include `<rohit/managed_collaboration.hpp>`, attach a
+typed session with `model_store::collaborate`, bind transport, then join the authority
+baseline. Keep using existing generated editors and manual/scoped/callback
+transactions. Explicit/timed synchronization and separate send/receive methods operate
+on the store's outbox. See the [integration guide](docs/managed/local_collaboration.md).
+
+Client checkpoint format **1** wraps the native model envelope/journal operation with
+the session, local undo/redo, pending changes, mappings and exact outstanding request.
+Rebuild `Serializer::managed` for the new generated client records. Ordinary model
+saves and authority wire protocols 5/6/7/8 do not change for this addition. Client
+wrappers require current client readers; attach the same session to a fresh store
+before loading/recovering. Existing plain model journals are not automatically converted.
+The journal flushes per committed transaction; only network exchange is interval-driven.
+
+The collaboration `main.cpp`, `locks.cpp`, and `undo.cpp` examples now author document
+changes through `model_store` transactions and `undo`/`redo`. Replace handwritten
+proposal/delivery helpers in store applications with `store.synchronize()`. For host
+lock requests on the same session, use `store.collaboration().reserve_operation_id()`
+after joining rather than a separate operation counter. Reservations use the existing
+checkpoint watermark and journal machinery; no additional format migration is needed.
+
+Offline entity creation preserves local handles using persisted mappings to authority
+IDs. Use `remote_id`/`local_id` at server/UI boundaries. Application integer fields,
+foreign-key references and map keys are not inferred as identity references. After an
+authority epoch change, retain and reconcile uncertain drafts explicitly; durable
+client history does not restore the authority's epoch-local deduplication/history.
+
+## Collaborative change records and conditional undo
+
+Rebuild `Serializer::managed` and regenerate all managed model headers for
+`visit_collaboration_fields` and `merge_collaboration`. The model's schema ID,
+payload field IDs, ID width, and saved model envelopes remain unchanged.
+
+Collaboration messages now use protocols **5/6** for uint64 custom/model endpoints
+and **7/8** for application-defined session custom/model endpoints. These replace
+protocols 1/2 and 3/4 respectively; upgrade both peers together and start a fresh
+authority epoch. Native keyed decoders reject unknown fields, so the added history
+metadata is not wire-compatible with older collaboration readers. Existing public
+record aliases, constructor shapes, and proposal/editor APIs remain available.
+
+`accepted_change.history` records one transaction's fields and dependencies; its
+outer session, operation, sequence and domain supply authorship, grouping and scope.
+`replica.undo` and `replica.redo` build requests for the session's latest eligible
+history tip, using a fresh operation ID. Deliver them through `submit_change` and
+apply the accepted result. Conflict, denial, and journal failure preserve the stack;
+exact retries return their original outcome. An indeterminate journal write fences
+the authority. See the [history guide](docs/managed/collaboration_runtime.md#conditional-collaborative-undo-and-redo).
+
+Journal operation tag **5** records a validated restoration edit, allowing recovery
+of original object identities after deletion undo. Existing ordinary edits retain
+tag 1. Upgrade readers before opening journals containing tag 5. Collaborative undo
+stacks and field-version tombstones are epoch-local and are not restored from the
+document journal. Store clients now provide immediate local writes, durable pending
+operations and periodic synchronization through the integration described above.
+
+## Earlier managed collaboration migration
+
+The protocol numbers below describe the earlier snapshot-only release; use the
+history-bearing versions above for the current runtime.
+
+The optional C++ managed target now also generates `collaboration_records.hpp`.
+Include `<rohit/managed_collaboration.hpp>` for authority/replica APIs and regenerate
+managed model headers for the added `model_traits::visit_collaboration` traversal.
+Existing model wire formats, schema IDs, saved history envelopes, and ordinary
+store APIs are unchanged. `model_store::allocated_id()` exposes the non-reusable
+allocation watermark, including candidate reservations.
+The [collaboration runtime guide](docs/managed/collaboration_runtime.md) defines
+host session/epoch binding, snapshot conflicts, and bounded
+retry retention. Restore documents into a fresh host-fenced epoch before opening
+sessions. Coordination rights and retry results are absent from document journals;
+reconnecting clients reconcile acknowledged state. No new selector syntax is enabled.
+
+Ordinary generated edits no longer require application command records or a
+dispatcher. Construct an authority without a handler and author proposals using
+`replica.propose(session, operation, callback[, grants])`. This default endpoint
+uses collaboration protocol version 2 with a version-one `model_change` payload;
+the existing custom-handler constructor retains protocol version 1 and its opaque
+application payloads. Endpoint contexts reject mixing these protocols. Rebuild
+`Serializer::managed` to regenerate the added coordination record. Existing
+envelope field IDs and document/model formats are unchanged.
+
+Session types are now configurable without moving the existing history/traits
+template arguments. `collaboration_authority<Root>` and `collaboration_replica<Root>`
+retain `std::uint64_t` sessions and protocol versions 1/2. Use
+`collaboration_session<Session, SessionTraits>` to select a different type throughout
+the authority, replica, records, results, policy hooks, and lock cache. String and
+unsigned integer policies are supplied; custom policies define identity validity,
+ordering, and a bounded canonical codec. The application owns session creation and
+lifetime; no automatic allocation or numeric mapping is introduced.
+
+Custom session types/policies use protocol 3 for application commands or protocol 4
+for model proposals, with the generated `session_envelope` around existing record
+layouts. Use `encode_collaboration_record`/`decode_collaboration_record<T>` for these
+typed records. Peers must agree on the session policy's stable `wire_name` and codec.
+Rebuild managed support for the added envelope records; existing uint64 message bytes
+and public result/cache aliases are preserved. Closed IDs still cannot be reused
+within an authority epoch. See the [session example](example/managed/collaboration/sessions.cpp).
+
+Draft callbacks run locally and do not change acknowledged state. Keep the encoded
+proposal for exact retries. Resynchronize after a conflict and create a new
+operation; failed creation may consume authority IDs without advancing its accepted
+sequence. Default proposals include a full candidate snapshot and are bounded by
+`max_command_bytes` and the new `max_created_ids` option (4096 by default).
+The collaboration examples now use this API; optional custom-command fixtures live
+under `test/resources/`.
+
 The optional [C++ managed interface](docs/managed/cpp_runtime.md) adds
 `Serializer::managed` and bare `managed` declarations. Regenerate managed headers:
 the default now puts `persistent_id` directly on the schema class, and store reads

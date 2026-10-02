@@ -8,7 +8,7 @@ IDs `1, 2, 3...` within that document only; saved IDs/counters survive reload,
 and undo/deletion never renumber survivors. Explicit member boundaries still apply.
 
 Status: revised design proposal with implemented C++ identity/history and
-[synchronous file journaling](journal.md).
+[synchronous file journaling](journal.md), and [snapshot collaboration with conditional per-session undo/redo](collaboration_runtime.md).
 The [C++ interface](cpp_runtime.md) accepts bare `managed` declarations and centrally
 configured uint32/uint64 IDs. Selectors and the complete four-capability runtime
 remain unimplemented. This document defines their shared contracts and supersedes

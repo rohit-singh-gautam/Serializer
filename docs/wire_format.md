@@ -450,6 +450,130 @@ no such format is introduced by compatibility checking. Existing C++ Protobuf
 binary can skip unknown fields under its [documented limitations](protobuf.md).
 Neither the schema-language version nor `stable_ids` identifies a message wire version.
 
+## Collaboration envelopes
+
+The optional C++ collaboration protocol uses the ordinary `binary_integer` codec
+over [generated coordination records](../schemas/collaboration_records.serializer).
+Its envelope binds protocol version, model schema ID, persistent-ID width,
+document namespace, and authority epoch. Default session IDs and all operation,
+sequence, target, and grant counters are uint64 even for uint32 model IDs; snapshots retain the model's
+configured ID width. Accepted records contain the current model and allocation
+watermark, plus one transaction's field/dependency history metadata. Lock/presence actions
+have explicit values in schema comments and matching runtime enums. Authority-local
+lease deadlines are not serialized. Exact decoding does not establish trusted
+session or authority identity. See the [runtime contract](managed/collaboration_runtime.md)
+for ordering, retry semantics, persistence boundaries, and limits. Existing codec
+and saved-document formats are unchanged. History-bearing coordination messages use
+new protocol bindings because native keyed readers reject added fields.
+
+Protocol version 5 retains opaque application command payloads for custom authority
+handlers. The default authority uses protocol version 6: `change_proposal.command`
+encodes `model_change` with format version 1 (field ID 1), the base allocation
+watermark (2), candidate allocation watermark (3), and complete candidate snapshot
+(4). The outer accepted base sequence and inner base allocation watermark must
+both match authority state. The allocation range is bounded by `max_created_ids`
+and the configured model ID width; the encoded payload and snapshot have separate
+byte limits. Identity validation, final-diff policy checks, and lock validation
+precede publication. Protocol contexts prevent these payloads from being mistaken
+for custom commands. Existing envelope field IDs are unchanged.
+
+Application-defined session types use protocol **7** for custom commands or **8**
+for model proposals. The C++ typed records use the generated `session_envelope`:
+
+| Field ID | Meaning |
+| --- | --- |
+| 1 | `session_format`: stable, nonempty session codec name |
+| 2 | `payload`: exact binary encoding of the corresponding existing record |
+| 3 | `sessions`: ordered `session_value` records, each with encoded ID bytes at field 1 |
+
+Every numeric session field inside the payload is zero. A proposal, acceptance,
+lock request, grant, presence record, or lock update has exactly one session value;
+a lock snapshot has one per grant, in the same order, including repeated owners.
+Nonzero numeric placeholders and mismatched counts are rejected. The typed decoder
+checks the expected session format, per-ID byte limits, canonical re-encoding, and
+exact consumption of both envelope and payload. Caller decode limits also apply
+to nested decoding. Use the public collaboration codec helpers for typed records.
+
+The supplied codecs use `serializer.session.uint8.v1`, `uint16.v1`, `uint32.v1`,
+`uint64.v1` (each with the same `serializer.session.` prefix), or
+`serializer.session.string.v1`. Numeric values use the ordinary binary scalar
+encoding at their declared width. Strings use the ordinary UTF-8 binary string encoding
+and allow at most 4096 encoded bytes by default. Custom policies supply their own
+stable name and bounded codec. Protocols 5/6 use generated records directly for
+the default uint64 policy. Protocols 1..4 remain reserved for the previous records;
+this runtime rejects their context bindings. Join snapshots have operation 0 and a default-constructed session
+value, which carries no authored-edit origin.
+
+### Collaborative history records
+
+`model_change` additionally reserves fields 5 (`history_action`) and 6
+(`target_operation`). Ordinary format-1 edits require both to be zero.
+Format-2 history requests require empty snapshot bytes and zero allocation fields,
+action 2 (undo) or 3 (redo), and an optional target operation in the requesting
+session. Zero selects the current stack tip, which must be visible at the request base sequence. The authority uses its own
+retained values and dependencies for the inverse. A request may have a stale base
+sequence only when the target was already visible and its dependencies still match.
+
+Field 7 of `accepted_change` is `transaction_record`: action (1), target operation
+(2), `field_change` array (3), and `entity_dependency` array (4). Action values are
+1 edit, 2 undo and 3 redo. The outer session/operation/sequence supplies author,
+transaction grouping and accepted order; there is no second author identity.
+Join snapshots contain the default empty record.
+
+`field_change` fields are entity ID (1), schema field ID (2), before/after presence
+(3/4), before/after encoded values (5/6), and before/after contribution versions
+(7/8). Values use the existing generic `binary_integer` codec. Managed ownership
+encodes a child ID, map of application key to uint64 child ID, or array of uint64
+child IDs; descendant payloads are addressed separately. Ordinary fields are
+atomic values, even when they contain nested objects or collections. Absent values
+have false presence and empty bytes. `entity_dependency` holds entity ID (1) and
+before/after attachment versions (2/3). Versions are contribution tokens, restored
+by inverse operations; the outer accepted sequence remains strictly monotonic.
+
+An authority may retain unchanged fields as guards for relocated subtrees. These
+records describe acceptance and do not authorize clients to patch a model directly.
+Both peers must upgrade from protocols 1..4. Ordinary document envelope versions
+remain unchanged; journal restoration uses the new [operation tag 5](managed/journal.md#version-two-file-contract).
+
+### Durable collaboration client records
+
+Store clients use separate generated records; authority messages and protocol
+versions 5/6/7/8 are unchanged. The native journal frame payload is a bounded
+`binary_integer` `client_checkpoint` with kind (field 1), model bytes (2),
+`client_state` (3), and binding string `serializer.collaboration.client.v1` (4).
+Kind 1 contains a complete native managed envelope; kind 2 contains a native journal
+operation, possibly empty. Kind is a wrapper discriminator, not a native journal
+operation tag. Existing file framing/CRC/flush rules enclose the entire pair.
+Ordinary model readers reject this wrapper. `save()` emits a full kind-1 checkpoint.
+
+`client_state` field IDs are format version **1** (1), session policy name (2),
+canonical session bytes (3), authority domain (4), acknowledged model in local IDs
+(5), accepted receive cursor (6), authority allocation watermark (7), last reserved
+operation number (8), identity mappings (9), transaction records (10), pending FIFO
+(11), local undo stack (12), redo stack (13), exact in-flight proposal bytes (14),
+provisional ID mappings (15), and synchronization interval in milliseconds (16).
+Stacks and queues reference one-based transaction numbers. Identity mappings hold
+local uint64 (1) and authoritative uint64 (2), validated against the model ID width.
+The operation watermark includes IDs reserved for host lock requests through
+`session.reserve_operation_id()`, as well as document submissions. Reservations
+may leave gaps and need no transaction entry. This uses the existing field 8;
+the checkpoint format is unchanged. Host lock request payloads are not stored in
+the document outbox merely by reserving an ID.
+
+`client_transaction` fields are local number (1), history action (2), local target
+number (3), before/after model bytes (4/5), authority operation/epoch (6/7), status
+(8), grant references (9), invalidated flag (10), label (11), and accepted sequence
+(12). Actions retain 1 edit, 2 undo, 3 redo. Status values are 1 queued, 2 accepted,
+3 conflict, 4 denied, 5 obsolete grant, 6 failed, 7 uncertain, 8 discarded. Accepted
+sequence may lead the receive cursor when sending and receiving separately.
+
+Local model IDs are stable independently of authoritative IDs. Translation applies
+only to generated persistent identity slots; ordinary scalar fields and map keys
+retain application values. Persisted exact requests are retried only in their own
+authority epoch. Client history durability does not restore authority deduplication
+or grant/version tables. See [local collaboration](managed/local_collaboration.md)
+for recovery prerequisites, validation, budgets and explicit conflict resolution.
+
 ## Diagnostics
 
 `rohit::exception::base_parser::code()` exposes `invalid_input`, `invalid_type`,

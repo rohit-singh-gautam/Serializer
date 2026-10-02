@@ -146,7 +146,7 @@ export function registerNavigation(context: vscode.ExtensionContext): void {
 
   /** Resolve generated types through their language service instead of guessing from caller text. */
   async function declarations(document: vscode.TextDocument, position: vscode.Position,
-    token: vscode.CancellationToken): Promise<vscode.Location[]> {
+    token: vscode.CancellationToken, resolveType = false): Promise<vscode.Location[]> {
     const offset = document.offsetAt(position);
     const include = ['cpp', 'c'].includes(document.languageId) && cppIncludeAt(document.getText(), offset);
     const resolver = await navigator(document, token, !include);
@@ -161,7 +161,7 @@ export function registerNavigation(context: vscode.ExtensionContext): void {
     if (local.length) { return locations(local, token); }
     if (token.isCancellationRequested) { return []; }
     const resolved = await vscode.commands.executeCommand<Array<vscode.Location | vscode.LocationLink>>(
-      'vscode.executeDefinitionProvider', document.uri, position) ?? [];
+      resolveType ? 'vscode.executeTypeDefinitionProvider' : 'vscode.executeDefinitionProvider', document.uri, position) ?? [];
     const targets: NavigationTarget[] = [];
     for (const target of resolved) {
       if (token.isCancellationRequested) { return []; }
@@ -199,11 +199,17 @@ export function registerNavigation(context: vscode.ExtensionContext): void {
 
   const selector = navigationLanguages.map(language => ({ language, scheme: 'file' }));
   const declarationProvider = provider(declarations);
+  // Explicit schema lookup may follow aliases/variables; native declarations retain their own meaning.
+  const typeDeclarationProvider = provider((document, position, token) => declarations(document, position, token, true));
   context.subscriptions.push(vscode.languages.registerDeclarationProvider(selector, {
     provideDeclaration: declarationProvider
   }), vscode.languages.registerDefinitionProvider(
     selector.filter(item => ['serializer', 'cpp', 'c'].includes(item.language)),
-    { provideDefinition: provider(definitions) }));
+    { provideDefinition: provider(definitions) }),
+    // Schema types are defined in their source; generated-language type lookup stays native.
+    vscode.languages.registerTypeDefinitionProvider({ language: 'serializer', scheme: 'file' }, {
+      provideTypeDefinition: declarationProvider
+    }));
 
   /** Open one available destination, asking only when several existing outputs apply. */
   async function show(destinations: vscode.Location[]): Promise<void> {
@@ -234,7 +240,11 @@ export function registerNavigation(context: vscode.ExtensionContext): void {
     if (!editor || !navigationLanguages.includes(editor.document.languageId)) { return; }
     const cancellation = new vscode.CancellationTokenSource();
     try {
-      const targets = await declarationProvider(editor.document, editor.selection.start ?? editor.selection.active, cancellation.token);
+      const position = editor.selection.start ?? editor.selection.active;
+      let targets = await declarationProvider(editor.document, position, cancellation.token);
+      if (!targets.length && editor.document.languageId !== 'serializer' && !cancellation.token.isCancellationRequested) {
+        targets = await typeDeclarationProvider(editor.document, position, cancellation.token);
+      }
       if (targets.length) { await show(targets); }
     } finally { cancellation.dispose(); }
   }), vscode.commands.registerCommand('serializer.openGeneratedHeader', openGeneratedHeader),

@@ -8,6 +8,7 @@ if(NOT TARGET Serializer::managed)
 endif()
 add_subdirectory(ledger)
 add_subdirectory(journal)
+add_subdirectory(collaboration)
 
 # Build the point lessons independently, or all together through this target.
 add_custom_target(managed_point_examples)

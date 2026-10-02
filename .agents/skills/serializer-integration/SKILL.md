@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin, or C applications from a provided repository or existing dependency. Use for .serializer schemas, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, schema compatibility checks and reservations, stream concepts, durable file streams and iostream adapters, exact fresh-value decoding, managed journal/crash recovery, optional message compression, JSON or binary codecs, database persistence guidance, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
+description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin, or C applications from a provided repository or existing dependency. Use for .serializer schemas, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, schema compatibility checks and reservations, stream concepts, durable file streams and iostream adapters, exact fresh-value decoding, managed journal/crash recovery and C++ local collaboration with store-owned sessions, timed synchronization and undo, optional message compression, JSON or binary codecs, database persistence guidance, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
 ---
 
 # Serializer Integration
@@ -36,8 +36,9 @@ there instead of relying on the relative links.
   value; linear is the default). Each specialization stores only its selected
   representation. `store_options` has no mode field; `reset_history()` clears
   enabled history without switching modes. Runtime journaling is independent of
-  history mode; collaboration/authorization and schema capability selectors
-  remain proposals, not supported template arguments.
+  history mode. The store-owned collaboration attachment below composes with each mode;
+  built-in authorization policies and schema capability selectors remain proposals,
+  not supported template arguments.
   Labels default to `history_labels::disabled`, with no string member or serialized
   label field. Opt in with the third argument `history_labels::enabled`; custom
   traits are the fourth argument. Enabled stores accept named and unnamed
@@ -74,7 +75,7 @@ there instead of relying on the relative links.
   for each append. Use journal record/file budgets with store decoding limits. See the [journal guide](../../../docs/managed/journal.md)
   for versioned framing, single-writer locking, platform flush assumptions, and
   limitations. Selectors, exclusions, custom allocation, background checkpoints,
-  delta journals, authorization, collaboration, and other-language runtimes remain
+  delta journals, built-in authorization policies, and other-language runtimes remain
   future work. Do not present the complete proposals below as shipped behavior.
   Omit the store constructor's document argument for automatic namespace creation;
   explicit namespaces remain supported. Root/managed child IDs are allocated 1, 2,
@@ -185,7 +186,7 @@ there instead of relying on the relative links.
   [wordpad](../../../example/managed/wordpad/README.md) schema examples have their
   own folders and are compiled in integration tests.
 - Treat [managed state](../../../docs/managed/managed_state.md) as a companion proposal.
-  Its broader generated `managed` interfaces, scoped authorization, merging, collaboration,
+  Its broader generated `managed` interfaces, scoped authorization, merging, advanced collaboration,
   distributed transactions, and external-effect handling are unimplemented.
   Inferred companion generation is implemented in C++; selectors such as
   `managed(history)` and `managed(all except history)` remain proposed syntax.
@@ -196,16 +197,140 @@ there instead of relying on the relative links.
   `exclude(history, collaboration)` is a proposed ordinary-value exclusion that
   preserves serialization and mandatory policy checks; it does not confer identity.
   Authentication and invitation management remain application responsibilities.
-  The [collaboration contract](../../../docs/managed/collaboration.md) specifies
-  opaque sessions, accepted batches, informational presence, and optional
-  authoritative entity/subtree locks. Keep grant/lease tables in the store,
-  separate from payloads, undo, and document recovery. Local cached checks do not
-  replace atomic authority validation/publication; trusted accepted replication
-  is distinct from authorizing the observing session to edit. Host adapters own
-  transport, trusted session binding, clocks, and any consensus/failover fencing.
-  RAII release must not wait for network I/O; expiry handles failed delivery.
-  Portable records must originate in schemas when implemented. The document's
-  interfaces, indexes, and efficiency targets are proposals, not current APIs.
+  Use the implemented [C++ collaboration runtime](../../../docs/managed/collaboration_runtime.md)
+  and [runnable examples](../../../example/managed/collaboration/README.md) for
+  actual integration. Include `<rohit/managed_collaboration.hpp>`, link
+  `Serializer::managed`, and regenerate model headers for `visit_collaboration`,
+  `visit_collaboration_fields`, and `merge_collaboration`.
+  `collaboration_authority<Root, Mode, Labels, Traits>` privately owns the store;
+  construct it without a command handler for ordinary generated edits.
+  For immediate local editing, follow the [store integration guide](../../../docs/managed/local_collaboration.md):
+  attach with `store.collaborate(session, options)`, bind a host-authenticated transport,
+  and join a fresh placeholder before editing. Keep using normal generated editors
+  and all existing `model_store` transaction forms. The store owns its typed session,
+  local undo/redo, outbox, receive cursor and identity mappings. Journals flush each
+  committed transaction with its client state; synchronization cadence is independent.
+  Call `store.synchronize()` explicitly/on reconnect, or drive `synchronize_if_due(now_ms)`
+  from the owner-thread event loop. The default interval is 5000 ms; zero is explicit
+  only. `send_pending()` sends one transaction; `receive_changes()` only receives.
+  Receive accepted changes before sending a successor; retry unresolved delivery
+  exactly before pull-only receiving. Bind transports by reference and keep them alive.
+  The supplied `collaboration_transport` is in-process; the host supplies network I/O.
+  Callbacks are never replayed. Disjoint fields rebase; container membership and order
+  remain atomic fields. Conflicts/rejections keep the complete local view, expose
+  `acknowledged_read()` separately, and retain drafts in `state()`. After fixing a
+  known denial/lease failure use `retry_pending()`; resolve conflicting intentions
+  explicitly with retained drafts, `discard_pending()`, and a normal new transaction.
+  Lost replies retain exact request bytes; a new epoch marks work uncertain for host
+  reconciliation. Never claim durable authority deduplication across epochs.
+  `store.undo()` and linear `store.redo()` create local inverse transactions.
+  Prefer these store methods and `execute_transaction` for application modifications;
+  the [store undo example](../../../example/managed/collaboration/undo.cpp) journals both
+  clients through ordinary `create_journal`/`save_journal` calls. `synchronize()` handles
+  request submission and accepted changes; applications need no `propose`/`deliver` helper.
+  The internal journal adapter pairs model records with session/outbox metadata in
+  the existing durable file mechanism, so recovery cannot separate an edit from its
+  pending send or acknowledgement. No application-owned store wrapper is needed.
+  For host lock requests, call `store.collaboration().reserve_operation_id()` after
+  joining. Locks and document submissions share the persisted operation counter;
+  never supply an independent counter for the same session. The host must retain
+  each lock request for exact retries; reserving an ID does not enqueue that request.
+  See the [store locks example](../../../example/managed/collaboration/locks.cpp).
+  Tree branch checkout/reset are unavailable while attached; collaborative redo on
+  a tree store uses `store.collaboration().undo(true)`. Disabled native history still
+  queues edits. Labels survive sync/recovery. An attached journal uses the existing
+  store journal pointer and file adapter with one model/session wrapper per frame.
+  Attach the same session to a fresh store before load/recovery, then synchronize;
+  ordinary model readers cannot open client checkpoint format 1. Save preserves
+  pending work. One active writer owns each session within an authority epoch.
+  Offline persistent IDs are client-local, mapped durably to authority IDs; use
+  `remote_id`/`local_id` at server/UI boundaries. Do not remap arbitrary integer
+  fields, map keys or application references. Client transactions/state bytes and
+  authority command/history budgets are bounded; retained records count and no
+  automatic compaction is implemented. See the [local example](../../../example/managed/collaboration/local_sync.cpp).
+  The lower-level acknowledged-state API remains available. Use
+  `replica.propose(session, operation, callback[, grants])`; the callback runs once
+  on an isolated draft using generated transaction editors. No application command
+  schema or dispatcher is required. With default uint64 sessions, the authority uses protocol version 6
+  with a version-one `model_change` snapshot payload. Custom synchronous host
+  command handlers remain optional and use protocol version 5; contexts reject
+  mixing the two. Rebuild the managed target for the new coordination record.
+  Bind the claimed session to a separate trusted host session.
+  Applications own session creation, storage, connection binding, and lifetime.
+  Use `collaboration_session<Session, SessionTraits>` and its `authority<Root>`,
+  `replica<Root>`, `records`, `result`, and `lock_cache` aliases for custom session
+  types. String and unsigned integer policies are supplied; uint64 remains default.
+  No registry or numeric mapping is imposed. Custom policies provide a stable
+  `wire_name`, `max_encoded_bytes`, `valid`, `less`, and bounded canonical
+  `encode`/`decode` functions. IDs must own their data and be default-constructible
+  and copyable; equivalent identities must encode identically. Sessions retain their
+  type in changes, locks, presence, retries, trusted arguments, and policy hooks.
+  Use the collaboration codec helpers for typed records: protocols 7/8 carry a
+  generated session envelope around existing command/model records; peers must agree
+  on the session policy and codec. Default uint64 endpoints use protocols 5/6.
+  Upgrade both peers: protocols 1..4 lack history fields and are rejected.
+  Rebuild managed support for the added envelope records. See the
+  [session policy contract](../../../docs/managed/collaboration_runtime.md#application-owned-sessions).
+  Open an ID once per participation lifetime; after closure use a new ID or a new
+  application generation within the ID. Closed IDs cannot be reused in an epoch.
+  Ordinary `submit_change` requires the accepted base sequence and a nonzero operation ID;
+  exact retries return the retained result, different-payload reuse throws, and
+  conflicts require reconciliation plus a new operation ID. Never blindly retry
+  callbacks or perform external effects before acceptance.
+  `collaboration_replica` receives ordered trusted accepted snapshots; authoring a
+  proposal does not change that state or grant edit permission. Draft IDs are
+  provisional until acceptance. Resynchronize after a conflict even if the accepted
+  sequence is unchanged: rejected creation may consume authority IDs.
+  Use `snapshot`/`synchronize` for join and explicit
+  recovery, `accepted_since` for delivery/retry, and treat gaps as resync requests.
+  `change_lock` manages optional entity/subtree leases; proposals supply current
+  `{target, generation}` references. Final generated ownership diffs include
+  deletions and moves. Drive `advance_expiry` with host monotonic milliseconds.
+  `lock_snapshot`/`locks_since` feed `collaboration_lock_cache`; prune acknowledged
+  lock events explicitly. Incomplete caches confer no edit rights. Presence is
+  advisory; ended/expired lifetimes require new IDs and cannot be resurrected.
+  Host policy hooks gate final changes and lock requests but are not a built-in
+  inherited permission engine. Transport, authenticated session binding, policy
+  synchronization, and leader/epoch fencing remain host responsibilities.
+  Save/load and journal recovery preserve document/history only; recover before
+  opening sessions in a fresh fenced epoch. Rights and retry outcomes do not
+  survive restart, so uncertain replies across epochs need application reconciliation.
+  Configure retry/byte/session/presence/lock budgets. Default proposals carry the
+  complete candidate snapshot, bounded by `max_command_bytes` (default 1 MiB);
+  `max_created_ids` bounds new-ID reservations (default 4096). The runnable example
+  combines the server authority and client replicas in one process. Session IDs
+  carry no inherent local/remote/read-only role; the authority enforces write access.
+  Retained retries and tombstones
+  count for the epoch; no automatic deduplication compaction exists. This version
+  sends full snapshots, rejects stale ordinary edits at document scope, and scans active locks for
+  overlap/expiry. General merging, deltas, grouped leases, and other-language
+  engines in the [broader design](../../../docs/managed/collaboration.md) remain proposals.
+  Use `replica.undo(session, operation[, target_operation, grants])` and `redo`
+  for conditional per-session history on generated model endpoints. Submit through
+  the same trusted authority path and replicate only accepted results. A nonzero
+  target must match the stack tip; zero chooses the latest visible tip. The inverse
+  comes from retained authority history, not client-supplied values. Every accepted
+  batch carries `history`: stable entity/field addresses, before/after presence and
+  codec values, active contribution versions, and ownership dependencies. The outer
+  session/operation/sequence supplies authorship and transaction grouping. Preserve
+  unrelated edits; reject the complete inverse on conflicting field versions or
+  ancestry, including ordinary write-away/write-back ABA changes. Structural map
+  membership and array order are currently atomic at the containing field level.
+  Ordinary nested values remain atomic fields. Recheck current policy and leases;
+  failure/no-op preserves history, new local accepted edits clear that session's
+  redo, and retries retain the original result. Use `undo_operation`/`redo_operation`
+  only as stack inspection, never as permission checks. Version tokens restore
+  earlier contributions on undo; accepted sequence always advances.
+  Bound retained before snapshots and metadata with `max_retained_bytes`, and field
+  projection/version tombstones with `max_tracked_fields` (default 100000). The
+  document journal persists undo's result through restoration tag 5, including
+  original deleted IDs, but not collaborative stacks or version tombstones across
+  authority epochs. Upgrade journal readers for tag 5. Normal transactions cannot
+  resurrect retired IDs. Store clients implement immediate local editing/undo and
+  durable periodic synchronization as described above; general conflict-free merging
+  and peer-to-peer authority ordering remain unimplemented. See the
+  [store undo example](../../../example/managed/collaboration/undo.cpp) and
+  [history contract](../../../docs/managed/collaboration_runtime.md#conditional-collaborative-undo-and-redo).
 - Use [docs/usage.md](../../../docs/usage.md) for the schema, CMake, and codec examples.
 - Use [docs/portable_languages.md](../../../docs/portable_languages.md) for JS/TypeScript,
   Go, C#, target SDKs, type mappings, limits, and interoperability.
@@ -439,12 +564,12 @@ not create headers. No custom VS Code task or Serializer editor extension is
 required, and `.vscode/*` remains ignored. Editor provider settings may be user-level.
 The optional Rohit Serializer extension (`rohitjairajsingh.serializer-language`)
 in `editors/vscode` highlights `.serializer`, offers
-32×32 language icons for Explorer/editor tabs where the file icon theme permits them,
+32Ã—32 language icons for Explorer/editor tabs where the file icon theme permits them,
 versioned snippets, and invokes the same targets through CMake Tools. Run the root
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 1.1.8 is shared with the Visual Studio extension and is independent of
+version 1.1.12 is shared with the Visual Studio extension and is independent of
 compiler and schema versions. Keep both editor extension versions equal.
 Both package descriptions and READMEs identify the
 [Serializer repository](https://github.com/rohit-singh-gautam/Serializer). Configure
@@ -464,12 +589,25 @@ output and use existing `<output>.d` or workspace multi-output `.d` dependencies
 legacy basename/profile matches as choices. An already active CMake model can
 narrow lookup but navigation must also work without it and in Restricted Mode.
 Use the built-in `Go to Declaration` menu action, including for whole-name selections.
+Use `Go to Type Definition` in schemas to reach the source class/enum declaration
+or included schema. All three actions accept declaration keywords and forward/reversed
+`class ledger` selections. On a declaration itself, declaration/type definition select
+that same schema name. Field names and primitives have no schema type destination;
+generated-language type lookup remains with the native language provider.
 Caller type references in C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python,
 Swift, Kotlin, and C use their installed language definition providers.
 For reliable ownership of renamed/flattened output, retain the compiler's
 `--depfile` output in the workspace; native generators without a banner require
 dependency metadata. Use `Serializer: Go to Schema Declaration` from the Command
-Palette when other providers add non-schema declaration locations. Do not override
+Palette when other providers add non-schema declaration locations. That explicit
+command also follows a native type-definition result for aliases/variables when
+ordinary definition stops at their local declaration; native commands retain
+their language semantics. For this repository's managed ledger tests/examples,
+keep `SERIALIZER_BUILD_MANAGED=ON` in the active CMake configuration and pass it
+again after removing the build cache (`./make.ps1 all -CMakeArgs
+'-DSERIALIZER_BUILD_MANAGED=ON'`). A clean default build leaves managed targets off.
+Use the same build directory/configuration in CMake Tools as the command-line build;
+do not combine include paths from unrelated targets. Do not override
 VS Code's global commands or disable other language services.
 For file-level navigation, right-click a `.serializer` file in Explorer or its
 editor tab and choose `Serializer: Go to Implementation`. It uses the clicked
@@ -482,6 +620,11 @@ then install it using Visual Studio's VSIX Installer. It shares the canonical
 grammar, custom-type highlighting and navigation resolver. Native Go to Declaration
 opens schema includes/types and maps generated declarations in all 11 languages
 back to their schemas. Go to Definition/Ctrl+click on schemas prefer existing output.
+Go to Type Definition on schemas opens the source type or included schema too.
+For repository C# editing, select `editors/visual_studio/serializer_editors.sln`
+using the workspace's `dotnet.defaultSolution`; do not load temporary project copies
+from `out/`. The extension/test projects declare identical Windows runtime targets
+for Visual Studio and C# language-server restores.
 From caller code, use its language service to reach the generated declaration first.
 The VS package does not supply VS Code's CMake commands or snippets; Node.js is
 needed to build the shared bundle, but is not required at runtime.

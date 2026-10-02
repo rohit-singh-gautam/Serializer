@@ -47,7 +47,13 @@ struct journal_options {
 namespace detail {
 
 // Version-two operation tags; selection and allocation records never carry model snapshots.
-enum class journal_record_kind : std::uint8_t { edit = 1, select = 2, reserve = 3, reset = 4 };
+enum class journal_record_kind : std::uint8_t {
+  edit = 1,
+  select = 2,
+  reserve = 3,
+  reset = 4,
+  restore_edit = 5
+};
 
 // Write a little-endian word into a caller-owned fixed prefix without allocation.
 void journal_put_word(std::span<std::uint8_t> bytes, std::size_t offset, std::uint64_t value);

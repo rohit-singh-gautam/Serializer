@@ -20,6 +20,17 @@ file modes, closing before full Save, replay, undo/redo, and full checkpointing.
 
 ## Using the implemented journal
 
+Journal cadence is per transaction, not periodic: a committed edit is flushed before
+it becomes visible. An application may schedule full checkpoints separately.
+With [store collaboration](local_collaboration.md), the same journal pointer pairs
+each native model record with the session/outbox state in one durable frame. Outgoing
+request bytes and acknowledgements are persisted too. Network synchronization can run
+every few seconds/minutes independently. Client wrappers preserve appended/sidecar
+durability rules but require a fresh store with the same attached session to recover;
+ordinary model readers cannot read them. Attach and join before `create_journal`, or
+attach and `recover_journal` before first synchronization. `save_journal` retains
+pending work. Branch checkout/reset are unavailable while collaboration is attached.
+
 Enable `SERIALIZER_BUILD_MANAGED`, link `Serializer::managed`, and use an existing
 bare-`managed` schema. No generator option or schema selector is needed:
 
@@ -220,6 +231,17 @@ payloads start with one operation byte:
 | Select `2` | uint64 linear cursor index or tree revision ID. |
 | Reserve `3` | uint64 next allocated object ID, required to advance by one. |
 | Reset `4` | No additional bytes. |
+| Restore edit `5` | Same layout as Edit; a collaboration-authorized inverse may restore previously allocated, absent entity IDs. |
+
+Restore edits are emitted only through the authority's private history restoration
+path after checking the retained source transaction, current contribution versions,
+ownership, authorization, and locks. Ordinary transaction callbacks still cannot
+resurrect retired identities. Replay bounds IDs by the allocation watermark, rejects
+duplicate IDs, root replacement and retyping of live IDs, and applies the restored
+snapshot atomically. The allocator never moves backwards. Older readers reject tag 5;
+upgrade journal readers before sharing files containing collaborative undo/redo.
+The document journal preserves the resulting model and local snapshot history, not
+the authority's session history, retry results, or temporary permissions.
 
 An edit drops a linear redo suffix, applies exactly the writer's front-eviction
 count, and appends the new snapshot. Tree edits allocate the next revision with
@@ -251,10 +273,13 @@ power-cut qualification. See the runtime guide for the tested platforms.
 ## Further design and optimizations
 
 The sections below preserve the broader design. Selector syntax, typed deltas,
-background checkpoints, asynchronous acknowledgements,
-replication, and persistent excluded-value overlays are not implemented. The current
-adapter realizes their core durability/identity rules using a full base plus
-framed snapshots/control records and one synchronous writer.
+background checkpoints, asynchronous journal acknowledgements,
+and persistent excluded-value overlays are not implemented.
+[Store collaboration](local_collaboration.md) reuses this journal mechanism and
+pairs model records with client session/outbox state for recovery. The separate
+[authority and replica APIs](collaboration_runtime.md) do not persist authority
+lease tables, deduplication or contribution history across epochs. The current
+file adapter uses a full base plus framed records and one synchronous writer.
 
 ## Meaning and naming
 

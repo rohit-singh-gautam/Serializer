@@ -7,8 +7,11 @@ New documents get a namespace automatically. Root and managed descendants alloca
 IDs `1, 2, 3...` within that document only; saved IDs/counters survive reload,
 and undo/deletion never renumber survivors. Explicit member boundaries still apply.
 
-Status: design proposal only. These records, interfaces, lock policies, and runtime
-components are not implemented. See the [managed design index](README.md) and
+Status: broader design contract with an implemented [C++ snapshot collaboration runtime](collaboration_runtime.md).
+That guide and the [runnable examples](../../example/managed/collaboration/README.md)
+define current APIs, generated wire records, conditional per-session undo/redo,
+verification, and limitations. Compact delta-only transport, optimized indexes, grouped leases, distributed features,
+and other-language engines below remain proposals. See the [managed design index](README.md) and
 [capability contract](capabilities.md). Locking and editing presence are optional
 collaboration policies, not additional `managed(...)` keywords.
 
@@ -50,12 +53,11 @@ These rules govern managed APIs, not arbitrary writes to public objects or memor
 | Editing presence | A session reports what it is editing or previewing | Temporary; never grants edit permission or blocks another session |
 | Lock state | The authority grants, releases, revokes, or expires exclusive editing rights | Temporary coordination state, outside document undo |
 
-Conceptual record fields below are not finalized wire layouts. Define concrete
-data classes in `.serializer` and generate all language representations when the
-protocol is implemented. Runtime engines, indexes, providers, and guards wrap
-those generated records; do not present handwritten runtime classes as compiler
-output. The current [walkthrough schema](walkthrough.serializer) does not yet
-include these collaboration records.
+Conceptual record fields below describe the broader protocol. The implemented
+history-bearing snapshot records are defined in
+[collaboration_records.serializer](../../schemas/collaboration_records.serializer).
+Runtime engines and indexes wrap generated records; they are not compiler output.
+The separate [walkthrough schema](walkthrough.serializer) remains illustrative.
 
 An envelope carries document/domain identity, protocol/schema/profile version,
 and an authority epoch where applicable. Domain identity need not be repeated on

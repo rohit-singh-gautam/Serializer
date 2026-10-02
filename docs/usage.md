@@ -25,8 +25,54 @@ increment within each document. Save/load preserves identities and allocation st
 Synchronous [journal and crash recovery](managed/journal.md) is available through
 `create_journal`, `recover_journal`, and `save_journal`, with appended or sidecar
 files. Commits and history navigation flush before publication; `journal_dirty()`
-tracks unsaved values independently. Collaboration, selectors, and other-language
+tracks unsaved values independently. Selectors and other-language
 managed runtimes remain proposals.
+
+For shared editing, use the [local store integration](managed/local_collaboration.md)
+and [runnable examples](../example/managed/collaboration/README.md).
+Attach a typed session with `store.collaborate(session)`, bind a transport and join
+before editing. Normal `model_store` transactions immediately update local values
+and queue changes; an attached journal flushes each commit together with the outbox.
+`store.undo()` and linear `store.redo()` create local inverse transactions. The
+[working undo example](../example/managed/collaboration/undo.cpp) uses these store
+methods for every edit and history operation, with ordinary journals on both clients.
+`store.synchronize()` exchanges work, or drive `synchronize_if_due(now_ms)` from the
+owner thread at a configurable interval. `send_pending()` and `receive_changes()`
+separate those directions. The store preserves drafts on conflicts and rejections;
+received authoritative state is available through `store.collaboration().acknowledged_read()`.
+Client save/recovery preserves the session, local history and exact outstanding request.
+Transport reconnect and conflict-resolution choices belong to the application.
+Host lock requests use `store.collaboration().reserve_operation_id()` after joining
+to share the store's journaled operation counter; the host retains those requests
+for exact retries. The [locks example](../example/managed/collaboration/locks.cpp)
+passes acquired grants to the store session and edits through normal transactions.
+
+The lower-level [C++ collaboration runtime](managed/collaboration_runtime.md) remains
+available for explicitly acknowledged-state clients. A
+default `collaboration_authority` accepts proposals created with
+`replica.propose(session, operation, [](auto& edit) { ... })`. The callback uses
+generated editors on a private draft; no application command schema or dispatcher
+is required. Replicas apply ordered accepted snapshots, and custom server command
+handlers remain optional. It includes retry deduplication,
+base conflicts, presence, entity/subtree lease locks, and optional host policy hooks.
+Accepted records also expose `history.fields` and `history.dependencies`, grouped by
+the outer author/operation/sequence. Use `replica.undo(session, next_operation)` or
+`replica.redo(session, next_operation)`, then submit and replicate the result exactly
+as an edit. Undo/redo passes current authorization and lock checks, preserves unrelated
+fields, and fails atomically on intervening conflicting changes. See the
+[detailed history contract](managed/collaboration_runtime.md#conditional-collaborative-undo-and-redo).
+These are acknowledged-state requests, not optimistic local writes. Both peers need
+the history-bearing protocol and regenerated managed headers; consult [migration](../migration.md).
+Include `<rohit/managed_collaboration.hpp>` and rebuild the managed target and model
+headers. Default proposals carry a full candidate snapshot; draft IDs are provisional
+until acceptance. After a conflict, resynchronize and use a new operation ID.
+Session management belongs to the application. Existing APIs default to `uint64_t`;
+select `collaboration_session<Session, SessionTraits>` for string, smaller unsigned,
+or custom IDs and use its `authority<Root>`, `replica<Root>`, `records`, and `lock_cache`
+aliases. The [session policy guide](managed/collaboration_runtime.md#application-owned-sessions)
+describes validation, codecs, lifecycle, and wire compatibility.
+Transport and trusted session binding belong to the host. Inherited authorization
+rules, general conflict-free merging and peer-to-peer ordering remain unimplemented.
 
 To bound linear history for the generated point in the
 [history example](../example/managed/history/main.cpp):
@@ -122,6 +168,11 @@ It also navigates includes and type references: both **Go to Declaration** and
 contribute multiple declarations to generated output. On a type reference,
 **Go to Definition** opens matching generated output or falls back to the schema
 type declaration when no generated definition is available.
+**Go to Type Definition** opens the source schema type (or included schema for an
+include). All three actions accept declaration keywords and type names, including
+forward/reversed `class ledger` selections. Already being at that declaration can
+leave the editor on the same line. Field names and primitives have no schema type
+destination; generated-language type lookup remains with its language service.
 Enum type references inside field defaults, such as `AccountState` in
 `AccountState::WaitingForReview`, support both actions.
 For an entire schema, right-click its file in Explorer or its editor tab and
@@ -130,11 +181,17 @@ choose **Serializer: Go to Implementation** to open existing output in any of th
 and whole-name selections. Caller type references require their language's
 definition provider; retain the compiler's `--depfile` for precise output ownership.
 Navigation never builds or offers generation; see
+the [navigation coverage matrix](editor_navigation.md#navigation-coverage-matrix).
+In VS Code, the explicit **Serializer: Go to Schema Declaration** command also
+follows native type definitions through aliases and variables. Managed ledger
+examples/tests require `SERIALIZER_BUILD_MANAGED=ON` in the active CMake build,
+including after deleting the build cache. See
 [available-file navigation](editor_extension.md#navigate-available-schemas-and-headers).
 The separate [Visual Studio extension](../editors/visual_studio/README.md) packages
 the shared grammar, custom-type highlighting, and native schema navigation for
 Visual Studio 2022/2026 on Windows x64. Go to Declaration opens schemas, and
 Go to Definition/Ctrl+click on schema types prefer existing generated output.
+Go to Type Definition resolves schema types/includes to their source too.
 Generated type declarations in all 11 languages map back to their schemas; caller
 references first use the native language service to reach that generated type.
 Neither extension is required for compilation or codecs.

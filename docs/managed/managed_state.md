@@ -1,5 +1,12 @@
 # Managed state, authorization, and collaboration proposal
 
+Implemented collaboration now has a separate [C++ runtime guide](collaboration_runtime.md)
+and [runnable examples](../../example/managed/collaboration/README.md). The broader
+authorization policies, merges, selectors, and distributed commits in this document
+remain proposals. Current collaboration supplies host policy hooks and conditional
+per-session undo/redo. [Store-owned local editing](local_collaboration.md) also supports
+durable pending changes and timed sync; inherited permission policies remain proposed.
+
 Current C++ representation: managed schema classes carry `persistent_id` directly
 by default. Separate ID-free values/storage wrappers in the illustrations below
 require `[managed] separate_values = true`; see the [runtime contract](cpp_runtime.md).
@@ -10,7 +17,7 @@ and undo/deletion never renumber survivors. Explicit member boundaries still app
 Status: broader design direction. The [C++ interface](cpp_runtime.md) implements
 bare `managed` declarations, generated identity and editors, transactions, and
 snapshot history, and [synchronous journaling](journal.md). This document extends
-the [history contract](history.md); authentication, authorization, collaboration, distributed commits, and
+the [history contract](history.md); authentication, inherited authorization, distributed commits, and
 external-effect adapters remain unimplemented.
 
 The [design index](README.md) also links the [data structures](data_structures.md)
