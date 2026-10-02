@@ -54,6 +54,13 @@ See [command-line options](docs/command_line.md) for multi-language generation a
 See [Java output](docs/java.md) for dependency-free Java 17+ codecs and
 [all examples](example/README.md) for self-contained example folders.
 
+The [managed wire examples](example/managed/multilanguage/README.md) qualify
+history, journal-baseline, collaboration, and opaque-session records across
+language codecs. These are record-exchange tests, not ports of the managed runtime;
+native managed engines outside C++ remain unimplemented.
+Kotlin accepts the contextual property name `field`, used by collaboration records,
+while preserving its wire spelling and field ID.
+
 **Existing callers:** follow the [migration guide](migration.md) and regenerate
 headers before compiling against the updated API.
 

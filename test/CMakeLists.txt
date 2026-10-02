@@ -14,6 +14,7 @@ add_executable(core_serializer_test
   serializer_parser_test.cpp
   schema_version_test.cpp
   managed_schema_test.cpp
+  managed_lowering_test.cpp
   schema_compatibility_test.cpp
   schema_include_test.cpp
   schema_scan_test.cpp

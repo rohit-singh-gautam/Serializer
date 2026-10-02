@@ -1,0 +1,41 @@
+{
+  "revision": 0,
+  "state": {
+    "format_version": 3,
+    "schema_id": "serializer.managed.exchange.v1",
+    "id_bits": 32,
+    "document_high": 17,
+    "document_low": 29,
+    "allocated_id": 2,
+    "mode": 1,
+    "current_snapshot": [
+      1,
+      2,
+      3
+    ],
+    "entries": [
+      {
+        "snapshot": [
+          0,
+          2,
+          3
+        ]
+      },
+      {
+        "snapshot": [
+          1,
+          2,
+          3
+        ]
+      },
+      {
+        "snapshot": [
+          2,
+          2,
+          3
+        ]
+      }
+    ],
+    "cursor": 1
+  }
+}

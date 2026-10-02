@@ -49,6 +49,8 @@ add_library(serializer_lib
   src/simd_dispatch.hpp
   src/runtime_simd.cpp
   src/cpp_writer.cpp
+  src/managed_schema.hpp
+  src/managed_lowering.hpp
   src/native_schema.cpp
   src/c_writer.cpp
   src/c_runtime.inc
@@ -274,4 +276,13 @@ if(SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
       ${native_example_options})
   set_tests_properties(serializer_language_examples serializer_native_codecs PROPERTIES
     TIMEOUT 1800 LABELS serializer_native)
+  foreach(feature IN ITEMS history journal collaboration authentication)
+    add_test(NAME "serializer_managed_wire_${feature}"
+      COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/example/managed/multilanguage/run.py"
+        --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_lib>"
+        --build "${PROJECT_BINARY_DIR}/managed_wire" --feature "${feature}"
+        ${native_example_options})
+    set_tests_properties("serializer_managed_wire_${feature}" PROPERTIES
+      TIMEOUT 1800 LABELS "serializer_native;serializer_managed_wire")
+  endforeach()
 endif()

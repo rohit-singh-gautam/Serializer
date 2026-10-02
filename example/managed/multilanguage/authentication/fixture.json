@@ -1,0 +1,33 @@
+{
+  "revision": 0,
+  "session": {
+    "session_format": "example.opaque-session.v1",
+    "payload": [
+      1,
+      2,
+      3
+    ],
+    "sessions": [
+      {
+        "bytes": [
+          115,
+          101,
+          115,
+          115,
+          105,
+          111,
+          110,
+          45,
+          97
+        ]
+      },
+      {
+        "bytes": [
+          0,
+          255,
+          128
+        ]
+      }
+    ]
+  }
+}

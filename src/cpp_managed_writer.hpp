@@ -1,6 +1,7 @@
 #pragma once
 
 #include <rohit/serializer_creator.hpp>
+#include "managed_schema.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -367,46 +368,7 @@ class managed_writer {
 
   // Hash the complete reachable schema contract, not the C++ presentation names or source whitespace.
   std::uint64_t hash_managed_schema(const class_node* source) {
-    if (const auto found = managed_hashes.find(source); found != managed_hashes.end()) {
-      return found->second;
-    }
-    constexpr std::uint64_t fnv_offset_basis = 14695981039346656037ULL;
-    auto hash = fnv_offset_basis;
-    const auto add = [&](std::string_view text) {
-      constexpr std::uint64_t fnv_prime = 1099511628211ULL;
-      for (const auto value : text) {
-        hash = (hash ^ static_cast<unsigned char>(value)) * fnv_prime;
-      }
-      hash = (hash ^ 0xffu) * fnv_prime;
-    };
-    add(source->get_full_name());
-    for (const auto& field : source->member_list) {
-      add(std::to_string(field.id));
-      add(field.display_name);
-      add(field.default_value);
-      add(std::to_string(static_cast<unsigned>(field.modifier)));
-      add(field.managed ? "managed" : "value");
-      add(field.key);
-      if (field.key_node && field.key_node->type == object_type::enum_type) {
-        for (const auto& name : static_cast<const enum_node*>(field.key_node)->enum_name_list) {
-          add(name);
-        }
-      }
-      for (const auto& type : field.type_name_list) {
-        add(type.get_full_name());
-        if (type.resolved_node && type.resolved_node->type == object_type::class_type) {
-          add(std::to_string(
-              hash_managed_schema(static_cast<const class_node*>(type.resolved_node))));
-        } else if (type.resolved_node && type.resolved_node->type == object_type::enum_type) {
-          for (const auto& name :
-               static_cast<const enum_node*>(type.resolved_node)->enum_name_list) {
-            add(name);
-          }
-        }
-      }
-    }
-    managed_hashes.emplace(source, hash);
-    return hash;
+    return managed_schema_hash(source, managed_hashes);
   }
 
   // Emit deep ordinary/storage conversion while preserving field wire IDs and application map keys.

@@ -1,0 +1,49 @@
+{
+  "revision": 0,
+  "accepted": {
+    "context": {
+      "protocol_version": 6,
+      "schema_id": "serializer.managed.exchange.v1",
+      "id_bits": 32,
+      "document_high": 17,
+      "document_low": 29,
+      "epoch": 31
+    },
+    "sequence": 33,
+    "session": 18446744073709551615,
+    "operation": 35,
+    "allocated_id": 2,
+    "snapshot": [
+      1,
+      2,
+      3
+    ],
+    "history": {
+      "action": 1,
+      "target_operation": 0,
+      "fields": [
+        {
+          "entity": 2,
+          "field": 1,
+          "before_present": true,
+          "after_present": true,
+          "before": [
+            0
+          ],
+          "after": [
+            1
+          ],
+          "before_version": 0,
+          "after_version": 33
+        }
+      ],
+      "dependencies": [
+        {
+          "entity": 2,
+          "before_version": 0,
+          "after_version": 33
+        }
+      ]
+    }
+  }
+}

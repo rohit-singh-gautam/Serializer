@@ -15,6 +15,10 @@ broader sketches are not its exact API or generated output. Other-language manag
 runtimes remain proposals; their generators currently reject managed annotations.
 See the [design index](README.md) and [data structures](data_structures.md).
 
+The [multilanguage wire matrix](../../example/managed/multilanguage/README.md)
+qualifies existing record schemas in every selected producer/consumer direction.
+Record encoding is distinct from implementing the native feature engines below.
+
 The [C++ class walkthrough](data_structures.md#c-class-walkthrough) shows actual
 ordinary data classes generated from [walkthrough.serializer](walkthrough.serializer),
 with codec functions omitted. It maps those classes to the proposed runtime below;

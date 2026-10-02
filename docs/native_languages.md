@@ -30,6 +30,8 @@ equivalent language names use the existing generation helper.
 
 Kotlin defaults to the unnamed package; `--kotlin.package=` clears a configured
 package. INI configuration supports `[kotlin]` / `package = example.models`.
+The contextual property name `field` is supported, including in collaboration
+records; generated accesses use `this.field` and preserve the schema wire key.
 Rust, Python, Swift, and C need no backend-specific INI section. The new targets
 use their native naming conventions; configurable naming profiles are currently
 provided only by the earlier backends. Place one generated schema module in

@@ -1,5 +1,9 @@
 # Managed examples
 
+The separate [multilanguage wire matrix](multilanguage/README.md) exchanges runtime
+records across language codecs. It is preparation for native managed ports; the
+feature demonstrations below still use the C++ runtime.
+
 Start with the point examples in the order below. Each folder is a separate executable
 and introduces one small idea. The only application model is a point with x
 and y. Every example generates its point class and editor from a local

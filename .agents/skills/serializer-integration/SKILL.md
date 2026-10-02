@@ -1020,6 +1020,16 @@ parent accessors, union access, and complete examples.
 
 ## Verify and document the result
 
+For cross-language managed work, use the
+[managed wire matrix](../../../example/managed/multilanguage/README.md) to qualify
+the canonical history, journal-baseline, collaboration and session record codecs.
+It runs every selected producer/consumer pair and rejects truncated/trailing input.
+Do not confuse passing record tests with native managed feature support: this
+matrix does not implement non-C++ undo/redo, durable journals, collaboration engines,
+or authentication. Non-C++ managed declarations remain explicitly rejected.
+Regenerate Kotlin records with this compiler when a schema contains a property
+named `field`; that contextual name is supported without renaming its wire key.
+
 Use the task's permitted validation scope. For an integration, exercise a generated
 record through the selected protocol with an exact-size input, destination reuse,
 and relevant malformed/limited input. For schema migration, include the relevant

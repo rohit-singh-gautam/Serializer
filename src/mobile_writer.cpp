@@ -44,6 +44,7 @@ class mobile_emitter {
     if (!result.empty()) {
       result.front() = static_cast<char>(std::tolower(static_cast<unsigned char>(result.front())));
     }
+    // Kotlin's contextual backing-field token is legal as a property; emitted accesses use this.field.
     validate_identifier(
         result, swift ? " associatedtype class deinit enum extension fileprivate func import init "
                         "inout internal let open operator private protocol public rethrows static "
@@ -52,7 +53,7 @@ class mobile_emitter {
                         "false is nil super self Self throw throws true try _ some any "
                       : " as break class continue do else false for fun if in interface is null "
                         "object package return super this throw true try typealias typeof val var "
-                        "when while by catch constructor delegate dynamic field file finally get "
+                        "when while by catch constructor delegate dynamic file finally get "
                         "import init param property receiver set setparam where actual abstract "
                         "annotation companion const crossinline data enum expect external final "
                         "infix inline inner internal lateinit noinline open operator out override "

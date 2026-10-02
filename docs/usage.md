@@ -74,6 +74,12 @@ describes validation, codecs, lifecycle, and wire compatibility.
 Transport and trusted session binding belong to the host. Inherited authorization
 rules, general conflict-free merging and peer-to-peer ordering remain unimplemented.
 
+For cross-language preparation, the
+[managed wire matrix](../example/managed/multilanguage/README.md) exchanges history,
+journal-baseline, collaboration and session records between selected codecs.
+It validates record preservation and malformed-input rejection; it does not provide
+non-C++ managed engines or prove native undo, durable recovery or authentication.
+
 To bound linear history for the generated point in the
 [history example](../example/managed/history/main.cpp):
 
