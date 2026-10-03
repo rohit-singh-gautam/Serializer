@@ -202,6 +202,14 @@ or packaging the source repository.
 See [agent discovery and setup](docs/agent_integration.md) for automatic discovery
 and use from a consuming project.
 
+## Contributing and community
+
+Start with the [contribution guidelines](CONTRIBUTING.md) to report bugs, propose
+features, or submit a pull request. Participants follow the
+[code of conduct](CODE_OF_CONDUCT.md). Report vulnerabilities privately using the
+[security policy](SECURITY.md); see the [accessibility statement](ACCESSIBILITY.md)
+for reporting barriers to using the project.
+
 ## Reference and project status
 
 - [Schema and protocol reference](docs/schema_reference.md): types, field IDs, views, and protocol examples.
