@@ -13,10 +13,21 @@ and [four examples per language](../example/README.md).
 All outputs share the C++ schema compiler. The workflow below is for C++.
 
 For reusable parameterized models, follow [schema generics](generics.md).
-`class result<T>` can be used as `result<person>` in fields or exposed as a
-named root with `instantiate person_result = result<person>;`. All backends
-receive concrete codecs; C++ additionally provides aliases for the applications
-declared in the schema. Generic syntax does not change the selected wire protocol.
+`class result<T>` emits a native C++ template without concrete schema uses:
+`result<std::uint32_t> value{};` has the ordinary generated codec methods.
+Nested `response<T>` and `message<T>` compose normally. Optional concrete fields
+and `instantiate person_result = result<person>;` supply contracts for other
+language outputs and compatibility checks; native C++ uses do not automatically
+create those contracts.
+
+Use `class matrix<uint64 Rows, uint64 Cols = Rows, T = double>` with
+`public array[Rows * Cols] T elements;` for C++ fixed owning storage.
+`matrix<3>` and `matrix<3,3,double>` are the same native specialization.
+Fill `value.elements` as a `std::array` and serialize with the existing APIs;
+exact input enforces cardinality and ordinary decode budgets. Fixed arrays outside
+C++ native codecs are explicitly rejected. For a managed root containing ordinary
+point/frame/matrix values, use generated whole-value setters within transactions;
+the fixed arrays have no resize/insert/erase editor operations.
 
 For a small introduction, work through the [point examples](../example/managed/README.md)
 in order: create a schema-generated managed point, inspect a transaction callback,

@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin, or C applications from a provided repository or existing dependency. Use for .serializer schemas, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, schema compatibility checks and reservations, stream concepts, durable file streams and iostream adapters, exact fresh-value decoding, managed journal/crash recovery and C++ local collaboration with store-owned sessions, timed synchronization and undo, optional message compression, JSON or binary codecs, database persistence guidance, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
+description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin, or C applications from a provided repository or existing dependency. Use for .serializer schemas, native C++ generic templates, optional cross-language contracts, dimension parameters and fixed arrays, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, schema compatibility checks and reservations, stream concepts, durable file streams and iostream adapters, exact fresh-value decoding, managed journal/crash recovery and C++ local collaboration with store-owned sessions, timed synchronization and undo, optional message compression, JSON or binary codecs, database persistence guidance, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
 ---
 
 # Serializer Integration
@@ -390,21 +390,30 @@ feature as a prerequisite without the user's request.
 
 ## Author or evolve the schema
 
-- Use [schema generics](../../../docs/generics.md) for reusable owning models:
-  `class result<T>` with direct, array, map, and nested type applications.
-  `instantiate person_result = result<person>;` creates a named concrete root.
-  Declare definitions and arguments before use, including across includes.
-  All eleven backends expand concrete applications; C++ additionally exposes
-  template aliases only for schema-declared applications. Do not claim arbitrary
-  host C++ types or native generics in other languages are supported. Unused
-  generic definitions emit no model. Generic views/managed classes, inheritance,
-  unions, value parameters, specialization, and variadic parameters are unsupported.
-  Preserve field IDs/names/order and compare expanded contracts with the existing
-  compatibility checker. Parameters add no wire metadata. Prefer named roots over
-  compiler-owned hexadecimal instance names in application code.
-  Use the [runnable generic examples](../../../example/generics/README.md) for
-  C++ aliases and dedicated consumers under `example/<language>/generics`.
-  The shared all-language runner checks typed nested edits and all four protocols.
+- Use [schema generics](../../../docs/generics.md) for reusable owning models.
+  C++ emits native templates even without concrete schema uses: nested
+  `result<T>`, `response<T>`, and `message<T>` can be used as
+  `response<std::uint32_t>` with the ordinary generated codecs. Host type arguments
+  must satisfy the selected codec and owning operations; do not add handwritten codecs.
+  Keep optional `instantiate person_result = result<person>;` or concrete schema
+  fields when other languages or compatibility checks need a concrete contract.
+  All eleven backends expand those contracts; other languages do not expose open
+  native generic APIs. Definitions and argument types must precede use.
+- Use positive `uint64 N` parameters, trailing type/value defaults, and
+  `array[N] T` or `array[Rows * Cols] T` for fixed owning C++ storage. Defaults may
+  reference earlier parameters. Expression arithmetic is checked uint64 with
+  decimal literals, parentheses, addition, and multiplication only. Extents are
+  1..65,536, with 32 expression levels and 256 parse nodes. Generic parse/expansion
+  limits remain 32 levels, 1,024 concrete applications, and 4,096 identity bytes.
+  C++ emits std::array with compile-time checks for application-only specializations.
+  Other backends and Protobuf reject fixed arrays explicitly; do not claim mappings.
+  Preserve existing runtime decode limits and exact cardinality. Missing keyed
+  fields retain defaults; explicitly empty fixed arrays fail. Generic managed/view
+  declarations, inheritance, unions, recursive ownership, and user specialization
+  are unsupported. Ordinary generic values may occur inside managed roots; use
+  generated replacement setters and the existing history/journal APIs.
+  Consult [usage](../../../docs/usage.md), [migration](../../../migration.md), and
+  [qualification](../../../docs/verification-dimensions-2026-10-04.md).
 - Use `.serializer` files beginning with `serializer version 1;`, before declarations
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing

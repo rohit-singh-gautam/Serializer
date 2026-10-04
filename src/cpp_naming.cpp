@@ -327,7 +327,7 @@ void naming::validate_names(const std::vector<std::unique_ptr<syntax_node>>& sta
         for (const auto& value : static_cast<const enum_node&>(node).enum_name_list) {
           insert_name(values, enum_name(value));
         }
-      } else if (node.type == object_type::class_type) {
+      } else if (node.type == object_type::class_type || node.type == object_type::generic_definition) {
         const auto& object = static_cast<const class_node&>(node);
         std::set<std::string> owning{"serialize_in",
                                      "serialize_out",
@@ -341,6 +341,9 @@ void naming::validate_names(const std::vector<std::unique_ptr<syntax_node>>& sta
                                      "SerializeOutProtocol",
                                      "SerializerStream",
                                      "Protocol"};
+        for (const auto& parameter : object.generic_parameters) {
+          if (node.type == object_type::generic_definition) { insert_name(owning, parameter.name); }
+        }
         if (options.protobuf) {
           owning.insert({"serializer_protobuf_write", "serializer_protobuf_read",
                          "serializer_protobuf_reset", "ProtobufProtocol"});

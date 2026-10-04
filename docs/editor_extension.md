@@ -8,10 +8,10 @@ Serializer provides separate packages for VS Code and Visual Studio. Both use
 to the VS Code extension. For the Visual Studio VSIX, see
 [Visual Studio](#visual-studio-extension) below.
 
-Both extensions use release version **1.1.14**. Keep their versions equal and
+Both extensions use release version **1.1.15**. Keep their versions equal and
 increment them together for future changes, including changes to only one package.
 
-Version 1.1.14 restores VS Code navigation actions in Git index/history tabs.
+Version 1.1.14 restored VS Code navigation actions in Git index/history tabs.
 It uses snapshot text for local symbols and the current workspace for includes
 and generated destinations. Both extension packages remain versioned together.
 
@@ -32,7 +32,7 @@ Both resolve either spelling for navigation; VS Code also supplies a shorthand
 
 ## VS Code
 
-The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.14**, provides `.serializer`
+The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.15**, provides `.serializer`
 syntax highlighting, snippets, declaration/definition navigation, and CMake generated-header commands. Schemas use
 the current `serializer version 1;` header. Legacy `.def` and `.struct` names are
 not registered. Generation remains owned by the project's build rules. Navigation
@@ -79,13 +79,13 @@ Packaging compiles and bundles TypeScript, copies the canonical grammar, logo,
 and repository license into the extension, and writes:
 
 ```text
-out/extensions/serializer-vscode-1.1.14.vsix
+out/extensions/serializer-vscode-1.1.15.vsix
 ```
 
 From the repository root, install it with:
 
 ```sh
-code --install-extension out/extensions/serializer-vscode-1.1.14.vsix
+code --install-extension out/extensions/serializer-vscode-1.1.15.vsix
 ```
 
 Alternatively run **Extensions: Install from VSIX** and select the file. The
@@ -443,7 +443,7 @@ outside this extension's implementation.
 ## Visual Studio extension
 
 The separate [Visual Studio package](../editors/visual_studio/README.md), version
-**1.1.14**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
+**1.1.15**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
 grammar, editing configuration and a native MEF navigation component using the
 same resolver as VS Code. The grammar's `fileTypes` associates `.serializer` files;
 a `.pkgdef` registers its grammar and editing configuration.
@@ -456,7 +456,7 @@ npm ci --prefix editors/vscode
 ```
 
 The script restores locked NuGet dependencies, rebuilds package intermediates, and writes
-`out/extensions/serializer-visual-studio-1.1.14.vsix`. Close Visual Studio,
+`out/extensions/serializer-visual-studio-1.1.15.vsix`. Close Visual Studio,
 double-click this VSIX, install into the desired instance, and restart Visual
 Studio. The root `install_extension.ps1` remains the VS Code installer.
 
@@ -500,3 +500,14 @@ Default managed output places `persistent_id` on the schema class. The optional
 `[managed] separate_values = true` output retains ordinary classes and managed
 storage/data companions. Navigation qualification generates both representations
 across every C++ naming profile.
+
+## Native templates and dimensions (1.1.15)
+
+Both packages recognize `uint64 N`, trailing defaults, fixed `array[N * M] T`
+expressions, nested generic applications, and optional `instantiate` contracts.
+Navigation resolves dimension/type parameter references and defaults to their
+local declarations, including unsaved text. C++ definitions include native templates
+with no concrete schema uses. Other languages have destinations only for concrete
+contracts; fixed-array output is currently unsupported there. The shared grammar
+highlights dimension arithmetic and the `matrix` snippet inserts a fixed-array
+example. Both packages use the same navigation implementation.

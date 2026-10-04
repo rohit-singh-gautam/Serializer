@@ -6,6 +6,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <limits>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -24,7 +26,7 @@ syntax_node* find_declared_type(const std::string& name, namespace_node* current
 void resolve_type(const rohit::type_check::schema_input_buffer auto& input, type_name& type,
                   const std::unordered_map<std::string, syntax_node*>& types);
 
-// Expand portable type parameters once, before any language writer or compatibility check.
+// Lower concrete contracts once while retaining validated native C++ template definitions.
 template <typename Input>
 class generic_lowering {
   static constexpr std::size_t maximum_instances = 1024;
@@ -32,7 +34,7 @@ class generic_lowering {
   static constexpr std::size_t maximum_identity_bytes = 4096;
   const Input& input;
   std::vector<std::unique_ptr<syntax_node>> output{};
-  std::vector<std::unique_ptr<syntax_node>> definitions{};
+  std::vector<class_node*> retained_templates{};
   std::unordered_map<std::string, syntax_node*> visible{};
   std::unordered_map<std::string, class_node*> instances{};
   std::unordered_set<std::string> occupied{};
@@ -41,6 +43,9 @@ class generic_lowering {
 
   // Produce a canonical schema identity, independent of generated names and namespace spelling.
   std::string identity(const type_name& type) const {
+    if (type.kind == generic_argument_kind::dimension) {
+      return "#uint64:" + std::to_string(type.dimension);
+    }
     if (type.resolved_node && type.resolved_node->type == object_type::class_type) {
       const auto& object = static_cast<const class_node&>(*type.resolved_node);
       if (!object.generic_name.empty()) {
@@ -52,6 +57,68 @@ class generic_lowering {
       }
     }
     return type.get_full_name();
+  }
+
+  // Evaluate without host-width arithmetic; dependent validation still checks constant subtrees.
+  std::optional<std::uint64_t> evaluate(const dimension_expression& expression,
+      const std::unordered_map<std::string, type_name>& bindings, bool dependent = false) const {
+    using operation = dimension_expression::operation;
+    const auto fail = [&](const std::string& message) {
+      throw exception::bad_member_type{input, message + " at schema byte " +
+          std::to_string(expression.source_offset)};
+    };
+    if (expression.kind == operation::literal) { return expression.value; }
+    if (expression.kind == operation::parameter) {
+      const auto found = bindings.find(expression.name);
+      if (found == bindings.end() || found->second.kind != generic_argument_kind::dimension) {
+        fail("Invalid dimension or type/value kind mismatch: " + expression.name);
+      }
+      if (dependent && found->second.dimension == 0) { return std::nullopt; }
+      return found->second.dimension;
+    }
+    const auto left = evaluate(expression.operands[0], bindings, dependent);
+    const auto right = evaluate(expression.operands[1], bindings, dependent);
+    if (!left || !right) { return std::nullopt; }
+    constexpr auto maximum = std::numeric_limits<std::uint64_t>::max();
+    if (expression.kind == operation::add) {
+      if (*right > maximum - *left) { fail("Dimension addition overflow"); }
+      return *left + *right;
+    }
+    if (*left != 0 && *right > maximum / *left) { fail("Dimension multiplication overflow"); }
+    return *left * *right;
+  }
+
+  // Bind a numeric argument, interpreting a bare name only in a dimension parameter position.
+  void bind_dimension(type_name& argument,
+      const std::unordered_map<std::string, type_name>& bindings, bool dependent = false) const {
+    if (argument.expression.empty()) {
+      if (argument.kind == generic_argument_kind::dimension && argument.dimension != 0) { return; }
+      if (argument.application) {
+        throw exception::bad_member_type{input, "Type/value kind mismatch: expected dimension"};
+      }
+      dimension_expression expression{};
+      expression.kind = dimension_expression::operation::parameter;
+      expression.name = argument.name;
+      expression.source_offset = argument.source_offset;
+      argument.expression.push_back(std::move(expression));
+    }
+    const auto value = evaluate(argument.expression.front(), bindings, dependent);
+    if (value && *value == 0) {
+      throw exception::bad_member_type{input, "Invalid dimension: expected a positive uint64"};
+    }
+    argument.kind = generic_argument_kind::dimension;
+    argument.dimension = value.value_or(0);
+  }
+
+  // Build placeholders for earlier parameters without inventing concrete dimensions.
+  std::unordered_map<std::string, type_name> placeholders(const class_node& owner) const {
+    std::unordered_map<std::string, type_name> result{};
+    for (const auto& parameter : owner.generic_parameters) {
+      type_name value{std::string{parameter.name}, owner.parent_namespace};
+      value.kind = parameter.kind;
+      result.emplace(parameter.name, std::move(value));
+    }
+    return result;
   }
 
   // Encode every identity byte so different qualified names cannot collapse onto one identifier.
@@ -89,12 +156,20 @@ class generic_lowering {
     type.resolved_node = node;
     type.type = node->type;
     type.arguments.clear();
+    type.application = false;
   }
 
   // Validate generic bodies even when unused; dependent constraints are checked after substitution.
   void validate_expression(type_name& type, const class_node& owner) const {
+    if (type.kind == generic_argument_kind::dimension) {
+      throw exception::bad_member_type{input, "Type/value kind mismatch: expected type"};
+    }
     if (std::find(owner.type_parameters.begin(), owner.type_parameters.end(), type.name) !=
         owner.type_parameters.end()) {
+      const auto parameters = placeholders(owner);
+      if (parameters.at(type.name).kind != generic_argument_kind::type) {
+        throw exception::bad_member_type{input, "Type/value kind mismatch: expected type"};
+      }
       if (!type.arguments.empty()) {
         throw exception::bad_member_type{input, "Type parameters cannot take type arguments"};
       }
@@ -105,17 +180,36 @@ class generic_lowering {
                              ? static_cast<const class_node*>(node)
                              : nullptr;
     const auto arity = object ? object->type_parameters.size() : 0;
-    if (arity != type.arguments.size() || (node && node->type == object_type::namespace_type) ||
+    if (object && (object->supports_managed() ||
+        object->storage_modes != static_cast<std::uint8_t>(storage_mode::owning))) {
+      throw exception::bad_member_type{input, "Generic fields and arguments require unmanaged owning types"};
+    }
+    if (object && object->get_full_name() == owner.get_full_name()) {
+      throw exception::bad_member_type{input, "Recursive generic ownership: " + object->get_full_name()};
+    }
+    const auto required = object ? std::count_if(object->generic_parameters.begin(),
+        object->generic_parameters.end(), [](const auto& parameter) {
+          return parameter.default_argument.empty();
+        }) : 0;
+    if ((arity == 0 && type.application) || type.arguments.size() > arity || type.arguments.size() < static_cast<std::size_t>(required) ||
+        (arity != 0 && !type.application) || (node && node->type == object_type::namespace_type) ||
         (!node && serializer::get_cpp_type_or_empty(type.name).empty())) {
       throw exception::bad_member_type{input, "Unknown type or incorrect generic argument count: " +
                                                   type.name};
     }
-    for (auto& argument : type.arguments) {
-      validate_expression(argument, owner);
+    for (std::size_t index = 0; index < type.arguments.size(); ++index) {
+      auto& argument = type.arguments[index];
+      if (object->generic_parameters[index].kind == generic_argument_kind::dimension) {
+        bind_dimension(argument, placeholders(owner), true);
+      } else {
+        validate_expression(argument, owner);
+      }
     }
     if (node) {
       type.name = node->get_full_name();
       type.declared_namespace = nullptr;
+      type.resolved_node = node;
+      type.type = node->type;
     } else {
       type.type = object_type::primitive;
       type.declared_namespace = nullptr;
@@ -128,8 +222,14 @@ class generic_lowering {
     if (depth >= maximum_expansion_depth) {
       throw exception::bad_class{input, "Maximum generic expansion depth (32) exceeded"};
     }
+    if (type.kind == generic_argument_kind::dimension) {
+      throw exception::bad_member_type{input, "Type/value kind mismatch: expected type"};
+    }
     if (type.type == object_type::primitive) { return; }
     if (const auto found = bindings.find(type.name); found != bindings.end()) {
+      if (found->second.kind != generic_argument_kind::type) {
+        throw exception::bad_member_type{input, "Type/value kind mismatch: expected type"};
+      }
       if (!type.arguments.empty()) {
         throw exception::bad_member_type{input, "Type parameters cannot take type arguments"};
       }
@@ -143,7 +243,7 @@ class generic_lowering {
                                  ? static_cast<const class_node*>(node)
                                  : nullptr;
     if (!definition || definition->type_parameters.empty()) {
-      if (!type.arguments.empty()) {
+      if (type.application) {
         throw exception::bad_member_type{input,
                                          "Type does not accept generic arguments: " + type.name};
       }
@@ -154,12 +254,26 @@ class generic_lowering {
       type.declared_namespace = nullptr;
       return;
     }
-    if (type.arguments.size() != definition->type_parameters.size()) {
+    if (!type.application || type.arguments.size() > definition->type_parameters.size()) {
       throw exception::bad_member_type{input, "Incorrect generic argument count: " + type.name};
     }
     std::string key = definition->get_full_name() + "<";
-    for (auto& argument : type.arguments) {
-      resolve(argument, bindings, depth + 1);
+    std::unordered_map<std::string, type_name> substitutions{};
+    for (std::size_t index = 0; index < definition->generic_parameters.size(); ++index) {
+      const auto& parameter = definition->generic_parameters[index];
+      const bool supplied = index < type.arguments.size();
+      if (!supplied) {
+        if (parameter.default_argument.empty()) {
+          throw exception::bad_member_type{input, "Missing generic argument: " + parameter.name};
+        }
+        type.arguments.push_back(parameter.default_argument.front());
+      }
+      auto& argument = type.arguments[index];
+      if (parameter.kind == generic_argument_kind::dimension) {
+        bind_dimension(argument, supplied ? bindings : substitutions);
+      } else {
+        resolve(argument, supplied ? bindings : substitutions, depth + 1);
+      }
       if (argument.resolved_node && argument.type == object_type::class_type) {
         const auto& value = static_cast<const class_node&>(*argument.resolved_node);
         if (incomplete.contains(value.get_full_name()) || value.supports_managed() ||
@@ -169,6 +283,7 @@ class generic_lowering {
         }
       }
       key += identity(argument) + ",";
+      substitutions.emplace(parameter.name, argument);
     }
     key += ">";
     if (const auto found = instances.find(key); found != instances.end()) {
@@ -191,12 +306,13 @@ class generic_lowering {
     concrete->generic_name = definition->get_full_name();
     concrete->source_path = definition->source_path;
     concrete->generic_arguments = type.arguments;
+    concrete->generic_parameters = definition->generic_parameters;
     concrete->member_list = definition->member_list;
-    std::unordered_map<std::string, type_name> substitutions{};
-    for (std::size_t index = 0; index < type.arguments.size(); ++index) {
-      substitutions.emplace(definition->type_parameters[index], type.arguments[index]);
+    try {
+      resolve_fields(*concrete, substitutions, depth + 1);
+    } catch (const std::exception& error) {
+      throw exception::bad_class{input, "In specialization " + key + ": " + error.what()};
     }
-    resolve_fields(*concrete, substitutions, depth + 1);
     auto* result = concrete.get();
     visible.emplace(result->name, result);
     instances.emplace(key, result);
@@ -205,11 +321,53 @@ class generic_lowering {
     bind(type, result);
   }
 
+  // Bound the minimum inline storage before backends emit nested fixed containers.
+  std::uint64_t minimum_storage(const class_node& object, std::size_t depth = 0) const {
+    if (depth >= maximum_expansion_depth) {
+      throw exception::bad_class{input, "Fixed storage nesting resource limit (32) exceeded"};
+    }
+    constexpr auto maximum = static_cast<std::uint64_t>(std::numeric_limits<std::ptrdiff_t>::max());
+    std::uint64_t total{};
+    for (const auto& field : object.member_list) {
+      if (field.modifier != member::modifier_type::none && field.fixed_extent == 0) { continue; }
+      const auto& type = field.type_name_list.front();
+      std::uint64_t bytes = 1;
+      if (type.resolved_node && type.resolved_node->type == object_type::class_type) {
+        bytes = minimum_storage(static_cast<const class_node&>(*type.resolved_node), depth + 1);
+      } else if (type.name == "double" || type.name == "uint64" || type.name == "int64") {
+        bytes = 8;
+      } else if (type.name == "float" || type.name == "uint32" || type.name == "int32") {
+        bytes = 4;
+      } else if (type.name == "uint16" || type.name == "int16") {
+        bytes = 2;
+      }
+      const auto count = field.fixed_extent ? field.fixed_extent : 1;
+      if (bytes > maximum / count || bytes * count > maximum - total) {
+        throw exception::bad_member_type{input, "Nested fixed storage byte product exceeds backend representability: " + object.get_full_name() + "." + field.name};
+      }
+      total += bytes * count;
+    }
+    return std::max(std::uint64_t{1}, total);
+  }
+
   // Substitute field and map-key types, retaining wire IDs, order, names, and defaults verbatim.
   void resolve_fields(class_node& object,
                       const std::unordered_map<std::string, type_name>& bindings,
                       std::size_t depth) {
     for (auto& field : object.member_list) {
+      if (!field.extent_expression.empty()) {
+        constexpr std::uint64_t maximum_fixed_elements = 65536;
+        const auto extent = evaluate(field.extent_expression.front(), bindings);
+        if (!extent || *extent == 0 || *extent > maximum_fixed_elements) {
+          throw exception::bad_member_type{input, "Invalid or excessive fixed array extent (1..65536) at schema byte " +
+              std::to_string(field.extent_expression.front().source_offset)};
+        }
+        if (object.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
+            (object.attributes & class_attributes::packed) == class_attributes::packed || field.managed) {
+          throw exception::bad_member_type{input, "Fixed arrays require unpacked ordinary owning fields"};
+        }
+        field.fixed_extent = *extent;
+      }
       for (auto& type : field.type_name_list) {
         resolve(type, bindings, depth);
         if (!object.generic_name.empty() && type.resolved_node &&
@@ -231,6 +389,7 @@ class generic_lowering {
         field.key_node = key.resolved_node;
       }
     }
+    static_cast<void>(minimum_storage(object));
   }
 
   // Inventory names before generating anything, so later source declarations cannot collide.
@@ -264,7 +423,31 @@ class generic_lowering {
                   input,
                   "Generic classes require unpacked unmanaged owning fields without inheritance"};
             }
+            class_node earlier{object_type::class_type, std::string{object.name},
+                               object.parent_namespace, class_attributes::none, {}};
+            for (auto& parameter : object.generic_parameters) {
+              try {
+                if (!parameter.default_argument.empty()) {
+                  auto& argument = parameter.default_argument.front();
+                  if (parameter.kind == generic_argument_kind::dimension) {
+                    bind_dimension(argument, placeholders(earlier), true);
+                  } else {
+                    validate_expression(argument, earlier);
+                  }
+                }
+              } catch (const std::exception& error) {
+                throw exception::bad_class{input, "Invalid default for " + parameter.name + ": " + error.what()};
+              }
+              earlier.type_parameters.push_back(parameter.name);
+              earlier.generic_parameters.push_back(parameter);
+            }
             for (auto& field : object.member_list) {
+              if (!field.extent_expression.empty()) {
+                const auto extent = evaluate(field.extent_expression.front(), placeholders(object), true);
+                if (extent && (*extent == 0 || *extent > 65536)) {
+                  throw exception::bad_member_type{input, "Invalid or excessive fixed array extent (1..65536)"};
+                }
+              }
               if (field.modifier == member::modifier_type::variant) {
                 throw exception::bad_class{input, "Generic unions are not supported"};
               }
@@ -275,14 +458,16 @@ class generic_lowering {
                 type_name key{std::string{field.key}, object.parent_namespace};
                 validate_expression(key, object);
                 field.key = key.name;
+                field.key_node = key.resolved_node;
               }
             }
-            definitions.push_back(std::move(node));
+            retained_templates.push_back(&object);
+            emit(std::move(node));
             continue;
           }
           if (!object.instance_of.empty()) {
             auto& target = object.instance_of.front();
-            if (target.arguments.empty()) {
+            if (!target.application) {
               throw exception::bad_class{input, "instantiate requires a generic type application"};
             }
             resolve(target, {}, 0);
@@ -312,10 +497,13 @@ public:
   // Keep diagnostics associated with the compilation input; all caches are per compilation.
   explicit generic_lowering(const Input& source) : input{source} {}
 
-  // Return only ordinary resolved declarations; writers never need dependent-type semantics.
+  // Return concrete contracts plus validated generic declarations for native C++ emission.
   std::vector<std::unique_ptr<syntax_node>> run(std::vector<std::unique_ptr<syntax_node>> nodes) {
     collect(nodes);
     visit(std::move(nodes));
+    for (auto* definition : retained_templates) {
+      definition->type = object_type::generic_definition;
+    }
     return std::move(output);
   }
 };
@@ -333,8 +521,9 @@ inline bool contains_generics(const std::vector<std::unique_ptr<syntax_node>>& n
         return true;
       }
       for (const auto& field : object.member_list) {
+        if (!field.extent_expression.empty()) { return true; }
         for (const auto& type : field.type_name_list) {
-          if (!type.arguments.empty()) {
+          if (type.application) {
             return true;
           }
         }

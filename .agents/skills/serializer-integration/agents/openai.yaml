@@ -1,6 +1,6 @@
 interface:
   display_name: "Serializer Integration"
-  short_description: "Integrate Serializer schemas, generics, and codecs"
+  short_description: "Integrate Serializer schemas, native templates, and codecs"
 
 policy:
   allow_implicit_invocation: true

@@ -157,17 +157,17 @@ public:
     default:
     case member::modifier_type::none:
       // TODO: Range check
-      return storage_type_name(member.type_name_list[0].name,
-                               member.type_name_list[0].resolved_node);
+      return generic_default(member.type_name_list[0]);
     case member::modifier_type::array:
-      return std::string("::std::vector<") +
-             storage_type_name(member.type_name_list[0].name,
-                               member.type_name_list[0].resolved_node) +
+      return std::string(!member.extent_expression.empty() ? "::std::array<" : "::std::vector<") +
+             generic_default(member.type_name_list[0]) +
+             (!member.extent_expression.empty() ? ", ::rohit::serializer::detail::fixed_extent(" +
+                 (member.fixed_extent ? std::to_string(member.fixed_extent) :
+                     dimension_default(member.extent_expression.front())) + ")" : "") +
              ">";
     case member::modifier_type::map:
       return std::string("::std::map<") + storage_type_name(member.key, member.key_node) + "," +
-             storage_type_name(member.type_name_list[0].name,
-                               member.type_name_list[0].resolved_node) +
+             generic_default(member.type_name_list[0]) +
              ">";
     case member::modifier_type::variant:
       return union_enum_name(member) + " " + union_tag_name(member) + "{};\n  " +
@@ -487,7 +487,8 @@ public:
     const bool has_storage = field.modifier == member::modifier_type::array ||
                              field.modifier == member::modifier_type::map ||
                              cpp_type == "::std::string" ||
-                             field.type_name_list[0].type == object_type::class_type;
+                             field.type_name_list[0].type == object_type::class_type ||
+                             field.type_name_list[0].type == object_type::unresolved;
     const auto read =
         local_name("serializer_protocol") +
         (explicit_type ? ".template serialize_in<" + cpp_type + ">" : ".serialize_in") + "(this->" +
@@ -1161,6 +1162,18 @@ public:
   // Emit the existing owning API, selecting owning specializations for nested classes.
   void write_owning_class(rohit::type_check::output_buffer auto& out_stream,
                           const class_node* obj) {
+    if (obj->type == object_type::generic_definition) {
+      out_stream.write("template <");
+      for (std::size_t index = 0; index < obj->generic_parameters.size(); ++index) {
+        const auto& parameter = obj->generic_parameters[index];
+        if (index != 0) { out_stream.write(", "); }
+        out_stream.write(std::string_view{parameter.kind == generic_argument_kind::dimension ? "::std::uint64_t " : "typename "}, parameter.name);
+        if (!parameter.default_argument.empty()) {
+          out_stream.write(" = ", generic_default(parameter.default_argument.front()));
+        }
+      }
+      out_stream.write(">\n");
+    }
     if (obj->multiple_modes()) {
       out_stream.write("template <>\n");
     }
@@ -1179,6 +1192,13 @@ public:
     }
 
     out_stream.write(" {\n");
+    if (obj->type == object_type::generic_definition) {
+      for (const auto& parameter : obj->generic_parameters) {
+        if (parameter.kind == generic_argument_kind::dimension) {
+          out_stream.write("  static_assert(", parameter.name, " > 0, \"Invalid dimension: expected positive uint64\");\n");
+        }
+      }
+    }
     write_member_list(out_stream, obj->member_list);
 
     out_stream.write("\npublic:\n"
@@ -1314,9 +1334,27 @@ public:
         break;
 
       case object_type::class_type:
+        if (!static_cast<const class_node*>(statement.get())->generic_name.empty()) {
+          const auto& object = static_cast<const class_node&>(*statement);
+          const auto* definition = generic_definitions.at(object.generic_name);
+          out_stream.write("using ", type_name(object.name), " = ", full_type_name(definition), "<");
+          for (std::size_t index = 0; index < object.generic_arguments.size(); ++index) {
+            if (index != 0) { out_stream.write(", "); }
+            const auto& argument = object.generic_arguments[index];
+            out_stream.write(argument.kind == generic_argument_kind::dimension ?
+                std::to_string(argument.dimension) + "ULL" : storage_type_name(argument.name, argument.resolved_node));
+          }
+          out_stream.write(">;\n\n");
+          break;
+        }
         if (!managed_.write_primary(out_stream, static_cast<const class_node*>(statement.get()))) {
           write_class(out_stream, static_cast<const class_node*>(statement.get()));
         }
+        break;
+
+      case object_type::generic_definition:
+        generic_definitions.emplace(statement->get_full_name(), static_cast<const class_node*>(statement.get()));
+        write_class(out_stream, static_cast<const class_node*>(statement.get()));
         break;
 
       case object_type::enum_type:
@@ -1329,69 +1367,33 @@ public:
     }
   }
 
-  // Expose only schema-instantiated combinations; unsupported arguments remain incomplete bindings.
-  void write_generic_aliases(rohit::type_check::output_buffer auto& output,
-                            const std::vector<std::unique_ptr<syntax_node>>& statements) {
-    std::map<std::string, std::vector<const class_node*>> families{};
-    std::set<std::string> occupied{};
-    const auto collect = [&](const auto& self, const auto& nodes) -> void {
-      for (const auto& node : nodes) {
-        occupied.insert(full_type_name(node.get()));
-        if (node->type == object_type::namespace_type) {
-          self(self, static_cast<const namespace_node&>(*node).statements);
-        } else if (node->type == object_type::class_type) {
-          const auto& object = static_cast<const class_node&>(*node);
-          if (!object.generic_name.empty()) { families[object.generic_name].push_back(&object); }
-        }
-      }
-    };
-    collect(collect, statements);
-    for (const auto& [name, instances] : families) {
-      const auto separator = name.rfind("::");
-      const auto base = separator == std::string::npos ? name : name.substr(separator + 2);
-      std::string scope{};
-      for (std::size_t begin = 0; separator != std::string::npos && begin < separator;) {
-        const auto end = name.find("::", begin);
-        if (!scope.empty()) { scope += "::"; }
-        scope += namespace_name(name.substr(begin, end - begin));
-        begin = end + 2;
-      }
-      const auto alias = type_name(base);
-      const auto binding = type_name(base + "_serializer_binding");
-      std::vector<std::unique_ptr<syntax_node>> alias_declarations{};
-      for (auto identifier : {base, base + "_serializer_binding"}) {
-        alias_declarations.push_back(std::make_unique<class_node>(object_type::class_type,
-            std::move(identifier), nullptr, class_attributes::none, std::vector<parent>{}));
-      }
-      validate_names(alias_declarations);
-      const auto prefix = scope.empty() ? "::" : "::" + scope + "::";
-      if (!occupied.insert(prefix + alias).second || !occupied.insert(prefix + binding).second) {
-        throw std::invalid_argument{"Generated C++ generic alias collision: " + name};
-      }
-      if (!scope.empty()) { output.write("namespace ", scope, " {\n"); }
-      std::string parameters{}, arguments{};
-      for (std::size_t index = 0; index < instances.front()->generic_arguments.size(); ++index) {
-        if (index != 0) { parameters += ", "; arguments += ", "; }
-        const auto parameter = "T" + std::to_string(index);
-        parameters += "typename " + parameter;
-        arguments += parameter;
-      }
-      output.write("// Bind schema-declared instantiations to their concrete wire types.\n",
-          "template <", parameters, "> struct ", binding, ";\n",
-          "template <", parameters, "> using ", alias, " = typename ", binding,
-          "<", arguments, ">::type;\n");
-      for (const auto* instance : instances) {
-        output.write("template <> struct ", binding, "<");
-        for (std::size_t index = 0; index < instance->generic_arguments.size(); ++index) {
-          if (index != 0) { output.write(", "); }
-          const auto& argument = instance->generic_arguments[index];
-          output.write(storage_type_name(argument.name, argument.resolved_node));
-        }
-        output.write("> { using type = ", full_type_name(instance), "; };\n");
-      }
-      if (!scope.empty()) { output.write("} // namespace ", scope, "\n"); }
-      output.write("\n");
+  std::map<std::string, const class_node*> generic_definitions{};
+  // Render only the checked schema grammar, never arbitrary source text as C++.
+  std::string dimension_default(const dimension_expression& value) {
+    using operation = dimension_expression::operation;
+    if (value.kind == operation::literal) { return std::to_string(value.value) + "ULL"; }
+    if (value.kind == operation::parameter) { return value.name; }
+    return std::string{"::rohit::serializer::detail::"} +
+        (value.kind == operation::add ? "dimension_add(" : "dimension_multiply(") +
+        dimension_default(value.operands[0]) + ", " + dimension_default(value.operands[1]) + ")";
+  }
+
+  // Retain earlier parameter references and declaration-scope type defaults in public aliases.
+  std::string generic_default(const ::rohit::serializer::type_name& value) {
+    if (value.kind == generic_argument_kind::dimension && value.dimension != 0) {
+      return std::to_string(value.dimension) + "ULL";
     }
+    if (!value.expression.empty()) { return dimension_default(value.expression.front()); }
+    std::string result = storage_type_name(value.name, value.resolved_node);
+    if (value.application) {
+      result += "<";
+      for (std::size_t index = 0; index < value.arguments.size(); ++index) {
+        if (index != 0) { result += ", "; }
+        result += generic_default(value.arguments[index]);
+      }
+      result += ">";
+    }
+    return result;
   }
 
   // Generate a complete C++ header while retaining the parsed schema and original wire names.
@@ -1410,7 +1412,7 @@ public:
     if (has_views) {
       out_stream.write("#include <rohit/binary_view.hpp>\n");
     }
-    out_stream.write("\n#include <cstddef>\n");
+    out_stream.write("\n#include <array>\n#include <cstddef>\n");
     if (has_views) {
       out_stream.write("#include <span>\n");
     }
@@ -1426,7 +1428,6 @@ public:
                      "#include <utility>\n"
                      "#include <vector>\n\n");
     write_statement_list(out_stream, statements);
-    write_generic_aliases(out_stream, statements);
     managed_.write(out_stream);
   }
 };

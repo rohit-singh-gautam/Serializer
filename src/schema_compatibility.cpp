@@ -124,6 +124,7 @@ void validate_policy(const compatibility_policy& policy) {
 // Flatten namespace blocks using resolved identities, including reopened and included scopes.
 void collect(const std::vector<std::unique_ptr<syntax_node>>& statements, declarations& result) {
   for (const auto& statement : statements) {
+    if (statement->type == object_type::generic_definition) { continue; }
     if (statement->type == object_type::namespace_type) {
       collect(static_cast<const namespace_node&>(*statement).statements, result);
     } else {
@@ -143,6 +144,7 @@ struct field_contract {
   std::string shape{};
   std::string default_value{};
   std::vector<std::pair<std::string, std::string>> alternatives{};
+  std::uint64_t fixed_extent{};
 };
 
 // Preserve parent-before-member order, field identity, map keys, and ordered union alternatives.
@@ -154,6 +156,7 @@ std::vector<field_contract> fields(const class_node& type) {
   }
   for (const auto& field : type.member_list) {
     field_contract contract{field.id, field.display_name, {}, field.default_value, {}};
+    contract.fixed_extent = field.fixed_extent;
     switch (field.modifier) {
     case member::modifier_type::none:
       contract.shape = "value:" + type_identity(field.type_name_list.front());
@@ -289,6 +292,10 @@ void check_class(std::vector<compatibility_issue>& result, const class_node& pre
     }
     if (before.shape != found->shape) {
       issue(result, field_path, "Field type, container shape, map key, or parent identity changed");
+    }
+    if (before.fixed_extent != found->fixed_extent) {
+      issue(result, field_path, "Fixed array cardinality changed", before.fixed_extent != 0,
+            found->fixed_extent != 0);
     }
     if (!protobuf && before.default_value != found->default_value) {
       issue(result, field_path, "Schema default changed; absent native fields can change meaning");

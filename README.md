@@ -73,11 +73,15 @@ complete message with explicit limits, or run the [basic C++ example](example/cp
 
 ## Choose a language
 
-Reusable [schema generics](docs/generics.md), such as `class result<T>`, expand
-to concrete models in every language. C++ also exposes template aliases for
-schema-declared applications; `instantiate person_result = result<person>;`
-provides a readable named root. Dedicated [generic examples](example/generics/README.md)
-for all eleven languages edit nested payloads and verify all four protocols.
+Reusable [schema generics](docs/generics.md), such as `class result<T>`, emit
+native C++ templates: application code can use `result<std::uint32_t>` without
+concrete schema declarations. Nested templates, trailing defaults, positive uint64
+dimensions, and fixed `array[N] T` storage are supported in C++.
+Optional `instantiate person_result = result<person>;` declarations and concrete
+schema fields define contracts for all eleven generators. Other languages keep
+concrete APIs; fixed arrays currently produce explicit unsupported diagnostics
+outside native C++ codecs. See the [generic examples](example/generics/README.md)
+and [qualification record](docs/verification-dimensions-2026-10-04.md).
 
 All languages use the same schema compiler. Their generated APIs and runtime
 requirements are documented separately.
@@ -154,7 +158,7 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editor_extension.md) |
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
-Both extensions use release version **1.1.14**, independent of compiler version
+Both extensions use release version **1.1.15**, independent of compiler version
 **1.0.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
 for supported destinations and language-service prerequisites.
 VS Code also supports navigation from read-only Git index/history tabs, using

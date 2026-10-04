@@ -1,5 +1,22 @@
 # Migrating to the snake_case Serializer API
 
+## Native templates and dimensions (4 October 2026)
+
+Regenerate C++ headers to use generic declarations directly from application code,
+including unused declarations. Concrete specialization identifiers remain available
+as aliases to native templates; their historical type-only spellings and bytes are
+preserved. Optional `instantiate` declarations still produce distinct named roots.
+Keep these or concrete schema fields when another language or the schema checker
+needs a concrete contract. Older generators reject dimension/default/fixed-array
+syntax; use the compiler and runtime from this change together (schema version
+remains 1). The supporting revision is recorded in the
+[qualification report](docs/verification-dimensions-2026-10-04.md); no earlier released
+compiler is advertised as supporting these additions.
+
+Fixed arrays enforce exact present-field cardinality. They currently require C++
+native protocols; other language and Protobuf generation reject them explicitly.
+Both editor packages advance together to 1.1.15. See [generics](docs/generics.md).
+
 ## Schema generics
 
 Regenerate with the current compiler before using `class result<T>` or

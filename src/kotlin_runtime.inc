@@ -194,7 +194,8 @@ internal class SrlReader(val data: ByteArray, val protocol: Protocol, val limits
     private fun hex(): Int { requireBytes(4); var value = 0; repeat(4) { value = value*16 + ((data[offset++].toInt() and 255).toChar().digitToIntOrNull(16) ?: throw SerializerException("Invalid Unicode escape")) }; return value }
     // Decode bounded UTF-8 and strict JSON surrogate pairs.
     fun text(): String {
-        if (!json()) {
+)serializer"
+R"serializer(        if (!json()) {
             val count = compact(); if (count > limits.maxStringBytes) throw SerializerException("String limit"); requireBytes(count)
             val value = decodeUtf8(ByteBuffer.wrap(data, offset, count))
             offset += count; return value

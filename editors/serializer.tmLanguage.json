@@ -56,6 +56,35 @@
       "name": "entity.name.type.serializer"
     },
     {
+      "name": "meta.fixed-array.serializer",
+      "begin": "\\b(array)\\s*(\\[)",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.type.serializer"
+        },
+        "2": {
+          "name": "punctuation.section.group.serializer"
+        }
+      },
+      "end": "\\]",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "name": "constant.numeric.serializer",
+          "match": "\\b[0-9]+\\b"
+        },
+        {
+          "name": "keyword.operator.serializer",
+          "match": "[+*()]"
+        },
+        {
+          "include": "#type_name"
+        }
+      ]
+    },
+    {
       "include": "#generic_arguments"
     },
     {
@@ -321,6 +350,14 @@
         }
       },
       "patterns": [
+        {
+          "name": "constant.numeric.serializer",
+          "match": "\\b[0-9]+\\b"
+        },
+        {
+          "name": "keyword.operator.serializer",
+          "match": "[=+*()]"
+        },
         {
           "include": "#comments"
         },

@@ -65,7 +65,22 @@ internal static class NavigationTest {
         Require(local.Length == 1 && local[0].start == genericStart + "result<".Length, "generic parameter declaration");
         ++checks;
       }
-      Console.WriteLine("Visual Studio shared resolver passed: " + checks + " source/output checks, real .NET interpreter, all 11 languages, selection endpoints, unsaved includes and cancellation.");
+      var dimensionsFile = Path.GetFullPath(Path.Combine(repository, "test/resources/dimensions.serializer"));
+      var dimensionsText = File.ReadAllText(dimensionsFile);
+      live[dimensionsFile] = dimensionsText;
+      foreach (var parameterName in new[] { "Rows", "Cols" }) {
+        var declaration = dimensionsText.IndexOf(parameterName, StringComparison.Ordinal);
+        for (var occurrence = declaration; occurrence >= 0;
+             occurrence = dimensionsText.IndexOf(parameterName, occurrence + parameterName.Length, StringComparison.Ordinal)) {
+          for (var offset = occurrence; offset <= occurrence + parameterName.Length; ++offset) {
+            var destination = NavigationRunner.Resolve(dimensionsFile, offset, false, generated, live, CancellationToken.None);
+            Require(destination.Length == 1 && destination[0].file == dimensionsFile && destination[0].start == declaration,
+              "dimension parameter/default/extent boundary " + parameterName);
+            ++checks;
+          }
+        }
+      }
+      Console.WriteLine("Visual Studio shared resolver passed: " + checks + " source/output checks, real .NET interpreter, all 11 languages, dimension defaults/extents, selection endpoints, unsaved includes and cancellation.");
       return 0;
     } catch (Exception error) { Console.Error.WriteLine(error); return 1; }
   }

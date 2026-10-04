@@ -54,11 +54,14 @@ standard test build or independently with `SERIALIZER_BUILD_IOSTREAM_EXAMPLES=ON
 
 ## Schemas and generated languages
 
-[Schema generics](generics.md) support type parameters, nested applications,
-named concrete roots, and expansion across all eleven outputs. C++ has template
-aliases for schema-instantiated combinations. Generic managed/views, inheritance,
-unions, value parameters, specialization, and open native generic APIs remain
-unsupported. The existing storage-mode templates are independent.
+[Schema generics](generics.md) support native C++ templates without concrete schema
+uses, nested applications, trailing defaults, and positive uint64 dimensions.
+Optional named roots and concrete fields produce contracts for all eleven outputs.
+Fixed arrays use std::array and native C++ codecs; other backends and Protobuf
+explicitly reject them. Ordinary generic values can be contained by managed C++
+roots. Generic managed/view declarations, inheritance, unions, recursive ownership,
+user specialization, and non-C++ native generic APIs remain unsupported. See the
+[qualification record](verification-dimensions-2026-10-04.md).
 
 Language-specific output profiles select layouts and naming conventions. Schemas use
 `.serializer` and begin with `serializer version 1;`. Share declarations with `include

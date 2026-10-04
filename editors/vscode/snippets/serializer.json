@@ -1,13 +1,13 @@
 {
   "Generic class": {
     "prefix": "generic",
-    "body": ["class ${1:result}<${2:T}> stable_ids {", "  public $2 ${3:value} (1);", "  $0", "}"],
+    "body": [
+      "class ${1:result}<${2:T}> stable_ids {",
+      "  public $2 ${3:value} (1);",
+      "  $0",
+      "}"
+    ],
     "description": "Declare a reusable owning class with a schema type parameter"
-  },
-  "Instantiation": {
-    "prefix": "instantiate",
-    "body": "instantiate ${1:count_result} = ${2:result}<${3:uint32}>;$0",
-    "description": "Expose a generic schema application as a named concrete root"
   },
   "Include": {
     "prefix": "include",
@@ -16,12 +16,26 @@
   },
   "Schema": {
     "prefix": "schema",
-    "body": ["serializer version 1;", "", "namespace ${1:models} {", "class ${2:account} stable_ids {", "  public uint32 ${3:id} (1);", "  $0", "}", "}"],
+    "body": [
+      "serializer version 1;",
+      "",
+      "namespace ${1:models} {",
+      "class ${2:account} stable_ids {",
+      "  public uint32 ${3:id} (1);",
+      "  $0",
+      "}",
+      "}"
+    ],
     "description": "Create a versioned Serializer schema with explicit field IDs"
   },
   "Class": {
     "prefix": "class",
-    "body": ["class ${1:record} stable_ids {", "  public ${2:uint32} ${3:id} (${4:1});", "  $0", "}"],
+    "body": [
+      "class ${1:record} stable_ids {",
+      "  public ${2:uint32} ${3:id} (${4:1});",
+      "  $0",
+      "}"
+    ],
     "description": "Declare a class with stable field IDs"
   },
   "Field": {
@@ -31,12 +45,36 @@
   },
   "Enum": {
     "prefix": "enum",
-    "body": ["enum ${1:status} {", "  ${2:pending},", "  ${3:complete}", "}"],
+    "body": [
+      "enum ${1:status} {",
+      "  ${2:pending},",
+      "  ${3:complete}",
+      "}"
+    ],
     "description": "Declare enum alternatives"
   },
   "Namespace": {
     "prefix": "namespace",
-    "body": ["namespace ${1:models} {", "  $0", "}"],
+    "body": [
+      "namespace ${1:models} {",
+      "  $0",
+      "}"
+    ],
     "description": "Declare a namespace"
+  },
+  "Dimension template": {
+    "prefix": "matrix",
+    "body": [
+      "class ${1:matrix}<uint64 Rows, uint64 Cols = Rows, T = double> stable_ids {",
+      "  public array[Rows * Cols] T elements (1);",
+      "}",
+      "$0"
+    ],
+    "description": "Declare a native C++ dimension template with fixed owning storage"
+  },
+  "Instantiation": {
+    "prefix": "instantiate",
+    "body": "instantiate ${1:count_result} = ${2:result}<${3:uint32}>;$0",
+    "description": "Declare an optional concrete root contract for cross-language generation"
   }
 }

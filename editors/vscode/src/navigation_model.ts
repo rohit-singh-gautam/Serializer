@@ -70,7 +70,19 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
     if (depth >= maximumTypeDepth) { return start + 1; }
     const token = tokens[start]?.text;
     if (token === 'managed') { return typeReference(start + 1, depth + 1); }
-    if (token === 'array') { return typeReference(start + 1, depth + 1); }
+    if (token === 'array') {
+      let next = start + 1;
+      if (tokens[next]?.text === '[') {
+        ++next;
+        while (next < tokens.length && ![']', ';', '}'].includes(tokens[next].text)) {
+          const operand = qualified(next);
+          if (operand) { result.references.push({ ...operand, scope: [...currentScope()] }); }
+          next = operand?.next ?? next + 1;
+        }
+        if (tokens[next]?.text === ']') { ++next; }
+      }
+      return typeReference(next, depth + 1);
+    }
     if (token === 'map' && tokens[start + 1]?.text === '(') {
       const next = typeReference(start + 2, depth + 1);
       return tokens[next]?.text === ')' ? typeReference(next + 1, depth + 1) : next;
@@ -93,8 +105,7 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
       ++next;
       while (next < tokens.length && !['>', ';', '}'].includes(tokens[next].text)) {
         next = typeReference(next, depth + 1);
-        if (tokens[next]?.text !== ',') { break; }
-        ++next;
+        if (tokens[next]?.text === ',') { ++next; }
       }
       if (tokens[next]?.text === '>') { ++next; }
     }
@@ -143,8 +154,7 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
         result.includes.push({ name, start: first.start, end: last.end });
       }
       i = end;
-    } else if (!schema && token.text === 'using' && tokens[i + 2]?.text === '=' &&
-        tokens[i + 3]?.text === 'typename') {
+    } else if (!schema && token.text === 'using' && tokens[i + 2]?.text === '=') {
       const name = tokens[i + 1];
       result.symbols.push({ ...name, name: name.text, qualified: [...currentScope(), name.text].join('::'),
         kind: 'class', body: name.start, declaration: token.start, definition: true });
@@ -170,11 +180,22 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
       const parameters: Token[] = [];
       if (tokens[body]?.text === '<') {
         let depth = 0;
+        let parameterStart = true;
+        let inDefault = false;
         do {
           if (tokens[body].text === '<') { ++depth; }
           if (tokens[body].text === '>') { --depth; }
-          if (schema && depth === 1 && /^[A-Za-z_]\w*$/.test(tokens[body].text)) {
-            parameters.push(tokens[body]);
+          if (schema) {
+            const current = tokens[body].text;
+            if (depth === 1 && current === ',') { parameterStart = true; inDefault = false; }
+            if (depth === 1 && current === '=') { inDefault = true; }
+            if (depth === 1 && parameterStart && /^[A-Za-z_]\w*$/.test(current)) {
+              if (current !== 'uint64') { parameters.push(tokens[body]); parameterStart = false; }
+            } else if (inDefault && /^[A-Za-z_]\w*$/.test(current)) {
+              const reference = qualified(body)!;
+              result.references.push({ ...reference, scope: [...currentScope(), name.text] });
+              body = reference.next - 1;
+            }
           }
           ++body;
         } while (body < tokens.length && depth > 0);

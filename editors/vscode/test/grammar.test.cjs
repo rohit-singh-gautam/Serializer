@@ -5,9 +5,9 @@ const { test } = require('node:test');
 const { Registry, INITIAL } = require('vscode-textmate');
 const onig = require('vscode-oniguruma');
 
-test('generic declarations, nested arguments and explicit instantiations retain type scopes', async () => {
+test('generic declarations, nested arguments and concrete field uses retain type scopes', async () => {
   const grammar = await loadGrammar();
-  const line = 'class box<T> { public array box<lib::person> values; } instantiate root = box<box<uint32>>;';
+  const line = 'class box<T> { public array box<lib::person> values; } class root { public box<box<uint32>> value; }';
   const tokens = grammar.tokenizeLine(line, INITIAL).tokens;
   for (const word of ['box', 'T', 'person', 'root']) {
     const offset = line.indexOf(word);
@@ -164,4 +164,15 @@ test('managed declarations highlight the modifier before direct and collection t
         'entity.name.type.serializer');
     }
   }
+});
+
+test('dimension defaults and fixed extents highlight numbers, operators and parameters', async () => {
+  const grammar = await loadGrammar();
+  const line = 'class matrix<uint64 Rows, uint64 Cols = Rows, T = double> { public array[Rows * Cols + 1] T elements; } instantiate square = matrix<3>;';
+  const tokens = grammar.tokenizeLine(line, INITIAL).tokens;
+  for (const [word, scope] of [['uint64', 'support.type.serializer'], ['Rows', 'entity.name.type.serializer'], ['=', 'keyword.operator.serializer'], ['*', 'keyword.operator.serializer'], ['1', 'constant.numeric.serializer'], ['3', 'constant.numeric.serializer']]) {
+    const offset = line.indexOf(word);
+    assert.equal(tokens.find(token => token.startIndex <= offset && token.endIndex > offset).scopes.at(-1), scope, word);
+  }
+  assert.equal(grammar.tokenizeLine(line, INITIAL).ruleStack.depth, 1);
 });

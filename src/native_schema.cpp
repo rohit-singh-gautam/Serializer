@@ -179,6 +179,7 @@ void schema::add_key(const std::string& value) {
 void schema::collect(const std::vector<std::unique_ptr<syntax_node>>& values,
                      const std::string& prefix) {
   for (const auto& value : values) {
+    if (value->type == object_type::generic_definition) { continue; }
     const auto name = prefix + pascal(value->name);
     if (value->type == object_type::namespace_type) {
       collect(static_cast<const namespace_node&>(*value).statements, name);

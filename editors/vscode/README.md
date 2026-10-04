@@ -4,7 +4,7 @@ This extension supports the [Serializer schema compiler and serialization librar
 maintained in that repository.
 
 Edit `.serializer` schemas with syntax highlighting, bracket matching, comments,
-folding, and snippets. Version **1.1.14** includes navigation from includes and type
+folding, and snippets. Version **1.1.15** includes navigation from includes and type
 references to source schemas and existing generated code in all 11 output languages. Use the project's
 CMake configuration for the separate build and missing-header assistance commands.
 
@@ -78,7 +78,7 @@ same declaration, definition, and type-definition actions. Cursor offsets and
 local symbols come from the displayed snapshot. Includes, other schema files,
 and generated output resolve against the current workspace; this does not
 reconstruct a historical checkout. With an older extension, open the working
-file from Explorer to use navigation, or install 1.1.14 and reload VS Code.
+file from Explorer to use navigation, or install 1.1.15 and reload VS Code.
 
 Caller navigation depends on the language service's active project configuration.
 For this repository's managed ledger examples/tests, use
@@ -195,8 +195,8 @@ success. There is no automatic build on file open/save.
 Generic declarations (`class box<T>`), nested type arguments, and named roots
 (`instantiate root = box<uint32>;`) are highlighted and indexed. Parameters
 navigate to their local declaration. Generic definitions navigate to their C++
-alias or concrete generated models in the other languages; unused definitions
-fall back to the schema. Generated concrete classes navigate back to the generic
+native template or concrete generated models in the other languages. Without a
+concrete schema contract, only C++ has a generated destination. Generated concrete classes navigate back to the generic
 definition. See [schema generics](../../docs/generics.md) for compiler limits.
 
 - Build assistance requires an already configured CMake Tools project. It works
@@ -240,3 +240,14 @@ Managed classes now expose persistent IDs directly by default. Set
 `[managed] separate_values = true` (or `--managed.separate_values true`) when
 ID-free ordinary classes and managed storage companions are required. Navigation
 supports the direct schema class, its editor, and opt-in companion declarations.
+
+## Native templates and dimensions (1.1.15)
+
+Both packages recognize `uint64 N`, trailing defaults, fixed `array[N * M] T`
+expressions, nested generic applications, and optional `instantiate` contracts.
+Navigation resolves dimension/type parameter references and defaults to their
+local declarations, including unsaved text. C++ definitions include native templates
+with no concrete schema uses. Other languages have destinations only for concrete
+contracts; fixed-array output is currently unsupported there. The shared grammar
+highlights dimension arithmetic and the `matrix` snippet inserts a fixed-array
+example. Both packages use the same navigation implementation.

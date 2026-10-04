@@ -1,157 +1,137 @@
-# Schema generics
+# Generic owning classes and dimensions
 
-Serializer supports type parameters on owning schema classes. The compiler expands
-each concrete application before running a language generator or compatibility
-check. All eleven output languages use the same resolved field types and wire
-contract. C++ additionally exposes template aliases for the applications present
-in the schema.
+Serializer emits native C++ templates from generic declarations, including declarations
+with no concrete schema uses. Other languages receive concrete models for applications
+in schema fields or optional `instantiate` declarations. Both routes preserve the
+existing native wire protocols.
+
+## Native C++ templates
 
 ```text
 serializer version 1;
-
 class result<T> stable_ids {
-  public bool success (1);
-  public T value (2);
-  public string message (3);
+  public T value (1);
+  public bool success (2);
 }
-
-class person stable_ids {
-  public string name (1);
-  public uint32 age (2);
+class response<T> stable_ids {
+  public result<T> result (1);
 }
-
-instantiate person_result = result<person>;
-
-class response stable_ids {
-  public result<person> person_result (1);
-  public result<uint32> count_result (2);
+class message<T = uint32> stable_ids {
+  public response<T> response (1);
 }
 ```
 
-Class declarations have no trailing semicolon. An `instantiate` declaration has
-the form `instantiate name = generic<arguments>;` and requires its semicolon.
-It creates a named concrete class for a root that applications use directly.
-The named class and the automatically generated specialization are distinct
-types with identical fields and serialization behavior.
+After generation, C++ application code can use `response<std::uint32_t>` or
+`message<std::string>` directly and call the ordinary `serialize_out`, `serialize_in`,
+`serialize`, `deserialize`, and `deserialize_exact` APIs. No `instantiate` declaration
+or concrete schema field is required. Host type arguments must support the selected
+codec and the generated owning-value operations. C++20 remains the minimum; C++23
+consumers use the same API. Naming profiles apply to class and member names;
+template parameter names retain their declared spelling.
 
-## Type arguments and resolution
-
-Parameters may appear as direct field types, array element types, map keys or
-values, and arguments of another generic. For example:
+## Optional cross-language contracts
 
 ```text
-class pair<Key, Value> {
-  public Key key;
-  public Value value;
+instantiate count_result = result<uint32>;
+class service_reply stable_ids {
+  public response<uint32> response (1);
 }
-
-class batch<T> {
-  public array T values;
-}
-
-class lookup<Key, Value> {
-  public map(Key) Value values;
-}
-
-instantiate pairs = batch<pair<uint32, string>>;
-instantiate labels = lookup<uint32, string>;
 ```
 
-Arguments are schema primitives, enums, owning classes, or other concrete generic
-applications. Existing backend restrictions, including map-key support, still
-apply after substitution. Collection modifiers are field syntax, not standalone
-type arguments: wrap a collection in a generic class instead of `box<array uint32>`.
+These optional contracts tell the shared compiler which concrete types to emit for
+Java, JavaScript, TypeScript, Go, C#, Rust, Python, Swift, Kotlin, and C. C++ may also
+use them. `count_result` remains a distinct named class with the same fields and
+bytes as `result<std::uint32_t>`; ordinary fields use the native C++ specialization.
+The named declaration ends with a semicolon; class declarations do not.
 
-Definitions and argument types must precede their use, including across transitive
-`include` directives. Parameters are local to their declaration. Other names in a
-generic body resolve in the definition's namespace. Argument names resolve where
-the application occurs. Whitespace and comments are permitted around `<`, `,`, and
-`>`; adjacent closing brackets in nested applications work.
+An application-only C++ specialization is invisible to other generators and to
+schema compatibility analysis. Declare a contract when sharing it with another
+language or checking its schema evolution. Native application-side generic APIs
+in the other ten languages are not implemented. Unused generic declarations emit
+C++ templates but no other-language models.
 
-The compiler caches applications by the qualified declaration and resolved
-arguments. Repeated references share one concrete class. Compiler-owned names
-encode the canonical schema identity as hexadecimal after `serializer_instance_`;
-language naming profiles may change their presentation. Use explicit named
-instantiations for a readable, stable application-facing root name.
+## Parameters, defaults, and fixed arrays
 
-## Generated APIs
-
-For the first example, C++ offers both the named `person_result` class and:
-
-```cpp
-result<person> value{};
-value.success = true;
-value.value.name = "Ada";
-value.serialize_out<rohit::serializer::json>(output);
+```text
+class point<uint64 N> stable_ids {
+  public array[N] double coordinates (1);
+}
+class matrix<uint64 Rows, uint64 Cols = Rows, T = double> stable_ids {
+  public array[Rows * Cols] T elements (1);
+}
+class frame<uint64 N> stable_ids {
+  public point<N> origin (1);
+  public matrix<N> basis (2);
+}
+instantiate matrix_3 = matrix<3>;
 ```
 
-The alias resolves to exactly the concrete type used by `response.person_result`.
-It has the normal generated codec methods and adds no runtime dispatch, allocation,
-base class, or wire overhead. C++ naming profiles also apply to generic aliases.
+Bare parameter names denote serializable types; `uint64 Name` denotes a positive
+integer dimension. Bind arguments left to right. Defaults are trailing and may
+refer to earlier parameters of the appropriate kind; self/forward references,
+zero dimensions, and kind mismatches reject. Type defaults may be visible types
+or supported generic applications. `matrix<3>`, `matrix<3,3>`, and
+`matrix<3,3,double>` share one specialization. Parameter renaming does not change
+its schema identity. Changing a default affects omitted arguments only.
 
-Only applications present in fields or `instantiate` declarations receive bindings.
-An unused generic emits no model; `result<some_other_type>` in application C++ is
-unsupported unless that application is also declared in the schema. These are
-finite schema bindings, not unrestricted C++ templates accepting arbitrary host
-types. The compiler-generated `<name>_serializer_binding` helper name must not
-collide with a schema declaration after applying the C++ naming profile.
+Dimension expressions accept decimal literals, dimension parameters, parentheses,
+`+`, and `*`, with multiplication precedence and left associativity. Arithmetic
+checks every intermediate result in uint64; zero may occur inside an expression
+but cannot be a bound dimension or final extent. Negative values, overflow,
+division, shifts, casts, and arbitrary host expressions in schemas reject.
 
-Java, JavaScript, TypeScript, Go, C#, Rust, Python, Swift, Kotlin, and C receive
-ordinary concrete models and their existing typed codec APIs. There is no new
-runtime type registry or codec argument. Native generic APIs in those languages
-remain future work.
+`array T` remains variable-length. `array[expression] T` is fixed and may also
+appear in non-generic owning classes. C++ uses value-initialized `std::array<T,N>`.
+Generated consteval helpers check dependent arithmetic and extents before storage
+instantiation. Each extent is 1..65,536; expression parsing permits 32 levels and
+256 nodes (including parenthesized groups). Schema type parsing/expansion retain
+32 levels, 1,024 concrete applications, and 4,096 canonical identity bytes. Nested
+minimum inline storage must fit the generator host's ptrdiff_t range. Native C++
+instantiations also obey the target compiler's object-size limits.
 
-## Wire compatibility
+All generic definitions require unpacked, unmanaged owning storage, without
+inheritance, unions, recursive ownership, variadics, or user specializations.
+Schema arguments cannot be managed/view classes. Definition names resolve in
+declaration scope; explicit arguments resolve in use-site scope. Definitions and
+nondependent types must precede their uses, including through transitive includes.
+Collections are field modifiers, not type arguments; wrap a collection in a class.
 
-A generic application has the same representation as an equivalent ordinary
-class. Parameters add no type tags, IDs, or envelope bytes. Field IDs, wire names,
-order, defaults, and codec rules come from the declaration after substitution.
-The reader must already know the concrete message type.
+## Backend support
 
-The compatibility checker compares expanded classes. Renaming a parameter does
-not change that contract; changing an argument or a generic field can change it.
-`stable_ids` retains its existing meaning and does not override positional field
-order or native keyed readers' rejection of unknown fields. Reservations can
-target a named instantiation's ordinary qualified class name. Shared generic
-definitions must be evolved consistently for every application.
+| Feature | C++ | Other ten languages |
+| --- | --- | --- |
+| Native generic declaration without concrete contracts | Native template and codecs | No model emitted |
+| Concrete type/dimension applications without fixed arrays | Supported | Existing concrete records/codecs |
+| Fixed arrays, including point/frame/matrix above | std::array, four native protocols | Explicit generation-time unsupported diagnostic |
+| Fixed arrays with direct Protobuf output | Explicit generation-time unsupported diagnostic | Not advertised |
+| Ordinary generic values in managed roots | Generated replacement setters/history/journals | Managed runtime remains unsupported |
 
-## Initial profile and limits
+Fixed-array diagnostics identify the backend, field, and schema byte offset.
+There is no implicit variable-length fallback. The [qualification record](verification-dimensions-2026-10-04.md)
+distinguishes native Windows results, WSL results, and remaining limitations.
 
-Generic declarations support unpacked, unmanaged owning classes without
-inheritance or unions. Managed or view classes cannot be type arguments. Value
-parameters, parameter defaults, specialization, variadic parameters, dependent
-default expressions, and generic bases are not supported. Existing non-generic
-owning/view APIs are unchanged.
+## Wire and compatibility behavior
 
-Malformed or missing arguments, unknown types, duplicate/reserved parameters,
-recursive generic ownership, generated-name collisions, and unsupported shapes
-are rejected. Parsing and expansion each have a depth limit of 32. A compilation
-permits at most 1,024 concrete applications and 4,096 bytes in a canonical
-application identity. The normal runtime decoding limits remain independent.
+Generic parameters add no wire metadata. Fixed arrays retain the existing sequence
+count: identical elements produce identical binary_none, binary_integer,
+binary_string, and JSON bytes to an ordinary array. Present fields must have
+exactly the declared cardinality. Missing keyed fields retain existing destination
+values; fresh values retain value-initialized/default storage. Explicit empty
+arrays fail when the extent is positive. Positional fields cannot be omitted.
 
-Both editor extensions highlight generic syntax and navigate parameters, type
-arguments, named roots, and generated concrete classes. A generic definition may
-have several generated destinations; an unused definition falls back to its
-schema location.
+Decoders retain input, allocation, collection, work, and depth budgets even for
+fixed storage. Exact fresh-value decoding rejects trailing input and does not
+publish partial values. Ordinary in-place decoding retains its documented partial
+update behavior. Fixed-array input currently uses scalar element decoding; output
+can use the existing endian-aware bulk scalar path.
 
-Run the [generic examples](../example/generics/README.md) for a C++ template-alias
-executable and dedicated four-protocol consumers in `example/<language>/generics`.
-Each consumer edits a typed nested payload; the runner checks that arrays and maps
-retain their independent values. See the
-[compiled fixture](../test/resources/generics.serializer),
-[schema reference](schema_reference.md), and [usage guide](usage.md).
+Compatibility checks compare lowered fields and extents. Defaulted/explicit forms
+and parameter renaming are equivalent. Different extents are incompatible; a
+variable writer cannot satisfy a fixed reader, while a fixed writer can satisfy a
+variable reader under the existing element/protocol rules. Named instantiations
+remain useful reservation targets. Open templates alone are not concrete wire
+contracts and are excluded from this check.
 
-## Verification
-
-The implementation was checked on Windows with the full 55-test CTest suite and
-the generated C++ examples. The shared example runner compiled and exercised all
-eleven language consumers through all four native protocols; Rust, Swift, and C
-used explicitly selected WSL SDKs. The C++ unit suite also checks ordinary/generic
-wire equivalence, invalid arguments, recursion and expansion budgets, namespace
-binding, and compatibility changes.
-
-Editor verification passed 68 shared/provider tests, 10,899 fresh-output navigation
-checks (including all C++ naming profiles), and 64 checks in the Visual Studio
-.NET interpreter, including generic definitions, local parameters, and reverse
-navigation. Both 1.1.13 VSIX packages were rebuilt and validated. This change did
-not install them or rerun the interactive editor-host tests.
+See [usage](usage.md), [schema reference](schema_reference.md),
+[wire format](wire_format.md), [migration](../migration.md), and the
+[runnable cross-language generic examples](../example/generics/README.md).

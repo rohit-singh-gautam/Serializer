@@ -323,6 +323,60 @@ parse_hierarchical_identifier_impl(const rohit::type_check::schema_input_buffer 
   return {reinterpret_cast<const char*>(begin), available - in_stream.remaining_buffer()};
 } // parse_hierarchical_identifier_impl
 
+// Parse checked-expression syntax with bounded recursion and a per-expression node budget.
+dimension_expression parse_dimension_expression(
+    const rohit::type_check::schema_input_buffer auto& input, unsigned minimum = 0,
+    std::size_t depth = 0, std::size_t* shared_count = nullptr,
+    std::vector<dimension_expression> initial = {}) {
+  constexpr std::size_t maximum_levels = 32, maximum_nodes = 256;
+  std::size_t local_count{};
+  auto& count = shared_count ? *shared_count : local_count;
+  if (depth >= maximum_levels || ++count > maximum_nodes) {
+    throw exception::bad_member_type{input, "Dimension expression resource limit (32 levels, 256 nodes) exceeded"};
+  }
+  skip_whitespace_and_comment(input);
+  dimension_expression result{};
+  result.source_offset = input.current_offset();
+  if (!initial.empty()) {
+    result = std::move(initial.front());
+  } else if (!input.full() && *input == '(') {
+    ++input;
+    result = parse_dimension_expression(input, 0, depth + 1, &count);
+    check_and_increase(input, ')');
+  } else if (!input.full() && *input >= '0' && *input <= '9') {
+    while (!input.full() && *input >= '0' && *input <= '9') {
+      const auto digit = static_cast<std::uint64_t>(*input - '0');
+      if (result.value > (std::numeric_limits<std::uint64_t>::max() - digit) / 10) {
+        throw exception::bad_member_type{input, "Dimension literal overflow"};
+      }
+      result.value = result.value * 10 + digit;
+      ++input;
+    }
+  } else if (!input.full() && *input == '-') {
+    throw exception::bad_member_type{input, "Invalid dimension: negative values are forbidden"};
+  } else {
+    result.kind = dimension_expression::operation::parameter;
+    result.name = parse_identifier_impl(input);
+  }
+  skip_whitespace_and_comment(input);
+  while (!input.full() && (*input == '+' || *input == '*')) {
+    const auto precedence = *input == '*' ? 2u : 1u;
+    if (precedence < minimum) { break; }
+    if (++count > maximum_nodes) {
+      throw exception::bad_member_type{input, "Dimension expression node limit (256) exceeded"};
+    }
+    dimension_expression operation{};
+    operation.source_offset = input.current_offset();
+    operation.kind = *input == '*' ? dimension_expression::operation::multiply
+                                  : dimension_expression::operation::add;
+    ++input;
+    operation.operands.push_back(std::move(result));
+    operation.operands.push_back(parse_dimension_expression(input, precedence + 1, depth + 1, &count));
+    result = std::move(operation);
+  }
+  return result;
+}
+
 // Parse bounded, nested schema type arguments without consuming the following member name.
 type_name parse_type_expression(const rohit::type_check::schema_input_buffer auto& input,
                                 namespace_node* scope, std::size_t depth = 0) {
@@ -330,18 +384,40 @@ type_name parse_type_expression(const rohit::type_check::schema_input_buffer aut
   if (depth >= maximum_type_depth) {
     throw exception::bad_member_type{input, "Maximum generic type depth (32) exceeded"};
   }
+  if (!input.full() && ((*input >= '0' && *input <= '9') || *input == '(' || *input == '-')) {
+    type_name value{"", scope};
+    value.source_offset = input.current_offset();
+    value.kind = generic_argument_kind::dimension;
+    value.expression.push_back(parse_dimension_expression(input));
+    return value;
+  }
+  const auto source_offset = input.current_offset();
   type_name result{parse_hierarchical_identifier_impl(input), scope};
+  result.source_offset = source_offset;
   skip_whitespace_and_comment(input);
   if (!input.full() && *input == '<') {
+    result.application = true;
     ++input;
-    do {
+    skip_whitespace_and_comment(input);
+    while (!input.full() && *input != '>') {
       skip_whitespace_and_comment(input);
       result.arguments.push_back(parse_type_expression(input, scope, depth + 1));
       if (input.full() || *input != ',') { break; }
       ++input;
-    } while (true);
+      if (!input.full() && *input == '>') {
+        throw exception::bad_member_type{input, "Missing generic argument after comma"};
+      }
+    }
     check_and_increase(input, '>');
     skip_whitespace_and_comment(input);
+  }
+  if (!input.full() && (*input == '+' || *input == '*')) {
+    dimension_expression parameter{};
+    parameter.kind = dimension_expression::operation::parameter;
+    parameter.name = result.name;
+    parameter.source_offset = input.current_offset();
+    result.kind = generic_argument_kind::dimension;
+    result.expression.push_back(parse_dimension_expression(input, 0, 0, nullptr, {parameter}));
   }
   return result;
 }
@@ -501,6 +577,9 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   auto access = parse_access_type_impl(in_stream);
   skip_whitespace_and_comment(in_stream);
   auto next_type = parse_type_expression(in_stream, declared_namespace);
+  if (next_type.kind == generic_argument_kind::dimension) {
+    throw exception::bad_identifier{in_stream, "Expected a member type identifier"};
+  }
   const bool managed = next_type.name == "managed";
   if (managed) {
     skip_whitespace_and_comment(in_stream);
@@ -516,10 +595,17 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
     throw exception::bad_member_type{in_stream, "Collection modifiers do not accept type arguments"};
   }
   std::string key{};
+  std::vector<dimension_expression> extent{};
   if (member_modifier == member::modifier_type::none) {
     type_name_list.push_back(std::move(next_type));
   } else if (member_modifier == member::modifier_type::array) {
     skip_whitespace_and_comment(in_stream);
+    if (!in_stream.full() && *in_stream == '[') {
+      ++in_stream;
+      extent.push_back(parse_dimension_expression(in_stream));
+      check_and_increase(in_stream, ']');
+      skip_whitespace_and_comment(in_stream);
+    }
     type_name_list.push_back(parse_type_expression(in_stream, declared_namespace));
   } else if (member_modifier == member::modifier_type::map) {
     parse_member_type_map(in_stream, declared_namespace, type_name_list, key);
@@ -555,8 +641,10 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   skip_whitespace_and_comment(in_stream);
   check_and_increase(in_stream, ';');
   validate_field_key(in_stream, new_id, display_name);
-  return {access, member_modifier, type_name_list, name, display_name, new_id, key, default_value,
-          explicit_id, nullptr, managed};
+  member result{access, member_modifier, type_name_list, name, display_name, new_id, key, default_value,
+                explicit_id, nullptr, managed};
+  result.extent_expression = std::move(extent);
+  return result;
 } // parse_member_impl
 
 // Read a declaration keyword and distinguish misplaced includes from unknown declarations.
@@ -650,11 +738,19 @@ parse_class_header(const rohit::type_check::schema_input_buffer auto& in_stream,
   auto name = parse_identifier_impl(in_stream);
   skip_whitespace_and_comment(in_stream);
   std::vector<std::string> parameters{};
+  std::vector<generic_parameter> parameter_specs{};
+  bool has_default = false;
   if (!in_stream.full() && *in_stream == '<') {
     ++in_stream;
     do {
       skip_whitespace_and_comment(in_stream);
       auto parameter = parse_identifier_impl(in_stream);
+      generic_parameter spec{};
+      if (parameter == "uint64") {
+        spec.kind = generic_argument_kind::dimension;
+        skip_whitespace_and_comment(in_stream);
+        parameter = parse_identifier_impl(in_stream);
+      }
       constexpr std::string_view reserved_parameters[] = {
           "array", "map", "union", "managed", "class", "namespace", "enum", "instantiate",
           "serializer", "version", "include", "public", "protected", "private", "owning",
@@ -665,8 +761,18 @@ parse_class_header(const rohit::type_check::schema_input_buffer auto& in_stream,
           !serializer::get_cpp_type_or_empty(parameter).empty() || parameter == name) {
         throw exception::bad_class{in_stream, "Duplicate or reserved generic parameter: " + parameter};
       }
+      spec.name = parameter;
       parameters.push_back(std::move(parameter));
       skip_whitespace_and_comment(in_stream);
+      if (!in_stream.full() && *in_stream == '=') {
+        ++in_stream;
+        skip_whitespace_and_comment(in_stream);
+        spec.default_argument.push_back(parse_type_expression(in_stream, current_namespace));
+        has_default = true;
+      } else if (has_default) {
+        throw exception::bad_class{in_stream, "Invalid default: all trailing parameters require defaults"};
+      }
+      parameter_specs.push_back(std::move(spec));
       if (in_stream.full() || *in_stream != ',') { break; }
       ++in_stream;
     } while (true);
@@ -719,6 +825,7 @@ parse_class_header(const rohit::type_check::schema_input_buffer auto& in_stream,
       (readonly ? static_cast<unsigned>(storage_mode::read_only_view) : 0u) |
       (mutable_view ? static_cast<unsigned>(storage_mode::mutable_view) : 0u));
   result->type_parameters = std::move(parameters);
+  result->generic_parameters = std::move(parameter_specs);
   return result;
 }
 

@@ -31,6 +31,10 @@ inline std::uint64_t managed_schema_hash(const class_node* source,
     add(field.display_name);
     add(field.default_value);
     add(std::to_string(static_cast<unsigned>(field.modifier)));
+    if (field.fixed_extent != 0) {
+      add("fixed_extent");
+      add(std::to_string(field.fixed_extent));
+    }
     add(field.managed ? "managed" : "value");
     add(field.key);
     if (field.key_node && field.key_node->type == object_type::enum_type) {

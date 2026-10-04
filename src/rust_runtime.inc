@@ -197,7 +197,8 @@ impl<'a> SrlReader<'a> {
             if byte != b'\\' { value.push(byte); continue; }
             let escaped = self.take(1)?[0];
             match escaped {
-                b'"' | b'\\' | b'/' => value.push(escaped), b'b' => value.push(8), b'f' => value.push(12), b'n' => value.push(10), b'r' => value.push(13), b't' => value.push(9),
+)serializer"
+R"serializer(                b'"' | b'\\' | b'/' => value.push(escaped), b'b' => value.push(8), b'f' => value.push(12), b'n' => value.push(10), b'r' => value.push(13), b't' => value.push(9),
                 b'u' => {
                     let mut code = self.hex()?;
                     if (0xd800..=0xdbff).contains(&code) {

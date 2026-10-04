@@ -301,7 +301,7 @@ TEST_F(schema_include_test, generic_definitions_across_transitive_includes) {
   write("common.serializer", "serializer version 1; namespace lib { class value { public uint32 id; } "
       "class box<T> { public value fixed; public T item; } }");
   write("middle.serializer", "serializer version 1; include common; "
-      "namespace lib { instantiate first = box<string>; }");
+      "namespace lib { class first { public box<string> value; } }");
   write("root.serializer", "serializer version 1; include middle; "
       "namespace app { class value {} class response { public lib::box<string> item; } }");
   const auto parsed = schema::parser::parse_file(directory / "root.serializer");
@@ -311,7 +311,7 @@ TEST_F(schema_include_test, generic_definitions_across_transitive_includes) {
   EXPECT_NO_THROW(schema::writer::cpp::write(output, parsed.statements, options));
   const std::string generated{reinterpret_cast<const char*>(output.begin()), output.current_offset()};
   EXPECT_NE(generated.find("::lib::value fixed"), std::string::npos);
-  EXPECT_NE(generated.find("using box = typename box_serializer_binding"), std::string::npos);
+  EXPECT_NE(generated.find("template <typename T>"), std::string::npos);
   write("common.serializer", "serializer version 1; class box<T> { public missing value; }");
   reject("Unknown type");
 }

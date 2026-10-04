@@ -624,3 +624,14 @@ JavaScript represents 64-bit fields with `bigint` and preserves full decimal JSO
 integer tokens. Binary map output is explicitly sorted; JSON text escaping can
 vary without changing values. See [portable language mappings and limits](portable_languages.md)
 and the [all-pairs verification](verification-multilanguage-2026-09-17.md).
+
+## Fixed owning arrays and generic templates
+
+Generic type/value arguments add no wire metadata. Fixed arrays keep the ordinary
+sequence representation and count in all four native protocols. A present fixed
+array must contain exactly its schema extent. Binary readers check the count
+before elements; JSON bounds iteration and rejects short/extra elements. Missing
+keyed fields retain destination/default values; an explicit empty sequence is not
+a missing field. Runtime budgets and endian selection are unchanged. Direct
+Protobuf generation of fixed arrays is explicitly rejected. See
+[generic contracts](generics.md) and [qualification](verification-dimensions-2026-10-04.md).

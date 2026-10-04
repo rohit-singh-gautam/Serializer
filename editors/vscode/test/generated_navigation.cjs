@@ -78,7 +78,7 @@ async function main() {
   fs.mkdirSync(parent, { recursive: true });
   const directory = fs.mkdtempSync(path.join(parent, 'generated-navigation-'));
   let checks = await verify(path.join(repository, 'example/schemas/complex/model.serializer'), path.join(directory, 'complex'));
-  checks += await verify(path.join(repository, 'test/resources/generics.serializer'), path.join(directory, 'generics'));
+  checks += await verify(path.join(repository, 'example/generics/result.serializer'), path.join(directory, 'generics'));
   const input = path.join(directory, 'acronyms.serializer');
   fs.writeFileSync(input, `serializer version 1;
 namespace HTTPModels { enum HTTPState { Ready } class HTTPRecord { public HTTPState StateValue; } }
@@ -94,6 +94,8 @@ namespace Names_ { class Value_Type {} }
       ['--cpp.coding_standard', profile], { cpp: outputs.cpp });
     checks += await verify(path.join(repository, 'test/resources/generics.serializer'),
       path.join(directory, `generics-cpp-${profile}`), ['--cpp.coding_standard', profile], { cpp: outputs.cpp });
+    checks += await verify(path.join(repository, 'test/resources/dimensions.serializer'),
+      path.join(directory, `dimensions-cpp-${profile}`), ['--cpp.coding_standard', profile], { cpp: outputs.cpp });
   }
   for (const profile of ['serializer', 'core', 'google', 'llvm', 'gnu', 'cert', 'misra', 'autosar', 'qt']) {
     checks += await verify(path.join(repository, 'test/resources/managed_generated.serializer'),

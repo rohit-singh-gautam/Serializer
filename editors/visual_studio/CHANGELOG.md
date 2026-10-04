@@ -1,3 +1,8 @@
+# 1.1.15
+
+- Support native C++ generic declarations, dimension parameters, defaults, and fixed-array expressions in shared navigation and highlighting.
+- Retain optional `instantiate` and concrete-field contracts for cross-language generation; C++ templates no longer require them.
+
 # Changelog
 
 ## 1.1.14

@@ -476,7 +476,7 @@ test('Git generic parameters retain snapshot locations and qualified arguments f
   state.put('model.serializer', 'serializer version 1; class different {}');
   state.put('middle.serializer', 'include types;');
   state.put('types.serializer', 'namespace data { class person {} }');
-  const text = 'serializer version 1;\ninclude middle;\nclass box<T> { public T value; }\ninstantiate root = box<data::person>;';
+  const text = 'serializer version 1;\ninclude middle;\nclass box<T> { public T value; }\nclass root { public box<data::person> value; }';
   const doc = gitDocument(state, 'model.serializer', text);
   const parameter = text.indexOf('T value');
   const targets = await state.providers.typeDefinition.provideTypeDefinition(doc, doc.positionAt(parameter), state.cancellation);

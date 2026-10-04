@@ -1,6 +1,6 @@
 set(schemas)
 foreach(fixture IN ITEMS enum person test1 array map variable assessment views storage_reuse
-    fixed_fields constant_names includes wire_compatibility generics)
+    fixed_fields constant_names includes wire_compatibility generics dimensions)
   list(APPEND schemas "${CMAKE_CURRENT_SOURCE_DIR}/resources/${fixture}.serializer")
 endforeach()
 
@@ -14,6 +14,7 @@ add_executable(core_serializer_test
   serializer_parser_test.cpp
   schema_version_test.cpp
   schema_generics_test.cpp
+  dimension_templates_test.cpp
   managed_schema_test.cpp
   managed_lowering_test.cpp
   schema_compatibility_test.cpp
@@ -50,13 +51,64 @@ elseif(UNIX)
 endif()
 
 add_test(NAME core_serializer_test COMMAND core_serializer_test)
+foreach(profile IN ITEMS serializer core google llvm gnu cert misra autosar qt)
+  set(matrix_type matrix)
+  set(point_type point)
+  set(frame_type frame)
+  set(message_type message)
+  set(elements_field elements)
+  set(response_field response)
+  set(result_field result)
+  set(value_field value)
+  if(profile MATCHES "^(google|llvm|qt)$")
+    set(matrix_type Matrix)
+    set(point_type Point)
+    set(frame_type Frame)
+    set(message_type Message)
+  endif()
+  if(profile STREQUAL "google")
+    set(elements_field elements_)
+    set(response_field response_)
+    set(result_field result_)
+    set(value_field value_)
+  elseif(profile STREQUAL "llvm")
+    set(elements_field Elements)
+    set(response_field Response)
+    set(result_field Result)
+    set(value_field Value)
+  endif()
+  set(profile_directory "${CMAKE_CURRENT_BINARY_DIR}/dimension_profile_${profile}")
+  configure_file(dimension_profile_test.cpp.in "${profile_directory}/dimension_profile_test.cpp" @ONLY)
+  add_executable(dimension_profile_${profile}_test "${profile_directory}/dimension_profile_test.cpp")
+  set_target_properties(dimension_profile_${profile}_test PROPERTIES CXX_STANDARD 23)
+  serializer_generate(TARGET dimension_profile_${profile}_test
+    SCHEMAS resources/generics.serializer resources/dimensions.serializer
+    CODING_STANDARD ${profile} OUTPUT_DIRECTORY "${profile_directory}")
+  add_test(NAME dimension_profile_${profile}_test COMMAND dimension_profile_${profile}_test)
+endforeach()
 find_package(Python3 3.10 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
+  add_test(NAME serializer_runtime_literals
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/runtime_literal_test.py")
   add_test(NAME serializer_generic_python
     COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/example/generics/run.py"
       --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/generic_python")
 endif()
 if(SERIALIZER_BUILD_MANAGED)
+  foreach(profile IN ITEMS managed32 managed64 separate64)
+    add_executable(dimension_history_${profile}_test dimension_history_test.cpp)
+    set_target_properties(dimension_history_${profile}_test PROPERTIES CXX_STANDARD 23)
+    serializer_generate(TARGET dimension_history_${profile}_test
+      SCHEMAS resources/dimensions_managed.serializer
+      CONFIG resources/dimensions_${profile}.ini
+      OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/dimensions_${profile}")
+    target_link_libraries(dimension_history_${profile}_test PRIVATE Serializer::managed)
+    if(Python3_Interpreter_FOUND)
+      add_test(NAME dimension_history_${profile}_test
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/dimension_history_test.py"
+          --helper "$<TARGET_FILE:dimension_history_${profile}_test>")
+    endif()
+  endforeach()
   add_executable(managed_collaboration_test managed_collaboration_test.cpp
     managed_collaboration_ownership_test.cpp managed_collaboration_proposal_test.cpp
     managed_collaboration_session_test.cpp managed_collaboration_history_test.cpp

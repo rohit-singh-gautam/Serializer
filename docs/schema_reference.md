@@ -50,11 +50,21 @@ Binary serialization always encodes fields individually.
 
 ### Generic owning classes
 
-Declare type parameters with `class result<T>` and use applications such as
-`result<uint32>` in fields. `instantiate count_result = result<uint32>;` creates
-a named concrete root. Multiple parameters and nested applications are supported.
-See [schema generics](generics.md) for complete examples, C++ template aliases,
-cross-language expansion, and the owning-only first-release restrictions.
+Declare type parameters with `class result<T>`. C++ emits a native template even
+without a concrete schema use. Nested applications such as `response<T>` containing
+`result<T>` work directly with application-side C++ arguments. Optional
+`instantiate count_result = result<uint32>;` and `result<uint32>` fields define
+concrete contracts for cross-language generation and compatibility checks.
+
+Declare positive dimensions as `uint64 N`; use trailing defaults such as
+`class matrix<uint64 Rows, uint64 Cols = Rows, T = double>`. Defaults may reference
+earlier parameters. Empty `<>` is valid when every parameter has a default.
+`array[Rows * Cols] T` has an exact owning extent; `array T` is unchanged.
+Expressions permit decimal literals, dimension names, parentheses, `+`, and `*`;
+checked uint64 arithmetic rejects negative/zero dimensions and overflow.
+Fixed arrays require 1..65,536 elements. C++ uses `std::array`; other backends and
+Protobuf generation explicitly reject fixed arrays. See [generics](generics.md)
+for scope resolution, resource limits, native C++ use, and support boundaries.
 
 ### Owning objects and buffer views
 

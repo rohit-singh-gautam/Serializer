@@ -27,12 +27,12 @@ The complete schema includes the required version header and puts these three
 generic declarations in `namespace shared`. Type arguments are schema types.
 All generators share the same concrete expansion and field IDs.
 
-## C++ template aliases
+## Native C++ templates
 
 [main.cpp](main.cpp) uses `shared::pair<std::uint32_t, std::string>`,
 `shared::box<item_type>`, and `shared::envelope<batch_type>` alongside the named
 `example_model` root. It encodes the named root and decodes the bytes into the
-equivalent template alias, checking the nested payload and map contents.
+equivalent native template specialization, checking the nested payload and map contents.
 
 The target is included when building this repository with tests enabled:
 
@@ -105,3 +105,8 @@ checks wire equivalence in all four protocols. See the
 
 Both editor extensions 1.1.13 highlight these examples and navigate generic
 parameters, nested arguments, named roots, and generated implementations.
+
+C++ also permits application-only specializations with no `instantiate` declaration
+or concrete schema field. Keep either optional contract form when generating
+other languages or checking concrete schema compatibility. Fixed dimension arrays
+currently require the native C++ codecs; see [generics](../../docs/generics.md).
