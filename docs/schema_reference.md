@@ -305,3 +305,11 @@ Only IDs, lengths, numeric enum values, and union indices use the compact intege
 encoding. Ordinary integer fields retain their declared byte width. Negative
 compact integers and values above `0x3fffffff` throw `std::out_of_range` before
 writing that integer.
+
+## Native JSON host types
+
+C++ generic fields may use `std::optional<T>` when encoding and decoding native
+JSON; an empty value is JSON `null`. This is a host type capability, not a new
+schema type or binary encoding. Evolving JSON readers can explicitly select
+`json_read_policy::compatible`; regenerate classes for the unknown-member hook.
+See [JSON compatibility](usage.md#json-compatibility).

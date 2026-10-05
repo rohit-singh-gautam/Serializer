@@ -680,14 +680,19 @@ public:
     if (obj->parents.empty() && obj->member_list.empty()) {
       // Empty classes have no hash cases; avoid a default-only switch under MSVC /W4.
       out_stream.write(
-          "  // Reject every named field for an empty schema.\n"
+          "  // Delegate unknown names to protocols that support compatible input.\n"
           "  template <typename SerializeInProtocol, typename StorageSource>\n"
           "  void serialize_in_member_by_name(SerializeInProtocol& ",
-          local_name("serializer_protocol"),
-          ", ::std::string_view, [[maybe_unused]] StorageSource ", local_name("storage_donor"),
+          local_name("serializer_protocol"), ", ::std::string_view ", local_name("name"),
+          ", [[maybe_unused]] StorageSource ", local_name("storage_donor"),
           ") {\n"
-          "    throw ::rohit::serializer::exception::key_not_found{",
-          local_name("serializer_protocol"), ".get_stream(), \"Unknown field name\"};\n  }\n\n");
+          "    if constexpr (requires { ",
+          local_name("serializer_protocol"), ".unknown_member(", local_name("name"),
+          "); }) {\n      ", local_name("serializer_protocol"), ".unknown_member(",
+          local_name("name"),
+          ");\n    } else {\n      throw ::rohit::serializer::exception::key_not_found{",
+          local_name("serializer_protocol"),
+          ".get_stream(), \"Unknown field name\"};\n    }\n  }\n\n");
       return;
     }
     for (const auto& base : obj->parents) {
@@ -744,10 +749,13 @@ public:
       }
       out_stream.write("        break;\n");
     }
-    out_stream.write((std::string{"      default: break;\n    }\n    throw "
-                                  "::rohit::serializer::exception::key_not_found{"} +
-                      local_name("serializer_protocol") +
-                      ".get_stream(), \"Unknown field name\"};\n  }\n\n"));
+    out_stream.write("      default: break;\n    }\n    if constexpr (requires { ",
+                     local_name("serializer_protocol"), ".unknown_member(", local_name("name"),
+                     "); }) {\n      ", local_name("serializer_protocol"), ".unknown_member(",
+                     local_name("name"),
+                     ");\n    } else {\n      throw ::rohit::serializer::exception::key_not_found{",
+                     local_name("serializer_protocol"),
+                     ".get_stream(), \"Unknown field name\"};\n    }\n  }\n\n");
   }
   // Emit field reads selected at compile time, retaining keyed input dispatch where needed.
   void write_serializer_in_body(rohit::type_check::output_buffer auto& out_stream,

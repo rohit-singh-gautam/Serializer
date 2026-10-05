@@ -1,5 +1,11 @@
 # Serializer
 
+Native JSON supports `std::optional<T>` as a host type (`null` or a typed value).
+For evolving JSON documents, use the opt-in `json_read_policy::compatible`
+reader to skip additional fields while rejecting duplicate keys and enforcing
+decode limits. Default JSON input remains strict. Regenerate classes to enable
+the unknown-member protocol hook; see [JSON compatibility](docs/usage.md#json-compatibility).
+
 Define your data once in a `.serializer` schema, then generate classes and codecs
 for JSON and binary serialization. Serializer includes a C++20 schema compiler,
 a C++ runtime, and generators for multiple languages.
@@ -117,7 +123,8 @@ These are separate from the four native protocols.
 
 For evolving schemas, use [explicit field IDs](docs/schema_reference.md#explicit-field-ids-with-stable_ids)
 and the [schema compatibility checker](docs/schema_evolution.md). Stable IDs alone
-do not make native readers accept unknown fields.
+do not make native readers accept unknown fields. Evolving JSON documents can
+explicitly select `json_read_policy::compatible` after regenerating their classes.
 
 ## Build and test
 

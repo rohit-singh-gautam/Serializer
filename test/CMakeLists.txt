@@ -24,6 +24,7 @@ add_executable(core_serializer_test
   runtime_simd_test.cpp
   utf8_validation_test.cpp
   json_scan_reuse_test.cpp
+  json_compatibility_test.cpp
   json_whitespace_scan_test.cpp
   binary_array_decode_test.cpp
   nested_storage_reuse_test.cpp

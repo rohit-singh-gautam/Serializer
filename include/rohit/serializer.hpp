@@ -38,6 +38,7 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <set>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -660,14 +661,25 @@ enum class serialize_key_type { none, integer, string };
 
 enum class serialize_type { in, out };
 
+// Strict input rejects unknown names; compatible input skips them and rejects duplicates.
+enum class json_read_policy { strict, compatible };
+
+namespace detail {
+template <typename T>
+inline constexpr bool json_optional = false;
+template <typename T>
+inline constexpr bool json_optional<std::optional<T>> = true;
+} // namespace detail
+
 // Select the generated object's storage; values also form a generator mode mask.
 enum class storage_mode : std::uint8_t { owning = 1, read_only_view = 2, mutable_view = 4 };
 
-template <serialize_type type, typename Stream = stream>
+template <serialize_type type, typename Stream = stream,
+          json_read_policy ReadPolicy = json_read_policy::strict>
 class json;
 
-template <rohit::type_check::input_buffer Stream>
-class json<serialize_type::in, Stream> : public detail::decoder_input<Stream> {
+template <rohit::type_check::input_buffer Stream, json_read_policy ReadPolicy>
+class json<serialize_type::in, Stream, ReadPolicy> : public detail::decoder_input<Stream> {
 protected:
   using base = detail::decoder_input<Stream>;
   using base::available_input;
@@ -690,7 +702,7 @@ public:
   using base::enter_object;
   using stream_type = Stream;
   template <rohit::type_check::input_buffer OtherStream>
-  using rebind_stream = json<serialize_type::in, OtherStream>;
+  using rebind_stream = json<serialize_type::in, OtherStream, ReadPolicy>;
 
 protected:
   // Report malformed JSON without echoing payload data by default.
@@ -943,6 +955,75 @@ protected:
   }
 
 public:
+  // Skip one unknown value using the same grammar and resource budgets as typed input.
+  void unknown_member(std::string_view) {
+    if constexpr (ReadPolicy == json_read_policy::strict) {
+      throw exception::key_not_found{in_stream, "Unknown field name"};
+    } else {
+      skip_value();
+    }
+  }
+
+protected:
+  // Account for owned keys before detecting duplicate spellings, including escaped aliases.
+  void remember_key(std::set<std::string>& keys, std::string_view key) {
+    charge_allocation(1, sizeof(std::string) + 4 * sizeof(void*));
+    charge_allocation(key.size(), sizeof(char));
+    if (!keys.emplace(key).second) {
+      fail("Duplicate JSON field name");
+    }
+  }
+
+  // Validate unknown containers recursively without converting unknown numeric magnitudes.
+  void skip_value() {
+    charge_work();
+    skip_whitespace();
+    const auto token = peek();
+    if (token == '{' || token == '[') {
+      auto nesting = enter_object();
+      const auto object = token == '{';
+      const auto close = object ? '}' : ']';
+      check_and_increase(static_cast<char>(token));
+      skip_whitespace();
+      std::set<std::string> keys;
+      std::string scratch;
+      std::size_t count{};
+      while (peek() != close) {
+        if (count >= limits.max_collection_elements) {
+          fail_limit("JSON collection limit exceeded");
+        }
+        ++count;
+        if (object) {
+          remember_key(keys, serialize_in_get_key(scratch));
+        }
+        skip_value();
+        skip_whitespace();
+        if (peek() == close) {
+          break;
+        }
+        check_and_increase(',');
+        skip_whitespace();
+        if (peek() == close) {
+          fail("Trailing comma in JSON container");
+        }
+      }
+      check_and_increase(close);
+    } else if (token == '"') {
+      std::string scratch;
+      read_string(scratch, true);
+    } else if (token == 'n') {
+      std::nullptr_t value{};
+      serialize_in(value);
+    } else if (token == 't' || token == 'f') {
+      bool value{};
+      read_bool(value);
+    } else {
+      const auto number = number_token();
+      read_bytes(number.size());
+    }
+  }
+
+public:
   // Reuse the borrowed-name path for generated ordinary enum fields.
   template <typename T>
   void serialize_in_named_enum(T& value) {
@@ -955,7 +1036,17 @@ public:
   void serialize_in(T& value) {
     charge_work();
     skip_whitespace();
-    if constexpr (std::same_as<T, std::nullptr_t>) {
+    if constexpr (detail::json_optional<T>) {
+      if (peek() == 'n') {
+        std::nullptr_t empty{};
+        serialize_in(empty);
+        value.reset();
+      } else {
+        typename T::value_type replacement{};
+        serialize_in(replacement);
+        value = std::move(replacement);
+      }
+    } else if constexpr (std::same_as<T, std::nullptr_t>) {
       constexpr std::string_view literal = "null";
       require_input(literal.size());
       if (std::memcmp(in_stream.curr(), literal.data(), literal.size()) != 0) { fail("Invalid JSON null"); }
@@ -1030,7 +1121,7 @@ public:
     }
   }
 
-  // Decode an object, including an empty object; duplicate fields apply in input order.
+  // Decode an object; compatible input rejects duplicates while strict input retains its policy.
   template <typename T>
   void struct_serialize_in(T* obj) {
     auto nesting = enter_object();
@@ -1040,11 +1131,17 @@ public:
     std::size_t count{};
     if (peek() != '}') {
       std::string scratch;
+      struct no_keys {};
+      [[maybe_unused]] std::conditional_t<ReadPolicy == json_read_policy::compatible,
+                                          std::set<std::string>, no_keys> keys;
       while (true) {
         if (count >= limits.max_collection_elements) { fail_limit("Object field limit exceeded"); }
         ++count;
         charge_work();
         const auto key = serialize_in_get_key(scratch);
+        if constexpr (ReadPolicy == json_read_policy::compatible) {
+          remember_key(keys, key);
+        }
         obj->serialize_in_member_by_name(*this, key);
         skip_whitespace();
         if (peek() == '}') { break; }
@@ -1367,7 +1464,13 @@ public:
   // Encode a supported value or field through this protocol and advance the output cursor.
   template <typename T>
   void serialize_out(const T& value) {
-    if constexpr (std::same_as<T, std::nullptr_t>) {
+    if constexpr (detail::json_optional<T>) {
+      if (value) {
+        serialize_out(*value);
+      } else {
+        serialize_out(nullptr);
+      }
+    } else if constexpr (std::same_as<T, std::nullptr_t>) {
       before_data();
       out_stream.append("null");
     } else if constexpr (std::is_same_v<T, char>) {

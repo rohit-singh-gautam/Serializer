@@ -1164,3 +1164,30 @@ For native tools, use the [typed command-line declaration API](command_line.md#t
 to declare common options, subcommands, defaults and required typed values, then
 parse process argc/argv directly. The guide includes full initialization examples
 and the ownership, getter, help, and dispatch contracts.
+
+## JSON compatibility
+
+Native JSON remains strict by default. To read a document that may gain fields,
+regenerate its classes and select the compatible reader explicitly:
+
+```cpp
+auto stream = rohit::make_constant_stream(bytes.data(), bytes.size());
+rohit::serializer::json<rohit::serializer::serialize_type::in, rohit::stream,
+                       rohit::serializer::json_read_policy::compatible> reader(stream);
+document value{};
+reader.serialize_in(value);
+reader.finish();
+```
+
+Compatible input skips unknown values, including nested arrays and objects. It
+rejects duplicate names in both known and unknown objects, including escaped
+aliases, and applies the normal input, string, allocation, collection, work, and
+nesting limits to skipped values. Missing fields retain their generated defaults;
+the application must validate required identities and relationships. Existing
+generated classes without the unknown-member hook need regeneration. Other
+protocols and default JSON readers retain their existing behavior.
+
+C++ `std::optional<T>` host arguments are supported by native JSON readers and
+writers: an empty optional is `null`, and a present optional uses `T`'s codec.
+This is useful for generic schema fields without changing existing JSON names.
+It does not introduce a schema nullable keyword or native binary optional codec.

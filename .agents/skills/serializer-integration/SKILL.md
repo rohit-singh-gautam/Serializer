@@ -474,8 +474,10 @@ feature as a prerequisite without the user's request.
   checker, not a new `reserved` keyword or proof of application semantics.
   Read [schema evolution](../../../docs/schema_evolution.md) before choosing policy
   scope or interpreting ordinal and unknown-field diagnostics.
-- Native keyed readers reject unknown fields. Explicit IDs do not make old readers accept
-  new fields. Positional binary still requires matching declaration order/types.
+- Native keyed readers reject unknown fields by default. For JSON, explicitly select
+  `json_read_policy::compatible` and regenerate classes to skip additive fields.
+  Explicit IDs alone do not change input policy. Positional binary still requires
+  matching declaration order/types.
   Resolve incompatible changes through the application's versioning contract.
 - Check supported types before choosing raw unions: generated alternatives must
   be trivially destructible. Ordinary generated enums use names in JSON/string-key
@@ -767,7 +769,14 @@ user instruction to defer generation/builds/tests and report what remains unveri
   backends. Use `array uint8` for arbitrary payload bytes. See the Java guide
   before mapping unusual defaults or union payloads.
 - Use the generated `Limits` to bound message bytes, string bytes, cumulative
-  collection entries, and nesting. Unknown fields and malformed values fail with
+  collection entries, and nesting. Default JSON readers reject unknown fields;
+  opt into `json<serialize_type::in, Stream, json_read_policy::compatible>` for
+  evolving documents. Compatible readers skip additional fields, reject duplicate
+  names (including escaped aliases), and preserve decode limits. Regenerate classes
+  to enable this protocol hook. Native JSON also supports C++ `std::optional<T>`
+  generic arguments as null or typed values; this does not add a schema type or
+  binary optional encoding. See `docs/usage.md#json-compatibility`.
+  Malformed values fail with
   `IllegalArgumentException`. Do not share mutable input/object storage across
   concurrent codec calls. No explicit SIMD or native acceleration is implemented.
 - Keep Java runtime/build verification distinct from C++ source-only status notes.

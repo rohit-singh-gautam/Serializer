@@ -635,3 +635,11 @@ keyed fields retain destination/default values; an explicit empty sequence is no
 a missing field. Runtime budgets and endian selection are unchanged. Direct
 Protobuf generation of fixed arrays is explicitly rejected. See
 [generic contracts](generics.md) and [qualification](verification-dimensions-2026-10-04.md).
+
+## Compatible native JSON input
+
+The opt-in `json_read_policy::compatible` reader ignores additional keyed
+fields, rejects duplicate object keys, and validates skipped values under the
+same resource limits as typed fields. Default native JSON still rejects unknown
+fields. C++ optional host values encode as JSON `null` or their contained value;
+native binary formats are unchanged. See [usage](usage.md#json-compatibility).
