@@ -1282,6 +1282,186 @@ public:
   }
 };
 
+// Own writable std::string storage with the usual buffer reservation and alias contracts.
+// Only resized characters are writable; capacity beyond size is never exposed. The cursor marks
+// the written prefix. Growth, moves, and string extraction invalidate borrowed pointers/views.
+// Private inheritance prevents transferring string storage to malloc/free ownership APIs.
+// Mutations require exclusive access; reset/overwrite must wait for readers of the prior message.
+class string_stream : private full_stream {
+  std::string storage{};
+
+  // Restore all buffer pointers after string growth or ownership transfer without allocating.
+  void rebind(std::size_t offset) noexcept {
+    begin_data = reinterpret_cast<std::uint8_t*>(storage.data());
+    current_data = begin_data + offset;
+    end_data = begin_data + storage.size();
+  }
+
+protected:
+  // Preserve a source inside the string when resize relocates its character storage.
+  void reserve_append(const std::uint8_t*& source, std::size_t size) override {
+    reserve_rebased_append(source, size, [this, size] { reserve(size); });
+  }
+
+  // Rebase all internal sources after the single reservation for a mixed text batch.
+  void reserve_fragments(std::span<detail::write_fragment> fragments, std::size_t size) override {
+    reserve_rebased_fragments(fragments, size);
+  }
+
+public:
+  using full_stream::advance_unchecked;
+  using full_stream::append;
+  using full_stream::append_external;
+  using full_stream::append_string;
+  using full_stream::append_transformed;
+  using full_stream::append_unchecked;
+  using full_stream::at_unchecked;
+  using full_stream::begin;
+  using full_stream::capacity;
+  using full_stream::check_capacity;
+  using full_stream::curr;
+  using full_stream::current_offset;
+  using full_stream::end;
+  using full_stream::full;
+  using full_stream::get_curr_and_increase;
+  using full_stream::get_curr_and_increase_unchecked;
+  using full_stream::get_size_from;
+  using full_stream::is_empty;
+  using full_stream::operator*;
+  using full_stream::operator+;
+  using full_stream::operator++;
+  using full_stream::operator+=;
+  using full_stream::operator--;
+  using full_stream::operator==;
+  using full_stream::push;
+  using full_stream::push_unchecked;
+  using full_stream::remaining_buffer;
+  using full_stream::reserve;
+  using full_stream::reset;
+  using full_stream::update_curr;
+  using full_stream::write;
+  using full_stream::write_raw;
+
+  // Start empty; std::string manages any small buffer and later allocation growth.
+  string_stream() : full_stream{}, storage{} {
+    rebind(0);
+  }
+
+  // Allocate an initial writable extent without marking any bytes as written.
+  explicit string_stream(std::size_t capacity_bytes) : string_stream{} {
+    reserve(capacity_bytes);
+  }
+
+  // Own the supplied string as a written prefix; move the argument to avoid a heap-buffer copy.
+  explicit string_stream(std::string value) : full_stream{}, storage{std::move(value)} {
+    if (storage.size() > detail::maximum_buffer_bytes) {
+      throw exception::stream_overflow_exception{};
+    }
+    rebind(storage.size());
+  }
+
+  // Owning buffer cursors cannot share their storage through copying.
+  string_stream(const string_stream&) = delete;
+  // Owning buffer cursors cannot share their storage through assignment.
+  string_stream& operator=(const string_stream&) = delete;
+
+  // Transfer the string and cursor, rebasing even small strings; leave the source empty/reusable.
+  string_stream(string_stream&& source) noexcept : string_stream{} {
+    const auto offset = source.current_offset();
+    storage = std::move(source.storage);
+    rebind(offset);
+    source.storage.clear();
+    source.rebind(0);
+  }
+
+  // Replace owned storage and preserve the source cursor, including small strings and self-moves.
+  string_stream& operator=(string_stream&& source) noexcept {
+    if (this != &source) {
+      const auto offset = source.current_offset();
+      storage = std::move(source.storage);
+      rebind(offset);
+      source.storage.clear();
+      source.rebind(0);
+    }
+    return *this;
+  }
+
+  // Ensure a writable range without advancing; rejection/allocation failure preserves state.
+  void reserve(std::size_t len) override {
+    const auto offset = current_offset();
+    const auto maximum_bytes = std::min(storage.max_size(), detail::maximum_buffer_bytes);
+    if (offset > maximum_bytes || len > maximum_bytes - offset) {
+      throw exception::stream_overflow_exception{};
+    }
+    const auto required_bytes = offset + len;
+    if (required_bytes > storage.size()) {
+      // resize establishes writable characters; reserve alone only increases allocation capacity.
+      storage.resize(required_bytes);
+      rebind(offset);
+    }
+  }
+
+  // Advance one byte after any necessary reservation succeeds.
+  string_stream& operator++() override {
+    reserve(1);
+    ++current_data;
+    return *this;
+  }
+
+#if defined(__GNUC__)
+// Preserve the established pointer-returning postfix cursor operation.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Weffc++"
+#endif
+  // Return and consume one writable byte, growing before exposing its address.
+  std::uint8_t* operator++(int) override {
+    reserve(1);
+    return current_data++;
+  }
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+
+  // Advance after reservation and return a borrowed view; later string growth invalidates it.
+  stream operator+(std::size_t len) override {
+    reserve(len);
+    advance_cursor(len);
+    return *this;
+  }
+
+  // Advance only after successful reservation, preserving zero-byte movement.
+  string_stream& operator+=(std::size_t len) override {
+    reserve(len);
+    advance_cursor(len);
+    return *this;
+  }
+
+  // Reserve and consume a writable range before returning its borrowed pointer.
+  std::uint8_t* get_curr_and_increase(std::size_t len) override {
+    reserve(len);
+    return get_curr_and_increase_unchecked(len);
+  }
+
+  // Borrow only the written prefix, including embedded NUL characters and excluding spare bytes.
+  std::string_view view() const {
+    return {storage.data(), current_offset()};
+  }
+
+  // Copy the written prefix while retaining this stream's cursor and writable storage.
+  std::string str() const& {
+    return std::string{view()};
+  }
+
+  // Transfer the written prefix to a string and leave this stream empty/reusable.
+  std::string str() && {
+    storage.resize(current_offset());
+    auto result = std::move(storage);
+    storage.clear();
+    rebind(0);
+    return result;
+  }
+};
+
 class fixed_buffer {
   std::uint8_t* begin_data;
   std::uint8_t* end_data;

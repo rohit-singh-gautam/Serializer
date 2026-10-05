@@ -8,6 +8,7 @@ add_executable(core_serializer_test
   core_serializer_test.cpp
   command_line_test.cpp
   stream_boundary_test.cpp
+  string_stream_test.cpp
   deserialize_exact_test.cpp
   compression_test.cpp
   stream_concepts_test.cpp

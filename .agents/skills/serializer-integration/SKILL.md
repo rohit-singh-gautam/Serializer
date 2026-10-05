@@ -964,6 +964,16 @@ user instruction to defer generation/builds/tests and report what remains unveri
   protocol behavior. Schema parser/writer entrypoints use the same stream concepts.
 - Encode into an appropriate stream. Reuse `full_stream_auto_alloc` capacity when
   useful, resetting only after readers of the previous message have finished.
+- Use `rohit::string_stream` from `<rohit/stream.hpp>` for direct string-backed
+  output, including `json_out<true, rohit::string_stream>` for formatted JSON.
+  `view()` borrows only written bytes; lvalue `str()` copies them, while
+  `std::move(output).str()` transfers the trimmed string and empties the stream.
+  Growth resizes writable characters and rebases internal aliases; borrowed
+  pointers/views must not survive growth, moves, extraction, or buffer reuse.
+  Construct from a byte count for an initial writable extent, or move a string
+  to continue after its existing prefix. No schema regeneration is needed for
+  already concept-enabled headers. See
+  [string streams](../../../docs/usage.md#string-backed-output-buffers).
 - Construct input views with the actual message length, such as
   `make_constant_full_stream(output.begin(), output.current_offset())`, never the
   spare allocation capacity. Keep input storage alive and independent of output

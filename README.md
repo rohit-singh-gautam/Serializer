@@ -184,6 +184,7 @@ application must provide.
 | --- | --- |
 | Share declarations across schemas | [Includes](docs/usage.md#share-declarations-with-includes) |
 | Read or update encoded C++ data through borrowed views | [Buffer views](docs/views.md) |
+| Encode directly into an owned `std::string` buffer | [String streams](docs/usage.md#string-backed-output-buffers) |
 | Use standard streams or durable files | [Streams and adapters](docs/usage.md#stream-concepts-and-implicit-adapters), [file streams](docs/usage.md#file-streams-and-journal-records) |
 | Compress complete C++ messages | [Compression](docs/compression.md) |
 | Group edits and support undo/redo in C++ | [Managed runtime](docs/managed/cpp_runtime.md), [small examples](example/managed/README.md) |

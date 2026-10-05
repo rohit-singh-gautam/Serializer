@@ -462,6 +462,51 @@ it during decoding. Destination storage must be independent of the input bytes.
 For a reused output buffer, call `reset()` before encoding the next message after
 all readers of the previous message have finished.
 
+### String-backed output buffers
+
+`rohit::string_stream` in `<rohit/stream.hpp>` owns a `std::string` and satisfies the
+contiguous buffer concepts. Generated serialization and concrete low-level codecs
+write directly into its resized character storage:
+
+```cpp
+#include <rohit/serializer.hpp>
+#include <utility>
+
+// Encode formatted JSON and transfer the written string out of the buffer.
+template <typename Record>
+std::string write_json(const Record& record) {
+  rohit::string_stream output;
+  rohit::serializer::json_out<true, rohit::string_stream> writer{
+      output, rohit::serializer::format::beautify};
+  writer.serialize_out(record);
+  output.write('\n');
+  return std::move(output).str();
+}
+```
+
+The default constructor starts empty; a byte-count constructor preallocates a
+writable extent. Constructing from a `std::string` takes it by value and starts
+the cursor after that prefix; move the argument to transfer heap storage.
+`reserve(bytes)` ensures that many bytes after the cursor without advancing it.
+Growth resizes the string before exposing memory: `std::string::reserve()` alone
+does not permit writing past `size()`. The stream's `capacity()` reports the resized
+writable extent, which can differ from the string's physical allocation capacity.
+
+`view()` borrows exactly the written prefix, preserving embedded NUL bytes.
+`str()` on an lvalue copies that prefix; `std::move(output).str()` trims spare
+characters and transfers the owned string, leaving the stream empty and reusable.
+String moves may copy small inline buffers. `reset()` retains writable storage for
+reuse. Growth, moves, and string extraction invalidate borrowed pointers/views;
+internal sources supplied to alias-aware append, text-batch, and transform operations
+are rebased automatically. External/unchecked writes retain their existing
+non-overlap and reservation preconditions.
+
+For decoding, construct an exact-size input from `view()` and retain the stream
+unchanged while that input is alive. Copying the stream and raw malloc/free ownership
+transfer are unavailable. Allocation failures propagate from `std::string`; oversized
+reservations throw `stream_overflow_exception` before mutation. No additional standard
+stream adapter or encoded-message buffer is used, and no measured speedup is claimed.
+
 ### Decode one exact message into a fresh value
 
 Use the optional runtime helper when a complete message must validate before its
