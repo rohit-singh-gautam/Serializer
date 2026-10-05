@@ -696,3 +696,22 @@ Serializer and public sources.
   available. Missing SDKs must be reported, not silently skipped. CTest compiles
   those consumers and runs the shared boundary suites; the ordinary compiler
   build requires no target SDK. Consult the [dated verification record](../../../docs/verification-native-2026-09-18.md).
+
+## Typed command-line declarations
+
+Use `src/command_line.hpp` and `cli::commandline_declaration` for common options,
+subcommands and typed retrieval. Declare `command_options` and `command_entry`
+values, call `decl.parse(argc, argv)`, then read `decl["command"].get_path("input")`
+or other typed getters. The library owns variant values, validates required
+options and numeric conversions, and generates global/command help. It supports
+repeatable string/path lists, explicit positional inputs, command tails, and
+native Windows argv. Failed reparsing preserves the previous successful result.
+
+Keep option types, defaults and requirements in declarations; handlers consume
+typed values without reparsing. Use `decl.common()` for common options and
+`was_provided` to distinguish defaults from explicit input. Check
+`help_requested()` and write help before calling `cli::dispatch_command(decl)`.
+The original compiler string-map API remains compatible. See the
+[declaration guide](../../../docs/command_line.md#typed-command-line-declarations) for complete examples, getter types, ownership,
+error behavior, and positional/tail syntax. This source utility is not an
+installed runtime header.

@@ -145,8 +145,10 @@ adding strict validation, `--name=value`, and repeatable language options.
 Serializer performs typed backend validation after merging config and CLI values.
 It has no network/build dependency on the upstream repository.
 
-The other proposed parser uses MicroMonolithServer-specific type definitions.
-Chaturanga's standard-library-only interface provides a smaller adaptation.
+The typed declaration API also draws on the declaration style in
+[MicroMonolithServer's configparser.h](https://github.com/rohit-singh-gautam/MicroMonolithServer/blob/main/core/include/mms/cmd/configparser.h).
+It owns variant values instead of retaining untyped pointers to caller variables.
+It has no dependency on that project's type definitions.
 
 ## Verification
 
@@ -185,3 +187,119 @@ See [new native targets](native_languages.md) for APIs and limitations.
 Internally, scalar CLI reads use `cli::first(parsed, name)`, which borrows the
 first value with checked lookup; repeated values remain available in `parsed`.
 No second, flattened argument map is constructed.
+
+## Typed command-line declarations
+
+The source header `src/command_line.hpp` provides an owning declaration API.
+It is a source-level tool utility, not an installed runtime header. This example
+uses only public library types; no application-specific parameter class is needed:
+
+```cpp
+namespace cli = rohit::serializer::cli;
+cli::commandline_declaration decl{
+    cli::command_options{
+        {'l', "log_file", "path", "Log output", cli::command_type::path,
+         std::filesystem::path("application.log")},
+        {'w', "wait", "Wait for more input", cli::command_type::boolean}},
+    {{"build", cli::command_options{
+        {'i', "input", "path", "Input file", cli::command_type::path, {}, true},
+        {'n', "count", "number", "Iteration count", cli::command_type::unsigned_integer,
+         std::uint64_t{1}},
+        {0, "include", "path", "Include directory", cli::command_type::paths}},
+      "Build an input"}}};
+
+decl.parse(argc, argv);
+if (decl.help_requested()) {
+  decl.write_help(std::cout);
+  return 0;
+}
+const auto& options = decl["build"];
+const auto& input = options.get_path("input");
+const auto count = options.get_uint64("count");
+const auto& includes = options.get_paths("include");
+const bool wait = decl.common().get_bool("wait");
+```
+
+`option_declaration` takes short name (`0` for none), long name, value placeholder,
+help text, `command_type`, optional typed default, `required`, and `allow_empty`.
+The last two flags default to false. Boolean declarations also accept the shorter
+`{short_name, name, help, command_type::boolean}` form. Defaults must match the
+exact declared type; use `std::int64_t`/`std::uint64_t` for integer defaults.
+
+| Type | Getter | Stored value |
+| --- | --- | --- |
+| `boolean` | `get_bool` | `bool` |
+| `integer` | `get_int` | `std::int64_t` |
+| `unsigned_integer` | `get_uint64` | `std::uint64_t` |
+| `real` | `get_double` | Finite `double` |
+| `string` | `get_string` | Owned `std::string` |
+| `path` | `get_path` | Native `std::filesystem::path` |
+| `strings` | `get_strings` | `std::vector<std::string>` |
+| `paths` | `get_paths` | `std::vector<std::filesystem::path>` |
+
+Values and defaults use `std::variant`; missing optional scalar values use
+`std::monostate`. String/path/list getters borrow const references, while numeric
+and boolean getters return values. No getter reparses text or coerces another
+type. Unknown names throw `std::out_of_range`; wrong getter types and absent
+optional values throw `std::logic_error`. Lookups never insert declarations.
+`has_value(name)` tests availability; `was_provided(name)` tests explicit CLI
+presence independently of defaults. Omitted flags default to false, and lists to
+empty. Explicit list occurrences replace the default list and retain CLI order.
+
+Parsing consumes `main` or native Windows `wmain` argc/argv directly. No temporary
+argument vector is required. Narrow path input is UTF-8; wide Windows paths remain
+native, while wide string/tail values are converted to UTF-8. Numeric tokens must
+be fully consumed, representable decimal values; non-finite real values fail.
+Each successful parse resets defaults and replaces the previous result. Failure
+preserves the previous result, command selection, and borrowed references.
+Successful parsing, assignment or destruction invalidates borrowed references.
+Concurrent const reads are safe; parsing requires exclusive access.
+
+Common options may appear before or after the command and are accessed through
+`decl.common()`. Command-specific options follow the command name.
+`decl.selected_command()` returns that name (empty for global help/options-only
+programs). Only common and selected-command requirements are checked. A required
+option must be explicitly supplied even if it has a default. Unknown options,
+duplicate scalar occurrences, missing/empty disallowed values, and missing
+required inputs throw `std::invalid_argument` before dispatch.
+
+Both `--name value` and `--name=value` are supported, as are `-n value` and
+`-n=value`. Short-option clusters are not supported. Flags take no value and
+presence sets true. For dash-leading string/path values use equals syntax.
+Signed numeric values may use either form. Duplicate declaration names/aliases,
+reserved `help`/`h`, wrong default types, and common/command option collisions
+are rejected when constructing the declaration.
+
+A `command_options` collection also accepts a `positional_declaration` and a
+`tail_declaration` after its option list. Empty names disable them:
+
+```cpp
+cli::command_options objects{{}, {"objects", cli::command_type::paths, 1}};
+cli::command_options run{{}, {}, {"compiler and arguments", 1}};
+```
+
+Positionals support `paths` or `strings` and a minimum count; retrieve them with
+`positional_paths()` or `positional_strings()`. An enabled tail retains every
+token after `--` unchanged in meaning, including empty values and option-like
+strings; retrieve it with `command_tail()`. Without a tail, `--` ends option
+parsing and sends remaining tokens to declared positionals. Undeclared extra
+inputs fail. Common positionals/tails are supported for options-only programs;
+they cannot be combined with subcommands.
+
+Global `--help`/`-h` and `command --help` set `help_requested()` without
+requiring missing values. `write_help` renders common options, commands, or the
+selected command's options, including defaults, required markers and repeated
+inputs. Help does not execute handlers; malformed supplied options still fail.
+
+`command_entry` takes name, options, optional help text and an optional
+`int (*handler)(const command_options&)`. After checking help, call
+`cli::dispatch_command(decl)` to invoke the selected handler with typed values.
+Dispatch never receives argv and fails if parsing has not succeeded or the selected
+command has no handler. Alternatively, access `decl[command_name]` directly.
+An options-only application constructs `commandline_declaration{options}` and
+reads `decl.common()` after parsing.
+
+The original `commandline_option`, `cli::parse(argc, argv, descriptors)`,
+`cli::first`, `cli::usage`, and callback-based `cli::parse_into` APIs remain
+available for the compiler and existing callers. Their string-map behavior is
+unchanged; new applications should use typed declarations.

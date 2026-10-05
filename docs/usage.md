@@ -919,3 +919,10 @@ helper returns a fresh value only on success. Input may be consumed on failure.
 Views require separately owned decompressed bytes before mapping. See the
 [format, memory, and custom-backend contract](compression.md) and
 [verification](verification-compression-2026-09-17.md).
+
+## Application command-line declarations
+
+For native tools, use the [typed command-line declaration API](command_line.md#typed-command-line-declarations)
+to declare common options, subcommands, defaults and required typed values, then
+parse process argc/argv directly. The guide includes full initialization examples
+and the ownership, getter, help, and dispatch contracts.
