@@ -248,7 +248,7 @@ output_options read_output_options(const std::filesystem::path& file) {
       if (text.front() == '[' && text.back() == ']') {
         section = trim(text.substr(1, text.size() - 2));
         if ((section != "output" && section != "cpp" && section != "java" && section != "js" &&
-             section != "go" && section != "csharp" && section != "kotlin") ||
+             section != "go" && section != "csharp" && section != "kotlin" && section != "managed") ||
             !sections.insert(section).second) {
           throw std::invalid_argument{"Unknown or repeated section: " + section};
         }
@@ -287,6 +287,13 @@ output_options read_output_options(const std::filesystem::path& file) {
         result.go.package_name = value;
       } else if (section == "csharp" && key == "namespace") {
         result.csharp.namespace_name = value;
+      } else if (section == "managed" && key == "id_type") {
+        if (value != "uint32" && value != "uint64") {
+          throw std::invalid_argument{"managed.id_type must be uint32 or uint64"};
+        }
+        result.cpp.managed_id_type = value;
+      } else if (section == "managed" && key == "separate_values") {
+        result.cpp.managed_separate_values = read_bool(value);
       } else if (section == "cpp" && key == "protobuf") {
         result.cpp.protobuf = read_bool(value);
       } else if (section == "java" && key == "coding_standard") {

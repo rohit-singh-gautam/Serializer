@@ -1,3 +1,4 @@
+import { managedNames } from './navigation_model';
 import * as path from 'node:path';
 import { fileKey, includeCandidates } from './model';
 import { cppIncludeAt, dependencySchemas, indexSource, resolveType, spanAt,
@@ -151,8 +152,8 @@ export class Navigator {
     if (include) {
       const included = path.resolve(path.dirname(file), include.name);
       if (!await this.source(included)) { return []; }
-      if (!definition) { return [{ file: included, start: 0, end: 0 }]; }
-      return this.unique((await this.outputs(included, file)).map(header => ({ file: header, start: 0, end: 0 })));
+      // An include identifies a schema, which may contribute many generated declarations.
+      return [{ file: included, start: 0, end: 0 }];
     }
     const declarations = await this.declarations(file, offset);
     if (!definition) { return this.unique(declarations); }
@@ -163,10 +164,12 @@ export class Navigator {
         if (!generated) { continue; }
         const names = outputNames(declaration.qualified, header, generated.text);
         const matches = (generated?.index.symbols ?? []).filter(symbol =>
-          symbol.definition && symbol.kind === declaration.kind && names.includes(symbol.qualified));
+          symbol.definition && symbol.kind === declaration.kind &&
+          (names.includes(symbol.qualified) || symbol.schemaQualified === declaration.qualified));
         // Preserve distinct identifiers in naming=preserve outputs that normalize alike.
         const preferredName = names.find(name => matches.some(symbol => symbol.qualified === name));
-        for (const symbol of matches.filter(symbol => symbol.qualified === preferredName)) {
+        for (const symbol of matches.filter(symbol => preferredName ? symbol.qualified === preferredName :
+            symbol.schemaQualified === declaration.qualified)) {
           targets.push({ file: header, start: symbol.start, end: symbol.end });
         }
       }
@@ -253,7 +256,9 @@ export class Navigator {
       const matches: Declaration[] = [];
       for (const schema of await this.graph(entry)) {
         for (const declaration of schema.index.symbols) {
-          if (declaration.kind === symbol.kind && outputNames(declaration.qualified, header, source!.text).includes(symbol.qualified)) {
+          if (declaration.kind === symbol.kind && (symbol.schemaQualified === declaration.qualified ||
+            [...outputNames(declaration.qualified, header, source!.text),
+            ...(/\.(hpp|h|hxx|hh)$/i.test(header) ? managedNames(declaration.qualified) : [])].includes(symbol.qualified))) {
             matches.push({ ...declaration, file: schema.file });
           }
         }

@@ -15,6 +15,7 @@
 // along with this program.  If not, see <https://www.gnu.org/licenses/ //
 //////////////////////////////////////////////////////////////////////////
 
+#include "cpp_managed_writer.hpp"
 #include "cpp_naming.hpp"
 #include "protobuf_schema.hpp"
 
@@ -24,6 +25,7 @@
 #include <cstdint>
 #include <map>
 #include <memory>
+#include <set>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -35,9 +37,17 @@ namespace {
 // Emit one schema using an isolated naming policy; the parsed schema is never rewritten.
 class emitter : private naming {
   bool protobuf_enabled{false};
+  friend class managed_writer<emitter>;
+  managed_writer<emitter> managed_;
+  // Keep compiler metadata names independent of presentation profiles.
+  std::string member_name(const member& field) const {
+    return field.fixed_name ? field.name : field_name(field.name);
+  }
 public:
   // Bind the per-output C++ naming policy.
-  explicit emitter(const cpp_options& options) : naming{options}, protobuf_enabled{options.protobuf} {}
+  explicit emitter(const cpp_options& options)
+      : naming{options}, protobuf_enabled{options.protobuf},
+        managed_{*this, options.managed_id_type, options.managed_separate_values} {}
 
   // Return the public enumerator spelling used in generated mode selections.
   std::string storage_mode_name(storage_mode mode) {
@@ -147,17 +157,17 @@ public:
     default:
     case member::modifier_type::none:
       // TODO: Range check
-      return storage_type_name(member.type_name_list[0].name,
-                               member.type_name_list[0].resolved_node);
+      return generic_default(member.type_name_list[0]);
     case member::modifier_type::array:
-      return std::string("::std::vector<") +
-             storage_type_name(member.type_name_list[0].name,
-                               member.type_name_list[0].resolved_node) +
+      return std::string(!member.extent_expression.empty() ? "::std::array<" : "::std::vector<") +
+             generic_default(member.type_name_list[0]) +
+             (!member.extent_expression.empty() ? ", ::rohit::serializer::detail::fixed_extent(" +
+                 (member.fixed_extent ? std::to_string(member.fixed_extent) :
+                     dimension_default(member.extent_expression.front())) + ")" : "") +
              ">";
     case member::modifier_type::map:
       return std::string("::std::map<") + storage_type_name(member.key, member.key_node) + "," +
-             storage_type_name(member.type_name_list[0].name,
-                               member.type_name_list[0].resolved_node) +
+             generic_default(member.type_name_list[0]) +
              ">";
     case member::modifier_type::variant:
       return union_enum_name(member) + " " + union_tag_name(member) + "{};\n  " +
@@ -215,7 +225,7 @@ public:
       if (!support.empty()) {
         out_stream.write(support, '\n');
       }
-      out_stream.write("  ", get_cpp_type(member), ' ', field_name(member.name), "{");
+      out_stream.write("  ", get_cpp_type(member), ' ', member_name(member), "{");
       if (!member.default_value.empty()) {
         out_stream.write(default_value(member));
       }
@@ -280,22 +290,22 @@ public:
       if (member.modifier != member::modifier_type::none ||
           member.type_name_list[0].type != object_type::enum_type) {
         out_stream.write("::std::make_pair(", constant_output_name(member.display_name), ", ",
-                         "::std::cref(this->", field_name(member.name),
+                         "::std::cref(this->", member_name(member),
                          "))"
                          ");");
       } else {
         out_stream.write("::std::make_pair(", constant_output_name(member.display_name), ", ",
-                         "::rohit::serializer::detail::enum_name(this->", field_name(member.name),
+                         "::rohit::serializer::detail::enum_name(this->", member_name(member),
                          "))"
                          ");");
       }
     } else if (key_type == rohit::serializer::serialize_key_type::integer) {
       out_stream.write("::std::make_pair(static_cast<::std::uint32_t>(", member.id,
-                       "), ::std::cref(this->", field_name(member.name),
+                       "), ::std::cref(this->", member_name(member),
                        "))"
                        ");");
     } else {
-      out_stream.write("this->", field_name(member.name), ");");
+      out_stream.write("this->", member_name(member), ");");
     }
   }
 
@@ -307,7 +317,7 @@ public:
     for (std::size_t index = 0; index < field.type_name_list.size(); ++index) {
       const auto& alternative = field.type_name_list[index];
       const auto payload =
-          "this->" + field_name(field.name) + "." + field_name(alternative.enum_name);
+          "this->" + member_name(field) + "." + field_name(alternative.enum_name);
       output.write("      case ", union_enum_name(field), "::", enum_name(alternative.enum_name),
                    ":\n",
                    first ? (std::string{"        "} + local_name("serializer_protocol") +
@@ -357,7 +367,7 @@ public:
       if (!arguments.empty()) {
         arguments += ", ";
       }
-      const auto value = "this->" + field_name(field.name);
+      const auto value = "this->" + member_name(field);
       if (keys == serialize_key_type::integer) {
         arguments += "::std::make_pair(static_cast<::std::uint32_t>(" + std::to_string(field.id) +
                      "), " + value + ")";
@@ -477,17 +487,18 @@ public:
     const bool has_storage = field.modifier == member::modifier_type::array ||
                              field.modifier == member::modifier_type::map ||
                              cpp_type == "::std::string" ||
-                             field.type_name_list[0].type == object_type::class_type;
+                             field.type_name_list[0].type == object_type::class_type ||
+                             field.type_name_list[0].type == object_type::unresolved;
     const auto read =
         local_name("serializer_protocol") +
         (explicit_type ? ".template serialize_in<" + cpp_type + ">" : ".serialize_in") + "(this->" +
-        field_name(field.name) + ");\n";
+        member_name(field) + ");\n";
     if (has_storage) {
       output.write(
           indent, "if constexpr (::std::is_same_v<StorageSource, ::std::nullptr_t>) {\n", indent,
           "  ", read, indent, "} else {\n", indent, "  ::rohit::serializer::detail::read_reusing(",
-          local_name("serializer_protocol"), ", this->", field_name(field.name), ", ",
-          local_name("storage_donor"), "->", field_name(field.name), ");\n", indent, "}\n");
+          local_name("serializer_protocol"), ", this->", member_name(field), ", ",
+          local_name("storage_donor"), "->", member_name(field), ");\n", indent, "}\n");
     } else {
       output.write(indent, read);
     }
@@ -537,7 +548,7 @@ public:
                  union_tag_name(field), ") {\n");
     for (const auto& alternative : field.type_name_list) {
       const auto payload =
-          "this->" + field_name(field.name) + "." + field_name(alternative.enum_name);
+          "this->" + member_name(field) + "." + field_name(alternative.enum_name);
       output.write(
           "      case ", union_enum_name(field), "::", enum_name(alternative.enum_name),
           ":\n"
@@ -617,6 +628,17 @@ public:
   void write_serializer_in_body_with_key_integer(rohit::type_check::output_buffer auto& out_stream,
                                                  const class_node* obj) {
     write_member_input_forwarder(out_stream, false);
+    if (obj->member_list.empty() && obj->parents.empty()) {
+      // Empty managed payloads are valid; omit a default-only switch that warns under /W4.
+      out_stream.write("  // Reject every numeric field in an empty schema.\n"
+                       "  template <typename SerializeInProtocol, typename StorageSource>\n"
+                       "  void serialize_in_member_by_identifier(SerializeInProtocol& ",
+                       local_name("serializer_protocol"),
+                       ", ::std::uint32_t, [[maybe_unused]] StorageSource ", local_name("storage_donor"),
+                       ") {\n    throw ::rohit::serializer::exception::key_not_found{",
+                       local_name("serializer_protocol"), ".get_stream(), \"Bad member identifier\"};\n  }\n\n");
+      return;
+    }
     out_stream.write(
         (std::string{"  // Decode the member selected by its numeric wire "
                      "identifier.\n  template <typename SerializeInProtocol, typename "
@@ -706,15 +728,15 @@ public:
               "::", enum_name(item.alternative->enum_name),
               ";\n"
               "          ::std::construct_at(&this->",
-              field_name(item.field->name), ".", field_name(item.alternative->enum_name),
+              member_name(*item.field), ".", field_name(item.alternative->enum_name),
               (std::string{");\n          "} + local_name("serializer_protocol") +
                ".serialize_in(this->"),
-              field_name(item.field->name), ".", field_name(item.alternative->enum_name), ");\n");
+              member_name(*item.field), ".", field_name(item.alternative->enum_name), ");\n");
         } else if (item.field->modifier == member::modifier_type::none &&
                    item.field->type_name_list[0].type == object_type::enum_type) {
           out_stream.write((std::string{"          ::rohit::serializer::detail::read_named_enum("} +
                             local_name("serializer_protocol") + ", this->"),
-                           field_name(item.field->name), ");\n");
+                           member_name(*item.field), ");\n");
         } else {
           write_field_input(out_stream, *item.field, "          ", false);
         }
@@ -886,11 +908,11 @@ public:
         const auto& alternative = item.type_name_list.front();
         output.write("    this->", union_tag_name(item), " = ", union_enum_name(item), "::",
                      enum_name(alternative.enum_name), ";\n    ::std::construct_at(&this->",
-                     field_name(item.name), ".", field_name(alternative.enum_name), ");\n");
-        output.write("    ::rohit::serializer::detail::protobuf_reset(this->", field_name(item.name),
+                     member_name(item), ".", field_name(alternative.enum_name), ");\n");
+        output.write("    ::rohit::serializer::detail::protobuf_reset(this->", member_name(item),
                      ".", field_name(alternative.enum_name), ");\n");
       } else {
-        output.write("    ::rohit::serializer::detail::protobuf_reset(this->", field_name(item.name), ");\n");
+        output.write("    ::rohit::serializer::detail::protobuf_reset(this->", member_name(item), ");\n");
       }
     }
     output.write("  }\n\n  // Encode statically typed fields through the selected Protobuf protocol.\n"
@@ -911,13 +933,13 @@ public:
           output.write("      case ", union_enum_name(item), "::", enum_name(alternative.enum_name),
                        ": nested.template field<", index + 1, ">(\"", alternative.enum_name,
                        "\", \"", protobuf_json_name(alternative.enum_name), "\", this->",
-                       field_name(item.name), ".", field_name(alternative.enum_name), "); break;\n");
+                       member_name(item), ".", field_name(alternative.enum_name), "); break;\n");
         }
         output.write("      default: throw ::std::invalid_argument{\"Invalid union discriminator\"};\n"
                      "      }\n    });\n");
       } else {
         output.write("    ", protocol, ".template field<", item.id, ">(", names, ", this->",
-                     field_name(item.name), ");\n");
+                     member_name(item), ");\n");
       }
     }
     output.write("  }\n\n  // Dispatch known Protobuf fields directly; the protocol handles unknown fields.\n"
@@ -949,9 +971,9 @@ public:
         output.write("        const auto protobuf_reset_union = [&] {\n          this->",
                      union_tag_name(item), " = ", union_enum_name(item), "::",
                      enum_name(first_alternative.enum_name), ";\n          ::std::construct_at(&this->",
-                     field_name(item.name), ".", field_name(first_alternative.enum_name),
+                     member_name(item), ".", field_name(first_alternative.enum_name),
                      ");\n          ::rohit::serializer::detail::protobuf_reset(this->",
-                     field_name(item.name), ".", field_name(first_alternative.enum_name),
+                     member_name(item), ".", field_name(first_alternative.enum_name),
                      ");\n        };\n        ", protocol,
                      ".reset_json_field(protobuf_reset_union);\n        if (", protocol,
                      ".null_value()) { continue; }\n        ", protocol,
@@ -959,7 +981,7 @@ public:
                      "          while (nested.next_field()) {\n");
         for (std::size_t index = 0; index < item.type_name_list.size(); ++index) {
           const auto& alternative = item.type_name_list[index];
-          const auto payload = "this->" + field_name(item.name) + "." + field_name(alternative.enum_name);
+          const auto payload = "this->" + member_name(item) + "." + field_name(alternative.enum_name);
           const auto tag = union_enum_name(item) + "::" + enum_name(alternative.enum_name);
           output.write("            if (nested.template match<", index + 1, ">(\"", alternative.enum_name,
                        "\", \"", protobuf_json_name(alternative.enum_name), "\")) {\n"
@@ -977,7 +999,7 @@ public:
         }
         output.write("            nested.unknown();\n          }\n        });\n");
       } else {
-        output.write("        ", protocol, ".field(this->", field_name(item.name), ");\n");
+        output.write("        ", protocol, ".field(this->", member_name(item), ");\n");
       }
       output.write("        continue;\n      }\n");
     }
@@ -1140,6 +1162,18 @@ public:
   // Emit the existing owning API, selecting owning specializations for nested classes.
   void write_owning_class(rohit::type_check::output_buffer auto& out_stream,
                           const class_node* obj) {
+    if (obj->type == object_type::generic_definition) {
+      out_stream.write("template <");
+      for (std::size_t index = 0; index < obj->generic_parameters.size(); ++index) {
+        const auto& parameter = obj->generic_parameters[index];
+        if (index != 0) { out_stream.write(", "); }
+        out_stream.write(std::string_view{parameter.kind == generic_argument_kind::dimension ? "::std::uint64_t " : "typename "}, parameter.name);
+        if (!parameter.default_argument.empty()) {
+          out_stream.write(" = ", generic_default(parameter.default_argument.front()));
+        }
+      }
+      out_stream.write(">\n");
+    }
     if (obj->multiple_modes()) {
       out_stream.write("template <>\n");
     }
@@ -1158,6 +1192,13 @@ public:
     }
 
     out_stream.write(" {\n");
+    if (obj->type == object_type::generic_definition) {
+      for (const auto& parameter : obj->generic_parameters) {
+        if (parameter.kind == generic_argument_kind::dimension) {
+          out_stream.write("  static_assert(", parameter.name, " > 0, \"Invalid dimension: expected positive uint64\");\n");
+        }
+      }
+    }
     write_member_list(out_stream, obj->member_list);
 
     out_stream.write("\npublic:\n"
@@ -1293,7 +1334,27 @@ public:
         break;
 
       case object_type::class_type:
-        write_class(out_stream, dynamic_cast<const class_node*>(statement.get()));
+        if (!static_cast<const class_node*>(statement.get())->generic_name.empty()) {
+          const auto& object = static_cast<const class_node&>(*statement);
+          const auto* definition = generic_definitions.at(object.generic_name);
+          out_stream.write("using ", type_name(object.name), " = ", full_type_name(definition), "<");
+          for (std::size_t index = 0; index < object.generic_arguments.size(); ++index) {
+            if (index != 0) { out_stream.write(", "); }
+            const auto& argument = object.generic_arguments[index];
+            out_stream.write(argument.kind == generic_argument_kind::dimension ?
+                std::to_string(argument.dimension) + "ULL" : storage_type_name(argument.name, argument.resolved_node));
+          }
+          out_stream.write(">;\n\n");
+          break;
+        }
+        if (!managed_.write_primary(out_stream, static_cast<const class_node*>(statement.get()))) {
+          write_class(out_stream, static_cast<const class_node*>(statement.get()));
+        }
+        break;
+
+      case object_type::generic_definition:
+        generic_definitions.emplace(statement->get_full_name(), static_cast<const class_node*>(statement.get()));
+        write_class(out_stream, static_cast<const class_node*>(statement.get()));
         break;
 
       case object_type::enum_type:
@@ -1306,21 +1367,52 @@ public:
     }
   }
 
+  std::map<std::string, const class_node*> generic_definitions{};
+  // Render only the checked schema grammar, never arbitrary source text as C++.
+  std::string dimension_default(const dimension_expression& value) {
+    using operation = dimension_expression::operation;
+    if (value.kind == operation::literal) { return std::to_string(value.value) + "ULL"; }
+    if (value.kind == operation::parameter) { return value.name; }
+    return std::string{"::rohit::serializer::detail::"} +
+        (value.kind == operation::add ? "dimension_add(" : "dimension_multiply(") +
+        dimension_default(value.operands[0]) + ", " + dimension_default(value.operands[1]) + ")";
+  }
+
+  // Retain earlier parameter references and declaration-scope type defaults in public aliases.
+  std::string generic_default(const ::rohit::serializer::type_name& value) {
+    if (value.kind == generic_argument_kind::dimension && value.dimension != 0) {
+      return std::to_string(value.dimension) + "ULL";
+    }
+    if (!value.expression.empty()) { return dimension_default(value.expression.front()); }
+    std::string result = storage_type_name(value.name, value.resolved_node);
+    if (value.application) {
+      result += "<";
+      for (std::size_t index = 0; index < value.arguments.size(); ++index) {
+        if (index != 0) { result += ", "; }
+        result += generic_default(value.arguments[index]);
+      }
+      result += ">";
+    }
+    return result;
+  }
+
   // Generate a complete C++ header while retaining the parsed schema and original wire names.
   void emit(rohit::type_check::output_buffer auto& out_stream,
             const std::vector<std::unique_ptr<syntax_node>>& statements) {
     if (protobuf_enabled) { validate_protobuf_schema(statements); }
     validate_names(statements);
+    managed_.prepare(statements);
     const bool has_views = contains_views(statements);
     out_stream.write("// Generated by Serializer. Do not edit this file manually.\n"
                      "// https://github.com/rohit-singh-gautam/Serializer\n\n"
                      "#pragma once\n\n"
                      "#include <rohit/serializer.hpp>\n");
+    if (!managed_.empty()) { out_stream.write("#include <rohit/managed.hpp>\n#include <optional>\n"); }
     if (protobuf_enabled) { out_stream.write("#include <rohit/protobuf.hpp>\n"); }
     if (has_views) {
       out_stream.write("#include <rohit/binary_view.hpp>\n");
     }
-    out_stream.write("\n#include <cstddef>\n");
+    out_stream.write("\n#include <array>\n#include <cstddef>\n");
     if (has_views) {
       out_stream.write("#include <span>\n");
     }
@@ -1336,6 +1428,7 @@ public:
                      "#include <utility>\n"
                      "#include <vector>\n\n");
     write_statement_list(out_stream, statements);
+    managed_.write(out_stream);
   }
 };
 } // namespace

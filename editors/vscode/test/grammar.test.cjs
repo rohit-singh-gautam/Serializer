@@ -5,6 +5,21 @@ const { test } = require('node:test');
 const { Registry, INITIAL } = require('vscode-textmate');
 const onig = require('vscode-oniguruma');
 
+test('generic declarations, nested arguments and concrete field uses retain type scopes', async () => {
+  const grammar = await loadGrammar();
+  const line = 'class box<T> { public array box<lib::person> values; } class root { public box<box<uint32>> value; }';
+  const tokens = grammar.tokenizeLine(line, INITIAL).tokens;
+  for (const word of ['box', 'T', 'person', 'root']) {
+    const offset = line.indexOf(word);
+    assert.equal(tokens.find(token => token.startIndex <= offset && token.endIndex > offset).scopes.at(-1),
+      'entity.name.type.serializer', word);
+  }
+  const offset = line.indexOf('uint32');
+  assert.equal(tokens.find(token => token.startIndex <= offset && token.endIndex > offset).scopes.at(-1),
+    'support.type.serializer');
+  assert.equal(grammar.tokenizeLine(line, INITIAL).ruleStack.depth, 1);
+});
+
 /** Tokenize real TextMate rules with the same regex engine used by VS Code. */
 async function loadGrammar() {
   const wasm = fs.readFileSync(require.resolve('vscode-oniguruma/release/onig.wasm'));
@@ -133,4 +148,31 @@ test('custom field, container, base and default types use theme type colors, not
     const offset = line.indexOf('demo::order');
     assert.ok(!tokens.find(token => token.startIndex <= offset && token.endIndex > offset).scopes.includes('entity.name.type.serializer'));
   }
+});
+
+test('managed declarations highlight the modifier before direct and collection types', async () => {
+  const grammar = await loadGrammar();
+  for (const line of ['class task stable_ids managed {', 'public managed task child (1);',
+    'public managed map(uint64) task tasks (2);', 'public managed array task tasks (3);']) {
+    const tokens = grammar.tokenizeLine(line, INITIAL).tokens;
+    const at = line.indexOf('managed');
+    assert.equal(tokens.find(token => token.startIndex <= at && token.endIndex > at).scopes.at(-1),
+      'storage.modifier.serializer');
+    const typeAt = line.lastIndexOf(' task ');
+    if (typeAt >= 0) {
+      assert.equal(tokens.find(token => token.startIndex <= typeAt + 1 && token.endIndex > typeAt + 1).scopes.at(-1),
+        'entity.name.type.serializer');
+    }
+  }
+});
+
+test('dimension defaults and fixed extents highlight numbers, operators and parameters', async () => {
+  const grammar = await loadGrammar();
+  const line = 'class matrix<uint64 Rows, uint64 Cols = Rows, T = double> { public array[Rows * Cols + 1] T elements; } instantiate square = matrix<3>;';
+  const tokens = grammar.tokenizeLine(line, INITIAL).tokens;
+  for (const [word, scope] of [['uint64', 'support.type.serializer'], ['Rows', 'entity.name.type.serializer'], ['=', 'keyword.operator.serializer'], ['*', 'keyword.operator.serializer'], ['1', 'constant.numeric.serializer'], ['3', 'constant.numeric.serializer']]) {
+    const offset = line.indexOf(word);
+    assert.equal(tokens.find(token => token.startIndex <= offset && token.endIndex > offset).scopes.at(-1), scope, word);
+  }
+  assert.equal(grammar.tokenizeLine(line, INITIAL).ruleStack.depth, 1);
 });

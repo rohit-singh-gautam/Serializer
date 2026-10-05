@@ -1,0 +1,202 @@
+serializer version 1;
+
+// History-bearing envelopes: protocol 5 uses custom commands, protocol 6 uses model_change.
+// Protocols 7/8 carry application-defined sessions in session_envelope around these records.
+// Protocols 1..4 used the older records without history and are not accepted by this runtime.
+// Operation/epoch counters remain uint64; numeric session placeholders are zero in protocols 7/8.
+namespace rohit {
+  namespace managed {
+    namespace collaboration_records {
+      class session_value stable_ids {
+        public array uint8 bytes (1);
+      }
+      // Typed records use the canonical record as payload and carry owners in field order.
+      class session_envelope stable_ids {
+        public string session_format (1);
+        public array uint8 payload (2);
+        public array session_value sessions (3);
+      }
+      class domain stable_ids {
+        public uint32 protocol_version (1);
+        public string schema_id (2);
+        public uint32 id_bits (3);
+        public uint64 document_high (4);
+        public uint64 document_low (5);
+        public uint64 epoch (6);
+      }
+      class grant_reference stable_ids {
+        public uint64 target (1);
+        public uint64 generation (2);
+      }
+      class change_proposal stable_ids {
+        public domain context (1);
+        public uint64 session (2);
+        public uint64 operation (3);
+        public uint64 base_sequence (4);
+        public array uint8 command (5);
+        public array grant_reference grants (6);
+      }
+      // Default command payload: a candidate edited through the generated model editor.
+      class model_change stable_ids {
+        public uint32 format_version (1);
+        public uint64 base_allocated_id (2);
+        public uint64 allocated_id (3);
+        public array uint8 snapshot (4);
+        public uint32 history_action (5);
+        public uint64 target_operation (6);
+      }
+      // One transaction groups all field changes. Versions identify active contributions,
+      // including restored contributions after undo; they are not value hashes.
+      class field_change stable_ids {
+        public uint64 entity (1);
+        public uint32 field (2);
+        public bool before_present (3);
+        public bool after_present (4);
+        public array uint8 before (5);
+        public array uint8 after (6);
+        public uint64 before_version (7);
+        public uint64 after_version (8);
+      }
+      class entity_dependency stable_ids {
+        public uint64 entity (1);
+        public uint64 before_version (2);
+        public uint64 after_version (3);
+      }
+      // action: 1 edit, 2 undo, 3 redo. Author, operation and sequence are in accepted_change.
+      class transaction_record stable_ids {
+        public uint32 action (1);
+        public uint64 target_operation (2);
+        public array field_change fields (3);
+        public array entity_dependency dependencies (4);
+      }
+      class accepted_change stable_ids {
+        public domain context (1);
+        public uint64 sequence (2);
+        public uint64 session (3);
+        public uint64 operation (4);
+        public uint64 allocated_id (5);
+        public array uint8 snapshot (6);
+        public transaction_record history (7);
+      }
+      // Client-local IDs stay stable while remote IDs are assigned by the authority.
+      class client_identity stable_ids {
+        public uint64 local (1);
+        public uint64 remote (2);
+      }
+      class client_transaction stable_ids {
+        public uint64 number (1);
+        public uint32 action (2);
+        public uint64 target (3);
+        public array uint8 before (4);
+        public array uint8 after (5);
+        public uint64 operation (6);
+        public uint64 epoch (7);
+        public uint32 status (8);
+        public array grant_reference grants (9);
+        public bool invalidated (10);
+        public string label (11);
+        public uint64 accepted_sequence (12);
+      }
+      // Private durable client state; independent of authority coordination protocol versions.
+      class client_state stable_ids {
+        public uint32 format_version (1);
+        public string session_format (2);
+        public array uint8 session (3);
+        public domain context (4);
+        public array uint8 acknowledged (5);
+        public uint64 sequence (6);
+        public uint64 allocated_id (7);
+        public uint64 next_operation (8);
+        public array client_identity identities (9);
+        public array client_transaction transactions (10);
+        public array uint64 pending (11);
+        public array uint64 undo (12);
+        public array uint64 redo (13);
+        public array uint8 in_flight (14);
+        public array client_identity in_flight_ids (15);
+        public uint64 sync_interval_ms (16);
+      }
+      // kind: 1 full ordinary managed envelope, 2 ordinary journal operation (possibly empty).
+      class client_checkpoint stable_ids {
+        public uint32 kind (1);
+        public array uint8 model (2);
+        public client_state state (3);
+        public string binding (4);
+      }
+      // History-free clients retain only outstanding synchronization/retry transactions.
+      class pending_client_transaction stable_ids {
+        public uint64 number (1);
+        public array uint8 before (4);
+        public array uint8 after (5);
+        public uint64 operation (6);
+        public uint64 epoch (7);
+        public uint32 status (8);
+        public array grant_reference grants (9);
+        public bool invalidated (10);
+        public uint64 accepted_sequence (12);
+      }
+      class pending_client_state stable_ids {
+        public uint32 format_version (1);
+        public string session_format (2);
+        public array uint8 session (3);
+        public domain context (4);
+        public array uint8 acknowledged (5);
+        public uint64 sequence (6);
+        public uint64 allocated_id (7);
+        public uint64 next_operation (8);
+        public array client_identity identities (9);
+        public array pending_client_transaction transactions (10);
+        public array uint64 pending (11);
+        public array uint8 in_flight (14);
+        public array client_identity in_flight_ids (15);
+        public uint64 sync_interval_ms (16);
+        public uint64 next_transaction (17);
+      }
+      class pending_client_checkpoint stable_ids {
+        public uint32 kind (1);
+        public array uint8 model (2);
+        public pending_client_state state (3);
+        public string binding (4);
+      }
+      // action: 1 acquire, 2 renew, 3 release; scope: 1 entity, 2 owned subtree.
+      class lock_request stable_ids {
+        public domain context (1);
+        public uint64 session (2);
+        public uint64 operation (3);
+        public uint32 action (4);
+        public uint64 target (5);
+        public uint32 scope (6);
+        public uint64 generation (7);
+        public uint64 duration_ms (8);
+      }
+      class lock_grant stable_ids {
+        public uint64 target (1);
+        public uint32 scope (2);
+        public uint64 session (3);
+        public uint64 generation (4);
+      }
+      // action: 1 grant, 2 release, 3 expire, 4 revoke. Deadlines are authority-local.
+      class lock_update stable_ids {
+        public domain context (1);
+        public uint64 sequence (2);
+        public uint32 action (3);
+        public lock_grant grant (4);
+      }
+      class lock_snapshot stable_ids {
+        public domain context (1);
+        public uint64 sequence (2);
+        public array lock_grant grants (3);
+      }
+      // action: 1 begin/update, 2 end. Preview is advisory and bounded by the receiver.
+      class editing_presence stable_ids {
+        public domain context (1);
+        public uint64 session (2);
+        public uint64 presence (3);
+        public uint64 sequence (4);
+        public uint64 target (5);
+        public uint32 action (6);
+        public string preview (7);
+      }
+    }
+  }
+}

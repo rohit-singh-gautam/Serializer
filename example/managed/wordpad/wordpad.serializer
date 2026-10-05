@@ -1,0 +1,12 @@
+serializer version 1;
+
+namespace wordpad_example {
+  class paragraph stable_ids managed {
+    public string text (1);
+  }
+
+  class document stable_ids {
+    public string title (1);
+    public managed array paragraph paragraphs (2);
+  }
+}

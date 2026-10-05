@@ -208,11 +208,15 @@ namespace Rohit.Serializer.VisualStudio {
       this.view = view; this.document = document; this.navigation = navigation;
     }
 
-    /// <summary>Handle both native commands for schemas, and declaration mapping for generated code.</summary>
+    /// <summary>Handle schema navigation while retaining native type/definition lookup in generated languages.</summary>
     private bool Handles(Guid group, uint command) {
+      var schema = document.FilePath.EndsWith(".serializer", StringComparison.OrdinalIgnoreCase);
+      if (group == VSConstants.VSStd2K && command == (uint)VSConstants.VSStd2KCmdID.GOTOTYPEDEF) {
+        return schema;
+      }
       return group == VSConstants.GUID_VSStandardCommandSet97 &&
         (command == (uint)VSConstants.VSStd97CmdID.GotoDecl ||
-         (command == (uint)VSConstants.VSStd97CmdID.GotoDefn && document.FilePath.EndsWith(".serializer", StringComparison.OrdinalIgnoreCase)));
+         (command == (uint)VSConstants.VSStd97CmdID.GotoDefn && schema));
     }
 
     /// <summary>Enable the standard menu entries while preserving all unrelated command status.</summary>
@@ -230,7 +234,8 @@ namespace Rohit.Serializer.VisualStudio {
       ThreadHelper.ThrowIfNotOnUIThread();
       if (!Handles(group, command)) { return Next?.Exec(ref group, command, options, input, output) ?? (int)Microsoft.VisualStudio.OLE.Interop.Constants.OLECMDERR_E_NOTSUPPORTED; }
       var originalGroup = group;
-      navigation.Navigate(view, command == (uint)VSConstants.VSStd97CmdID.GotoDefn,
+      navigation.Navigate(view, group == VSConstants.GUID_VSStandardCommandSet97 &&
+        command == (uint)VSConstants.VSStd97CmdID.GotoDefn,
         document.FilePath.EndsWith(".serializer", StringComparison.OrdinalIgnoreCase) ? (Action)null :
         () => {
           ThreadHelper.ThrowIfNotOnUIThread();

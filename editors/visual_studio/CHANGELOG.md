@@ -1,4 +1,60 @@
+# 1.1.15
+
+- Support native C++ generic declarations, dimension parameters, defaults, and fixed-array expressions in shared navigation and highlighting.
+- Retain optional `instantiate` and concrete-field contracts for cross-language generation; C++ templates no longer require them.
+
 # Changelog
+
+## 1.1.14
+
+- Synchronize with VS Code Git-view navigation fixes; Visual Studio behavior is unchanged.
+
+## 1.1.13
+
+- Highlight generic parameters, nested type arguments, and named instantiations.
+- Navigate generic parameters and arguments, named roots, and concrete generated types across all output languages.
+- Keep both editor packages synchronized with schema generic support.
+
+## 1.1.12
+
+- Synchronize with the VS Code navigation regression release; Visual Studio command behavior is unchanged.
+- Expand shared generated-output boundary checks across all 11 languages and document the coverage matrix.
+- Clarify native alias navigation, generated metadata ownership and managed-target build prerequisites.
+
+## 1.1.11
+
+- Add native Go to Type Definition for schema types, resolving their source declarations.
+- Navigate from class/struct/enum keywords, including reversed whole-declaration selections.
+- Cover the ledger example, live transitive types and native editor commands with regression tests.
+- Preserve generated-language type providers and keep both extension versions synchronized.
+- Align C# and Visual Studio restore runtime targets and provide an editor-project solution.
+
+## 1.1.10
+
+- Document default direct managed identities and opt-in separate value/storage output.
+- Verify navigation for both representations across all C++ naming profiles.
+- Keep both Rohit Serializer extension packages at the same version.
+
+## 1.1.9
+
+- Highlight `managed` class and member declarations for the C++ managed interface.
+- Resolve direct, array, and map member types after `managed`, including qualified names.
+- Navigate generated managed storage/data/editor declarations back to their schema types.
+- Keep both Rohit Serializer extension packages at the same version.
+
+## 1.1.8
+
+- Identify the Serializer GitHub repository directly in the package description
+  and at the start of the extension README.
+- Record the Windows runtime targets required by locked NuGet restore while
+  preserving dependency versions and the extension's Windows x64 target.
+- Keep the release version synchronized with the Visual Studio Code extension.
+
+## 1.1.7
+
+- Navigate from schema includes to the included schema for both Go to Declaration
+  and Go to Definition, independent of generated output languages.
+- Keep the release version synchronized with the Visual Studio Code extension.
 
 ## 1.1.6
 

@@ -155,7 +155,8 @@ static inline void srl_write_array_end(srl_writer* out) { if (out->protocol == s
 
 /* Check bounds before every read; preserve the first reported failure. */
 static inline bool srl_require(srl_reader* in, size_t count) { if (in->status != srl_ok) { return false; } if (count > in->size-in->offset) { in->status = srl_truncated; return false; } return true; }
-/* Recognize exactly JSON whitespace. */
+)serializer"
+R"serializer(/* Recognize exactly JSON whitespace. */
 static inline bool srl_whitespace_byte(uint8_t b) { return b == 32 || b == 9 || b == 10 || b == 13; }
 /* Skip JSON whitespace without reading beyond the buffer. */
 static inline void srl_whitespace(srl_reader* in) { while (in->offset < in->size && srl_whitespace_byte(in->data[in->offset])) { ++in->offset; } }
@@ -295,7 +296,8 @@ static inline bool srl_read_key(srl_reader* in, const uint32_t* ids, size_t coun
   memset(key, 0, sizeof(*key)); if (in->status != srl_ok) { return false; }
   if (in->protocol == srl_binary_none) { if (cursor == count) { return false; } key->id = ids[cursor]; return true; }
   if (in->protocol == srl_binary_integer) { key->id = srl_read_compact(in); return in->status == srl_ok && key->id != 0; }
-  if (in->protocol == srl_json) { srl_whitespace(in); if (!srl_require(in, 1)) { return false; } if (in->data[in->offset] == '}') { ++in->offset; return false; } if (cursor) { srl_expect(in, ','); } }
+)serializer"
+R"serializer(  if (in->protocol == srl_json) { srl_whitespace(in); if (!srl_require(in, 1)) { return false; } if (in->data[in->offset] == '}') { ++in->offset; return false; } if (cursor) { srl_expect(in, ','); } }
   key->named = true; srl_read_string(in, &key->name);
   if (in->status != srl_ok || (in->protocol == srl_binary_string && !key->name.size)) { srl_string_free(&key->name); return false; }
   if (in->protocol == srl_json) { srl_expect(in, ':'); } return true;

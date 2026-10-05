@@ -1,0 +1,3 @@
+add_executable(managed_point_labeled_history main.cpp)
+serializer_generate(TARGET managed_point_labeled_history SCHEMAS point.serializer)
+target_link_libraries(managed_point_labeled_history PRIVATE Serializer::managed)

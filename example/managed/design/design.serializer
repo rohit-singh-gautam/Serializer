@@ -1,0 +1,30 @@
+serializer version 1;
+
+namespace design_example {
+  class point stable_ids managed {
+    public double x (1);
+    public double y (2);
+  }
+
+  // The point is an owned value in this cylinder, even though point is eligible for managed use.
+  class cylinder stable_ids managed {
+    public double height (1);
+    public double diameter (2);
+    public point position (3);
+  }
+
+  // A hollow cylinder is a difference between two independently identified cylinders.
+  class difference stable_ids {
+    public managed cylinder outer (1);
+    public managed cylinder hole (2);
+  }
+
+  class design stable_ids {
+    public managed map(uint64) difference shapes (1);
+  }
+
+  // Explicitly activating point gives it its own identity instead of its owner's field path.
+  class marker stable_ids {
+    public managed point position (1);
+  }
+}

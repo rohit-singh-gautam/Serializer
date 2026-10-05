@@ -1,0 +1,11 @@
+serializer version 1;
+include dimensions;
+
+namespace dimension_history {
+  class sample stable_ids managed {
+    public dimensions::point<3> position (1);
+    public dimensions::frame<3> coordinate_frame (2);
+    public dimensions::matrix<3> implicit_square (3);
+    public dimensions::matrix<3,3,double> explicit_square (4);
+  }
+}

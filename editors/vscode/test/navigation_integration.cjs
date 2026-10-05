@@ -1,6 +1,7 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const { execFileSync } = require('node:child_process');
 const vscode = require('vscode');
 const manifest = require('../package.json');
 
@@ -45,8 +46,51 @@ async function runSuite() {
         '**/{.git,node_modules,.venv}/**')).map(uri => uri.fsPath));
     }
     assert.equal(definitions.length, 1, `schema definition: ${word}`);
-    assert.equal(definitions[0].uri.fsPath, header);
+    assert.equal(definitions[0].uri.fsPath, word === 'types/account' ? common : header);
   }
+
+  // Exercise all three actual editor actions on the reported class, including reversed selections.
+  const ledger = path.join(workspace, 'ledger.serializer');
+  const ledgerHeader = path.join(workspace, 'build/ledger.hpp');
+  fs.copyFileSync(path.resolve(__dirname, '../../../example/managed/ledger/ledger.serializer'), ledger);
+  fs.writeFileSync(ledgerHeader, banner + 'namespace ledger_example { class ledger {}; }\n');
+  fs.writeFileSync(`${ledgerHeader}.d`, `${escape(ledgerHeader)}: ${escape(ledger)}\n`);
+  const ledgerDocument = await vscode.workspace.openTextDocument(ledger);
+  const classOffset = ledgerDocument.getText().indexOf('class ledger');
+  for (const [command, destination] of [
+    ['editor.action.revealDeclaration', ledger], ['editor.action.revealDefinition', ledgerHeader],
+    ['editor.action.goToTypeDefinition', ledger]
+  ]) {
+    for (const [startOffset, endOffset] of [[classOffset, classOffset],
+      [classOffset, classOffset + 'class ledger'.length],
+      [classOffset + 'class '.length, classOffset + 'class ledger'.length]]) {
+      const start = ledgerDocument.positionAt(startOffset);
+      const end = ledgerDocument.positionAt(endOffset);
+      for (const reversed of [false, true]) {
+        const editor = await vscode.window.showTextDocument(ledgerDocument);
+        editor.selection = reversed ? new vscode.Selection(end, start) : new vscode.Selection(start, end);
+        await vscode.commands.executeCommand(command);
+        const active = vscode.window.activeTextEditor;
+        assert.equal(active.document.uri.fsPath, destination, `${command}, reversed=${reversed}`);
+        const word = active.document.getWordRangeAtPosition(active.selection.active);
+        assert.equal(word && active.document.getText(word), 'ledger',
+          `${command}, reversed=${reversed}, cursor=${JSON.stringify(active.selection.active)}`);
+      }
+    }
+  }
+
+  // Type definition resolves the live source type even when it has no generated representation.
+  const renamed = new vscode.WorkspaceEdit();
+  const ledgerName = classOffset + 'class '.length;
+  renamed.replace(ledgerDocument.uri, new vscode.Range(ledgerDocument.positionAt(ledgerName),
+    ledgerDocument.positionAt(ledgerName + 'ledger'.length)), 'unsaved_ledger');
+  await vscode.workspace.applyEdit(renamed);
+  const typeTargets = await vscode.commands.executeCommand('vscode.executeTypeDefinitionProvider',
+    ledgerDocument.uri, ledgerDocument.positionAt(ledgerName + 'unsaved_ledger'.length));
+  assert.equal(typeTargets.length, 1);
+  assert.equal(typeTargets[0].uri.fsPath, ledger);
+  assert.equal(ledgerDocument.getText(typeTargets[0].range), 'unsaved_ledger');
+  assert.ok(!fs.readFileSync(ledger, 'utf8').includes('unsaved_ledger'));
 
   // Reproduce a right-click inside an existing selection: VS Code keeps its active end.
   const complexDirectory = path.join(workspace, 'complex');
@@ -160,7 +204,41 @@ async function runSuite() {
   assert.equal((await navigate(missingDocument, 'missing', true))[0].uri.fsPath, missing);
   await vscode.commands.executeCommand('serializer.openGeneratedHeader', missingDocument.uri);
   assert.equal(fs.existsSync(path.join(workspace, 'build/missing.hpp')), false);
-  console.log('Serializer navigation host passed: native Go to Declaration with complex model selections in both directions, real TypeScript class/enum resolution, schema and C++ includes/types, AUTOSAR enum defaults, schema fallback, merged output, ignored build directory, unsaved buffers, missing output, and no CMake/build dependency.');
+  // Reproduce a real staged Git tab whose contents differ from its working file.
+  const repository = path.join(workspace, 'git-index');
+  const stagedFile = path.join(repository, 'example/swift/generics/model.serializer');
+  const includedFile = path.join(repository, 'example/generics/model.serializer');
+  fs.mkdirSync(path.dirname(stagedFile), { recursive: true });
+  fs.mkdirSync(path.dirname(includedFile), { recursive: true });
+  const snapshot = 'serializer version 1;\ninclude ../../generics/model;\nclass box<T> { public T value; }\n';
+  fs.writeFileSync(stagedFile, snapshot);
+  fs.writeFileSync(includedFile, 'serializer version 1; class included {}');
+  execFileSync('git', ['init', repository]);
+  execFileSync('git', ['-C', repository, 'add', '.']);
+  fs.writeFileSync(stagedFile, 'serializer version 1; include wrong;');
+  const git = await vscode.extensions.getExtension('vscode.git').activate();
+  const api = git.getAPI(1);
+  const gitRepository = await api.openRepository(vscode.Uri.file(repository));
+  assert.ok(gitRepository, 'Git extension opened the staged example repository');
+  await gitRepository.status();
+  const stagedUri = api.toGitUri(vscode.Uri.file(stagedFile), '~');
+  const staged = await vscode.workspace.openTextDocument(stagedUri);
+  assert.equal(staged.getText(), snapshot);
+  assert.equal(staged.languageId, 'serializer');
+  for (const definition of [false, true]) {
+    assert.equal((await navigate(staged, '../../generics/model', definition))[0].uri.fsPath, includedFile);
+  }
+  const stagedEditor = await vscode.window.showTextDocument(staged);
+  const includePosition = staged.positionAt(snapshot.indexOf('../../generics/model'));
+  stagedEditor.selection = new vscode.Selection(includePosition, includePosition);
+  await vscode.commands.executeCommand('editor.action.revealDefinition');
+  assert.equal(vscode.window.activeTextEditor.document.uri.fsPath, includedFile);
+  const parameters = await vscode.commands.executeCommand('vscode.executeTypeDefinitionProvider',
+    stagedUri, staged.positionAt(snapshot.indexOf('T value')));
+  assert.equal(parameters[0].uri.toString(), stagedUri.toString());
+  assert.equal(staged.offsetAt(parameters[0].range.start), snapshot.indexOf('T>'));
+  console.log('Git index navigation passed using the real Git provider and Go to Definition action.');
+  console.log('Serializer navigation host passed: native declaration/definition/type definition for ledger keywords and selections in both directions, live schema type definition, complex model selections, real TypeScript class/enum resolution, schema and C++ includes/types, AUTOSAR enum defaults, schema fallback, merged output, ignored build directory, unsaved buffers, missing output, and no CMake/build dependency.');
   if (cppExtension) { console.log(`Verified native Microsoft C/C++ ${cppExtension.packageJSON.version} navigation.`); }
 }
 

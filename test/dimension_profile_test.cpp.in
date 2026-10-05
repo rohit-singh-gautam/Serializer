@@ -1,0 +1,47 @@
+#include <dimensions.hpp>
+#include <generics.hpp>
+
+#include <cstdint>
+#include <string>
+#include <type_traits>
+
+namespace {
+namespace codec = rohit::serializer;
+
+// Compare application-only generic values through each native protocol.
+template <template <codec::serialize_type> class Protocol, typename Value>
+bool round_trip(const Value& value) {
+  rohit::full_stream_auto_alloc bytes{};
+  value.template serialize_out<Protocol>(bytes);
+  const auto input = rohit::make_constant_stream(bytes.begin(), bytes.current_offset());
+  const auto recovered = codec::deserialize_exact<Value, Protocol>(input);
+  rohit::full_stream_auto_alloc reproduced{};
+  recovered.template serialize_out<Protocol>(reproduced);
+  return std::string_view{reinterpret_cast<const char*>(bytes.begin()), bytes.current_offset()} ==
+      std::string_view{reinterpret_cast<const char*>(reproduced.begin()), reproduced.current_offset()};
+}
+
+// Share the four-protocol qualification without depending on transformed member names.
+bool check(const auto& value) {
+  return round_trip<codec::binary_none>(value) && round_trip<codec::binary_integer>(value) &&
+      round_trip<codec::binary_string>(value) && round_trip<codec::json>(value);
+}
+} // namespace
+
+// Exercise native declarations under the configured C++ naming profile and language mode.
+int main() {
+  using matrix = dimensions::@matrix_type@<2, 3, float>;
+  static_assert(std::is_same_v<dimensions::@matrix_type@<3>, dimensions::@matrix_type@<3, 3, double>>);
+  matrix value{};
+  value.@elements_field@ = {1, 2, 3, 4, 5, 6};
+  dimensions::@matrix_type@<2, 3, double> wide{};
+  wide.@elements_field@ = {6, 5, 4, 3, 2, 1};
+  dimensions::@point_type@<2> point_2{};
+  dimensions::@point_type@<3> point_3{};
+  dimensions::@frame_type@<2> frame_2{};
+  dimensions::@frame_type@<3> frame_3{};
+  native_generics::@message_type@<std::uint32_t> message{};
+  message.@response_field@.@result_field@.@value_field@ = 73;
+  return check(value) && check(wide) && check(message) && check(point_2) && check(point_3) &&
+      check(frame_2) && check(frame_3) ? 0 : 1;
+}

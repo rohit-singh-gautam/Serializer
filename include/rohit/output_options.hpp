@@ -17,6 +17,8 @@ struct cpp_options {
   std::filesystem::path clang_format{"clang-format"};
   std::filesystem::path format_file{};
   bool protobuf{false};
+  std::string managed_id_type{"uint32"};
+  bool managed_separate_values{false};
 };
 
 enum class java_coding_standard { serializer, google, oracle };

@@ -17,6 +17,17 @@ std::string emit_portable(std::string_view schema, std::string_view language,
 }
 } // namespace
 
+// Kotlin's backing-field token is contextual; qualified model properties may use this wire name.
+TEST(portable_writer, kotlin_accepts_field_property) {
+  const auto output = emit_portable(
+      "class change stable_ids { public uint32 field (2); }", "kotlin");
+  EXPECT_NE(output.find("var field: UInt = 0u"), std::string::npos);
+  EXPECT_NE(output.find("this.field"), std::string::npos);
+  EXPECT_NE(output.find("srlField(\"field\")"), std::string::npos);
+  EXPECT_THROW(emit_portable("class change { public uint32 class; }", "kotlin"),
+               std::invalid_argument);
+}
+
 // Scalar access borrows parsed storage and cannot silently mutate absent options.
 TEST(command_line, borrows_first_value_without_flattening_arguments) {
   using namespace rohit::serializer;

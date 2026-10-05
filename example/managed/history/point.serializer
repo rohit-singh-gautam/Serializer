@@ -1,0 +1,7 @@
+serializer version 1;
+
+// Only x and y are application data; managed generation adds persistent_id.
+class point stable_ids managed {
+  public int32 x (1);
+  public int32 y (2);
+}

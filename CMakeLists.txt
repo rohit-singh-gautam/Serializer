@@ -12,6 +12,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(SERIALIZER_BUILD_TESTS "Build Serializer's tests" ${PROJECT_IS_TOP_LEVEL})
+option(SERIALIZER_BUILD_MANAGED "Build the optional C++ managed snapshot runtime records" OFF)
 option(SERIALIZER_BUILD_PROTOBUF_INTEROP_TESTS "Verify codecs against the official Protobuf runtime" OFF)
 option(SERIALIZER_BUILD_BENCHMARKS "Build separate codec timing and allocation tools" OFF)
 option(SERIALIZER_BUILD_FUZZERS "Build instrumented Clang libFuzzer targets and seed corpus tools" OFF)
@@ -32,6 +33,13 @@ option(SERIALIZER_WITH_ZLIB "Enable gzip, zlib, and raw DEFLATE compression" OFF
 include(cmake/serializer_compression.cmake)
 
 add_library(serializer_lib
+  src/file_stream.cpp
+  include/rohit/file_stream.hpp
+  src/managed_file_journal.cpp
+  include/rohit/managed_file_journal.hpp
+  include/rohit/managed_journal_stream.hpp
+  src/managed_journal.cpp
+  include/rohit/managed_journal.hpp
   src/compression.cpp
   include/rohit/compression.hpp
   src/parser.cpp
@@ -41,6 +49,8 @@ add_library(serializer_lib
   src/simd_dispatch.hpp
   src/runtime_simd.cpp
   src/cpp_writer.cpp
+  src/managed_schema.hpp
+  src/managed_lowering.hpp
   src/native_schema.cpp
   src/c_writer.cpp
   src/c_runtime.inc
@@ -130,6 +140,22 @@ include(cmake/serializer_generate.cmake)
 include(cmake/serializer_generate_java.cmake)
 include(cmake/serializer_generate_source.cmake)
 
+# Generate runtime records after the compiler, avoiding a compiler/library dependency cycle.
+if(SERIALIZER_BUILD_MANAGED)
+  include(cmake/serializer_find_clang_format.cmake)
+  serializer_find_clang_format()
+  add_library(serializer_managed INTERFACE)
+  set_target_properties(serializer_managed PROPERTIES EXPORT_NAME managed)
+  add_library(Serializer::managed ALIAS serializer_managed)
+  serializer_generate(TARGET serializer_managed SCHEMAS schemas/managed_records.serializer
+    schemas/collaboration_records.serializer
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed/include/rohit"
+    CODING_STANDARD serializer)
+  target_include_directories(serializer_managed INTERFACE
+    "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/managed/include>"
+    "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
+endif()
+
 if(SERIALIZER_INSTALL)
   include(CMakePackageConfigHelpers)
   set(serializer_package_directory "${CMAKE_INSTALL_LIBDIR}/cmake/Serializer")
@@ -144,6 +170,14 @@ if(SERIALIZER_INSTALL)
     LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
   )
+  if(SERIALIZER_BUILD_MANAGED)
+    install(TARGETS serializer_managed EXPORT SerializerTargets)
+    install(FILES "${CMAKE_CURRENT_BINARY_DIR}/managed/include/rohit/managed_records.hpp"
+      "${CMAKE_CURRENT_BINARY_DIR}/managed/include/rohit/collaboration_records.hpp"
+      DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/rohit")
+    install(FILES schemas/managed_records.serializer schemas/collaboration_records.serializer
+      DESTINATION "${CMAKE_INSTALL_DATADIR}/Serializer/schemas")
+  endif()
   install(DIRECTORY include/rohit DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
     FILES_MATCHING PATTERN "*.hpp")
   install(FILES "${CMAKE_CURRENT_BINARY_DIR}/generated/include/rohit/version.hpp"
@@ -189,6 +223,9 @@ if(SERIALIZER_BUILD_TESTS)
   find_package(GTest CONFIG REQUIRED)
   add_subdirectory(test)
 endif()
+if(SERIALIZER_BUILD_MANAGED)
+  add_subdirectory(example/managed)
+endif()
 
 if(SERIALIZER_BUILD_BENCHMARKS OR SERIALIZER_BUILD_FUZZERS)
   add_subdirectory(qualification)
@@ -214,6 +251,10 @@ if(SERIALIZER_BUILD_TESTS OR SERIALIZER_BUILD_STYLE_EXAMPLES OR SERIALIZER_BUILD
   add_subdirectory(example/includes)
 endif()
 
+if(SERIALIZER_BUILD_TESTS OR SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
+  add_subdirectory(example/generics)
+endif()
+
 if(SERIALIZER_BUILD_INTEROP_EXAMPLES)
   add_subdirectory(example/interoperability)
 endif()
@@ -237,6 +278,21 @@ if(SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
     COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/test/native/run.py"
       --compiler "$<TARGET_FILE:serializer>" --build "${PROJECT_BINARY_DIR}/native_codecs"
       ${native_example_options})
+  add_test(NAME serializer_generic_languages
+    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/example/generics/run.py"
+      --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_lib>"
+      --build "${PROJECT_BINARY_DIR}/generic_languages" --language all
+      "--wsl-languages=${SERIALIZER_EXAMPLE_WSL_LANGUAGES}")
+  set_tests_properties(serializer_generic_languages PROPERTIES TIMEOUT 1800 LABELS serializer_native)
   set_tests_properties(serializer_language_examples serializer_native_codecs PROPERTIES
     TIMEOUT 1800 LABELS serializer_native)
+  foreach(feature IN ITEMS history journal collaboration authentication)
+    add_test(NAME "serializer_managed_wire_${feature}"
+      COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/example/managed/multilanguage/run.py"
+        --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_lib>"
+        --build "${PROJECT_BINARY_DIR}/managed_wire" --feature "${feature}"
+        ${native_example_options})
+    set_tests_properties("serializer_managed_wire_${feature}" PROPERTIES
+      TIMEOUT 1800 LABELS "serializer_native;serializer_managed_wire")
+  endforeach()
 endif()

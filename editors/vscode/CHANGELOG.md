@@ -1,4 +1,61 @@
+# 1.1.15
+
+- Support native C++ generic declarations, dimension parameters, defaults, and fixed-array expressions in shared navigation and highlighting.
+- Retain optional `instantiate` and concrete-field contracts for cross-language generation; C++ templates no longer require them.
+
 # Changelog
+
+## 1.1.14
+
+- Restore declaration, definition, and type-definition actions in read-only Git index and history tabs.
+- Resolve cursor positions from the displayed snapshot and external destinations from the current workspace.
+
+## 1.1.13
+
+- Highlight generic parameters, nested type arguments, and named instantiations.
+- Navigate generic parameters and arguments, named roots, and concrete generated types across all output languages.
+- Keep both editor packages synchronized with schema generic support.
+
+## 1.1.12
+
+- Follow native type definitions from aliases and variables in the explicit Go to Schema Declaration command.
+- Preserve ordinary language-service declaration, definition and type-definition behavior.
+- Test real managed ledger generation with CMake Tools, duplicate aliases, target-specific headers and missing output.
+- Cover stale ownership metadata, unresolved providers, CRLF/UTF-16 positions and generated identifier boundaries in all 11 languages.
+- Document the navigation contract, coverage matrix and managed-target configuration after a clean build.
+
+## 1.1.11
+
+- Add native Go to Type Definition for schema types, resolving their source declarations.
+- Navigate from class/struct/enum keywords, including reversed whole-declaration selections.
+- Cover the ledger example, live transitive types and native editor commands with regression tests.
+- Preserve generated-language type providers and keep both extension versions synchronized.
+- Document the C# editor-project solution to avoid loading temporary build-tree projects.
+
+## 1.1.10
+
+- Document default direct managed identities and opt-in separate value/storage output.
+- Verify navigation for both representations across all C++ naming profiles.
+- Keep both Rohit Serializer extension packages at the same version.
+
+## 1.1.9
+
+- Highlight `managed` class and member declarations for the C++ managed interface.
+- Resolve direct, array, and map member types after `managed`, including qualified names.
+- Navigate generated managed storage/data/editor declarations back to their schema types.
+- Keep both Rohit Serializer extension packages at the same version.
+
+## 1.1.8
+
+- Identify the Serializer GitHub repository directly in the package description
+  and at the start of the extension README.
+- Keep the release version synchronized with the Visual Studio extension.
+
+## 1.1.7
+
+- Navigate from schema includes to the included schema for both Go to Declaration
+  and Go to Definition, independent of generated output languages.
+- Keep the release version synchronized with the Visual Studio extension.
 
 ## 1.1.6
 

@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin, or C applications from a provided repository or existing dependency. Use for .serializer schemas, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, schema compatibility checks and reservations, stream concepts and iostream adapters, exact fresh-value decoding, optional message compression, JSON or binary codecs, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
+description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin, or C applications from a provided repository or existing dependency. Use for .serializer schemas, native C++ generic templates, optional cross-language contracts, dimension parameters and fixed arrays, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, schema compatibility checks and reservations, stream concepts, durable file streams and iostream adapters, exact fresh-value decoding, managed journal/crash recovery and C++ local collaboration with store-owned sessions, timed synchronization and undo, optional message compression, JSON or binary codecs, database persistence guidance, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
 ---
 
 # Serializer Integration
@@ -22,7 +22,341 @@ skill has been copied or installed elsewhere, locate the matching checkout from
 the application's dependency/build configuration; resolve the following files
 there instead of relying on the relative links.
 
-- Read [README.md](../../../README.md) for supported syntax and feature status.
+- Start with [README.md](../../../README.md) for the project overview and first-use workflow.
+  Follow the [schema reference](../../../docs/schema_reference.md),
+  [build and generation guide](../../../docs/build_and_generation.md), and
+  [feature status](../../../docs/feature_status.md) for detailed contracts and limitations.
+  For a first introduction to history, journals, collaboration, and host authorization,
+  read the [managed features overview](../../../docs/managed/getting_started.md) and
+  [authorization guide](../../../docs/managed/authorization.md).
+  See [agent setup](../../../docs/agent_integration.md) for discovery and use from another project.
+- Use the [C++ managed interface](../../../docs/managed/cpp_runtime.md) for
+  schema-driven identity and local snapshot history. Enable `SERIALIZER_BUILD_MANAGED`,
+  link `Serializer::managed`, and declare bare `managed` on eligible leaf classes
+  and independently identified members. Classes carry `persistent_id` directly by
+  default; `[managed] separate_values = true` opts into ID-free values and storage
+  wrappers. The compiler generates `model_traits` and typed editors such as
+  `transaction.root().entries().edit(id)`.
+  It provides manual/scoped/callback transactions, linear/tree snapshots, and
+  bounded memory save/load. Select history at compile time with
+  `model_store<Root, history_mode::linear|tree|disabled, Labels, Traits>` (choose one enum
+  value; linear is the default). Each specialization stores only its selected
+  representation. `store_options` has no mode field; `reset_history()` clears
+  enabled history without switching modes. Runtime journaling is independent of
+  history mode. A fifth template argument independently selects `store_features::none`,
+  `journal`, `collaboration`, or `all` (the compatible default). Use `none` with linear/tree
+  history for history-only stores; pair disabled history with `journal` or `collaboration`
+  for those isolated configurations. Disabled features have no attachment storage/checks
+  and their store APIs are unavailable. Identity, validation and transactions remain core.
+  The authority's seventh argument and session facade's fifth authority argument accept
+  `collaboration` to remove journals. Authentication remains host-owned within collaboration;
+  standalone authentication is not a store feature. Built-in authorization policies and
+  schema capability selectors remain proposals. See
+  [feature selection](../../../docs/managed/cpp_runtime.md#independent-store-features).
+  Labels default to `history_labels::disabled`, with no string member or serialized
+  label field. Opt in with the third argument `history_labels::enabled`; custom
+  traits are the fourth argument. Enabled stores accept named and unnamed
+  transactions and provide `undo_label()` plus linear `redo_label()` or tree
+  `redo_label(revision)`. Disabled history cannot enable labels.
+  Linear history uses `std::deque` entries containing snapshots (optional labels) and a
+  cursor, with parameterless `undo()`/`redo()` and no revision IDs or checkout.
+  Only tree stores provide `redo(revision)`, `redo_children()`, and `checkout()`.
+  Use `Store::outcome_type` for manual generic code; only tree outcomes include
+  `revision`. Linear history evicts oldest
+  states to meet count/byte limits; `max_revisions = 100` includes the current
+  state and allows at most 99 undo steps. A changed commit after undo drops redo;
+  failed, canceled, and no-op edits preserve it. Tree mode retains its map and
+  rejects over-budget commits. Loads reject excess history without pruning;
+  default label-free saves use version 3. Label-enabled linear/tree stores preserve
+  versions 2/1. Loads must match history mode and label policy; cross-policy saves
+  require explicit migration. Linear saves contain ordered entries and a cursor.
+  Use `create_journal(path, journal_storage_mode::appended|sidecar, options)` for a
+  new durable baseline, `recover_journal(path, options)` to reopen into an
+  unattached store, and `save_journal()` for full Save. Commits, undo/redo/checkout,
+  history reset, and ID reservations flush before publication. Both representations,
+  ID widths, history modes, and optional labels are supported.
+  `journal_dirty()` compares values with the full-Save baseline; memory `save()`
+  does not clear it. `journal_sequence()` advances independently of undo position.
+  Handle `transaction_status::indeterminate` / `journal_indeterminate_error` by
+  destroying the fenced store and recovering into a fresh one before further writes;
+  never blindly retry editing callbacks. `load()` cannot bypass an attached journal.
+  Each edit writes its already serialized snapshot once with compact length/CRC
+  framing (snapshot bytes + 41 bytes for unlabeled linear history, + 33 for
+  unlabeled tree/disabled). Navigation/reservations use 33-byte control records.
+  Only base creation/full Save encodes the complete envelope and retained history.
+  There is no per-edit envelope encoding, byte-diff pass, snapshot output-buffer
+  copy, or history deque copy. A retained native handle avoids reopening/seeking
+  for each append. Use journal record/file budgets with store decoding limits. See the [journal guide](../../../docs/managed/journal.md)
+  for versioned framing, single-writer locking, platform flush assumptions, and
+  limitations. Selectors, exclusions, custom allocation, background checkpoints,
+  delta journals, built-in authorization policies, and other-language runtimes remain
+  future work. Do not present the complete proposals below as shipped behavior.
+  Omit the store constructor's document argument for automatic namespace creation;
+  explicit namespaces remain supported. Root/managed child IDs are allocated 1, 2,
+  3... within each document, not globally. Undo/deletion never renumber or recycle
+  consumed IDs; load restores the saved namespace and allocator high-water mark.
+  Default clones retain IDs; opt-in separate-values clones remove them. Switching
+  representations changes the wire binding and requires migration. Direct managed
+  Protobuf output is unsupported. Consult the runtime guide before accessing storage.
+- For explanations of the current C++ implementation, use the
+  [managed transaction walkthrough](../../../docs/internals/managed_transactions.md).
+  It follows the generated point example through store/candidate ownership,
+  nested transaction types, the borrowed callback facade, editor forwarding,
+  publication, failure, and cleanup. Keep diagrams vertical and distinguish
+  implemented behavior from the broader managed proposals.
+  The companion [editor walkthrough](../../../docs/internals/managed_editors.md)
+  explains channel type erasure, resolver captures, generated getter/setter calls,
+  and map/array identity checks. Editors avoid retaining element addresses;
+  they resolve the target afresh and reject missing entities or closed transactions.
+- For database persistence, read the
+  [database integration guide](../../../docs/database_integration.md). Treat its
+  backend matrix as candidate storage mappings, not tested Serializer adapters.
+  Establish the database product, edition/version, SDK, and JSON/typed-document
+  or opaque-byte representation. Preserve integer widths, map entry arrays,
+  presence semantics, and metadata boundaries; reject unsupported values or use
+  an explicit reversible mapping. Use existing exact-message decoding on reads.
+  The proposed sink operations are not public APIs or generator options. Keep
+  dependencies optional and report actual provider verification separately from
+  codec or mock tests.
+- Use the [managed design index](../../../docs/managed/README.md) for the proposals.
+  The [capability contract](../../../docs/managed/capabilities.md) now defines
+  history, collaboration, authorization, and journal. Every managed
+  storage instance has a generated persistent ID, default `uint32`, centrally
+  configurable through `[managed] id_type` / `--managed.id_type` (`uint32` or `uint64`).
+  Use the same setting for every shared output. Separate ID-free values are opt-in; map keys and
+  sidecar indexes cannot replace the managed ID field. Document scope, non-reuse,
+  durable allocation reservations, and collision-free replica allocation apply.
+  The [journal design](../../../docs/managed/journal.md) separates base/journal
+  durability from undo history and defines appended and sidecar storage modes.
+  Full Save durably publishes a replacement before retiring covered records;
+  preserve newer edits, retained history dependencies, and allocation metadata.
+  Changes may remain unsaved in the UI while durably journaled for recovery.
+  These storage modes now have the synchronous C++ implementation described above;
+  selector syntax and broader delta/checkpoint/distributed contracts remain proposals.
+  Active/required authorization cannot
+  be bypassed by member selectors. Imported/generated models must agree on ID type.
+  The [data structures](../../../docs/managed/data_structures.md) and
+  [language bindings](../../../docs/managed/language_bindings.md) describe optional
+  store components, `model_store<Root, support>` / `managed` in C++, other-language
+  composition, revision graphs, version records, and deleted-entity retention.
+  Use the [C++ class walkthrough](../../../docs/managed/data_structures.md#c-class-walkthrough)
+  for actual ordinary class excerpts from the [walkthrough schema](../../../docs/managed/walkthrough.serializer),
+  with codec functions omitted, and their proposed runtime ownership mapping.
+  Preserve generated access sections, qualified field types, initialization, and
+  storage metadata; do not present handwritten templates, optional fields, or
+  runtime pointers as current schema output. The example uses supported data
+  syntax, but its record IDs are illustrative. Opt-in generated C++ companions use
+  `managed_<type>_storage` with fixed `persistent_id`/`value` metadata and preserve
+  payload field IDs inside `value`. Optimized history formats remain proposals. The snapshot
+  runtime uses its own generated versioned envelope, described in the runtime guide.
+- Treat [transactional history](../../../docs/managed/history.md) as the broader
+  design contract. Bare `managed` and typed C++ setters are implemented;
+  `exclude(...)`, `transient`, and selectors remain unimplemented. Generation supports
+  public, unpacked owning classes without inheritance, unions, or recursive ownership;
+  unsupported shapes and non-C++ managed backends are rejected explicitly.
+  Existing `stable_ids` identifies schema fields, not objects.
+  Proposed change addresses combine a namespaced entity ID with a relative field-ID
+  path; field IDs do not create independent entities or require delta storage.
+  Scoped C++ transactions provide auto-commit on successful exit with an explicit
+  outcome, rollback on failure/cancellation, and deterministic resource cleanup.
+  Prefer the [callback transaction](../../../docs/managed/history.md#callback-based-transaction-execution)
+  `execute_transaction(callback)` for a single synchronous action (supply a leading
+  label only with `history_labels::enabled`). Pass a
+  borrowed edit context, capture external IDs, and return the outcome after scope
+  completion. The wrapper owns commit; callback revert/failure prevents it. Reject
+  accidental non-void/async C++ callbacks and never retry the callback implicitly.
+  Keep `begin_transaction` for caller-controlled lifetimes. Both entry points exist
+  in the C++ runtime. Use generated `root()` editors; raw `update(callback)` remains
+  a trusted low-level escape hatch and must not leak aliases or rewrite IDs.
+  Preserve all three forms: begin with explicit commit, begin with automatic
+  completion on healthy normal scope exit, and callback execution. Commit closes
+  once; revert cancels. Guard deletion is not a distinct cancellation signal.
+  Compact child addressing can omit repeated IDs only while preserving recoverable
+  identity bindings; deleted entities can remain in retained history without live
+  mutable objects. Storage budgets and measured latency guide optimization.
+  The proposed [ownership/allocation contract](../../../docs/managed/history.md#ownership-and-custom-allocation)
+  keeps lifetime control in the store while permitting state/history/scratch
+  resources. These hooks are unimplemented, do not automatically redirect payload
+  container allocations, and require explicit backend support. Internal reference
+  counts remain optional and are separate from persistent entity identity.
+- Use the [managed examples](../../../docs/managed/managed_examples.md) only for design
+  discussion: hollow-cylinder differences, accounting ledgers, wordpad documents,
+  and other models illustrate a generic facility, not implemented sample programs.
+  Start beginners with the [nine point examples](../../../example/managed/README.md),
+  each in its own folder and using a schema-generated managed point: store creation,
+  transaction callbacks, generated editors, explicit/scoped commit, undo/redo,
+  cancellation, and optional labels. Only `labeled_history` opts into names;
+  the first eight and the ledger example use unnamed transactions.
+  Use the real runtime throughout; do not replace the generated
+  point, editor, or access machinery with handwritten teaching implementations.
+  The callback example shows the existing low-level update API; generated editors
+  remain the recommended application interface.
+  Build all nine with `managed_point_examples`; each README shows expected output.
+  The separate [draft ledger example](../../../example/managed/ledger/README.md) is runnable
+  using actual `managed` declarations and generated editors without handwritten adapters.
+  Use its annotated source and walkthrough to explain document namespaces versus
+  object IDs/map keys/field IDs, transaction lifetimes, undo, and memory save/load.
+  The [hollow-cylinder](../../../example/managed/design/README.md) and
+  [wordpad](../../../example/managed/wordpad/README.md) schema examples have their
+  own folders and are compiled in integration tests.
+- Treat [managed state](../../../docs/managed/managed_state.md) as a companion proposal.
+  Its broader generated `managed` interfaces, scoped authorization, merging, advanced collaboration,
+  distributed transactions, and external-effect handling are unimplemented.
+  Inferred companion generation is implemented in C++; selectors such as
+  `managed(history)` and `managed(all except history)` remain proposed syntax.
+  Plain containment does not activate nested managed annotations or infer managed
+  support for the containing class; generated capability and occurrence differ.
+  Managed targets must qualify through their own class marker or managed members;
+  an unmarked leaf target is a compiler error and is never implicitly promoted.
+  `exclude(history, collaboration)` is a proposed ordinary-value exclusion that
+  preserves serialization and mandatory policy checks; it does not confer identity.
+  Authentication and invitation management remain application responsibilities.
+  Use the implemented [C++ collaboration runtime](../../../docs/managed/collaboration_runtime.md)
+  and [runnable examples](../../../example/managed/collaboration/README.md) for
+  actual integration. Include `<rohit/managed_collaboration.hpp>`, link
+  `Serializer::managed`, and regenerate model headers for `visit_collaboration`,
+  `visit_collaboration_fields`, and `merge_collaboration`.
+  `collaboration_authority<Root, Mode, Labels, Traits>` privately owns the store;
+  construct it without a command handler for ordinary generated edits.
+  For immediate local editing, follow the [store integration guide](../../../docs/managed/local_collaboration.md):
+  attach with `store.collaborate(session, options)`, bind a host-authenticated transport,
+  and join a fresh placeholder before editing. Keep using normal generated editors
+  and all existing `model_store` transaction forms. The store owns its typed session,
+  local undo/redo, outbox, receive cursor and identity mappings. Journals flush each
+  committed transaction with its client state; synchronization cadence is independent.
+  Call `store.synchronize()` explicitly/on reconnect, or drive `synchronize_if_due(now_ms)`
+  from the owner-thread event loop. The default interval is 5000 ms; zero is explicit
+  only. `send_pending()` sends one transaction; `receive_changes()` only receives.
+  Receive accepted changes before sending a successor; retry unresolved delivery
+  exactly before pull-only receiving. Bind transports by reference and keep them alive.
+  The supplied `collaboration_transport` is in-process; the host supplies network I/O.
+  Callbacks are never replayed. Disjoint fields rebase; container membership and order
+  remain atomic fields. Conflicts/rejections keep the complete local view, expose
+  `acknowledged_read()` separately, and retain drafts in `state()`. After fixing a
+  known denial/lease failure use `retry_pending()`; resolve conflicting intentions
+  explicitly with retained drafts, `discard_pending()`, and a normal new transaction.
+  Lost replies retain exact request bytes; a new epoch marks work uncertain for host
+  reconciliation. Never claim durable authority deduplication across epochs.
+  `store.undo()` and linear `store.redo()` create local inverse transactions.
+  Prefer these store methods and `execute_transaction` for application modifications;
+  the [store undo example](../../../example/managed/collaboration/undo.cpp) journals both
+  clients through ordinary `create_journal`/`save_journal` calls. `synchronize()` handles
+  request submission and accepted changes; applications need no `propose`/`deliver` helper.
+  The internal journal adapter pairs model records with session/outbox metadata in
+  the existing durable file mechanism, so recovery cannot separate an edit from its
+  pending send or acknowledgement. No application-owned store wrapper is needed.
+  For host lock requests, call `store.collaboration().reserve_operation_id()` after
+  joining. Locks and document submissions share the persisted operation counter;
+  never supply an independent counter for the same session. The host must retain
+  each lock request for exact retries; reserving an ID does not enqueue that request.
+  See the [store locks example](../../../example/managed/collaboration/locks.cpp).
+  Tree branch checkout/reset are unavailable while attached; collaborative redo on
+  a tree store uses `store.collaboration().undo(true)`. Disabled history retains only
+  outstanding synchronization work; it has no undo stacks, inverse archive or history labels.
+  Completed client transactions are removed once their accepted sequence is received;
+  local transaction numbers remain monotonic. History-free authorities reject inverse
+  requests and omit undo stacks, inverse snapshots and contribution-version tables.
+  Enabled history labels survive sync/recovery. An attached journal uses the existing
+  store journal pointer and file adapter with one model/session wrapper per frame.
+  Attach the same session to a fresh store before load/recovery, then synchronize;
+  ordinary model readers cannot open client checkpoint format 1. Save preserves
+  pending work. One active writer owns each session within an authority epoch.
+  Offline persistent IDs are client-local, mapped durably to authority IDs; use
+  `remote_id`/`local_id` at server/UI boundaries. Do not remap arbitrary integer
+  fields, map keys or application references. Client transactions/state bytes and
+  authority command/history budgets are bounded. Enabled histories retain records;
+  disabled histories compact completed client work. History-free client checkpoints use
+  `serializer.collaboration.pending.v1`; older disabled-history client checkpoints require
+  [explicit migration](../../../migration.md#independent-managed-features). History-enabled
+  client checkpoints and ordinary model/journal bytes remain unchanged. The store encodes
+  each candidate once for authority publication. Non-journal synchronization uses a
+  generated-field budget visitor instead of encoding/decoding checkpoints. Unpinned local
+  appends without a journal reuse retained buffers; pins and journal callbacks keep
+  copy-on-write preparation. Checkpoints borrow their state during encoding. Tree history
+  checks incremental retained-byte totals rather than rescanning revisions. See the [local example](../../../example/managed/collaboration/local_sync.cpp).
+  The lower-level acknowledged-state API remains available. Use
+  `replica.propose(session, operation, callback[, grants])`; the callback runs once
+  on an isolated draft using generated transaction editors. No application command
+  schema or dispatcher is required. With default uint64 sessions, the authority uses protocol version 6
+  with a version-one `model_change` snapshot payload. Custom synchronous host
+  command handlers remain optional and use protocol version 5; contexts reject
+  mixing the two. Rebuild the managed target for the new coordination record.
+  Bind the claimed session to a separate trusted host session.
+  Applications own session creation, storage, connection binding, and lifetime.
+  Use `collaboration_session<Session, SessionTraits>` and its `authority<Root>`,
+  `replica<Root>`, `records`, `result`, and `lock_cache` aliases for custom session
+  types. String and unsigned integer policies are supplied; uint64 remains default.
+  No registry or numeric mapping is imposed. Custom policies provide a stable
+  `wire_name`, `max_encoded_bytes`, `valid`, `less`, and bounded canonical
+  `encode`/`decode` functions. IDs must own their data and be default-constructible
+  and copyable; equivalent identities must encode identically. Sessions retain their
+  type in changes, locks, presence, retries, trusted arguments, and policy hooks.
+  Use the collaboration codec helpers for typed records: protocols 7/8 carry a
+  generated session envelope around existing command/model records; peers must agree
+  on the session policy and codec. Default uint64 endpoints use protocols 5/6.
+  Upgrade both peers: protocols 1..4 lack history fields and are rejected.
+  Rebuild managed support for the added envelope records. See the
+  [session policy contract](../../../docs/managed/collaboration_runtime.md#application-owned-sessions).
+  Open an ID once per participation lifetime; after closure use a new ID or a new
+  application generation within the ID. Closed IDs cannot be reused in an epoch.
+  Ordinary `submit_change` requires the accepted base sequence and a nonzero operation ID;
+  exact retries return the retained result, different-payload reuse throws, and
+  conflicts require reconciliation plus a new operation ID. Never blindly retry
+  callbacks or perform external effects before acceptance.
+  `collaboration_replica` receives ordered trusted accepted snapshots; authoring a
+  proposal does not change that state or grant edit permission. Draft IDs are
+  provisional until acceptance. Resynchronize after a conflict even if the accepted
+  sequence is unchanged: rejected creation may consume authority IDs.
+  Use `snapshot`/`synchronize` for join and explicit
+  recovery, `accepted_since` for delivery/retry, and treat gaps as resync requests.
+  `change_lock` manages optional entity/subtree leases; proposals supply current
+  `{target, generation}` references. Final generated ownership diffs include
+  deletions and moves. Drive `advance_expiry` with host monotonic milliseconds.
+  `lock_snapshot`/`locks_since` feed `collaboration_lock_cache`; prune acknowledged
+  lock events explicitly. Incomplete caches confer no edit rights. Presence is
+  advisory; ended/expired lifetimes require new IDs and cannot be resurrected.
+  Host policy hooks gate final changes and lock requests but are not a built-in
+  inherited permission engine. Transport, authenticated session binding, policy
+  synchronization, and leader/epoch fencing remain host responsibilities.
+  Save/load and journal recovery preserve document/history only; recover before
+  opening sessions in a fresh fenced epoch. Rights and retry outcomes do not
+  survive restart, so uncertain replies across epochs need application reconciliation.
+  Configure retry/byte/session/presence/lock budgets. Default proposals carry the
+  complete candidate snapshot, bounded by `max_command_bytes` (default 1 MiB);
+  `max_created_ids` bounds new-ID reservations (default 4096). The runnable example
+  combines the server authority and client replicas in one process. Session IDs
+  carry no inherent local/remote/read-only role; the authority enforces write access.
+  Retained retries and tombstones
+  count for the epoch; no automatic deduplication compaction exists. This version
+  sends full snapshots, rejects stale ordinary edits at document scope, and scans active locks for
+  overlap/expiry. General merging, deltas, grouped leases, and other-language
+  engines in the [broader design](../../../docs/managed/collaboration.md) remain proposals.
+  Use `replica.undo(session, operation[, target_operation, grants])` and `redo`
+  for conditional per-session history on generated model endpoints. Submit through
+  the same trusted authority path and replicate only accepted results. A nonzero
+  target must match the stack tip; zero chooses the latest visible tip. The inverse
+  comes from retained authority history, not client-supplied values. Every accepted
+  batch carries `history`: stable entity/field addresses, before/after presence and
+  codec values, active contribution versions, and ownership dependencies. The outer
+  session/operation/sequence supplies authorship and transaction grouping. Preserve
+  unrelated edits; reject the complete inverse on conflicting field versions or
+  ancestry, including ordinary write-away/write-back ABA changes. Structural map
+  membership and array order are currently atomic at the containing field level.
+  Ordinary nested values remain atomic fields. Recheck current policy and leases;
+  failure/no-op preserves history, new local accepted edits clear that session's
+  redo, and retries retain the original result. Use `undo_operation`/`redo_operation`
+  only as stack inspection, never as permission checks. Version tokens restore
+  earlier contributions on undo; accepted sequence always advances.
+  Bound retained before snapshots and metadata with `max_retained_bytes`, and field
+  projection/version tombstones with `max_tracked_fields` (default 100000). The
+  document journal persists undo's result through restoration tag 5, including
+  original deleted IDs, but not collaborative stacks or version tombstones across
+  authority epochs. Upgrade journal readers for tag 5. Normal transactions cannot
+  resurrect retired IDs. Store clients implement immediate local editing/undo and
+  durable periodic synchronization as described above; general conflict-free merging
+  and peer-to-peer authority ordering remain unimplemented. See the
+  [store undo example](../../../example/managed/collaboration/undo.cpp) and
+  [history contract](../../../docs/managed/collaboration_runtime.md#conditional-collaborative-undo-and-redo).
 - Use [docs/usage.md](../../../docs/usage.md) for the schema, CMake, and codec examples.
 - Use [docs/portable_languages.md](../../../docs/portable_languages.md) for JS/TypeScript,
   Go, C#, target SDKs, type mappings, limits, and interoperability.
@@ -39,6 +373,10 @@ there instead of relying on the relative links.
   errors, editor configuration, and generating headers without compiling consumers.
 - Use [docs/editor_extension.md](../../../docs/editor_extension.md) for the optional
   VS Code extension, local VSIX installation, and CMake header assistance.
+- Both editor navigation actions open the included schema when invoked on an
+  `include`; a schema include can contribute multiple generated declarations and
+  has no single generated definition. Type-reference definitions still target the
+  matching generated declaration when available.
 - Use [Visual Studio extension](../../../editors/visual_studio/README.md) for the
   separate Visual Studio 2022/2026 x64 navigation package and its build/install steps.
 - Read [docs/wire_format.md](../../../docs/wire_format.md) when choosing protocols,
@@ -52,6 +390,30 @@ feature as a prerequisite without the user's request.
 
 ## Author or evolve the schema
 
+- Use [schema generics](../../../docs/generics.md) for reusable owning models.
+  C++ emits native templates even without concrete schema uses: nested
+  `result<T>`, `response<T>`, and `message<T>` can be used as
+  `response<std::uint32_t>` with the ordinary generated codecs. Host type arguments
+  must satisfy the selected codec and owning operations; do not add handwritten codecs.
+  Keep optional `instantiate person_result = result<person>;` or concrete schema
+  fields when other languages or compatibility checks need a concrete contract.
+  All eleven backends expand those contracts; other languages do not expose open
+  native generic APIs. Definitions and argument types must precede use.
+- Use positive `uint64 N` parameters, trailing type/value defaults, and
+  `array[N] T` or `array[Rows * Cols] T` for fixed owning C++ storage. Defaults may
+  reference earlier parameters. Expression arithmetic is checked uint64 with
+  decimal literals, parentheses, addition, and multiplication only. Extents are
+  1..65,536, with 32 expression levels and 256 parse nodes. Generic parse/expansion
+  limits remain 32 levels, 1,024 concrete applications, and 4,096 identity bytes.
+  C++ emits std::array with compile-time checks for application-only specializations.
+  Other backends and Protobuf reject fixed arrays explicitly; do not claim mappings.
+  Preserve existing runtime decode limits and exact cardinality. Missing keyed
+  fields retain defaults; explicitly empty fixed arrays fail. Generic managed/view
+  declarations, inheritance, unions, recursive ownership, and user specialization
+  are unsupported. Ordinary generic values may occur inside managed roots; use
+  generated replacement setters and the existing history/journal APIs.
+  Consult [usage](../../../docs/usage.md), [migration](../../../migration.md), and
+  [qualification](../../../docs/verification-dimensions-2026-10-04.md).
 - Use `.serializer` files beginning with `serializer version 1;`, before declarations
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
@@ -164,6 +526,11 @@ The test target builds before running CTest. They require the same compiler,
 GoogleTest, and clang-format dependencies as direct CMake; Java, benchmarks, and
 fuzzers remain opt-in. See [wrapper options](../../../docs/cmake_integration.md#build-this-repository)
 for configurations, separate build directories, and CMake overrides.
+If a cached Visual Studio instance no longer exists, use
+`./make.ps1 configure -CMakeArgs '--fresh', '<required -D overrides>'` and reapply
+the build's nondefault settings before building again. Inspect/back up the cache
+first; do not preserve stale compiler paths or overwrite only the instance entry.
+See [cache recovery](../../../docs/cmake_integration.md#recover-a-stale-visual-studio-instance).
 On Windows, `./make.ps1 all` additionally packages both editor extensions after a
 successful CMake build. It requires Node.js 22+, npm and Visual Studio MSBuild,
 restores locked npm dependencies, and rejects unequal extension versions. Packages
@@ -247,19 +614,24 @@ not create headers. No custom VS Code task or Serializer editor extension is
 required, and `.vscode/*` remains ignored. Editor provider settings may be user-level.
 The optional Rohit Serializer extension (`rohitjairajsingh.serializer-language`)
 in `editors/vscode` highlights `.serializer`, offers
-32×32 language icons for Explorer/editor tabs where the file icon theme permits them,
+32Ã—32 language icons for Explorer/editor tabs where the file icon theme permits them,
 versioned snippets, and invokes the same targets through CMake Tools. Run the root
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 1.1.6 is shared with the Visual Studio extension and is independent of
-compiler and schema versions. Keep both editor extension versions equal. Configure
+version 1.1.14 is shared with the Visual Studio extension and is independent of
+compiler and schema versions. Keep both editor extension versions equal.
+Both package descriptions and READMEs identify the
+[Serializer repository](https://github.com/rohit-singh-gautam/Serializer). Configure
 the consumer first, then use `Serializer: Generate Headers` or `Serializer:
 Diagnose Missing Header`. Set `serializer.headersTarget` for one consumer; keep
 profile include paths separate. Its IntelliSense command explicitly updates the
 selected folder's C/C++ provider. Generation saves dirty schema/INI/CMake inputs
 in that folder and requires workspace trust. Declaration/definition navigation
-and `Serializer: Open Generated Header` only read available files; never invoke
+and `Serializer: Open Generated Header` only read available files. VS Code Git
+index/history tabs use the displayed snapshot for local symbols and offsets;
+includes and generated destinations resolve against the current workspace,
+not a historical checkout. Never invoke
 generation or configuration to satisfy navigation, or offer generation for a
 missing destination. Declaration opens the originating schema, while definition
 prefers existing generated output in any supported language and falls back to the original schema type
@@ -270,12 +642,25 @@ output and use existing `<output>.d` or workspace multi-output `.d` dependencies
 legacy basename/profile matches as choices. An already active CMake model can
 narrow lookup but navigation must also work without it and in Restricted Mode.
 Use the built-in `Go to Declaration` menu action, including for whole-name selections.
+Use `Go to Type Definition` in schemas to reach the source class/enum declaration
+or included schema. All three actions accept declaration keywords and forward/reversed
+`class ledger` selections. On a declaration itself, declaration/type definition select
+that same schema name. Field names and primitives have no schema type destination;
+generated-language type lookup remains with the native language provider.
 Caller type references in C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python,
 Swift, Kotlin, and C use their installed language definition providers.
 For reliable ownership of renamed/flattened output, retain the compiler's
 `--depfile` output in the workspace; native generators without a banner require
 dependency metadata. Use `Serializer: Go to Schema Declaration` from the Command
-Palette when other providers add non-schema declaration locations. Do not override
+Palette when other providers add non-schema declaration locations. That explicit
+command also follows a native type-definition result for aliases/variables when
+ordinary definition stops at their local declaration; native commands retain
+their language semantics. For this repository's managed ledger tests/examples,
+keep `SERIALIZER_BUILD_MANAGED=ON` in the active CMake configuration and pass it
+again after removing the build cache (`./make.ps1 all -CMakeArgs
+'-DSERIALIZER_BUILD_MANAGED=ON'`). A clean default build leaves managed targets off.
+Use the same build directory/configuration in CMake Tools as the command-line build;
+do not combine include paths from unrelated targets. Do not override
 VS Code's global commands or disable other language services.
 For file-level navigation, right-click a `.serializer` file in Explorer or its
 editor tab and choose `Serializer: Go to Implementation`. It uses the clicked
@@ -288,6 +673,11 @@ then install it using Visual Studio's VSIX Installer. It shares the canonical
 grammar, custom-type highlighting and navigation resolver. Native Go to Declaration
 opens schema includes/types and maps generated declarations in all 11 languages
 back to their schemas. Go to Definition/Ctrl+click on schemas prefer existing output.
+Go to Type Definition on schemas opens the source type or included schema too.
+For repository C# editing, select `editors/visual_studio/serializer_editors.sln`
+using the workspace's `dotnet.defaultSolution`; do not load temporary project copies
+from `out/`. The extension/test projects declare identical Windows runtime targets
+for Visual Studio and C# language-server restores.
 From caller code, use its language service to reach the generated declaration first.
 The VS package does not supply VS Code's CMake commands or snippets; Node.js is
 needed to build the shared bundle, but is not required at runtime.
@@ -535,6 +925,27 @@ user instruction to defer generation/builds/tests and report what remains unveri
   remain valid. Keep memory-stream
   storage stable while decoding. Never imply that concepts prove lifetime or
   alias safety. See [stream contracts](../../../docs/usage.md#stream-concepts-and-implicit-adapters).
+- Use `<rohit/file_stream.hpp>` for a reusable owning file stream supporting both
+  generated serialization and journals. `file_stream` satisfies existing byte-stream
+  concepts and adds `sync()`, absolute `seek()`, `truncate()`, and `size()`.
+  `file_open_mode::create` is exclusive; `update` preserves existing file bytes;
+  `read` is read-only; `lock` owns a stable exclusive writer lock. Keep it
+  thread-confined. Serialization and destruction never implicitly sync.
+  Memory streams in `stream.hpp` remain memory-only implementations.
+  `managed_journal_stream.hpp` provides bounded `write_journal_frame` /
+  `read_journal_frame` helpers accepting native/custom buffers, iostreams, and
+  file streams. Buffer reads borrow payloads; byte-stream reads own bounded
+  payloads. Preserve input lifetimes and use the managed path APIs when a full
+  document container, locking, sequence allocation, and recovery are required.
+  Optional persistence concepts do not change ordinary stream requirements.
+  `durable_output_adapter` requires a real host synchronization policy for the
+  exact borrowed destination; plain iostream flushing is insufficient. Never
+  claim a memory stream is persistent merely because framing succeeds.
+  The managed store owns a journal sink; its implemented file adapter uses these
+  stream facilities. Database sinks require an implemented and tested Serializer
+  database adapter. None currently exists; do not add speculative database support.
+  See [file streams](../../../docs/usage.md#file-streams-and-journal-records) and the
+  [runnable journal example](../../../example/managed/journal/README.md).
 - Open binary files in binary mode. Adapters borrow streams, retain exception masks,
   and leave explicit flushing/closing to the caller. I/O failures can consume input
   or write an output prefix; decode errors may partially update destinations.
@@ -642,6 +1053,16 @@ Nested field access still constructs a validated view. Refer to the view guide f
 parent accessors, union access, and complete examples.
 
 ## Verify and document the result
+
+For cross-language managed work, use the
+[managed wire matrix](../../../example/managed/multilanguage/README.md) to qualify
+the canonical history, journal-baseline, collaboration and session record codecs.
+It runs every selected producer/consumer pair and rejects truncated/trailing input.
+Do not confuse passing record tests with native managed feature support: this
+matrix does not implement non-C++ undo/redo, durable journals, collaboration engines,
+or authentication. Non-C++ managed declarations remain explicitly rejected.
+Regenerate Kotlin records with this compiler when a schema contains a property
+named `field`; that contextual name is supported without renaming its wire key.
 
 Use the task's permitted validation scope. For an integration, exercise a generated
 record through the selected protocol with an exact-size input, destination reuse,

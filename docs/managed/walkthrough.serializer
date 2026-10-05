@@ -1,0 +1,205 @@
+serializer version 1;
+
+// Generatable data-shape examples for data_structures.md, not a managed runtime.
+// These draft record IDs are illustrative, not a released history wire contract.
+// This illustrative record schema uses ordinary fields, without managed/exclude/transient.
+// Managed record wrappers below explicitly model the lowered uint32 ID profile.
+// The actual C++ managed generator supports central uint32/uint64 ID configuration.
+
+class point stable_ids {
+  public double x (1);
+  public double y (2);
+  public double z (3);
+}
+
+class cylinder stable_ids {
+  public double height (1);
+  public double diameter (2);
+  public point position (3);
+}
+
+class difference stable_ids {
+  public string label (1);
+  public cylinder outer (2);
+  public cylinder hole (3);
+}
+
+class design stable_ids {
+  public map(uint64) difference parts (1);
+}
+
+// Ordinary generated records modeling the future managed storage representation.
+class managed_cylinder_record stable_ids {
+  public uint32 persistent_id (1);
+  public cylinder value (2);
+}
+
+class managed_difference_record stable_ids {
+  public uint32 persistent_id (1);
+  public string label (2);
+  public managed_cylinder_record outer (3);
+  public managed_cylinder_record hole (4);
+}
+
+class managed_design_record stable_ids {
+  public uint32 persistent_id (1);
+  public map(uint64) managed_difference_record parts (2);
+}
+
+class document_id stable_ids {
+  public uint64 high (1);
+  public uint64 low (2);
+}
+
+class entity_id stable_ids {
+  public document_id document (1);
+  public uint32 number (2);
+}
+
+// These reference numbers are scoped to the containing document's storage.
+class entity_version_ref stable_ids {
+  public uint64 number (1);
+}
+
+class blob_ref stable_ids {
+  public uint64 number (1);
+}
+
+class revision_id stable_ids {
+  public uint64 number (1);
+}
+
+class transaction_id stable_ids {
+  public uint64 number (1);
+}
+
+class checkpoint_ref stable_ids {
+  public uint64 number (1);
+}
+
+enum path_step_kind {
+  field,
+  map_key,
+  array_element
+}
+
+class path_step stable_ids {
+  public path_step_kind kind (1);
+  public uint32 field_id (2);
+  public uint64 key_type (3);
+  public array uint8 key_bytes (4);
+  public uint64 element_index (5);
+}
+
+class field_path stable_ids {
+  public array path_step steps (1);
+}
+
+class record_versions stable_ids {
+  public uint32 schema_catalog_version (1);
+  public string feature_profile (2);
+  public uint32 feature_profile_version (3);
+  public uint32 record_format_version (4);
+}
+
+class live_entry stable_ids {
+  public entity_id entity (1);
+  public uint64 type_key (2);
+  public field_path location (3);
+}
+
+class design_state stable_ids {
+  public entity_id root_id (1);
+  public managed_design_record value (2);
+  public array live_entry identity_bindings (3);
+}
+
+class owned_link stable_ids {
+  public field_path slot (1);
+  public entity_id child (2);
+}
+
+class entity_version stable_ids {
+  public entity_version_ref id (1);
+  public entity_id entity (2);
+  public uint64 type_key (3);
+  public uint32 schema_version (4);
+  public blob_ref ordinary_fields (5);
+  public array owned_link managed_children (6);
+}
+
+enum change_kind {
+  insert,
+  update,
+  remove
+}
+
+class entity_change stable_ids {
+  public entity_id entity (1);
+  public uint64 type_key (2);
+  public change_kind kind (3);
+  public bool has_before (4);
+  public entity_version_ref before (5);
+  public bool has_after (6);
+  public entity_version_ref after (7);
+  public bool exact_paths (8);
+  public array field_path changed_paths (9);
+}
+
+class transaction_change_set stable_ids {
+  public array entity_change entities (1);
+}
+
+class blob_record stable_ids {
+  public blob_ref id (1);
+  public array uint8 bytes (2);
+}
+
+class version_store_record stable_ids {
+  public array entity_version versions (1);
+  public array blob_record blobs (2);
+  public uint64 next_version_number (3) { 1 };
+  public uint64 next_blob_number (4) { 1 };
+}
+
+class entity_version_binding stable_ids {
+  public entity_id entity (1);
+  public entity_version_ref version (2);
+}
+
+class checkpoint stable_ids {
+  public checkpoint_ref id (1);
+  public revision_id revision (2);
+  public entity_id root (3);
+  public array entity_version_binding entities (4);
+  public record_versions formats (5);
+}
+
+class entity_snapshot_revision stable_ids {
+  public revision_id id (1);
+  public array revision_id parents (2);
+  public bool has_transaction (3);
+  public transaction_id transaction (4);
+  public string label (5);
+  public record_versions formats (6);
+  public transaction_change_set changes (7);
+  public bool has_checkpoint (8);
+  public checkpoint_ref checkpoint (9);
+}
+
+enum history_mode {
+  disabled,
+  linear,
+  tree
+}
+
+class history_record stable_ids {
+  public history_mode mode (1);
+  public bool has_current (2);
+  public revision_id current (3);
+  public array entity_snapshot_revision revisions (4);
+  public array checkpoint checkpoints (5);
+  public version_store_record storage (6);
+  public uint64 next_revision_number (7) { 1 };
+  public uint64 next_checkpoint_number (8) { 1 };
+}

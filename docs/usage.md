@@ -1,5 +1,9 @@
 # Using Serializer in a C++ application
 
+New to the project? Start with the [project overview](../README.md#get-started).
+For editing and persistence concepts, read the
+[history, journal, collaboration, and authorization introduction](managed/getting_started.md).
+
 For pure Java generation and runtime usage, see [Java output](java.md) and the
 [Java examples](../example/java/README.md). For JavaScript/TypeScript, Go, and C#,
 see [portable language usage](portable_languages.md) and the
@@ -7,6 +11,143 @@ see [portable language usage](portable_languages.md) and the
 For Rust, Python, Swift, Kotlin, and C, see [native language APIs](native_languages.md)
 and [four examples per language](../example/README.md).
 All outputs share the C++ schema compiler. The workflow below is for C++.
+
+For reusable parameterized models, follow [schema generics](generics.md).
+`class result<T>` emits a native C++ template without concrete schema uses:
+`result<std::uint32_t> value{};` has the ordinary generated codec methods.
+Nested `response<T>` and `message<T>` compose normally. Optional concrete fields
+and `instantiate person_result = result<person>;` supply contracts for other
+language outputs and compatibility checks; native C++ uses do not automatically
+create those contracts.
+
+Use `class matrix<uint64 Rows, uint64 Cols = Rows, T = double>` with
+`public array[Rows * Cols] T elements;` for C++ fixed owning storage.
+`matrix<3>` and `matrix<3,3,double>` are the same native specialization.
+Fill `value.elements` as a `std::array` and serialize with the existing APIs;
+exact input enforces cardinality and ordinary decode budgets. Fixed arrays outside
+C++ native codecs are explicitly rejected. For a managed root containing ordinary
+point/frame/matrix values, use generated whole-value setters within transactions;
+the fixed arrays have no resize/insert/erase editor operations.
+
+For a small introduction, work through the [point examples](../example/managed/README.md)
+in order: create a schema-generated managed point, inspect a transaction callback,
+then use the generated editor and complete managed transactions.
+Each example keeps the application model to x and y and explains its expected output.
+To follow the implementation, read the
+[store and transaction walkthrough](internals/managed_transactions.md).
+
+For grouped edits and undo/redo, see the optional
+[C++ managed interface](managed/cpp_runtime.md). Bare `managed` class/member
+annotations generate direct `persistent_id` fields and typed editors for manual,
+automatic, and callback transactions. Central ID settings support uint32 and uint64;
+`[managed] separate_values = true` opts into ID-free values plus storage wrappers.
+New stores create document namespaces automatically; object IDs start at 1 and
+increment within each document. Save/load preserves identities and allocation state.
+Synchronous [journal and crash recovery](managed/journal.md) is available through
+`create_journal`, `recover_journal`, and `save_journal`, with appended or sidecar
+files. Commits and history navigation flush before publication; `journal_dirty()`
+tracks unsaved values independently. Selectors and other-language
+managed runtimes remain proposals.
+
+For shared editing, use the [local store integration](managed/local_collaboration.md)
+and [runnable examples](../example/managed/collaboration/README.md).
+Attach a typed session with `store.collaborate(session)`, bind a transport and join
+before editing. Normal `model_store` transactions immediately update local values
+and queue changes; an attached journal flushes each commit together with the outbox.
+`store.undo()` and linear `store.redo()` create local inverse transactions. The
+[working undo example](../example/managed/collaboration/undo.cpp) uses these store
+methods for every edit and history operation, with ordinary journals on both clients.
+`store.synchronize()` exchanges work, or drive `synchronize_if_due(now_ms)` from the
+owner thread at a configurable interval. `send_pending()` and `receive_changes()`
+separate those directions. The store preserves drafts on conflicts and rejections;
+received authoritative state is available through `store.collaboration().acknowledged_read()`.
+Client save/recovery preserves the session, local history and exact outstanding request.
+Transport reconnect and conflict-resolution choices belong to the application.
+Host lock requests use `store.collaboration().reserve_operation_id()` after joining
+to share the store's journaled operation counter; the host retains those requests
+for exact retries. The [locks example](../example/managed/collaboration/locks.cpp)
+passes acquired grants to the store session and edits through normal transactions.
+
+The lower-level [C++ collaboration runtime](managed/collaboration_runtime.md) remains
+available for explicitly acknowledged-state clients. A
+default `collaboration_authority` accepts proposals created with
+`replica.propose(session, operation, [](auto& edit) { ... })`. The callback uses
+generated editors on a private draft; no application command schema or dispatcher
+is required. Replicas apply ordered accepted snapshots, and custom server command
+handlers remain optional. It includes retry deduplication,
+base conflicts, presence, entity/subtree lease locks, and optional host policy hooks.
+Accepted records also expose `history.fields` and `history.dependencies`, grouped by
+the outer author/operation/sequence. Use `replica.undo(session, next_operation)` or
+`replica.redo(session, next_operation)`, then submit and replicate the result exactly
+as an edit. Undo/redo passes current authorization and lock checks, preserves unrelated
+fields, and fails atomically on intervening conflicting changes. See the
+[detailed history contract](managed/collaboration_runtime.md#conditional-collaborative-undo-and-redo).
+These are acknowledged-state requests, not optimistic local writes. Both peers need
+the history-bearing protocol and regenerated managed headers; consult [migration](../migration.md).
+Include `<rohit/managed_collaboration.hpp>` and rebuild the managed target and model
+headers. Default proposals carry a full candidate snapshot; draft IDs are provisional
+until acceptance. After a conflict, resynchronize and use a new operation ID.
+Session management belongs to the application. Existing APIs default to `uint64_t`;
+select `collaboration_session<Session, SessionTraits>` for string, smaller unsigned,
+or custom IDs and use its `authority<Root>`, `replica<Root>`, `records`, and `lock_cache`
+aliases. The [session policy guide](managed/collaboration_runtime.md#application-owned-sessions)
+describes validation, codecs, lifecycle, and wire compatibility.
+Transport and trusted session binding belong to the host. Inherited authorization
+rules, general conflict-free merging and peer-to-peer ordering remain unimplemented.
+
+For cross-language preparation, the
+[managed wire matrix](../example/managed/multilanguage/README.md) exchanges history,
+journal-baseline, collaboration and session records between selected codecs.
+It validates record preservation and malformed-input rejection; it does not provide
+non-C++ managed engines or prove native undo, durable recovery or authentication.
+
+To bound linear history for the generated point in the
+[history example](../example/managed/history/main.cpp):
+
+```cpp
+rohit::managed::store_options options;
+options.max_revisions = 100; // Includes the current state; at most 99 undo steps.
+rohit::managed::model_store<point> store{
+    point{1, 2}, rohit::managed::make_document_id(), options};
+```
+
+Successful changed commits discard redo after undo, then evict oldest states to
+meet revision and byte limits. Failed, canceled, and no-op edits preserve history.
+Select tree history with `model_store<point, history_mode::tree>` or disable it
+with `model_store<point, history_mode::disabled>` (both names in `rohit::managed`).
+The choice is compile-time; `store_options` has no mode selector.
+The fifth argument independently selects `store_features::none`, `journal`,
+`collaboration`, or `all` (the compatible default), after the fourth traits argument.
+For example, `model_store<point, history_mode::linear, history_labels::disabled,
+model_traits<point>, store_features::none>` is history-only. Pair disabled history
+with `journal` or `collaboration` for those isolated configurations. Omitted store
+APIs are unavailable at compile time; see [feature selection](managed/cpp_runtime.md#independent-store-features). Linear stores
+use `undo()` and `redo()`, with no revision IDs or `checkout()`. Only tree stores
+provide `redo(revision)`, `redo_children()`, and `checkout(revision)`. Tree mode
+preserves branches and rejects over-budget commits instead. Loading a
+save rejects excess history rather than trimming it; see the
+[retention contract](managed/cpp_runtime.md#history-persistence-and-limitations).
+Labels are disabled by default. Use `store.execute_transaction(callback)` or
+`store.begin_transaction(outcome)` without a name. To enable names:
+
+```cpp
+using named_store = rohit::managed::model_store<
+    point, rohit::managed::history_mode::linear,
+    rohit::managed::history_labels::enabled>;
+```
+
+This also enables `execute_transaction("Move point", callback)`,
+`begin_transaction("Move point", outcome)`, `undo_label()`, and `redo_label()`.
+Tree stores use `redo_label(revision)`. See the
+[labeled point example](../example/managed/labeled_history/README.md).
+Default saves use format version 3 with label fields omitted. Label-enabled
+linear/tree stores retain versions 2/1; loads require the same label policy.
+See [migration notes](../migration.md).
+
+For persistence, see [database storage and document sinks](database_integration.md).
+It covers candidate JSON, typed-document, and opaque-binary stores, plus lossless
+mapping requirements. Database clients and the proposed sink API are not included
+in Serializer; connect the existing codecs through an application-owned adapter.
 
 For Protobuf binary, ProtoJSON, or TextProto, enable `[cpp] protobuf = true` in
 the generator config and use `protobuf_binary`, `protojson`, or `textproto` as the
@@ -31,6 +172,9 @@ see [build wrapper options](cmake_integration.md#build-this-repository).
 To open this repository in Visual Studio, select a Windows CMake preset and follow
 [Visual Studio folder builds](cmake_integration.md#visual-studio-folder-builds)
 for compiler environment setup and clearing an older Ninja/platform cache.
+If the cached Visual Studio installation was removed or moved, see
+[stale instance recovery](cmake_integration.md#recover-a-stale-visual-studio-instance)
+for refreshing CMake while reapplying your chosen build options.
 
 The schema compiler enables bounded SIMD scanning on supported x64 builds, with
 scalar fallbacks. This is automatic and needs no additional schema keyword; see
@@ -52,9 +196,16 @@ describes how to reproduce and extend validation.
 
 The optional [VS Code extension](editor_extension.md) supplies `.serializer`
 highlighting and a `schema` snippet with the required version header.
-It also navigates includes and type references: **Go to Declaration** opens the
-original schema, and **Go to Definition** opens matching generated output or
-falls back to the schema type declaration when no generated definition is available.
+It also navigates includes and type references: both **Go to Declaration** and
+**Go to Definition** on an include open the included schema, since an include can
+contribute multiple declarations to generated output. On a type reference,
+**Go to Definition** opens matching generated output or falls back to the schema
+type declaration when no generated definition is available.
+**Go to Type Definition** opens the source schema type (or included schema for an
+include). All three actions accept declaration keywords and type names, including
+forward/reversed `class ledger` selections. Already being at that declaration can
+leave the editor on the same line. Field names and primitives have no schema type
+destination; generated-language type lookup remains with its language service.
 Enum type references inside field defaults, such as `AccountState` in
 `AccountState::WaitingForReview`, support both actions.
 For an entire schema, right-click its file in Explorer or its editor tab and
@@ -63,11 +214,17 @@ choose **Serializer: Go to Implementation** to open existing output in any of th
 and whole-name selections. Caller type references require their language's
 definition provider; retain the compiler's `--depfile` for precise output ownership.
 Navigation never builds or offers generation; see
+the [navigation coverage matrix](editor_navigation.md#navigation-coverage-matrix).
+In VS Code, the explicit **Serializer: Go to Schema Declaration** command also
+follows native type definitions through aliases and variables. Managed ledger
+examples/tests require `SERIALIZER_BUILD_MANAGED=ON` in the active CMake build,
+including after deleting the build cache. See
 [available-file navigation](editor_extension.md#navigate-available-schemas-and-headers).
 The separate [Visual Studio extension](../editors/visual_studio/README.md) packages
 the shared grammar, custom-type highlighting, and native schema navigation for
 Visual Studio 2022/2026 on Windows x64. Go to Declaration opens schemas, and
 Go to Definition/Ctrl+click on schema types prefer existing generated output.
+Go to Type Definition resolves schema types/includes to their source too.
 Generated type declarations in all 11 languages map back to their schemas; caller
 references first use the native language service to reach that generated type.
 Neither extension is required for compilation or codecs.
@@ -192,7 +349,7 @@ changes positional binary order and can change emitted field order. Older keyed
 readers still reject newly added fields. Removing/reusing IDs, changing field
 types, and renumbering enum or union alternatives need an application versioning
 decision. See the [complete evolution rules](wire_format.md#schema-evolution) and
-the [README examples](../README.md#explicit-field-ids-with-stable_ids).
+the [schema reference](schema_reference.md#explicit-field-ids-with-stable_ids).
 
 `view`, `owning`, `readonly`, and `mutable` select generated representations;
 see [the view guide](views.md). `inplace` and `simd` are not accepted keywords.
@@ -391,8 +548,8 @@ not control Serializer's wire encoding. No automatic protocol detection occurs.
 | --- | --- |
 | `input_buffer` / `output_buffer` | Bind the concrete buffer directly; preserve contiguous scans, scalar batching, alias handling, and allocation policy. |
 | `std::istringstream` / `std::stringstream` input | Borrow `view()` from the current read position; avoid an encoded-message copy. |
-| `std::ifstream` / `std::fstream` input | Read into the final owned message buffer in up to 64 KiB batches. No seeking or regular-file assumption is required. |
-| `std::ofstream` / `std::fstream` output | Implicit scratch-buffer adapter with an initial 64 KiB capacity; drain completed batches as needed. |
+| `std::ifstream` / `std::fstream` / `rohit::file_stream` input | Read into the final owned message buffer in up to 64 KiB batches. No seeking or regular-file assumption is required. |
+| `std::ofstream` / `std::fstream` / `rohit::file_stream` output | Implicit scratch-buffer adapter with an initial 64 KiB capacity; drain completed batches as needed. |
 | Other byte sources/sinks, including erased standard-stream references | Generic adapter with 8 KiB read batches or initial output capacity. |
 
 Type recognition uses the static type. Passing a string or file stream as a base
@@ -473,6 +630,12 @@ The concept contracts are:
   capability. Compatibility `type_check::stream` now means an input/output buffer;
   `write_stream` identifies readable buffer views, including `fixed_buffer`.
 
+Optional capabilities add storage behavior without changing memory-stream requirements:
+`durable_output_stream` adds explicit `sync()`, `seekable_stream` adds absolute
+`seek(offset_bytes)`, `truncatable_stream` adds `truncate(size_bytes)`, and
+`sized_stream` exposes the physical size. Capability checks do not prove durability;
+implementations must honor the documented synchronization and failure contract.
+
 Concepts check expressions and types; implementations must also uphold these
 lifetime, bounds, aliasing, and failure contracts. Input cursor advancement and
 output range acquisition must not throw after the caller has checked/reserved them.
@@ -508,6 +671,81 @@ All seven large-schema iostream examples also passed in a standalone Clang 21
 build with GoogleTest disabled.
 The subsequent [verification record](verification-2026-09-17.md) includes the full
 Linux GoogleTest suite. Performance benchmarks have not been run.
+
+### File streams and journal records
+
+`<rohit/stream.hpp>` continues to provide memory streams. Include
+`<rohit/file_stream.hpp>` for `rohit::file_stream`, an owning Windows/POSIX file
+stream conforming to the same byte input/output concepts. It works with existing
+generated serialization APIs and uses the same implicit 64 KiB batching policy as
+concrete standard file streams:
+
+```cpp
+#include <rohit/file_stream.hpp>
+
+{
+  rohit::file_stream output{"person.bin", rohit::file_open_mode::create};
+  demo::person::serialize<rohit::serializer::binary_integer>(output, original);
+  output.sync(); // Explicit durable synchronization; serialization itself does not sync.
+  rohit::sync_parent_directory("person.bin"); // Persist the new directory entry on POSIX.
+}
+{
+  rohit::file_stream input{"person.bin", rohit::file_open_mode::read};
+  auto value = demo::person::deserialize<rohit::serializer::binary_integer>(input);
+}
+```
+
+`create` is exclusive and rejects an existing file. `update` opens an existing file
+without truncation; writes start at the current position. `read` opens read-only.
+`lock` acquires an exclusive nonblocking lock on a stable lock file. Keep streams
+thread-confined. Destruction closes the handle and releases a lock; it never
+implicitly syncs. Use `seek(offset_bytes)` to reposition and reset EOF state,
+`size()` to inspect physical length, and `truncate(size_bytes)` followed by `sync()`
+to durably resize and position at the new end. `sync_parent_directory(path)` and
+`publish_file(source, target, replace)` provide the file lifecycle operations used
+by the journal adapter; publish only a synced same-directory replacement, then
+sync its parent. Platform/filesystem durability assumptions are described in the
+[journal guide](managed/journal.md#durable-decisions-and-files).
+
+`write_stream_bytes` now accepts either an output buffer or byte sink.
+`read_stream_some` and `read_stream_exact` read a bounded range without consuming
+later records or requiring an EOF-delimited message. The existing whole-message
+codec adapter behavior is unchanged.
+
+`<rohit/managed_journal_stream.hpp>` supplies `write_journal_frame(output, parts,
+sequence, previous_crc, options)` and `read_journal_frame(input, sequence,
+previous_crc, options)`. These use the existing stream concepts, including custom
+buffers, `stringstream`, `fstream`, base iostream references, and `file_stream`.
+Frame writing returns its checksum and does not flush; all payload parts must stay
+valid and unchanged through the call, independently of destination storage. Frame
+reading consumes exactly one record, verifies it, and returns an optional
+`journal_frame`. `payload()` borrows contiguous input (keep it alive and unchanged)
+or owns a bounded payload read from a byte stream. An incomplete final record
+returns no value; byte streams consume the partial prefix, while input buffers
+remain unadvanced. Corruption, invalid sequencing, excessive lengths, and I/O
+failures throw. The existing version-two wire bytes and per-edit sizes are unchanged.
+These low-level helpers do not create a managed document container or manage locks,
+sequence allocation, or recovery publication; use the managed journal APIs for that.
+
+`durable_output_adapter(output, synchronize)` borrows a supported output stream
+and an explicit host synchronization policy. Calling `sync()` first drains
+Serializer scratch buffers and flushes an iostream, then invokes the policy.
+The policy must make that exact destination durable and throw on failure; it must
+not merely reopen a pathname or silently do nothing. The adapter latches failures
+and blocks subsequent writes/syncs. Ordinary `std::ofstream::flush()` alone is not
+a portable durable-storage guarantee. Memory streams and plain iostreams do not
+automatically satisfy `durable_output_stream`, and destructors do not synchronize.
+For built-in durable files, prefer `file_stream` directly.
+
+There is no database sink in this release. Add one only with an implemented and
+tested Serializer adapter for that database; the database integration guide is
+proposal/guidance only.
+
+Verification for the file-stream/journal refactor: all 47 configured MSVC CTest
+targets passed, including eight new stream tests, the runnable journal example,
+and the journal interruption matrix. GCC compiled the new stream tests with
+warnings as errors, and all 120 process-crash recovery checks passed under WSL.
+No throughput benchmark or physical power-cut qualification was performed.
 
 ### Choose the protocol
 
@@ -858,7 +1096,7 @@ Use the [Serializer integration skill](../.agents/skills/serializer-integration/
 to apply this workflow to an existing application. When supplying a Serializer
 checkout to an agent, give it that file's path directly; skill installation is
 not required for direct use. The [README](../README.md#integrate-with-a-coding-agent)
-provides a copyable request, and its [discovery guide](../README.md#repository-agent-skill)
+provides a copyable request, and its [discovery guide](agent_integration.md)
 explains automatic selection and use from a consuming project's root.
 
 ## Compress complete messages

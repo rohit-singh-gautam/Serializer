@@ -1,0 +1,21 @@
+serializer version 1;
+
+// A reusable pair, a collection wrapper, and an application envelope.
+
+namespace shared {
+  class pair<Key, Value> stable_ids {
+    public Key key (1);
+    public Value value (2);
+  }
+  class box<T> stable_ids {
+    public T value (1);
+    public array T items (2);
+  }
+  class envelope<T> stable_ids {
+    public uint32 revision (1);
+    public T payload (2);
+    public map(uint32) T lookup (3);
+  }
+}
+
+instantiate example_model = shared::envelope<shared::box<shared::pair<uint32, string>>>;

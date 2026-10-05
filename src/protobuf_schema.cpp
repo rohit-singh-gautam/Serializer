@@ -92,6 +92,7 @@ void object(const class_node& value) {
 
 // Validate only requested Protobuf output; existing formats retain their wider schema contract.
 void validate_protobuf_schema(const std::vector<std::unique_ptr<syntax_node>>& statements) {
+  require_variable_arrays(statements, "Protobuf");
   for (const auto& node : statements) {
     if (node->type == object_type::namespace_type) {
       validate_protobuf_schema(static_cast<const namespace_node&>(*node).statements);

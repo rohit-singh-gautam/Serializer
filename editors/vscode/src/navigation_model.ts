@@ -16,6 +16,8 @@ export interface TypeSymbol extends Span {
   body: number;
   declaration: number;
   definition: boolean;
+  schemaQualified?: string;
+  typeParameter?: boolean;
 }
 export interface SourceIndex {
   symbols: TypeSymbol[];
@@ -67,7 +69,20 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
     const maximumTypeDepth = 128;
     if (depth >= maximumTypeDepth) { return start + 1; }
     const token = tokens[start]?.text;
-    if (token === 'array') { return typeReference(start + 1, depth + 1); }
+    if (token === 'managed') { return typeReference(start + 1, depth + 1); }
+    if (token === 'array') {
+      let next = start + 1;
+      if (tokens[next]?.text === '[') {
+        ++next;
+        while (next < tokens.length && ![']', ';', '}'].includes(tokens[next].text)) {
+          const operand = qualified(next);
+          if (operand) { result.references.push({ ...operand, scope: [...currentScope()] }); }
+          next = operand?.next ?? next + 1;
+        }
+        if (tokens[next]?.text === ']') { ++next; }
+      }
+      return typeReference(next, depth + 1);
+    }
     if (token === 'map' && tokens[start + 1]?.text === '(') {
       const next = typeReference(start + 2, depth + 1);
       return tokens[next]?.text === ')' ? typeReference(next + 1, depth + 1) : next;
@@ -85,7 +100,16 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
     const name = qualified(start);
     if (!name) { return start + 1; }
     result.references.push({ ...name, scope: [...currentScope()] });
-    return name.next;
+    let next = name.next;
+    if (tokens[next]?.text === '<') {
+      ++next;
+      while (next < tokens.length && !['>', ';', '}'].includes(tokens[next].text)) {
+        next = typeReference(next, depth + 1);
+        if (tokens[next]?.text === ',') { ++next; }
+      }
+      if (tokens[next]?.text === '>') { ++next; }
+    }
+    return next;
   }
 
   /** Index only the enum type prefix of a field default, excluding its value and quoted text. */
@@ -130,6 +154,19 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
         result.includes.push({ name, start: first.start, end: last.end });
       }
       i = end;
+    } else if (!schema && token.text === 'using' && tokens[i + 2]?.text === '=') {
+      const name = tokens[i + 1];
+      result.symbols.push({ ...name, name: name.text, qualified: [...currentScope(), name.text].join('::'),
+        kind: 'class', body: name.start, declaration: token.start, definition: true });
+    } else if (schema && token.text === 'instantiate') {
+      const name = tokens[i + 1];
+      if (name && tokens[i + 2]?.text === '=') {
+        const qualifiedName = [...currentScope(), name.text].join('::');
+        result.symbols.push({ ...name, name: name.text, qualified: qualifiedName, kind: 'class',
+          body: name.start, declaration: token.start, definition: true });
+        result.references.push({ ...name, name: qualifiedName, scope: [] });
+        typeReference(i + 3);
+      }
     } else if (schema && ['public', 'private', 'protected'].includes(token.text)) {
       defaultReference(typeReference(i + 1));
     } else if (token.text === 'class' || token.text === 'struct' || token.text === 'enum') {
@@ -140,11 +177,26 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
       if (!name || !/^[A-Za-z_]\w*$/.test(name.text)) { continue; }
       let body = nameIndex + 1;
       // Generated storage-mode specializations retain the same public schema type name.
-      if (!schema && tokens[body]?.text === '<') {
+      const parameters: Token[] = [];
+      if (tokens[body]?.text === '<') {
         let depth = 0;
+        let parameterStart = true;
+        let inDefault = false;
         do {
           if (tokens[body].text === '<') { ++depth; }
           if (tokens[body].text === '>') { --depth; }
+          if (schema) {
+            const current = tokens[body].text;
+            if (depth === 1 && current === ',') { parameterStart = true; inDefault = false; }
+            if (depth === 1 && current === '=') { inDefault = true; }
+            if (depth === 1 && parameterStart && /^[A-Za-z_]\w*$/.test(current)) {
+              if (current !== 'uint64') { parameters.push(tokens[body]); parameterStart = false; }
+            } else if (inDefault && /^[A-Za-z_]\w*$/.test(current)) {
+              const reference = qualified(body)!;
+              result.references.push({ ...reference, scope: [...currentScope(), name.text] });
+              body = reference.next - 1;
+            }
+          }
           ++body;
         } while (body < tokens.length && depth > 0);
       }
@@ -152,6 +204,16 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
       if (!schema && !['{', ':', 'final', ';'].includes(tokens[body]?.text)) { continue; }
       while (body < tokens.length && !['{', ';', '}'].includes(tokens[body].text)) { ++body; }
       if (tokens[body]?.text !== '{' && (schema || tokens[body]?.text !== ';')) { continue; }
+      if (schema && parameters.length) {
+        const scope = [...currentScope(), name.text];
+        namespaceBodies.set(body, scope);
+        for (const parameter of parameters) {
+          const qualifiedName = [...scope, parameter.text].join('::');
+          result.symbols.push({ ...parameter, name: parameter.text, qualified: qualifiedName, kind: 'class',
+            body: parameter.start, declaration: parameter.start, definition: true, typeParameter: true });
+          result.references.push({ ...parameter, name: qualifiedName, scope: [] });
+        }
+      }
       const symbol: TypeSymbol = { name: name.text,
         qualified: [...currentScope(), name.text].join('::'),
         kind: token.text === 'enum' ? 'enum' : 'class', start: name.start, end: name.end,
@@ -161,6 +223,10 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
         namespaceBodies.set(body, [...currentScope(), name.text]);
       }
       if (schema) {
+        // Recognize the keyword as well as the name, including reversed `class name` selections.
+        // Keep separate spans so comments between them never become navigation references.
+        result.references.push({ start: token.start, end: token.end,
+          name: symbol.qualified, scope: [] });
         result.references.push({ start: name.start, end: name.end,
           name: symbol.qualified, scope: [] });
       }
@@ -251,4 +317,14 @@ export function cppIncludeAt(text: string, offset: number): (SchemaInclude & { q
   const pathStart = start + match[0].indexOf(match[1] ? '"' : '<') + 1;
   return offset >= pathStart && offset <= pathStart + name.length
     ? { name, start: pathStart, end: pathStart + name.length, quoted: !!match[1] } : undefined;
+}
+
+/** Map generated managed companions back to their original schema declaration. */
+export function managedNames(qualified: string): string[] {
+  const separator = qualified.lastIndexOf('::');
+  const scope = separator < 0 ? '' : qualified.slice(0, separator + 2);
+  const name = qualified.slice(separator + 2);
+  const leaf = separator < 0 ? qualified : name;
+  return [`managed_${leaf}_data`, `managed_${leaf}_storage`, `${leaf}_editor`]
+    .flatMap(companion => generatedNames(scope + companion));
 }

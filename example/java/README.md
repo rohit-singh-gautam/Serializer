@@ -1,9 +1,10 @@
 # Java examples
 
-Four runnable examples live directly under `example/java`:
+Four standard examples and a generic example live directly under `example/java`:
 
 | Folder | What it demonstrates |
 | --- | --- |
+| [generics](generics/) | Nested schema applications, typed payload edits, and all four protocols |
 | [basic](basic/) | Scalars, full-width IDs, a wire-name override, defaults, and a typed field edit |
 | [collections](collections/) | Typed arrays, maps, enums, Unicode, embedded NUL, and integer boundaries |
 | [complex](complex/) | An order archive spanning 13 shared schema files, nested/diamond includes, parent composition, orders, customers, inventory, payments, shipments, audit unions, and aggregate maps |
@@ -58,3 +59,9 @@ The targets are `serializer_java_round_trip`, `serializer_java_style_serializer`
 
 See [Java output](../../docs/java.md) for direct CLI/javac commands, API mappings,
 profile scope, protocol compatibility, resource limits, and current limitations.
+
+Run the generic example separately:
+
+```sh
+python example/generics/run.py --compiler build/serializer --language java
+```

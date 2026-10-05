@@ -184,7 +184,8 @@ fileprivate final class SrlReader {
     private func hex() throws -> UInt32 {
         try requireBytes(4); var value: UInt32 = 0
         for _ in 0..<4 { let b = data[offset]; offset += 1; let digit: UInt8
-            if b >= 48 && b <= 57 { digit = b-48 } else if b >= 65 && b <= 70 { digit = b-55 } else if b >= 97 && b <= 102 { digit = b-87 } else { throw SerializerError.invalid("Invalid Unicode escape") }
+)serializer"
+R"serializer(            if b >= 48 && b <= 57 { digit = b-48 } else if b >= 65 && b <= 70 { digit = b-55 } else if b >= 97 && b <= 102 { digit = b-87 } else { throw SerializerError.invalid("Invalid Unicode escape") }
             value = value*16 + UInt32(digit)
         }; return value
     }

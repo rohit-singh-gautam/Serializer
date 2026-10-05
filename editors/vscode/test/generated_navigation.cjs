@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { Navigator } = require('../out/navigator');
-const { indexSource } = require('../out/navigation_model');
+const { indexSource, managedNames } = require('../out/navigation_model');
 const { fileKey } = require('../out/model');
 
 const repository = path.resolve(__dirname, '../../..');
@@ -42,13 +42,29 @@ async function verify(entry, directory, options = [], selectedOutputs = outputs)
   let checks = 0;
   for (const schema of schemas) {
     for (const symbol of schema.index.symbols) {
+      if (symbol.typeParameter) { continue; }
       const definitions = await resolver.schema(schema.file, symbol.end, true);
-      assert.equal(definitions.length, files.length, `${symbol.qualified}: expected every generated language, got ${definitions.map(item => path.basename(item.file))}`);
+      assert.equal(new Set(definitions.map(item => item.file)).size, files.length, `${symbol.qualified}: expected every generated language, got ${definitions.map(item => path.basename(item.file))}`);
+      for (const offset of [symbol.start, symbol.end - 1]) {
+        assert.deepEqual(await resolver.schema(schema.file, offset, true), definitions,
+          `${symbol.qualified}: schema boundary ${offset}`);
+      }
       for (const target of definitions) {
-        const declarations = await resolver.generatedDeclaration(target.file, target.end);
-        assert.deepEqual(declarations.map(item => [fileKey(item.file), item.start, item.end]),
-          [[fileKey(schema.file), symbol.start, symbol.end]], `${symbol.qualified} from ${target.file}`);
-        ++checks;
+        for (let offset = target.start; offset <= target.end; ++offset) {
+          const declarations = await resolver.generatedDeclaration(target.file, offset);
+          assert.deepEqual(declarations.map(item => [fileKey(item.file), item.start, item.end]),
+            [[fileKey(schema.file), symbol.start, symbol.end]], `${symbol.qualified} from ${target.file} at ${offset}`);
+          ++checks;
+        }
+        if (/\.hpp$/.test(target.file)) {
+          const generated = indexSource(fs.readFileSync(target.file, 'utf8'), false);
+          for (const companion of generated.symbols.filter(item => managedNames(symbol.qualified).includes(item.qualified))) {
+            const origins = await resolver.generatedDeclaration(target.file, companion.end);
+            assert.deepEqual(origins.map(item => [fileKey(item.file), item.start, item.end]),
+              [[fileKey(schema.file), symbol.start, symbol.end]], `${companion.qualified} managed origin`);
+            ++checks;
+          }
+        }
       }
     }
   }
@@ -62,6 +78,7 @@ async function main() {
   fs.mkdirSync(parent, { recursive: true });
   const directory = fs.mkdtempSync(path.join(parent, 'generated-navigation-'));
   let checks = await verify(path.join(repository, 'example/schemas/complex/model.serializer'), path.join(directory, 'complex'));
+  checks += await verify(path.join(repository, 'example/generics/result.serializer'), path.join(directory, 'generics'));
   const input = path.join(directory, 'acronyms.serializer');
   fs.writeFileSync(input, `serializer version 1;
 namespace HTTPModels { enum HTTPState { Ready } class HTTPRecord { public HTTPState StateValue; } }
@@ -75,12 +92,23 @@ namespace Names_ { class Value_Type {} }
   for (const profile of ['serializer', 'core', 'google', 'llvm', 'gnu', 'cert', 'misra', 'autosar', 'qt']) {
     checks += await verify(input, path.join(directory, `cpp-${profile}`),
       ['--cpp.coding_standard', profile], { cpp: outputs.cpp });
+    checks += await verify(path.join(repository, 'test/resources/generics.serializer'),
+      path.join(directory, `generics-cpp-${profile}`), ['--cpp.coding_standard', profile], { cpp: outputs.cpp });
+    checks += await verify(path.join(repository, 'test/resources/dimensions.serializer'),
+      path.join(directory, `dimensions-cpp-${profile}`), ['--cpp.coding_standard', profile], { cpp: outputs.cpp });
+  }
+  for (const profile of ['serializer', 'core', 'google', 'llvm', 'gnu', 'cert', 'misra', 'autosar', 'qt']) {
+    checks += await verify(path.join(repository, 'test/resources/managed_generated.serializer'),
+      path.join(directory, `managed-${profile}`), ['--cpp.coding_standard', profile], { cpp: outputs.cpp });
+    checks += await verify(path.join(repository, 'test/resources/managed_generated.serializer'),
+      path.join(directory, `managed-separated-${profile}`),
+      ['--cpp.coding_standard', profile, '--managed.separate_values', 'true'], { cpp: outputs.cpp });
   }
   for (const profile of ['serializer', 'google', 'oracle']) {
     checks += await verify(input, path.join(directory, `java-${profile}`),
       ['--java.coding_standard', profile, '--java.package', 'example.models'], { java: outputs.java });
   }
-  console.log(`Fresh compiler navigation passed: ${checks} bidirectional type checks across all 11 output languages, transitive includes, acronyms, and preserved names.`);
+  console.log(`Fresh compiler navigation passed: ${checks} bidirectional type checks across all 11 output languages, transitive includes, acronyms, preserved names, and direct/separated managed classes across all C++ profiles.`);
 }
 
 main().catch(error => { console.error(error.stderr?.toString() || error); process.exitCode = 1; });

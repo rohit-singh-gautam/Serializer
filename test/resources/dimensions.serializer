@@ -1,0 +1,32 @@
+serializer version 1;
+
+namespace dimensions {
+  class tag<uint64 N> stable_ids {
+    public uint64 value (1);
+  }
+  instantiate maximum_tag = tag<18446744073709551615>;
+  class point<uint64 N> stable_ids {
+    public array[N] double coordinates (1);
+  }
+  class matrix<uint64 Rows, uint64 Cols = Rows, T = double> stable_ids {
+    public array[Rows * Cols] T elements (1);
+  }
+  class frame<uint64 N> stable_ids {
+    public point<N> origin (1);
+    public matrix<N> basis (2);
+  }
+  instantiate matrix_3 = matrix<3>;
+  instantiate matrix_3_explicit = matrix<3, 3, double>;
+  class sample stable_ids {
+    public point<3> position (1);
+    public frame<3> coordinate_frame (2);
+    public matrix<3> implicit_square (3);
+    public matrix<3, 3, double> explicit_square (4);
+  }
+  class fixed_bytes stable_ids {
+    public array[3] uint8 values (1);
+  }
+  class variable_bytes stable_ids {
+    public array uint8 values (1);
+  }
+}

@@ -1,0 +1,27 @@
+{
+  "revision": 0,
+  "baseline": {
+    "format_version": 3,
+    "schema_id": "serializer.managed.exchange.v1",
+    "id_bits": 64,
+    "document_high": 17,
+    "document_low": 29,
+    "allocated_id": 18446744073709551615,
+    "mode": 0,
+    "current_snapshot": [
+      4,
+      5,
+      6
+    ],
+    "entries": [],
+    "cursor": 0
+  },
+  "sequence": 18446744073709551615,
+  "frame": [
+    0,
+    1,
+    127,
+    128,
+    255
+  ]
+}

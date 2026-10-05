@@ -1,0 +1,8 @@
+serializer version 1;
+include ../../../../schemas/collaboration_records;
+
+// Qualification wrapper; runtime record field IDs remain defined by the canonical schema.
+class example_model stable_ids {
+  public uint32 revision (1);
+  public rohit::managed::collaboration_records::session_envelope session (2);
+}

@@ -4,6 +4,8 @@
     <Configuration Condition="'$(Configuration)' == ''">Release</Configuration>
     <Platform Condition="'$(Platform)' == ''">AnyCPU</Platform>
     <TargetFrameworkVersion>v4.7.2</TargetFrameworkVersion>
+    <!-- Keep dotnet/C# language-server restore and Visual Studio MSBuild assets identical. -->
+    <RuntimeIdentifiers>win;win-arm64;win-x64;win-x86</RuntimeIdentifiers>
     <OutputType>Library</OutputType>
     <OutputPath>bin\$(Configuration)\</OutputPath>
     <ProjectGuid>{AD9682C0-EB88-423B-A79E-55B38134B7B6}</ProjectGuid>

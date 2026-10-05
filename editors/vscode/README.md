@@ -1,7 +1,10 @@
 # Rohit Serializer for Visual Studio Code
 
+This extension supports the [Serializer schema compiler and serialization library](https://github.com/rohit-singh-gautam/Serializer)
+maintained in that repository.
+
 Edit `.serializer` schemas with syntax highlighting, bracket matching, comments,
-folding, and snippets. Version **1.1.6** includes navigation from includes and type
+folding, and snippets. Version **1.1.15** includes navigation from includes and type
 references to source schemas and existing generated code in all 11 output languages. Use the project's
 CMake configuration for the separate build and missing-header assistance commands.
 
@@ -70,6 +73,28 @@ The project still needs Serializer, a C++20 compiler, CMake 3.28+, and clang-for
 
 ## Declaration and definition navigation
 
+Git index and history tabs (including read-only `(Index)` views) support the
+same declaration, definition, and type-definition actions. Cursor offsets and
+local symbols come from the displayed snapshot. Includes, other schema files,
+and generated output resolve against the current workspace; this does not
+reconstruct a historical checkout. With an older extension, open the working
+file from Explorer to use navigation, or install 1.1.15 and reload VS Code.
+
+Caller navigation depends on the language service's active project configuration.
+For this repository's managed ledger examples/tests, use
+`./make.ps1 all -CMakeArgs '-DSERIALIZER_BUILD_MANAGED=ON'`, select that same build
+in CMake Tools, and run **Serializer: Configure IntelliSense**. Removing the build
+cache resets the optional managed targets to OFF unless the option is passed again.
+Building packages does not install them or reload the editor.
+
+For `using ledger = ledger_example::ledger;`, selecting the right-hand type should
+resolve the generated class. Selecting a later use of the left-hand alias normally
+opens the `using` declaration; **Go to Type Definition** follows its underlying class.
+**Serializer: Go to Schema Declaration** follows either to the original schema,
+including through alias chains and variables when a native type provider is available.
+The [coverage matrix](../../docs/editor_navigation.md#navigation-coverage-matrix)
+records required cases and remaining native-host verification limits.
+
 Right-click a `.serializer` file in **Explorer** or its **editor tab**, then choose
 **Serializer: Go to Implementation** to open existing generated output.
 The command uses the clicked file, even when another editor is active. Multiple
@@ -77,14 +102,24 @@ available outputs produce a picker; missing output produces no result or build p
 
 | Selected item | Go to Declaration | Go to Definition |
 | --- | --- | --- |
-| Schema `include types/account;` | Included schema | Existing generated output containing that schema's declarations |
+| Schema `include types/account;` | Included schema | Included schema |
 | Class/enum declaration or type reference in a schema | Original schema declaration | Matching generated type definition; schema declaration if unavailable |
 | C/C++ `#include <account.hpp>` | Entry schema | Existing generated header |
 | Generated class/enum type reference in any supported language | Original schema declaration | Normal language-service definition |
 
+**Go to Type Definition** on a schema type opens its source class/enum declaration,
+including qualified references and unsaved included schemas. On includes it opens
+the included schema. Generated-language type definition remains with that language's
+provider. Schema field names and primitive types have no type-definition destination.
+All three actions accept the `class`/`struct`/`enum` keyword or the type name, including
+forward and reversed `class ledger` selections. Declaration and type definition on
+`ledger` in its own declaration select the same name; definition prefers generated output.
+
 Use the editor's built-in **Go to Declaration** context-menu action. Qualified
 names such as `demo::order` work on either component and at the end of a selection.
-Schema declarations resolve independently of CMake Tools or generated files.
+Schema include navigation resolves to the included schema for both actions, since
+an include can contribute multiple declarations to generated output. Schema declarations
+resolve independently of CMake Tools or generated files.
 
 Navigation only reads available files. It never configures, builds, generates,
 saves a document, activates CMake Tools, or offers to generate a missing header.
@@ -157,6 +192,13 @@ success. There is no automatic build on file open/save.
 
 ## Limits
 
+Generic declarations (`class box<T>`), nested type arguments, and named roots
+(`instantiate root = box<uint32>;`) are highlighted and indexed. Parameters
+navigate to their local declaration. Generic definitions navigate to their C++
+native template or concrete generated models in the other languages. Without a
+concrete schema contract, only C++ has a generated destination. Generated concrete classes navigate back to the generic
+definition. See [schema generics](../../docs/generics.md) for compiler limits.
+
 - Build assistance requires an already configured CMake Tools project. It works
   through CMake with Makefile, Ninja, and Visual Studio generators; handwritten
   Makefiles and browser-only VS Code are not supported by these commands.
@@ -186,3 +228,26 @@ success. There is no automatic build on file open/save.
 See the repository's [extension guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/editor_extension.md)
 for development, validation, and packaging instructions. This source distribution
 has not been published to Marketplace.
+
+The C++ `managed` class/member keyword is highlighted and skipped when locating a
+member's type. Direct, array, and map managed references retain declaration and
+definition navigation. Generated managed data, storage, and editor class declarations
+map back to the original schema type; schema-to-output navigation still selects the
+ordinary class. Capability selectors and other-language managed runtimes remain
+unimplemented; see the [managed runtime guide](../../docs/managed/cpp_runtime.md).
+
+Managed classes now expose persistent IDs directly by default. Set
+`[managed] separate_values = true` (or `--managed.separate_values true`) when
+ID-free ordinary classes and managed storage companions are required. Navigation
+supports the direct schema class, its editor, and opt-in companion declarations.
+
+## Native templates and dimensions (1.1.15)
+
+Both packages recognize `uint64 N`, trailing defaults, fixed `array[N * M] T`
+expressions, nested generic applications, and optional `instantiate` contracts.
+Navigation resolves dimension/type parameter references and defaults to their
+local declarations, including unsaved text. C++ definitions include native templates
+with no concrete schema uses. Other languages have destinations only for concrete
+contracts; fixed-array output is currently unsupported there. The shared grammar
+highlights dimension arithmetic and the `matrix` snippet inserts a fixed-array
+example. Both packages use the same navigation implementation.

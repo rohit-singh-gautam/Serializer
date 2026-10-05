@@ -296,6 +296,26 @@ TEST_F(schema_include_test, duplicate_rejected_during_creation) {
   reject("Duplicate type: status");
 }
 
+// Included generic definitions keep lexical scope and share concrete instances across users.
+TEST_F(schema_include_test, generic_definitions_across_transitive_includes) {
+  write("common.serializer", "serializer version 1; namespace lib { class value { public uint32 id; } "
+      "class box<T> { public value fixed; public T item; } }");
+  write("middle.serializer", "serializer version 1; include common; "
+      "namespace lib { class first { public box<string> value; } }");
+  write("root.serializer", "serializer version 1; include middle; "
+      "namespace app { class value {} class response { public lib::box<string> item; } }");
+  const auto parsed = schema::parser::parse_file(directory / "root.serializer");
+  rohit::full_stream_auto_alloc output{};
+  schema::writer::cpp_options options{};
+  options.format = false;
+  EXPECT_NO_THROW(schema::writer::cpp::write(output, parsed.statements, options));
+  const std::string generated{reinterpret_cast<const char*>(output.begin()), output.current_offset()};
+  EXPECT_NE(generated.find("::lib::value fixed"), std::string::npos);
+  EXPECT_NE(generated.find("template <typename T>"), std::string::npos);
+  write("common.serializer", "serializer version 1; class box<T> { public missing value; }");
+  reject("Unknown type");
+}
+
 // Bare stream callers must opt into filesystem loading explicitly.
 TEST(schema_include, stream_api_requires_file_context) {
   constexpr std::string_view text{"serializer version 1; include common.serializer;"};

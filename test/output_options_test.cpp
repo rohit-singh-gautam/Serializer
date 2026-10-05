@@ -218,3 +218,15 @@ TEST(output_options, formatter_mappings) {
   EXPECT_NE(writer::cpp_format_style(writer::coding_standard::qt).find("IndentWidth: 4"),
             std::string::npos);
 }
+
+// Central managed identity width is strict and independent of C++ presentation settings.
+TEST(output_options, managed_identity_configuration) {
+  configuration_file file;
+  EXPECT_EQ(writer::read_output_options(file.write("[managed]\nid_type = uint64\n")).cpp.managed_id_type, "uint64");
+  EXPECT_EQ(writer::read_output_options(file.write("[managed]\nid_type = uint32\n")).cpp.managed_id_type, "uint32");
+  EXPECT_FALSE(writer::cpp_options{}.managed_separate_values);
+  EXPECT_TRUE(writer::read_output_options(file.write("[managed]\nseparate_values = true\n")).cpp.managed_separate_values);
+  EXPECT_FALSE(writer::read_output_options(file.write("[managed]\nseparate_values = false\n")).cpp.managed_separate_values);
+  EXPECT_THROW(writer::read_output_options(file.write("[managed]\nseparate_values = maybe\n")), std::invalid_argument);
+  EXPECT_THROW(writer::read_output_options(file.write("[managed]\nid_type = uuid\n")), std::invalid_argument);
+}

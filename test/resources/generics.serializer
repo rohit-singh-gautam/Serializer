@@ -1,0 +1,17 @@
+serializer version 1;
+include ../../example/generics/result;
+
+// No concrete schema uses: C++ application code chooses these specializations.
+namespace native_generics {
+  class result<T> stable_ids {
+    public T value (1);
+    public bool success (2);
+  }
+  class response<T> stable_ids {
+    public result<T> result (1);
+  }
+  class message<T = uint32> stable_ids {
+    public response<T> response (1);
+    public array result<T> history (2);
+  }
+}

@@ -1,5 +1,240 @@
 # Migrating to the snake_case Serializer API
 
+## Native templates and dimensions (4 October 2026)
+
+Regenerate C++ headers to use generic declarations directly from application code,
+including unused declarations. Concrete specialization identifiers remain available
+as aliases to native templates; their historical type-only spellings and bytes are
+preserved. Optional `instantiate` declarations still produce distinct named roots.
+Keep these or concrete schema fields when another language or the schema checker
+needs a concrete contract. Older generators reject dimension/default/fixed-array
+syntax; use the compiler and runtime from this change together (schema version
+remains 1). The supporting revision is recorded in the
+[qualification report](docs/verification-dimensions-2026-10-04.md); no earlier released
+compiler is advertised as supporting these additions.
+
+Fixed arrays enforce exact present-field cardinality. They currently require C++
+native protocols; other language and Protobuf generation reject them explicitly.
+Both editor packages advance together to 1.1.15. See [generics](docs/generics.md).
+
+## Schema generics
+
+Regenerate with the current compiler before using `class result<T>` or
+`instantiate root = result<uint32>;`; older compilers cannot parse these additions
+to schema version 1. Existing non-generic schemas and their wire encodings are
+unchanged. Concrete applications preserve ordinary field/codec semantics, without
+automatic type tags. A changed type argument still requires compatibility review.
+See [schema generics](docs/generics.md) for the finite C++ bindings and other-language
+concrete APIs. Editor extensions 1.1.13 recognize the new syntax.
+
+## Independent managed features
+
+Rebuild consumers and `Serializer::managed`: store layouts and generated private
+client records have changed. `model_store` and `managed` accept a fifth argument
+`store_features::none`, `journal`, `collaboration`, or `all`. Existing four-argument
+code defaults to `all`; ordinary model/journal formats remain compatible. Select
+`none` with linear/tree history for history-only use; combine disabled history with
+`journal` or `collaboration` for the isolated features. See the
+[examples](docs/managed/cpp_runtime.md#independent-store-features).
+
+`history_mode::disabled` now also disables collaborative undo on clients and authorities.
+Callers that relied on collaborative undo despite disabled native history must select
+linear/tree history. Authority `undo_operation`/`redo_operation` are unavailable when
+history is disabled, and incoming inverse requests are rejected. The authority's seventh
+feature argument and the session facade's fifth authority argument can disable journals.
+
+History-enabled client checkpoint format/binding is unchanged. History-free clients use
+`serializer.collaboration.pending.v1`, without undo/redo stacks, historical labels or
+archived completed transactions. Earlier `serializer.collaboration.client.v1` checkpoints
+from history-disabled stores are not accepted by this new policy. Recover them with the
+previous runtime, resolve/persist outstanding delivery under that runtime, then join a
+fresh client under the new runtime. Do not discard unresolved requests to force migration.
+Host-managed archives can retain an explicit `state()` pin before pending-only compaction.
+
+## Store-owned local collaboration
+
+For immediate local editing, include `<rohit/managed_collaboration.hpp>`, attach a
+typed session with `model_store::collaborate`, bind transport, then join the authority
+baseline. Keep using existing generated editors and manual/scoped/callback
+transactions. Explicit/timed synchronization and separate send/receive methods operate
+on the store's outbox. See the [integration guide](docs/managed/local_collaboration.md).
+
+Client checkpoint format **1** wraps the native model envelope/journal operation with
+the session, local undo/redo, pending changes, mappings and exact outstanding request.
+Rebuild `Serializer::managed` for the new generated client records. Ordinary model
+saves and authority wire protocols 5/6/7/8 do not change for this addition. Client
+wrappers require current client readers; attach the same session to a fresh store
+before loading/recovering. Existing plain model journals are not automatically converted.
+The journal flushes per committed transaction; only network exchange is interval-driven.
+
+The collaboration `main.cpp`, `locks.cpp`, and `undo.cpp` examples now author document
+changes through `model_store` transactions and `undo`/`redo`. Replace handwritten
+proposal/delivery helpers in store applications with `store.synchronize()`. For host
+lock requests on the same session, use `store.collaboration().reserve_operation_id()`
+after joining rather than a separate operation counter. Reservations use the existing
+checkpoint watermark and journal machinery; no additional format migration is needed.
+
+Offline entity creation preserves local handles using persisted mappings to authority
+IDs. Use `remote_id`/`local_id` at server/UI boundaries. Application integer fields,
+foreign-key references and map keys are not inferred as identity references. After an
+authority epoch change, retain and reconcile uncertain drafts explicitly; durable
+client history does not restore the authority's epoch-local deduplication/history.
+
+## Collaborative change records and conditional undo
+
+Rebuild `Serializer::managed` and regenerate all managed model headers for
+`visit_collaboration_fields` and `merge_collaboration`. The model's schema ID,
+payload field IDs, ID width, and saved model envelopes remain unchanged.
+
+Collaboration messages now use protocols **5/6** for uint64 custom/model endpoints
+and **7/8** for application-defined session custom/model endpoints. These replace
+protocols 1/2 and 3/4 respectively; upgrade both peers together and start a fresh
+authority epoch. Native keyed decoders reject unknown fields, so the added history
+metadata is not wire-compatible with older collaboration readers. Existing public
+record aliases, constructor shapes, and proposal/editor APIs remain available.
+
+`accepted_change.history` records one transaction's fields and dependencies; its
+outer session, operation, sequence and domain supply authorship, grouping and scope.
+`replica.undo` and `replica.redo` build requests for the session's latest eligible
+history tip, using a fresh operation ID. Deliver them through `submit_change` and
+apply the accepted result. Conflict, denial, and journal failure preserve the stack;
+exact retries return their original outcome. An indeterminate journal write fences
+the authority. See the [history guide](docs/managed/collaboration_runtime.md#conditional-collaborative-undo-and-redo).
+
+Journal operation tag **5** records a validated restoration edit, allowing recovery
+of original object identities after deletion undo. Existing ordinary edits retain
+tag 1. Upgrade readers before opening journals containing tag 5. Collaborative undo
+stacks and field-version tombstones are epoch-local and are not restored from the
+document journal. Store clients now provide immediate local writes, durable pending
+operations and periodic synchronization through the integration described above.
+
+## Earlier managed collaboration migration
+
+The protocol numbers below describe the earlier snapshot-only release; use the
+history-bearing versions above for the current runtime.
+
+The optional C++ managed target now also generates `collaboration_records.hpp`.
+Include `<rohit/managed_collaboration.hpp>` for authority/replica APIs and regenerate
+managed model headers for the added `model_traits::visit_collaboration` traversal.
+Existing model wire formats, schema IDs, saved history envelopes, and ordinary
+store APIs are unchanged. `model_store::allocated_id()` exposes the non-reusable
+allocation watermark, including candidate reservations.
+The [collaboration runtime guide](docs/managed/collaboration_runtime.md) defines
+host session/epoch binding, snapshot conflicts, and bounded
+retry retention. Restore documents into a fresh host-fenced epoch before opening
+sessions. Coordination rights and retry results are absent from document journals;
+reconnecting clients reconcile acknowledged state. No new selector syntax is enabled.
+
+Ordinary generated edits no longer require application command records or a
+dispatcher. Construct an authority without a handler and author proposals using
+`replica.propose(session, operation, callback[, grants])`. This default endpoint
+uses collaboration protocol version 2 with a version-one `model_change` payload;
+the existing custom-handler constructor retains protocol version 1 and its opaque
+application payloads. Endpoint contexts reject mixing these protocols. Rebuild
+`Serializer::managed` to regenerate the added coordination record. Existing
+envelope field IDs and document/model formats are unchanged.
+
+Session types are now configurable without moving the existing history/traits
+template arguments. `collaboration_authority<Root>` and `collaboration_replica<Root>`
+retain `std::uint64_t` sessions and protocol versions 1/2. Use
+`collaboration_session<Session, SessionTraits>` to select a different type throughout
+the authority, replica, records, results, policy hooks, and lock cache. String and
+unsigned integer policies are supplied; custom policies define identity validity,
+ordering, and a bounded canonical codec. The application owns session creation and
+lifetime; no automatic allocation or numeric mapping is introduced.
+
+Custom session types/policies use protocol 3 for application commands or protocol 4
+for model proposals, with the generated `session_envelope` around existing record
+layouts. Use `encode_collaboration_record`/`decode_collaboration_record<T>` for these
+typed records. Peers must agree on the session policy's stable `wire_name` and codec.
+Rebuild managed support for the added envelope records; existing uint64 message bytes
+and public result/cache aliases are preserved. Closed IDs still cannot be reused
+within an authority epoch. See the [session example](example/managed/collaboration/sessions.cpp).
+
+Draft callbacks run locally and do not change acknowledged state. Keep the encoded
+proposal for exact retries. Resynchronize after a conflict and create a new
+operation; failed creation may consume authority IDs without advancing its accepted
+sequence. Default proposals include a full candidate snapshot and are bounded by
+`max_command_bytes` and the new `max_created_ids` option (4096 by default).
+The collaboration examples now use this API; optional custom-command fixtures live
+under `test/resources/`.
+
+The optional [C++ managed interface](docs/managed/cpp_runtime.md) adds
+`Serializer::managed` and bare `managed` declarations. Regenerate managed headers:
+the default now puts `persistent_id` directly on the schema class, and store reads
+use `snapshot->name` rather than `snapshot->value.name`. Application field IDs stay
+unchanged, but the direct codec adds metadata key `0x3fffffff`/`persistent_id`.
+To retain the preceding ID-free payload and storage-wrapper API/wire format, set
+`[managed] separate_values = true` or `--managed.separate_values true` consistently.
+Default direct saves have a different schema binding; loading old wrapper saves
+requires that opt-in representation or an explicit migration. Width changes also
+require migration (`[managed] id_type = uint32|uint64`). Ordinary schemas without
+managed declarations remain unchanged; other-language managed backends are not
+implemented. The existing explicit managed occurrence boundaries still apply.
+
+New stores no longer require an application-supplied document namespace; omit the
+second constructor argument for automatic generation. Explicit IDs remain supported.
+Loading restores saved identity. Object IDs are document-local and allocated from 1
+upwards, with no renumbering/reuse on undo, deletion, or failed transactions.
+
+History mode is now selected by `model_store<Root, Mode, Labels, Traits>` at compile time.
+Use `history_mode::linear` (the default), `history_mode::tree`, or
+`history_mode::disabled` as the second template argument. Replace the former
+`supported_mechanism::none` with `history_mode::disabled`; remove `options.mode`
+assignments. Replace `reset_history(mode)` with `reset_history()` only when clearing
+the current history: changing its mode is no longer supported. Different modes
+are different store types, and loads must match the receiving specialization.
+The `managed` alias follows the same template arguments. Wire mode values remain
+unchanged; the wire format also depends on the compile-time label policy.
+
+Linear stores now use parameterless `redo()` and no longer provide
+`checkout(revision)`, `redo(revision)`, or `redo_children()`. Use a tree store when
+revision-addressed navigation is required. Manual generic code should declare
+`Store::outcome_type`: linear/disabled use `transaction_outcome` with status/error;
+tree uses `tree_transaction_outcome` and additionally provides `revision`.
+Revision counters exist only in tree storage. Object IDs are unaffected.
+
+Labels are now disabled by default. Replace `execute_transaction(label, callback)`
+with `execute_transaction(callback)` and `begin_transaction(label, outcome)` with
+`begin_transaction(outcome)`, or retain names by selecting
+`model_store<Root, Mode, history_labels::enabled>`. Enabled stores accept both forms
+and expose `undo_label()` plus linear `redo_label()` or tree `redo_label(revision)`.
+Move a custom `Traits` argument from the third position to the fourth, inserting
+`history_labels::disabled` or `history_labels::enabled` before it.
+
+Default saves use version 3 with label fields entirely omitted, for both tree and
+linear/disabled history. Label-enabled linear/tree stores preserve versions 2/1.
+Loads must match the label policy and history mode; no automatic migration tool
+is supplied. To read existing labeled linear/tree saves, enable labels. A converter
+between label policies must explicitly add/discard names while preserving all
+snapshots, selection, document/object IDs, and allocation marks.
+Linear saves contain ordered snapshots and a zero-based cursor, with no revision
+IDs or parent links. Older version-one linear/disabled saves additionally require
+validating the old chain and translating its selected revision into an index.
+Disabled saves contain no history and cannot enable labels.
+
+Linear managed history now uses a deque and evicts oldest retained states on
+changed commits when `max_revisions` or `max_history_bytes` would be exceeded.
+Previously reaching either limit rejected the commit. The count includes the
+current state; one permits editing without undo, while zero cannot hold an enabled
+baseline. Oversized individual states still fail atomically. Tree mode retains its
+existing reject-on-limit behavior. New changed edits after undo still discard redo
+only in linear mode. Loading over-budget histories still fails instead of evicting
+imported states. `max_revisions` remains the retained-state count option for both
+policies; linear entries do not carry revision IDs.
+
+Synchronous [file journaling](docs/managed/journal.md) wraps existing managed
+memory envelopes in the base without changing their versions. Version-two journal
+records append individual serialized snapshots and small control operations; the
+earlier full-envelope journal format is rejected. To adopt it, construct/load a
+store and call `create_journal` at a new path; reopen with `recover_journal` into
+an unattached store. Use `save_journal` for a full durable Save. Existing raw
+memory envelopes are not journal containers, and `save()` remains a memory export.
+Extend exhaustive `transaction_status` handling for `indeterminate`: a write may
+have committed on disk while the live model stayed unchanged. Destroy/recover the
+store before retrying. No schema regeneration, editor package change, or selector
+syntax is required for this runtime API.
+
 Optional [message compression](docs/compression.md) adds C++ overloads without
 changing existing bytes or calls. Rebuild the runtime with selected optional
 dependencies and regenerate owning headers for member/static options. Free
@@ -660,3 +895,15 @@ Interoperability consumers moved from `example/interoperability/<language>` to
 [the runner and SDK requirements](example/README.md). The earlier CMake option
 still runs its five-runtime subset; the full suite uses
 `SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES`.
+
+## Durable file stream integration
+
+`rohit::file_stream` in `<rohit/file_stream.hpp>` implements the existing byte-stream
+concepts, so generated serialization calls require no schema regeneration. Link
+`Serializer::serializer_lib` and rebuild the runtime/consumers together. Native
+journal I/O moved into this reusable stream implementation; the managed store owns
+an internal storage-independent journal sink. Existing path-based journal calls,
+version-two records, memory-stream APIs, and full-Save history behavior are unchanged.
+`managed_journal_stream.hpp` adds bounded frame helpers for buffers and iostreams;
+see [usage](docs/usage.md#file-streams-and-journal-records) for explicit synchronization
+and borrowed-payload lifetimes. No database backend is introduced.

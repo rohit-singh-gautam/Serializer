@@ -1,0 +1,3 @@
+add_executable(managed_point_callback main.cpp)
+serializer_generate(TARGET managed_point_callback SCHEMAS point.serializer)
+target_link_libraries(managed_point_callback PRIVATE Serializer::managed)

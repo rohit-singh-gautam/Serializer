@@ -1,0 +1,11 @@
+add_executable(generic_example main.cpp)
+serializer_generate(TARGET generic_example SCHEMAS model.serializer
+  OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
+if(MSVC)
+  target_compile_options(generic_example PRIVATE /W4 /WX)
+else()
+  target_compile_options(generic_example PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+if(SERIALIZER_BUILD_TESTS)
+  add_test(NAME serializer_generic_example COMMAND generic_example)
+endif()

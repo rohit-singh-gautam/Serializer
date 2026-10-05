@@ -1,0 +1,3 @@
+add_executable(managed_point_manual main.cpp)
+serializer_generate(TARGET managed_point_manual SCHEMAS point.serializer)
+target_link_libraries(managed_point_manual PRIVATE Serializer::managed)

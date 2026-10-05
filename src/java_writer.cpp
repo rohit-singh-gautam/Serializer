@@ -199,6 +199,7 @@ class emitter {
   void register_nodes(const std::vector<std::unique_ptr<syntax_node>>& nodes,
                       const std::string& prefix, std::set<std::string> enclosing) {
     for (const auto& node : nodes) {
+      if (node->type == object_type::generic_definition) { continue; }
       const auto name = type_name(node->name);
       const auto qualified = prefix + "." + name;
       const auto [previous, inserted] = declarations.emplace(qualified, node.get());
@@ -968,6 +969,8 @@ public:
 // Publish only a completely validated source file.
 std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,
                      std::string_view outer_class, const java_options& options) {
+  require_variable_arrays(statements, "java");
+  require_unmanaged_backend(statements);
   emitter generator{options, outer_class};
   return generator.generate(statements);
 }

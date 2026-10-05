@@ -1,0 +1,90 @@
+serializer version 1;
+
+// Serialized runtime envelope records, not user model entities; no managed annotations belong here.
+
+// C++ snapshot-store records. Payloads use binary_integer codecs.
+namespace rohit {
+  namespace managed {
+    namespace records {
+      class revision stable_ids {
+        public uint64 number (1);
+        public uint64 parent (2);
+        public string label (3);
+        public array uint8 snapshot (4);
+      }
+
+      // Ordered linear history entries have no revision identity or ancestry.
+      class history_entry stable_ids {
+        public string label (1);
+        public array uint8 snapshot (2);
+      }
+
+      // Version two: label-enabled linear stores; the older disabled form is no longer emitted.
+      class state_envelope stable_ids {
+        public uint32 format_version (1);
+        public string schema_id (2);
+        public uint32 id_bits (3);
+        public uint64 document_high (4);
+        public uint64 document_low (5);
+        public uint64 allocated_id (6);
+        public uint32 mode (9);
+        public array uint8 current_snapshot (10);
+        public array history_entry entries (12);
+        public uint64 cursor (13);
+      }
+
+      // Version three omits label fields entirely, including their encoded keys and lengths.
+      class unlabeled_history_entry stable_ids {
+        public array uint8 snapshot (2);
+      }
+
+      class unlabeled_revision stable_ids {
+        public uint64 number (1);
+        public uint64 parent (2);
+        public array uint8 snapshot (4);
+      }
+
+      class unlabeled_state_envelope stable_ids {
+        public uint32 format_version (1);
+        public string schema_id (2);
+        public uint32 id_bits (3);
+        public uint64 document_high (4);
+        public uint64 document_low (5);
+        public uint64 allocated_id (6);
+        public uint32 mode (9);
+        public array uint8 current_snapshot (10);
+        public array unlabeled_history_entry entries (12);
+        public uint64 cursor (13);
+      }
+
+      class unlabeled_envelope stable_ids {
+        public uint32 format_version (1);
+        public string schema_id (2);
+        public uint32 id_bits (3);
+        public uint64 document_high (4);
+        public uint64 document_low (5);
+        public uint64 allocated_id (6);
+        public uint64 revision_high_water (7);
+        public uint64 current_revision (8);
+        public uint32 mode (9);
+        public array uint8 current_snapshot (10);
+        public array unlabeled_revision revisions (11);
+      }
+
+      // Version one remains the label-enabled tree-history wire contract.
+      class envelope stable_ids {
+        public uint32 format_version (1);
+        public string schema_id (2);
+        public uint32 id_bits (3);
+        public uint64 document_high (4);
+        public uint64 document_low (5);
+        public uint64 allocated_id (6);
+        public uint64 revision_high_water (7);
+        public uint64 current_revision (8);
+        public uint32 mode (9);
+        public array uint8 current_snapshot (10);
+        public array revision revisions (11);
+      }
+    }
+  }
+}

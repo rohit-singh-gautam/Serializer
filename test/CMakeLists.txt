@@ -1,6 +1,6 @@
 set(schemas)
 foreach(fixture IN ITEMS enum person test1 array map variable assessment views storage_reuse
-    fixed_fields constant_names includes wire_compatibility)
+    fixed_fields constant_names includes wire_compatibility generics dimensions)
   list(APPEND schemas "${CMAKE_CURRENT_SOURCE_DIR}/resources/${fixture}.serializer")
 endforeach()
 
@@ -11,8 +11,13 @@ add_executable(core_serializer_test
   deserialize_exact_test.cpp
   compression_test.cpp
   stream_concepts_test.cpp
+  file_stream_test.cpp
   serializer_parser_test.cpp
   schema_version_test.cpp
+  schema_generics_test.cpp
+  dimension_templates_test.cpp
+  managed_schema_test.cpp
+  managed_lowering_test.cpp
   schema_compatibility_test.cpp
   schema_include_test.cpp
   schema_scan_test.cpp
@@ -47,6 +52,143 @@ elseif(UNIX)
 endif()
 
 add_test(NAME core_serializer_test COMMAND core_serializer_test)
+foreach(profile IN ITEMS serializer core google llvm gnu cert misra autosar qt)
+  set(matrix_type matrix)
+  set(point_type point)
+  set(frame_type frame)
+  set(message_type message)
+  set(elements_field elements)
+  set(response_field response)
+  set(result_field result)
+  set(value_field value)
+  if(profile MATCHES "^(google|llvm|qt)$")
+    set(matrix_type Matrix)
+    set(point_type Point)
+    set(frame_type Frame)
+    set(message_type Message)
+  endif()
+  if(profile STREQUAL "google")
+    set(elements_field elements_)
+    set(response_field response_)
+    set(result_field result_)
+    set(value_field value_)
+  elseif(profile STREQUAL "llvm")
+    set(elements_field Elements)
+    set(response_field Response)
+    set(result_field Result)
+    set(value_field Value)
+  endif()
+  set(profile_directory "${CMAKE_CURRENT_BINARY_DIR}/dimension_profile_${profile}")
+  configure_file(dimension_profile_test.cpp.in "${profile_directory}/dimension_profile_test.cpp" @ONLY)
+  add_executable(dimension_profile_${profile}_test "${profile_directory}/dimension_profile_test.cpp")
+  set_target_properties(dimension_profile_${profile}_test PROPERTIES CXX_STANDARD 23)
+  serializer_generate(TARGET dimension_profile_${profile}_test
+    SCHEMAS resources/generics.serializer resources/dimensions.serializer
+    CODING_STANDARD ${profile} OUTPUT_DIRECTORY "${profile_directory}")
+  add_test(NAME dimension_profile_${profile}_test COMMAND dimension_profile_${profile}_test)
+endforeach()
+find_package(Python3 3.10 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+  add_test(NAME serializer_runtime_literals
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/runtime_literal_test.py")
+  add_test(NAME serializer_generic_python
+    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/example/generics/run.py"
+      --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/generic_python")
+endif()
+if(SERIALIZER_BUILD_MANAGED)
+  foreach(profile IN ITEMS managed32 managed64 separate64)
+    add_executable(dimension_history_${profile}_test dimension_history_test.cpp)
+    set_target_properties(dimension_history_${profile}_test PROPERTIES CXX_STANDARD 23)
+    serializer_generate(TARGET dimension_history_${profile}_test
+      SCHEMAS resources/dimensions_managed.serializer
+      CONFIG resources/dimensions_${profile}.ini
+      OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/dimensions_${profile}")
+    target_link_libraries(dimension_history_${profile}_test PRIVATE Serializer::managed)
+    if(Python3_Interpreter_FOUND)
+      add_test(NAME dimension_history_${profile}_test
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/dimension_history_test.py"
+          --helper "$<TARGET_FILE:dimension_history_${profile}_test>")
+    endif()
+  endforeach()
+  add_executable(managed_collaboration_test managed_collaboration_test.cpp
+    managed_collaboration_ownership_test.cpp managed_collaboration_proposal_test.cpp
+    managed_collaboration_session_test.cpp managed_collaboration_history_test.cpp
+    managed_local_collaboration_test.cpp managed_feature_test.cpp)
+  serializer_generate(TARGET managed_collaboration_test
+    SCHEMAS resources/collaboration_commands.serializer ../example/managed/ledger/ledger.serializer
+    resources/collaboration_model.serializer
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/collaboration")
+  target_link_libraries(managed_collaboration_test PRIVATE Serializer::managed GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(managed_collaboration_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(managed_collaboration_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME managed_collaboration_test COMMAND managed_collaboration_test)
+  add_executable(managed_store_test managed_store_test.cpp managed_generated_test.cpp)
+  serializer_generate(TARGET managed_store_test SCHEMAS resources/managed_model.serializer resources/managed_generated.serializer
+    CONFIG resources/managed_separate.ini
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed")
+  target_link_libraries(managed_store_test PRIVATE Serializer::managed GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(managed_store_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(managed_store_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME managed_store_test COMMAND managed_store_test)
+  add_executable(managed_profile_test managed_profile_test.cpp)
+  serializer_generate(TARGET managed_profile_test SCHEMAS resources/managed_generated.serializer
+    CONFIG resources/managed_google64.ini CODING_STANDARD google
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed_google64")
+  target_link_libraries(managed_profile_test PRIVATE Serializer::managed GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(managed_profile_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(managed_profile_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME managed_profile_test COMMAND managed_profile_test)
+  add_executable(managed_direct_test managed_direct_test.cpp managed_journal_test.cpp)
+  serializer_generate(TARGET managed_direct_test
+    SCHEMAS ../example/managed/ledger/ledger.serializer resources/managed_generated.serializer
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed_direct")
+  target_link_libraries(managed_direct_test PRIVATE Serializer::managed GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(managed_direct_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(managed_direct_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME managed_direct_test COMMAND managed_direct_test)
+  add_executable(managed_journal_crash_helper managed_journal_crash_helper.cpp)
+  serializer_generate(TARGET managed_journal_crash_helper
+    SCHEMAS ../example/managed/ledger/ledger.serializer
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed_journal_crash")
+  target_link_libraries(managed_journal_crash_helper PRIVATE Serializer::managed)
+  if(MSVC)
+    target_compile_options(managed_journal_crash_helper PRIVATE /W4 /WX)
+  else()
+    target_compile_options(managed_journal_crash_helper PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  find_package(Python3 COMPONENTS Interpreter QUIET)
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME managed_journal_crash_test
+      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/managed_journal_crash_test.py"
+        --helper "$<TARGET_FILE:managed_journal_crash_helper>"
+        --directory "${CMAKE_CURRENT_BINARY_DIR}/journal_crash")
+    set_tests_properties(managed_journal_crash_test PROPERTIES TIMEOUT 180)
+  endif()
+  add_executable(managed_history_allocation_failure_test managed_history_allocation_failure_test.cpp)
+  target_link_libraries(managed_history_allocation_failure_test PRIVATE Serializer::managed)
+  if(MSVC)
+    # Only header-local history containers are exercised; no STL values cross the runtime ABI.
+    # Debug iterator proxies may allocate inside noexcept moves, so inject with release iterators.
+    target_compile_definitions(managed_history_allocation_failure_test PRIVATE _ITERATOR_DEBUG_LEVEL=0)
+    target_compile_options(managed_history_allocation_failure_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(managed_history_allocation_failure_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME managed_history_allocation_failure_test COMMAND managed_history_allocation_failure_test)
+  set_tests_properties(managed_history_allocation_failure_test PROPERTIES TIMEOUT 60)
+endif()
 add_test(NAME serializer_native_cli
   COMMAND "${CMAKE_COMMAND}" "-DGENERATOR=$<TARGET_FILE:serializer>"
     "-DDIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/native_cli"

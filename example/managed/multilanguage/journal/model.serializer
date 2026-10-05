@@ -1,0 +1,10 @@
+serializer version 1;
+include ../../../../schemas/managed_records;
+
+// Qualification wrapper; runtime record field IDs remain defined by the canonical schema.
+class example_model stable_ids {
+  public uint32 revision (1);
+  public rohit::managed::records::unlabeled_state_envelope baseline (2);
+  public uint64 sequence (3);
+  public array uint8 frame (4);
+}

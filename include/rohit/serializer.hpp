@@ -364,6 +364,12 @@ concept vector = requires(T t) {
 };
 
 template <typename T>
+concept fixed_array = requires {
+  typename T::value_type;
+  requires std::is_same_v<T, std::array<typename T::value_type, std::tuple_size<T>::value>>;
+};
+
+template <typename T>
 concept map = requires(T t) {
   typename T::key_type;
   typename T::mapped_type;
@@ -990,6 +996,33 @@ public:
       value.serialize_in(*this);
     } else if constexpr (type_check::vector<T>) {
       read_vector(value);
+    } else if constexpr (type_check::fixed_array<T>) {
+      auto nesting = enter_object();
+      check_and_increase('[');
+      if (value.size() > limits.max_collection_elements) {
+        fail_limit("Collection element limit exceeded");
+      }
+      charge_allocation(value.size(), sizeof(typename T::value_type));
+      skip_whitespace();
+      std::size_t count{};
+      while (peek() != ']') {
+        if (count == value.size()) {
+          fail(("Fixed array length: expected " + std::to_string(value.size()) + ", observed extra element").c_str());
+        }
+        typename T::value_type element{};
+        serialize_in(element);
+        value[count++] = std::move(element);
+        skip_whitespace();
+        if (peek() == ']') { break; }
+        check_and_increase(',');
+        skip_whitespace();
+        if (peek() == ']') { fail("Trailing comma in fixed array"); }
+      }
+      check_and_increase(']');
+      if (count != value.size()) {
+        fail(("Fixed array length: expected " + std::to_string(value.size()) +
+             ", observed " + std::to_string(count)).c_str());
+      }
     } else if constexpr (type_check::map<T>) {
       read_map(value);
     } else {
@@ -1391,7 +1424,7 @@ public:
   }
 
   // Encode a supported value or field through this protocol and advance the output cursor.
-  template <type_check::vector T>
+  template <typename T> requires (type_check::vector<T> || type_check::fixed_array<T>)
   void serialize_out(const T& value) {
     serialize_out_list(value, [this](const T::value_type& val) { serialize_out(val); });
   }
@@ -1604,6 +1637,20 @@ public:
       value->serialize_in(*this);
     } else if constexpr (type_check::serializer_in_enabled_value<T, binary_in_base>) {
       value.serialize_in(*this);
+    } else if constexpr (type_check::fixed_array<T>) {
+      auto nesting = enter_object();
+      const auto count = serialize_in_variable();
+      if (count != value.size()) {
+        throw exception::bad_input_data{in_stream,
+            "Fixed array length: expected " + std::to_string(value.size()) +
+            ", observed " + std::to_string(count), limits.diagnostics};
+      }
+      check_collection(count, sizeof(typename T::value_type));
+      for (auto& destination : value) {
+        typename T::value_type element{};
+        serialize_in(element);
+        destination = std::move(element);
+      }
     } else if constexpr (type_check::vector<T>) {
       auto nesting = enter_object();
       const auto count = serialize_in_variable();
@@ -1974,7 +2021,7 @@ public:
       value->serialize_out(*this);
     } else if constexpr (type_check::serializer_out_enabled<T, binary_out_base>) {
       value.serialize_out(*this);
-    } else if constexpr (type_check::vector<T>) {
+    } else if constexpr (type_check::vector<T> || type_check::fixed_array<T>) {
       serialize_out_variable(value.size());
       using element_type = typename T::value_type;
       if constexpr (detail::binary_array_scalar<element_type>) {
@@ -2164,6 +2211,31 @@ template <typename Value, template <serialize_type> class Protocol,
 }
 
 namespace detail {
+// Evaluate schema dimension arithmetic at compile time without unsigned wraparound.
+consteval std::uint64_t dimension_add(std::uint64_t left, std::uint64_t right) {
+  if (right > std::numeric_limits<std::uint64_t>::max() - left) {
+    throw "Dimension addition overflow";
+  }
+  return left + right;
+}
+
+// Reject intermediate overflow before multiplying a dependent fixed-array extent.
+consteval std::uint64_t dimension_multiply(std::uint64_t left, std::uint64_t right) {
+  if (left != 0 && right > std::numeric_limits<std::uint64_t>::max() / left) {
+    throw "Dimension multiplication overflow";
+  }
+  return left * right;
+}
+
+// Bound native template storage before instantiating std::array.
+consteval std::size_t fixed_extent(std::uint64_t value) {
+  constexpr std::uint64_t maximum_fixed_elements = 65536;
+  if (value == 0 || value > maximum_fixed_elements || value > std::numeric_limits<std::size_t>::max()) {
+    throw "Invalid or excessive fixed array extent (1..65536)";
+  }
+  return static_cast<std::size_t>(value);
+}
+
 // Decompress one bounded input extent before exposing bytes to any field decoder.
 template <rohit::type_check::input_stream Stream>
 std::vector<std::uint8_t> decompress_message(Stream&& input, compression::decode_options options,

@@ -178,7 +178,8 @@ R"serializer(
     }
     // Reject invalid numeric grammar, overflow, and underflow to zero.
     internal double floating(bool single) {
-      if (!json()) return single ? System.BitConverter.Int32BitsToSingle(unchecked((int)integer(4, true))) : System.BitConverter.Int64BitsToDouble(unchecked((long)integer(8, true)));
+)serializer"
+R"serializer(      if (!json()) return single ? System.BitConverter.Int32BitsToSingle(unchecked((int)integer(4, true))) : System.BitConverter.Int64BitsToDouble(unchecked((long)integer(8, true)));
       string text = token(); if (!NumberPattern.IsMatch(text)) fail("Invalid number");
       if (!double.TryParse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out double value)) fail("Floating-point range");
       if (single) value = (float)value;

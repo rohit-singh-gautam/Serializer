@@ -1,6 +1,9 @@
 # Rohit Serializer for Visual Studio
 
-Version **1.1.6** provides `.serializer` highlighting and native navigation in
+This extension supports the [Serializer schema compiler and serialization library](https://github.com/rohit-singh-gautam/Serializer)
+maintained in that repository.
+
+Version **1.1.15** provides `.serializer` highlighting and native navigation in
 **Visual Studio 2022 and Visual Studio 2026 on Windows x64**. It shares the VS Code
 extension's grammar and schema/generated-output resolver. Custom type references
 such as `demo::order`, `demo::snapshot` and `demo::customer` use the active theme's
@@ -11,7 +14,15 @@ type and namespace colors.
 - **Go to Declaration** on a schema include or type opens its source declaration.
   Extensionless/transitive includes, qualified names, containers, bases, enum-default
   prefixes and whole-name selections are supported, including unsaved schemas.
-- **Go to Definition** (F12) and **Ctrl+click** on a schema prefer existing generated
+- **Go to Type Definition** on a schema type opens its source class/enum declaration;
+  on an include it opens the included schema. Generated-language type lookup remains
+  with its native language service. Schema field names and primitives have no destination.
+- All three actions accept declaration keywords and type names, including forward
+  and reversed `class ledger` selections. Declaration/type definition on a type's
+  own declaration select that same name; definition prefers generated output.
+- On a schema include, **Go to Definition** opens the included schema too; an include
+  can contribute multiple declarations to generated output, so it has no single generated target.
+- **Go to Definition** (F12) and **Ctrl+click** on schema types prefer existing generated
   output; types fall back to their schema declaration when no output matches.
   Several destinations produce a picker.
 - **Go to Declaration** on a generated type declaration maps it to its originating
@@ -47,6 +58,12 @@ Installing this extension does not install the compiler or runtime.
 
 ## Build and install
 
+For C# editing in this repository, open `serializer_editors.sln` or set the VS Code
+workspace's `dotnet.defaultSolution` to `editors/visual_studio/serializer_editors.sln`.
+This loads the maintained extension and test projects without discovering old source
+copies and third-party C# projects under `out/`. Both projects explicitly declare
+Windows runtime identifiers so C# tooling and Visual Studio restore the same assets.
+
 Use Node.js 22+, npm, Windows PowerShell 5.1+, and Visual Studio 2022/2026 or its
 Build Tools with MSBuild. The pinned SDK/reference packages restore from NuGet;
 the separate Visual Studio SDK workload is not required.
@@ -67,7 +84,7 @@ installation. It uses full-framework MSBuild with locked dependencies, bundles
 the current shared resolver, rebuilds and validates:
 
 ```text
-out/extensions/serializer-visual-studio-1.1.6.vsix
+out/extensions/serializer-visual-studio-1.1.15.vsix
 ```
 
 Close Visual Studio, double-click the VSIX, select the installation and restart
@@ -76,6 +93,13 @@ the IDE. **Extensions > Manage Extensions** lists **Rohit Serializer**. The root
 is pending.
 
 ## Implementation and verification
+
+The shared resolver supports generic declarations (`class box<T>`), nested type
+arguments, and named instantiations. Parameters navigate to their local declaration;
+generic definitions navigate to the C++ native template or existing concrete generated types.
+Generated instances map back to the generic definition across all output languages.
+Unused generic definitions have a C++ template destination; other languages require a concrete contract. See
+[schema generics](../../docs/generics.md) for the supported compiler profile.
 
 `navigation_editor.cs` exports native MEF command and Ctrl+click providers.
 `navigation_bridge.ts` uses the shared resolver through a small host path adapter.
@@ -122,3 +146,26 @@ The [installation target](https://learn.microsoft.com/en-us/visualstudio/extensi
 covers Community, Professional and Enterprise through the Community target.
 ARM64 and earlier Visual Studio releases are not targeted. Grammar registration
 uses Microsoft's [language configuration support](https://learn.microsoft.com/en-us/visualstudio/extensibility/language-configuration?view=visualstudio).
+
+The C++ `managed` class/member keyword is highlighted and skipped when locating a
+member's type. Direct, array, and map managed references retain declaration and
+definition navigation. Generated managed data, storage, and editor class declarations
+map back to the original schema type; schema-to-output navigation still selects the
+ordinary class. Capability selectors and other-language managed runtimes remain
+unimplemented; see the [managed runtime guide](../../docs/managed/cpp_runtime.md).
+
+Managed classes now expose persistent IDs directly by default. Set
+`[managed] separate_values = true` (or `--managed.separate_values true`) when
+ID-free ordinary classes and managed storage companions are required. Navigation
+supports the direct schema class, its editor, and opt-in companion declarations.
+
+## Native templates and dimensions (1.1.15)
+
+Both packages recognize `uint64 N`, trailing defaults, fixed `array[N * M] T`
+expressions, nested generic applications, and optional `instantiate` contracts.
+Navigation resolves dimension/type parameter references and defaults to their
+local declarations, including unsaved text. C++ definitions include native templates
+with no concrete schema uses. Other languages have destinations only for concrete
+contracts; fixed-array output is currently unsupported there. The shared grammar
+highlights dimension arithmetic and the `matrix` snippet inserts a fixed-array
+example. Both packages use the same navigation implementation.

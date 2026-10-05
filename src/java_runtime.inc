@@ -314,7 +314,8 @@ private static final class Reader {
     double result = single ? java.lang.Float.parseFloat(value) : java.lang.Double.parseDouble(value);
     if (!java.lang.Double.isFinite(result)) { throw error("Floating-point value out of range"); }
     if (result == 0) {
-      java.lang.String mantissa = value.split("[eE]", 2)[0];
+)java"
+R"java(      java.lang.String mantissa = value.split("[eE]", 2)[0];
       if (mantissa.matches(".*[1-9].*")) { throw error("Floating-point underflow"); }
     }
     return result;

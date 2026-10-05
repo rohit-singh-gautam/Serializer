@@ -333,6 +333,7 @@ class emitter {
   void register_nodes(const std::vector<std::unique_ptr<syntax_node>>& values,
                       const std::string& prefix = {}) {
     for (const auto& value : values) {
+      if (value->type == object_type::generic_definition) { continue; }
       const auto generated = prefix + name(value->name, true, options.rename_identifiers);
       if (value->type == object_type::namespace_type) {
         register_nodes(static_cast<const namespace_node&>(*value).statements, generated);
@@ -1243,6 +1244,8 @@ public:
 std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,
                      std::string_view language, std::string_view unit_name,
                      const portable_options& options) {
+  require_variable_arrays(statements, language);
+  require_unmanaged_backend(statements);
   if (language == "c") { return native::c(native::schema{statements}); }
   if (language == "swift") { return native::swift(native::schema{statements}); }
   if (language == "kotlin") { return native::kotlin(native::schema{statements}, options.package_name); }
