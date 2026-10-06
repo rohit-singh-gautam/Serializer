@@ -318,7 +318,8 @@ public:
   // Copy initializer data so temporary strings and initializer lists never become dangling views.
   command_options(std::initializer_list<option_declaration> declarations = {},
                   positional_declaration positional = {}, tail_declaration tail = {})
-      : positional_(std::move(positional)), tail_(std::move(tail)) {
+      : options_{}, positional_(std::move(positional)), tail_(std::move(tail)),
+        positional_paths_{}, positional_strings_{}, command_tail_{} {
     if ((!positional_.name.empty() && positional_.type != command_type::strings &&
          positional_.type != command_type::paths) ||
         (positional_.name.empty() && positional_.minimum_count != 0) ||
@@ -589,7 +590,7 @@ public:
   // declaration.
   commandline_declaration(command_options common = {},
                           std::initializer_list<command_entry> commands = {})
-      : common_(std::move(common)), commands_(commands) {
+      : common_(std::move(common)), commands_(commands), selected_{} {
     if (!commands_.empty() && (!common_.positional_.name.empty() || !common_.tail_.name.empty())) {
       throw std::invalid_argument("Common positional inputs conflict with subcommand selection");
     }
