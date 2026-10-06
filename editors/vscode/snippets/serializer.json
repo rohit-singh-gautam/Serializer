@@ -80,7 +80,7 @@
   "Message version": {
     "prefix": "version",
     "body": "${1:public} version { ${2:1} } compatibility { ${3:1} };$0",
-    "description": "Declare a uint8 message revision and oldest supported revision (owning C++)"
+    "description": "Declare a message revision and oldest supported revision for native owning models"
   },
   "Created field": {
     "prefix": "created",
@@ -96,5 +96,23 @@
     "prefix": "reserve",
     "body": "reserve id { ${1:7} } variable { ${2:old_name} } display { \"${3:old_wire_name}\" };$0",
     "description": "Prevent reuse of unused class-scoped field identities"
+  },
+  "Release policy": {
+    "prefix": "version_policy",
+    "body": [
+      "public version { ${1:3} }",
+      "  releases {",
+      "    ${2:1} { \"${3:2024-01-01}\" };",
+      "    ${4:2} { \"${5:2025-01-01}\" };",
+      "    $1 { \"${6:2026-01-01}\" };",
+      "  }",
+      "  policy {",
+      "    any {",
+      "      max_age { ${7:2} years };",
+      "      keep_last { ${8:3} };",
+      "    };",
+      "  };$0"
+    ],
+    "description": "Fold release age/count acceptance into a minimum version during generation"
   }
 }

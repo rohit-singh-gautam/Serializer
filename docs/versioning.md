@@ -13,7 +13,7 @@ class example_model stable_ids {
 }
 ```
 
-One class may declare one version member, with `public`, `protected`, or `private` access. Its initializer is required and defines the current revision. `compatibility {8}` defines the inclusive minimum; omitted compatibility defaults to the current revision. A writer can emit any revision in this interval by setting the member. The member defaults to type `uint8`, name/wire name `version`, and ID 1. When that ID is occupied or reserved, the compiler selects the first available ID. Specify an ID explicitly when a durable contract must freeze that choice; changing the selected default ID changes the wire identity.
+One class may declare one version member, with `public`, `protected`, or `private` access. Its initializer is required and defines the current revision. `compatibility {8}` defines the inclusive minimum; omitted compatibility defaults to the current revision unless a release policy supplies a floor. A writer can emit any revision in this interval by setting the member. The member defaults to type `uint8`, name/wire name `version`, and ID 1. When that ID is occupied or reserved, the compiler selects the first available ID. Specify an ID explicitly when a durable contract must freeze that choice; changing the selected default ID changes the wire identity.
 
 ```text
 public version { 1 };
@@ -86,4 +86,98 @@ python example/run.py --compiler build/serializer --example versioning --languag
 
 The examples read revision 8, preserve its positional layout, explicitly migrate the replacement, and round-trip revision 10 using all four protocols. Every consumer also verifies eight explicit revision types against frozen positional bytes, including binary32 `0.1` and the maximum uint64 value. The schema also demonstrates each supported revision type and access/name/ID choices. Generated output stays in the build tree. See [usage](usage.md) and [wire format](wire_format.md) for general codec and decoding contracts.
 
-See the [verification record](verification-versioning-2026-10-06.md) for completed checks and remaining coverage. Release dates and time-based expiry policies are proposals and are not implemented syntax.
+See the [payload-versioning record](verification-versioning-2026-10-06.md) and
+[release-policy record](verification-release-policies-2026-10-06.md) for completed
+checks and remaining coverage.
+
+## Release dates and compile-time policies
+
+Release catalogs and policies belong to the version declaration. Serializer evaluates
+these during schema compilation and emits the ordinary minimum/current version bounds.
+Generated readers and writers contain no release catalog, dates, clock calls, or policy
+tree. Existing unversioned codec paths and payload bytes are unchanged.
+
+```text
+public version uint16 { 10 }
+  releases {
+    8 { "2024-10-01" };
+    9 { "2025-04-01" };
+    10 { "2026-10-01" };
+  }
+  policy {
+    any {
+      max_age { 2 years };
+      all {
+        keep_last { 3 };
+        compatibility { 8 };
+      };
+    };
+  };
+```
+
+Versions use the declared discriminator type, including quoted dotted versions.
+Catalog versions must be unique and strictly increasing; dates must be nondecreasing
+in version order, and the last release must equal the current revision. Dates are
+quoted ISO `YYYY-MM-DD` values in years 0001 through 9999. A catalog alone supplies
+metadata without extending the default compatibility floor.
+
+A policy block contains exactly one expression, ending with a semicolon. `any` and
+`all` may nest and must contain at least one child. Each leaf is an **allow condition**:
+`any` accepts the union and chooses the lowest child floor; `all` accepts the
+intersection and chooses the highest. The runtime accepts the resulting version
+interval, including intermediate values when release numbers have gaps; the catalog
+is not a runtime whitelist. Parser limits are 32 expression levels, 4,096 expressions,
+4,096 catalog entries, and 128 bytes per metadata literal.
+
+| Leaf | Generation-time meaning |
+| --- | --- |
+| `max_age { 2 years };` | First release on or after the inclusive age cutoff |
+| `keep_last { 3 };` | Third-latest catalog entry, including current; larger counts retain the entire catalog |
+| `released_since { "2025-01-01" };` | First release on or after this inclusive date |
+| `expires_on { "2027-01-01" };` | Retain the catalog before the date; current version only on or after it |
+| `compatibility { 8 };` | Allow revision 8 through current within this subtree |
+
+Counts are positive uint32 decimal integers. Age units are `day(s)`, `week(s)`,
+`month(s)`, and `year(s)`. Weeks are seven days. Months and years use calendar
+arithmetic with month-end/leap-day clamping, so one year can differ from 365 days.
+Cutoffs preceding the supported calendar retain its earliest date. Date/count leaves
+require a releases catalog; a compatibility-only tree does not.
+
+An outside-tree `compatibility {8}` overrides the final tree result. Inside a tree,
+compatibility is a normal leaf: an enclosing `all` may still restrict it. Every branch
+is validated even when an override exists. Catalog-based explicit compatibility
+cannot precede its earliest retained release or exceed current. Conversion and retained
+historical layouts remain subject to the existing evolution contract.
+
+The current revision always remains readable, even when time conditions expire it.
+A time condition exceeded by current produces a compiler warning, including conditions
+inside an `any` or an overridden tree. `--version-policy-warnings-as-errors` promotes
+that warning to failure before any generated output or depfile is replaced.
+
+### Reference dates and reproducible generation
+
+`--version-policy-as-of YYYY-MM-DD` is optional. Otherwise the compiler captures the
+current UTC date once for the invocation and shares it across includes, all requested
+languages, and both schemas in `--check-against`. `--verbose` reports the selected date
+and each resolved minimum. No generation timestamp is injected into the output.
+
+```sh
+serializer --input model.serializer --output model.hpp --cpp.format false \
+  --version-policy-as-of 2026-10-06 --version-policy-warnings-as-errors --verbose
+python example/run.py --compiler build/serializer --example versioning --language all \
+  --version-policy-as-of 2026-10-06
+```
+
+Age-based bounds advance only when generation runs again. Already-built programs keep
+those bounds until regenerated and rebuilt. Incremental CMake builds do not regenerate
+solely because the date changes. Pin the reference date in CI for reproducibility.
+All CMake generation helpers accept `VERSION_POLICY_AS_OF` and the flag
+`VERSION_POLICY_WARNINGS_AS_ERRORS`.
+
+Library callers use `parser::parse_options` with `version_policy_as_of`,
+`version_policy_warnings_as_errors`, and synchronous `warning` / `information`
+callbacks. Pass it to `parse_file(path, options)` or `parse(input, require_header,
+options)`. `parser::version_policy_reference_date()` supplies a shared UTC date for
+multiple calls. Empty dates select UTC today; library diagnostics are delivered only
+to supplied callbacks. Policy resolution occurs before generic lowering so concrete
+instances retain the same resolved bounds.

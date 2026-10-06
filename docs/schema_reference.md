@@ -3,7 +3,9 @@
 [Back to the project overview](../README.md)
 
 See [payload versioning](versioning.md) for revision types, historical positional
-layouts, field lifetimes, replacements, reservations, and common read policies.
+layouts, field lifetimes, replacements, reservations, common read policies, and
+compiler-only release-date/count policies. These resolve to ordinary version bounds
+and add no dates or policy evaluation to generated codecs.
 
 Look up schema declarations, field IDs, buffer views, and native protocol choices.
 Start with [small schema examples](schema_examples.md) if you are new to the syntax.

@@ -43,6 +43,8 @@ add_library(serializer_lib
   src/compression.cpp
   include/rohit/compression.hpp
   src/parser.cpp
+  src/schema_policy.cpp
+  src/schema_policy.hpp
   src/schema_scan.cpp
   src/schema_scan.hpp
   src/simd_dispatch.cpp

@@ -24,6 +24,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -238,6 +239,33 @@ struct generic_parameter {
   std::vector<type_name> default_argument{};
 };
 
+// Compile-time release metadata is owned by the schema AST, never the payload runtime.
+struct version_release {
+  std::string version{};
+  std::string date{};
+  // Compare declared release identities and dates without evaluating a policy.
+  bool operator==(const version_release&) const = default;
+};
+
+enum class version_policy_kind {
+  any,
+  all,
+  max_age,
+  keep_last,
+  released_since,
+  expires_on,
+  compatibility
+};
+
+// One acceptance expression; groups combine children and leaves carry a checked argument.
+struct version_policy {
+  version_policy_kind kind{version_policy_kind::all};
+  std::string argument{};
+  std::vector<version_policy> children{};
+  // Preserve policy structure when comparing or cloning compiler metadata.
+  bool operator==(const version_policy&) const = default;
+};
+
 struct member {
   enum class modifier_type { none, array, map, variant };
   access_type access;
@@ -261,6 +289,9 @@ struct member {
   std::string obsolete_version{};
   std::string replaced_member{};
   std::string compatibility_version{};
+  std::vector<version_release> releases{};
+  std::optional<version_policy> policy{};
+  std::string resolved_compatibility_version{};
 
   // Compare the relevant values without modifying either operand.
   bool operator==(const member& rhs) const {
@@ -270,7 +301,9 @@ struct member {
            version == rhs.version && obsolete == rhs.obsolete &&
            created_version == rhs.created_version && obsolete_version == rhs.obsolete_version &&
            replaced_member == rhs.replaced_member &&
-           compatibility_version == rhs.compatibility_version;
+           compatibility_version == rhs.compatibility_version && releases == rhs.releases &&
+           policy == rhs.policy &&
+           resolved_compatibility_version == rhs.resolved_compatibility_version;
   }
 };
 
@@ -401,6 +434,18 @@ const std::string& get_cpp_type_or_empty(const std::string& type);
 const std::string& get_cpp_type(const std::string& type);
 
 namespace parser {
+// Evaluate release policies once per parse; an empty reference date selects today's UTC date.
+// Callbacks are synchronous, borrow their text only during the call, and may throw to abort parsing.
+struct parse_options {
+  std::string version_policy_as_of{};
+  bool version_policy_warnings_as_errors{false};
+  std::function<void(std::string_view)> warning{};
+  std::function<void(std::string_view)> information{};
+};
+
+// Return today's UTC calendar date for callers sharing one date across multiple entry schemas.
+std::string version_policy_reference_date();
+
 // Own a resolved entry schema and its included declarations; dependencies are canonical paths.
 struct parsed_schema {
   std::vector<std::unique_ptr<syntax_node>> statements{};
@@ -410,12 +455,13 @@ struct parsed_schema {
 // Load versioned files with unquoted, file-relative includes and include-once semantics.
 // Includes precede declarations; cycles, duplicate types, and unresolved references throw.
 // All declarations are owned by the result; no source buffers must outlive this call.
-parsed_schema parse_file(const std::filesystem::path& path);
+parsed_schema parse_file(const std::filesystem::path& path, const parse_options& options = {});
 
 namespace detail {
 // Bridge the compiled parser through byte spans while preserving consumed input on failure.
 std::vector<std::unique_ptr<syntax_node>> parse_bytes(std::span<const std::uint8_t> bytes,
-                                                      std::size_t& consumed, bool require_version);
+                                                      std::size_t& consumed, bool require_version,
+                                                      const parse_options& options);
 // Expose individual parser operations to the test-only wrappers below.
 std::string identifier_bytes(std::span<const std::uint8_t> bytes, std::size_t& consumed);
 // Parse one qualified identifier through the compiled schema scanner.
@@ -456,18 +502,19 @@ decltype(auto) invoke(const Input& input, Parse&& parse) {
 // Parse declarations from a custom buffer or one bounded EOF-delimited byte source.
 // Includes require parse_file so relative paths have an explicit source directory.
 template <rohit::type_check::input_stream Input>
-std::vector<std::unique_ptr<syntax_node>> parse(Input&& input, bool require_version = false) {
+std::vector<std::unique_ptr<syntax_node>> parse(Input&& input, bool require_version = false,
+                                                const parse_options& options = {}) {
   if constexpr (rohit::type_check::input_buffer<Input>) {
-    return detail::invoke(input, [require_version](auto bytes, std::size_t& consumed) {
-      return detail::parse_bytes(bytes, consumed, require_version);
+    return detail::invoke(input, [require_version, &options](auto bytes, std::size_t& consumed) {
+      return detail::parse_bytes(bytes, consumed, require_version, options);
     });
   } else if constexpr (rohit::detail::memory_input_stream<Input>) {
     const auto view = borrow_stream_bytes(input, decode_limits{}.max_input_bytes);
-    return parse(view, require_version);
+    return parse(view, require_version, options);
   } else {
     auto buffer = read_stream_bytes(input, decode_limits{}.max_input_bytes);
     const auto view = make_constant_full_stream(buffer.begin(), buffer.current_offset());
-    return parse(view, require_version);
+    return parse(view, require_version, options);
   }
 }
 

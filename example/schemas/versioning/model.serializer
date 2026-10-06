@@ -1,6 +1,20 @@
 serializer version 1;
 class example_model stable_ids {
-  public version { 10 } compatibility { 8 };
+  public version { 10 }
+    releases {
+      8 { "2024-10-01" };
+      9 { "2025-04-01" };
+      10 { "2026-10-01" };
+    }
+    policy {
+      any {
+        max_age { 2 years };
+        all {
+          keep_last { 3 };
+          compatibility { 8 };
+        };
+      };
+    };
   public uint64 id (2);
   created(9) public bool enabled (3) { true };
   obsolete(10) public string old_name (4);

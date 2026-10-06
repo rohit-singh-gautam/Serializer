@@ -1,3 +1,8 @@
+# 1.1.17
+
+- Highlight release catalogs, generation-time date/count policies, and nested any/all acceptance trees.
+- Add a release-policy snippet and verify navigation across nested version metadata.
+
 # 1.1.16
 
 - Recognize message versions, compatibility floors, field lifecycles, replacements, reservations, and dotted version types.

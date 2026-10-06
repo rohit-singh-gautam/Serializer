@@ -1,5 +1,21 @@
 # Migrating to the snake_case Serializer API
 
+## Release policies (6 October 2026)
+
+Regenerate with the current schema compiler before using `releases` or nested
+`policy` expressions. Both editor packages advance to 1.1.17. The schema language
+version remains 1; older generators reject these additions.
+
+Generated codecs contain ordinary resolved compatibility bounds, so release metadata
+adds no payload bytes or runtime date logic. Different reference dates can change the
+accepted read/write interval without changing individual revision layouts. Pin
+`--version-policy-as-of` or CMake `VERSION_POLICY_AS_OF` in reproducible builds and
+compatibility checks. Rebuild consumers after regenerating changed bounds. Existing
+unversioned schemas and explicit compatibility declarations retain their behavior.
+
+The current version stays readable; optionally fail generation on expiry warnings
+with `--version-policy-warnings-as-errors`. See [release policies](docs/versioning.md#release-dates-and-compile-time-policies).
+
 ## Payload revisions and read policies (6 October 2026)
 
 Regenerate models with the current compiler and rebuild consumers against the

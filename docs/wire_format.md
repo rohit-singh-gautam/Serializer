@@ -1,7 +1,9 @@
 # Wire format and decoding contract
 
 See [payload versioning](versioning.md) for revision types, historical positional
-layouts, field lifetimes, replacements, reservations, and common read policies.
+layouts, field lifetimes, replacements, reservations, common read policies, and
+compiler-only release-date/count policies. These resolve to ordinary version bounds
+and add no dates or policy evaluation to generated codecs.
 
 [Schema generics](generics.md) are expanded before codec generation. Each concrete
 application encodes exactly like an equivalent ordinary class; no parameter names,

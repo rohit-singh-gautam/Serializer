@@ -247,7 +247,7 @@
     },
     {
       "name": "keyword.control.serializer",
-      "match": "\\b(serializer|version|compatibility|created|obsolete|replaced|reserve)\\b"
+      "match": "\\b(serializer|version|compatibility|created|obsolete|replaced|reserve|releases|policy|any|all|max_age|keep_last|released_since|expires_on)\\b"
     },
     {
       "name": "storage.type.serializer",

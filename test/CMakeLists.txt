@@ -16,6 +16,7 @@ add_executable(core_serializer_test
   serializer_parser_test.cpp
   schema_version_test.cpp
   versioning_test.cpp
+  schema_policy_test.cpp
   schema_generics_test.cpp
   dimension_templates_test.cpp
   managed_schema_test.cpp

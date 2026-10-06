@@ -19,6 +19,7 @@
 #include <rohit/version.hpp>
 
 #include "schema_generics.hpp"
+#include "schema_policy.hpp"
 #include "schema_scan.hpp"
 #include "schema_version.hpp"
 
@@ -599,6 +600,131 @@ std::string lifecycle_argument(const rohit::type_check::schema_input_buffer auto
   return text;
 }
 
+constexpr std::size_t maximum_policy_depth = 32;
+constexpr std::size_t maximum_policy_nodes = 4096;
+constexpr std::size_t maximum_version_releases = 4096;
+constexpr std::size_t maximum_policy_literal_bytes = 128;
+
+// Bound policy punctuation reads so truncated metadata produces a schema diagnostic.
+void policy_character(const rohit::type_check::schema_input_buffer auto& input, char expected) {
+  skip_whitespace_and_comment(input);
+  if (input.full() || *input != expected) {
+    throw exception::bad_member_spec{input, std::string{"Expected release-policy punctuation: "} +
+                                                expected};
+  }
+  ++input;
+}
+
+// Preserve one scalar or quoted literal, stopping before comments and metadata punctuation.
+std::string policy_literal(const rohit::type_check::schema_input_buffer auto& input) {
+  skip_whitespace_and_comment(input);
+  std::string value{};
+  bool quoted{};
+  bool escaped{};
+  while (!input.full()) {
+    const auto ch = static_cast<char>(*input);
+    if (!quoted && (is_whitespace(ch) || ch == '{' || ch == '}' || ch == ';' || input == "//" ||
+                    input == "/*")) {
+      break;
+    }
+    if (value.size() >= maximum_policy_literal_bytes) {
+      throw exception::bad_member_spec{input, "Release-policy literal exceeds 128 bytes"};
+    }
+    value.push_back(ch);
+    ++input;
+    if (quoted) {
+      if (escaped) {
+        escaped = false;
+      } else if (ch == '\\') {
+        escaped = true;
+      } else if (ch == '"') {
+        quoted = false;
+        break;
+      }
+    } else if (ch == '"' && value.size() == 1) {
+      quoted = true;
+    }
+  }
+  if (value.empty() || quoted) {
+    throw exception::bad_member_spec{input, "Missing or unterminated release-policy literal"};
+  }
+  skip_whitespace_and_comment(input);
+  return value;
+}
+
+// Read one bounded tree expression; all groups and leaves end with a semicolon.
+version_policy parse_policy_node(const rohit::type_check::schema_input_buffer auto& input,
+                                 std::size_t depth, std::size_t& nodes) {
+  if (depth >= maximum_policy_depth || nodes >= maximum_policy_nodes) {
+    throw exception::bad_member_spec{input, "Release policy exceeds its nesting or node limit"};
+  }
+  ++nodes;
+  const auto name = parse_identifier_impl(input);
+  version_policy result{};
+  if (name == "any") {
+    result.kind = version_policy_kind::any;
+  } else if (name == "all") {
+    result.kind = version_policy_kind::all;
+  } else if (name == "max_age") {
+    result.kind = version_policy_kind::max_age;
+  } else if (name == "keep_last") {
+    result.kind = version_policy_kind::keep_last;
+  } else if (name == "released_since") {
+    result.kind = version_policy_kind::released_since;
+  } else if (name == "expires_on") {
+    result.kind = version_policy_kind::expires_on;
+  } else if (name == "compatibility") {
+    result.kind = version_policy_kind::compatibility;
+  } else {
+    throw exception::bad_member_spec{input, "Unknown release policy: " + name};
+  }
+  policy_character(input, '{');
+  skip_whitespace_and_comment(input);
+  if (result.kind == version_policy_kind::any || result.kind == version_policy_kind::all) {
+    while (!input.full() && *input != '}') {
+      result.children.push_back(parse_policy_node(input, depth + 1, nodes));
+      skip_whitespace_and_comment(input);
+    }
+    if (result.children.empty()) {
+      throw exception::bad_member_spec{input, "Policy groups must not be empty"};
+    }
+  } else {
+    result.argument = policy_literal(input);
+    if (result.kind == version_policy_kind::max_age) {
+      result.argument += " " + parse_identifier_impl(input);
+    }
+  }
+  policy_character(input, '}');
+  policy_character(input, ';');
+  skip_whitespace_and_comment(input);
+  return result;
+}
+
+// Read the ordered release catalog without allocating runtime or generated-language metadata.
+std::vector<version_release>
+parse_releases(const rohit::type_check::schema_input_buffer auto& input) {
+  policy_character(input, '{');
+  skip_whitespace_and_comment(input);
+  std::vector<version_release> releases{};
+  while (!input.full() && *input != '}') {
+    if (releases.size() >= maximum_version_releases) {
+      throw exception::bad_member_spec{input, "Release catalog exceeds 4096 entries"};
+    }
+    auto version = policy_literal(input);
+    policy_character(input, '{');
+    auto date = policy_literal(input);
+    policy_character(input, '}');
+    policy_character(input, ';');
+    releases.push_back({std::move(version), std::move(date)});
+    skip_whitespace_and_comment(input);
+  }
+  if (releases.empty()) {
+    throw exception::bad_member_spec{input, "Release catalog must not be empty"};
+  }
+  policy_character(input, '}');
+  return releases;
+}
+
 // Parse field visibility, storage, wire identity, and optional version lifecycle metadata.
 member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_stream,
                          const std::uint32_t id, namespace_node* declared_namespace) {
@@ -685,6 +811,8 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   bool parsed_default_value{false};
   std::string default_value{};
   std::string compatibility{};
+  std::vector<version_release> releases{};
+  std::optional<version_policy> policy{};
   while (true) {
     skip_whitespace_and_comment(in_stream);
     if (*in_stream == '(') {
@@ -707,6 +835,25 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
       parse_identifier_impl(in_stream);
       skip_whitespace_and_comment(in_stream);
       compatibility = get_default_value(in_stream);
+      if (compatibility.empty()) {
+        throw exception::bad_member_spec{in_stream, "Compatibility requires a version literal"};
+      }
+    } else if (next_keyword(in_stream, "releases")) {
+      if (!version || !releases.empty()) {
+        throw exception::bad_member_spec{in_stream, "Releases require one version declaration"};
+      }
+      parse_identifier_impl(in_stream);
+      releases = parse_releases(in_stream);
+    } else if (next_keyword(in_stream, "policy")) {
+      if (!version || policy) {
+        throw exception::bad_member_spec{in_stream, "Policy requires one version declaration"};
+      }
+      parse_identifier_impl(in_stream);
+      policy_character(in_stream, '{');
+      skip_whitespace_and_comment(in_stream);
+      std::size_t nodes{};
+      policy = parse_policy_node(in_stream, 0, nodes);
+      policy_character(in_stream, '}');
     } else {
       break;
     }
@@ -719,6 +866,8 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   result.extent_expression = std::move(extent);
   result.version = version;
   result.compatibility_version = std::move(compatibility);
+  result.releases = std::move(releases);
+  result.policy = std::move(policy);
   result.obsolete = lifecycle.obsolete;
   result.created_version = std::move(lifecycle.created_version);
   result.obsolete_version = std::move(lifecycle.obsolete_version);
@@ -1599,10 +1748,11 @@ class file_loader {
 
 public:
   // Return the complete compilation unit only after every dependency has been validated.
-  parsed_schema run(const std::filesystem::path& path) {
+  parsed_schema run(const std::filesystem::path& path, const parse_options& options) {
     load(path, 0);
     try {
       const auto input = rohit::make_stream_from_file(path);
+      schema_policy::resolve(result.statements, options);
       lower_generics(input, result.statements);
       resolve_member(input, result.statements, types);
     } catch (const std::exception& error) {
@@ -1614,13 +1764,15 @@ public:
 } // namespace
 
 // Give filesystem-aware callers an isolated include cache and symbol table per entry schema.
-parsed_schema parse_file(const std::filesystem::path& path) {
-  return file_loader{}.run(path);
+parsed_schema parse_file(const std::filesystem::path& path, const parse_options& options) {
+  const auto captured = schema_policy::capture_options(options);
+  return file_loader{}.run(path, captured);
 }
 
 // Parse schema declarations and resolve their member types; malformed input throws.
 std::vector<std::unique_ptr<syntax_node>>
-parse_schema(const rohit::type_check::schema_input_buffer auto& in_stream, bool require_version) {
+parse_schema(const rohit::type_check::schema_input_buffer auto& in_stream, bool require_version,
+             const parse_options& options) {
   parse_version_header(in_stream, require_version);
   std::unordered_map<std::string, syntax_node*> declarations{};
   auto statements = parse_statement_list(in_stream, nullptr, declarations);
@@ -1628,6 +1780,7 @@ parse_schema(const rohit::type_check::schema_input_buffer auto& in_stream, bool 
     throw exception::bad_input_data{in_stream, "Unexpected trailing schema input"};
   }
   std::unordered_map<std::string, syntax_node*> variable_type_map;
+  schema_policy::resolve(statements, options);
   lower_generics(in_stream, statements);
   resolve_member(in_stream, statements, variable_type_map);
   return statements;
@@ -1657,9 +1810,11 @@ decltype(auto) scan_bytes(std::span<const std::uint8_t> bytes, std::size_t& cons
 
 // Compile one schema while retaining checked progress for the caller's independent cursor.
 std::vector<std::unique_ptr<syntax_node>> parse_bytes(std::span<const std::uint8_t> bytes,
-                                                      std::size_t& consumed, bool require_version) {
-  return scan_bytes(bytes, consumed, [require_version](const auto& input) {
-    return parse_schema(input, require_version);
+                                                      std::size_t& consumed, bool require_version,
+                                                      const parse_options& options) {
+  const auto captured = schema_policy::capture_options(options);
+  return scan_bytes(bytes, consumed, [require_version, &captured](const auto& input) {
+    return parse_schema(input, require_version, captured);
   });
 }
 // Dispatch a single identifier scan.

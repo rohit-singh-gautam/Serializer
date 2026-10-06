@@ -189,3 +189,14 @@ test('version lifecycles and component types use the canonical shared grammar', 
   const offset = line.indexOf('version3');
   assert.equal(tokens.find(t => t.startIndex <= offset && t.endIndex > offset).scopes.at(-1), 'support.type.serializer');
 });
+
+test('release catalogs and nested acceptance policies use the shared grammar', async () => {
+  const grammar = await loadGrammar();
+  const line = 'public version { 10 } releases { 8 { "2024-01-01" }; 10 { "2026-01-01" }; } policy { all { max_age { 2 years }; any { keep_last { 3 }; compatibility { 8 }; released_since { "2025-01-01" }; expires_on { "2027-01-01" }; }; }; };';
+  const tokens = grammar.tokenizeLine(line, INITIAL).tokens;
+  for (const keyword of ['releases', 'policy', 'all', 'any', 'max_age', 'keep_last', 'compatibility', 'released_since', 'expires_on']) {
+    const offset = line.indexOf(keyword);
+    assert.equal(tokens.find(t => t.startIndex <= offset && t.endIndex > offset).scopes.at(-1), 'keyword.control.serializer', keyword);
+  }
+  assert.equal(grammar.tokenizeLine(line, INITIAL).ruleStack.depth, 1);
+});

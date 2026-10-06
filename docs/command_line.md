@@ -54,6 +54,9 @@ values, and repeated non-repeatable options are errors.
 | Option | Short form | Meaning |
 | --- | --- | --- |
 | `--input` | `-i` | Required `.serializer` schema |
+| `--version-policy-as-of` | | Optional `YYYY-MM-DD` reference date; defaults to UTC today captured once per invocation |
+| `--version-policy-warnings-as-errors` | | Fail before writing output when current exceeds a release time policy |
+| `--verbose` | | Report resolved release-policy dates and minimum versions |
 | `--check-against` | | Previous schema for read-only compatibility checking; no code generation |
 | `--compatibility-protocol` | | Required for checking: `binary_none`, `binary_integer`, `binary_string`, `json`, or `protobuf_binary` |
 | `--compatibility-direction` | | `backward` (new reader), `forward` (old reader), or `both` (default) |
@@ -316,3 +319,5 @@ The original `commandline_option`, `cli::parse(argc, argv, descriptors)`,
 `cli::first`, `cli::usage`, and callback-based `cli::parse_into` APIs remain
 available for the compiler and existing callers. Their string-map behavior is
 unchanged; new applications should use typed declarations.
+
+Release-date and nested acceptance policies are folded entirely by the schema compiler. See [release policies](versioning.md#release-dates-and-compile-time-policies) for composition, calendar arithmetic, warnings, and reproducible generation. The same options apply to `--check-against`.

@@ -8,8 +8,8 @@ endif()
 # Attach real generated headers, their include directory, and generator dependencies to a target.
 # Call once per target; a normal consumer build runs generation before compiling its sources.
 function(serializer_generate)
-  cmake_parse_arguments(PARSE_ARGV 0 arg ""
-    "TARGET;OUTPUT_DIRECTORY;CONFIG;CODING_STANDARD;FORMAT_FILE;CLANG_FORMAT;GENERATOR;VISIBILITY"
+  cmake_parse_arguments(PARSE_ARGV 0 arg "VERSION_POLICY_WARNINGS_AS_ERRORS"
+    "TARGET;OUTPUT_DIRECTORY;CONFIG;CODING_STANDARD;FORMAT_FILE;CLANG_FORMAT;GENERATOR;VISIBILITY;VERSION_POLICY_AS_OF"
     "SCHEMAS;DEPENDS")
   if(arg_UNPARSED_ARGUMENTS OR arg_KEYWORDS_MISSING_VALUES)
     message(FATAL_ERROR "serializer_generate: unknown arguments or missing argument values")
@@ -69,6 +69,12 @@ function(serializer_generate)
     BASE_DIR "${CMAKE_CURRENT_BINARY_DIR}")
 
   set(arguments)
+  if(arg_VERSION_POLICY_AS_OF)
+    list(APPEND arguments --version-policy-as-of "${arg_VERSION_POLICY_AS_OF}")
+  endif()
+  if(arg_VERSION_POLICY_WARNINGS_AS_ERRORS)
+    list(APPEND arguments --version-policy-warnings-as-errors)
+  endif()
   set(dependencies "${compiler_dependency}" ${arg_DEPENDS})
   if(arg_CONFIG)
     get_filename_component(config "${arg_CONFIG}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")

@@ -128,6 +128,9 @@ inline std::string cpp_literal(const member& version, std::string_view text) {
 
 // The compatibility floor defaults to the current revision, making historical support opt-in.
 inline std::string minimum(const member& version) {
+  if (!version.resolved_compatibility_version.empty()) {
+    return version.resolved_compatibility_version;
+  }
   return version.compatibility_version.empty() ? version.default_value
                                                : version.compatibility_version;
 }

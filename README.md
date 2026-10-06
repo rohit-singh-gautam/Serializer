@@ -21,7 +21,9 @@ Rust, Python, Swift, Kotlin, and C. TypeScript uses the JavaScript runtime.
 
 Payload [versioning and schema evolution](docs/versioning.md) support `version`,
 `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` declarations.
-All eleven language outputs share current/historical read policies and versioned
+Release catalogs and nested allow policies (`any`/`all`, age/count/date limits) resolve
+to compatibility bounds during generation; generated codecs contain no release-date
+processing. All eleven language outputs share current/historical read policies and versioned
 positional binary layouts. See the [versioning examples](example/README.md#versioning).
 
 ## How it works
@@ -254,6 +256,7 @@ for reporting barriers to using the project.
 - [Feature status and roadmap](docs/feature_status.md): implemented behavior and future work.
 - [Verification record](docs/verification-2026-09-17.md): tested revisions, configurations, and outstanding checks.
 - [Versioning verification](docs/verification-versioning-2026-10-06.md): historical layouts, all eleven language examples, and editor checks.
+- [Release-policy verification](docs/verification-release-policies-2026-10-06.md): compiler folding, calendar boundaries, nested policies, and generation options.
 - [Qualification](qualification/README.md): interoperability, fuzzing, and performance workflows.
 - [Coding standard](CodingStandard.md) and [agent instructions](AGENTS.md): repository contribution rules.
 - [License](LICENSE).

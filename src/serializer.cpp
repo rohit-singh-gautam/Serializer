@@ -22,6 +22,7 @@
 #include <rohit/version.hpp>
 
 #include "command_line.hpp"
+#include "schema_policy.hpp"
 
 #include <algorithm>
 #include <exception>
@@ -39,6 +40,11 @@ namespace {
 constexpr rohit::serializer::cli::commandline_option command_options[] = {
     {'h', "help", "", "Display this help."},
     {'v', "version", "", "Display compiler and supported schema language versions."},
+    {'\0', "verbose", "", "Report resolved release-policy dates and minimum versions."},
+    {'\0', "version-policy-as-of", "YYYY-MM-DD",
+     "Evaluate release policies on this date (default today's UTC date)."},
+    {'\0', "version-policy-warnings-as-errors", "",
+     "Fail generation when the current version exceeds a release time policy."},
     {'i', "input", "schema.serializer", "Input with a serializer version 1; header."},
     {'\0', "check-against", "previous.serializer",
      "Check schema compatibility without generating output."},
@@ -117,10 +123,17 @@ std::string dependency_path(const std::filesystem::path& path) {
 }
 
 // Run read-only evolution checks separately from code generation and select the reader direction.
-int check_compatibility(const rohit::serializer::cli::arguments& arguments) {
+int check_compatibility(const rohit::serializer::cli::arguments& arguments,
+                        const rohit::serializer::parser::parse_options& parse_options) {
   using namespace rohit::serializer;
-  const std::set<std::string> allowed{"input", "check-against", "compatibility-protocol",
-                                      "compatibility-direction", "compatibility-policy"};
+  const std::set<std::string> allowed{"input",
+                                      "check-against",
+                                      "compatibility-protocol",
+                                      "compatibility-direction",
+                                      "compatibility-policy",
+                                      "verbose",
+                                      "version-policy-as-of",
+                                      "version-policy-warnings-as-errors"};
   for (const auto& [name, values] : arguments) {
     static_cast<void>(values);
     if (!allowed.contains(name)) {
@@ -138,8 +151,8 @@ int check_compatibility(const rohit::serializer::cli::arguments& arguments) {
   if (direction != "backward" && direction != "forward" && direction != "both") {
     throw std::invalid_argument{"compatibility-direction must be backward, forward, or both"};
   }
-  const auto previous = parser::parse_file(cli::first(arguments, "check-against"));
-  const auto current = parser::parse_file(cli::first(arguments, "input"));
+  const auto previous = parser::parse_file(cli::first(arguments, "check-against"), parse_options);
+  const auto current = parser::parse_file(cli::first(arguments, "input"), parse_options);
   const auto policy = arguments.contains("compatibility-policy")
                           ? read_compatibility_policy(cli::first(arguments, "compatibility-policy"))
                           : compatibility_policy{};
@@ -181,8 +194,23 @@ int main(const int argc, const char* argv[]) {
     if (!parsed.contains("input")) {
       throw std::invalid_argument{"--input is required; use --help for options"};
     }
+    parser::parse_options parse_options{};
+    if (parsed.contains("version-policy-as-of")) {
+      parse_options.version_policy_as_of = cli::first(parsed, "version-policy-as-of");
+    }
+    parse_options.version_policy_warnings_as_errors =
+        parsed.contains("version-policy-warnings-as-errors");
+    parse_options.warning = [](std::string_view message) {
+      std::cerr << "Serializer warning: " << message << '\n';
+    };
+    if (parsed.contains("verbose")) {
+      parse_options.information = [](std::string_view message) {
+        std::cout << "Serializer: " << message << '\n';
+      };
+    }
+    parse_options = schema_policy::capture_options(parse_options);
     if (parsed.contains("check-against")) {
-      return check_compatibility(parsed);
+      return check_compatibility(parsed, parse_options);
     }
     if (parsed.contains("compatibility-protocol") || parsed.contains("compatibility-direction") ||
         parsed.contains("compatibility-policy")) {
@@ -349,7 +377,7 @@ int main(const int argc, const char* argv[]) {
       }
       destinations.push_back(output_file);
     }
-    const auto schema = parser::parse_file(input_file);
+    const auto schema = parser::parse_file(input_file, parse_options);
     auto dependencies = schema.dependencies;
     if (parsed.contains("config")) {
       dependencies.emplace_back(cli::first(parsed, "config"));

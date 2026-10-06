@@ -1,7 +1,9 @@
 # Using Serializer in a C++ application
 
 See [payload versioning](versioning.md) for revision types, historical positional
-layouts, field lifetimes, replacements, reservations, and common read policies.
+layouts, field lifetimes, replacements, reservations, common read policies, and
+compiler-only release-date/count policies. These resolve to ordinary version bounds
+and add no dates or policy evaluation to generated codecs.
 
 New to the project? Start with the [project overview](../README.md#get-started).
 For editing and persistence concepts, read the

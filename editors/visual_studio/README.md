@@ -3,7 +3,7 @@
 This extension supports the [Serializer schema compiler and serialization library](https://github.com/rohit-singh-gautam/Serializer)
 maintained in that repository.
 
-Version **1.1.16** provides `.serializer` highlighting and native navigation in
+Version **1.1.17** provides `.serializer` highlighting and native navigation in
 **Visual Studio 2022 and Visual Studio 2026 on Windows x64**. It shares the VS Code
 extension's grammar and schema/generated-output resolver. Custom type references
 such as `demo::order`, `demo::snapshot` and `demo::customer` use the active theme's
@@ -84,7 +84,7 @@ installation. It uses full-framework MSBuild with locked dependencies, bundles
 the current shared resolver, rebuilds and validates:
 
 ```text
-out/extensions/serializer-visual-studio-1.1.16.vsix
+out/extensions/serializer-visual-studio-1.1.17.vsix
 ```
 
 Close Visual Studio, double-click the VSIX, select the installation and restart
@@ -159,7 +159,7 @@ Managed classes now expose persistent IDs directly by default. Set
 ID-free ordinary classes and managed storage companions are required. Navigation
 supports the direct schema class, its editor, and opt-in companion declarations.
 
-## Native templates and dimensions (1.1.16)
+## Native templates and dimensions (1.1.15)
 
 Both packages recognize `uint64 N`, trailing defaults, fixed `array[N * M] T`
 expressions, nested generic applications, and optional `instantiate` contracts.
@@ -170,4 +170,8 @@ contracts; fixed-array output is currently unsupported there. The shared grammar
 highlights dimension arithmetic and the `matrix` snippet inserts a fixed-array
 example. Both packages use the same navigation implementation.
 
-Version 1.1.16 recognizes payload `version`/`compatibility`, `version2`/`version3`/`version4`, `created`/`obsolete`/`replaced`, and `reserve` syntax. Qualified field-type navigation remains available beside lifecycle metadata. See the [revision contract](../../docs/versioning.md).
+Version 1.1.17 recognizes payload `version`/`compatibility`, `version2`/`version3`/`version4`, `created`/`obsolete`/`replaced`, and `reserve` syntax. Qualified field-type navigation remains available beside lifecycle metadata. See the [revision contract](../../docs/versioning.md).
+
+## Release policies (1.1.17)
+
+Both extensions highlight `releases`, nested `policy` / `any` / `all`, and the `max_age`, `keep_last`, `released_since`, `expires_on`, and compatibility leaves. The schema compiler folds these into ordinary version bounds; generated readers contain no dates or policy tree. See the [release policy contract](../../docs/versioning.md#release-dates-and-compile-time-policies).

@@ -4,6 +4,10 @@ This record covers the working-tree implementation of [payload versioning](versi
 on source baseline `fbc7718c0cf47bbe93a5bef7521f0924a3685080`. It describes
 completed checks, rather than qualification of an immutable release.
 
+Release dates and compile-time policies were implemented after this run. See the
+[subsequent policy verification](verification-release-policies-2026-10-06.md) for
+that implementation and editor version 1.1.17.
+
 ## Completed checks
 
 - The full configured Release build passed with Visual Studio 2026 on Windows x64.

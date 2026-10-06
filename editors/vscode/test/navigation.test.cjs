@@ -462,3 +462,14 @@ test('version and lifecycle metadata preserve adjacent qualified type navigation
     }
   }
 });
+
+test('nested release policies leave adjacent qualified references and include navigation intact', async () => {
+  const source = 'include common; namespace app { class model { public version { 10 } releases { 8 { "2024-01-01" }; 10 { "2026-01-01" }; } policy { any { max_age { 2 years }; all { keep_last { 3 }; compatibility { 8 }; }; }; }; public lib::person value (2); } }';
+  const state = fixture({ 'model.serializer': source, 'common.serializer': 'namespace lib { class person {} }' });
+  const references = indexSource(source, true).references;
+  assert.ok(!references.some(r => ['releases', 'policy', 'any', 'all', 'max_age', 'years', 'keep_last', 'compatibility'].includes(r.name)));
+  const offset = source.indexOf('lib::person');
+  for (let cursor = offset; cursor <= offset + 'lib::person'.length; ++cursor) {
+    assert.deepEqual(selected(state, await state.resolver().schema(file('model.serializer'), cursor, false)), [['common.serializer', 'person']]);
+  }
+});

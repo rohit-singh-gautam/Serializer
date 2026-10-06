@@ -370,6 +370,8 @@ serializer_generate(TARGET my_app
 | `GENERATOR` | Executable target or existing executable path; defaults to `Serializer::serializer` |
 | `VISIBILITY` | `PRIVATE`, `PUBLIC`, or `INTERFACE`; defaults to `PRIVATE` except for interface libraries, which require `INTERFACE` |
 | `DEPENDS` | Additional files or targets affecting generation, using CMake's custom-command dependency rules |
+| `VERSION_POLICY_AS_OF` | Optional pinned `YYYY-MM-DD` for compile-time release policies; supported by all three generation helpers |
+| `VERSION_POLICY_WARNINGS_AS_ERRORS` | Flag promoting current-release expiry warnings to generation failure; supported by all three helpers |
 
 Relative schema, config, format-file, and generator paths use the current source
 directory. Prefer an absolute path for `CLANG_FORMAT`; a bare executable name is
@@ -458,3 +460,5 @@ Set `SERIALIZER_EXAMPLE_WSL_LANGUAGES=c,rust,swift` for explicitly selected WSL
 SDKs on Windows, and `SERIALIZER_EXAMPLE_SANITIZERS=ON` for GCC/Clang C sanitizers.
 These options do not change the compiler implementation or require SDKs during
 an ordinary build. The previous five-runtime CMake subset remains available.
+
+For reproducible [release policies](versioning.md#reference-dates-and-reproducible-generation), pass `VERSION_POLICY_AS_OF 2026-10-06` to the helper. Incremental generation remains dependency-driven: a date change alone does not rebuild existing output. Change the pinned value or explicitly rerun generation to advance age-based bounds.

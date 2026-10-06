@@ -155,6 +155,8 @@ class Runner:
             destination.parent.mkdir(parents=True, exist_ok=True)
         schema = ROOT / 'example/interoperability/message.serializer' if example == 'interoperability' else ROOT / 'example/schemas' / example / 'model.serializer'
         command = [self.args.compiler, '--input', schema, '--language', ','.join(targets), '--cpp.format', 'false', '--go.package', 'main', '--kotlin.package=']
+        if getattr(self.args, 'version_policy_as_of', None):
+            command += ['--version-policy-as-of', self.args.version_policy_as_of]
         for language, destination in targets.items():
             command += [f'--{language}.output', destination]
         run(command)
@@ -206,6 +208,7 @@ def main():
     parser.add_argument('--build', type=Path, default=ROOT / 'out/examples')
     parser.add_argument('--language', default='all', help='all or comma-separated language folder names')
     parser.add_argument('--example', choices=(*EXAMPLES, 'all'), default='all')
+    parser.add_argument('--version-policy-as-of', help='Pin compiler-only release-policy evaluation to YYYY-MM-DD')
     parser.add_argument('--cpp-library', type=Path)
     parser.add_argument('--wsl-languages', default='', help='Explicit Windows-to-WSL SDK selection, e.g. c,rust,swift')
     parser.add_argument('--sanitize', action='store_true', help='Enable address/undefined sanitizers for C')

@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin, or C applications from a provided repository or existing dependency. Use for .serializer schemas, native C++ generic templates, optional cross-language contracts, dimension parameters and fixed arrays, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, payload revisions, lifecycle annotations, schema compatibility checks and reservations, stream concepts, durable file streams and iostream adapters, exact fresh-value decoding, managed journal/crash recovery and C++ local collaboration with store-owned sessions, timed synchronization and undo, optional message compression, JSON or binary codecs, database persistence guidance, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
+description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin, or C applications from a provided repository or existing dependency. Use for .serializer schemas, native C++ generic templates, optional cross-language contracts, dimension parameters and fixed arrays, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, payload revisions, compiler-only release policies, lifecycle annotations, schema compatibility checks and reservations, stream concepts, durable file streams and iostream adapters, exact fresh-value decoding, managed journal/crash recovery and C++ local collaboration with store-owned sessions, timed synchronization and undo, optional message compression, JSON or binary codecs, database persistence guidance, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
 ---
 
 # Serializer Integration
@@ -1159,10 +1159,35 @@ installed runtime header.
 
 ## Payload revisions and schema evolution
 
-Consult the [versioning verification record](../../../docs/verification-versioning-2026-10-06.md) for completed language, codec, and editor checks. Release-date and time-based expiry syntax remains a proposal; do not generate it as supported syntax.
+Consult the [versioning verification record](../../../docs/verification-versioning-2026-10-06.md) and [release-policy verification record](../../../docs/verification-release-policies-2026-10-06.md) for completed language, compiler, codec, and editor checks. Release catalogs and nested allow policies are evaluated entirely during schema compilation; generated readers and writers contain only resolved version bounds.
 
 Use [payload versioning](../../../docs/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the required `serializer version 1;` language header from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.
 
 Keep retained historical definitions and relative positional order intact. Set the object's revision to write an older supported layout. Use `read_policy::compatible` for declared history, `strict` for the current revision, and `flexible` to skip safe JSON extensions within the declared interval. The former `json_read_policy::compatible` spelling is removed; its unknown-field behavior is `read_policy::flexible`. Native generated languages select `ReadPolicy` through `Limits`; C uses `srl_read_policy`.
 
 Choose uint8/16/32/64, finite nonnegative float/double, or version2/3/4 with canonical bounded uint16 components. Dotted revisions are C++ value types and strings in other native APIs. Conversion for `replaced` is explicit application code. Do not infer forward support for unknown revisions or automatic decoding of previously unversioned bytes. Versioned unmanaged owning models support all eleven languages and all four native codecs; managed models, views, and Protobuf mappings currently reject this feature. Verify the consuming application's historical bytes and the relevant language examples.
+
+### Release-date and count policies
+
+Follow [release policies](../../../docs/versioning.md#release-dates-and-compile-time-policies)
+for `releases`, `policy`, nested `any` / `all`, `max_age`, `keep_last`, `released_since`,
+`expires_on`, and compatibility leaves. These are allow conditions, not deny lists.
+Require ordered release identities and dates with a dated current revision. Preserve
+retained historical definitions; release entries do not supply missing decoder layouts.
+
+Pin `--version-policy-as-of YYYY-MM-DD` in reproducible generation and compatibility
+checks; otherwise the schema compiler captures UTC today once per invocation.
+All three CMake helpers accept `VERSION_POLICY_AS_OF` and the flag
+`VERSION_POLICY_WARNINGS_AS_ERRORS`. An incremental build does not rerun generation
+just because the date changes. Already-built readers retain the compiled floor.
+
+Inside a tree, compatibility is a normal leaf; outside it, compatibility overrides the
+final tree. Date/count leaves need a catalog; compatibility-only trees do not. The
+runtime accepts the folded version interval rather than a catalog whitelist. The
+current version remains readable, with generation warnings for exceeded time leaves;
+`--version-policy-warnings-as-errors` promotes these before output publication.
+
+Library callers may pass `parser::parse_options` to `parse_file(path, options)` or
+`parse(input, require_header, options)` and supply synchronous diagnostic callbacks.
+Use `parser::version_policy_reference_date()` when multiple calls must share a UTC day.
+Do not add clocks, dates, release arrays, or policy objects to application codecs.

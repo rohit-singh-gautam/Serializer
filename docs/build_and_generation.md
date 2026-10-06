@@ -268,3 +268,5 @@ Source builds and installed-package generation have been checked on Windows; see
 editor-host generation smoke test passed; see [extension
 verification](editor_extension.md#verification-performed) for scope. Live C/C++
 IntelliSense reparsing remains unverified.
+
+Release catalogs and nested policies are evaluated by the schema compiler. Pin `--version-policy-as-of YYYY-MM-DD`, or `VERSION_POLICY_AS_OF` in CMake, for deterministic compatibility bounds. See [release policies](versioning.md#release-dates-and-compile-time-policies).
