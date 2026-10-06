@@ -1,5 +1,6 @@
-#include <rohit/serializer_creator.hpp>
 #include "native_schema.hpp"
+#include "version_writer.hpp"
+#include <rohit/serializer_creator.hpp>
 
 #include <algorithm>
 #include <array>
@@ -128,7 +129,8 @@ class emitter {
   std::vector<const syntax_node*> nodes{};
   std::map<const syntax_node*, std::string> names{};
   std::map<std::string, std::size_t> wire_names{};
-  std::set<std::string> globals{"Protocol",     "Limits",   "DefaultLimits", "SrlWriter",
+  std::set<std::string> globals{"ReadPolicy",   "STRICT",   "COMPATIBLE",    "FLEXIBLE",
+                                "Protocol",     "Limits",   "DefaultLimits", "SrlWriter",
                                 "SrlReader",    "SrlUtf8",  "SrlCompare",    "SrlReadEnum",
                                 "SrlWriteEnum", "SrlField", "SrlFields",     "System"};
 
@@ -182,6 +184,9 @@ class emitter {
       return (language == target::go && value.type == object_type::class_type ? "*" : "") +
              names.at(value.resolved_node);
     }
+    if (value.name.starts_with("version")) {
+      return "string";
+    }
     if (language == target::js || language == target::typescript) {
       return value.name == "string"                            ? "string"
              : value.name == "bool"                            ? "boolean"
@@ -223,7 +228,7 @@ class emitter {
       return enum_constant(
           value, static_cast<const enum_node&>(*value.resolved_node).enum_name_list.front());
     }
-    if (value.name == "string") {
+    if (value.name == "string" || value.name.starts_with("version")) {
       return "\"\"";
     }
     if (value.name == "bool") {
@@ -238,6 +243,9 @@ class emitter {
   // Validate portable literals before translating their native spelling.
   std::string default_value(const member& value) const {
     const auto& item = value.type_name_list.front();
+    if (item.name.starts_with("version")) {
+      return schema_version::trim(value.default_value);
+    }
     const auto first = value.default_value.find_first_not_of(" \t\r\n");
     if (first == std::string::npos) {
       return initial(item);
@@ -488,6 +496,9 @@ class emitter {
              : language == target::csharp ? "(" + identifier + ")" + expression
                                           : expression;
     }
+    if (value.name.starts_with("version")) {
+      return "input.version(" + std::string{value.name.back()} + ")";
+    }
     if (value.name == "string") {
       return "input.text()";
     }
@@ -521,6 +532,8 @@ class emitter {
       statement(choose("srlWriteEnum", "srlWriteEnum", "SrlWriteEnum") + "(output, " + converted +
                 ", " + names.at(value.resolved_node) + "Names, " + (collection ? "true" : "false") +
                 ")");
+    } else if (value.name.starts_with("version")) {
+      statement("output.version(" + expression + ", " + std::string{value.name.back()} + ")");
     } else if (value.name == "string") {
       statement("output.text(" + expression + ")");
     } else if (value.name == "bool") {
@@ -804,8 +817,69 @@ class emitter {
       read_field(value);
     }
   }
+  // Select the target revision expression vocabulary.
+  version_language revision_language() const {
+    return language == target::go       ? version_language::go
+           : language == target::csharp ? version_language::csharp
+                                        : version_language::javascript;
+  }
+  // Validate the revision before exposing an encoded or decoded message.
+  void check_version(const class_node& owner, bool reading) {
+    const auto& version = *owner.version_member();
+    const auto value = choose(reading ? "result." : "this.", reading ? "result." : "value.",
+                              reading ? "result." : "this.") +
+                       field(version.name, version.access);
+    const auto lang = revision_language();
+    auto invalid = version_less(lang, version, value, schema_version::minimum(version)) + " || !(" +
+                   version_less(lang, version, value, version.default_value) + " || " +
+                   version_equal(lang, version, value, version.default_value) + ")";
+    if (reading) {
+      invalid += " || (input.limits." + choose("readPolicy", "ReadPolicy", "ReadPolicy") +
+                 " == " + choose("ReadPolicy.STRICT", "STRICT", "ReadPolicy.STRICT") + " && !" +
+                 version_equal(lang, version, value, version.default_value) + ")";
+    }
+    condition(invalid);
+    statement(std::string{reading ? "input" : "output"} + ".fail(\"Unsupported schema version\")");
+    close();
+  }
+  // Record field presence and omit inactive positional fields without consuming bytes.
+  void read_versioned_member(const class_node& owner, const member& item, int alternative = -1) {
+    const auto* version = owner.version_member();
+    if (!version) {
+      if (alternative >= 0) {
+        read_union(item, alternative);
+      } else {
+        read_member(item);
+      }
+      return;
+    }
+    const auto slot = std::to_string(version_slot(owner, item));
+    condition("seen[" + slot + "]");
+    statement("input.fail(\"Duplicate field\")");
+    close();
+    statement("seen[" + slot + "] = true");
+    const auto active = version_active(revision_language(), item, *version,
+                                       "result." + field(version->name, version->access));
+    if (!active.empty()) {
+      condition("input.protocol != " + protocol("BINARY_NONE") + " || (" + active + ")");
+    }
+    if (alternative >= 0) {
+      read_union(item, alternative);
+    } else {
+      read_member(item);
+    }
+    if (!active.empty()) {
+      close();
+    }
+    if (item.version) {
+      check_version(owner, true);
+    }
+  }
   // Write every parent and member in declaration order.
   void write_object(const class_node& value) {
+    if (value.version_member()) {
+      check_version(value, false);
+    }
     statement("output.beginObject()");
     if (language == target::go) {
       condition("output.err != nil");
@@ -813,6 +887,12 @@ class emitter {
       close();
     }
     bool first = true;
+    if (const auto* version = value.version_member()) {
+      statement("output.field(" + std::to_string(version->id) + ", " +
+                wire_key(version->display_name) + ", true)");
+      write_field(*version);
+      first = false;
+    }
     for (std::size_t i = 0; i < value.parents.size(); ++i) {
       const auto& base = value.parents[i];
       statement("output.field(" + std::to_string(base.id) + ", " + wire_key(base.display_name) +
@@ -823,6 +903,17 @@ class emitter {
       first = false;
     }
     for (const auto& item : value.member_list) {
+      if (item.version) {
+        continue;
+      }
+      const auto* version = value.version_member();
+      const auto active = version ? version_active(revision_language(), item, *version,
+                                                   choose("this.", "value.", "this.") +
+                                                       field(version->name, version->access))
+                                  : std::string{};
+      if (!active.empty()) {
+        condition(active);
+      }
       open("");
       if (item.modifier == member::modifier_type::variant) {
         const auto expression = choose("this.", "value.", "this.") + field(item.name, item.access);
@@ -859,6 +950,9 @@ class emitter {
         write_field(item);
       }
       close();
+      if (!active.empty()) {
+        close();
+      }
       first = false;
     }
     statement("output.endObject()");
@@ -872,14 +966,11 @@ class emitter {
               destination + ")");
   }
   // Emit a field dispatch case with a scope for collection temporaries.
-  void read_case(const std::string& key, const member& value, int alternative = -1) {
+  void read_case(const class_node& owner, const std::string& key, const member& value,
+                 int alternative = -1) {
     line("case " + key + ":");
     open("");
-    if (alternative >= 0) {
-      read_union(value, alternative);
-    } else {
-      read_member(value);
-    }
+    read_versioned_member(owner, value, alternative);
     if (language != target::go) {
       statement("break");
     }
@@ -887,6 +978,15 @@ class emitter {
   }
   // Dispatch known keys through native switches, avoiding linear field lookup.
   void read_object(const class_node& value) {
+    if (value.version_member()) {
+      local(
+          "seen",
+          choose("new Array(" + std::to_string(value.parents.size() + value.member_list.size()) +
+                     ").fill(false)",
+                 "[" + std::to_string(value.parents.size() + value.member_list.size()) + "]bool{}",
+                 "new bool[" + std::to_string(value.parents.size() + value.member_list.size()) +
+                     "]"));
+    }
     statement("input.beginObject()");
     if (language == target::go) {
       condition("input.err != nil");
@@ -894,12 +994,18 @@ class emitter {
       close();
     }
     condition("input.protocol == " + protocol("BINARY_NONE"));
+    if (const auto* version = value.version_member()) {
+      read_versioned_member(value, *version);
+    }
     for (std::size_t i = 0; i < value.parents.size(); ++i) {
       read_parent(value.parents[i], i);
     }
     for (const auto& item : value.member_list) {
+      if (item.version) {
+        continue;
+      }
       open("");
-      read_member(item);
+      read_versioned_member(value, item);
       close();
     }
     for (const bool numeric : {true, false}) {
@@ -949,16 +1055,16 @@ class emitter {
       for (const auto& item : value.member_list) {
         if (!numeric && item.modifier == member::modifier_type::variant) {
           for (std::size_t i = 0; i < item.type_name_list.size(); ++i) {
-            read_case(quote(item.display_name + ":" + item.type_name_list[i].enum_name), item,
-                      static_cast<int>(i));
+            read_case(value, quote(item.display_name + ":" + item.type_name_list[i].enum_name),
+                      item, static_cast<int>(i));
           }
         } else {
-          read_case(numeric ? std::to_string(item.id) : quote(item.display_name), item);
+          read_case(value, numeric ? std::to_string(item.id) : quote(item.display_name), item);
         }
       }
       line("default:");
       ++level;
-      statement("input.fail(\"Unknown field\")");
+      statement("input.skipValue()");
       if (language != target::go) {
         statement("break");
       }
@@ -968,6 +1074,22 @@ class emitter {
     }
     close();
     statement("input.endObject()");
+    if (const auto* version = value.version_member()) {
+      condition("!seen[" + std::to_string(version_slot(value, *version)) + "]");
+      statement("input.fail(\"Missing schema version\")");
+      close();
+      check_version(value, true);
+      for (const auto& item : value.member_list) {
+        const auto active = version_active(revision_language(), item, *version,
+                                           "result." + field(version->name, version->access));
+        if (!active.empty()) {
+          condition("input.protocol != " + protocol("BINARY_NONE") + " && seen[" +
+                    std::to_string(version_slot(value, item)) + "] && !(" + active + ")");
+          statement("input.fail(\"Field outside version lifecycle\")");
+          close();
+        }
+      }
+    }
     statement("return result");
   }
   // Emit enum constants and the original-name lookup required by native codecs.
@@ -1212,11 +1334,13 @@ public:
       line("export declare const Protocol: Readonly<{JSON: 0; BINARY_NONE: 1; BINARY_INTEGER: 2; "
            "BINARY_STRING: 3}>;");
       line("export type Protocol = typeof Protocol[keyof typeof Protocol];");
+      line(
+          "export declare const ReadPolicy: Readonly<{ STRICT: 0; COMPATIBLE: 1; FLEXIBLE: 2 }>; ");
       line("export declare class Limits {");
       line("  readonly maxBytes: number; readonly maxStringBytes: number; readonly maxElements: "
-           "number; readonly maxDepth: number;");
+           "number; readonly maxDepth: number; readonly readPolicy: number;");
       line("  constructor(maxBytes?: number, maxStringBytes?: number, maxElements?: number, "
-           "maxDepth?: number);");
+           "maxDepth?: number, readPolicy?: number);");
       line("}");
     }
     if (language != target::typescript) {

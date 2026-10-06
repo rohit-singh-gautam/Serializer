@@ -152,7 +152,18 @@
       }
     },
     {
-      "match": "\\b(public|protected|private|managed)\\s+((?!(?:array|map|union|managed)\\b)(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
+      "match": "\\b(public|protected|private)\\s+(version)\\b",
+      "captures": {
+        "1": {
+          "name": "storage.modifier.serializer"
+        },
+        "2": {
+          "name": "keyword.control.serializer"
+        }
+      }
+    },
+    {
+      "match": "\\b(public|protected|private|managed)\\s+((?!(?:array|map|union|managed|version)\\b)(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
       "captures": {
         "1": {
           "name": "storage.modifier.serializer"
@@ -236,7 +247,7 @@
     },
     {
       "name": "keyword.control.serializer",
-      "match": "\\b(serializer|version)\\b"
+      "match": "\\b(serializer|version|compatibility|created|obsolete|replaced|reserve)\\b"
     },
     {
       "name": "storage.type.serializer",
@@ -248,7 +259,7 @@
     },
     {
       "name": "support.type.serializer",
-      "match": "\\b(char|bool|string|float|double|u?int(?:8|16|32|64))\\b"
+      "match": "\\b(version[234]|char|bool|string|float|double|u?int(?:8|16|32|64))\\b"
     },
     {
       "name": "constant.language.serializer",
@@ -320,7 +331,7 @@
       "patterns": [
         {
           "name": "support.type.serializer",
-          "match": "\\b(char|bool|string|float|double|u?int(?:8|16|32|64))\\b"
+          "match": "\\b(version[234]|char|bool|string|float|double|u?int(?:8|16|32|64))\\b"
         },
         {
           "name": "entity.name.namespace.serializer",

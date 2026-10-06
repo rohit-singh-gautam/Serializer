@@ -2,14 +2,29 @@ R"serializer(
 /** Native protocols. Binary scalars are little-endian. */
 export const Protocol = Object.freeze({JSON: 0, BINARY_NONE: 1, BINARY_INTEGER: 2, BINARY_STRING: 3});
 /** Per-message policy; entries are counted cumulatively. */
+export const ReadPolicy = Object.freeze({STRICT: 0, COMPATIBLE: 1, FLEXIBLE: 2});
 export class Limits {
-  constructor(maxBytes = 64 * 1024 * 1024, maxStringBytes = 16 * 1024 * 1024, maxElements = 1000000, maxDepth = 64) {
+  constructor(maxBytes = 64 * 1024 * 1024, maxStringBytes = 16 * 1024 * 1024, maxElements = 1000000, maxDepth = 64, readPolicy = ReadPolicy.STRICT) {
     for (const value of [maxBytes, maxStringBytes, maxElements, maxDepth]) {
       if (!Number.isSafeInteger(value) || value < 0) throw new RangeError('Invalid decode limit');
     }
-    Object.assign(this, {maxBytes, maxStringBytes, maxElements, maxDepth});
+    if (![0, 1, 2].includes(readPolicy)) throw new RangeError("Invalid read policy");
+    Object.assign(this, {maxBytes, maxStringBytes, maxElements, maxDepth, readPolicy});
     Object.freeze(this);
   }
+}
+/** Parse exactly the declared number of bounded canonical components. */
+function srlVersionParts(value, count) {
+  if (typeof value !== 'string') throw new RangeError('Invalid dotted revision');
+  const parts = value.split('.');
+  if (parts.length !== count || parts.some(x => !/^(0|[1-9][0-9]*)$/.test(x) || x.length > 5 || Number(x) > 65535)) throw new RangeError('Invalid dotted revision');
+  return parts.map(Number);
+}
+/** Compare numeric components without string ordering. */
+function srlVersionCompare(a, b, count) {
+  const x = srlVersionParts(a, count), y = srlVersionParts(b, count);
+  for (let i = 0; i < count; ++i) if (x[i] !== y[i]) return x[i] < y[i] ? -1 : 1;
+  return 0;
 }
 const srlEncoder = new TextEncoder();
 const srlDecoder = new TextDecoder('utf-8', {fatal: true, ignoreBOM: true});
@@ -36,6 +51,9 @@ function srlCompare(a, b) {
 }
 /** An isolated growing byte writer; no caller-owned storage is retained. */
 class SrlWriter {
+  // Encode components without a sequence count in binary modes.
+  version(value, count) { const parts = srlVersionParts(value, count); if (this.json()) this.text(value); else for (const part of parts) this.integer(part, 2, true); }
+
   constructor(protocol) {
     if (!Number.isInteger(protocol) || protocol < 0 || protocol > 3) throw new RangeError('Unknown protocol');
     this.protocol = protocol; this.buffer = new Uint8Array(256); this.view = new DataView(this.buffer.buffer); this.offset = 0; this.depth = 0;
@@ -142,6 +160,22 @@ function srlMakeField(name) {
 }
 /** Streaming token reader preserves duplicate fields and exact integer tokens. */
 class SrlReader {
+  // Decode and validate a canonical dotted discriminator.
+  version(count) { const value = this.json() ? this.text() : Array.from({length: count}, () => this.integer(2, true)).join('.'); srlVersionParts(value, count); return value; }
+  // Skip only bounded well-formed JSON values under the flexible policy.
+  skipValue() {
+    if (!this.json() || this.limits.readPolicy !== ReadPolicy.FLEXIBLE) this.fail('Unknown field');
+    this.whitespace(); this.require(1); const c = this.bytes[this.offset];
+    if (c === 34) { this.text(); return; }
+    if (c === 123) {
+      this.beginObject(); let first = true; const seen = new Set();
+      while (this.nextObject(first)) { first = false; const key = this.key(); if (seen.has(key)) this.fail('Duplicate field'); seen.add(key); if (++this.elements > this.limits.maxElements) this.fail('Element limit'); this.skipValue(); }
+      this.endObject(); return;
+    }
+    if (c === 91) { if (++this.depth > this.limits.maxDepth) this.fail('Depth limit'); const count = this.beginArray(); for (let i = 0; this.nextElement(i, count); ++i) this.skipValue(); --this.depth; return; }
+    const value = this.token(); if (!['null', 'true', 'false'].includes(value) && !/^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$/.test(value)) this.fail('Invalid JSON value');
+  }
+
   constructor(bytes, protocol, limits) {
     if (!(bytes instanceof Uint8Array) || !(limits instanceof Limits)) throw new TypeError('Expected Uint8Array and Limits');
     if (!Number.isInteger(protocol) || protocol < 0 || protocol > 3) throw new RangeError('Unknown protocol');
@@ -220,7 +254,8 @@ class SrlReader {
   // Bound escaped and decoded UTF-8 string sizes before exposing a value.
   text() {
     if (!this.json()) {
-      const count = this.compact(); if (count > this.limits.maxStringBytes) this.fail('String limit'); this.require(count);
+)serializer"
+R"serializer(      const count = this.compact(); if (count > this.limits.maxStringBytes) this.fail('String limit'); this.require(count);
       const value = srlDecoder.decode(this.bytes.subarray(this.offset, this.offset + count)); this.offset += count; return value;
     }
     this.expect('"'); const start = this.offset; let escaped = false;

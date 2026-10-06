@@ -61,7 +61,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let fields: Vec<usize> = line.split_whitespace().map(|x| x.parse().unwrap()).collect();
         let bytes = fs::read(directory.join(format!("{}.bin", fields[0])))?;
         let protocol = [Protocol::Json, Protocol::BinaryNone, Protocol::BinaryInteger, Protocol::BinaryString][fields[2]];
-        let limits = Limits { max_bytes: fields[3], max_string_bytes: fields[4], max_elements: fields[5], max_depth: fields[6] };
+        let limits = Limits { max_bytes: fields[3], max_string_bytes: fields[4], max_elements: fields[5], max_depth: fields[6], ..Limits::default() };
         match decode(fields[1], &bytes, protocol, limits) {
             Ok(json) => { fs::write(output.join(format!("{}.json", fields[0])), json)?; statuses.push_str("OK\n"); }
             Err(_) => statuses.push_str("ERR\n"),

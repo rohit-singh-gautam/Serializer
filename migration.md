@@ -1,5 +1,31 @@
 # Migrating to the snake_case Serializer API
 
+## Payload revisions and read policies (6 October 2026)
+
+Regenerate models with the current compiler and rebuild consumers against the
+matching runtime before using `version`, `compatibility`, lifecycle annotations,
+or class-scoped `reserve`. The schema language header remains `serializer version 1;`.
+Both editor packages advance together to 1.1.16. See
+[payload versioning](docs/versioning.md) and the
+[examples in all eleven languages](example/README.md#versioning).
+
+Replace `json_read_policy::strict` with `read_policy::strict`. Replace the former
+`json_read_policy::compatible` with `read_policy::flexible` to retain unknown JSON
+field skipping; `read_policy::compatible` now accepts declared historical revisions
+and rejects unknown fields. The old enum has no compatibility alias. Binary aliases
+accept the common policy as a fourth template argument. Other generated languages
+select it through `Limits`; update positional Go limits literals and Rust limits
+struct literals for the added policy field.
+
+Existing unversioned positional layouts retain their bytes and direct codec path.
+Adding a version member introduces a discriminator prefix and does not make older
+unversioned bytes readable automatically: decode with the original model, convert
+explicitly, and write the new versioned model. Freeze the discriminator's type,
+wire name, and ID for durable formats; its default ID is the first free ID starting
+at 1. Preserve historical definitions and positional order within the supported
+range. `replaced` validates the relationship but leaves value conversion to the
+application. Versioned views, managed models, and Protobuf mappings remain unsupported.
+
 ## Native templates and dimensions (4 October 2026)
 
 Regenerate C++ headers to use generic declarations directly from application code,

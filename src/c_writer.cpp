@@ -1,4 +1,5 @@
 #include "native_schema.hpp"
+#include "version_writer.hpp"
 
 #include <algorithm>
 #include <set>
@@ -95,7 +96,7 @@ class c_emitter {
     if (value.type != object_type::primitive) {
       return name(value.resolved_node);
     }
-    if (value.name == "string") {
+    if ((value.name == "string" || value.name.starts_with("version"))) {
       return "srl_string";
     }
     if (value.name == "char") {
@@ -104,6 +105,44 @@ class c_emitter {
     return value.name == "bool" || value.name == "float" || value.name == "double"
                ? value.name
                : value.name + "_t";
+  }
+  // Reject unsupported revisions before input commits or output is returned.
+  void check_version(const class_node& owner, bool reading) {
+    const auto& version = *owner.version_member();
+    const auto value = "value->" + field(version.name);
+    auto invalid =
+        version_less(version_language::c, version, value, schema_version::minimum(version)) +
+        " || !(" + version_less(version_language::c, version, value, version.default_value) +
+        " || " + version_equal(version_language::c, version, value, version.default_value) + ")";
+    if (reading) {
+      invalid += " || (in->limits.read_policy == srl_read_strict && !" +
+                 version_equal(version_language::c, version, value, version.default_value) + ")";
+    }
+    line("if (" + invalid + ") { " + std::string{reading ? "in" : "out"} +
+         "->status = srl_invalid; return; }");
+  }
+  // Skip inactive positional bytes while retaining known keyed presence.
+  void read_versioned_member(const class_node& owner, const member& item) {
+    const auto* version = owner.version_member();
+    if (version) {
+      const auto slot = std::to_string(version_slot(owner, item));
+      line("if (seen[" + slot + "]) { in->status = srl_invalid; break; } seen[" + slot +
+           "] = true;");
+    }
+    const auto active = version ? version_active(version_language::c, item, *version,
+                                                 "value->" + field(version->name))
+                                : std::string{};
+    if (!active.empty()) {
+      open("if (in->protocol != srl_binary_none || (" + active + "))");
+    }
+    read_member(owner, item);
+    if (!active.empty()) {
+      close();
+    }
+    if (item.version) {
+      line("if (in->status != srl_ok) { return; }");
+      check_version(owner, true);
+    }
   }
   // Name a class-specific typed collection, avoiding void-pointer public fields.
   std::string collection(const class_node& owner, const member& value) const {
@@ -152,7 +191,7 @@ class c_emitter {
     if (value.type == object_type::class_type) {
       line("if (" + status + " == srl_ok) { " + status + " = " + type(value) + "_init(&" + dst +
            "); }");
-    } else if (value.name == "string") {
+    } else if ((value.name == "string" || value.name.starts_with("version"))) {
       if (!literal_value.empty() && literal_value != "\"\"") {
         line("if (" + status + " == srl_ok) { " + status + " = srl_string_set(&" + dst + ", " +
              literal_value + ", sizeof(" + literal_value + ")-1); }");
@@ -165,7 +204,7 @@ class c_emitter {
   void free_value(const type_name& value, const std::string& dst) {
     if (value.type == object_type::class_type) {
       line(type(value) + "_free(&" + dst + ");");
-    } else if (value.name == "string") {
+    } else if ((value.name == "string" || value.name.starts_with("version"))) {
       line("srl_string_free(&" + dst + ");");
     }
   }
@@ -177,6 +216,8 @@ class c_emitter {
       line(dst + " = (" + type(value) + ")srl_read_enum(in, " + type(value) +
            "_srl_names, sizeof(" + type(value) + "_srl_names)/sizeof(" + type(value) +
            "_srl_names[0]), " + (collection_context ? "true" : "false") + ");");
+    } else if (value.name.starts_with("version")) {
+      line("srl_read_version(in, &" + dst + ", " + std::string{value.name.back()} + ");");
     } else if (value.name == "string") {
       line("srl_read_string(in, &" + dst + ");");
     } else if (value.name == "bool") {
@@ -205,6 +246,8 @@ class c_emitter {
       line("srl_write_enum(out, (uint32_t)" + src + ", " + type(value) + "_srl_names, sizeof(" +
            type(value) + "_srl_names)/sizeof(" + type(value) + "_srl_names[0]), " +
            (collection_context ? "true" : "false") + ");");
+    } else if (value.name.starts_with("version")) {
+      line("srl_write_version(out, &" + src + ", " + std::string{value.name.back()} + ");");
     } else if (value.name == "string") {
       line("srl_write_string(out, &" + src + ");");
     } else if (value.name == "bool") {
@@ -549,7 +592,14 @@ class c_emitter {
     open("static inline void " + n + "_srl_write(srl_writer* out, const " + n + "* value)");
     line("(void)value; if (out->status != srl_ok) { return; } srl_write_begin(out); if "
          "(out->status != srl_ok) { return; }");
+    if (value.version_member()) {
+      check_version(value, false);
+    }
     bool first = true;
+    if (const auto* version = value.version_member()) {
+      write_member(value, *version, true);
+      first = false;
+    }
     for (std::size_t i = 0; i < value.parents.size(); ++i) {
       const auto& base = value.parents[i];
       key(base.id, base.display_name, first);
@@ -557,9 +607,22 @@ class c_emitter {
       first = false;
     }
     for (const auto& f : value.member_list) {
+      if (f.version) {
+        continue;
+      }
+      const auto* version = value.version_member();
+      const auto active = version ? version_active(version_language::c, f, *version,
+                                                   "value->" + field(version->name))
+                                  : std::string{};
+      if (!active.empty()) {
+        open("if (" + active + ")");
+      }
       open("");
       write_member(value, f, first);
       close();
+      if (!active.empty()) {
+        close();
+      }
       first = false;
     }
     line("srl_write_end(out);");
@@ -567,12 +630,21 @@ class c_emitter {
     line("/* Decode into a private candidate; public decoding commits only complete messages. */");
     open("static inline void " + n + "_srl_read(srl_reader* in, " + n + "* value)");
     line("(void)value; if (in->status != srl_ok) { return; } srl_read_begin(in);");
+    if (value.version_member()) {
+      line("bool seen[" + std::to_string(value.parents.size() + value.member_list.size()) +
+           "] = {false};");
+    }
     std::string ids = "static const uint32_t ids[] = {";
+    if (const auto* version = value.version_member()) {
+      ids += std::to_string(version->id) + ",";
+    }
     for (const auto& base : value.parents) {
       ids += std::to_string(base.id) + ",";
     }
     for (const auto& f : value.member_list) {
-      ids += std::to_string(f.id) + ",";
+      if (!f.version) {
+        ids += std::to_string(f.id) + ",";
+      }
     }
     ids += "0};";
     line(ids);
@@ -599,7 +671,8 @@ class c_emitter {
         branch(f.display_name, f.id, -1);
       }
     }
-    line(std::string{branch_first ? "" : "else "} + "{ in->status = srl_invalid; }");
+    line(std::string{branch_first ? "" : "else "} +
+         "{ srl_string_free(&key.name); srl_skip_value(in); continue; }");
     close();
     line("srl_string_free(&key.name); (void)alternative; if (in->status != srl_ok) { break; }");
     open("switch (id)");
@@ -610,7 +683,7 @@ class c_emitter {
     }
     for (const auto& f : value.member_list) {
       open("case " + std::to_string(f.id) + ":");
-      read_member(value, f);
+      read_versioned_member(value, f);
       line("break;");
       close();
     }
@@ -618,6 +691,21 @@ class c_emitter {
     close();
     close();
     line("srl_read_end(in);");
+    if (const auto* version = value.version_member()) {
+      line("if (in->status != srl_ok) { return; }");
+      line("if (!seen[" + std::to_string(version_slot(value, *version)) +
+           "]) { in->status = srl_invalid; return; }");
+      check_version(value, true);
+      for (const auto& item : value.member_list) {
+        const auto active =
+            version_active(version_language::c, item, *version, "value->" + field(version->name));
+        if (!active.empty()) {
+          line("if (in->protocol != srl_binary_none && seen[" +
+               std::to_string(version_slot(value, item)) + "] && !(" + active +
+               ")) { in->status = srl_invalid; return; }");
+        }
+      }
+    }
     close();
     line("/* Replace initialized output bytes on success only; the caller owns the returned "
          "buffer. */");

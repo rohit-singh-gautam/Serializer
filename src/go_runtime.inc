@@ -21,12 +21,40 @@ const (
 )
 
 // Limits bounds each message; MaxElements counts collection entries cumulatively.
-type Limits struct { MaxBytes, MaxStringBytes, MaxElements, MaxDepth int }
+// ReadPolicy controls revision acceptance and safe JSON extensions.
+type ReadPolicy uint8
+const ( STRICT ReadPolicy = iota; COMPATIBLE; FLEXIBLE )
+type Limits struct { MaxBytes, MaxStringBytes, MaxElements, MaxDepth int; ReadPolicy ReadPolicy }
 // DefaultLimits returns an independent resource policy.
-func DefaultLimits() Limits { return Limits{64 * 1024 * 1024, 16 * 1024 * 1024, 1000000, 64} }
+func DefaultLimits() Limits { return Limits{64 * 1024 * 1024, 16 * 1024 * 1024, 1000000, 64, STRICT} }
 
 var srlInteger = regexp.MustCompile(`^-?(0|[1-9][0-9]*)$`)
 var srlNumber = regexp.MustCompile(`^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?$`)
+
+// srlVersionParts validates canonical bounded decimal components.
+func srlVersionParts(value string, count int) ([]uint64, bool) {
+  parts := strings.Split(value, "."); if len(parts) != count { return nil, false }; result := make([]uint64, count)
+  for i, part := range parts { if !srlInteger.MatchString(part) || strings.HasPrefix(part, "-") || len(part) > 5 { return nil, false }; n, err := strconv.ParseUint(part, 10, 16); if err != nil { return nil, false }; result[i] = n }; return result, true
+}
+// srlVersionCompare orders valid numeric components; invalid input lies outside every supported range.
+func srlVersionCompare(a, b string, count int) int {
+  x, ok := srlVersionParts(a, count); if !ok { return 2 }; y, ok := srlVersionParts(b, count); if !ok { return 2 }
+  for i := range x { if x[i] < y[i] { return -1 }; if x[i] > y[i] { return 1 } }; return 0
+}
+// version writes a fixed number of little-endian components.
+func (out *srlWriter) version(value string, count int) { parts, ok := srlVersionParts(value, count); if !ok { out.fail("Invalid dotted revision"); return }; if out.json() { out.text(value) } else { for _, n := range parts { out.integer(n, 2, true) } } }
+// version reads components without a binary count prefix.
+func (in *srlReader) version(count int) string { value := ""; if in.json() { value = in.text() } else { parts := make([]string, count); for i := range parts { parts[i] = strconv.FormatUint(in.integer(2, true), 10) }; value = strings.Join(parts, ".") }; if _, ok := srlVersionParts(value, count); !ok { in.fail("Invalid dotted revision") }; return value }
+// skipValue consumes only bounded well-formed JSON extensions.
+func (in *srlReader) skipValue() {
+  if !in.json() || in.limits.ReadPolicy != FLEXIBLE { in.fail("Unknown field"); return }; in.whitespace(); if !in.require(1) { return }
+  switch in.bytes[in.offset] {
+  case '"': in.text(); return
+  case '{': in.beginObject(); first := true; seen := make(map[string]bool); for in.nextObject(first) { first = false; key := in.key(); if seen[key] { in.fail("Duplicate field"); return }; seen[key] = true; in.elements++; if in.elements > in.limits.MaxElements { in.fail("Element limit"); return }; in.skipValue() }; in.endObject(); return
+  case '[': in.depth++; if in.depth > in.limits.MaxDepth { in.fail("Depth limit"); return }; count := in.beginArray(); for i := 0; in.nextElement(i, count); i++ { in.skipValue() }; in.depth--; return
+  }
+  value := in.token(); if value != "null" && value != "true" && value != "false" && !srlNumber.MatchString(value) { in.fail("Invalid JSON value") }
+}
 
 // srlWriter owns one output message and retains its first failure.
 type srlWriter struct { protocol Protocol; bytes []byte; depth int; err error }
@@ -128,7 +156,7 @@ type srlReader struct { bytes []byte; protocol Protocol; limits Limits; offset, 
 // srlNewReader checks policy and input before any allocation driven by data.
 func srlNewReader(bytes []byte, protocol Protocol, limits Limits) *srlReader {
   in := &srlReader{bytes: bytes, protocol: protocol, limits: limits}
-  if protocol > BINARY_STRING { in.fail("Unknown protocol") }
+  if limits.ReadPolicy > FLEXIBLE { in.fail("Invalid read policy") }; if protocol > BINARY_STRING { in.fail("Unknown protocol") }
   if limits.MaxBytes < 0 || limits.MaxStringBytes < 0 || limits.MaxElements < 0 || limits.MaxDepth < 0 { in.fail("Negative decode limit") }
   if len(bytes) > limits.MaxBytes { in.fail("Message byte limit") }
   return in
@@ -220,7 +248,8 @@ func (in *srlReader) text() string {
   in.expect('"'); start := in.offset; escaped := false
   for in.require(1) {
     c := in.bytes[in.offset]; in.offset++
-    if in.offset - start - 1 > in.limits.MaxStringBytes { in.fail("String limit"); return "" }
+)serializer"
+R"serializer(    if in.offset - start - 1 > in.limits.MaxStringBytes { in.fail("String limit"); return "" }
     if !escaped && c == '"' {
       raw := in.bytes[start-1:in.offset]; var value string
       if !srlValidJSONText(raw) || json.Unmarshal(raw, &value) != nil { in.fail("Invalid JSON string"); return "" }

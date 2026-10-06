@@ -2,17 +2,30 @@ R"serializer(
   /// <summary>Native wire protocols with little-endian binary scalars.</summary>
   public enum Protocol { JSON, BINARY_NONE, BINARY_INTEGER, BINARY_STRING }
   /// <summary>Immutable per-message limits; collection entries accumulate.</summary>
+  public enum ReadPolicy { STRICT, COMPATIBLE, FLEXIBLE }
   public sealed class Limits {
+    public ReadPolicy ReadPolicy { get; }
     public int MaxBytes { get; }
     public int MaxStringBytes { get; }
     public int MaxElements { get; }
     public int MaxDepth { get; }
     // Validate policy before a decoding session starts.
-    public Limits(int maxBytes = 64 * 1024 * 1024, int maxStringBytes = 16 * 1024 * 1024, int maxElements = 1000000, int maxDepth = 64) {
+    public Limits(int maxBytes = 64 * 1024 * 1024, int maxStringBytes = 16 * 1024 * 1024, int maxElements = 1000000, int maxDepth = 64, ReadPolicy readPolicy = ReadPolicy.STRICT) {
       if (maxBytes < 0 || maxStringBytes < 0 || maxElements < 0 || maxDepth < 0) throw new System.ArgumentOutOfRangeException(nameof(maxBytes));
+      if (readPolicy < ReadPolicy.STRICT || readPolicy > ReadPolicy.FLEXIBLE) throw new System.ArgumentOutOfRangeException(nameof(readPolicy));
+      ReadPolicy = readPolicy;
       MaxBytes = maxBytes; MaxStringBytes = maxStringBytes; MaxElements = maxElements; MaxDepth = maxDepth;
     }
   }
+  // Validate canonical uint16 components before comparison or binary output.
+  private static ushort[] SrlVersionParts(string value, int count) {
+    var parts = value.Split('.'); if (parts.Length != count) throw new System.FormatException("Invalid dotted revision");
+    var result = new ushort[count];
+    for (int i = 0; i < count; ++i) { var part = parts[i]; if (part.Length == 0 || (part.Length > 1 && part[0] == '0') || !ushort.TryParse(part, System.Globalization.NumberStyles.None, System.Globalization.CultureInfo.InvariantCulture, out result[i])) throw new System.FormatException("Invalid dotted revision"); }
+    return result;
+  }
+  // Order dotted revisions by numeric components.
+  private static int SrlVersionCompare(string a, string b, int count) { var x = SrlVersionParts(a, count); var y = SrlVersionParts(b, count); for (int i = 0; i < count; ++i) if (x[i] != y[i]) return x[i].CompareTo(y[i]); return 0; }
   private static readonly System.Text.UTF8Encoding SrlUtf8 = new System.Text.UTF8Encoding(false, true);
   // Compare strings by UTF-8 bytes and other supported keys by their native values.
   private static int SrlCompare<T>(T first, T second) {
@@ -25,6 +38,9 @@ R"serializer(
   }
   /// <summary>Per-call byte writer; no reflection or native dependency.</summary>
   internal sealed class SrlWriter {
+    // Write fixed-width components without a sequence length.
+    internal void version(string value, int count) { var parts = SrlVersionParts(value, count); if (json()) text(value); else foreach (var part in parts) integer(part, 2, true); }
+
     internal readonly Protocol protocol;
     private readonly System.Buffers.ArrayBufferWriter<byte> buffer = new System.Buffers.ArrayBufferWriter<byte>(256);
     private int depth;
@@ -121,11 +137,22 @@ R"serializer(
   }
   /// <summary>Bounded cursor shared by nested readers; failures expose no partial result.</summary>
   internal sealed class SrlReader {
+    // Decode and validate the schema's fixed component count.
+    internal string version(int count) { var parts = new ushort[count]; string value; if (json()) value = text(); else { for (int i = 0; i < count; ++i) parts[i] = (ushort)integer(2, true); value = string.Join(".", parts); } SrlVersionParts(value, count); return value; }
+    // Skip safe JSON extensions under the flexible policy.
+    internal void skipValue() {
+      if (!json() || limits.ReadPolicy != ReadPolicy.FLEXIBLE) fail("Unknown field"); whitespace(); require(1); byte c = data.Span[offset];
+      if (c == '"') { text(); return; }
+      if (c == '{') { beginObject(); bool first = true; var seen = new System.Collections.Generic.HashSet<string>(System.StringComparer.Ordinal); while (nextObject(first)) { first = false; if (!seen.Add(key())) fail("Duplicate field"); if (++elements > limits.MaxElements) fail("Element limit"); skipValue(); } endObject(); return; }
+      if (c == '[') { if (++depth > limits.MaxDepth) fail("Depth limit"); int count = beginArray(); for (int i = 0; nextElement(i, count); ++i) skipValue(); --depth; return; }
+      string value = token(); if (value != "null" && value != "true" && value != "false" && !NumberPattern.IsMatch(value)) fail("Invalid JSON value");
+    }
+
     private static readonly System.Text.RegularExpressions.Regex IntegerPattern = new System.Text.RegularExpressions.Regex(@"\A-?(0|[1-9][0-9]*)\z", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
     private static readonly System.Text.RegularExpressions.Regex NumberPattern = new System.Text.RegularExpressions.Regex(@"\A-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?\z", System.Text.RegularExpressions.RegexOptions.CultureInvariant);
     internal readonly Protocol protocol;
     private readonly System.ReadOnlyMemory<byte> data;
-    private readonly Limits limits;
+    internal readonly Limits limits;
     private int offset, depth, elements;
     // Retain the input only for this synchronous decode call.
     internal SrlReader(System.ReadOnlyMemory<byte> data, Protocol protocol, Limits limits) {

@@ -16,7 +16,8 @@ typedef enum srl_protocol { srl_json, srl_binary_none, srl_binary_integer, srl_b
 typedef enum srl_status { srl_ok, srl_invalid, srl_truncated, srl_range, srl_limit, srl_allocation } srl_status;
 typedef struct srl_buffer { uint8_t* data; size_t size; size_t capacity; } srl_buffer;
 typedef struct srl_string { char* data; size_t size; } srl_string;
-typedef struct srl_limits { size_t max_bytes, max_string_bytes, max_elements, max_depth; } srl_limits;
+typedef enum srl_read_policy { srl_read_strict, srl_read_compatible, srl_read_flexible } srl_read_policy;
+typedef struct srl_limits { size_t max_bytes, max_string_bytes, max_elements, max_depth; srl_read_policy read_policy; } srl_limits;
 typedef struct srl_field { const uint8_t* json; size_t json_size; const uint8_t* binary; size_t binary_size; } srl_field;
 typedef struct srl_writer { srl_buffer buffer; srl_protocol protocol; srl_status status; size_t depth; } srl_writer;
 enum { srl_number_scratch_bytes = 128 };
@@ -25,7 +26,7 @@ typedef struct srl_key { uint32_t id; srl_string name; bool named; } srl_key;
 _Static_assert(CHAR_BIT == 8 && sizeof(float) == 4 && sizeof(double) == 8 && FLT_RADIX == 2 && FLT_MANT_DIG == 24 && DBL_MANT_DIG == 53, "Serializer requires IEEE binary32/binary64 and 8-bit bytes");
 
 /* Construct the default per-message policy. */
-static inline srl_limits srl_default_limits(void) { const srl_limits value = {64u*1024u*1024u, 16u*1024u*1024u, 1000000u, 64u}; return value; }
+static inline srl_limits srl_default_limits(void) { const srl_limits value = {64u*1024u*1024u, 16u*1024u*1024u, 1000000u, 64u, srl_read_strict}; return value; }
 /* Release owned encoded storage; zero initialization is valid. */
 static inline void srl_buffer_free(srl_buffer* value) { free(value->data); memset(value, 0, sizeof(*value)); }
 /* Release owned string storage, including empty strings. */
@@ -322,4 +323,24 @@ static inline void* srl_grow(srl_reader* in, void* old, size_t capacity, size_t 
 }
 /* Require exact input consumption before committing the candidate. */
 static inline void srl_finish(srl_reader* in) { if (in->protocol == srl_json) { srl_whitespace(in); } if (in->status == srl_ok && in->offset != in->size) { in->status = srl_invalid; } }
+/* Parse canonical uint16 components without allocating temporary text. */
+static inline bool srl_version_parts(const srl_string* value, size_t count, uint16_t* parts) {
+  if (count < 2 || count > 4 || !value->data || value->size > count*6-1) { return false; } size_t offset = 0;
+  for (size_t i = 0; i < count; ++i) { const size_t start = offset; uint32_t n = 0; while (offset < value->size && value->data[offset] != '.') { const unsigned char c = (unsigned char)value->data[offset++]; if (c < '0' || c > '9') { return false; } n = n*10 + c-'0'; if (n > UINT16_MAX) { return false; } } if (offset == start || (offset-start > 1 && value->data[start] == '0')) { return false; } parts[i] = (uint16_t)n; if (i+1 < count) { if (offset == value->size) { return false; } ++offset; } }
+  return offset == value->size;
+}
+/* Order numeric components; invalid source text is outside every supported range. */
+static inline int srl_version_compare(const srl_string* value, const char* boundary, size_t count) { uint16_t x[4], y[4]; const srl_string text = {(char*)boundary, strlen(boundary)}; if (!srl_version_parts(value, count, x) || !srl_version_parts(&text, count, y)) { return 2; } for (size_t i = 0; i < count; ++i) { if (x[i] != y[i]) { return x[i] < y[i] ? -1 : 1; } } return 0; }
+/* Encode count-free little-endian binary components or canonical JSON text. */
+static inline void srl_write_version(srl_writer* out, const srl_string* value, size_t count) { uint16_t parts[4]; if (!srl_version_parts(value, count, parts)) { out->status = srl_invalid; return; } if (out->protocol == srl_json) { srl_write_string(out, value); } else { for (size_t i = 0; i < count; ++i) { srl_write_integer(out, parts[i], 2, true); } } }
+/* Decode a fixed count of components and preserve transactional string ownership. */
+static inline void srl_read_version(srl_reader* in, srl_string* value, size_t count) { if (in->protocol == srl_json) { uint16_t parts[4]; srl_read_string(in, value); if (in->status == srl_ok && !srl_version_parts(value, count, parts)) { in->status = srl_invalid; } return; } char text[24]; size_t offset = 0; for (size_t i = 0; i < count; ++i) { const uint64_t n = srl_read_integer(in, 2, true); if (in->status != srl_ok) { return; } int written = snprintf(text+offset, sizeof(text)-offset, i ? ".%u" : "%u", (unsigned)n); if (written < 0 || (size_t)written >= sizeof(text)-offset) { in->status = srl_range; return; } offset += (size_t)written; } in->status = srl_string_set(value, text, offset); }
+/* Skip bounded well-formed JSON values only when the policy explicitly permits extensions. */
+static inline void srl_skip_value(srl_reader* in) {
+  if (in->status != srl_ok) { return; } if (in->protocol != srl_json || in->limits.read_policy != srl_read_flexible) { in->status = srl_invalid; return; } srl_whitespace(in); if (!srl_require(in, 1)) { return; } const uint8_t c = in->data[in->offset];
+  if (c == '"') { srl_string text = {0}; srl_read_string(in, &text); srl_string_free(&text); return; }
+  if (c == '{') { srl_read_begin(in); size_t cursor = 0, count = 0; srl_string* seen = NULL; srl_key key = {0}; while (srl_read_key(in, NULL, 0, cursor++, &key)) { if (in->elements >= in->limits.max_elements) { in->status = srl_limit; } else { ++in->elements; } for (size_t i = 0; i < count; ++i) { if (!srl_string_compare(&seen[i], &key.name)) { in->status = srl_invalid; break; } } if (in->status != srl_ok) { srl_string_free(&key.name); break; } srl_string* next = (srl_string*)srl_grow(in, seen, count+1, sizeof(*seen)); if (!next) { srl_string_free(&key.name); break; } seen = next; seen[count++] = key.name; memset(&key.name, 0, sizeof(key.name)); srl_skip_value(in); } srl_string_free(&key.name); for (size_t i = 0; i < count; ++i) { srl_string_free(&seen[i]); } free(seen); srl_read_end(in); return; }
+  if (c == '[') { if (in->depth >= in->limits.max_depth) { in->status = srl_limit; return; } ++in->depth; const size_t count = srl_read_array(in); for (size_t i = 0; srl_read_element(in, i, count); ++i) { srl_skip_value(in); } --in->depth; return; }
+  char* text = srl_token(in); if (!text) { return; } if (strcmp(text, "null") && strcmp(text, "true") && strcmp(text, "false") && !srl_number(text, false)) { in->status = srl_invalid; } srl_token_free(in, text);
+}
 )serializer"

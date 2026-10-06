@@ -1,6 +1,15 @@
 R"java(
 /** Wire protocols; fixed-width binary values use little-endian byte order. */
+public enum ReadPolicy { STRICT, COMPATIBLE, FLEXIBLE }
 public enum Protocol { JSON, BINARY_NONE, BINARY_INTEGER, BINARY_STRING }
+
+/** Parse the exact declared canonical component count. */
+private static int[] srlVersionParts(String value, int count) {
+  String[] parts = value.split("\\.", -1); if (parts.length != count) throw new IllegalArgumentException("Invalid dotted revision"); int[] result = new int[count];
+  for (int i = 0; i < count; ++i) { if (!parts[i].matches("0|[1-9][0-9]{0,4}")) throw new IllegalArgumentException("Invalid dotted revision"); result[i] = Integer.parseInt(parts[i]); if (result[i] > 65535) throw new IllegalArgumentException("Invalid dotted revision"); } return result;
+}
+/** Compare numeric components rather than text. */
+private static int srlVersionCompare(String a, String b, int count) { int[] x = srlVersionParts(a, count), y = srlVersionParts(b, count); for (int i = 0; i < count; ++i) if (x[i] != y[i]) return Integer.compare(x[i], y[i]); return 0; }
 
 private static final int DEFAULT_MAX_DEPTH = 64;
 
@@ -10,9 +19,14 @@ public static final class Limits {
   public final int maxStringBytes;
   public final int maxElements;
   public final int maxDepth;
+  public final ReadPolicy readPolicy;
 
   /** Construct a nonnegative resource policy. */
-  public Limits(int maxBytes, int maxStringBytes, int maxElements, int maxDepth) {
+  public Limits(int maxBytes, int maxStringBytes, int maxElements, int maxDepth) { this(maxBytes, maxStringBytes, maxElements, maxDepth, ReadPolicy.STRICT); }
+
+  /** Construct a bounded decoding session with revision policy. */
+  public Limits(int maxBytes, int maxStringBytes, int maxElements, int maxDepth, ReadPolicy readPolicy) {
+    this.readPolicy = java.util.Objects.requireNonNull(readPolicy);
     if (maxBytes < 0 || maxStringBytes < 0 || maxElements < 0 || maxDepth < 0) {
       throw new java.lang.IllegalArgumentException("Negative decode limit");
     }
@@ -60,6 +74,9 @@ private static int compareText(java.lang.String first, java.lang.String second) 
 
 /** Per-call writer; generated codecs access fields directly without reflection. */
 private static final class Writer {
+  /** Write count-free binary components or the canonical JSON text. */
+  void version(String value, int count) { int[] parts = srlVersionParts(value, count); if (json()) text(value); else for (int part : parts) integer(part, 2, true); }
+
   private static final int COMPACT_MAX = 0x3fffffff;
   final Protocol protocol;
   final java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
@@ -201,6 +218,17 @@ private static final class Writer {
 
 /** Bounded cursor shared by all nested generated readers in one message. */
 private static final class Reader {
+  /** Read exactly the declared dotted component count. */
+  String version(int count) { String value; if (json()) value = text(); else { StringBuilder text = new StringBuilder(); for (int i = 0; i < count; ++i) { if (i != 0) text.append('.'); text.append(integer(2, true)); } value = text.toString(); } srlVersionParts(value, count); return value; }
+  /** Consume bounded JSON extensions only under the flexible policy. */
+  void skipValue() {
+    if (!json() || limits.readPolicy != ReadPolicy.FLEXIBLE) throw error("Unknown field"); whitespace(); require(1); int c = bytes[offset];
+    if (c == '"') { text(); return; }
+    if (c == '{') { beginObject(); boolean first = true; java.util.Set<String> seen = new java.util.HashSet<>(); while (nextObject(first)) { first = false; if (!seen.add(key())) throw error("Duplicate field"); if (++elements > limits.maxElements) throw error("Element limit"); skipValue(); } endObject(); return; }
+    if (c == '[') { if (++depth > limits.maxDepth) throw error("Depth limit"); int count = beginArray(); for (int i = 0; nextElement(i, count); ++i) skipValue(); --depth; return; }
+    String value = token(); if (!value.equals("null") && !value.equals("true") && !value.equals("false") && !value.matches("-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?")) throw error("Invalid JSON value");
+  }
+
   private static final java.util.regex.Pattern INTEGER =
       java.util.regex.Pattern.compile("-?(0|[1-9][0-9]*)");
   private static final java.util.regex.Pattern NUMBER =

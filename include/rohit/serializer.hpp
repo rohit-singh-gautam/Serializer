@@ -22,6 +22,7 @@
 #include <rohit/runtime_simd.hpp>
 #include <rohit/stream.hpp>
 #include <rohit/stream_io.hpp>
+#include <rohit/versioning.hpp>
 
 #include <algorithm>
 #include <array>
@@ -661,8 +662,6 @@ enum class serialize_key_type { none, integer, string };
 
 enum class serialize_type { in, out };
 
-// Strict input rejects unknown names; compatible input skips them and rejects duplicates.
-enum class json_read_policy { strict, compatible };
 
 namespace detail {
 template <typename T>
@@ -675,10 +674,10 @@ inline constexpr bool json_optional<std::optional<T>> = true;
 enum class storage_mode : std::uint8_t { owning = 1, read_only_view = 2, mutable_view = 4 };
 
 template <serialize_type type, typename Stream = stream,
-          json_read_policy ReadPolicy = json_read_policy::strict>
+          read_policy ReadPolicy = read_policy::strict>
 class json;
 
-template <rohit::type_check::input_buffer Stream, json_read_policy ReadPolicy>
+template <rohit::type_check::input_buffer Stream, read_policy ReadPolicy>
 class json<serialize_type::in, Stream, ReadPolicy> : public detail::decoder_input<Stream> {
 protected:
   using base = detail::decoder_input<Stream>;
@@ -698,6 +697,8 @@ protected:
 
 public:
   constexpr static serialize_key_type key_type = serialize_key_type::string;
+  static constexpr bool is_json = true;
+  static constexpr read_policy policy = ReadPolicy;
   using base::base;
   using base::enter_object;
   using stream_type = Stream;
@@ -957,7 +958,7 @@ protected:
 public:
   // Skip one unknown value using the same grammar and resource budgets as typed input.
   void unknown_member(std::string_view) {
-    if constexpr (ReadPolicy == json_read_policy::strict) {
+    if constexpr (ReadPolicy != read_policy::flexible) {
       throw exception::key_not_found{in_stream, "Unknown field name"};
     } else {
       skip_value();
@@ -1132,14 +1133,14 @@ public:
     if (peek() != '}') {
       std::string scratch;
       struct no_keys {};
-      [[maybe_unused]] std::conditional_t<ReadPolicy == json_read_policy::compatible,
+      [[maybe_unused]] std::conditional_t<ReadPolicy == read_policy::flexible,
                                           std::set<std::string>, no_keys> keys;
       while (true) {
         if (count >= limits.max_collection_elements) { fail_limit("Object field limit exceeded"); }
         ++count;
         charge_work();
         const auto key = serialize_in_get_key(scratch);
-        if constexpr (ReadPolicy == json_read_policy::compatible) {
+        if constexpr (ReadPolicy == read_policy::flexible) {
           remember_key(keys, key);
         }
         obj->serialize_in_member_by_name(*this, key);
@@ -1362,6 +1363,7 @@ template <bool beautify, rohit::type_check::output_buffer Stream = stream>
 class json_out : public json_formatter<beautify, Stream> {
 public:
   constexpr static serialize_key_type key_type = serialize_key_type::string;
+  static constexpr bool is_json = true;
 
 public:
   // Opt generated plain ASCII names into prequoted output; escaping stays on the dynamic path.
@@ -1562,13 +1564,13 @@ public:
   }
 }; // class json_out<>
 
-template <rohit::type_check::output_buffer Stream>
-class json<serialize_type::out, Stream> : public json_out<false, Stream> {
+template <rohit::type_check::output_buffer Stream, read_policy ReadPolicy>
+class json<serialize_type::out, Stream, ReadPolicy> : public json_out<false, Stream> {
 public:
   using json_out<false, Stream>::json_out;
   using stream_type = Stream;
   template <rohit::type_check::output_buffer OtherStream>
-  using rebind_stream = json<serialize_type::out, OtherStream>;
+  using rebind_stream = json<serialize_type::out, OtherStream, ReadPolicy>;
 };
 
 // Unchecked binary text requires the caller to guarantee valid UTF-8 at the boundary.
@@ -1576,12 +1578,14 @@ enum class binary_text_validation { strict, unchecked };
 
 template <serialize_type type, serialize_key_type KeyType,
           std::endian WireEndian = std::endian::little, typename Stream = stream,
-          binary_text_validation TextValidation = binary_text_validation::strict>
+          binary_text_validation TextValidation = binary_text_validation::strict,
+          read_policy ReadPolicy = read_policy::strict>
 class binary;
 
 template <serialize_key_type KeyType, std::endian WireEndian = std::endian::little,
           rohit::type_check::input_buffer Stream = stream,
-          binary_text_validation TextValidation = binary_text_validation::strict>
+          binary_text_validation TextValidation = binary_text_validation::strict,
+          read_policy ReadPolicy = read_policy::strict>
 class binary_in_base : public detail::decoder_input<Stream> {
 protected:
   using base = detail::decoder_input<Stream>;
@@ -1601,6 +1605,8 @@ protected:
 
 public:
   constexpr static serialize_key_type key_type = KeyType;
+  static constexpr read_policy policy = ReadPolicy;
+  static constexpr bool is_json = false;
   constexpr static std::endian wire_endian = WireEndian;
   constexpr static binary_text_validation text_validation = TextValidation;
   static_assert(TextValidation == binary_text_validation::strict ||
@@ -1849,14 +1855,18 @@ public:
 }; // class binary_in_base
 
 template <serialize_key_type KeyType, std::endian WireEndian,
-          rohit::type_check::input_buffer Stream, binary_text_validation TextValidation>
-class binary<serialize_type::in, KeyType, WireEndian, Stream, TextValidation>
-    : public binary_in_base<KeyType, WireEndian, Stream, TextValidation> {
+          rohit::type_check::input_buffer Stream, binary_text_validation TextValidation,
+          read_policy ReadPolicy>
+class binary<serialize_type::in, KeyType, WireEndian, Stream, TextValidation, ReadPolicy>
+    : public binary_in_base<KeyType, WireEndian, Stream, TextValidation, ReadPolicy> {
 public:
-  using binary_in_base<KeyType, WireEndian, Stream, TextValidation>::binary_in_base;
+  using binary_in_base<KeyType, WireEndian, Stream, TextValidation, ReadPolicy>::binary_in_base;
   using stream_type = Stream;
   template <rohit::type_check::input_buffer OtherStream>
-  using rebind_stream = binary<serialize_type::in, KeyType, WireEndian, OtherStream, TextValidation>;
+  using rebind_stream =
+      binary<serialize_type::in, KeyType, WireEndian, OtherStream, TextValidation, ReadPolicy>;
+  static constexpr read_policy policy = ReadPolicy;
+  static constexpr bool is_json = false;
 };
 
 template <serialize_key_type KeyType, std::endian WireEndian = std::endian::little,
@@ -2192,30 +2202,37 @@ public:
 }; // class binary_out_base
 
 template <serialize_key_type KeyType, std::endian WireEndian,
-          rohit::type_check::output_buffer Stream, binary_text_validation TextValidation>
-class binary<serialize_type::out, KeyType, WireEndian, Stream, TextValidation>
+          rohit::type_check::output_buffer Stream, binary_text_validation TextValidation,
+          read_policy ReadPolicy>
+class binary<serialize_type::out, KeyType, WireEndian, Stream, TextValidation, ReadPolicy>
     : public binary_out_base<KeyType, WireEndian, Stream, TextValidation> {
 public:
   using binary_out_base<KeyType, WireEndian, Stream, TextValidation>::binary_out_base;
   using stream_type = Stream;
   template <rohit::type_check::output_buffer OtherStream>
-  using rebind_stream = binary<serialize_type::out, KeyType, WireEndian, OtherStream, TextValidation>;
+  using rebind_stream =
+      binary<serialize_type::out, KeyType, WireEndian, OtherStream, TextValidation, ReadPolicy>;
+  static constexpr read_policy policy = ReadPolicy;
+  static constexpr bool is_json = false;
 };
 
 template <serialize_type type, typename Stream = stream,
-          binary_text_validation TextValidation = binary_text_validation::strict>
-using binary_integer =
-    binary<type, serialize_key_type::integer, std::endian::little, Stream, TextValidation>;
+          binary_text_validation TextValidation = binary_text_validation::strict,
+          read_policy ReadPolicy = read_policy::strict>
+using binary_integer = binary<type, serialize_key_type::integer, std::endian::little, Stream,
+                              TextValidation, ReadPolicy>;
 
 template <serialize_type type, typename Stream = stream,
-          binary_text_validation TextValidation = binary_text_validation::strict>
-using binary_string =
-    binary<type, serialize_key_type::string, std::endian::little, Stream, TextValidation>;
+          binary_text_validation TextValidation = binary_text_validation::strict,
+          read_policy ReadPolicy = read_policy::strict>
+using binary_string = binary<type, serialize_key_type::string, std::endian::little, Stream,
+                             TextValidation, ReadPolicy>;
 
 template <serialize_type type, typename Stream = stream,
-          binary_text_validation TextValidation = binary_text_validation::strict>
+          binary_text_validation TextValidation = binary_text_validation::strict,
+          read_policy ReadPolicy = read_policy::strict>
 using binary_none =
-    binary<type, serialize_key_type::none, std::endian::little, Stream, TextValidation>;
+    binary<type, serialize_key_type::none, std::endian::little, Stream, TextValidation, ReadPolicy>;
 
 namespace detail {
 // Preserve custom protocol types unless they explicitly support binding a concrete stream type.

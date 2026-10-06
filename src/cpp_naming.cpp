@@ -1,4 +1,5 @@
 #include "cpp_naming.hpp"
+#include "schema_version.hpp"
 
 #include <algorithm>
 #include <array>
@@ -210,6 +211,9 @@ std::string naming::full_type_name(const syntax_node* node) const {
 
 // Retain C++ expressions, spell 64-bit boundary literals portably, and resolve enum names.
 std::string naming::default_value(const member& field) const {
+  if (field.version) {
+    return schema_version::cpp_literal(field, field.default_value);
+  }
   if (field.modifier == member::modifier_type::none && !field.type_name_list.empty()) {
     const auto first = field.default_value.find_first_not_of(" \t\r\n");
     if (first != std::string::npos) {
@@ -343,6 +347,10 @@ void naming::validate_names(const std::vector<std::unique_ptr<syntax_node>>& sta
                                      "Protocol"};
         for (const auto& parameter : object.generic_parameters) {
           if (node.type == object_type::generic_definition) { insert_name(owning, parameter.name); }
+        }
+        if (object.version_member()) {
+          owning.insert({"serializer_current_version", "serializer_minimum_version",
+                         "serializer_version_reader"});
         }
         if (options.protobuf) {
           owning.insert({"serializer_protobuf_write", "serializer_protobuf_read",

@@ -18,8 +18,9 @@
 #include <rohit/serializer_creator.hpp>
 #include <rohit/version.hpp>
 
-#include "schema_scan.hpp"
 #include "schema_generics.hpp"
+#include "schema_scan.hpp"
+#include "schema_version.hpp"
 
 #include <algorithm>
 #include <charconv>
@@ -572,11 +573,73 @@ void parse_name_spec(const rohit::type_check::schema_input_buffer auto& in_strea
   check_and_increase(in_stream, ')');
 } // parse_name_spec
 
+// Inspect one whole keyword without consuming it or matching a longer identifier.
+bool next_keyword(const rohit::type_check::schema_input_buffer auto& input, std::string_view word) {
+  if (input.full()) {
+    return false;
+  }
+  const auto size =
+      detail::scan_prefix<detail::scan_kind::identifier>(input.curr(), input.remaining_buffer());
+  return std::string_view{reinterpret_cast<const char*>(input.curr()), size} == word;
+}
+
+// Read one lifecycle literal or source member name inside parentheses.
+std::string lifecycle_argument(const rohit::type_check::schema_input_buffer auto& input) {
+  check_and_increase(input, '(');
+  const auto* begin = input.curr();
+  while (!input.full() && *input != ')') {
+    ++input;
+  }
+  const auto text = schema_version::trim(std::string_view{
+      reinterpret_cast<const char*>(begin), static_cast<std::size_t>(input.curr() - begin)});
+  check_and_increase(input, ')');
+  if (text.empty()) {
+    throw exception::bad_member_spec{input, "Empty lifecycle argument"};
+  }
+  return text;
+}
+
+// Parse field visibility, storage, wire identity, and optional version lifecycle metadata.
 member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_stream,
                          const std::uint32_t id, namespace_node* declared_namespace) {
+  member lifecycle{};
+  skip_whitespace_and_comment(in_stream);
+  while (next_keyword(in_stream, "obsolete") || next_keyword(in_stream, "created") ||
+         next_keyword(in_stream, "replaced")) {
+    const auto keyword = parse_identifier_impl(in_stream);
+    skip_whitespace_and_comment(in_stream);
+    if (keyword == "obsolete") {
+      if (lifecycle.obsolete) {
+        throw exception::bad_member_spec{in_stream, "Repeated obsolete"};
+      }
+      lifecycle.obsolete = true;
+      if (!in_stream.full() && *in_stream == '(') {
+        lifecycle.obsolete_version = lifecycle_argument(in_stream);
+      }
+    } else {
+      auto& value = keyword == "created" ? lifecycle.created_version : lifecycle.replaced_member;
+      if (!value.empty()) {
+        throw exception::bad_member_spec{in_stream, "Repeated lifecycle keyword"};
+      }
+      value = lifecycle_argument(in_stream);
+    }
+    skip_whitespace_and_comment(in_stream);
+  }
   auto access = parse_access_type_impl(in_stream);
   skip_whitespace_and_comment(in_stream);
-  auto next_type = parse_type_expression(in_stream, declared_namespace);
+  const bool version = next_keyword(in_stream, "version");
+  if (version) {
+    parse_identifier_impl(in_stream);
+    skip_whitespace_and_comment(in_stream);
+  }
+  type_name next_type{std::string{"uint8"}, declared_namespace};
+  if (!version || (is_first_identifier(in_stream) &&
+                   schema_version::supported_type(
+                       std::string_view{reinterpret_cast<const char*>(in_stream.curr()),
+                                        detail::scan_prefix<detail::scan_kind::identifier>(
+                                            in_stream.curr(), in_stream.remaining_buffer())}))) {
+    next_type = parse_type_expression(in_stream, declared_namespace);
+  }
   if (next_type.kind == generic_argument_kind::dimension) {
     throw exception::bad_identifier{in_stream, "Expected a member type identifier"};
   }
@@ -613,13 +676,15 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
     parse_member_type_union(in_stream, declared_namespace, type_name_list);
   }
   skip_whitespace_and_comment(in_stream);
-  auto name = parse_identifier_impl(in_stream);
+  auto name = version && !is_first_identifier(in_stream) ? std::string{"version"}
+                                                         : parse_identifier_impl(in_stream);
   auto display_name = name;
-  std::uint32_t new_id{id};
+  std::uint32_t new_id{version ? 1 : id};
   bool parsed_member_spec{false};
   bool explicit_id{false};
   bool parsed_default_value{false};
   std::string default_value{};
+  std::string compatibility{};
   while (true) {
     skip_whitespace_and_comment(in_stream);
     if (*in_stream == '(') {
@@ -634,6 +699,14 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
       }
       parsed_default_value = true;
       default_value = get_default_value(in_stream);
+    } else if (next_keyword(in_stream, "compatibility")) {
+      if (!version || !compatibility.empty()) {
+        throw exception::bad_member_spec{in_stream,
+                                         "Compatibility requires one version declaration"};
+      }
+      parse_identifier_impl(in_stream);
+      skip_whitespace_and_comment(in_stream);
+      compatibility = get_default_value(in_stream);
     } else {
       break;
     }
@@ -644,8 +717,67 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   member result{access, member_modifier, type_name_list, name, display_name, new_id, key, default_value,
                 explicit_id, nullptr, managed};
   result.extent_expression = std::move(extent);
+  result.version = version;
+  result.compatibility_version = std::move(compatibility);
+  result.obsolete = lifecycle.obsolete;
+  result.created_version = std::move(lifecycle.created_version);
+  result.obsolete_version = std::move(lifecycle.obsolete_version);
+  result.replaced_member = std::move(lifecycle.replaced_member);
   return result;
 } // parse_member_impl
+
+// Reserve unused identities at class scope; every clause and entry must be unique.
+void parse_reserve(const rohit::type_check::schema_input_buffer auto& input, class_node& object) {
+  parse_identifier_impl(input);
+  std::unordered_set<std::string> clauses{};
+  skip_whitespace_and_comment(input);
+  while (!input.full() && *input != ';') {
+    const auto clause = parse_identifier_impl(input);
+    if (!clauses.insert(clause).second ||
+        (clause != "id" && clause != "variable" && clause != "display")) {
+      throw exception::bad_member_spec{input, "Invalid or repeated reservation clause"};
+    }
+    skip_whitespace_and_comment(input);
+    check_and_increase(input, '{');
+    skip_whitespace_and_comment(input);
+    if (*input == '}') {
+      throw exception::bad_member_spec{input, "Empty reservation list"};
+    }
+    while (true) {
+      if (clause == "variable") {
+        object.reserved_variables.push_back(parse_identifier_impl(input));
+      } else {
+        auto [text, quoted] = get_member_spec_token(input);
+        if (clause == "display") {
+          if (!quoted || text.empty()) {
+            throw exception::bad_member_spec{input, "Expected a nonempty reserved wire name"};
+          }
+          object.reserved_names.push_back(std::move(text));
+        } else {
+          std::uint32_t value{};
+          const auto parsed = std::from_chars(text.data(), text.data() + text.size(), value);
+          if (quoted || parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size()) {
+            throw exception::bad_member_spec{input, "Expected a reserved field ID"};
+          }
+          validate_field_key(input, value, "reserved");
+          object.reserved_ids.push_back(value);
+        }
+      }
+      skip_whitespace_and_comment(input);
+      if (*input != ',') {
+        break;
+      }
+      ++input;
+      skip_whitespace_and_comment(input);
+    }
+    check_and_increase(input, '}');
+    skip_whitespace_and_comment(input);
+  }
+  if (clauses.empty()) {
+    throw exception::bad_member_spec{input, "Empty reservation"};
+  }
+  check_and_increase(input, ';');
+}
 
 // Read a declaration keyword and distinguish misplaced includes from unknown declarations.
 object_type parse_object_type(const rohit::type_check::schema_input_buffer auto& in_stream) {
@@ -683,6 +815,11 @@ void parse_class_body_impl(const rohit::type_check::schema_input_buffer auto& in
   ++in_stream;
   skip_whitespace_and_comment(in_stream);
   while (*in_stream != '}') {
+    if (next_keyword(in_stream, "reserve")) {
+      parse_reserve(in_stream, *obj);
+      skip_whitespace_and_comment(in_stream);
+      continue;
+    }
     auto member = parse_member_impl(in_stream, id++, obj->parent_namespace);
     obj->member_list.push_back(std::move(member));
     skip_whitespace_and_comment(in_stream);
@@ -831,7 +968,26 @@ parse_class_header(const rohit::type_check::schema_input_buffer auto& in_stream,
 
 // Reject ambiguous field identity, including collisions between explicit and implicit IDs.
 void validate_class_keys(const rohit::type_check::schema_input_buffer auto& input,
-                         const class_node& obj) {
+                         class_node& obj) {
+  // A default discriminator ID uses the first free identity, independent of declaration order.
+  std::unordered_set<std::uint32_t> occupied(obj.reserved_ids.begin(), obj.reserved_ids.end());
+  for (const auto& base : obj.parents) {
+    occupied.insert(base.id);
+  }
+  for (const auto& field : obj.member_list) {
+    if (!field.version || field.explicit_id) {
+      occupied.insert(field.id);
+    }
+  }
+  for (auto& field : obj.member_list) {
+    if (field.version && !field.explicit_id) {
+      while (occupied.contains(field.id)) {
+        ++field.id;
+      }
+      validate_field_key(input, field.id, field.display_name);
+      occupied.insert(field.id);
+    }
+  }
   std::unordered_set<std::uint32_t> ids;
   std::unordered_set<std::string> names;
   const bool stable = (obj.attributes & class_attributes::stable_ids) == class_attributes::stable_ids;
@@ -848,13 +1004,32 @@ void validate_class_keys(const rohit::type_check::schema_input_buffer auto& inpu
       throw exception::bad_member_spec{input, "Duplicate field or parent wire name"};
     }
   };
+  for (const auto id : obj.reserved_ids) {
+    add_id(id, true);
+  }
+  for (const auto& name : obj.reserved_names) {
+    add_name(name);
+  }
+  std::unordered_set<std::string> variables{};
+  for (const auto& name : obj.reserved_variables) {
+    if (!variables.insert(name).second) {
+      throw exception::bad_member_spec{input, "Duplicate reserved variable name"};
+    }
+  }
   for (const auto& base : obj.parents) {
     add_id(base.id, base.explicit_id);
     add_name(base.display_name);
   }
   for (const auto& field : obj.member_list) {
-    add_id(field.id, field.explicit_id);
+    if (!variables.insert(field.name).second) {
+      throw exception::bad_member_spec{input, "Duplicate or reserved variable name"};
+    }
+    add_id(field.id, field.explicit_id || field.version);
     if (field.modifier == member::modifier_type::variant) {
+      if (std::find(obj.reserved_names.begin(), obj.reserved_names.end(), field.display_name) !=
+          obj.reserved_names.end()) {
+        throw exception::bad_member_spec{input, "Union reuses a reserved wire name"};
+      }
       std::unordered_set<std::string> alternatives;
       for (const auto& alternative : field.type_name_list) {
         if (!alternatives.insert(alternative.enum_name).second) {
@@ -865,6 +1040,69 @@ void validate_class_keys(const rohit::type_check::schema_input_buffer auto& inpu
     } else {
       add_name(field.display_name);
     }
+  }
+  const auto* version = obj.version_member();
+  if (!version) {
+    for (const auto& field : obj.member_list) {
+      if (!field.created_version.empty() || !field.obsolete_version.empty() ||
+          !field.replaced_member.empty()) {
+        throw exception::bad_member_spec{input, "Version lifecycle requires a version declaration"};
+      }
+    }
+    return;
+  }
+  try {
+    const auto& type = version->type_name_list.front().name;
+    const auto current = schema_version::parse(type, version->default_value);
+    const auto minimum = schema_version::parse(type, schema_version::minimum(*version));
+    if (current < minimum) {
+      throw std::invalid_argument{"Compatibility exceeds current version"};
+    }
+    std::size_t count{};
+    for (const auto& field : obj.member_list) {
+      if (field.version) {
+        ++count;
+        if (field.obsolete || !field.created_version.empty() || !field.replaced_member.empty()) {
+          throw std::invalid_argument{"Version discriminator cannot have a lifecycle"};
+        }
+      }
+      for (const auto& boundary : {field.created_version, field.obsolete_version}) {
+        if (!boundary.empty() && current < schema_version::parse(type, boundary)) {
+          throw std::invalid_argument{"Lifecycle boundary exceeds current version"};
+        }
+      }
+      if (!field.created_version.empty() && !field.obsolete_version.empty() &&
+          !(schema_version::parse(type, field.created_version) <
+            schema_version::parse(type, field.obsolete_version))) {
+        throw std::invalid_argument{"Created version must precede obsolete version"};
+      }
+      if (!field.replaced_member.empty()) {
+        const auto predecessor = std::find_if(
+            obj.member_list.begin(), obj.member_list.end(),
+            [&](const auto& candidate) { return candidate.name == field.replaced_member; });
+        if (field.created_version.empty() || predecessor == obj.member_list.end() ||
+            predecessor->obsolete_version.empty() ||
+            !(schema_version::parse(type, field.created_version) ==
+              schema_version::parse(type, predecessor->obsolete_version))) {
+          throw std::invalid_argument{"Replacement must match an existing obsolete boundary"};
+        }
+        if (std::count_if(obj.member_list.begin(), obj.member_list.end(),
+                          [&](const auto& candidate) {
+                            return candidate.replaced_member == field.replaced_member;
+                          }) != 1) {
+          throw std::invalid_argument{"A field may have only one replacement"};
+        }
+      }
+    }
+    if (count != 1) {
+      throw std::invalid_argument{"A class must have exactly one version declaration"};
+    }
+    if (obj.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
+        obj.supports_managed()) {
+      throw std::invalid_argument{"Version lifecycle currently requires unmanaged owning classes"};
+    }
+  } catch (const std::invalid_argument& error) {
+    throw exception::bad_member_spec{input, error.what()};
   }
 }
 

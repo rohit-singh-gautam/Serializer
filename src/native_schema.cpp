@@ -1,4 +1,5 @@
 #include "native_schema.hpp"
+#include "schema_version.hpp"
 
 #include <algorithm>
 #include <array>
@@ -81,6 +82,9 @@ int width(const type_name& value) {
   if (value.type != object_type::primitive || value.name == "string") {
     return 0;
   }
+  if (value.name.starts_with("version")) {
+    return (value.name.back() - '0') * 2;
+  }
   if (value.name == "bool" || value.name == "char" || value.name.ends_with("8")) {
     return 1;
   }
@@ -119,6 +123,10 @@ std::string literal(const member& value) {
       return name;
     }
   } else if (type.type == object_type::primitive) {
+    if (type.name.starts_with("version")) {
+      schema_version::parse(type.name, text);
+      return text;
+    }
     if (type.name == "string" &&
         std::regex_match(text, std::regex{"\"([^\"\\\\]|\\\\[\"\\\\bfnrt])*\""})) {
       return text;
@@ -185,9 +193,9 @@ void schema::collect(const std::vector<std::unique_ptr<syntax_node>>& values,
       collect(static_cast<const namespace_node&>(*value).statements, name);
       continue;
     }
-    validate_identifier(
-        name, " Protocol Limits Error Result String Int Float Double Bool Data Vec Option Default "
-              "Self None Some Ok Err List Map Set Array ByteArray Unit Any ");
+    validate_identifier(name, " ReadPolicy Protocol Limits Error Result String Int Float Double "
+                              "Bool Data Vec Option Default "
+                              "Self None Some Ok Err List Map Set Array ByteArray Unit Any ");
     if (std::any_of(names.begin(), names.end(),
                     [&](const auto& item) { return item.second == name; })) {
       throw std::invalid_argument{"Native type name collision: " + name};

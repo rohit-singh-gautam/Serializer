@@ -7,10 +7,14 @@ use std::fmt::Write as _;
 pub enum Protocol { Json, BinaryNone, BinaryInteger, BinaryString }
 /// Per-message limits; entries count cumulatively across collections.
 #[derive(Clone, Copy, Debug)]
-pub struct Limits { pub max_bytes: usize, pub max_string_bytes: usize, pub max_elements: usize, pub max_depth: usize }
+#[derive(PartialEq, Eq)]
+pub enum ReadPolicy { Strict, Compatible, Flexible }
+/// Per-message resource and revision policy.
+#[derive(Clone, Copy, Debug)]
+pub struct Limits { pub read_policy: ReadPolicy, pub max_bytes: usize, pub max_string_bytes: usize, pub max_elements: usize, pub max_depth: usize }
 impl Default for Limits {
     /// Construct an independent default resource policy.
-    fn default() -> Self { Self { max_bytes: 64*1024*1024, max_string_bytes: 16*1024*1024, max_elements: 1_000_000, max_depth: 64 } }
+    fn default() -> Self { Self { read_policy: ReadPolicy::Strict, max_bytes: 64*1024*1024, max_string_bytes: 16*1024*1024, max_elements: 1_000_000, max_depth: 64 } }
 }
 /// Validation or allocation failure; partial decoded values are never returned.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -21,8 +25,19 @@ impl std::fmt::Display for Error {
 }
 impl std::error::Error for Error {}
 type SrlResult<T> = Result<T, Error>;
+/// Parse canonical fixed-count uint16 dotted components.
+fn srl_version_parts(value: &str, count: usize) -> SrlResult<Vec<u16>> {
+    let mut result = Vec::with_capacity(count);
+    for part in value.split('.') { if part.is_empty() || part.len() > 5 || (part.len() > 1 && part.starts_with('0')) || !part.bytes().all(|b| b.is_ascii_digit()) { return Err(Error("Invalid dotted revision")); } result.push(part.parse::<u16>().map_err(|_| Error("Invalid dotted revision"))?); }
+    if result.len() != count { return Err(Error("Invalid dotted revision")); } Ok(result)
+}
+/// Order numeric components without textual comparison.
+fn srl_version_compare(a: &str, b: &str, count: usize) -> SrlResult<i32> { let x = srl_version_parts(a, count)?; let y = srl_version_parts(b, count)?; Ok(match x.cmp(&y) { std::cmp::Ordering::Less => -1, std::cmp::Ordering::Equal => 0, std::cmp::Ordering::Greater => 1 }) }
 struct SrlWriter { protocol: Protocol, bytes: Vec<u8>, depth: usize }
 impl SrlWriter {
+    /// Write canonical text or count-free binary components.
+    fn version(&mut self, value: &str, count: usize) -> SrlResult<()> { let parts = srl_version_parts(value, count)?; if self.json() { self.text(value) } else { for part in parts { self.integer(part as u64, 2, true)?; } Ok(()) } }
+
     /// Create isolated owned output storage.
     fn new(protocol: Protocol) -> Self { Self { protocol, bytes: Vec::new(), depth: 0 } }
     /// Grow output with checked allocation before copying bytes.
@@ -116,6 +131,18 @@ impl SrlWriter {
 enum SrlKey { Id(u32), Name(String) }
 struct SrlReader<'a> { data: &'a [u8], protocol: Protocol, limits: Limits, offset: usize, depth: usize, elements: usize }
 impl<'a> SrlReader<'a> {
+    /// Decode exactly the declared count of revision components.
+    fn version(&mut self, count: usize) -> SrlResult<String> { let value = if self.json() { self.text()? } else { let mut text = String::new(); for i in 0..count { if i != 0 { text.push('.'); } write!(&mut text, "{}", self.integer(2, true)?).map_err(|_| Error("Revision formatting"))?; } text }; srl_version_parts(&value, count)?; Ok(value) }
+    /// Skip bounded JSON extensions, preserving unknown-value syntax checks.
+    fn skip_value(&mut self) -> SrlResult<()> {
+        if !self.json() || self.limits.read_policy != ReadPolicy::Flexible { return Err(Error("Unknown field")); }
+        self.whitespace(); let c = *self.data.get(self.offset).ok_or(Error("Truncated input"))?;
+        if c == b'"' { self.text()?; return Ok(()); }
+        if c == b'{' { self.begin_object()?; let mut cursor = 0; let mut seen = std::collections::BTreeSet::new(); while let Some(key) = self.key(&[], &mut cursor)? { if let SrlKey::Name(name) = key { if !seen.insert(name) { return Err(Error("Duplicate field")); } } self.elements += 1; if self.elements > self.limits.max_elements { return Err(Error("Element limit")); } self.skip_value()?; } self.end_object(); return Ok(()); }
+        if c == b'[' { self.depth += 1; if self.depth > self.limits.max_depth { return Err(Error("Depth limit")); } let count = self.begin_array()?; let mut i = 0; while self.next_element(i, count)? { self.skip_value()?; i += 1; } self.depth -= 1; return Ok(()); }
+        let text = self.token()?; if !matches!(text, "null" | "true" | "false") && !srl_number(text, false) { return Err(Error("Invalid JSON value")); } Ok(())
+    }
+
     /// Borrow input only for this decode operation.
     fn new(data: &'a [u8], protocol: Protocol, limits: Limits) -> SrlResult<Self> {
         if data.len() > limits.max_bytes { return Err(Error("Message byte limit")); }

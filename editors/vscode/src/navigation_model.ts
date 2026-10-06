@@ -168,7 +168,8 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
         typeReference(i + 3);
       }
     } else if (schema && ['public', 'private', 'protected'].includes(token.text)) {
-      defaultReference(typeReference(i + 1));
+      // Version declarations contain only built-in types and metadata, never type references.
+      if (tokens[i + 1]?.text !== 'version') { defaultReference(typeReference(i + 1)); }
     } else if (token.text === 'class' || token.text === 'struct' || token.text === 'enum') {
       if (tokens[i - 1]?.text === 'enum') { continue; }
       const nameIndex = token.text === 'enum' && ['class', 'struct'].includes(tokens[i + 1]?.text)

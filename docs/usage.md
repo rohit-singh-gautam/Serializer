@@ -1,5 +1,8 @@
 # Using Serializer in a C++ application
 
+See [payload versioning](versioning.md) for revision types, historical positional
+layouts, field lifetimes, replacements, reservations, and common read policies.
+
 New to the project? Start with the [project overview](../README.md#get-started).
 For editing and persistence concepts, read the
 [history, journal, collaboration, and authorization introduction](managed/getting_started.md).
@@ -1213,18 +1216,18 @@ and the ownership, getter, help, and dispatch contracts.
 ## JSON compatibility
 
 Native JSON remains strict by default. To read a document that may gain fields,
-regenerate its classes and select the compatible reader explicitly:
+regenerate its classes and select the flexible reader explicitly:
 
 ```cpp
 auto stream = rohit::make_constant_stream(bytes.data(), bytes.size());
 rohit::serializer::json<rohit::serializer::serialize_type::in, rohit::stream,
-                       rohit::serializer::json_read_policy::compatible> reader(stream);
+                       rohit::serializer::read_policy::flexible> reader(stream);
 document value{};
 reader.serialize_in(value);
 reader.finish();
 ```
 
-Compatible input skips unknown values, including nested arrays and objects. It
+Flexible input skips unknown values, including nested arrays and objects. It
 rejects duplicate names in both known and unknown objects, including escaped
 aliases, and applies the normal input, string, allocation, collection, work, and
 nesting limits to skipped values. Missing fields retain their generated defaults;

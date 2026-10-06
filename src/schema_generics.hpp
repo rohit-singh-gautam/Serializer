@@ -308,6 +308,9 @@ class generic_lowering {
     concrete->generic_arguments = type.arguments;
     concrete->generic_parameters = definition->generic_parameters;
     concrete->member_list = definition->member_list;
+    concrete->reserved_ids = definition->reserved_ids;
+    concrete->reserved_variables = definition->reserved_variables;
+    concrete->reserved_names = definition->reserved_names;
     try {
       resolve_fields(*concrete, substitutions, depth + 1);
     } catch (const std::exception& error) {
@@ -474,6 +477,9 @@ class generic_lowering {
             const auto& source = static_cast<const class_node&>(*target.resolved_node);
             object.attributes = source.attributes;
             object.member_list = source.member_list;
+            object.reserved_ids = source.reserved_ids;
+            object.reserved_variables = source.reserved_variables;
+            object.reserved_names = source.reserved_names;
             object.instance_of.clear();
           } else {
             incomplete.insert(object.get_full_name());

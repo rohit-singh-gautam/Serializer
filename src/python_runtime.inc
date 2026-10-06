@@ -13,16 +13,23 @@ class Protocol(_IntEnum):
     BINARY_INTEGER = 2
     BINARY_STRING = 3
 
+class ReadPolicy(_IntEnum):
+    """Accept the current revision, supported history, or safe JSON extensions."""
+    STRICT = 0
+    COMPATIBLE = 1
+    FLEXIBLE = 2
+
 class Limits:
     """Per-message resource policy; collection entries are cumulative."""
-    __slots__ = ('max_bytes', 'max_string_bytes', 'max_elements', 'max_depth')
-    def __init__(self, max_bytes=64*1024*1024, max_string_bytes=16*1024*1024, max_elements=1000000, max_depth=64):
+    __slots__ = ('max_bytes', 'max_string_bytes', 'max_elements', 'max_depth', 'read_policy')
+    def __init__(self, max_bytes=64*1024*1024, max_string_bytes=16*1024*1024, max_elements=1000000, max_depth=64, read_policy=ReadPolicy.STRICT):
         """Validate limits before reading untrusted input."""
         for value in (max_bytes, max_string_bytes, max_elements, max_depth):
             if type(value) is not int or value < 0:
                 raise ValueError('Invalid decode limit')
         self.max_bytes, self.max_string_bytes = max_bytes, max_string_bytes
         self.max_elements, self.max_depth = max_elements, max_depth
+        self.read_policy = ReadPolicy(read_policy)
 
 _INTEGER = _re.compile(r'-?(0|[1-9][0-9]*)\Z')
 _NUMBER = _re.compile(r'-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?\Z')
@@ -138,6 +145,33 @@ def _field(name):
     output = _Writer(3); output.text(name)
     return ((_json.dumps(name) + ':').encode('utf-8'), bytes(output.data))
 
+
+def _version_parts(text, count):
+    """Validate canonical uint16 dotted components before comparing or writing them."""
+    if type(text) is not str or not _re.fullmatch(r'(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*))*', text):
+        raise ValueError('Invalid dotted version')
+    parts = tuple(int(part) for part in text.split('.'))
+    if len(parts) != count or any(part > 65535 for part in parts): raise ValueError('Invalid dotted version')
+    return parts
+
+def _version_compare(left, right, count):
+    """Compare version components numerically, preserving their declared count."""
+    a, b = _version_parts(left, count), _version_parts(right, count)
+    return (a > b) - (a < b)
+
+def _read_version(input, count):
+    """Read canonical JSON or a count-free sequence of uint16 binary components."""
+    text = input.text() if input.protocol == Protocol.JSON else '.'.join(str(input.integer(2, True)) for _ in range(count))
+    _version_parts(text, count)
+    return text
+
+def _write_version(output, value, count):
+    """Encode a validated dotted revision with the same bytes as native C++."""
+    parts = _version_parts(value, count)
+    if output.protocol == Protocol.JSON: output.text(value)
+    else:
+        for part in parts: output.integer(part, 2, True)
+
 class _Reader:
     """Borrow contiguous input during decoding; returned objects own their data."""
     __slots__ = ('data', 'protocol', 'limits', 'offset', 'depth', 'elements')
@@ -242,6 +276,7 @@ class _Reader:
                 yield key
         else:
             first = True
+            keys = set() if self.protocol == 0 and self.limits.read_policy == ReadPolicy.FLEXIBLE else None
             if self.protocol == 0: self.expect(123)
             while True:
                 if self.protocol == 0:
@@ -251,6 +286,10 @@ class _Reader:
                 key = self.text()
                 if self.protocol == 3 and not key: break
                 if self.protocol == 0: self.expect(58)
+                if keys is not None:
+                    if key in keys: raise ValueError('Duplicate JSON key')
+                    keys.add(key); self.elements += 1
+                    if self.elements > self.limits.max_elements: raise ValueError('Element limit')
                 first = False
                 yield key
         self.depth -= 1
@@ -270,6 +309,23 @@ class _Reader:
             if self.elements > self.limits.max_elements: raise ValueError('Element limit')
             yield index
             index += 1
+    def skip_value(self):
+        """Skip a complete JSON value with normal validation and resource limits."""
+        if self.protocol != Protocol.JSON or self.limits.read_policy != ReadPolicy.FLEXIBLE:
+            raise ValueError('Unknown field')
+        self.whitespace(); self.require(1); byte = self.data[self.offset]
+        if byte == 123:
+            for _ in self.fields(()): self.skip_value()
+        elif byte == 91:
+            self.depth += 1
+            if self.depth > self.limits.max_depth: raise ValueError('Depth limit')
+            for _ in self.entries(): self.skip_value()
+            self.depth -= 1
+        elif byte == 34: self.text()
+        else:
+            token = self.token()
+            if token not in ('null', 'true', 'false') and not _NUMBER.fullmatch(token):
+                raise ValueError('Invalid skipped value')
     def finish(self):
         """Expose a result only after consuming exactly one complete message."""
         if self.protocol == 0: self.whitespace()

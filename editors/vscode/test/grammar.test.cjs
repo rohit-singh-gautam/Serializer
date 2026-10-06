@@ -176,3 +176,16 @@ test('dimension defaults and fixed extents highlight numbers, operators and para
   }
   assert.equal(grammar.tokenizeLine(line, INITIAL).ruleStack.depth, 1);
 });
+
+
+test('version lifecycles and component types use the canonical shared grammar', async () => {
+  const grammar = await loadGrammar();
+  const line = 'public version version3 ver (6) { "1.10.0" } compatibility { "1.2.0" }; obsolete(3) public uint64 id (2); created(3) replaced(id) public float identity (4); reserve id {7} variable {retired} display {"old"};';
+  const tokens = grammar.tokenizeLine(line, INITIAL).tokens;
+  for (const keyword of ['version ', 'compatibility', 'obsolete', 'created', 'replaced', 'reserve']) {
+    const offset = line.indexOf(keyword);
+    assert.equal(tokens.find(t => t.startIndex <= offset && t.endIndex > offset).scopes.at(-1), 'keyword.control.serializer', keyword);
+  }
+  const offset = line.indexOf('version3');
+  assert.equal(tokens.find(t => t.startIndex <= offset && t.endIndex > offset).scopes.at(-1), 'support.type.serializer');
+});

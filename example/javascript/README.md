@@ -35,3 +35,5 @@ Run the generic example separately:
 ```sh
 python example/generics/run.py --compiler build/serializer --language javascript
 ```
+
+[Versioning example](versioning/README.md): compatible historical reads, explicit replacement migration, and all revision types.

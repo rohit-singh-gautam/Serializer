@@ -78,6 +78,7 @@ async function main() {
   fs.mkdirSync(parent, { recursive: true });
   const directory = fs.mkdtempSync(path.join(parent, 'generated-navigation-'));
   let checks = await verify(path.join(repository, 'example/schemas/complex/model.serializer'), path.join(directory, 'complex'));
+  checks += await verify(path.join(repository, 'example/schemas/versioning/model.serializer'), path.join(directory, 'versioning'));
   checks += await verify(path.join(repository, 'example/generics/result.serializer'), path.join(directory, 'generics'));
   const input = path.join(directory, 'acronyms.serializer');
   fs.writeFileSync(input, `serializer version 1;

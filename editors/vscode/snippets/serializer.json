@@ -76,5 +76,25 @@
     "prefix": "instantiate",
     "body": "instantiate ${1:count_result} = ${2:result}<${3:uint32}>;$0",
     "description": "Declare an optional concrete root contract for cross-language generation"
+  },
+  "Message version": {
+    "prefix": "version",
+    "body": "${1:public} version { ${2:1} } compatibility { ${3:1} };$0",
+    "description": "Declare a uint8 message revision and oldest supported revision (owning C++)"
+  },
+  "Created field": {
+    "prefix": "created",
+    "body": "created(${1:2}) public ${2:string} ${3:name} (${4:2});$0",
+    "description": "Add a field beginning at an inclusive message revision"
+  },
+  "Obsolete field": {
+    "prefix": "obsolete",
+    "body": "obsolete(${1:2}) public ${2:string} ${3:old_name} (${4:2});$0",
+    "description": "Retain a historical field ending at an exclusive message revision"
+  },
+  "Reserved identities": {
+    "prefix": "reserve",
+    "body": "reserve id { ${1:7} } variable { ${2:old_name} } display { \"${3:old_wire_name}\" };$0",
+    "description": "Prevent reuse of unused class-scoped field identities"
   }
 }

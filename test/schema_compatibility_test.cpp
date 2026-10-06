@@ -202,3 +202,31 @@ TEST(schema_compatibility, rejects_invalid_configuration_and_protobuf_mapping) {
   EXPECT_THROW(codec::check_schema_compatibility(invalid, invalid, protocol::protobuf_binary),
                std::invalid_argument);
 }
+
+// Supported historical positional contracts survive additions gated to a later revision.
+TEST(schema_compatibility, compares_versioned_historical_layouts) {
+  const auto previous =
+      schema("class record stable_ids { public version { 8 }; public uint64 id (2); }");
+  const auto current =
+      schema("class record stable_ids { public version { 10 } compatibility { 8 }; "
+             "public uint64 id (2); created(9) public bool enabled (3) { true }; }");
+  for (const auto mode : {protocol::binary_none, protocol::binary_integer, protocol::json}) {
+    const auto changes = codec::check_schema_compatibility(previous, current, mode);
+    EXPECT_FALSE(breaks_new_reader(changes));
+    EXPECT_TRUE(reports(changes, "previous supported range"));
+  }
+  const auto damaged =
+      schema("class record stable_ids { public version { 10 } compatibility { 8 }; "
+             "public uint32 id (2); }");
+  EXPECT_TRUE(breaks_new_reader(
+      codec::check_schema_compatibility(previous, damaged, protocol::binary_none)));
+}
+
+// Embedded reservations retire removed field identities without an external JSON policy.
+TEST(schema_compatibility, recognizes_schema_reservations) {
+  const auto previous = schema("class record { public uint32 value (2); }");
+  const auto current = schema("class record { reserve id { 2 } display { \"value\" }; }");
+  const auto changes =
+      codec::check_schema_compatibility(previous, current, protocol::protobuf_binary);
+  EXPECT_FALSE(reports(changes, "requires its ID"));
+}

@@ -1,4 +1,5 @@
 #include "native_schema.hpp"
+#include "version_writer.hpp"
 
 #include <map>
 #include <string>
@@ -45,7 +46,7 @@ class rust_emitter {
     if (value.type != object_type::primitive) {
       return model.names.at(value.resolved_node);
     }
-    if (value.name == "string") {
+    if (value.name == "string" || value.name.starts_with("version")) {
       return "String";
     }
     if (value.name == "char") {
@@ -86,7 +87,7 @@ class rust_emitter {
       const auto& constants = static_cast<const enum_node&>(*value.resolved_node).enum_name_list;
       return type(value) + "::" + pascal(literal_value.empty() ? constants.front() : literal_value);
     }
-    if (value.name == "string") {
+    if (value.name == "string" || value.name.starts_with("version")) {
       return literal_value.empty() ? "String::new()" : text_literal(literal_value) + ".to_owned()";
     }
     if (value.name == "bool") {
@@ -111,6 +112,9 @@ class rust_emitter {
     if (value.type == object_type::enum_type) {
       return type(value) + "::srl_read(input, " + (collection ? "true" : "false") + ")?";
     }
+    if (value.name.starts_with("version")) {
+      return "input.version(" + std::string{value.name.back()} + ")?";
+    }
     if (value.name == "string") {
       return "input.text()?";
     }
@@ -132,6 +136,11 @@ class rust_emitter {
       line(expression + ".srl_write(out)?;");
     } else if (value.type == object_type::enum_type) {
       line(expression + ".srl_write(out, " + (collection ? "true" : "false") + ")?;");
+    } else if (value.name.starts_with("version")) {
+      line(
+          "out.version(" +
+          (expression.starts_with('(') ? expression.substr(1, expression.size() - 2) : expression) +
+          ", " + std::string{value.name.back()} + ")?;");
     } else if (value.name == "string") {
       line(
           "out.text(" +
@@ -147,6 +156,42 @@ class rust_emitter {
     } else {
       line("out.integer(*" + expression + " as u64, " + std::to_string(width(value)) + ", " +
            (value.name.starts_with('u') ? "true" : "false") + ")?;");
+    }
+  }
+  // Validate scalar or dotted revision bounds and the selected read policy.
+  void check_version(const class_node& owner, bool reading) {
+    const auto& version = *owner.version_member();
+    const auto value = "self." + field(version.name);
+    auto invalid =
+        version_less(version_language::rust, version, value, schema_version::minimum(version)) +
+        " || !(" + version_less(version_language::rust, version, value, version.default_value) +
+        " || " + version_equal(version_language::rust, version, value, version.default_value) + ")";
+    if (reading) {
+      invalid += " || (input.limits.read_policy == ReadPolicy::Strict && !" +
+                 version_equal(version_language::rust, version, value, version.default_value) + ")";
+    }
+    line("if " + invalid + " { return Err(Error(\"Unsupported schema version\")); }");
+  }
+  // Track keyed fields and skip inactive positional fields without reading bytes.
+  void read_versioned_member(const class_node& owner, const member& item) {
+    const auto* version = owner.version_member();
+    if (version) {
+      const auto slot = std::to_string(version_slot(owner, item));
+      line("if seen[" + slot + "] { return Err(Error(\"Duplicate field\")); }");
+      line("seen[" + slot + "] = true;");
+    }
+    const auto active = version ? version_active(version_language::rust, item, *version,
+                                                 "self." + field(version->name))
+                                : std::string{};
+    if (!active.empty()) {
+      open("if input.protocol != Protocol::BinaryNone || (" + active + ")");
+    }
+    read_member(item);
+    if (!active.empty()) {
+      close();
+    }
+    if (item.version) {
+      check_version(owner, true);
     }
   }
   // Reference an immutable pre-encoded field table entry.
@@ -334,8 +379,15 @@ class rust_emitter {
     close();
     line("/// Write fields in schema order without reflection.");
     open("fn srl_write(&self, out: &mut SrlWriter) -> SrlResult<()>");
+    if (value.version_member()) {
+      check_version(value, false);
+    }
     line("out.begin_object()?;");
     bool first = true;
+    if (const auto* version = value.version_member()) {
+      write_member(*version, true);
+      first = false;
+    }
     for (std::size_t i = 0; i < value.parents.size(); ++i) {
       const auto& base = value.parents[i];
       key(base.id, base.display_name, first);
@@ -343,21 +395,44 @@ class rust_emitter {
       first = false;
     }
     for (const auto& f : value.member_list) {
+      if (f.version) {
+        continue;
+      }
+      const auto* version = value.version_member();
+      const auto active = version ? version_active(version_language::rust, f, *version,
+                                                   "self." + field(version->name))
+                                  : std::string{};
+      if (!active.empty()) {
+        open("if " + (active.find(" && ") == std::string::npos ? active.substr(1, active.size() - 2)
+                                                               : active));
+      }
       write_member(f, first);
+      if (!active.empty()) {
+        close();
+      }
       first = false;
     }
     line("out.end_object()");
     close();
     line("/// Merge repeated nested objects while replacing collections.");
     open("fn srl_read(&mut self, input: &mut SrlReader<'_>) -> SrlResult<()>");
+    if (value.version_member()) {
+      line("let mut seen = [false; " +
+           std::to_string(value.parents.size() + value.member_list.size()) + "];");
+    }
     line("input.begin_object()?;");
     line("let mut cursor = 0;");
     std::string ids = "&[";
+    if (const auto* version = value.version_member()) {
+      ids += std::to_string(version->id) + ",";
+    }
     for (const auto& base : value.parents) {
       ids += std::to_string(base.id) + ",";
     }
     for (const auto& f : value.member_list) {
-      ids += std::to_string(f.id) + ",";
+      if (!f.version) {
+        ids += std::to_string(f.id) + ",";
+      }
     }
     ids += "]";
     open("while let Some(key) = input.key(" + ids + ", &mut cursor)?");
@@ -378,7 +453,7 @@ class rust_emitter {
         line(quote(f.display_name) + " => (" + std::to_string(f.id) + ", None),");
       }
     }
-    line("_ => return Err(Error(\"Unknown field\")),");
+    line("_ => { input.skip_value()?; continue; },");
     close();
     --indent;
     line("};");
@@ -390,13 +465,27 @@ class rust_emitter {
     }
     for (const auto& f : value.member_list) {
       open(std::to_string(f.id) + " =>");
-      read_member(f);
+      read_versioned_member(value, f);
       close();
     }
     line("_ => return Err(Error(\"Unknown field\")),");
     close();
     close();
     line("input.end_object();");
+    if (const auto* version = value.version_member()) {
+      line("if !seen[" + std::to_string(version_slot(value, *version)) +
+           "] { return Err(Error(\"Missing schema version\")); }");
+      check_version(value, true);
+      for (const auto& item : value.member_list) {
+        const auto active =
+            version_active(version_language::rust, item, *version, "self." + field(version->name));
+        if (!active.empty()) {
+          line("if input.protocol != Protocol::BinaryNone && seen[" +
+               std::to_string(version_slot(value, item)) + "] && !(" + active +
+               ") { return Err(Error(\"Field outside version lifecycle\")); }");
+        }
+      }
+    }
     line("Ok(())");
     close();
     close();

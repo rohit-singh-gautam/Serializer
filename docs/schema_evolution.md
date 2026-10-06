@@ -120,3 +120,16 @@ ASan/UBSan tests and CLI checks, and installed-package consumer verification.
 These checks cover reader directions, retired ID/name reuse, enum/union changes,
 positional order, maps/nested types/defaults, policy validation, and relative includes.
 They do not establish semantic equivalence or a new wire format.
+
+
+## Declared payload history and embedded reservations
+
+[Payload versioning](versioning.md) adds explicit current/minimum revisions and
+field lifetimes to unmanaged owning models. The checker compares retained layouts
+at every supported transition: later additions gated by `created` can preserve
+backward positional reading. Discriminator identity/type changes remain breaks;
+new revisions outside an older reader's supported interval remain forward breaks.
+Embedded `reserve id {...} display {...};` declarations combine with the external
+policy; `reserve variable {...};` protects source names during schema generation.
+Unversioned schemas retain the preceding conservative positional rules. No native
+binary codec skips unknown field extents.

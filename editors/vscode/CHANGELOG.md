@@ -1,3 +1,8 @@
+# 1.1.16
+
+- Recognize message versions, compatibility floors, field lifecycles, replacements, reservations, and dotted version types.
+- Keep schema type navigation correct around version declarations and retained obsolete fields.
+
 # 1.1.15
 
 - Support native C++ generic declarations, dimension parameters, defaults, and fixed-array expressions in shared navigation and highlighting.

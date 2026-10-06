@@ -53,6 +53,9 @@ std::string json_name(std::string_view value) {
 
 // Validate one owning class, including synthetic union fields and map key restrictions.
 void object(const class_node& value) {
+  if (value.version_member()) {
+    throw std::invalid_argument{"Version lifecycle is unsupported by Protobuf mapping"};
+  }
   if (!value.has_mode(storage_mode::owning)) {
     throw std::invalid_argument{"Protobuf requires owning storage: " + value.get_full_name()};
   }

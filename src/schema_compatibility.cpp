@@ -1,6 +1,7 @@
 #include <rohit/schema_compatibility.hpp>
 
 #include "protobuf_schema.hpp"
+#include "schema_version.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -203,6 +204,36 @@ bool retired(const reserved_fields* reservation, const field_contract& field) {
          reserved_name(*reservation, field.name);
 }
 
+// Merge class-local permanent reservations with the optional external retirement policy.
+reserved_fields class_reservations(const class_node& object, const compatibility_policy& policy) {
+  reserved_fields result{object.get_full_name(), object.reserved_ids, object.reserved_names};
+  if (const auto* external = reservation_for(policy, result.type)) {
+    result.ids.insert(result.ids.end(), external->ids.begin(), external->ids.end());
+    result.names.insert(result.names.end(), external->names.begin(), external->names.end());
+  }
+  return result;
+}
+
+// Materialize a historical contract for comparison without changing either resolved schema.
+class_node historical_contract(const class_node& object, std::string_view revision) {
+  class_node result{object_type::class_type, std::string{object.name}, object.parent_namespace,
+                    object.attributes, std::vector<parent>{object.parents}};
+  const auto& version = *object.version_member();
+  auto discriminator = version;
+  discriminator.version = false;
+  discriminator.default_value
+      .clear(); // The prefix value is checked separately from field defaults.
+  result.member_list.push_back(std::move(discriminator));
+  for (const auto& field : object.member_list) {
+    if (!field.version && schema_version::active(field, version, revision)) {
+      result.member_list.push_back(field);
+    }
+  }
+  result.reserved_ids = object.reserved_ids;
+  result.reserved_names = object.reserved_names;
+  return result;
+}
+
 // Append a deterministic diagnostic, marking the reader directions requiring review.
 void issue(std::vector<compatibility_issue>& result, const std::string& path, std::string message,
            bool old_reader = true, bool new_reader = true) {
@@ -255,9 +286,78 @@ void check_class(std::vector<compatibility_issue>& result, const class_node& pre
                  const class_node& current, compatibility_protocol protocol,
                  const compatibility_policy& policy) {
   const auto path = previous.get_full_name();
+  const auto* before_version = previous.version_member();
+  const auto* after_version = current.version_member();
+  if (before_version || after_version) {
+    if (!before_version || !after_version || before_version->id != after_version->id ||
+        before_version->display_name != after_version->display_name ||
+        before_version->type_name_list.front().name != after_version->type_name_list.front().name) {
+      issue(result, path,
+            "Version discriminator added, removed, or changed; select a separate contract");
+      return;
+    }
+    const auto& type = before_version->type_name_list.front().name;
+    const auto old_revision = schema_version::parse(type, before_version->default_value);
+    const auto new_revision = schema_version::parse(type, after_version->default_value);
+    const auto old_minimum = schema_version::parse(type, schema_version::minimum(*before_version));
+    const auto new_minimum = schema_version::parse(type, schema_version::minimum(*after_version));
+    const auto reservations = class_reservations(current, policy);
+    const auto all_new = fields(current);
+    for (const auto& before : fields(previous)) {
+      if (std::none_of(all_new.begin(), all_new.end(),
+                       [&](const auto& after) { return before.id == after.id; }) &&
+          !retired(&reservations, before)) {
+        issue(result, path + "." + before.name,
+              "Removed historical field requires its ID and wire name to be reserved");
+      }
+    }
+    // Compare every historical transition the previous reader supported, not only its latest layout.
+    auto revisions = schema_version::transitions(previous);
+    for (const auto& boundary : schema_version::transitions(current)) {
+      const auto value = schema_version::parse(type, boundary);
+      if (!(value < old_minimum) && !(old_revision < value)) {
+        revisions.push_back(boundary);
+      }
+    }
+    revisions.push_back(before_version->default_value);
+    for (const auto& revision : revisions) {
+      const auto value = schema_version::parse(type, revision);
+      if (value < new_minimum || new_revision < value) {
+        issue(result, path, "Historical writer revision is outside the new supported range", false,
+              true);
+        continue;
+      }
+      auto old_layout = historical_contract(previous, revision);
+      auto new_layout = historical_contract(current, revision);
+      std::vector<compatibility_issue> layout_issues{};
+      check_class(layout_issues, old_layout, new_layout, protocol, policy);
+      for (auto& problem : layout_issues) {
+        problem.breaks_old_reader = false;
+        problem.breaks_new_reader = true;
+        problem.message = "Historical revision " + revision + ": " + problem.message;
+        result.push_back(std::move(problem));
+      }
+    }
+    if (new_revision < old_minimum || old_revision < new_revision) {
+      issue(result, path, "New writer revision is outside the previous supported range", true,
+            false);
+    } else {
+      auto old_layout = historical_contract(previous, after_version->default_value);
+      auto new_layout = historical_contract(current, after_version->default_value);
+      std::vector<compatibility_issue> layout_issues{};
+      check_class(layout_issues, old_layout, new_layout, protocol, policy);
+      for (auto& problem : layout_issues) {
+        problem.breaks_old_reader = true;
+        problem.breaks_new_reader = false;
+        result.push_back(std::move(problem));
+      }
+    }
+    return;
+  }
   const auto old_fields = fields(previous);
   const auto new_fields = fields(current);
-  const auto* reservation = reservation_for(policy, path);
+  const auto reservations = class_reservations(current, policy);
+  const auto* reservation = &reservations;
   const bool positional = protocol == compatibility_protocol::binary_none;
   const bool protobuf = protocol == compatibility_protocol::protobuf_binary;
   if (positional) {
@@ -388,8 +488,9 @@ std::vector<compatibility_issue> check_schema_compatibility(const parser::parsed
   std::vector<compatibility_issue> result{};
   for (const auto& [name, node] : after) {
     if (node->type == object_type::class_type) {
+      const auto reservations = class_reservations(static_cast<const class_node&>(*node), policy);
       check_reservations(result, name, fields(static_cast<const class_node&>(*node)),
-                         reservation_for(policy, name));
+                         &reservations);
     }
   }
   for (const auto& [name, node] : before) {

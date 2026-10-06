@@ -1,6 +1,6 @@
 set(schemas)
 foreach(fixture IN ITEMS enum person test1 array map variable assessment views storage_reuse
-    fixed_fields constant_names includes wire_compatibility generics dimensions)
+    fixed_fields constant_names includes wire_compatibility generics dimensions versioning)
   list(APPEND schemas "${CMAKE_CURRENT_SOURCE_DIR}/resources/${fixture}.serializer")
 endforeach()
 
@@ -15,6 +15,7 @@ add_executable(core_serializer_test
   file_stream_test.cpp
   serializer_parser_test.cpp
   schema_version_test.cpp
+  versioning_test.cpp
   schema_generics_test.cpp
   dimension_templates_test.cpp
   managed_schema_test.cpp

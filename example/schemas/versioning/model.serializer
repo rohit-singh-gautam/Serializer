@@ -1,0 +1,17 @@
+serializer version 1;
+class example_model stable_ids {
+  public version { 10 } compatibility { 8 };
+  public uint64 id (2);
+  created(9) public bool enabled (3) { true };
+  obsolete(10) public string old_name (4);
+  created(10) replaced(old_name) public string name (5) { "new" };
+  reserve id {7, 9} variable {retired} display {"retired_name"};
+}
+class uint16_version { protected version uint16 ver { 300 }; }
+class uint32_version { public version uint32 { 70000 }; }
+class uint64_version { public version uint64 { 18446744073709551615 }; }
+class float_version { public version float { 0.1 } compatibility { 0.05 }; }
+class double_version { private version double ver (6) { 2.5 }; }
+class dotted2_version { public version version2 { "1.10" } compatibility { "1.2" }; }
+class dotted3_version { public version version3 ver (6) { "1.10.0" } compatibility { "1.2.0" }; }
+class dotted4_version { public version version4 { "1.10.0.4" }; }

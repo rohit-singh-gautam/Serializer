@@ -1,5 +1,8 @@
 # Wire format and decoding contract
 
+See [payload versioning](versioning.md) for revision types, historical positional
+layouts, field lifetimes, replacements, reservations, and common read policies.
+
 [Schema generics](generics.md) are expanded before codec generation. Each concrete
 application encodes exactly like an equivalent ordinary class; no parameter names,
 type tags, or generic envelope bytes are added. Both peers must agree on the
@@ -638,7 +641,7 @@ Protobuf generation of fixed arrays is explicitly rejected. See
 
 ## Compatible native JSON input
 
-The opt-in `json_read_policy::compatible` reader ignores additional keyed
+The opt-in `read_policy::flexible` reader ignores additional keyed
 fields, rejects duplicate object keys, and validates skipped values under the
 same resource limits as typed fields. Default native JSON still rejects unknown
 fields. C++ optional host values encode as JSON `null` or their contained value;

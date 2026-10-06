@@ -2,6 +2,9 @@
 
 [Back to the project overview](../README.md)
 
+See [payload versioning](versioning.md) for revision types, historical positional
+layouts, field lifetimes, replacements, reservations, and common read policies.
+
 Use this guide for advanced capabilities and their limits. Implemented behavior
 is described separately from broader design proposals.
 

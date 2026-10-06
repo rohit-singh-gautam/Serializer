@@ -2,6 +2,9 @@
 
 [Back to the project overview](../README.md)
 
+See [payload versioning](versioning.md) for revision types, historical positional
+layouts, field lifetimes, replacements, reservations, and common read policies.
+
 Look up schema declarations, field IDs, buffer views, and native protocol choices.
 Start with [small schema examples](schema_examples.md) if you are new to the syntax.
 
@@ -186,7 +189,8 @@ serializer --input current.serializer --check-against previous.serializer \
 
 It checks identity/type changes, positional order, and enum/union ordinals, and
 distinguishes native unknown-field rejection from Protobuf binary skipping.
-This does not introduce a new native wire format or a `reserved` schema keyword.
+Class-scoped `reserve` declarations now protect identities during generation too;
+[versioned models](versioning.md) retain and select known historical layouts.
 
 `stable_ids` is independent of `view` and is not required for mapping buffers.
 Views use positional binary, so field order and types must still match.
@@ -311,5 +315,5 @@ writing that integer.
 C++ generic fields may use `std::optional<T>` when encoding and decoding native
 JSON; an empty value is JSON `null`. This is a host type capability, not a new
 schema type or binary encoding. Evolving JSON readers can explicitly select
-`json_read_policy::compatible`; regenerate classes for the unknown-member hook.
+`read_policy::flexible`; regenerate classes for the unknown-member hook.
 See [JSON compatibility](usage.md#json-compatibility).

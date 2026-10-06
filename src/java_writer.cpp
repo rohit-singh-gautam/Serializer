@@ -1,3 +1,4 @@
+#include "version_writer.hpp"
 #include <rohit/serializer_creator.hpp>
 
 #include <algorithm>
@@ -120,6 +121,9 @@ std::string identifier(std::string_view value, bool type, bool constant, bool re
 
 // Map schema primitive storage to Java bit-preserving primitive types.
 std::string primitive(std::string_view name, bool boxed = false) {
+  if (name.starts_with("version")) {
+    return "java.lang.String";
+  }
   if (name == "string") {
     return "java.lang.String";
   }
@@ -237,7 +241,7 @@ class emitter {
       }
       return type(value) + "." + constant(enumeration.enum_name_list.front());
     }
-    if (value.name == "string") {
+    if (value.name == "string" || value.name.starts_with("version")) {
       return "\"\"";
     }
     if (value.name == "bool") {
@@ -287,6 +291,9 @@ class emitter {
   // Translate portable literal defaults and reject arbitrary C++ expressions.
   std::string default_value(const member& value) const {
     const auto& item = value.type_name_list.front();
+    if (item.name.starts_with("version")) {
+      return schema_version::trim(value.default_value);
+    }
     const auto first = value.default_value.find_first_not_of(" \t\r\n");
     if (first == std::string::npos) {
       return initial(item);
@@ -375,6 +382,9 @@ class emitter {
       return type(value) + ".read(" + reader + ", " + (collection ? "true" : "false") + ")";
     }
     const auto access = "(" + reader + ").";
+    if (value.name.starts_with("version")) {
+      return access + "version(" + std::string{value.name.back()} + ")";
+    }
     if (value.name == "string") {
       return access + "text()";
     }
@@ -402,6 +412,8 @@ class emitter {
       line(expression + ".write(out);");
     } else if (value.type == object_type::enum_type) {
       line(expression + ".write(out, " + (collection ? "true" : "false") + ");");
+    } else if (value.name.starts_with("version")) {
+      line("out.version(" + expression + ", " + std::string{value.name.back()} + ");");
     } else if (value.name == "string") {
       line("out.text(" + expression + ");");
     } else if (value.name == "bool") {
@@ -418,6 +430,49 @@ class emitter {
     }
   }
 
+  // Check supported revision bounds using unsigned-safe comparisons.
+  void check_version(const class_node& owner, bool reading) {
+    const auto& version = *owner.version_member();
+    const auto value = std::string{reading ? "result." : "this."} + field(version.name);
+    auto invalid =
+        version_less(version_language::java, version, value, schema_version::minimum(version)) +
+        " || !(" + version_less(version_language::java, version, value, version.default_value) +
+        " || " + version_equal(version_language::java, version, value, version.default_value) + ")";
+    if (reading) {
+      invalid += " || (in.limits.readPolicy == ReadPolicy.STRICT && !" +
+                 version_equal(version_language::java, version, value, version.default_value) + ")";
+    }
+    line("if (" + invalid +
+         ") { throw new IllegalArgumentException(\"Unsupported schema version\"); }");
+  }
+  // Retain keyed field presence while skipping inactive positional bytes.
+  void read_versioned_member(const class_node& owner, const member& item, int alternative = -1) {
+    const auto* version = owner.version_member();
+    if (version) {
+      const auto slot = std::to_string(version_slot(owner, item));
+      line("if (seen[" + slot + "]) { throw in.error(\"Duplicate field\"); }");
+      line("seen[" + slot + "] = true;");
+    }
+    const auto active = version ? version_active(version_language::java, item, *version,
+                                                 "result." + field(version->name))
+                                : std::string{};
+    if (!active.empty()) {
+      line("if (in.protocol != Protocol.BINARY_NONE || (" + active + ")) {");
+      ++level;
+    }
+    if (item.modifier == member::modifier_type::variant) {
+      read_union(item, alternative);
+    } else {
+      read_field(item);
+    }
+    if (!active.empty()) {
+      --level;
+      line("}");
+    }
+    if (item.version) {
+      check_version(owner, true);
+    }
+  }
   // Declare one field, including explicit union alternatives and primitive arrays.
   void declaration(const member& value) {
     const auto& item = value.type_name_list.front();
@@ -650,7 +705,8 @@ class emitter {
     }
     std::set<std::string> fields{};
     const auto add_field = [&](const std::string& name) {
-      if (!fields.insert(name).second || name == "Protocol" || name == "Limits" || name == outer) {
+      if (!fields.insert(name).second || name == "ReadPolicy" || name == "Protocol" ||
+          name == "Limits" || name == outer) {
         throw std::invalid_argument{"Java field name collision: " + name};
       }
     };
@@ -717,8 +773,17 @@ class emitter {
     line("/** Write schema fields in declaration order. */");
     line("private void write(Writer out) {");
     ++level;
+    if (value.version_member()) {
+      check_version(value, false);
+    }
     line("out.beginObject();");
     bool first = true;
+    if (const auto* version = value.version_member()) {
+      line("out.field(" + std::to_string(version->id) + ", " + quote(version->display_name) +
+           ", true);");
+      write_field(*version);
+      first = false;
+    }
     for (std::size_t index = 0; index < value.parents.size(); ++index) {
       const auto& base = value.parents[index];
       line("out.field(" + std::to_string(base.id) + ", " + quote(base.display_name) + ", " +
@@ -727,6 +792,17 @@ class emitter {
       first = false;
     }
     for (const auto& item : value.member_list) {
+      if (item.version) {
+        continue;
+      }
+      const auto* version = value.version_member();
+      const auto active = version ? version_active(version_language::java, item, *version,
+                                                   "this." + field(version->name))
+                                  : std::string{};
+      if (!active.empty()) {
+        line("if (" + active + ") {");
+        ++level;
+      }
       line("{");
       ++level;
       if (item.modifier == member::modifier_type::variant) {
@@ -759,6 +835,10 @@ class emitter {
       }
       --level;
       line("}");
+      if (!active.empty()) {
+        --level;
+        line("}");
+      }
       first = false;
     }
     line("out.endObject();");
@@ -773,22 +853,28 @@ class emitter {
     line("/** Merge duplicate nested fields in input order within this fresh message. */");
     line("private static " + name + " read(Reader in, " + name + " result) {");
     ++level;
+    if (value.version_member()) {
+      line("boolean[] seen = new boolean[" +
+           std::to_string(value.parents.size() + value.member_list.size()) + "];");
+    }
     line("in.beginObject();");
     line("if (in.protocol == Protocol.BINARY_NONE) {");
     ++level;
+    if (const auto* version = value.version_member()) {
+      read_versioned_member(value, *version);
+    }
     for (std::size_t index = 0; index < value.parents.size(); ++index) {
       line("result.base" + std::to_string(index) + " = " +
            names.at(value.parents[index].parent_class) + ".read(in, result.base" +
            std::to_string(index) + ");");
     }
     for (const auto& item : value.member_list) {
+      if (item.version) {
+        continue;
+      }
       line("{");
       ++level;
-      if (item.modifier == member::modifier_type::variant) {
-        read_union(item);
-      } else {
-        read_field(item);
-      }
+      read_versioned_member(value, item);
       --level;
       line("}");
     }
@@ -809,11 +895,7 @@ class emitter {
     for (const auto& item : value.member_list) {
       line("case " + std::to_string(item.id) + ": {");
       ++level;
-      if (item.modifier == member::modifier_type::variant) {
-        read_union(item);
-      } else {
-        read_field(item);
-      }
+      read_versioned_member(value, item);
       line("break;");
       --level;
       line("}");
@@ -845,7 +927,7 @@ class emitter {
           line("case " + quote(item.display_name + ":" + item.type_name_list[index].enum_name) +
                ": {");
           ++level;
-          read_union(item, static_cast<int>(index));
+          read_versioned_member(value, item, static_cast<int>(index));
           line("break;");
           --level;
           line("}");
@@ -853,13 +935,13 @@ class emitter {
       } else {
         line("case " + quote(item.display_name) + ": {");
         ++level;
-        read_field(item);
+        read_versioned_member(value, item);
         line("break;");
         --level;
         line("}");
       }
     }
-    line("default: throw in.error(\"Unknown field name\");");
+    line("default: in.skipValue(); break;");
     --level;
     line("}");
     --level;
@@ -867,6 +949,20 @@ class emitter {
     --level;
     line("}");
     line("in.endObject();");
+    if (const auto* version = value.version_member()) {
+      line("if (!seen[" + std::to_string(version_slot(value, *version)) +
+           "]) { throw in.error(\"Missing schema version\"); }");
+      check_version(value, true);
+      for (const auto& item : value.member_list) {
+        const auto active = version_active(version_language::java, item, *version,
+                                           "result." + field(version->name));
+        if (!active.empty()) {
+          line("if (in.protocol != Protocol.BINARY_NONE && seen[" +
+               std::to_string(version_slot(value, item)) + "] && !(" + active +
+               ")) { throw in.error(\"Field outside version lifecycle\"); }");
+        }
+      }
+    }
     line("return result;");
     --level;
     line("}");
@@ -914,9 +1010,10 @@ public:
   // Validate and generate the complete source without external formatting tools.
   std::string generate(const std::vector<std::unique_ptr<syntax_node>>& values) {
     validate_identifier(outer);
-    const std::set<std::string> reserved{outer, "Protocol", "Limits", "Writer", "Reader", "String"};
-    if (outer == "Protocol" || outer == "Limits" || outer == "Writer" || outer == "Reader" ||
-        outer == "String") {
+    const std::set<std::string> reserved{outer,    "ReadPolicy", "Protocol", "Limits",
+                                         "Writer", "Reader",     "String"};
+    if (outer == "ReadPolicy" || outer == "Protocol" || outer == "Limits" || outer == "Writer" ||
+        outer == "Reader" || outer == "String") {
       throw std::invalid_argument{"Java output filename conflicts with runtime type: " + outer};
     }
     register_nodes(values, outer, reserved);

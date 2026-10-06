@@ -8,7 +8,7 @@ Serializer provides separate packages for VS Code and Visual Studio. Both use
 to the VS Code extension. For the Visual Studio VSIX, see
 [Visual Studio](#visual-studio-extension) below.
 
-Both extensions use release version **1.1.15**. Keep their versions equal and
+Both extensions use release version **1.1.16**. Keep their versions equal and
 increment them together for future changes, including changes to only one package.
 
 Version 1.1.14 restored VS Code navigation actions in Git index/history tabs.
@@ -32,7 +32,7 @@ Both resolve either spelling for navigation; VS Code also supplies a shorthand
 
 ## VS Code
 
-The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.15**, provides `.serializer`
+The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.16**, provides `.serializer`
 syntax highlighting, snippets, declaration/definition navigation, and CMake generated-header commands. Schemas use
 the current `serializer version 1;` header. Legacy `.def` and `.struct` names are
 not registered. Generation remains owned by the project's build rules. Navigation
@@ -79,13 +79,13 @@ Packaging compiles and bundles TypeScript, copies the canonical grammar, logo,
 and repository license into the extension, and writes:
 
 ```text
-out/extensions/serializer-vscode-1.1.15.vsix
+out/extensions/serializer-vscode-1.1.16.vsix
 ```
 
 From the repository root, install it with:
 
 ```sh
-code --install-extension out/extensions/serializer-vscode-1.1.15.vsix
+code --install-extension out/extensions/serializer-vscode-1.1.16.vsix
 ```
 
 Alternatively run **Extensions: Install from VSIX** and select the file. The
@@ -279,6 +279,12 @@ The fixture disables generated-output formatting so it does not need clang-forma
 
 ### Verification performed
 
+Version **1.1.16** passed all 74 shared tests and 13,376 fresh-compiler navigation
+checks across all eleven output languages, including versioned models. The Visual
+Studio .NET resolver passed 89 checks. Both packages were rebuilt and validated;
+installation and interactive IDE-host checks were not rerun. See the
+[versioning verification record](verification-versioning-2026-10-06.md).
+
 Version **1.1.12** passed 66 shared/provider tests, 6,007 fresh-compiler navigation
 checks across all 11 output languages, and 117 checks in the new CMake Tools /
 Microsoft C/C++ host. That host covers duplicate aliases, alias chains, variables,
@@ -443,7 +449,7 @@ outside this extension's implementation.
 ## Visual Studio extension
 
 The separate [Visual Studio package](../editors/visual_studio/README.md), version
-**1.1.15**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
+**1.1.16**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
 grammar, editing configuration and a native MEF navigation component using the
 same resolver as VS Code. The grammar's `fileTypes` associates `.serializer` files;
 a `.pkgdef` registers its grammar and editing configuration.
@@ -456,7 +462,7 @@ npm ci --prefix editors/vscode
 ```
 
 The script restores locked NuGet dependencies, rebuilds package intermediates, and writes
-`out/extensions/serializer-visual-studio-1.1.15.vsix`. Close Visual Studio,
+`out/extensions/serializer-visual-studio-1.1.16.vsix`. Close Visual Studio,
 double-click this VSIX, install into the desired instance, and restart Visual
 Studio. The root `install_extension.ps1` remains the VS Code installer.
 
@@ -511,3 +517,7 @@ with no concrete schema uses. Other languages have destinations only for concret
 contracts; fixed-array output is currently unsupported there. The shared grammar
 highlights dimension arithmetic and the `matrix` snippet inserts a fixed-array
 example. Both packages use the same navigation implementation.
+
+## Payload revisions (1.1.16)
+
+Both extensions share highlighting for revision types, compatibility, lifecycle and reservation syntax. Version metadata is excluded from type-reference navigation; qualified types on annotated fields retain normal navigation. See [versioning](versioning.md).

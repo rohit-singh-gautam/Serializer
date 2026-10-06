@@ -28,7 +28,7 @@ Each language has at least four runnable examples in its own folder:
 - [Kotlin](kotlin/README.md)
 - [C](c/README.md)
 
-`basic`, `collections`, `complex`, and `interoperability` exercise all four native
+`basic`, `collections`, `complex`, `interoperability`, and `versioning` exercise all four native
 protocols. The [complex contract](schemas/complex/model.serializer) spans 13
 schema files with nested and diamond includes, reopened namespaces, inheritance,
 arrays, maps, enums, and audit unions. The [shared fixtures](schemas/) are the
@@ -102,3 +102,32 @@ Generated output stays in the build tree.
 - [Five-runtime interoperability subset](interoperability/README.md): one shared schema,
   independent C++/Java/JS/Go/C# producers and consumers, all 25 language pairs,
   four protocols, a browser example, and optional throughput measurements.
+
+
+## Versioning
+
+The [shared versioning schema](schemas/versioning/model.serializer) demonstrates all
+supported revision types, historical layouts, replacements, and reservations. Each
+language has a runnable consumer that reads revision 8 using compatible policy,
+checks old positional binary, explicitly migrates to revision 10, and verifies all
+four protocols with strict reads:
+
+| Language | Example |
+| --- | --- |
+| cpp | [Versioning](cpp/versioning/README.md) |
+| java | [Versioning](java/versioning/README.md) |
+| javascript | [Versioning](javascript/versioning/README.md) |
+| typescript | [Versioning](typescript/versioning/README.md) |
+| go | [Versioning](go/versioning/README.md) |
+| csharp | [Versioning](csharp/versioning/README.md) |
+| rust | [Versioning](rust/versioning/README.md) |
+| python | [Versioning](python/versioning/README.md) |
+| swift | [Versioning](swift/versioning/README.md) |
+| kotlin | [Versioning](kotlin/versioning/README.md) |
+| c | [Versioning](c/versioning/README.md) |
+
+```sh
+python example/run.py --compiler build/serializer --example versioning --language all
+```
+
+See the [revision contract](../docs/versioning.md) for policy semantics and support limits.

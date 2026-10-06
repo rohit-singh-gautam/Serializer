@@ -1,4 +1,5 @@
 #include "native_schema.hpp"
+#include "version_writer.hpp"
 
 #include <functional>
 #include <string>
@@ -48,7 +49,7 @@ class python_emitter {
     if (value.name == "bool") {
       return literal_value == "true" ? "True" : "False";
     }
-    if (value.name == "string") {
+    if (value.name == "string" || value.name.starts_with("version")) {
       return literal_value.empty() ? "\"\"" : literal_value;
     }
     const auto number = literal_value.empty() ? "0" : literal_value;
@@ -59,10 +60,10 @@ class python_emitter {
     if (value.type != object_type::primitive) {
       return model.names.at(value.resolved_node);
     }
-    return value.name == "string"                            ? "str"
-           : value.name == "bool"                            ? "bool"
-           : value.name == "float" || value.name == "double" ? "float"
-                                                             : "int";
+    return (value.name == "string" || value.name.starts_with("version")) ? "str"
+           : value.name == "bool"                                        ? "bool"
+           : value.name == "float" || value.name == "double"             ? "float"
+                                                                         : "int";
   }
   // Build a scalar decoding expression; ordinary nested fields merge in order.
   std::string read(const type_name& value, bool collection, const std::string& old = {}) const {
@@ -74,6 +75,9 @@ class python_emitter {
       const auto name = model.names.at(value.resolved_node);
       return "input.enumeration(" + name + ", _" + name + "_names, " +
              (collection ? "True" : "False") + ")";
+    }
+    if (value.name.starts_with("version")) {
+      return "_read_version(input, " + std::string{value.name.back()} + ")";
     }
     if (value.name == "string") {
       return "input.text()";
@@ -97,6 +101,8 @@ class python_emitter {
     } else if (value.type == object_type::enum_type) {
       line("out.enumeration(" + expression + ", _" + model.names.at(value.resolved_node) +
            "_names, " + (collection ? "True" : "False") + ")");
+    } else if (value.name.starts_with("version")) {
+      line("_write_version(out, " + expression + ", " + std::string{value.name.back()} + ")");
     } else if (value.name == "string") {
       line("out.text(" + expression + ")");
     } else if (value.name == "bool") {
@@ -211,6 +217,47 @@ class python_emitter {
     --indent;
     line("out.end_array()");
   }
+  // Check one revision without adding any branches to unversioned models.
+  void check_version(const class_node& object, const std::string& expression, bool input) {
+    const auto& version = *object.version_member();
+    const auto language = version_language::python;
+    auto invalid = version_less(language, version, expression, schema_version::minimum(version)) +
+                   " or " + version_at_least(language, version, expression, version.default_value) +
+                   " and not " +
+                   version_equal(language, version, expression, version.default_value);
+    if (version.type_name_list.front().name == "float" ||
+        version.type_name_list.front().name == "double") {
+      invalid += " or not _math.isfinite(" + expression + ")";
+    }
+    if (input) {
+      invalid += " or (input.limits.read_policy == ReadPolicy.STRICT and not " +
+                 version_equal(language, version, expression, version.default_value) + ")";
+    }
+    line("if " + invalid + ": raise ValueError('Unsupported schema version')");
+  }
+  // Track keyed presence, but consume no positional bytes for inactive historical fields.
+  void read_versioned_member(const class_node& object, const member& item, int alternative = -1) {
+    const auto* version = object.version_member();
+    if (!version) {
+      read_member(item, alternative);
+      return;
+    }
+    line("if " + std::to_string(item.id) +
+         " in seen: raise ValueError('Duplicate versioned field')");
+    line("seen.add(" + std::to_string(item.id) + ")");
+    const auto active = version_active(version_language::python, item, *version,
+                                       "result." + field(version->name, version->access));
+    if (!active.empty()) {
+      open("if input.protocol != Protocol.BINARY_NONE or (" + active + ")");
+    }
+    read_member(item, alternative);
+    if (!active.empty()) {
+      --indent;
+    }
+    if (item.version) {
+      check_version(object, "result." + field(item.name, item.access), true);
+    }
+  }
   // Emit slot-based owning models with independent defaults and exact decode APIs.
   void object(const class_node& value) {
     const auto name = model.names.at(&value);
@@ -271,8 +318,15 @@ class python_emitter {
     --indent;
     open("def _write(self, out)");
     line("\"\"\"Write typed fields in schema order.\"\"\"");
+    if (const auto* version = value.version_member()) {
+      check_version(value, "self." + field(version->name, version->access), false);
+    }
     line("out.begin_object()");
     bool first = true;
+    if (const auto* version = value.version_member()) {
+      write_member(*version, true);
+      first = false;
+    }
     for (std::size_t i = 0; i < value.parents.size(); ++i) {
       const auto& base = value.parents[i];
       key(base.id, base.display_name, first);
@@ -280,7 +334,20 @@ class python_emitter {
       first = false;
     }
     for (const auto& item : value.member_list) {
+      if (item.version) {
+        continue;
+      }
+      const auto* version = value.version_member();
+      const auto active = version ? version_active(version_language::python, item, *version,
+                                                   "self." + field(version->name, version->access))
+                                  : std::string{};
+      if (!active.empty()) {
+        open("if " + active);
+      }
       write_member(item, first);
+      if (!active.empty()) {
+        --indent;
+      }
       first = false;
     }
     line("out.end_object()");
@@ -289,12 +356,20 @@ class python_emitter {
     open("def _read(cls, input, result=None)");
     line("\"\"\"Merge ordinary nested fields while preserving input order.\"\"\"");
     line("if result is None: result = cls()");
+    if (value.version_member()) {
+      line("seen = set()");
+    }
     std::string ids = "(";
+    if (const auto* version = value.version_member()) {
+      ids += std::to_string(version->id) + ",";
+    }
     for (const auto& base : value.parents) {
       ids += std::to_string(base.id) + ",";
     }
     for (const auto& item : value.member_list) {
-      ids += std::to_string(item.id) + ",";
+      if (!item.version) {
+        ids += std::to_string(item.id) + ",";
+      }
     }
     open("for key in input.fields(" + ids + "))");
     open("match key");
@@ -309,18 +384,32 @@ class python_emitter {
       open("case " + std::to_string(item.id) +
            (item.modifier == member::modifier_type::variant ? ""
                                                             : " | " + quote(item.display_name)));
-      read_member(item);
+      read_versioned_member(value, item);
       --indent;
       if (item.modifier == member::modifier_type::variant) {
         for (std::size_t i = 0; i < item.type_name_list.size(); ++i) {
           open("case " + quote(item.display_name + ":" + item.type_name_list[i].enum_name));
-          read_member(item, static_cast<int>(i));
+          read_versioned_member(value, item, static_cast<int>(i));
           --indent;
         }
       }
     }
-    line("case _: raise ValueError('Unknown field')");
+    line("case _: input.skip_value()");
     indent -= 2;
+    if (const auto* version = value.version_member()) {
+      line("if " + std::to_string(version->id) +
+           " not in seen: raise ValueError('Missing schema version')");
+      check_version(value, "result." + field(version->name, version->access), true);
+      for (const auto& item : value.member_list) {
+        const auto active = version_active(version_language::python, item, *version,
+                                           "result." + field(version->name, version->access));
+        if (!active.empty()) {
+          line("if input.protocol != Protocol.BINARY_NONE and " + std::to_string(item.id) +
+               " in seen and not (" + active +
+               "): raise ValueError('Field outside version lifecycle')");
+        }
+      }
+    }
     line("return result");
     indent -= 2;
   }

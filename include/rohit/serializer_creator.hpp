@@ -255,12 +255,22 @@ struct member {
   bool fixed_name{false}; // Compiler-owned metadata retains its runtime ABI spelling.
   std::vector<dimension_expression> extent_expression{};
   std::uint64_t fixed_extent{}; // Zero denotes a variable-length collection.
+  bool version{false};
+  bool obsolete{false}; // Bare obsolete deprecates the API without changing its wire lifetime.
+  std::string created_version{};
+  std::string obsolete_version{};
+  std::string replaced_member{};
+  std::string compatibility_version{};
 
   // Compare the relevant values without modifying either operand.
   bool operator==(const member& rhs) const {
     return access == rhs.access && modifier == rhs.modifier &&
            type_name_list == rhs.type_name_list && name == rhs.name && managed == rhs.managed &&
-           extent_expression == rhs.extent_expression && fixed_extent == rhs.fixed_extent;
+           extent_expression == rhs.extent_expression && fixed_extent == rhs.fixed_extent &&
+           version == rhs.version && obsolete == rhs.obsolete &&
+           created_version == rhs.created_version && obsolete_version == rhs.obsolete_version &&
+           replaced_member == rhs.replaced_member &&
+           compatibility_version == rhs.compatibility_version;
   }
 };
 
@@ -288,6 +298,9 @@ struct class_node : public syntax_node {
   // Concrete instances retain their schema identity for C++ template aliases and tooling.
   std::string generic_name{};
   std::vector<type_name> generic_arguments{};
+  std::vector<std::uint32_t> reserved_ids{};
+  std::vector<std::string> reserved_variables{};
+  std::vector<std::string> reserved_names{};
   // Initialize this object from the supplied storage or value state.
   class_node(object_type type, std::string&& name, namespace_node* parent_namespace,
              class_attributes attributes, std::vector<parent>&& parents)
@@ -296,11 +309,23 @@ struct class_node : public syntax_node {
   // Initialize this object from the supplied storage or value state.
   class_node(class_node&& rhs)
       : syntax_node{std::move(rhs)}, attributes{rhs.attributes}, storage_modes{rhs.storage_modes},
-        parents{std::move(rhs.parents)},
-        member_list{std::move(rhs.member_list)}, type_parameters{std::move(rhs.type_parameters)},
+        parents{std::move(rhs.parents)}, member_list{std::move(rhs.member_list)},
+        type_parameters{std::move(rhs.type_parameters)},
         generic_parameters{std::move(rhs.generic_parameters)},
         instance_of{std::move(rhs.instance_of)}, generic_name{std::move(rhs.generic_name)},
-        generic_arguments{std::move(rhs.generic_arguments)} {}
+        generic_arguments{std::move(rhs.generic_arguments)},
+        reserved_ids{std::move(rhs.reserved_ids)},
+        reserved_variables{std::move(rhs.reserved_variables)},
+        reserved_names{std::move(rhs.reserved_names)} {}
+  // Return the sole version discriminator, or null for an unchanged unversioned contract.
+  const member* version_member() const {
+    for (const auto& field : member_list) {
+      if (field.version) {
+        return &field;
+      }
+    }
+    return nullptr;
+  }
   // Report whether this schema requests a particular generated representation.
   bool has_mode(storage_mode mode) const {
     return (storage_modes & static_cast<std::uint8_t>(mode)) != 0;

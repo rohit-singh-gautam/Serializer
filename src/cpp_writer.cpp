@@ -18,6 +18,7 @@
 #include "cpp_managed_writer.hpp"
 #include "cpp_naming.hpp"
 #include "protobuf_schema.hpp"
+#include "schema_version.hpp"
 
 #include <rohit/serializer_creator.hpp>
 
@@ -347,7 +348,8 @@ public:
   bool is_fixed_field(const member& field) {
     return field.modifier == member::modifier_type::none &&
            field.type_name_list.front().type == object_type::primitive &&
-           field.type_name_list.front().name != "string";
+           field.type_name_list.front().name != "string" &&
+           !field.type_name_list.front().name.starts_with("version");
   }
 
   // Bound each consecutive run to keep generated template packs and snapshots small.
@@ -395,10 +397,14 @@ public:
   }
 
   // Emit C++ serializer out body for the parsed schema.
-  void write_serializer_out_body(rohit::type_check::output_buffer auto& out_stream,
-                                 const class_node* obj,
-                                 const rohit::serializer::serialize_key_type key_type) {
+  void write_serializer_out_layout(rohit::type_check::output_buffer auto& out_stream,
+                                   const class_node* obj,
+                                   const rohit::serializer::serialize_key_type key_type,
+                                   const member* version = nullptr) {
     bool first = true;
+    if (version) {
+      write_serializer_out_body_non_union(out_stream, *version, key_type, first);
+    }
     write_serializer_out_body_for_parent(out_stream, obj, key_type, first);
     for (std::size_t index = 0; index < obj->member_list.size();) {
       const auto run = fixed_field_run(obj->member_list, index);
@@ -418,6 +424,60 @@ public:
                               ".struct_serialize_out_empty();")
                            : (std::string{"\n      "} + local_name("serializer_protocol") +
                               ".struct_serialize_out_end();"));
+  }
+
+  // Select one historical field list at generator time, retaining its declaration order.
+  class_node version_layout(const class_node& object, std::string_view revision) {
+    class_node result{object_type::class_type, std::string{object.name}, object.parent_namespace,
+                      object.attributes, std::vector<parent>{object.parents}};
+    const auto& version = *object.version_member();
+    for (const auto& field : object.member_list) {
+      if (!field.version && schema_version::active(field, version, revision)) {
+        result.member_list.push_back(field);
+      }
+    }
+    return result;
+  }
+
+  // Validate a discriminator once; policy checks add no code to unversioned schemas.
+  void write_version_check(rohit::type_check::output_buffer auto& output, const member& version,
+                           std::string_view value, bool input) {
+    output.write("      if (!::rohit::serializer::detail::valid_version(", value, ") || ", value,
+                 " < ", schema_version::cpp_literal(version, schema_version::minimum(version)),
+                 " || ", schema_version::cpp_literal(version, version.default_value), " < ", value,
+                 ") { throw ::std::invalid_argument{\"Unsupported schema version\"}; }\n");
+    if (input) {
+      output.write("      if constexpr "
+                   "(::rohit::serializer::detail::protocol_read_policy<SerializeInProtocol>() == "
+                   "::rohit::serializer::read_policy::strict) {\n        if (",
+                   value, " != ", schema_version::cpp_literal(version, version.default_value),
+                   ") { throw ::std::invalid_argument{\"Strict input requires current schema "
+                   "version\"}; }\n      }\n");
+    }
+  }
+
+  // Emit one direct output path per distinct supported layout, with the version before parents.
+  void write_serializer_out_body(rohit::type_check::output_buffer auto& output,
+                                 const class_node* object, serialize_key_type keys) {
+    const auto* version = object->version_member();
+    if (!version) {
+      write_serializer_out_layout(output, object, keys);
+      return;
+    }
+    const auto value = "this->" + member_name(*version);
+    write_version_check(output, *version, value, false);
+    const auto revisions = schema_version::transitions(*object);
+    for (std::size_t index = 0; index < revisions.size(); ++index) {
+      if (index + 1 < revisions.size()) {
+        output.write(std::string_view{index == 0 ? "      if (" : "      else if ("}, value, " < ",
+                     schema_version::cpp_literal(*version, revisions[index + 1]), ") {\n");
+      } else {
+        output.write(std::string_view{index == 0 ? "      {\n" : "      else {\n"});
+      }
+      const auto layout = version_layout(*object, revisions[index]);
+      write_serializer_out_layout(output, &layout, keys, version);
+      output.write("\n      }\n");
+    }
   }
 
   // Emit direct field writes selected at compile time by the output protocol type.
@@ -581,8 +641,8 @@ public:
   }
 
   // Emit C++ serializer in body key none for the parsed schema.
-  void write_serializer_in_body_key_none(rohit::type_check::output_buffer auto& out_stream,
-                                         const class_node* obj) {
+  void write_serializer_in_layout(rohit::type_check::output_buffer auto& out_stream,
+                                  const class_node* obj) {
     out_stream.write((std::string{"      [[maybe_unused]] auto "} + local_name("object_scope") +
                       " = ::rohit::serializer::detail::enter_decode_object(" +
                       local_name("serializer_protocol") + ");\n"));
@@ -610,6 +670,133 @@ public:
       }
     }
   } // write_serializer_in_body_key_none
+
+  // Decode the prefix once, then retain direct reads and fixed-width batching in each layout.
+  void write_serializer_in_body_key_none(rohit::type_check::output_buffer auto& output,
+                                         const class_node* object) {
+    const auto* version = object->version_member();
+    if (!version) {
+      write_serializer_in_layout(output, object);
+      return;
+    }
+    const auto value = "this->" + member_name(*version);
+    output.write("      ", local_name("serializer_protocol"), ".serialize_in(", value, ");\n");
+    write_version_check(output, *version, value, true);
+    output.write("      if constexpr "
+                 "(::rohit::serializer::detail::protocol_read_policy<SerializeInProtocol>() == "
+                 "::rohit::serializer::read_policy::strict) {\n");
+    const auto current = version_layout(*object, version->default_value);
+    write_serializer_in_layout(output, &current);
+    output.write("      } else {\n");
+    const auto revisions = schema_version::transitions(*object);
+    for (std::size_t index = 0; index < revisions.size(); ++index) {
+      if (index + 1 < revisions.size()) {
+        output.write(std::string_view{index == 0 ? "      if (" : "      else if ("}, value, " < ",
+                     schema_version::cpp_literal(*version, revisions[index + 1]), ") {\n");
+      } else {
+        output.write(std::string_view{index == 0 ? "      {\n" : "      else {\n"});
+      }
+      const auto layout = version_layout(*object, revisions[index]);
+      write_serializer_in_layout(output, &layout);
+      output.write("\n      }\n");
+    }
+    output.write("      }\n");
+  }
+
+  // Track keyed historical fields on the stack; version placement in JSON is unrestricted.
+  void write_version_reader(rohit::type_check::output_buffer auto& output,
+                            const class_node& object) {
+    const auto* version = object.version_member();
+    if (!version) {
+      return;
+    }
+    const auto type = type_name(object.name);
+    output.write(
+        "  // The current revision and oldest supported revision are schema constants.\n"
+        "  static constexpr auto serializer_current_version = ",
+        schema_version::cpp_literal(*version, version->default_value),
+        ";\n"
+        "  static constexpr auto serializer_minimum_version = ",
+        schema_version::cpp_literal(*version, schema_version::minimum(*version)),
+        ";\n"
+        "  // Validate known historical fields after reading the discriminator in any position.\n"
+        "  template <typename SerializeInProtocol, typename StorageSource>\n"
+        "  struct serializer_version_reader {\n    ",
+        type,
+        "& target;\n"
+        "    StorageSource donor;\n    ::std::array<bool, ",
+        object.parents.size() + object.member_list.size(),
+        "> seen{};\n"
+        "    // Reject duplicate declarations before decoding their values.\n"
+        "    void mark(::std::size_t index) {\n"
+        "      if (seen[index]) { throw ::std::invalid_argument{\"Duplicate versioned field\"}; }\n"
+        "      seen[index] = true;\n    }\n"
+        "    // Match retained numeric identities without allocating a dispatch table.\n"
+        "    void serialize_in_member_by_identifier(SerializeInProtocol& protocol, ::std::uint32_t "
+        "key) {\n"
+        "      switch (key) {\n");
+    std::size_t index{};
+    for (const auto& base : object.parents) {
+      output.write("      case ", base.id, ": mark(", index++, "); break;\n");
+    }
+    for (const auto& field : object.member_list) {
+      output.write("      case ", field.id, ": mark(", index++, "); break;\n");
+    }
+    output.write("      default: break;\n      }\n"
+                 "      target.serialize_in_member_by_identifier(protocol, key, donor);\n    }\n"
+                 "    // Match wire names, including union-expanded identities.\n"
+                 "    void serialize_in_member_by_name(SerializeInProtocol& protocol, "
+                 "::std::string_view key) {\n");
+    index = 0;
+    for (const auto& base : object.parents) {
+      output.write("      if (key == \"", base.display_name, "\") { mark(", index++, "); }\n");
+    }
+    for (const auto& field : object.member_list) {
+      if (field.modifier == member::modifier_type::variant) {
+        for (const auto& alternative : field.type_name_list) {
+          output.write("      if (key == \"", field.display_name, ":", alternative.enum_name,
+                       "\") { mark(", index, "); }\n");
+        }
+      } else {
+        output.write("      if (key == \"", field.display_name, "\") { mark(", index, "); }\n");
+      }
+      ++index;
+    }
+    output.write(
+        "      target.serialize_in_member_by_name(protocol, key, donor);\n    }\n"
+        "    // Require a unique version and reject fields outside that revision's lifecycle.\n"
+        "    void finish() {\n");
+    index = object.parents.size();
+    for (const auto& field : object.member_list) {
+      if (field.version) {
+        output.write("      if (!seen[", index,
+                     "]) { throw ::std::invalid_argument{\"Missing schema version\"}; }\n");
+      }
+      ++index;
+    }
+    const auto value = "target." + member_name(*version);
+    write_version_check(output, *version, value, true);
+    index = object.parents.size();
+    for (const auto& field : object.member_list) {
+      if (!field.created_version.empty() || !field.obsolete_version.empty()) {
+        output.write("      if (seen[", index, "] && (");
+        if (!field.created_version.empty()) {
+          output.write(value, " < ", schema_version::cpp_literal(*version, field.created_version));
+        }
+        if (!field.created_version.empty() && !field.obsolete_version.empty()) {
+          output.write(" || ");
+        }
+        if (!field.obsolete_version.empty()) {
+          output.write("!(", value, " < ",
+                       schema_version::cpp_literal(*version, field.obsolete_version), ")");
+        }
+        output.write(
+            ")) { throw ::std::invalid_argument{\"Field outside schema version lifecycle\"}; }\n");
+      }
+      ++index;
+    }
+    output.write("    }\n  };\n\n");
+  }
 
   // Retain the original field hook signature while forwarding to the typed donor implementation.
   void write_member_input_forwarder(rohit::type_check::output_buffer auto& output, bool by_name) {
@@ -760,6 +947,7 @@ public:
   // Emit field reads selected at compile time, retaining keyed input dispatch where needed.
   void write_serializer_in_body(rohit::type_check::output_buffer auto& out_stream,
                                 const class_node* obj) {
+    write_version_reader(out_stream, *obj);
     write_serializer_in_body_with_key_integer(out_stream, obj);
     write_serializer_in_body_with_key_string(out_stream, obj);
     out_stream.write("  // Decode this object using the protocol's compile-time key mode.\n"
@@ -790,19 +978,26 @@ public:
     out_stream.write("\n    if constexpr (SerializeInProtocol::key_type == "
                      "::rohit::serializer::serialize_key_type::none) {\n");
     write_serializer_in_body_key_none(out_stream, obj);
+    out_stream.write("    } else if constexpr (SerializeInProtocol::key_type == "
+                     "::rohit::serializer::serialize_key_type::integer ||\n            "
+                     "SerializeInProtocol::key_type == "
+                     "::rohit::serializer::serialize_key_type::string) {\n");
+    if (obj->version_member()) {
+      out_stream.write("      serializer_version_reader<SerializeInProtocol, StorageSource> ",
+                       local_name("storage_reader"), "{*this, ", local_name("storage_donor"),
+                       "};\n      ", local_name("serializer_protocol"), ".struct_serialize_in(&",
+                       local_name("storage_reader"), ");\n      ", local_name("storage_reader"),
+                       ".finish();\n");
+    } else {
+      out_stream.write(
+          "      if constexpr (::std::is_same_v<StorageSource, ::std::nullptr_t>) {\n        ",
+          local_name("serializer_protocol"), ".template struct_serialize_in<", type_name(obj->name),
+          ">(this);\n      } else {\n        ::rohit::serializer::detail::reused_object_reader<",
+          type_name(obj->name), "> ", local_name("storage_reader"), "{*this, *",
+          local_name("storage_donor"), "};\n        ", local_name("serializer_protocol"),
+          ".struct_serialize_in(&", local_name("storage_reader"), ");\n      }");
+    }
     out_stream.write(
-        (std::string{
-             "    } else if constexpr (SerializeInProtocol::key_type == "
-             "::rohit::serializer::serialize_key_type::integer ||\n            "
-             "SerializeInProtocol::key_type == "
-             "::rohit::serializer::serialize_key_type::string) {\n"
-             "      if constexpr (::std::is_same_v<StorageSource, ::std::nullptr_t>) {\n        "} +
-         local_name("serializer_protocol") + ".template struct_serialize_in<"),
-        type_name(obj->name),
-        ">(this);\n      } else {\n        ::rohit::serializer::detail::reused_object_reader<",
-        type_name(obj->name), "> ", local_name("storage_reader"), "{*this, *",
-        local_name("storage_donor"), "};\n        ", local_name("serializer_protocol"),
-        ".struct_serialize_in(&", local_name("storage_reader"), ");\n      }",
         "\n    }\n  }\n\n  // Decode from a buffer or bounded EOF-delimited byte source.\n"
         "  template <template <::rohit::serializer::serialize_type> class Protocol,\n"
         "            ::rohit::type_check::input_stream SerializerStream>\n"
@@ -904,6 +1099,9 @@ public:
 
   // Emit direct typed Protobuf traversal; field IDs remain template arguments in all formats.
   void write_protobuf(rohit::type_check::output_buffer auto& output, const class_node& object) {
+    if (object.version_member()) {
+      throw std::invalid_argument{"Version lifecycle is not supported by Protobuf generation"};
+    }
     const auto protocol = local_name("serializer_protocol");
     output.write("\n  // Reset every field to the standard Protobuf default.\n"
                  "  void serializer_protobuf_reset() {\n");

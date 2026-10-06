@@ -4,7 +4,7 @@ This extension supports the [Serializer schema compiler and serialization librar
 maintained in that repository.
 
 Edit `.serializer` schemas with syntax highlighting, bracket matching, comments,
-folding, and snippets. Version **1.1.15** includes navigation from includes and type
+folding, and snippets. Version **1.1.16** includes navigation from includes and type
 references to source schemas and existing generated code in all 11 output languages. Use the project's
 CMake configuration for the separate build and missing-header assistance commands.
 
@@ -78,7 +78,7 @@ same declaration, definition, and type-definition actions. Cursor offsets and
 local symbols come from the displayed snapshot. Includes, other schema files,
 and generated output resolve against the current workspace; this does not
 reconstruct a historical checkout. With an older extension, open the working
-file from Explorer to use navigation, or install 1.1.15 and reload VS Code.
+file from Explorer to use navigation, or install 1.1.16 and reload VS Code.
 
 Caller navigation depends on the language service's active project configuration.
 For this repository's managed ledger examples/tests, use
@@ -241,7 +241,7 @@ Managed classes now expose persistent IDs directly by default. Set
 ID-free ordinary classes and managed storage companions are required. Navigation
 supports the direct schema class, its editor, and opt-in companion declarations.
 
-## Native templates and dimensions (1.1.15)
+## Native templates and dimensions (1.1.16)
 
 Both packages recognize `uint64 N`, trailing defaults, fixed `array[N * M] T`
 expressions, nested generic applications, and optional `instantiate` contracts.
@@ -251,3 +251,5 @@ with no concrete schema uses. Other languages have destinations only for concret
 contracts; fixed-array output is currently unsupported there. The shared grammar
 highlights dimension arithmetic and the `matrix` snippet inserts a fixed-array
 example. Both packages use the same navigation implementation.
+
+Version 1.1.16 recognizes payload `version`/`compatibility`, `version2`/`version3`/`version4`, `created`/`obsolete`/`replaced`, and `reserve` syntax. Qualified field-type navigation remains available beside lifecycle metadata. See the [revision contract](../../docs/versioning.md).

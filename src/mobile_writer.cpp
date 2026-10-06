@@ -1,4 +1,5 @@
 #include "native_schema.hpp"
+#include "version_writer.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -65,6 +66,9 @@ class mobile_emitter {
     if (value.type != object_type::primitive) {
       return model.names.at(value.resolved_node);
     }
+    if (value.name.starts_with("version")) {
+      return "String";
+    }
     if (value.name == "string") {
       return swift && key ? "WireString" : "String";
     }
@@ -118,7 +122,7 @@ class mobile_emitter {
       const auto& constants = static_cast<const enum_node&>(*value.resolved_node).enum_name_list;
       return type(value) + "." + pascal(literal_value.empty() ? constants.front() : literal_value);
     }
-    if (value.name == "string") {
+    if (value.name == "string" || value.name.starts_with("version")) {
       return literal_value.empty() ? "\"\"" : text_literal(literal_value);
     }
     if (value.name == "bool") {
@@ -147,6 +151,54 @@ class mobile_emitter {
       return literal_value + "u";
     }
     return literal_value;
+  }
+  // Select numeric component comparisons appropriate to the native language.
+  version_language revision_language() const {
+    return swift ? version_language::swift : version_language::kotlin;
+  }
+  // Validate the revision before output or successful input completion.
+  void check_version(const class_node& owner, bool reading) {
+    const auto& version = *owner.version_member();
+    const auto value = select("self.", "this.") + field(version.name);
+    auto invalid =
+        version_less(revision_language(), version, value, schema_version::minimum(version)) +
+        " || !(" + version_less(revision_language(), version, value, version.default_value) +
+        " || " + version_equal(revision_language(), version, value, version.default_value) + ")";
+    if (reading) {
+      invalid += " || (input.limits.readPolicy == " + select(".STRICT", "ReadPolicy.STRICT") +
+                 " && !" +
+                 version_equal(revision_language(), version, value, version.default_value) + ")";
+    }
+    open(select("if " + invalid, "if (" + invalid + ")"));
+    line(select("throw SerializerError.invalid(\"Unsupported schema version\")",
+                "throw SerializerException(\"Unsupported schema version\")"));
+    close();
+  }
+  // Record presence and consume only fields active in positional input.
+  void read_versioned_member(const class_node& owner, const member& item) {
+    const auto* version = owner.version_member();
+    if (version) {
+      const auto slot = std::to_string(version_slot(owner, item));
+      open(select("if seen[" + slot + "]", "if (seen[" + slot + "])"));
+      line(select("throw SerializerError.invalid(\"Duplicate field\")",
+                  "throw SerializerException(\"Duplicate field\")"));
+      close();
+      line("seen[" + slot + "] = true");
+    }
+    const auto active = version ? version_active(revision_language(), item, *version,
+                                                 select("self.", "this.") + field(version->name))
+                                : std::string{};
+    if (!active.empty()) {
+      open(select("if input.protocolValue != .BINARY_NONE || (" + active + ")",
+                  "if (input.protocol != Protocol.BINARY_NONE || (" + active + "))"));
+    }
+    read_member(item);
+    if (!active.empty()) {
+      close();
+    }
+    if (item.version) {
+      check_version(owner, true);
+    }
   }
   // Primitive Kotlin arrays avoid per-element boxing on numeric hot paths.
   bool primitive_array(const type_name& value) const {
@@ -189,6 +241,9 @@ class mobile_emitter {
                    : type(value) + ".entries[input.enumeration(" + type(value) + ".srlNames, " +
                          (collection ? "true" : "false") + ")]";
     }
+    if (value.name.starts_with("version")) {
+      return prefix + "input.version(" + std::string{value.name.back()} + ")";
+    }
     if (value.name == "string") {
       return swift && key ? "WireString(try input.text())" : prefix + "input.text()";
     }
@@ -215,6 +270,8 @@ class mobile_emitter {
     } else if (value.type == object_type::enum_type) {
       line(attempt() + "out.enumeration(" + expression + select(".rawValue", ".ordinal") + ", " +
            type(value) + ".srlNames, " + (collection ? "true" : "false") + ")");
+    } else if (value.name.starts_with("version")) {
+      line(attempt() + "out.version(" + expression + ", " + std::string{value.name.back()} + ")");
     } else if (value.name == "string") {
       line(attempt() + "out.text(" + expression + (swift && key ? ".value" : "") + ")");
     } else if (value.name == "bool") {
@@ -462,11 +519,16 @@ class mobile_emitter {
       ids += std::to_string(id);
       id_first = false;
     };
+    if (const auto* version = value.version_member()) {
+      add_id(version->id);
+    }
     for (const auto& base : value.parents) {
       add_id(base.id);
     }
     for (const auto& item : value.member_list) {
-      add_id(item.id);
+      if (!item.version) {
+        add_id(item.id);
+      }
     }
     ids += select("]", ")");
     line(select("private static let srlIds: [Int] = ", "private val srlIds = ") + ids);
@@ -496,8 +558,15 @@ class mobile_emitter {
     line("// Encode typed fields in declaration order.");
     open(select("fileprivate func srlWrite(_ out: SrlWriter) throws",
                 "internal fun srlWrite(out: SrlWriter)"));
+    if (value.version_member()) {
+      check_version(value, false);
+    }
     line(attempt() + "out.beginObject()");
     bool first = true;
+    if (const auto* version = value.version_member()) {
+      write_member(*version, true);
+      first = false;
+    }
     for (std::size_t i = 0; i < value.parents.size(); ++i) {
       const auto& base = value.parents[i];
       key(base.id, base.display_name, first);
@@ -505,7 +574,20 @@ class mobile_emitter {
       first = false;
     }
     for (const auto& item : value.member_list) {
+      if (item.version) {
+        continue;
+      }
+      const auto* version = value.version_member();
+      const auto active = version ? version_active(revision_language(), item, *version,
+                                                   select("self.", "this.") + field(version->name))
+                                  : std::string{};
+      if (!active.empty()) {
+        open(select("if " + active, "if (" + active + ")"));
+      }
       write_member(item, first);
+      if (!active.empty()) {
+        close();
+      }
       first = false;
     }
     line("out.endObject()");
@@ -513,6 +595,10 @@ class mobile_emitter {
     line("// Merge repeated nested fields while replacing complete collections.");
     open(select("fileprivate mutating func srlRead(_ input: SrlReader) throws",
                 "internal fun srlRead(input: SrlReader)"));
+    if (value.version_member()) {
+      line(select("var seen = [Bool](repeating: false, count: ", "val seen = BooleanArray(") +
+           std::to_string(value.parents.size() + value.member_list.size()) + ")");
+    }
     line(attempt() + "input.beginObject()");
     line("var cursor = 0");
     if (swift) {
@@ -552,8 +638,8 @@ class mobile_emitter {
         branch(item.display_name, item.id, -1);
       }
     }
-    line(select("default: throw SerializerError.invalid(\"Unknown field\")",
-                "else -> throw SerializerException(\"Unknown field\")"));
+    line(select("default: try input.skipValue(); continue",
+                "else -> { input.skipValue(); continue }"));
     close();
     close();
     open(select("switch id", "when (id)"));
@@ -568,7 +654,7 @@ class mobile_emitter {
       } else {
         open(std::to_string(item.id) + " ->");
       }
-      read_member(item);
+      read_versioned_member(value, item);
       if (swift) {
         --indent;
       } else {
@@ -580,6 +666,28 @@ class mobile_emitter {
     close();
     close();
     line("input.endObject()");
+    if (const auto* version = value.version_member()) {
+      const auto slot = std::to_string(version_slot(value, *version));
+      open(select("if !seen[" + slot + "]", "if (!seen[" + slot + "])"));
+      line(select("throw SerializerError.invalid(\"Missing schema version\")",
+                  "throw SerializerException(\"Missing schema version\")"));
+      close();
+      check_version(value, true);
+      for (const auto& item : value.member_list) {
+        const auto active = version_active(revision_language(), item, *version,
+                                           select("self.", "this.") + field(version->name));
+        if (!active.empty()) {
+          const auto test = select("input.protocolValue != .BINARY_NONE",
+                                   "input.protocol != Protocol.BINARY_NONE") +
+                            " && seen[" + std::to_string(version_slot(value, item)) + "] && !(" +
+                            active + ")";
+          open(select("if " + test, "if (" + test + ")"));
+          line(select("throw SerializerError.invalid(\"Field outside version lifecycle\")",
+                      "throw SerializerException(\"Field outside version lifecycle\")"));
+          close();
+        }
+      }
+    }
     close();
     close();
   }

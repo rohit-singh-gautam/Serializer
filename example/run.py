@@ -9,7 +9,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 LANGUAGES = ('cpp', 'java', 'javascript', 'typescript', 'go', 'csharp', 'rust', 'python', 'swift', 'kotlin', 'c')
-EXAMPLES = ('basic', 'collections', 'complex', 'interoperability')
+EXAMPLES = ('basic', 'collections', 'complex', 'interoperability', 'versioning')
 OUTPUTS = {'cpp': 'message.hpp', 'java': 'Schema.java', 'javascript': 'schema.mjs',
            'typescript': 'schema.d.mts', 'go': 'schema.go', 'csharp': 'Schema.cs',
            'rust': 'schema.rs', 'python': 'schema.py', 'swift': 'Schema.swift',
@@ -186,7 +186,10 @@ class Runner:
         else:
             input_file = schema.parent / 'fixture.json'
             expected = json.loads(input_file.read_text(encoding='utf-8'))
-            expected['revision'] += 1
+            if example == 'versioning':
+                expected = {'version': 10, 'id': 42, 'enabled': True, 'name': 'Ada'}
+            else:
+                expected['revision'] += 1
             for language, command in commands.items():
                 output = fixtures / f'{language}.json'
                 run([*command, self.path(language, input_file), self.path(language, output)])

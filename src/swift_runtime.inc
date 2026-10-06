@@ -4,13 +4,16 @@ import Foundation
 /// Existing native wire protocols; binary scalars are little-endian.
 public enum Protocol: Int, CaseIterable { case JSON, BINARY_NONE, BINARY_INTEGER, BINARY_STRING }
 /// Immutable per-message limits; collection entries accumulate across fields.
+public enum ReadPolicy { case STRICT, COMPATIBLE, FLEXIBLE }
 public struct Limits {
+    public let readPolicy: ReadPolicy
     public let maxBytes: Int
     public let maxStringBytes: Int
     public let maxElements: Int
     public let maxDepth: Int
     /// Construct a policy; decoding rejects any negative limits.
-    public init(maxBytes: Int = 64*1024*1024, maxStringBytes: Int = 16*1024*1024, maxElements: Int = 1000000, maxDepth: Int = 64) {
+    public init(maxBytes: Int = 64*1024*1024, maxStringBytes: Int = 16*1024*1024, maxElements: Int = 1000000, maxDepth: Int = 64, readPolicy: ReadPolicy = .STRICT) {
+        self.readPolicy = readPolicy
         self.maxBytes = maxBytes; self.maxStringBytes = maxStringBytes; self.maxElements = maxElements; self.maxDepth = maxDepth
     }
 }
@@ -43,7 +46,18 @@ private func srlField(_ name: String) -> SrlField {
     binary.append(contentsOf: bytes)
     return SrlField(json: [34] + bytes + [34,58], binary: binary)
 }
+// Parse exactly the schema's canonical bounded component count.
+private func srlVersionParts(_ value: String, _ count: Int) throws -> [UInt16] {
+    let parts = value.split(separator: ".", omittingEmptySubsequences: false)
+    guard parts.count == count else { throw SerializerError.invalid("Invalid dotted revision") }
+    return try parts.map { part in guard !part.isEmpty, part.count <= 5, (part.count == 1 || part.first != "0"), part.utf8.allSatisfy({ $0 >= 48 && $0 <= 57 }), let n = UInt16(part) else { throw SerializerError.invalid("Invalid dotted revision") }; return n }
+}
+// Compare bounded numeric components instead of their string spelling.
+private func srlVersionCompare(_ a: String, _ b: String, _ count: Int) -> Int { guard let x = try? srlVersionParts(a, count), let y = try? srlVersionParts(b, count) else { return 2 }; for i in 0..<count { if x[i] != y[i] { return x[i] < y[i] ? -1 : 1 } }; return 0 }
 fileprivate final class SrlWriter {
+    // Write canonical JSON text or count-free binary uint16 components.
+    func version(_ value: String, _ count: Int) throws { let parts = try srlVersionParts(value, count); if json() { try text(value) } else { for n in parts { integer(UInt64(n), 2, true) } } }
+
     let protocolValue: Protocol
     var bytes: [UInt8] = []
     private var depth = 0
@@ -120,6 +134,17 @@ fileprivate final class SrlWriter {
 }
 fileprivate struct SrlKey { let id: Int; let name: String? }
 fileprivate final class SrlReader {
+    // Decode a fixed number of version components.
+    func version(_ count: Int) throws -> String { let value: String; if json() { value = try text() } else { var parts: [String] = []; for _ in 0..<count { parts.append(String(try integer(2, true))) }; value = parts.joined(separator: ".") }; _ = try srlVersionParts(value, count); return value }
+    // Skip only well-formed bounded JSON values under the flexible policy.
+    func skipValue() throws {
+        guard json(), limits.readPolicy == .FLEXIBLE else { throw SerializerError.invalid("Unknown field") }; whitespace(); try requireBytes(1); let c = data[offset]
+        if c == 34 { _ = try text(); return }
+        if c == 123 { try beginObject(); var cursor = 0; var seen = Set<WireString>(); while let key = try key([], cursor) { cursor += 1; if let name = key.name { guard seen.insert(WireString(name)).inserted else { throw SerializerError.invalid("Duplicate field") } }; elements += 1; guard elements <= limits.maxElements else { throw SerializerError.invalid("Element limit") }; try skipValue() }; endObject(); return }
+        if c == 91 { depth += 1; guard depth <= limits.maxDepth else { throw SerializerError.invalid("Depth limit") }; let count = try beginArray(); var i = 0; while try nextElement(i, count) { try skipValue(); i += 1 }; depth -= 1; return }
+        let text = try token(); guard ["null", "true", "false"].contains(text) || srlNumber(text, false) else { throw SerializerError.invalid("Invalid JSON value") }
+    }
+
     let data: [UInt8]
     let protocolValue: Protocol
     let limits: Limits

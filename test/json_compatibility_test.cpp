@@ -10,7 +10,7 @@ namespace codec = rohit::serializer;
 using record = native_generics::result<std::optional<std::string>>;
 
 // Read generated fields with an explicit compatibility policy and caller-owned resource limits.
-template <codec::json_read_policy Policy = codec::json_read_policy::compatible>
+template <codec::read_policy Policy = codec::read_policy::flexible>
 record read_record(std::string_view bytes, codec::decode_limits limits = {}) {
   auto stream = rohit::make_constant_stream(bytes.data(), bytes.size());
   codec::json<codec::serialize_type::in, rohit::stream, Policy> input(stream, limits);
@@ -43,8 +43,7 @@ TEST(JsonCompatibility, SkipsAdditiveFieldsAndPreservesStrictDefault) {
   const auto decoded = read_record(bytes);
   EXPECT_EQ(decoded.value, "old");
   EXPECT_TRUE(decoded.success);
-  EXPECT_THROW(read_record<codec::json_read_policy::strict>(bytes),
-               codec::exception::key_not_found);
+  EXPECT_THROW(read_record<codec::read_policy::strict>(bytes), codec::exception::key_not_found);
 }
 
 // Reject ambiguous known and unknown names, including escapes and nested unknown objects.

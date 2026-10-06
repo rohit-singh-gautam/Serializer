@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin, or C applications from a provided repository or existing dependency. Use for .serializer schemas, native C++ generic templates, optional cross-language contracts, dimension parameters and fixed arrays, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, schema compatibility checks and reservations, stream concepts, durable file streams and iostream adapters, exact fresh-value decoding, managed journal/crash recovery and C++ local collaboration with store-owned sessions, timed synchronization and undo, optional message compression, JSON or binary codecs, database persistence guidance, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
+description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin, or C applications from a provided repository or existing dependency. Use for .serializer schemas, native C++ generic templates, optional cross-language contracts, dimension parameters and fixed arrays, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, payload revisions, lifecycle annotations, schema compatibility checks and reservations, stream concepts, durable file streams and iostream adapters, exact fresh-value decoding, managed journal/crash recovery and C++ local collaboration with store-owned sessions, timed synchronization and undo, optional message compression, JSON or binary codecs, database persistence guidance, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
 ---
 
 # Serializer Integration
@@ -475,7 +475,7 @@ feature as a prerequisite without the user's request.
   Read [schema evolution](../../../docs/schema_evolution.md) before choosing policy
   scope or interpreting ordinal and unknown-field diagnostics.
 - Native keyed readers reject unknown fields by default. For JSON, explicitly select
-  `json_read_policy::compatible` and regenerate classes to skip additive fields.
+  `read_policy::flexible` and regenerate classes to skip additive fields.
   Explicit IDs alone do not change input policy. Positional binary still requires
   matching declaration order/types.
   Resolve incompatible changes through the application's versioning contract.
@@ -770,7 +770,7 @@ user instruction to defer generation/builds/tests and report what remains unveri
   before mapping unusual defaults or union payloads.
 - Use the generated `Limits` to bound message bytes, string bytes, cumulative
   collection entries, and nesting. Default JSON readers reject unknown fields;
-  opt into `json<serialize_type::in, Stream, json_read_policy::compatible>` for
+  opt into `json<serialize_type::in, Stream, read_policy::flexible>` for
   evolving documents. Compatible readers skip additional fields, reject duplicate
   names (including escaped aliases), and preserve decode limits. Regenerate classes
   to enable this protocol hook. Native JSON also supports C++ `std::optional<T>`
@@ -1155,3 +1155,14 @@ The original compiler string-map API remains compatible. See the
 [declaration guide](../../../docs/command_line.md#typed-command-line-declarations) for complete examples, getter types, ownership,
 error behavior, and positional/tail syntax. This source utility is not an
 installed runtime header.
+
+
+## Payload revisions and schema evolution
+
+Consult the [versioning verification record](../../../docs/verification-versioning-2026-10-06.md) for completed language, codec, and editor checks. Release-date and time-based expiry syntax remains a proposal; do not generate it as supported syntax.
+
+Use [payload versioning](../../../docs/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the required `serializer version 1;` language header from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.
+
+Keep retained historical definitions and relative positional order intact. Set the object's revision to write an older supported layout. Use `read_policy::compatible` for declared history, `strict` for the current revision, and `flexible` to skip safe JSON extensions within the declared interval. The former `json_read_policy::compatible` spelling is removed; its unknown-field behavior is `read_policy::flexible`. Native generated languages select `ReadPolicy` through `Limits`; C uses `srl_read_policy`.
+
+Choose uint8/16/32/64, finite nonnegative float/double, or version2/3/4 with canonical bounded uint16 components. Dotted revisions are C++ value types and strings in other native APIs. Conversion for `replaced` is explicit application code. Do not infer forward support for unknown revisions or automatic decoding of previously unversioned bytes. Versioned unmanaged owning models support all eleven languages and all four native codecs; managed models, views, and Protobuf mappings currently reject this feature. Verify the consuming application's historical bytes and the relevant language examples.

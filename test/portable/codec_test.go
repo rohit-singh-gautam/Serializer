@@ -76,12 +76,12 @@ func TestBoundaries(t *testing.T) {
 		reject(t, "text", []byte(text), JSON, DefaultLimits())
 	}
 	reject(t, "text", []byte{2, 0xc0, 0xaf}, BINARY_NONE, DefaultLimits())
-	limits := Limits{100, 3, 100, 64}
+	limits := Limits{100, 3, 100, 64, STRICT}
 	reject(t, "text", []byte(`{"value":"abcdef"}`), JSON, limits)
 	reject(t, "text", []byte(`{"value":"\u0061"}`), JSON, limits)
 	reject(t, "bytes", []byte{255, 255, 255, 255}, BINARY_NONE, DefaultLimits())
 	reject(t, "bytes", []byte{3, 1, 2}, BINARY_NONE, DefaultLimits())
-	reject(t, "bytes", []byte(`{"values":[1,2,3]}`), JSON, Limits{100, 100, 2, 64})
+	reject(t, "bytes", []byte(`{"values":[1,2,3]}`), JSON, Limits{100, 100, 2, 64, STRICT})
 	reject(t, "bytes", []byte(`{"values":[1,]}`), JSON, DefaultLimits())
 	for _, text := range []string{`{"payload:missing":0}`, `{"states":["missing"]}`, `{"counts":[{"key":"a"}]}`, `{"counts":[{"key":"a","value":1,"extra":0}]}`} {
 		reject(t, "message", []byte(text), JSON, DefaultLimits())
@@ -125,14 +125,14 @@ func TestDefaultsAndMerging(t *testing.T) {
 	nested := NewCheckRecursive()
 	nested.Children = append(nested.Children, NewCheckRecursive())
 	encoded, _ := nested.Encode(BINARY_NONE)
-	reject(t, "recursive", encoded, BINARY_NONE, Limits{100, 100, 100, 1})
+	reject(t, "recursive", encoded, BINARY_NONE, Limits{100, 100, 100, 1, STRICT})
 	malformed := NewCheckTextValue()
 	malformed.Value = string([]byte{0xff})
 	if _, err := malformed.Encode(JSON); err == nil {
 		t.Fatal("Invalid UTF-8 output")
 	}
 	reject(t, "message", nil, Protocol(99), DefaultLimits())
-	reject(t, "message", nil, BINARY_NONE, Limits{-1, 1, 1, 1})
+	reject(t, "message", nil, BINARY_NONE, Limits{-1, 1, 1, 1, STRICT})
 	var missing *InteropMessage
 	if _, err := missing.Encode(JSON); err == nil {
 		t.Fatal("Nil object encoded")

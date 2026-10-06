@@ -449,3 +449,16 @@ test('dimension parameters, defaults and extents navigate at every cursor bounda
     assert.deepEqual(selected(state, await state.resolver().schema(file('dimensions.serializer'), match.index, false)), [['dimensions.serializer', 'matrix']]);
   }
 });
+
+
+test('version and lifecycle metadata preserve adjacent qualified type navigation', async () => {
+  const source = 'include common; class model { public version version3 ver { "1.10.0" } compatibility { "1.2.0" }; obsolete(3) public lib::person old (2); created(3) replaced(old) public lib::person current (3); reserve id {7} variable {retired} display {"retired"}; }';
+  const state = fixture({ 'model.serializer': source, 'common.serializer': 'namespace lib { class person {} }' });
+  const references = indexSource(source, true).references;
+  assert.ok(!references.some(r => ['version', 'version3', 'ver', 'compatibility', 'retired'].includes(r.name)));
+  for (const match of source.matchAll(/lib::person/g)) {
+    for (let offset = match.index; offset <= match.index + match[0].length; ++offset) {
+      assert.deepEqual(selected(state, await state.resolver().schema(file('model.serializer'), offset, false)), [['common.serializer', 'person']]);
+    }
+  }
+});

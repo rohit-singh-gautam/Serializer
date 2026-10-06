@@ -9,7 +9,8 @@ enum class Protocol { JSON, BINARY_NONE, BINARY_INTEGER, BINARY_STRING }
 // Reuse empty positional metadata for JSON map entries.
 private val srlEmptyIds = intArrayOf()
 /** Immutable per-message limits; collection entries accumulate across fields. */
-data class Limits(val maxBytes: Int = 64*1024*1024, val maxStringBytes: Int = 16*1024*1024, val maxElements: Int = 1000000, val maxDepth: Int = 64) {
+enum class ReadPolicy { STRICT, COMPATIBLE, FLEXIBLE }
+data class Limits(val maxBytes: Int = 64*1024*1024, val maxStringBytes: Int = 16*1024*1024, val maxElements: Int = 1000000, val maxDepth: Int = 64, val readPolicy: ReadPolicy = ReadPolicy.STRICT) {
     init { require(maxBytes >= 0 && maxStringBytes >= 0 && maxElements >= 0 && maxDepth >= 0) { "Invalid decode limit" } }
 }
 /** Invalid input/value or exceeded resource policy; no partial decode result escapes. */
@@ -42,7 +43,14 @@ private fun srlField(value: String): SrlField {
     val binary = SrlWriter(Protocol.BINARY_STRING); binary.text(value)
     return SrlField(json.bytes(), binary.bytes())
 }
+// Validate canonical uint16 components before decoding or output.
+private fun srlVersionParts(value: String, count: Int): List<Int> { val parts = value.split('.'); if (parts.size != count) throw SerializerException("Invalid dotted revision"); return parts.map { if (!it.matches(Regex("0|[1-9][0-9]{0,4}"))) throw SerializerException("Invalid dotted revision"); val n = it.toInt(); if (n > 65535) throw SerializerException("Invalid dotted revision"); n } }
+// Compare numeric components in declaration order.
+private fun srlVersionCompare(a: String, b: String, count: Int): Int { val x = srlVersionParts(a, count); val y = srlVersionParts(b, count); for (i in 0 until count) if (x[i] != y[i]) return x[i].compareTo(y[i]); return 0 }
 internal class SrlWriter(val protocol: Protocol) {
+    // Write count-free binary components or canonical JSON text.
+    fun version(value: String, count: Int) { val parts = srlVersionParts(value, count); if (json()) text(value) else for (n in parts) integer(n.toULong(), 2, true) }
+
     private val output = ByteArrayOutputStream(256)
     private var depth = 0
     // Return an independent exact-size encoding.
@@ -119,6 +127,17 @@ internal class SrlWriter(val protocol: Protocol) {
 }
 internal data class SrlKey(val id: Int, val name: String? = null)
 internal class SrlReader(val data: ByteArray, val protocol: Protocol, val limits: Limits) {
+    // Decode a schema-fixed number of revision components.
+    fun version(count: Int): String { val value = if (json()) text() else (0 until count).map { integer(2, true).toString() }.joinToString("."); srlVersionParts(value, count); return value }
+    // Skip bounded well-formed JSON values only under the flexible policy.
+    fun skipValue() {
+        if (!json() || limits.readPolicy != ReadPolicy.FLEXIBLE) throw SerializerException("Unknown field"); whitespace(); requireBytes(1); val c = data[offset].toInt()
+        if (c == 34) { text(); return }
+        if (c == 123) { beginObject(); var cursor = 0; val seen = mutableSetOf<String>(); while (true) { val key = key(srlEmptyIds, cursor++) ?: break; if (!seen.add(key.name!!)) throw SerializerException("Duplicate field"); if (++elements > limits.maxElements) throw SerializerException("Element limit"); skipValue() }; endObject(); return }
+        if (c == 91) { if (++depth > limits.maxDepth) throw SerializerException("Depth limit"); val count = beginArray(); var i = 0; while (nextElement(i++, count)) skipValue(); depth--; return }
+        val value = token(); if (value !in listOf("null", "true", "false") && !srlNumber.matches(value)) throw SerializerException("Invalid JSON value")
+    }
+
     private var offset = 0
     private var depth = 0
     private var elements = 0

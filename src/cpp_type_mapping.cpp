@@ -38,6 +38,9 @@ const std::string& get_cpp_type_or_empty(const std::string& type) {
       {"uint64", "std::uint64_t"},
       {"float", "float"},
       {"double", "double"},
+      {"version2", "rohit::serializer::version2"},
+      {"version3", "rohit::serializer::version3"},
+      {"version4", "rohit::serializer::version4"},
       {"bool", "bool"},
       {"string", "std::string"}};
 

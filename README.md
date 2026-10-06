@@ -1,7 +1,7 @@
 # Serializer
 
 Native JSON supports `std::optional<T>` as a host type (`null` or a typed value).
-For evolving JSON documents, use the opt-in `json_read_policy::compatible`
+For evolving JSON documents, use the opt-in `read_policy::flexible`
 reader to skip additional fields while rejecting duplicate keys and enforcing
 decode limits. Default JSON input remains strict. Regenerate classes to enable
 the unknown-member protocol hook; see [JSON compatibility](docs/usage.md#json-compatibility).
@@ -18,6 +18,11 @@ Rust, Python, Swift, Kotlin, and C. TypeScript uses the JavaScript runtime.
 
 **Using a coding agent?** Give it the
 [Serializer integration skill](.agents/skills/serializer-integration/SKILL.md).
+
+Payload [versioning and schema evolution](docs/versioning.md) support `version`,
+`compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` declarations.
+All eleven language outputs share current/historical read policies and versioned
+positional binary layouts. See the [versioning examples](example/README.md#versioning).
 
 ## How it works
 
@@ -124,7 +129,7 @@ These are separate from the four native protocols.
 For evolving schemas, use [explicit field IDs](docs/schema_reference.md#explicit-field-ids-with-stable_ids)
 and the [schema compatibility checker](docs/schema_evolution.md). Stable IDs alone
 do not make native readers accept unknown fields. Evolving JSON documents can
-explicitly select `json_read_policy::compatible` after regenerating their classes.
+explicitly select `read_policy::flexible` after regenerating their classes.
 
 ## Build and test
 
@@ -248,6 +253,7 @@ for reporting barriers to using the project.
 - [Migration guide](migration.md): upgrade requirements and compatibility changes.
 - [Feature status and roadmap](docs/feature_status.md): implemented behavior and future work.
 - [Verification record](docs/verification-2026-09-17.md): tested revisions, configurations, and outstanding checks.
+- [Versioning verification](docs/verification-versioning-2026-10-06.md): historical layouts, all eleven language examples, and editor checks.
 - [Qualification](qualification/README.md): interoperability, fuzzing, and performance workflows.
 - [Coding standard](CodingStandard.md) and [agent instructions](AGENTS.md): repository contribution rules.
 - [License](LICENSE).

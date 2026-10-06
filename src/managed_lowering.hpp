@@ -78,6 +78,9 @@ class managed_lowering {
                                                    std::vector<parent>{original.parents});
         object->storage_modes = original.storage_modes;
         object->member_list = original.member_list;
+        object->reserved_ids = original.reserved_ids;
+        object->reserved_variables = original.reserved_variables;
+        object->reserved_names = original.reserved_names;
         if (original.supports_managed()) {
           validate(&original);
           bindings.emplace(object.get(),
