@@ -8,7 +8,7 @@ Serializer provides separate packages for VS Code and Visual Studio. Both use
 to the VS Code extension. For the Visual Studio VSIX, see
 [Visual Studio](#visual-studio-extension) below.
 
-Both extensions use release version **1.1.20**. Keep their versions equal and
+Both extensions use release version **1.1.21**. Keep their versions equal and
 increment them together for future changes, including changes to only one package.
 
 Version 1.1.14 restored VS Code navigation actions in Git index/history tabs.
@@ -32,7 +32,7 @@ Both resolve either spelling for navigation; VS Code also supplies a shorthand
 
 ## VS Code
 
-The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.20**, provides `.serializer`
+The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.21**, provides `.serializer`
 syntax highlighting, snippets, declaration/definition navigation, and CMake generated-header commands. Schemas use
 the current `serializer version 1;` header. Legacy `.def` and `.struct` names are
 not registered. Generation remains owned by the project's build rules. Navigation
@@ -79,13 +79,13 @@ Packaging compiles and bundles TypeScript, copies the canonical grammar, logo,
 and repository license into the extension, and writes:
 
 ```text
-out/extensions/serializer-vscode-1.1.20.vsix
+out/extensions/serializer-vscode-1.1.21.vsix
 ```
 
 From the repository root, install it with:
 
 ```sh
-code --install-extension out/extensions/serializer-vscode-1.1.20.vsix
+code --install-extension out/extensions/serializer-vscode-1.1.21.vsix
 ```
 
 Alternatively run **Extensions: Install from VSIX** and select the file. The
@@ -209,8 +209,9 @@ semantics, missing-file behavior and verification boundaries.
 The canonical TextMate grammar is `editors/serializer.tmLanguage.json`. Do not
 edit the ignored copy under `editors/vscode/syntaxes`; packaging refreshes it.
 
-The extension icon comes from `logo/serializer_logo_128x128.png`. Packaging copies
-it to the ignored `editors/vscode/dist/serializer_logo.png`, referenced by `icon`
+Both extensions package the current `logo/serializer_logo_128x128.png` as their
+listing icon. VS Code packaging copies it to the ignored
+`editors/vscode/dist/serializer_logo.png`, referenced by `icon`
 in the extension's `package.json`. Replace the source logo and rebuild the VSIX
 to update the icon in VS Code and the Marketplace listing. The existing 128×128
 PNG meets the [extension icon requirement](https://code.visualstudio.com/api/references/extension-manifest);
@@ -221,7 +222,9 @@ File and editor-tab icons use `logo/serializer_icon_32x32.png`, copied to
 icons under `contributes.languages`. This keeps the file icon separate from the
 128×128 Marketplace logo. VS Code scales the image for display; the language
 contribution takes one image per light/dark theme, not a resolution set. The
-16×16 and 64×64 variants remain in `logo/` for other uses.
+16×16 and 64×64 variants remain in `logo/` for other uses. Regenerate all three
+file-icon sizes from `logo/serializer_logo.png` whenever the artwork changes, then
+rebuild both extensions to refresh their packaged copies.
 
 The language icon appears beside `.serializer` files in Explorer and editor tabs
 when the selected file icon theme supports language defaults and does not
@@ -449,7 +452,7 @@ outside this extension's implementation.
 ## Visual Studio extension
 
 The separate [Visual Studio package](../editors/visual_studio/README.md), version
-**1.1.20**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
+**1.1.21**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
 grammar, editing configuration and a native MEF navigation component using the
 same resolver as VS Code. The grammar's `fileTypes` associates `.serializer` files;
 a `.pkgdef` registers its grammar and editing configuration.
@@ -462,7 +465,7 @@ npm ci --prefix editors/vscode
 ```
 
 The script restores locked NuGet dependencies, rebuilds package intermediates, and writes
-`out/extensions/serializer-visual-studio-1.1.20.vsix`. Close Visual Studio,
+`out/extensions/serializer-visual-studio-1.1.21.vsix`. Close Visual Studio,
 double-click this VSIX, install into the desired instance, and restart Visual
 Studio. The root `install_extension.ps1` remains the VS Code installer.
 
@@ -531,7 +534,7 @@ and 89 Visual Studio .NET resolver checks. Both packages were rebuilt and valida
 installation and interactive IDE-host tests were not rerun. See the
 [policy verification record](verification-release-policies-2026-10-06.md).
 
-## Magic and format exclusions (1.1.20)
+## Magic and format exclusions (1.1.21)
 
 Both packages highlight static magic declarations and generic `omit(format, ...)` annotations.
 The shared magic snippet uses the portable `SRLFILE` signature. Qualified type

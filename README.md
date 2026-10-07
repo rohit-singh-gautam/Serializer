@@ -180,7 +180,7 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editor_extension.md) |
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
-Both extensions use release version **1.1.20**, independent of compiler version
+Both extensions use release version **1.1.21**, independent of compiler version
 **1.0.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
 for supported destinations and language-service prerequisites.
 VS Code also supports navigation from read-only Git index/history tabs, using

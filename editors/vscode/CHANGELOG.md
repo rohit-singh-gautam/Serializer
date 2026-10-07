@@ -1,3 +1,9 @@
+# 1.1.21
+
+- Refresh the packaged extension logo from the updated canonical 128×128 artwork.
+- Keep both editor packages at the same release version.
+- Refresh the Serializer file and editor-tab icon variants from the updated source artwork.
+
 # 1.1.20
 
 - Refresh the shared TypeScript compiler, bundler, Node.js declarations, and locked dependency graph.
