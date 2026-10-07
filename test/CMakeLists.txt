@@ -60,6 +60,56 @@ elseif(UNIX)
 endif()
 
 add_test(NAME core_serializer_test COMMAND core_serializer_test)
+
+# Qualify constexpr calls through a real opt-in generated model and the existing runtime consumer.
+add_executable(constant_binary_test constant_binary_test.cpp)
+serializer_generate(TARGET constant_binary_test
+  SCHEMAS resources/constant_evaluation.serializer
+  CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/constant_evaluation.ini"
+  OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/constant_evaluation")
+target_link_libraries(constant_binary_test PRIVATE GTest::gtest_main)
+if(MSVC)
+  target_compile_options(constant_binary_test PRIVATE /W4 /WX)
+elseif(UNIX)
+  target_compile_options(constant_binary_test PRIVATE -Wall -Werror -Wpedantic -Wextra -Weffc++)
+endif()
+add_test(NAME constant_binary_test COMMAND constant_binary_test)
+add_test(NAME constant_binary_negative
+  COMMAND "${CMAKE_COMMAND}"
+    "-DCOMPILER=${CMAKE_CXX_COMPILER}"
+    "-DMSVC_LIKE=${MSVC}"
+    "-DSOURCE_DIRECTORY=${PROJECT_SOURCE_DIR}"
+    "-DGENERATED_DIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/constant_evaluation"
+    "-DWORK_DIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/constant_evaluation_negative"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/constant_binary_negative.cmake")
+
+# Generate coexisting borrowed emission models and their unchanged owning runtime consumer.
+add_executable(emission_only_test emission_only_test.cpp)
+serializer_generate(TARGET emission_only_test
+  SCHEMAS resources/emission_only.serializer
+  CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/emission_only.ini"
+  OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/emission_only/emission")
+add_library(emission_only_owning INTERFACE)
+serializer_generate(TARGET emission_only_owning
+  SCHEMAS resources/emission_only.serializer
+  OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/emission_only/owning")
+target_include_directories(emission_only_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+target_link_libraries(emission_only_test PRIVATE emission_only_owning GTest::gtest_main)
+if(MSVC)
+  target_compile_options(emission_only_test PRIVATE /W4 /WX)
+elseif(UNIX)
+  target_compile_options(emission_only_test PRIVATE -Wall -Werror -Wpedantic -Wextra -Weffc++)
+endif()
+add_test(NAME emission_only_test COMMAND emission_only_test)
+add_test(NAME emission_only_negative
+  COMMAND "${CMAKE_COMMAND}"
+    "-DCOMPILER=${CMAKE_CXX_COMPILER}"
+    "-DMSVC_LIKE=${MSVC}"
+    "-DSOURCE_DIRECTORY=${PROJECT_SOURCE_DIR}"
+    "-DGENERATED_DIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/emission_only/emission"
+    "-DWORK_DIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/emission_only_negative"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/emission_only_negative.cmake")
+
 foreach(profile IN ITEMS serializer core google llvm gnu cert misra autosar qt)
   set(matrix_type matrix)
   set(point_type point)
@@ -365,3 +415,24 @@ add_test(NAME serializer_portable_cli
   COMMAND "${CMAKE_COMMAND}" "-DGENERATOR=$<TARGET_FILE:serializer>"
     "-DDIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/portable_cli"
     -P "${CMAKE_CURRENT_SOURCE_DIR}/portable_cli.cmake")
+
+# Compile identical model names in separate binaries; each header comes from the actual compiler.
+foreach(profile IN ITEMS disabled enabled)
+  add_executable(runtime_equivalence_${profile}_test
+    runtime_equivalence_test.cpp runtime_equivalence_codegen.cpp)
+  serializer_generate(TARGET runtime_equivalence_${profile}_test
+    SCHEMAS resources/runtime_equivalence.serializer
+    CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/runtime_equivalence_${profile}.ini"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/runtime_equivalence_${profile}")
+  if(MSVC)
+    target_compile_options(runtime_equivalence_${profile}_test PRIVATE /W4 /WX)
+  elseif(UNIX)
+    target_compile_options(runtime_equivalence_${profile}_test PRIVATE
+      -Wall -Werror -Wpedantic -Wextra -Weffc++)
+  endif()
+endforeach()
+add_test(NAME serializer_constant_evaluation_runtime_equivalence
+  COMMAND "${CMAKE_COMMAND}"
+    "-DDISABLED=$<TARGET_FILE:runtime_equivalence_disabled_test>"
+    "-DENABLED=$<TARGET_FILE:runtime_equivalence_enabled_test>"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/runtime_equivalence.cmake")

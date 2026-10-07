@@ -38,6 +38,9 @@ namespace {
 // Emit one schema using an isolated naming policy; the parsed schema is never rewritten.
 class emitter : private naming {
   bool protobuf_enabled{false};
+  bool constant_evaluation_enabled{false};
+  bool positional_only{false};
+  bool emission_only{false};
   friend class managed_writer<emitter>;
   managed_writer<emitter> managed_;
   // Keep compiler metadata names independent of presentation profiles.
@@ -48,7 +51,18 @@ public:
   // Bind the per-output C++ naming policy.
   explicit emitter(const cpp_options& options)
       : naming{options}, protobuf_enabled{options.protobuf},
-        managed_{*this, options.managed_id_type, options.managed_separate_values} {}
+        constant_evaluation_enabled{options.constant_evaluation},
+        positional_only{options.protocols == cpp_protocols::binary_none},
+        emission_only{options.emission_only},
+        managed_{*this, options.managed_id_type, options.managed_separate_values} {
+    if (emission_only && (!constant_evaluation_enabled || !positional_only)) {
+      throw std::invalid_argument{
+          "cpp.emission_only true requires cpp.constant_evaluation true and cpp.protocols binary_none"};
+    }
+    if (positional_only && protobuf_enabled) {
+      throw std::invalid_argument{"cpp.protocols binary_none cannot be combined with cpp.protobuf true"};
+    }
+  }
 
   // Return the public enumerator spelling used in generated mode selections.
   std::string storage_mode_name(storage_mode mode) {
@@ -67,6 +81,7 @@ public:
   std::string storage_type_name(const std::string& name, const syntax_node* node,
                                 storage_mode mode = storage_mode::owning) {
     if (!node) {
+      if (emission_only && name == "string") { return "::std::string_view"; }
       const auto& primitive = serializer::get_cpp_type(name);
       return primitive.starts_with("std::") ? "::" + primitive : primitive;
     }
@@ -105,6 +120,10 @@ public:
     for (const auto& type : field.type_name_list) {
       result += "    " + storage_type_name(type.name, type.resolved_node) + " " +
                 field_name(type.enum_name) + ";\n";
+    }
+    if (emission_only) {
+      return result + "  };\n  static_assert(::std::is_trivially_destructible_v<" + storage +
+             ">, \"Raw union payloads must be trivially destructible\");";
     }
     result += "  };\n  static_assert(::std::is_trivially_destructible_v<" + storage +
               ">, \"Raw union payloads must be trivially destructible\");\n"
@@ -160,6 +179,9 @@ public:
       // TODO: Range check
       return generic_default(member.type_name_list[0]);
     case member::modifier_type::array:
+      if (emission_only) {
+        return "::std::span<const " + generic_default(member.type_name_list[0]) + ">";
+      }
       return std::string(!member.extent_expression.empty() ? "::std::array<" : "::std::vector<") +
              generic_default(member.type_name_list[0]) +
              (!member.extent_expression.empty() ? ", ::rohit::serializer::detail::fixed_extent(" +
@@ -226,6 +248,12 @@ public:
       if (!support.empty()) {
         out_stream.write(support, '\n');
       }
+      if (emission_only) {
+        out_stream.write("  static_assert(::std::is_trivially_copyable_v<",
+                         member.modifier == member::modifier_type::variant ?
+                             union_storage_name(member) : get_cpp_type(member),
+                         ">, \"Emission fields must be trivially copyable borrowed values\");\n");
+      }
       out_stream.write("  ", get_cpp_type(member), ' ', member_name(member), "{");
       if (!member.default_value.empty()) {
         // Initialize the backing array explicitly so generic elements may also be aggregates.
@@ -283,6 +311,14 @@ public:
                                            const member& member,
                                            const rohit::serializer::serialize_key_type key_type,
                                            bool& first) {
+    if (emission_only && member.modifier == member::modifier_type::array &&
+        !member.extent_expression.empty()) {
+      out_stream.write("\n      if (this->", member_name(member),
+                       ".size() != ::rohit::serializer::detail::fixed_extent(",
+                       member.fixed_extent ? std::to_string(member.fixed_extent) :
+                           dimension_default(member.extent_expression.front()),
+                       ")) { throw ::std::invalid_argument{\"Emission array extent mismatch\"}; }");
+    }
     if (first) {
       first = false;
       out_stream.write((std::string{"\n      "} + local_name("serializer_protocol") +
@@ -551,9 +587,64 @@ public:
     }
   }
 
+  // Emit only positional output, reusing the same field traversal for each selected sink.
+  void write_positional_serializer_out_body(rohit::type_check::output_buffer auto& output,
+                                           const class_node* object, bool constant_output) {
+    if (emission_only) {
+      output.write("  // Encode borrowed fields through the binary-only counting or memory writer.\n"
+                   "  constexpr void serialize_out(::rohit::serializer::binary_none_output& ",
+                   local_name("serializer_protocol"), ") const {\n"
+                   "    using SerializeOutProtocol [[maybe_unused]] = ::rohit::serializer::binary_none_output;\n");
+    } else {
+      output.write("  // Encode positional fields using the selected output sink.\n"
+                 "  template <typename SerializeOutProtocol>\n"
+                 "    requires(SerializeOutProtocol::key_type == ::rohit::serializer::serialize_key_type::none &&\n"
+                 "             ::rohit::serializer::detail::protocol_wire_format<SerializeOutProtocol>() ==\n"
+                 "                 ::rohit::serializer::wire_format::binary_none)\n  ",
+                 std::string_view{constant_output ? "constexpr " : ""}, "void ",
+                 std::string_view{constant_output ? "serialize_constant_out" : "serialize_out"},
+                 "(SerializeOutProtocol& ", local_name("serializer_protocol"), ") const {\n");
+    }
+    if (object->has_magic()) {
+      output.write("    if constexpr (!(",
+                   omission_condition(object->magic_omitted_formats, "SerializeOutProtocol"),
+                   ")) {\n      ",
+                   std::string_view{object->magic_field ?
+                       "::rohit::serializer::detail::write_typed_magic(" : ""},
+                   local_name("serializer_protocol"),
+                   std::string_view{object->magic_field ? ", magic);\n    }\n" :
+                       ".serialize_magic(::std::string_view{magic, sizeof(magic)});\n    }\n"});
+    }
+    write_serializer_out_body(output, object, serialize_key_type::none);
+    output.write("\n  }\n\n");
+    if (!constant_output) {
+      output.write("  // Encode to a buffer or byte sink satisfying the output stream concept.\n"
+                       "  template <template <::rohit::serializer::serialize_type> class Protocol,\n"
+                       "            ::rohit::type_check::output_stream SerializerStream>\n"
+                       "  void serialize_out(SerializerStream& ",
+                       local_name("stream"),
+                       ") const {\n"
+                       "    ::rohit::serializer::serialize_to<Protocol>(",
+                       local_name("stream"), ", *this);\n  }\n\n");
+      output.write(
+          "  // Encode one bounded message using an optional standard compression backend.\n"
+          "  template <template <::rohit::serializer::serialize_type> class Protocol,\n"
+          "            ::rohit::type_check::output_stream SerializerStream>\n"
+          "  void serialize_out(SerializerStream& ", local_name("stream"),
+          ", const ::rohit::serializer::compression::encode_options& ", local_name("compression"),
+          ", ::rohit::serializer::compression::encode_limits ", local_name("limits"), " = {}) const {\n"
+          "    ::rohit::serializer::serialize_to<Protocol>(", local_name("stream"), ", *this, ",
+          local_name("compression"), ", ", local_name("limits"), ");\n  }\n\n");
+    }
+  }
+
   // Emit direct field writes selected at compile time by the output protocol type.
   void write_serializer_out_body(rohit::type_check::output_buffer auto& out_stream,
                                  const class_node* obj) {
+    if (positional_only) {
+      write_positional_serializer_out_body(out_stream, obj, false);
+      return;
+    }
     out_stream.write(
         (std::string{
              "  // Encode fields directly using the protocol's compile-time key mode.\n  template "
@@ -1077,6 +1168,10 @@ public:
 
   void write_serializer_in_body(rohit::type_check::output_buffer auto& out_stream,
                                 const class_node* obj) {
+    if (positional_only) {
+      write_positional_serializer_in_body(out_stream, obj);
+      return;
+    }
     write_version_reader(out_stream, *obj);
     write_serializer_in_body_with_key_integer(out_stream, obj);
     write_serializer_in_body_with_key_string(out_stream, obj);
@@ -1217,9 +1312,73 @@ public:
     }
   }
 
+  // Retain positional decoding and donor reuse without generating keyed dispatch handlers.
+  void write_positional_serializer_in_body(rohit::type_check::output_buffer auto& output,
+                                          const class_node* object) {
+    if (const auto* version = object->version_member()) {
+      output.write(
+          "  // The current revision and oldest supported revision are schema constants.\n"
+          "  static constexpr auto serializer_current_version = ",
+          schema_version::cpp_literal(*version, version->default_value),
+          ";\n  static constexpr auto serializer_minimum_version = ",
+          schema_version::cpp_literal(*version, schema_version::minimum(*version)), ";\n");
+    }
+    output.write("  // Decode positional fields with optional donor storage reuse.\n"
+                 "  template <typename SerializeInProtocol, typename StorageSource = ::std::nullptr_t>\n"
+                 "    requires(SerializeInProtocol::key_type == ::rohit::serializer::serialize_key_type::none &&\n"
+                 "             ::rohit::serializer::detail::protocol_wire_format<SerializeInProtocol>() ==\n"
+                 "                 ::rohit::serializer::wire_format::binary_none)\n"
+                 "  void serialize_in(SerializeInProtocol& ", local_name("serializer_protocol"),
+                 ", [[maybe_unused]] StorageSource ", local_name("storage_donor"), " = nullptr) {\n");
+    if (object->has_magic()) {
+      output.write("    if constexpr (!(",
+                   omission_condition(object->magic_omitted_formats, "SerializeInProtocol"),
+                   ")) {\n      ",
+                   std::string_view{object->magic_field ?
+                       "::rohit::serializer::detail::validate_typed_magic(" : ""},
+                   local_name("serializer_protocol"),
+                   std::string_view{object->magic_field ? ", magic);\n    }\n" :
+                       ".validate_magic(::std::string_view{magic, sizeof(magic)});\n    }\n"});
+    }
+    write_serializer_in_body_key_none(output, object);
+    output.write("  }\n\n");
+    output.write(
+        "\n  // Decode from a buffer or bounded EOF-delimited byte source.\n"
+        "  template <template <::rohit::serializer::serialize_type> class Protocol,\n"
+        "            ::rohit::type_check::input_stream SerializerStream>\n"
+        "  void serialize_in(SerializerStream&& ",
+        local_name("stream"),
+        ") {\n"
+        "    ::rohit::serializer::serialize_from<Protocol>(",
+        local_name("stream"), ", *this);\n  }\n\n"
+        "  // Decode with explicit resource limits; byte sources receive exact-message validation.\n"
+        "  template <template <::rohit::serializer::serialize_type> class Protocol,\n"
+        "            ::rohit::type_check::input_stream SerializerStream>\n"
+        "  void serialize_in(SerializerStream&& ",
+        local_name("stream"), ", ::rohit::serializer::decode_limits ", local_name("limits"),
+        ") {\n    ::rohit::serializer::serialize_from<Protocol>(",
+        local_name("stream"), ", *this, ", local_name("limits"), ");\n  }\n");
+    output.write(
+        "\n  // Validate one compressed frame and decode the complete uncompressed message.\n"
+        "  template <template <::rohit::serializer::serialize_type> class Protocol,\n"
+        "            ::rohit::type_check::input_stream SerializerStream>\n"
+        "  void serialize_in(SerializerStream&& ", local_name("stream"),
+        ", ::rohit::serializer::decode_limits ", local_name("limits"),
+        ", const ::rohit::serializer::compression::decode_options& ", local_name("compression"),
+        ") {\n    ::rohit::serializer::serialize_from<Protocol>(", local_name("stream"),
+        ", *this, ", local_name("limits"), ", ", local_name("compression"), ");\n  }\n");
+  }
+
   // Emit C++ serializer for the parsed schema.
   void write_serializer(rohit::type_check::output_buffer auto& out_stream, const class_node* obj) {
+    if (emission_only) {
+      write_positional_serializer_out_body(out_stream, obj, true);
+      return;
+    }
     write_serializer_out_body(out_stream, obj);
+    if (constant_evaluation_enabled) {
+      write_positional_serializer_out_body(out_stream, obj, true);
+    }
     write_serializer_in_body(out_stream, obj);
     write_static_serializer(out_stream, obj);
     if (protobuf_enabled) { write_protobuf(out_stream, *obj); }
@@ -1639,7 +1798,18 @@ public:
     write_member_list(out_stream, obj->member_list);
 
     out_stream.write("\npublic:\n"
-                     "  static constexpr bool serializer_reuses_storage = true;\n\n");
+                     "  static constexpr bool serializer_reuses_storage = ",
+                     std::string_view{emission_only ? "false" : "true"}, ";\n\n");
+    if (emission_only) {
+      out_stream.write("  // This model borrows its input and only supports positional output.\n"
+                       "  static constexpr bool serializer_emission_only = true;\n\n");
+    }
+    if (constant_evaluation_enabled) {
+      out_stream.write("  // Opt in to explicit constant-evaluation binary APIs without object storage.\n"
+                       "  static constexpr bool serializer_constant_evaluation = true;\n"
+                       "  using serializer_constant_evaluation_type = ", type_name(obj->name),
+                       ";\n\n");
+    }
     write_serializer(out_stream, obj);
 
     out_stream.write("}; // class ", type_name(obj->name), "\n\n");
@@ -1693,6 +1863,10 @@ public:
     for (const auto& name : enum_ptr->enum_name_list) {
       out_stream.write("    case ", type_name(enum_ptr->name), "::", enum_name(name),
                        ": return true;\n");
+    }
+    if (emission_only) {
+      out_stream.write("    default: return false;\n  }\n}\n\n");
+      return;
     }
     out_stream.write("    default: return false;\n  }\n}\n\n"
                      "// Borrow the unchanged wire spelling for this enum.\n"
@@ -1764,7 +1938,17 @@ public:
       return;
     }
 
+    bool emission_namespace_open{false};
     for (const auto& statement : statements) {
+      if (emission_only) {
+        if (statement->type == object_type::namespace_type && emission_namespace_open) {
+          out_stream.write("} // namespace emission\n\n");
+          emission_namespace_open = false;
+        } else if (statement->type != object_type::namespace_type && !emission_namespace_open) {
+          out_stream.write("namespace emission {\n");
+          emission_namespace_open = true;
+        }
+      }
       switch (statement->type) {
       case object_type::namespace_type:
         write_namespace(out_stream, dynamic_cast<const namespace_node*>(statement.get()));
@@ -1802,6 +1986,7 @@ public:
         break;
       }
     }
+    if (emission_namespace_open) { out_stream.write("} // namespace emission\n\n"); }
   }
 
   std::map<std::string, const class_node*> generic_definitions{};
@@ -1833,12 +2018,56 @@ public:
     return result;
   }
 
+  // Refuse unsupported restricted profiles without removing requested schema semantics.
+  void validate_positional_profile(const std::vector<std::unique_ptr<syntax_node>>& statements) {
+    for (const auto& statement : statements) {
+      if (emission_only && (statement->type == object_type::namespace_type ?
+              namespace_name(statement->name) : type_name(statement->name)) == "emission") {
+        throw std::invalid_argument{"cpp.emission_only reserves the emission namespace name"};
+      }
+      if (statement->type == object_type::namespace_type) {
+        validate_positional_profile(static_cast<const namespace_node&>(*statement).statements);
+      } else if (statement->type == object_type::class_type ||
+                 statement->type == object_type::generic_definition) {
+        const auto& object = static_cast<const class_node&>(*statement);
+        if (object.supports_managed() || object.has_mode(storage_mode::read_only_view) ||
+            object.has_mode(storage_mode::mutable_view)) {
+          throw std::invalid_argument{"cpp.protocols binary_none does not support managed or view models"};
+        }
+        if (emission_only) {
+          for (const auto& field : object.member_list) {
+            if (field.modifier == member::modifier_type::map) {
+              throw std::invalid_argument{"cpp.emission_only does not support map fields"};
+            }
+            if (field.modifier == member::modifier_type::array &&
+                (field.extent_expression.size() > 1 || !field.default_value.empty())) {
+              throw std::invalid_argument{
+                  "cpp.emission_only requires one-dimensional arrays without schema initializers"};
+            }
+          }
+        }
+      }
+    }
+  }
+
   // Generate a complete C++ header while retaining the parsed schema and original wire names.
   void emit(rohit::type_check::output_buffer auto& out_stream,
             const std::vector<std::unique_ptr<syntax_node>>& statements) {
+    if (positional_only) { validate_positional_profile(statements); }
     if (protobuf_enabled) { validate_protobuf_schema(statements); }
     validate_names(statements);
     managed_.prepare(statements);
+    if (emission_only) {
+      out_stream.write("// Generated by Serializer. Do not edit this file manually.\n"
+                       "// https://github.com/rohit-singh-gautam/Serializer\n\n"
+                       "#pragma once\n\n"
+                       "#include <rohit/constant_binary_output.hpp>\n\n"
+                       "#include <cstddef>\n#include <cstdint>\n#include <memory>\n"
+                       "#include <span>\n#include <stdexcept>\n#include <string_view>\n"
+                       "#include <type_traits>\n\n");
+      write_statement_list(out_stream, statements);
+      return;
+    }
     const bool has_views = contains_views(statements);
     out_stream.write("// Generated by Serializer. Do not edit this file manually.\n"
                      "// https://github.com/rohit-singh-gautam/Serializer\n\n"
@@ -1874,6 +2103,7 @@ public:
 std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,
                      const cpp_options& options) {
   static_cast<void>(coding_standard_name(options.standard));
+  static_cast<void>(cpp_protocols_name(options.protocols));
   full_stream_auto_alloc raw{};
   emitter generator{options};
   generator.emit(raw, statements);

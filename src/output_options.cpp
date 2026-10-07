@@ -177,6 +177,28 @@ std::string_view coding_standard_name(coding_standard standard) {
   return profile_names.at(static_cast<std::size_t>(standard));
 }
 
+// Resolve the opt-in protocol profile without silently widening its scope.
+cpp_protocols parse_cpp_protocols(std::string_view name) {
+  if (name == "all") {
+    return cpp_protocols::all;
+  }
+  if (name == "binary_none") {
+    return cpp_protocols::binary_none;
+  }
+  throw std::invalid_argument{"cpp.protocols must be all or binary_none"};
+}
+
+// Reject invalid protocol enum values supplied through the library API.
+std::string_view cpp_protocols_name(cpp_protocols protocols) {
+  switch (protocols) {
+  case cpp_protocols::all:
+    return "all";
+  case cpp_protocols::binary_none:
+    return "binary_none";
+  }
+  throw std::invalid_argument{"Unknown C++ protocol selection"};
+}
+
 // Keep Java profile parsing independent from C++ presentation rules.
 java_coding_standard parse_java_coding_standard(std::string_view name) {
   if (name == "serializer") {
@@ -294,6 +316,12 @@ output_options read_output_options(const std::filesystem::path& file) {
         result.cpp.managed_id_type = value;
       } else if (section == "managed" && key == "separate_values") {
         result.cpp.managed_separate_values = read_bool(value);
+      } else if (section == "cpp" && key == "constant_evaluation") {
+        result.cpp.constant_evaluation = read_bool(value);
+      } else if (section == "cpp" && key == "emission_only") {
+        result.cpp.emission_only = read_bool(value);
+      } else if (section == "cpp" && key == "protocols") {
+        result.cpp.protocols = parse_cpp_protocols(value);
       } else if (section == "cpp" && key == "protobuf") {
         result.cpp.protobuf = read_bool(value);
       } else if (section == "java" && key == "coding_standard") {

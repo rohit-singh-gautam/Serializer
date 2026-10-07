@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.28)
 
-project(serializer VERSION 1.3.0 LANGUAGES CXX)
+project(serializer VERSION 1.4.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
 set(serializer_schema_language_version 1.2.0)
@@ -88,6 +88,11 @@ add_library(serializer_lib
   include/rohit/output_options.hpp
   include/rohit/serializer_creator.hpp
   include/rohit/serializer.hpp
+  include/rohit/constant_binary.hpp
+  include/rohit/constant_binary_output.hpp
+  include/rohit/binary_output_support.hpp
+  include/rohit/binary_scalar.hpp
+  include/rohit/utf8.hpp
   include/rohit/protobuf.hpp
   include/rohit/decode.hpp
   include/rohit/binary_view.hpp

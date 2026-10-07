@@ -26,6 +26,7 @@
 #error "Serializer requires C++20 or later"
 #endif
 
+#include <rohit/binary_scalar.hpp>
 #include <rohit/stream_concepts.hpp>
 
 #include <algorithm>
@@ -60,11 +61,6 @@ inline constexpr unsigned identifier_hash_shift_bits = 9;
 inline constexpr std::size_t buffer_growth_factor = 2;
 inline constexpr std::size_t default_minimum_read_buffer_bytes = 1024;
 inline constexpr std::size_t default_maximum_read_buffer_bytes = 8192;
-inline constexpr std::size_t maximum_buffer_bytes =
-    static_cast<std::size_t>(std::numeric_limits<std::ptrdiff_t>::max());
-template <typename>
-inline constexpr bool unsupported_type = false;
-
 // Describe one text argument without owning or copying its character sequence.
 struct write_fragment {
   const std::uint8_t* data{};
@@ -81,20 +77,6 @@ concept text_fragment_value =
     std::same_as<T, char> || std::same_as<T, bool> || std::same_as<T, std::string> ||
     std::same_as<T, std::string_view> ||
     (std::is_array_v<T> && std::same_as<std::remove_extent_t<T>, char>);
-
-// Integral byte swapping requires every object bit to participate in its value representation.
-template <typename T>
-concept endian_integer =
-    std::integral<T> && !std::same_as<std::remove_cv_t<T>, bool> &&
-    (std::numeric_limits<T>::digits + (std::is_signed_v<T> ? 1 : 0) ==
-     sizeof(T) * std::numeric_limits<unsigned char>::digits);
-
-// Limit floating-point conversion to the supported binary IEC 559 storage widths.
-template <typename T>
-concept endian_floating_point =
-    std::floating_point<T> && std::numeric_limits<T>::is_iec559 &&
-    std::numeric_limits<T>::radix == 2 &&
-    (sizeof(T) == sizeof(std::uint32_t) || sizeof(T) == sizeof(std::uint64_t));
 
 // Booleans are logical no-ops; other scalars must have a supported byte representation.
 template <typename T>
@@ -141,14 +123,6 @@ constexpr T change_endian(const T& val) noexcept {
 }
 
 namespace exception {
-class stream_overflow_exception : public std::exception {
-public:
-  // Return the exception message; the pointer remains valid for this exception lifetime.
-  const char* what() const noexcept override {
-    return "Stream Overflow";
-  }
-}; // class stream_overflow_exception
-
 class stream_underflow_exception : public std::exception {
 public:
   // Return the exception message; the pointer remains valid for this exception lifetime.

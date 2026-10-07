@@ -82,6 +82,11 @@ constexpr rohit::serializer::cli::commandline_option command_options[] = {
      "serializer|core|google|llvm|gnu|cert|misra|autosar|qt"},
     {'\0', "cpp.naming", "profile|preserve", "C++ identifier naming policy."},
     {'\0', "cpp.format", "true|false", "Run clang-format (default true)."},
+    {'\0', "cpp.constant_evaluation", "true|false",
+     "Enable generated positional constant evaluation (default false)."},
+    {'\0', "cpp.protocols", "all|binary_none", "Select generated C++ protocols (default all)."},
+    {'\0', "cpp.emission_only", "true|false",
+     "Generate borrowed emission models (default false; requires constant evaluation and binary_none)."},
     {'\0', "cpp.protobuf", "true|false",
      "Generate direct Protobuf binary, ProtoJSON, and TextProto codecs."},
     {'\0', "managed.id_type", "uint32|uint64", "Persistent managed ID type (default uint32)."},
@@ -266,6 +271,23 @@ int main(const int argc, const char* argv[]) {
         throw std::invalid_argument{"managed.separate_values must be true or false"};
       }
       options.cpp.managed_separate_values = value == "true";
+    }
+    if (parsed.contains("cpp.constant_evaluation")) {
+      const auto& value = cli::first(parsed, "cpp.constant_evaluation");
+      if (value != "true" && value != "false") {
+        throw std::invalid_argument{"cpp.constant_evaluation must be true or false"};
+      }
+      options.cpp.constant_evaluation = value == "true";
+    }
+    if (parsed.contains("cpp.emission_only")) {
+      const auto& value = cli::first(parsed, "cpp.emission_only");
+      if (value != "true" && value != "false") {
+        throw std::invalid_argument{"cpp.emission_only must be true or false"};
+      }
+      options.cpp.emission_only = value == "true";
+    }
+    if (parsed.contains("cpp.protocols")) {
+      options.cpp.protocols = writer::parse_cpp_protocols(cli::first(parsed, "cpp.protocols"));
     }
     if (parsed.contains("cpp.protobuf")) {
       const auto& value = cli::first(parsed, "cpp.protobuf");

@@ -10,7 +10,7 @@ Define your data once in a `.serializer` schema, then generate classes and codec
 for JSON and binary serialization. Serializer includes a C++20 schema compiler,
 a C++ runtime, and generators for multiple languages.
 
-The current compiler and runtime release is **1.3.0**. Bug fixes and minor updates
+The current compiler and runtime release is **1.4.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.2.0**;
@@ -51,6 +51,17 @@ Language `1.2.0` adds [compact unsigned scalar fields](docs/compact_integers.md)
 prefix encoding, while `compact_varint uint64 count;` uses full-width unsigned
 LEB128. Explicit `lenient` selects deterministic truncation. All output languages
 support these owning scalar annotations; JSON retains ordinary integer values.
+
+C++20 [constant-evaluation binary output](docs/constant_evaluation.md) can count a
+value's exact positional size, write caller-owned memory, or return an exact-size
+byte array from a deterministic factory. Enable generated models with
+`--cpp.constant_evaluation true`; its default is false. Ordinary runtime codecs
+retain their existing traversal, and ordinary owning runtime memory writes use the
+existing encoder.
+The independent `--cpp.protocols binary_none` profile restricts C++ output to
+positional codecs; the default remains `all`. Add `--cpp.emission_only true` with
+those settings for borrowed string/span DTOs exposing only one concrete positional
+`serialize_out(binary_none_output&)` method.
 
 ## How it works
 
@@ -229,6 +240,7 @@ application must provide.
 | --- | --- |
 | Share declarations across schemas | [Includes](docs/usage.md#share-declarations-with-includes) |
 | Read or update encoded C++ data through borrowed views | [Buffer views](docs/views.md) |
+| Produce exact positional bytes during C++20 constant evaluation | [Constant binary APIs](docs/usage.md#count-and-emit-constant-positional-bytes) |
 | Encode directly into an owned `std::string` buffer | [String streams](docs/usage.md#string-backed-output-buffers) |
 | Use standard streams or durable files | [Streams and adapters](docs/usage.md#stream-concepts-and-implicit-adapters), [file streams](docs/usage.md#file-streams-and-journal-records) |
 | Compress complete C++ messages | [Compression](docs/compression.md) |
@@ -292,6 +304,9 @@ for reporting barriers to using the project.
 - [Schema examples](docs/schema_examples.md): small declarations you can adapt.
 - [Migration guide](migration.md): upgrade requirements and compatibility changes.
 - [Feature status and roadmap](docs/feature_status.md): implemented behavior and future work.
+- [Constant-evaluation guide](docs/constant_evaluation.md): implemented C++20 positional
+  size counting, existing-memory writing and exact-array factories, opt-in generation,
+  runtime path preservation, supported values and compiler qualification.
 - [Four-toolchain verification](docs/verification-toolchains-2026-10-07.md): x64 Windows/MSVC and clang-cl, and Ubuntu WSL2/GCC and Clang, with default runtime features enabled.
 - [Default runtime verification](docs/verification-default-features-2026-10-07.md): managed/compression defaults and installed-header checks.
 - [Compact scalar qualification](docs/verification-compact-2026-10-07.md): all eleven SDKs, frozen wire fixtures, strict/lenient cases, native tests, and editor checks.

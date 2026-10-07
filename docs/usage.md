@@ -878,6 +878,91 @@ when your application requires another byte order. Compact prefixes retain their
 defined encoding. Messages carry no automatic protocol or endian marker, so both
 endpoints must agree on those choices. See [byte order](wire_format.md#byte-order).
 
+### Count and emit constant positional bytes
+
+Compiler/runtime 1.4.0 provides `<rohit/constant_binary.hpp>` for strict,
+little-endian `binary_none` output during C++20 constant evaluation. Enable
+the owning model's additional traversal in the generator configuration:
+
+```ini
+[cpp]
+constant_evaluation = true
+# Optional; omit this line to retain every ordinary runtime protocol.
+protocols = binary_none
+```
+
+Pass that file through the existing CMake helper:
+
+```cmake
+serializer_generate(TARGET serializer_example
+  SCHEMAS schemas/person.serializer
+  CONFIG output.ini)
+```
+
+The equivalent CLI options are `--cpp.constant_evaluation true` and
+`--cpp.protocols binary_none`. Their independent defaults are false and all.
+Use one consistently generated definition of each model across translation units.
+The flag adds `serialize_constant_out` and static capability metadata; its
+normal runtime `serialize_out` remains unchanged.
+
+Using the earlier `demo::person` schema, a factory can construct transient
+owning fields and return only exact wire bytes:
+
+```cpp
+#include <rohit/constant_binary.hpp>
+#include <person.hpp>
+
+// Reconstruct the same owning value for the independent count and write passes.
+constexpr auto make_person = [] {
+  demo::person value{};
+  value.name = "Ada";
+  value.age = 37;
+  value.scores = {8, 9, 10};
+  return value;
+};
+
+constexpr auto person_bytes =
+    rohit::serializer::make_binary_none_bytes<make_person>();
+static_assert(person_bytes.size() == 21);
+```
+
+`binary_none_size(value)` validates and returns the exact encoded count without
+allocating output. `serialize_binary_none_to(span<uint8_t>, value)` writes once
+into caller-owned independent memory and returns committed bytes. Both are constexpr
+and may also run at runtime. For ordinary owning values, runtime writing delegates
+to the existing optimized strict positional encoder; there is no implicit size pass. To preflight capacity,
+explicitly count an unchanged value before writing. Extra capacity is untouched;
+earlier committed bytes can remain after a later failure.
+
+The factory is consteval and invokes its callable twice. C++20 strings/vectors can
+allocate transiently inside each pass if the matching standard library supports the
+operations, but no allocation or borrowed local pointer may escape the result.
+An ordinary consteval function parameter cannot become an array template extent.
+Use the factory instead of persisting a heap-owning model as a constexpr variable.
+
+Decode `person_bytes` with the existing `binary_none` reader, the same schema,
+explicit limits, and `finish()`, as in the exact-message example. This feature
+adds no constexpr reader. Maps, managed operations, views, I/O, compression, and
+other protocols are outside its C++20 constant subset; raw unions require a valid
+initialized active alternative. The optional positional-only generation profile
+rejects Protobuf, managed and view combinations. See the [full support and failure
+contract](constant_evaluation.md) and its qualified compiler/library combinations.
+
+For allocation-free model construction, add `emission_only = true` to the above
+config. This requires both other settings as shown and emits
+`demo::emission::person` with borrowed string_view/span fields, only
+`constexpr void serialize_out(binary_none_output&) const`, and no reader.
+The generated header includes `<rohit/constant_binary_output.hpp>`, omitting the full
+runtime codec/I/O/JSON parser closure. Its concrete output defaults to counting;
+the span constructor writes caller memory. The complete owning runtime-memory
+API remains available from `<rohit/constant_binary.hpp>`.
+Generate the ordinary owning header separately if a runtime reader is needed. Keep
+all referenced data alive; a fixed-buffer owner should create views inside its output
+method instead of storing self-referencing views that become invalid on a copy.
+See the [complete owner example and profile limits](constant_evaluation.md#94-emission-only-borrowed-models).
+Explicit runtime writes for these borrowed DTOs use the additive concrete writer,
+while ordinary owning runtime paths retain their established encoder.
+
 ### Choose C++ binary text validation
 
 Native C++ binary codecs default to `binary_text_validation::strict`. Validation

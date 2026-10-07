@@ -1,0 +1,22 @@
+serializer version 1.2.0;
+
+namespace runtime_equivalence {
+  enum phase {
+    idle,
+    active
+  }
+
+  class base_record {
+    public uint16 code;
+    public bool enabled;
+  }
+
+  class message : public base_record {
+    public uint32 sequence;
+    public uint64 elapsed;
+    public string label;
+    public array uint16 samples;
+    public phase state;
+    public union(uint32 = count, double = measure) result;
+  }
+}

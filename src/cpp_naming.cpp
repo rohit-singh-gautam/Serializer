@@ -202,7 +202,7 @@ std::string naming::namespace_name(std::string_view name) const {
 
 // Follow resolved declaration ownership, avoiding a second ambiguous type-name lookup.
 std::string naming::full_type_name(const syntax_node* node) const {
-  std::string result = type_name(node->name);
+  std::string result = (options.emission_only ? "emission::" : "") + type_name(node->name);
   for (auto* parent = node->parent_namespace; parent; parent = parent->parent_namespace) {
     result = namespace_name(parent->name) + "::" + result;
   }
@@ -279,7 +279,7 @@ std::string naming::default_value(const member& field) const {
       }
     }
   }
-  if (!options.rename_identifiers || field.default_value.empty()) {
+  if ((!options.rename_identifiers && !options.emission_only) || field.default_value.empty()) {
     return field.default_value;
   }
   const auto& text = field.default_value;
@@ -393,6 +393,11 @@ void naming::validate_names(const std::vector<std::unique_ptr<syntax_node>>& sta
                                      "SerializeOutProtocol",
                                      "SerializerStream",
                                      "Protocol"};
+        if (options.constant_evaluation) {
+          owning.insert({"serialize_constant_out", "serializer_constant_evaluation",
+                         "serializer_constant_evaluation_type"});
+          if (options.emission_only) { owning.insert("serializer_emission_only"); }
+        }
         if (object.has_magic()) {
           insert_name(owning, "magic");
         }

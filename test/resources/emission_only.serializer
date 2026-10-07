@@ -1,0 +1,35 @@
+serializer version 1.2.0;
+namespace emission_models {
+  enum phase { waiting, done }
+  class enum_packet {
+    public phase state;
+  }
+  class payload {
+    public uint32 sequence;
+    public string label;
+    public array uint8 data;
+  }
+  class scalar_node {
+    public uint16 value;
+    public bool enabled;
+  }
+  class choice {
+    public union (uint32 = number, scalar_node = node) data;
+  }
+  class fixed_packet {
+    public array[3] uint16 values;
+  }
+  class nested_packet {
+    public payload inner;
+    public array payload items;
+    public array string labels;
+  }
+  class special_packet {
+    private magic { 'EMIT1' };
+    public version { 2 } compatibility { 1 };
+    obsolete(2) public uint16 old_value;
+    created(2) replaced(old_value) public uint32 value;
+    public compact_prefix strict uint32 prefix;
+    public compact_varint uint64 variable;
+  }
+}

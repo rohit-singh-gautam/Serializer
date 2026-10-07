@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin, or C applications from a provided repository or existing dependency. Use for compact unsigned prefix/varint scalars, .serializer schemas, native C++ generic templates, optional cross-language contracts, dimension parameters, inferred fixed arrays, typed scalar/enum magic, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, payload revisions, compiler-only release policies, lifecycle annotations, schema compatibility checks and reservations, stream concepts, durable file streams and iostream adapters, exact fresh-value decoding, managed journal/crash recovery and C++ local collaboration with store-owned sessions, timed synchronization and undo, optional message compression, JSON or binary codecs, database persistence guidance, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
+description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin, or C applications from a provided repository or existing dependency. Use for opt-in C++20 constant binary sizing and exact-array emission, positional-only generation and borrowed emission-only models, compact unsigned prefix/varint scalars, .serializer schemas, native C++ generic templates, optional cross-language contracts, dimension parameters, inferred fixed arrays, typed scalar/enum magic, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, payload revisions, compiler-only release policies, lifecycle annotations, schema compatibility checks and reservations, stream concepts, durable file streams and iostream adapters, exact fresh-value decoding, managed journal/crash recovery and C++ local collaboration with store-owned sessions, timed synchronization and undo, optional message compression, JSON or binary codecs, database persistence guidance, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
 ---
 
 # Serializer Integration
@@ -425,7 +425,7 @@ feature as a prerequisite without the user's request.
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
   remains available through `parser::parse(input)`. Schema language version 1.2.0 is
-  independent of compiler release 1.3.0 and wire protocols. Bug fixes and minor
+  independent of compiler release 1.4.0 and wire protocols. Bug fixes and minor
   updates increment the patch number; new features increment the minor number.
   Minor and patch releases preserve full compatibility. Developers change the
   major number manually, with best-effort compatibility across major releases.
@@ -852,6 +852,50 @@ user instruction to defer generation/builds/tests and report what remains unveri
   exact wire bytes while optimizing. Report untested platforms explicitly.
 
 ## Implement the C++ codec calls
+
+For compile-time positional sizing or emission, use compiler/runtime 1.4.0 or
+newer and read the [constant-evaluation guide](../../../docs/constant_evaluation.md)
+and [usage example](../../../docs/usage.md#count-and-emit-constant-positional-bytes).
+Include `<rohit/constant_binary.hpp>`. Enable generated owning models with
+`[cpp] constant_evaluation = true` or `--cpp.constant_evaluation true`;
+the default is false. Regenerate through the normal schema/CMake pipeline and keep
+one consistent enabled definition per qualified model across translation units.
+
+Use `binary_none_size(value)` for an explicit validated count without output
+allocation and `serialize_binary_none_to(span<uint8_t>, value)` for existing-memory
+output. For ordinary owning values the latter uses the original optimized encoder
+at runtime, without an implicit sizing pass. Use `make_binary_none_bytes<Factory>()` when the byte-array
+extent must depend on variable transient fields; the factory constructs the value
+twice and must be deterministic. Do not persist heap-owning constexpr model objects
+or return views into destroyed local storage. Source and output memory must be
+independent. Decode with the ordinary matching positional reader and exact framing.
+
+The generator adds `serialize_constant_out`, a static marker and exact-type
+alias. It leaves regular runtime `serialize_out` unchanged. Do not replace
+runtime memcpy/memmove, batching or SIMD paths to achieve constant output. The
+independent `[cpp] protocols = binary_none` / `--cpp.protocols binary_none`
+selector removes JSON/keyed output; its default is all. It rejects requested Protobuf,
+managed and view combinations. Retain all when those runtime capabilities are needed.
+Maps, managed operations, views, compression, I/O and nonconstant customizations are
+outside the C++20 constant subset. Raw unions require legal initialized active members.
+
+For allocation-free construction, optionally select `emission_only = true`; it
+requires constant_evaluation true, protocols binary_none and Protobuf false. Emission
+DTOs borrow string_view/span fields under a terminal emission namespace and expose
+only non-template `serialize_out(binary_none_output&)`. Construct inline owners
+whose output method creates temporary views while buffers stay alive; avoid retaining
+views into a copied/returned owner. Use the concrete writer for both count and supplied
+memory. Generated emission headers include the lean constant_binary_output.hpp
+support without the full runtime serializer/I/O/JSON parser closure; include
+constant_binary.hpp when using the owning runtime-memory overload. Generate an
+ordinary owning header separately for runtime reading. Maps,
+managed/views, nonempty array defaults and multidimensional arrays are rejected.
+
+Verify actual generated models, independent expected bytes and runtime reading;
+report the tested compiler/library combination and unavailable cases. Do not infer
+all-toolchain support, zero compilation cost or exhaustive performance qualification
+from one probe. The guide distinguishes implemented behavior from remaining regression
+and measurement targets.
 
 - For optional compression, read [the compression contract](../../../docs/compression.md)
   and [usage examples](../../../docs/usage.md#compress-complete-messages). All three

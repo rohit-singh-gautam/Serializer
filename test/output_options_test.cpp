@@ -30,6 +30,34 @@ std::string emit(std::string_view schema, writer::coding_standard standard,
   return {reinterpret_cast<const char*>(output.begin()), output.current_offset()};
 }
 
+// Generate selected optional capabilities through the production schema writer.
+std::string emit(std::string_view schema, writer::cpp_options options) {
+  const auto input = rohit::make_constant_stream(schema.data(), schema.size());
+  const auto statements = rohit::serializer::parser::parse(input);
+  options.format = false;
+  return writer::cpp::generate(statements, options);
+}
+
+// Remove only the separately generated compile-time declarations before comparing existing APIs.
+std::string without_constant_declarations(std::string source) {
+  constexpr std::string_view marker_start =
+      "  // Opt in to explicit constant-evaluation binary APIs without object storage.\n";
+  constexpr std::string_view traversal_start =
+      "  // Encode positional fields using the selected output sink.\n";
+  for (const auto block : {marker_start, traversal_start}) {
+    for (auto begin = source.find(block); begin != std::string::npos; begin = source.find(block)) {
+      const auto terminator = block == marker_start ? std::string_view{"\n\n"}
+                                                   : std::string_view{"\n  }\n\n"};
+      const auto end = source.find(terminator, begin);
+      if (end == std::string::npos) {
+        throw std::logic_error{"Incomplete generated constant-evaluation declaration"};
+      }
+      source.erase(begin, end + terminator.size() - begin);
+    }
+  }
+  return source;
+}
+
 // Keep each configuration case isolated from concurrent test processes.
 class configuration_file {
   std::filesystem::path directory{};
@@ -229,4 +257,154 @@ TEST(output_options, managed_identity_configuration) {
   EXPECT_FALSE(writer::read_output_options(file.write("[managed]\nseparate_values = false\n")).cpp.managed_separate_values);
   EXPECT_THROW(writer::read_output_options(file.write("[managed]\nseparate_values = maybe\n")), std::invalid_argument);
   EXPECT_THROW(writer::read_output_options(file.write("[managed]\nid_type = uuid\n")), std::invalid_argument);
+}
+
+// Compiler activation and positional selection are exact, independent configuration values.
+TEST(output_options, constant_evaluation_configuration) {
+  EXPECT_FALSE(writer::cpp_options{}.constant_evaluation);
+  EXPECT_FALSE(writer::cpp_options{}.emission_only);
+  EXPECT_EQ(writer::cpp_options{}.protocols, writer::cpp_protocols::all);
+  configuration_file file;
+  const auto options = writer::read_output_options(file.write(
+      "[cpp]\nconstant_evaluation = true\nprotocols = binary_none\nformat = false\n"));
+  EXPECT_TRUE(options.cpp.constant_evaluation);
+  EXPECT_EQ(options.cpp.protocols, writer::cpp_protocols::binary_none);
+  EXPECT_FALSE(writer::read_output_options(
+      file.write("[cpp]\nconstant_evaluation = false\nprotocols = all\n")).cpp.constant_evaluation);
+  for (const auto profile : {"all", "binary_none"}) {
+    EXPECT_EQ(writer::cpp_protocols_name(writer::parse_cpp_protocols(profile)), profile);
+  }
+  EXPECT_TRUE(writer::read_output_options(file.write("[cpp]\nemission_only = true\n")).cpp.emission_only);
+  for (const auto invalid : {"[cpp]\nemission_only = yes\n",
+                             "[cpp]\nemission_only = true\nemission_only = false\n",
+                             "[cpp]\nconstant_evaluation = yes\n",
+                             "[cpp]\nconstant_evaluation = true\nconstant_evaluation = false\n",
+                             "[cpp]\nprotocols = binary_integer\n",
+                             "[cpp]\nprotocols = all\nprotocols = binary_none\n"}) {
+    EXPECT_THROW(writer::read_output_options(file.write(invalid)), std::invalid_argument);
+  }
+}
+
+// Enabling constant output leaves the established runtime traversal unchanged.
+TEST(output_options, additive_constant_evaluation_traversal) {
+  constexpr std::string_view schema =
+      "enum kind { first, second } class record { public uint32 first; public uint32 second; "
+      "public array uint8 bytes; public union(uint32 = number, float = real) item; }";
+  writer::cpp_options options{};
+  const auto baseline = emit(schema, options);
+  EXPECT_EQ(baseline.find("serialize_constant_out"), std::string::npos);
+  EXPECT_EQ(baseline.find("serializer_constant_evaluation"), std::string::npos);
+  options.constant_evaluation = true;
+  const auto enabled = emit(schema, options);
+  EXPECT_NE(enabled.find("constexpr void serialize_constant_out"), std::string::npos);
+  EXPECT_NE(enabled.find("static constexpr bool serializer_constant_evaluation = true"),
+            std::string::npos);
+  const auto runtime_start = baseline.find("  // Encode fields directly");
+  const auto runtime_end = baseline.find("  // Encode to a buffer", runtime_start);
+  ASSERT_NE(runtime_start, std::string::npos);
+  ASSERT_NE(runtime_end, std::string::npos);
+  EXPECT_NE(enabled.find(baseline.substr(runtime_start, runtime_end - runtime_start)),
+            std::string::npos);
+  EXPECT_NO_THROW(emit("class record { public map(string) uint32 values; }", options));
+  EXPECT_THROW(emit("class record { public uint32 serialize_constant_out; }", options),
+               std::invalid_argument);
+  options.protobuf = true;
+  EXPECT_NE(emit(schema, options).find("serializer_protobuf_write"), std::string::npos);
+}
+
+// Compare every retained declaration and body, including keyed readers and static conveniences.
+TEST(output_options, constant_evaluation_retains_complete_runtime_source) {
+  constexpr std::string_view schema =
+      "namespace parity { enum state { idle, active } "
+      "class base { public uint16 code; } "
+      "class record : public base { public string label; public array uint16 samples; "
+      "public state mode; public union(uint32 = number, double = real) result; } "
+      "class runtime_map { public map(uint8) string values; } ";
+  constexpr std::string_view native_extensions =
+      "class historical stable_ids { public version { 2 } compatibility { 1 }; "
+      "obsolete(2) public uint16 old_value (2); "
+      "created(2) replaced(old_value) public uint32 value (3); } "
+      "class box<uint64 N, T = uint16> { public array[N] T values; } ";
+  for (const bool protobuf : {false, true}) {
+    // The existing Protobuf profile rejects lifecycle versions and fixed-size arrays.
+    const auto selected_schema = std::string{schema} +
+                                 (protobuf ? std::string{} : std::string{native_extensions}) + "}";
+    writer::cpp_options baseline_options{};
+    baseline_options.protobuf = protobuf;
+    const auto baseline = emit(selected_schema, baseline_options);
+    auto enabled_options = baseline_options;
+    enabled_options.constant_evaluation = true;
+    const auto enabled = emit(selected_schema, enabled_options);
+    EXPECT_EQ(without_constant_declarations(enabled), baseline);
+  }
+}
+
+// Restricted output retains positional codecs and rejects conflicts without losing semantics.
+TEST(output_options, positional_only_generation) {
+  writer::cpp_options options{};
+  options.protocols = writer::cpp_protocols::binary_none;
+  const auto source = emit("class record { public version { 2 }; public uint32 value; }", options);
+  EXPECT_EQ(source.find("serialize_in_member_by_identifier"), std::string::npos);
+  EXPECT_EQ(source.find("serialize_in_member_by_name"), std::string::npos);
+  EXPECT_EQ(source.find("serializer_version_reader"), std::string::npos);
+  EXPECT_NE(source.find("serializer_current_version = static_cast<std::uint8_t>(2ULL)"), std::string::npos);
+  EXPECT_EQ(source.find("serialize_constant_out"), std::string::npos);
+  EXPECT_NE(source.find("void serialize_out(SerializeOutProtocol&"), std::string::npos);
+  EXPECT_NE(source.find("void serialize_in(SerializeInProtocol&"), std::string::npos);
+  options.constant_evaluation = true;
+  EXPECT_NE(emit("class record {}", options).find("constexpr void serialize_constant_out"),
+            std::string::npos);
+  const auto union_source = emit(
+      "class node { public uint32 value; } "
+      "class record { public union(uint32 = number, node = object) payload; }", options);
+  EXPECT_NE(union_source.find("::std::construct_at(&this->payload.object);"), std::string::npos);
+  options.protobuf = true;
+  EXPECT_THROW(emit("class record {}", options), std::invalid_argument);
+  options.protobuf = false;
+  EXPECT_THROW(emit("class record view readonly { public uint32 value; }", options),
+               std::invalid_argument);
+  EXPECT_THROW(emit("class record managed { public uint32 value; }", options),
+               std::invalid_argument);
+}
+
+// Borrowed models expose one concrete output method in a separate namespace without owning APIs.
+TEST(output_options, emission_only_generation) {
+  writer::cpp_options options{};
+  options.emission_only = true;
+  EXPECT_THROW(emit("class value {}", options), std::invalid_argument);
+  options.constant_evaluation = true;
+  EXPECT_THROW(emit("class value {}", options), std::invalid_argument);
+  options.protocols = writer::cpp_protocols::binary_none;
+  const auto source = emit(
+      "namespace outer { enum state { ready } class base { public uint16 code; } "
+      "namespace inner { class child { public string label; } } "
+      "class record : public base { public string label; public array uint8 data; "
+      "public array[3] uint16 fixed; public inner::child nested; "
+      "public state mode { state::ready }; public union(uint32 = number, inner::child = node) payload; } "
+      "class box<T = inner::child> { public array T values; } }", options);
+  EXPECT_NE(source.find("#include <rohit/constant_binary_output.hpp>"), std::string::npos);
+  EXPECT_NE(source.find("namespace emission {"), std::string::npos);
+  EXPECT_NE(source.find("::outer::inner::emission::child"), std::string::npos);
+  EXPECT_NE(source.find("::outer::emission::base"), std::string::npos);
+  EXPECT_NE(source.find("::outer::emission::state::ready"), std::string::npos);
+  EXPECT_NE(source.find("::std::string_view label"), std::string::npos);
+  EXPECT_NE(source.find("::std::span<const ::std::uint8_t> data"), std::string::npos);
+  EXPECT_NE(source.find("::std::span<const ::std::uint16_t> fixed"), std::string::npos);
+  EXPECT_NE(source.find("Emission array extent mismatch"), std::string::npos);
+  EXPECT_NE(source.find("serializer_emission_only = true"), std::string::npos);
+  EXPECT_NE(source.find("constexpr void serialize_out(::rohit::serializer::binary_none_output&"),
+            std::string::npos);
+  for (const auto removed : {"serialize_constant_out", "serialize_in(", "static auto serialize(",
+                              "::std::vector<", "::std::map<", "::std::string to_string"}) {
+    EXPECT_EQ(source.find(removed), std::string::npos) << removed;
+  }
+  for (const auto invalid : {"class record { public map(uint8) string values; }",
+                              "class record { public array[2] uint8 values {1,2}; }",
+                              "class emission {}", "namespace emission { class record {} }"}) {
+    EXPECT_THROW(emit(invalid, options), std::invalid_argument) << invalid;
+  }
+  options.rename_identifiers = false;
+  EXPECT_NE(emit("namespace api { enum State { Ready } "
+                "class Record { public State mode { State::Ready }; } }", options)
+                .find("::api::emission::State::Ready"), std::string::npos);
 }

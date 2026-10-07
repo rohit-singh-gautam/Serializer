@@ -7,6 +7,7 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -116,7 +117,7 @@ struct dotted_version {
   }
 
   // Encode canonical JSON text or the schema-fixed binary components in protocol byte order.
-  void serialize_out(auto& protocol) const {
+  constexpr void serialize_out(auto& protocol) const {
     if constexpr (detail::is_json_protocol<std::remove_cvref_t<decltype(protocol)>>) {
       protocol.serialize_out(to_string());
     } else {
@@ -144,8 +145,11 @@ constexpr read_policy protocol_read_policy() {
 
 // Floating revisions exclude nonfinite and negative values in every policy.
 template <typename Version>
-bool valid_version(const Version& value) {
+constexpr bool valid_version(const Version& value) {
   if constexpr (std::is_floating_point_v<Version>) {
+    if (std::is_constant_evaluated()) {
+      return value >= 0 && value <= std::numeric_limits<Version>::max();
+    }
     return std::isfinite(value) && value >= 0;
   } else {
     return true;

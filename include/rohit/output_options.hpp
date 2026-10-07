@@ -10,6 +10,9 @@ namespace rohit::serializer::writer {
 // Presentation profiles select layout and naming, not whole-standard compliance.
 enum class coding_standard { serializer, core, google, llvm, gnu, cert, misra, autosar, qt };
 
+// Select generated C++ protocol entry points independently of constant evaluation.
+enum class cpp_protocols { all, binary_none };
+
 struct cpp_options {
   coding_standard standard{coding_standard::serializer};
   bool rename_identifiers{true};
@@ -19,6 +22,9 @@ struct cpp_options {
   bool protobuf{false};
   std::string managed_id_type{"uint32"};
   bool managed_separate_values{false};
+  bool constant_evaluation{false};
+  cpp_protocols protocols{cpp_protocols::all};
+  bool emission_only{false};
 };
 
 enum class java_coding_standard { serializer, google, oracle };
@@ -49,6 +55,11 @@ struct output_options {
 
 // Parse a nonempty comma-separated language list; reject unknown, empty, or repeated names.
 std::vector<std::string> parse_output_languages(std::string_view names);
+
+// Parse the exact generated C++ protocol selection, rejecting unknown names.
+cpp_protocols parse_cpp_protocols(std::string_view name);
+// Return the stable spelling of a valid C++ protocol selection.
+std::string_view cpp_protocols_name(cpp_protocols protocols);
 
 // Resolve a Java presentation profile, rejecting unknown spellings.
 java_coding_standard parse_java_coding_standard(std::string_view name);

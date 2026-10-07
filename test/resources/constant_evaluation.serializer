@@ -1,0 +1,98 @@
+serializer version 1.2.0;
+
+namespace constant_binary_models {
+  enum phase {
+    idle,
+    active
+  }
+
+  class empty {
+  }
+
+  class payload {
+    public uint32 sequence;
+    public string label;
+    public array uint8 data;
+  }
+
+  class scalar_node {
+    public uint16 value;
+    public bool enabled;
+  }
+
+  class choice {
+    public union(uint32 = number, float = real, scalar_node = node) data;
+  }
+
+  class inherited : public scalar_node {
+    public uint32 sequence;
+  }
+
+  class containers {
+    public array[3] uint16 fixed;
+    public array string labels;
+    public array payload values;
+    public phase state;
+  }
+
+  class compact {
+    public compact_prefix strict uint32 prefix;
+    public compact_prefix lenient uint64 truncated;
+    public compact_varint uint64 variable;
+  }
+
+  class magic_payload stable_ids {
+    private magic (99) { 'CBIN' };
+    public uint16 value (1);
+    public uint32 omitted (2) omit(binary_none);
+  }
+
+  class typed_magic stable_ids {
+    private magic uint32 (99) {16909060};
+    public uint8 value (1);
+  }
+
+  class versioned stable_ids {
+    public version { 2 } compatibility { 1 };
+    obsolete(2) public uint16 old_value (2);
+    created(2) replaced(old_value) public uint32 value (3);
+  }
+
+  class dotted stable_ids {
+    public version version3 revision (1) { "1.2.0" } compatibility { "1.0.0" };
+    public uint8 value (2);
+  }
+
+  class floating_revision stable_ids {
+    public version double revision (1) { 2.5 } compatibility { 1.5 };
+    public uint8 value (2);
+  }
+
+  class fixed_box<uint64 N, T = uint16> {
+    public array[N] T values;
+  }
+
+  class runtime_map {
+    public map(uint8) string values;
+  }
+
+  class long_run {
+    public uint8 a0;
+    public uint8 a1;
+    public uint8 a2;
+    public uint8 a3;
+    public uint8 a4;
+    public uint8 a5;
+    public uint8 a6;
+    public uint8 a7;
+    public uint8 a8;
+    public uint8 a9;
+    public uint8 a10;
+    public uint8 a11;
+    public uint8 a12;
+    public uint8 a13;
+    public uint8 a14;
+    public uint8 a15;
+    public uint8 a16;
+  }
+}

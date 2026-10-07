@@ -135,6 +135,9 @@ values, and repeated non-repeatable options are errors.
 | `--cpp.coding_standard` | | `serializer`, `core`, `google`, `llvm`, `gnu`, `cert`, `misra`, `autosar`, `qt` |
 | `--cpp.naming` | | `profile` or `preserve` |
 | `--cpp.format` | | `true` or `false` |
+| `--cpp.constant_evaluation` | | `true` or `false` (default); add the separate constexpr positional traversal |
+| `--cpp.protocols` | | `all` (default) or `binary_none`; restrict generated C++ codecs independently of constant evaluation |
+| `--cpp.emission_only` | | `true` or `false` (default); borrowed models with only concrete positional output; requires enabled constant evaluation and binary_none protocols |
 | `--managed.id_type` | | Document-local persistent ID width: `uint32` (default) or `uint64`; overrides `[managed] id_type` |
 | `--managed.separate_values` | | `true` generates ID-free values plus managed wrappers; `false` (default) puts IDs on the schema classes |
 | `--cpp.protobuf` | | `true` or `false`; enable compile-time [Protobuf codecs](protobuf.md) |
@@ -190,6 +193,39 @@ option, or backend failures leave existing destinations unchanged. Filesystem
 write failures are reported but writes across multiple files are not atomic.
 Outputs cannot alias each other, the input schema, the INI file, or custom format
 file. See [output configuration](output_configuration.md) for profile scope.
+
+## Constant-evaluation C++ generation
+
+Release 1.4.0 adds independent constant-evaluation/protocol settings and an optional
+borrowed emission-only profile:
+
+```sh
+serializer --input payload.serializer --output payload.hpp --cpp.constant_evaluation true --cpp.protocols binary_none
+```
+
+The INI keys are `[cpp] constant_evaluation = true` and
+`protocols = binary_none`. Booleans accept exactly `true`/`false`;
+protocols accept exactly `all`/`binary_none`. Defaults remain false/all.
+CLI overrides INI regardless of argument order, including explicit CLI false.
+Repeated scalar CLI options or invalid values are errors.
+
+Constant evaluation adds `serialize_constant_out` and static metadata to owning
+models without changing their regular runtime traversal. `protocols = all`
+retains other runtime formats. Positional-only output rejects Protobuf enablement,
+managed models and view models. It retains owning positional runtime readers/writers,
+field identities and wire bytes. See the [constant-evaluation guide](constant_evaluation.md)
+for the support matrix, APIs, and actual compiler qualification. Neither option
+changes the schema language or payload revision.
+
+Add `--cpp.emission_only true` / `[cpp] emission_only = true` for
+namespace-isolated borrowed DTOs with only
+`constexpr void serialize_out(binary_none_output&) const`. The option defaults
+to false and requires constant evaluation true, protocols binary_none and Protobuf
+false. It additionally rejects maps, nonempty array defaults and multidimensional
+arrays. String fields become string_view, arrays become span<const T>, and active
+fixed-array fields check their declared extent. The concrete writer counts by default
+or writes a caller span; no input methods are generated. See
+[emission-only output](constant_evaluation.md#94-emission-only-borrowed-models).
 
 ## Parser provenance
 

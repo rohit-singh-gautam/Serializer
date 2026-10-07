@@ -173,6 +173,42 @@ were generated, built, and run on Windows during Java backend validation; see [c
 verification and historical
 results](java.md#verification-performed-for-this-implementation).
 
+### C++ constant-evaluation generation
+
+For compiler/runtime 1.4.0 constant binary APIs, add `constant_evaluation = true`
+to the config's `[cpp]` section. Add `protocols = binary_none` only when the
+application wants positional-only generated codecs; the defaults are false/all.
+The equivalent CLI options are `--cpp.constant_evaluation true` and
+`--cpp.protocols binary_none`, with normal CLI-over-INI precedence.
+
+Keep generation in the existing application build:
+
+```cmake
+serializer_generate(TARGET constant_example
+  SCHEMAS schemas/payload.serializer
+  CONFIG serializer_output.ini)
+```
+
+The helper tracks the configuration and regenerates the owning header. The flag
+adds a separate constexpr traversal and static metadata; it retains existing
+runtime serialization methods. The independent positional-only profile removes
+JSON/keyed formats and rejects Protobuf, managed or view combinations. Generate
+each qualified model consistently for every consuming translation unit.
+
+Include `<rohit/constant_binary.hpp>` at call sites. See the
+[usage example](usage.md#count-and-emit-constant-positional-bytes) and
+[full API/support contract](constant_evaluation.md) for deterministic two-pass
+factories, transient storage, runtime decoding and qualified C++20 toolchains.
+For borrowed emission-only DTOs, also set `[cpp] emission_only = true`; this
+requires constant_evaluation true and protocols binary_none, with Protobuf false.
+Generate a second owning header on a separate target/output directory when a runtime
+reader is required. Emission models use a terminal emission namespace and expose
+only concrete positional output. See the [profile limits and lifetime rules](constant_evaluation.md#94-emission-only-borrowed-models).
+
+The constant-binary and emission-only tests use the actual compiler, generated
+headers and existing owning runtime consumers; they do not depend on a handwritten
+replacement model codec.
+
 ## Pure Java output
 
 Generate owning Java classes and direct codecs with no native runtime dependency:

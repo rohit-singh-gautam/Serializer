@@ -1,5 +1,44 @@
 # Migrating to the snake_case Serializer API
 
+## C++20 constant binary output (7 October 2026)
+
+Compiler/runtime **1.4.0** adds `binary_none_size`,
+`serialize_binary_none_to`, and `make_binary_none_bytes<Factory>()` in
+`<rohit/constant_binary.hpp>`. Existing schemas, APIs, object fields and native
+wire bytes retain their contracts. The schema language stays **1.2.0**; no schema
+syntax or payload revision change is required to enable this feature.
+
+Regenerate owning C++ models with `--cpp.constant_evaluation true` or
+`[cpp] constant_evaluation = true` before using them in required constant
+expressions. This adds a separate `serialize_constant_out` traversal and static
+capability metadata; regular runtime serialization remains unchanged. Keep each
+model's generated definition consistent across translation units. Scalars and
+handwritten eligible constexpr serializers do not require a generated-model flag.
+
+The independent `--cpp.protocols binary_none` / `[cpp] protocols = binary_none`
+setting intentionally removes JSON/keyed codecs and rejects Protobuf, managed and
+view combinations. Keep its default `all` when those formats remain needed.
+Both selectors are default-off/default-all and use normal CLI-over-INI precedence.
+
+Factories construct transient string/vector data twice and return an owning exact
+byte array; they must be deterministic and retain no dangling storage. Decode the
+result with the existing runtime positional reader. Runtime calls to the new memory
+writer for owning models use the established optimized encoder; any size pass is
+explicitly requested.
+Maps and runtime-only operations do not gain C++20 constant support. See the
+[usage example](docs/usage.md#count-and-emit-constant-positional-bytes) and
+[implemented contract and qualification](docs/constant_evaluation.md).
+
+Optionally select `--cpp.emission_only true` with both required settings above.
+This profile changes generated C++ ownership to borrowed string_view/span fields
+under a terminal emission namespace, with only a concrete
+`serialize_out(binary_none_output&)` method. It preserves wire semantics but
+supplies no reader; retain separately generated owning models for runtime decoding.
+Referenced buffers must outlive traversal, and fixed-array views must match their
+schema extent. Maps, managed/views, nonempty array defaults and multidimensional
+arrays are rejected. A fixed-buffer owner can create the borrowed DTO at output time
+without heap-owning model construction. Ordinary generation is unchanged by default.
+
 ## Compact scalar encodings (7 October 2026)
 
 Compiler/runtime **1.3.0** supports schema language **1.2.0** and editor

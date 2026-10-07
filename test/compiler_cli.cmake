@@ -39,7 +39,9 @@ if(NOT last_output MATCHES "Serializer compiler ${VERSION}" OR
 endif()
 succeed(-v)
 succeed(-h)
-if(NOT last_output MATCHES "--java.output" OR NOT last_output MATCHES "--cpp.coding_standard")
+if(NOT last_output MATCHES "--java.output" OR NOT last_output MATCHES "--cpp.coding_standard" OR
+    NOT last_output MATCHES "--cpp.constant_evaluation" OR NOT last_output MATCHES "--cpp.protocols" OR
+    NOT last_output MATCHES "--cpp.emission_only")
   message(FATAL_ERROR "Help is missing backend options")
 endif()
 succeed(-i "${schema}" -c "${DIRECTORY}/output.ini" -l cpp --language=java
@@ -74,6 +76,74 @@ file(READ "${cpp}" plain_source)
 if(plain_source MATCHES "serializer_protobuf_write")
   message(FATAL_ERROR "Disabled Protobuf output retained generated protocol methods")
 endif()
+# Compile-time activation is default-off and independent of the positional-only profile.
+file(SHA256 "${cpp}" default_cpp_hash)
+succeed(-i "${schema}" -o "${cpp}" --cpp.format false --cpp.constant_evaluation true)
+file(READ "${cpp}" constant_source)
+if(NOT constant_source MATCHES "constexpr void serialize_constant_out" OR
+    NOT constant_source MATCHES "serializer_constant_evaluation = true" OR
+    NOT constant_source MATCHES "serialize_in_member_by_identifier")
+  message(FATAL_ERROR "Enabled all-protocol generation lost runtime or constexpr capabilities")
+endif()
+succeed(-i "${schema}" -o "${cpp}" --cpp.format false --cpp.constant_evaluation false)
+file(SHA256 "${cpp}" disabled_cpp_hash)
+if(NOT default_cpp_hash STREQUAL disabled_cpp_hash)
+  message(FATAL_ERROR "Explicit false changed default generated output")
+endif()
+reject("cpp.constant_evaluation must be true or false" -i "${schema}" -o "${cpp}"
+  --cpp.constant_evaluation maybe --cpp.format false)
+reject("Repeated argument" -i "${schema}" -o "${cpp}"
+  --cpp.constant_evaluation true --cpp.constant_evaluation false --cpp.format false)
+reject("cpp.protocols must be all or binary_none" -i "${schema}" -o "${cpp}"
+  --cpp.protocols json --cpp.format false)
+reject("cannot be combined" -i "${schema}" -o "${cpp}"
+  --cpp.protocols binary_none --cpp.protobuf true --cpp.format false)
+file(WRITE "${DIRECTORY}/constant.ini"
+  "[cpp]\nformat = false\nconstant_evaluation = true\nprotocols = binary_none\n")
+succeed(-i "${schema}" -o "${cpp}" --config "${DIRECTORY}/constant.ini")
+file(READ "${cpp}" positional_source)
+if(NOT positional_source MATCHES "serialize_constant_out" OR
+    positional_source MATCHES "serialize_in_member_by_identifier|serialize_in_member_by_name")
+  message(FATAL_ERROR "Positional-only generation retained keyed dispatch or lost constexpr support")
+endif()
+succeed(-i "${schema}" -o "${cpp}" --cpp.constant_evaluation false
+  --cpp.protocols all --config "${DIRECTORY}/constant.ini")
+file(SHA256 "${cpp}" overridden_cpp_hash)
+if(NOT default_cpp_hash STREQUAL overridden_cpp_hash)
+  message(FATAL_ERROR "CLI options before config failed to override INI values")
+endif()
+file(WRITE "${DIRECTORY}/constant-conflict.ini"
+  "[cpp]\nformat = false\nconstant_evaluation = true\nprotocols = binary_none\nprotobuf = true\n")
+succeed(-i "${schema}" -o "${cpp}" --config "${DIRECTORY}/constant-conflict.ini"
+  --cpp.protocols all)
+reject("cannot be combined" -i "${schema}" -o "${cpp}"
+  --config "${DIRECTORY}/constant-conflict.ini")
+# Borrowed emission is explicit, strict and independently generated into the requested path.
+reject("cpp.emission_only must be true or false" -i "${schema}" -o "${cpp}"
+  --cpp.emission_only maybe --cpp.format false)
+reject("Repeated argument" -i "${schema}" -o "${cpp}"
+  --cpp.emission_only true --cpp.emission_only false --cpp.format false)
+reject("requires cpp.constant_evaluation" -i "${schema}" -o "${cpp}"
+  --cpp.emission_only true --cpp.format false)
+reject("requires cpp.constant_evaluation" -i "${schema}" -o "${cpp}"
+  --cpp.emission_only true --cpp.constant_evaluation true --cpp.format false)
+file(WRITE "${DIRECTORY}/emission.ini"
+  "[cpp]\nformat = false\nconstant_evaluation = true\nprotocols = binary_none\nemission_only = true\n")
+succeed(-i "${schema}" -o "${cpp}" --config "${DIRECTORY}/emission.ini")
+file(READ "${cpp}" emission_source)
+if(NOT emission_source MATCHES "serializer_emission_only = true" OR
+    NOT emission_source MATCHES "namespace emission" OR
+    NOT emission_source MATCHES "constexpr void serialize_out[(]::rohit::serializer::binary_none_output&" OR
+    emission_source MATCHES "serialize_constant_out|serialize_in[(]|static auto serialize[(]")
+  message(FATAL_ERROR "Emission-only generation exposed an owning or templated protocol API")
+endif()
+succeed(-i "${schema}" -o "${cpp}" --config "${DIRECTORY}/emission.ini"
+  --cpp.emission_only false --cpp.constant_evaluation false --cpp.protocols all)
+file(SHA256 "${cpp}" emission_overridden_hash)
+if(NOT default_cpp_hash STREQUAL emission_overridden_hash)
+  message(FATAL_ERROR "Disabling the profile failed to preserve complete default output")
+endif()
+succeed(-i "${schema}" -o "${cpp}" --cpp.format false)
 reject("Unknown argument" input "${schema}")
 reject("Missing value" --input)
 reject("Missing value" --input --output "${cpp}")

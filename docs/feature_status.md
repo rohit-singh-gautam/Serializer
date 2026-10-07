@@ -52,6 +52,36 @@ Use `object.serialize_in<Protocol>(stream, limits)` to supply explicit decode li
 omit the second argument to retain the defaults. See [stream concepts and
 adapters](usage.md#stream-concepts-and-implicit-adapters).
 
+## C++ constant-evaluation binary output
+
+Compiler/runtime 1.4.0 implements `binary_none_size`,
+`serialize_binary_none_to`, and `make_binary_none_bytes<Factory>()` in
+`<rohit/constant_binary.hpp>`. Enable generated owning models with
+`--cpp.constant_evaluation true` (default false). The generator adds a separate
+constexpr `serialize_constant_out` traversal and static capability metadata;
+existing runtime `serialize_out` remains unchanged. Runtime existing-memory
+writes for ordinary owning models delegate to the established optimized binary encoder.
+
+The independent `--cpp.protocols binary_none` profile removes JSON/keyed output;
+its default is `all`. Positional-only generation rejects Protobuf, managed,
+and view combinations. Scalars, eligible strings/vectors/arrays, nested objects,
+legal initialized raw unions, magic, compact fields and payload revisions support
+constant output; maps, views, managed operations, I/O and compression remain
+outside the C++20 constant profile. Runtime decoding consumes the resulting bytes.
+
+The optional `--cpp.emission_only true` profile requires enabled constant
+evaluation and positional-only protocols. It emits namespace-isolated borrowed
+`string_view`/`span<const T>` fields and a concrete, non-template
+`serialize_out(binary_none_output&)` method, with no reader. Maps, managed/views,
+nonempty array defaults and multidimensional arrays are rejected. Inline fixed-storage
+owners can create these views during traversal without string/vector allocation.
+See [emission-only output](constant_evaluation.md#94-emission-only-borrowed-models).
+
+Actual generated C++20 owning fixtures passed on MSVC 19.51, GCC 15.2/libstdc++, Clang 21.1.8/libstdc++,
+and clang-cl 21.1.8 with MSVC headers. The tested cases and remaining performance
+qualification are recorded in the [constant-evaluation guide](constant_evaluation.md#17-implemented-feature-qualification-2026-10-07).
+No universal zero-build-cost or exhaustive runtime benchmark claim is made.
+
 ## Message compression
 
 Optional C++ [message compression](compression.md) supports standard Zstandard, LZ4,
@@ -99,7 +129,7 @@ Namespace scopes are reused during parsing; duplicate types and namespace/type c
 are rejected. See [schema includes](usage.md#share-declarations-with-includes) and the
 [paired C++/Java examples](../example/includes/README.md). Quoted defaults preserve
 literal spaces, for example `public string label { "schema default" };`; escaping the
-space is unnecessary. Run `serializer --version` for compiler version **1.3.0** and
+space is unnecessary. Run `serializer --version` for compiler version **1.4.0** and
 supported schema versions. See [command-line options](command_line.md) for
 multi-language generation and overrides.
 
