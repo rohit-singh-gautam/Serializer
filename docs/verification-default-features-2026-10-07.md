@@ -15,6 +15,11 @@ those records, while retaining independent journal and editor APIs.
 
 ## Completed checks
 
+The following checks describe the original default-feature change. The subsequent
+[four-toolchain verification](verification-toolchains-2026-10-07.md) records full
+default builds, CTest suites, and installed consumers on Windows x64 (MSVC and
+clang-cl) and Ubuntu WSL2 x64 (GCC and Clang), using Release with a C++20 baseline.
+
 Windows x64, Visual Studio 2026, MSVC 19.51, Release:
 
 - Configured the main build with `-U SERIALIZER_BUILD_MANAGED -U SERIALIZER_WITH_*`
@@ -52,9 +57,11 @@ and `GENERATOR`. Supply `DEPENDENCY_PREFIXES` for compression dependencies and
 
 ## Remaining verification and distribution
 
-Linux/macOS, cross-compilation, sanitizer/fuzzer configurations, and native IDE-host
-installation were not rerun. The internal managed target still needs a native
-host-runnable schema compiler; its cross-compilation override remains unavailable.
+The subsequent four-toolchain qualification passed the full Linux GCC/Clang
+default suites under Ubuntu WSL2. Native macOS, cross-compilation, sanitizer/fuzzer
+configurations, and native IDE-host installation were not rerun. The internal
+managed target still needs a native host-runnable schema compiler; its
+cross-compilation override remains unavailable.
 No runtime performance benchmark was performed for this build-default change.
 
 The separately maintained vcpkg port was inspected and left unchanged. It pins

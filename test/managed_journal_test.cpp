@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -83,6 +84,38 @@ void write_bytes(const std::filesystem::path& path, const bytes& value) {
 // Change a generated field through the public callback/editor API.
 auto rename(auto& store, const char* name) {
   return store.execute_transaction([&](auto& transaction) { transaction.root().set_name(name); });
+}
+
+// Copy and recapture a retained journal failure without losing its original storage cause.
+void expect_retained_journal_cause(std::exception_ptr error) {
+  ASSERT_TRUE(error);
+  std::exception_ptr recaptured{};
+  try {
+    std::rethrow_exception(error);
+  } catch (const managed::journal_indeterminate_error& failure) {
+    EXPECT_STREQ(failure.what(), "Managed journal commit outcome is indeterminate");
+    recaptured = std::current_exception();
+  } catch (...) {
+    FAIL() << "Retained failure lost its journal_indeterminate_error type";
+  }
+  ASSERT_TRUE(recaptured);
+  try {
+    std::rethrow_exception(recaptured);
+  } catch (const managed::journal_indeterminate_error& failure) {
+    const auto* nested = dynamic_cast<const std::nested_exception*>(&failure);
+    ASSERT_NE(nested, nullptr);
+    ASSERT_TRUE(nested->nested_ptr());
+    try {
+      std::rethrow_if_nested(failure);
+      FAIL() << "Retained journal failure lost its nested storage cause";
+    } catch (const std::system_error& cause) {
+      EXPECT_EQ(cause.code(), std::make_error_code(std::errc::no_space_on_device));
+    } catch (...) {
+      FAIL() << "Retained journal failure changed its nested storage cause type";
+    }
+  } catch (...) {
+    FAIL() << "Recaptured failure lost its journal_indeterminate_error type";
+  }
 }
 
 // Recovery preserves values, identity, cursor, redo, and the explicit full-Save dirty baseline.
@@ -263,12 +296,13 @@ TEST_P(managed_journal_test, complete_corruption_and_sequence_gaps_fail_atomical
   EXPECT_THROW(store.recover_journal(path_), std::invalid_argument);
 }
 
-// Simulated disk errors at each append boundary preserve live state and classify uncertainty.
+// Simulated disk errors preserve live state, classify uncertainty, and retain their nested cause.
 TEST_P(managed_journal_test, append_faults_fence_and_recover_the_durable_decision) {
   for (const auto point : {event::before_append, event::after_header, event::after_payload,
                            event::after_commit, event::after_flush}) {
     const auto path = directory_ / std::to_string(static_cast<int>(point));
     bool armed = false;
+    std::exception_ptr retained_error{};
     managed::journal_options options;
     options.fault_injector = [&](auto actual) {
       if (armed && actual == point) {
@@ -281,9 +315,14 @@ TEST_P(managed_journal_test, append_faults_fence_and_recover_the_durable_decisio
       const auto pinned = store.read();
       armed = true;
       const auto result = rename(store, "Changed");
+      retained_error = result.error;
       const bool uncertain = point != event::before_append;
       EXPECT_EQ(result.status, uncertain ? status::indeterminate : status::failed);
-      EXPECT_ANY_THROW(result.throw_if_failed());
+      if (uncertain) {
+        EXPECT_THROW(result.throw_if_failed(), managed::journal_indeterminate_error);
+      } else {
+        EXPECT_THROW(result.throw_if_failed(), std::system_error);
+      }
       EXPECT_EQ(store.journal_needs_recovery(), uncertain);
       EXPECT_EQ(store.read(), pinned);
       EXPECT_EQ(store.journal_sequence(), 0u);
@@ -291,6 +330,9 @@ TEST_P(managed_journal_test, append_faults_fence_and_recover_the_durable_decisio
         EXPECT_THROW(store.save_journal(), managed::journal_indeterminate_error);
         EXPECT_EQ(rename(store, "Blocked").status, status::indeterminate);
       }
+    }
+    if (point != event::before_append) {
+      expect_retained_journal_cause(retained_error);
     }
     store_type recovered{ledger{}};
     recovered.recover_journal(path);

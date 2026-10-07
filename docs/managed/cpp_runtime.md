@@ -441,11 +441,16 @@ unimplemented. The compiler rejects unsupported managed syntax and backends.
 
 ## Verification
 
-For collaboration verification and its remaining qualification work, see the
-[collaboration runtime](collaboration_runtime.md#verification). Its addition passed
-all 52 configured CTest checks on Windows after the collaborative undo addition;
-the records below describe
-earlier managed-store and journal qualifications.
+The [latest four-toolchain verification](../verification-toolchains-2026-10-07.md)
+includes managed history, journal/crash recovery, and collaboration in the full
+default CTest suites. It records Windows x64 (MSVC and clang-cl) and Ubuntu WSL2
+x64 (GCC and Clang) Release builds with a C++20 baseline, managed records, SIMD,
+and all compression backends enabled.
+
+For collaboration-specific checks and remaining qualification work, see the
+[collaboration runtime](collaboration_runtime.md#verification). The earlier
+collaborative undo addition passed all 52 configured CTest checks on Windows;
+the records below describe earlier managed-store and journal qualifications.
 
 Automated tests compile real managed schemas and exercise plain/managed occurrence
 boundaries, nested editors, all transaction forms, atomic failure, lifetime checks,
@@ -464,7 +469,8 @@ pruned save/load, same-mode resets, cross-mode load rejection, compile-time API
 availability, legacy linear envelope rejection, navigation validation failure,
 allocation failure before history removal with both label policies, optional label
 navigation and persistence, label-free entry size, and cross-label load rejection.
-No performance benchmark or other-platform qualification was run for this change.
+That earlier check did not include performance benchmarks or other platforms;
+the latest four-toolchain record above includes subsequent default-suite qualification.
 
 Earlier full-project qualification on Windows with MSVC 19.51 and C++20:
 35/35 configured CTest checks passed, including 226 core tests, 20 split/runtime

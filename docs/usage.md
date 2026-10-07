@@ -195,11 +195,15 @@ and output across all key modes. Bulk decoding preserves resource limits and
 partial-failure behavior.
 Link `Serializer::serializer_lib` even when using pre-generated headers.
 
-The examples below describe the current source API. See the dated
-[verification record](verification-2026-09-17.md) for the generated fixtures,
-examples, tests, and configurations actually run. Documentation snippets are not
-all separate executable tests. [Qualification](../qualification/README.md)
-describes how to reproduce and extend validation.
+The examples below describe the current source API. The
+[latest four-toolchain verification](verification-toolchains-2026-10-07.md) records
+full default C++ builds and tests on Windows x64 (MSVC and clang-cl) and Ubuntu
+WSL2 x64 (GCC and Clang), using Release with a C++20 baseline and managed records,
+SIMD, and all compression backends enabled. See the
+[earlier verification record](verification-2026-09-17.md) for its generated fixtures,
+examples, and configurations. Documentation snippets are not all separate executable
+tests. [Qualification](../qualification/README.md) describes how to reproduce and
+extend validation.
 
 ## 1. Define a schema
 
@@ -721,7 +725,7 @@ source as a string. Schema includes still require `parser::parse_file`.
 Binary views retain stable-span mapping and can copy their positional bytes to
 custom buffers or standard output streams; streams do not extend a view's lifetime.
 
-Verification: the regenerated MSVC Debug build passed all 24 CTest
+Earlier verification: the regenerated MSVC Debug build passed all 24 CTest
 targets, including the core and Protobuf tests and seven iostream examples. Clang 21 on Linux built
 the compiler and generated style/include examples and passed a separate smoke test
 covering all seven C++ protocols with independent buffers and standard streams.
@@ -799,10 +803,12 @@ There is no database sink in this release. Add one only with an implemented and
 tested Serializer adapter for that database; the database integration guide is
 proposal/guidance only.
 
-Verification for the file-stream/journal refactor: all 47 configured MSVC CTest
+Earlier verification for the file-stream/journal refactor: all 47 configured MSVC CTest
 targets passed, including eight new stream tests, the runnable journal example,
 and the journal interruption matrix. GCC compiled the new stream tests with
 warnings as errors, and all 120 process-crash recovery checks passed under WSL.
+Current full default-suite results are recorded in the
+[four-toolchain verification](verification-toolchains-2026-10-07.md).
 No throughput benchmark or physical power-cut qualification was performed.
 
 ### Choose the protocol

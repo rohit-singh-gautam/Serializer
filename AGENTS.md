@@ -74,6 +74,22 @@
 - Preserve serialization hot-path efficiency during cleanup, including CPU,
   memory, and encoded size.
 
+## Repository hygiene and temporary files
+
+- Review `.gitignore` during every task. Update it in the same change whenever
+  builds, tests, or tools introduce new generated output, caches, or temporary
+  artifacts. Use specific patterns and keep source, schemas, wire fixtures,
+  manifests, lockfiles, and required versioned provider artifacts tracked.
+- Place task-created scratch scripts, diagnostic probes, and temporary output
+  under an ignored build directory or the operating system's temporary directory.
+- Before finishing every task, inspect Git status and task-created artifacts,
+  including ignored files. Remove unused temporary files and directories,
+  diagnostic helpers, and leftovers from failed or interrupted tests.
+- Verify cleanup targets stay within the intended workspace or temporary
+  directory. Preserve user files, required source, useful build outputs, final
+  verification logs, and requested deliverables. Report any intentionally
+  retained temporary artifacts or cleanup that could not be completed.
+
 ## Usage documentation and repository skill
 
 - Always keep [README.md](README.md) and the
@@ -122,7 +138,7 @@
   the language contract changes; compiler-only fixes or new output backends do
   not automatically change the schema language version.
 - Use `serializer version major.minor.patch;` for schema language releases. The
-  current schema language is `1.0.0`, independent of compiler release `1.1.0`.
+  current schema language is `1.0.0`, independent of compiler release `1.1.1`.
   Keep its source of truth in `serializer_schema_language_version` in
   `CMakeLists.txt`, separate from `project(serializer VERSION ...)`.
 - Recognize `serializer version 1;` as exactly `serializer version 1.0.0;`.

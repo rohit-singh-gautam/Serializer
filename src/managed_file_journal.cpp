@@ -1,6 +1,7 @@
 #include <rohit/managed_file_journal.hpp>
 
 #include <rohit/file_stream.hpp>
+#include <rohit/managed_journal.hpp>
 #include <rohit/managed_journal_stream.hpp>
 
 #include <exception>
@@ -18,6 +19,17 @@ constexpr std::uint64_t file_magic = 0x314c4e4a5a5253;
 constexpr std::uint64_t record_version = 2;
 constexpr std::uint64_t base_file_kind = 1;
 constexpr std::uint64_t sidecar_file_kind = 2;
+
+// Preserve nested causes without a forwarding constructor hijacking Windows Clang EH copies.
+class nested_journal_error final : public journal_indeterminate_error,
+                                   public std::nested_exception {
+public:
+  // Capture the active exception while keeping the public journal error type and message.
+  explicit nested_journal_error(const char* message)
+      : journal_indeterminate_error{message}, std::nested_exception{} {}
+  // Copy the retained cause rather than recursively capturing the exception being copied.
+  nested_journal_error(const nested_journal_error&) = default;
+};
 
 // Bound the physical input before allocating and reading the file into memory.
 bytes read_file(const std::filesystem::path& path, const journal_options& options) {
@@ -231,8 +243,7 @@ struct file_journal::implementation {
       event(journal_io_event::after_publish);
     } catch (...) {
       fenced = true;
-      std::throw_with_nested(
-          journal_indeterminate_error{"Managed full Save outcome is indeterminate"});
+      throw nested_journal_error{"Managed full Save outcome is indeterminate"};
     }
     // All throwing preparation is complete before these publication assignments.
     header = replacement;
@@ -361,7 +372,7 @@ void file_journal::finish_recovery() {
     state.recovering = false;
   } catch (...) {
     state.fenced = true;
-    std::throw_with_nested(journal_indeterminate_error{"Managed tail repair must be recovered"});
+    throw nested_journal_error{"Managed tail repair must be recovered"};
   }
 }
 
@@ -385,8 +396,7 @@ void file_journal::append(std::span<const std::uint8_t> prefix, std::span<const 
     state.event(journal_io_event::after_flush);
   } catch (...) {
     state.fenced = true;
-    std::throw_with_nested(
-        journal_indeterminate_error{"Managed journal commit outcome is indeterminate"});
+    throw nested_journal_error{"Managed journal commit outcome is indeterminate"};
   }
   ++state.sequence;
   state.digest = frame.digest;

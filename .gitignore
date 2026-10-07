@@ -10,6 +10,25 @@ dist/
 target/
 TestResults/
 
+# Managed test directories can remain after an interrupted or crashing test.
+journal-test-[0-9]*/
+serializer-collaboration-fault-[0-9]*/
+serializer-collaboration-[0-9]*/
+collaboration-undo-[0-9]*/
+undo-fault-[0-9]*/
+collaboration-proposal-[0-9]*/
+feature-journal-[0-9]*/
+pending-journal-[0-9]*/
+split-journal-[0-9]*/
+local-lock-ids-[0-9]*/
+local-client-[0-9]*/
+local-fault-[0-9]*/
+local-ack-[0-9]*/
+local-tree-[0-9]*/
+wide-journal-[0-9]*/
+serializer-local-sync-[0-9]*/
+serializer-store-undo-[0-9]*/
+
 # CMake and native compiler output, including accidental in-source builds.
 CMakeFiles/
 CMakeCache.txt
@@ -23,6 +42,7 @@ build.ninja
 rules.ninja
 .ninja_deps
 .ninja_log
+.ninja_lock
 Testing/
 *.o
 *.obj

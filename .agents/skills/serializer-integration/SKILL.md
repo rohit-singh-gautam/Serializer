@@ -418,7 +418,7 @@ feature as a prerequisite without the user's request.
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
   remains available through `parser::parse(input)`. Schema language version 1.0.0 is
-  independent of compiler release 1.1.0 and wire protocols. Bug fixes and minor
+  independent of compiler release 1.1.1 and wire protocols. Bug fixes and minor
   updates increment the patch number; new features increment the minor number.
   Minor and patch releases preserve full compatibility. Developers change the
   major number manually, with best-effort compatibility across major releases.
@@ -579,9 +579,13 @@ builds. Regenerate LLVM-profile headers after the storage-donor naming fix; only
 generated local names change, with public APIs and wire data preserved.
 Updated runtime headers support `binary_none` encoder `serialize_out(view)`
 dispatch for mapped views; keyed/JSON protocols remain unsupported for views.
-The default C++ CTest targets have passed on Linux x64 (GCC and Clang) and Windows
-x64 (MSVC), with separate Windows x86 package/consumer checks. Native macOS,
-Android, and ARM Linux verification remains pending; see the README for versions.
+The [latest four-toolchain verification](../../../docs/verification-toolchains-2026-10-07.md)
+records full default C++ builds, CTest suites, and installed consumers on Windows
+x64 (MSVC and clang-cl) and Ubuntu WSL2 x64 (GCC and Clang), using Release with a
+C++20 baseline and managed records, SIMD, and all compression backends enabled.
+All four full CTest suites and installed consumers passed; consult the record for
+exact compiler versions and test counts. Earlier Windows x86 package/consumer checks are separate.
+Native macOS, Android, and ARM Linux verification remains pending.
 
 Schema scanning and runtime codecs enable SIMD by default through `SERIALIZER_ENABLE_SIMD`.
 Supported x64 builds use SSE2 and select isolated AVX2 backends after CPU/OS checks;
@@ -1100,10 +1104,12 @@ and relevant malformed/limited input. For schema migration, include the relevant
 old/new schema behavior. Consult [qualification](../../../qualification/README.md)
 for library-wide tests, fuzzing, or benchmarks only when that work is in scope.
 
-Use the dated [verification record](../../../docs/verification-2026-09-17.md)
-as the source of current repository results. Keep its commit, configuration, and
-outstanding-check boundaries when describing support; historical failures and
-earlier source-only notes do not describe the current tested revision.
+Use the dated [four-toolchain verification](../../../docs/verification-toolchains-2026-10-07.md)
+for current default C++ build and test results, and the
+[earlier verification record](../../../docs/verification-2026-09-17.md) for its
+sanitizer, fuzzing, and interoperability checks. Keep each record's source revision,
+configuration, and outstanding-check boundaries when describing support; historical
+failures and earlier source-only notes do not describe the current tested revision.
 
 For fuzz qualification, enable `SERIALIZER_BUILD_FUZZERS=ON` with a Clang GNU-style
 driver providing libFuzzer, ASan, and UBSan. It builds an isolated instrumented

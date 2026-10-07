@@ -128,7 +128,11 @@ template <type_check::output_stream Output, typename Synchronize>
   requires std::invocable<Synchronize&>
 class durable_output_adapter {
   Output& output_;
-  [[no_unique_address]] Synchronize synchronize_;
+  // Preserve the existing layout when the compiler's ABI ignores the standard attribute.
+#if __has_cpp_attribute(no_unique_address)
+  [[no_unique_address]]
+#endif
+  Synchronize synchronize_;
   bool failed_{};
 
 public:

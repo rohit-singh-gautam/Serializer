@@ -1,5 +1,20 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler portability (7 October 2026)
+
+Compiler/runtime release 1.1.1 guards the durable output adapter's standard
+`no_unique_address` attribute with a compiler feature check and compiles journal
+recovery checks out of journal-disabled stores. This fixes clang-cl and GCC
+warnings-as-errors builds while retaining existing object layouts and runtime
+behavior. Journal failures use an internal exception wrapper with an ordinary
+copy constructor so Windows Clang can retain and rethrow the indeterminate error
+and its original nested cause without recursive exception capture. The public
+error type, recovery fence, and durable decision are unchanged.
+Rebuild the runtime and consumers; schema syntax, generated APIs,
+payload revisions, and serialized bytes are unchanged. The schema language
+remains 1.0.0. See the [four-toolchain verification](docs/verification-toolchains-2026-10-07.md)
+for the tested Windows and Linux configurations.
+
 ## Default runtime features (7 October 2026)
 
 Fresh builds enable managed runtime records and all Zstandard, LZ4, and zlib
@@ -588,7 +603,7 @@ Replace bare CLI keys with long options: `input` becomes `--input`, `output` bec
 The CMake helpers already use the updated interface. For both languages, pass
 `--language cpp,java --cpp.output account.hpp --java.output AccountSchema.java`.
 Each backend's settings can be overridden independently on the command line.
-`serializer --version` reports compiler release 1.1.0 and schema language version 1.0.0.
+`serializer --version` reports compiler release 1.1.1 and schema language version 1.0.0.
 These are separate version domains; neither changes wire bytes. See
 [the complete CLI contract](docs/command_line.md).
 

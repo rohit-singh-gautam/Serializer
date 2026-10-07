@@ -425,7 +425,13 @@ can be an explicit new application command passing the same acceptance checks.
 
 ## Verification
 
-Windows Release builds with MSVC 19.51/C++20 and warnings as errors passed all 53
+The [latest four-toolchain verification](../verification-toolchains-2026-10-07.md)
+includes the complete default collaboration suites on Windows x64 (MSVC and
+clang-cl) and Ubuntu WSL2 x64 (GCC and Clang), using Release with a C++20 baseline
+and managed records, SIMD, and all compression backends enabled. The results below
+describe earlier collaboration-specific checks.
+
+Earlier Windows Release builds with MSVC 19.51/C++20 and warnings as errors passed all 53
 configured CTest checks, including collaboration examples, managed history/profile
 checks, and the existing journal crash matrix. The full test run had access to installed toolchain executables for formatter
 discovery. A final serial build retry cleared transient generated/output file-access
@@ -466,7 +472,7 @@ and exact retry; new-epoch uncertainty; thread/reentry rejection; persistence fa
 boundaries; and encode/recovery budgets. Generated-model tests also exercise local
 synchronization with separated storage and Google-profile uint64 IDs.
 
-Collaboration-specific Linux/sanitizer qualification, allocation-fault injection,
+Collaboration-specific sanitizer qualification, allocation-fault injection,
 network/partition integration, cross-language engines, and performance measurements
-were not completed. The runtime remains independent of a transport; these local
+remain outstanding. The runtime remains independent of a transport; these local
 tests do not establish distributed failover or network interoperability guarantees.

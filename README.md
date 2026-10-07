@@ -10,7 +10,7 @@ Define your data once in a `.serializer` schema, then generate classes and codec
 for JSON and binary serialization. Serializer includes a C++20 schema compiler,
 a C++ runtime, and generators for multiple languages.
 
-The current compiler and runtime release is **1.1.0**. Bug fixes and minor updates
+The current compiler and runtime release is **1.1.1**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.0.0**;
@@ -199,7 +199,7 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
 Both extensions use release version **1.1.23**, independent of compiler version
-**1.1.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
+**1.1.1**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
 for supported destinations and language-service prerequisites.
 VS Code also supports navigation from read-only Git index/history tabs, using
 the displayed snapshot and current workspace destinations.
@@ -280,6 +280,7 @@ for reporting barriers to using the project.
 - [Schema examples](docs/schema_examples.md): small declarations you can adapt.
 - [Migration guide](migration.md): upgrade requirements and compatibility changes.
 - [Feature status and roadmap](docs/feature_status.md): implemented behavior and future work.
+- [Four-toolchain verification](docs/verification-toolchains-2026-10-07.md): x64 Windows/MSVC and clang-cl, and Ubuntu WSL2/GCC and Clang, with default runtime features enabled.
 - [Default runtime verification](docs/verification-default-features-2026-10-07.md): managed/compression defaults and installed-header checks.
 - [Verification record](docs/verification-2026-09-17.md): tested revisions, configurations, and outstanding checks.
 - [Versioning verification](docs/verification-versioning-2026-10-06.md): historical layouts, all eleven language examples, and editor checks.

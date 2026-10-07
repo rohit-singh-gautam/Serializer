@@ -394,10 +394,14 @@ private:
 
   // Preserve the uncertainty of issued durable writes in all transaction completion forms.
   transaction_status failure_status() const noexcept {
-    return journal_state_.indeterminate ||
-                   (journal_state_.sink && journal_state_.sink->needs_recovery())
-               ? transaction_status::indeterminate
-               : transaction_status::failed;
+    if constexpr (has_journal) {
+      return journal_state_.indeterminate ||
+                     (journal_state_.sink && journal_state_.sink->needs_recovery())
+                 ? transaction_status::indeterminate
+                 : transaction_status::failed;
+    } else {
+      return transaction_status::failed;
+    }
   }
 
   // Block reentrant store mutation from storage hooks and restore the guard on every exception.
@@ -667,9 +671,11 @@ private:
     if (writer_active_ || callback_active_ || collaboration_state_.busy) {
       throw std::logic_error{"Managed store already has an active operation"};
     }
-    if (journal_state_.indeterminate ||
-        (journal_state_.sink && journal_state_.sink->needs_recovery())) {
-      throw journal_indeterminate_error{"Reopen the managed journal before further operations"};
+    if constexpr (has_journal) {
+      if (journal_state_.indeterminate ||
+          (journal_state_.sink && journal_state_.sink->needs_recovery())) {
+        throw journal_indeterminate_error{"Reopen the managed journal before further operations"};
+      }
     }
   }
 

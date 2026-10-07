@@ -169,9 +169,9 @@ TEST(command_line, generates_global_and_command_help) {
 TEST(command_line, parses_typed_positionals_and_unparsed_command_tail) {
   commandline_declaration decl{
       {},
-      {{"objects", command_options{{}, {"objects", command_type::paths, 1}}},
-       {"words", command_options{{}, {"words", command_type::strings, 1}}},
-       {"run", command_options{{}, {}, {"compiler", 1}}}}};
+      {{"objects", command_options{{}, {"objects", command_type::paths, 1}}, {}},
+       {"words", command_options{{}, {"words", command_type::strings, 1}}, {}},
+       {"run", command_options{{}, {}, {"compiler", 1}}, {}}}};
   parse(decl, {"tool", "objects", "first.obj", "--", "-second.obj"});
   EXPECT_EQ(decl["objects"].positional_paths(),
             (std::vector<std::filesystem::path>{"first.obj", "-second.obj"}));
@@ -202,14 +202,15 @@ TEST(command_line, rejects_invalid_declarations) {
                std::invalid_argument);
   EXPECT_THROW((command_options{{0, "help", "", "", command_type::string}}), std::invalid_argument);
   EXPECT_THROW((command_options{{}, {"input", command_type::integer, 1}}), std::invalid_argument);
-  EXPECT_THROW((commandline_declaration{{}, {{"same", {}}, {"same", {}}}}), std::invalid_argument);
+  EXPECT_THROW((commandline_declaration{{}, {{"same", {}, {}}, {"same", {}, {}}}}),
+               std::invalid_argument);
   EXPECT_THROW((commandline_declaration{
                    command_options{{'x', "common", "", "", command_type::boolean}},
-                   {{"run", command_options{{'x', "local", "", "", command_type::boolean}}}}}),
+                   {{"run", command_options{{'x', "local", "", "", command_type::boolean}}, {}}}}),
                std::invalid_argument);
   EXPECT_THROW((commandline_declaration{
                    command_options{{0, "common", "", "", command_type::boolean}},
-                   {{"run", command_options{{0, "common", "", "", command_type::boolean}}}}}),
+                   {{"run", command_options{{0, "common", "", "", command_type::boolean}}, {}}}}),
                std::invalid_argument);
 }
 
@@ -264,7 +265,7 @@ TEST(command_line, preserves_native_windows_unicode) {
                         {0, "text", "text", "Text", command_type::string},
                         {0, "include", "path", "Includes", command_type::paths}},
         "Read"},
-       {"run", command_options{{}, {}, {"compiler", 1}}}}};
+       {"run", command_options{{}, {}, {"compiler", 1}}, {}}}};
   const wchar_t* argv[]{L"tool", L"read", L"--path=\u76ee\u5f55/\U0001f680.cpp",
                         L"--text=\u76ee\u5f55", L"--include=\U0001f680"};
   decl.parse(static_cast<int>(std::size(argv)), argv);
@@ -280,7 +281,7 @@ TEST(command_line, preserves_native_windows_unicode) {
 TEST(command_line, validates_required_common_options_and_short_equals) {
   commandline_declaration decl{command_options{
       {'c', "config", "path", "Configuration", command_type::path, std::filesystem::path("default"), true}},
-      {{"run", command_options{{'n', "number", "int", "Number", command_type::integer}}}}};
+      {{"run", command_options{{'n', "number", "int", "Number", command_type::integer}}, {}}}};
   EXPECT_THROW(parse(decl, {"tool", "run"}), std::invalid_argument);
   parse(decl, {"tool", "-c=chosen", "run", "-n=-7"});
   EXPECT_EQ(decl.common().get_path("config"), std::filesystem::path("chosen"));

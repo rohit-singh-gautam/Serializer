@@ -83,7 +83,7 @@ TEST(schema_generics, cpp_aliases_and_wire_equivalence) {
     EXPECT_EQ(concrete.person_result.value.name, "generic");
     EXPECT_EQ(concrete.history.values.at(0).value, 27u);
     rohit::full_stream_auto_alloc reproduced{};
-    concrete.serialize_out<Protocol>(reproduced);
+    concrete.template serialize_out<Protocol>(reproduced);
     EXPECT_EQ(
         std::string_view(reinterpret_cast<const char*>(encoded.begin()), encoded.current_offset()),
         std::string_view(reinterpret_cast<const char*>(reproduced.begin()),

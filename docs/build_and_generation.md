@@ -98,11 +98,16 @@ The runtime also accepts mapped views through a little-endian `binary_none`
 encoder's `serialize_out(view)` call. Empty identifier input reports a schema
 diagnostic before attempting to read the stream.
 
-Current results and outstanding checks are recorded in the dated [verification
-record](verification-2026-09-17.md), tied to its source revision and build
-configurations. Earlier portability checks reported 13 CTest targets on Linux x64 with
-GCC 15.2 and Clang 21.1, and Windows x64 with MSVC 19.51. The Windows x86 vcpkg package
-and installed-consumer round trips have also been checked.
+The [latest four-toolchain verification](verification-toolchains-2026-10-07.md)
+records full default builds, CTest suites, and installed consumers on Windows x64
+(MSVC and clang-cl) and Ubuntu WSL2 x64 (GCC and Clang), using Release with a C++20
+baseline and managed records, SIMD, and all compression backends enabled.
+
+The [earlier verification record](verification-2026-09-17.md) retains its source
+revision, configurations, and outstanding checks. Earlier portability checks
+reported 13 CTest targets on Linux x64 with GCC 15.2 and Clang 21.1, and Windows x64
+with MSVC 19.51. The Windows x86 vcpkg package and installed-consumer round trips
+have also been checked separately.
 
 Native macOS, Android, and ARM Linux builds still require their CI runners; these local
 checks do not establish support for every vcpkg triplet.

@@ -198,7 +198,15 @@ TEST(managed_collaboration_session, application_policy_and_custom_commands) {
 // Typed wire messages reject mismatched formats, duplicate numeric identities and malformed framing.
 TEST(managed_collaboration_session, malformed_and_mismatched_sessions) {
   using record = string_sessions::records::change_proposal;
-  record proposal{{4, "schema", 32, 1, 2, 1}, "desktop", 1, 0, {}, {}};
+  record proposal{};
+  proposal.context.protocol_version = 4;
+  proposal.context.schema_id = "schema";
+  proposal.context.id_bits = 32;
+  proposal.context.document_high = 1;
+  proposal.context.document_low = 2;
+  proposal.context.epoch = 1;
+  proposal.session = "desktop";
+  proposal.operation = 1;
   const auto bytes = managed::encode_collaboration_record(proposal);
   const auto valid =
       managed::decode_collaboration_record<managed::collaboration::session_envelope>(bytes);
@@ -244,8 +252,14 @@ TEST(managed_collaboration_session, malformed_and_mismatched_sessions) {
   EXPECT_THROW(
       managed::decode_collaboration_record<record>(managed::encode_collaboration_record(malformed)),
       std::length_error);
-  string_sessions::records::lock_snapshot snapshot{
-      {4, "schema", 32, 1, 2, 1}, 1, {{1, 2, "owner", 1}}};
+  string_sessions::records::lock_snapshot snapshot{};
+  snapshot.context = proposal.context;
+  snapshot.sequence = 1;
+  auto& grant = snapshot.grants.emplace_back();
+  grant.target = 1;
+  grant.scope = 2;
+  grant.session = "owner";
+  grant.generation = 1;
   malformed = managed::decode_collaboration_record<managed::collaboration::session_envelope>(
       managed::encode_collaboration_record(snapshot));
   malformed.sessions.clear();
