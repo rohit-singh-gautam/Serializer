@@ -30,4 +30,19 @@ namespace protobuf_test {
   }
   class empty {
   }
+  class magic_record stable_ids {
+    private magic (4) {'SRLTEST'};
+    public uint32 stored (1) {17};
+    public uint32 json_only (2) {99} omit(protobuf, textproto);
+    public uint32 binary_only (3) {23} omit(json, protojson);
+    public array[3] uint8 ignored (5) omit(protobuf, protojson, textproto);
+  }
+  class public_magic_record stable_ids {
+    public magic (2) {'ABC'};
+    public uint32 value (1);
+  }
+  class omitted_magic_record stable_ids {
+    private magic (2) {'ABC'} omit(protojson);
+    public uint32 value (1);
+  }
 }

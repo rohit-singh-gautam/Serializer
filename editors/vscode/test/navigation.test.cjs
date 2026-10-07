@@ -473,3 +473,16 @@ test('nested release policies leave adjacent qualified references and include na
     assert.deepEqual(selected(state, await state.resolver().schema(file('model.serializer'), cursor, false)), [['common.serializer', 'person']]);
   }
 });
+
+
+test('magic and omitted-format metadata preserve adjacent qualified type navigation', async () => {
+  const source = "include common; class model { private magic (7) {'SRLFILE'} omit(json); public lib::person value (2) omit(binary_integer, binary_string); }";
+  const state = fixture({ 'model.serializer': source, 'common.serializer': 'namespace lib { class person {} }' });
+  assert.ok(!indexSource(source, true).references.some(reference =>
+    ['magic', 'omit', 'json', 'binary_integer', 'binary_string'].includes(reference.name)));
+  const offset = source.indexOf('lib::person');
+  for (let cursor = offset; cursor <= offset + 'lib::person'.length; ++cursor) {
+    assert.deepEqual(selected(state, await state.resolver().schema(file('model.serializer'), cursor, false)),
+      [['common.serializer', 'person']]);
+  }
+});

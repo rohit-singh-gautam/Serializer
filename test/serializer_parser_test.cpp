@@ -21,6 +21,68 @@
 #include <string>
 #include <string_view>
 
+// Preserve fixed byte literals and normalize selector aliases before generation.
+TEST(serialize_parser, magic_and_format_omission_metadata) {
+  const std::string source = "private magic (99) { 'SRL\\0FILE' } omit(json, binary_positional);";
+  const auto input = rohit::make_constant_stream(source.data(), source.size());
+  const auto header = rohit::serializer::parser::parse_member(input, 1, nullptr);
+  EXPECT_EQ(header.magic_bytes, std::string("SRL\0FILE", 8));
+  EXPECT_EQ(header.access, rohit::serializer::access_type::private_access);
+  EXPECT_EQ(header.id, 99);
+  EXPECT_TRUE(header.omits("json"));
+  EXPECT_TRUE(header.omits("binary_none"));
+  EXPECT_FALSE(header.omits("binary_positional"));
+
+  const std::string field_source = "public uint32 value (7) { 42 } omit(protobuf_binary, binary_integer);";
+  const auto field_input = rohit::make_constant_stream(field_source.data(), field_source.size());
+  const auto field = rohit::serializer::parser::parse_member(field_input, 1, nullptr);
+  EXPECT_TRUE(field.omits("protobuf"));
+  EXPECT_TRUE(field.omits("binary_integer"));
+  EXPECT_EQ(field.default_value, "42");
+}
+
+// Reject format typos, repeated aliases, malformed header bytes, and revision exclusion.
+TEST(serialize_parser, rejects_invalid_magic_and_omissions) {
+  for (const std::string_view source : {
+      "private magic { '' };", "private magic { \"wrong quotes\" };",
+      "private magic { '\\xFF' };", "private magic { '\\q' };",
+      "public uint32 value omit(unknown);", "public uint32 value omit(json, json);",
+      "public uint32 value omit(binary_none, binary_positional);",
+      "public version { 1 } omit(json);"}) {
+    SCOPED_TRACE(source);
+    const auto input = rohit::make_constant_stream(source.data(), source.size());
+    EXPECT_THROW(rohit::serializer::parser::parse_member(input, 1, nullptr), std::exception);
+  }
+}
+
+// Fixed class metadata owns an identity without becoming an instance payload member.
+TEST(serialize_parser, magic_does_not_consume_positional_member_ids) {
+  const std::string source = "serializer version 1; class file { private magic { 'FILE' }; public uint32 value; }";
+  const auto input = rohit::make_constant_stream(source.data(), source.size());
+  const auto statements = rohit::serializer::parser::parse(input, true);
+  ASSERT_EQ(statements.size(), 1);
+  const auto& object = static_cast<const rohit::serializer::class_node&>(*statements.front());
+  ASSERT_EQ(object.member_list.size(), 1);
+  EXPECT_EQ(object.member_list.front().id, 1);
+  EXPECT_EQ(object.magic_id, 2);
+  EXPECT_EQ(object.magic_bytes, "FILE");
+}
+
+// Byte-backed views cannot silently retain fields excluded by an owning codec's wire layout.
+TEST(serialize_parser, rejects_format_omissions_on_view_classes) {
+  for (const std::string_view modes : {"view readonly", "view mutable", "view owning"}) {
+    const auto source = "serializer version 1; class record " + std::string(modes) +
+        " { public uint32 value omit(json); }";
+    const auto input = rohit::make_constant_stream(source.data(), source.size());
+    try {
+      static_cast<void>(rohit::serializer::parser::parse(input, true));
+      FAIL() << "View omission was accepted: " << modes;
+    } catch (const std::exception& error) {
+      EXPECT_NE(std::string(error.what()).find("owning class without view modes"), std::string::npos);
+    }
+  }
+}
+
 // Keep literal spaces and quoted delimiters unchanged in schema defaults.
 TEST(serialize_parser, quoted_defaults_preserve_spelling) {
   for (const std::string_view literal : {

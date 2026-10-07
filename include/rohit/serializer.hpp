@@ -340,7 +340,9 @@ concept serializer_in_enabled = requires(T cls, J& serialize_protocol) {
 };
 
 template <typename T, typename J>
-concept serializer_in_enabled_ptr = requires(T cls, J& protocol) {
+concept serializer_in_enabled_ptr = (!requires(T cls, J& protocol) {
+  { cls.serialize_in(protocol) } -> std::same_as<void>;
+}) && requires(T cls, J& protocol) {
   { cls->serialize_in(protocol) } -> std::same_as<void>;
 };
 
@@ -350,7 +352,9 @@ concept serializer_in_enabled_value = requires(T cls, J& protocol) {
 };
 
 template <typename T, typename J>
-concept serializer_out_enabled_ptr = requires(T cls, J& serialize_protocol) {
+concept serializer_out_enabled_ptr = (!requires(T cls, J& serialize_protocol) {
+  { cls.template serialize_out<J>(serialize_protocol) } -> std::same_as<void>;
+}) && requires(T cls, J& serialize_protocol) {
   { cls->template serialize_out<J>(serialize_protocol) } -> std::same_as<void>;
 };
 
@@ -385,6 +389,47 @@ concept functions = std::invocable<const T&, Stream&>;
 
 namespace detail {
 // Generated owning classes opt in to typed storage donation while retaining fresh field defaults.
+// Verify and discard a required JSON header while forwarding mutable payload fields.
+template <typename Reader> struct json_magic_reader {
+  Reader& target;
+  std::string_view expected;
+  bool seen{};
+  // Validate the fixed value without introducing per-object magic storage.
+  template <typename Protocol>
+  void serialize_in_member_by_name(Protocol& protocol, std::string_view name) {
+    if (name == "magic") {
+      if (seen) { throw std::invalid_argument{"Duplicate magic header"}; }
+      std::string actual;
+      protocol.serialize_in(actual);
+      if (actual != expected) { throw std::invalid_argument{"JSON magic header mismatch"}; }
+      seen = true;
+    } else {
+      target.serialize_in_member_by_name(protocol, name);
+    }
+  }
+  // Preserve the generated handler concept for numeric field identities.
+  template <typename Protocol>
+  void serialize_in_member_by_identifier(Protocol& protocol, std::uint32_t id) {
+    target.serialize_in_member_by_identifier(protocol, id);
+  }
+  // Reject a missing header even when ordinary omitted fields retain defaults.
+  void finish() const {
+    if (!seen) { throw std::invalid_argument{"Missing magic header"}; }
+  }
+};
+
+// Add fixed JSON identity validation without changing native binary keyed dispatch.
+template <typename Protocol, typename Reader>
+void read_magic_object(Protocol& protocol, Reader& reader, std::string_view expected) {
+  if constexpr (is_json_protocol<Protocol>) {
+    json_magic_reader<Reader> header{reader, expected};
+    protocol.struct_serialize_in(&header);
+    header.finish();
+  } else {
+    protocol.struct_serialize_in(&reader);
+  }
+}
+
 template <typename T, typename Protocol>
 concept reusable_object = requires(T& value, T& previous, Protocol& protocol) {
   requires T::serializer_reuses_storage;
@@ -698,6 +743,7 @@ protected:
 public:
   constexpr static serialize_key_type key_type = serialize_key_type::string;
   static constexpr bool is_json = true;
+  static constexpr wire_format format = wire_format::json;
   static constexpr read_policy policy = ReadPolicy;
   using base::base;
   using base::enter_object;
@@ -1364,6 +1410,7 @@ class json_out : public json_formatter<beautify, Stream> {
 public:
   constexpr static serialize_key_type key_type = serialize_key_type::string;
   static constexpr bool is_json = true;
+  static constexpr wire_format format = wire_format::json;
 
 public:
   // Opt generated plain ASCII names into prequoted output; escaping stays on the dynamic path.
@@ -1607,6 +1654,9 @@ public:
   constexpr static serialize_key_type key_type = KeyType;
   static constexpr read_policy policy = ReadPolicy;
   static constexpr bool is_json = false;
+  static constexpr wire_format format = KeyType == serialize_key_type::none ? wire_format::binary_none :
+                                        KeyType == serialize_key_type::integer ? wire_format::binary_integer :
+                                                                                wire_format::binary_string;
   constexpr static std::endian wire_endian = WireEndian;
   constexpr static binary_text_validation text_validation = TextValidation;
   static_assert(TextValidation == binary_text_validation::strict ||
@@ -1632,6 +1682,14 @@ protected:
   }
 
 public:
+  // Consume and validate a schema-owned fixed binary prefix before decoding payload fields.
+  void validate_magic(std::string_view expected) {
+    const auto* bytes = read_bytes(expected.size());
+    if (std::memcmp(bytes, expected.data(), expected.size()) != 0) {
+      throw exception::bad_input_data{in_stream, "Binary magic header mismatch", limits.diagnostics};
+    }
+  }
+
   // Decode a complete one-to-four-byte compact integer with one cursor update.
   std::uint32_t serialize_in_variable() {
     require_input(1);
@@ -1874,6 +1932,10 @@ template <serialize_key_type KeyType, std::endian WireEndian = std::endian::litt
           binary_text_validation TextValidation = binary_text_validation::strict>
 class binary_out_base {
 public:
+  static constexpr bool is_json = false;
+  static constexpr wire_format format = KeyType == serialize_key_type::none ? wire_format::binary_none :
+                                        KeyType == serialize_key_type::integer ? wire_format::binary_integer :
+                                                                                wire_format::binary_string;
   constexpr static serialize_key_type key_type = KeyType;
   constexpr static std::endian wire_endian = WireEndian;
   constexpr static binary_text_validation text_validation = TextValidation;
@@ -1899,6 +1961,11 @@ protected:
 public:
   // Initialize this object from the supplied storage or value state.
   binary_out_base(Stream& out_stream) : out_stream{out_stream} {}
+
+  // Write the schema's exact fixed prefix without adding a string length or terminator.
+  void serialize_magic(std::string_view bytes) {
+    out_stream.append_external(bytes.data(), bytes.size());
+  }
 
   // Borrow writable output storage without transferring ownership.
   auto& get_stream() {
@@ -2233,6 +2300,12 @@ template <serialize_type type, typename Stream = stream,
           read_policy ReadPolicy = read_policy::strict>
 using binary_none =
     binary<type, serialize_key_type::none, std::endian::little, Stream, TextValidation, ReadPolicy>;
+
+// Expose the descriptive positional spelling without changing the original protocol or bytes.
+template <serialize_type type, typename Stream = stream,
+          binary_text_validation TextValidation = binary_text_validation::strict,
+          read_policy ReadPolicy = read_policy::strict>
+using binary_positional = binary_none<type, Stream, TextValidation, ReadPolicy>;
 
 namespace detail {
 // Preserve custom protocol types unless they explicitly support binding a concrete stream type.

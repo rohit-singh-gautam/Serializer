@@ -308,6 +308,11 @@ class generic_lowering {
     concrete->generic_arguments = type.arguments;
     concrete->generic_parameters = definition->generic_parameters;
     concrete->member_list = definition->member_list;
+    concrete->magic_bytes = definition->magic_bytes;
+    concrete->magic_access = definition->magic_access;
+    concrete->magic_id = definition->magic_id;
+    concrete->magic_explicit_id = definition->magic_explicit_id;
+    concrete->magic_omitted_formats = definition->magic_omitted_formats;
     concrete->reserved_ids = definition->reserved_ids;
     concrete->reserved_variables = definition->reserved_variables;
     concrete->reserved_names = definition->reserved_names;
@@ -477,6 +482,11 @@ class generic_lowering {
             const auto& source = static_cast<const class_node&>(*target.resolved_node);
             object.attributes = source.attributes;
             object.member_list = source.member_list;
+            object.magic_bytes = source.magic_bytes;
+            object.magic_access = source.magic_access;
+            object.magic_id = source.magic_id;
+            object.magic_explicit_id = source.magic_explicit_id;
+            object.magic_omitted_formats = source.magic_omitted_formats;
             object.reserved_ids = source.reserved_ids;
             object.reserved_variables = source.reserved_variables;
             object.reserved_names = source.reserved_names;

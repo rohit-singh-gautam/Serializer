@@ -1,0 +1,78 @@
+# Fixed magic headers and output exclusions
+
+Magic identifies an artifact independently of its payload revision. Declare it
+once in the schema; generated writers emit the constant and generated readers
+verify and discard it. It consumes no mutable per-object storage.
+
+```text
+serializer version 1;
+class document stable_ids {
+  private magic (99) { 'SRLFILE' };
+  public version uint16 revision (100) { 1 };
+  public uint64 id (1);
+  public string description (2) omit(binary_positional, binary_integer, binary_string);
+  public uint32 diagnostic (3) { 7 } omit(json);
+}
+```
+
+In C++, the generated declaration is an `inline static constexpr char magic[N]`
+containing exactly the declared bytes, with no implicit NUL terminator.
+`public`, `protected`, and `private` control constant visibility independently of
+serialization. Other languages expose their corresponding static immutable
+constant representation. Python's nonpublic names follow its existing underscore
+convention; C does not offer language-level member access control.
+
+Native positional, integer-key, and string-key binary codecs write raw magic
+before the version and ordinary object fields, without a count, key, or
+terminator. Their readers validate the prefix before decoding payload fields.
+JSON includes the fixed `magic` string by default and requires exactly one matching
+value, wherever that key appears. Readers discard the value after validation.
+Protobuf mappings use the magic numeric field ID and fixed string value.
+Magic and payload versioning remain separate features.
+
+The ID defaults to the first unused identity. Specify it explicitly for durable
+Protobuf contracts. Only one magic declaration is allowed in an unmanaged owning
+class. It cannot have lifecycle annotations or conflict with an ordinary member
+named `magic`. Its single-quoted initializer contains 1 through 64 decoded bytes,
+must form valid UTF-8, and supports `\\`, `\'`, `\"`, `\n`, `\r`, `\t`,
+`\0`, and exactly two hexadecimal digits after `\x`. Escaped NUL is an explicit
+byte; there is no automatic terminator. Views and managed classes currently reject
+magic explicitly.
+
+Any ordinary field, including a collection or union, can use trailing
+`omit(format, ...)` in an owning class. C++ view modes currently reject omissions
+explicitly because their byte-backed field descriptors require a complete fixed
+layout. The same annotation can omit magic. Supported selectors are:
+
+| Selector | Output |
+| --- | --- |
+| `json` | Native JSON |
+| `binary_none`, `binary_positional` | Native positional binary |
+| `binary_integer` | Native integer-key binary |
+| `binary_string` | Native string-key binary |
+| `protobuf`, `protobuf_binary` | C++ Protobuf binary |
+| `protojson` | C++ ProtoJSON |
+| `textproto` | C++ TextProto |
+
+Omitted fields remain available in application memory but contribute no wire
+bytes, keys, or positional slots in the excluded format. A fresh reader preserves
+their schema defaults. Explicitly supplying an excluded known keyed field fails;
+omission does not authorize arbitrary unknown fields. Version discriminators
+cannot omit formats, and unknown or duplicate format selectors fail generation.
+Native backends support the four native codecs; Protobuf mappings remain a
+separate C++ feature rather than additional codecs in every generated language.
+
+C++ codecs expose a `static constexpr wire_format format` marker. Generated
+omission handling uses compile-time protocol selection, so it introduces no
+per-object flags or runtime format tests. Existing custom protocol key markers
+remain supported. Other languages keep their established protocol-selecting APIs.
+`binary_positional` is also a C++ alias of `binary_none`, with identical template
+parameters and bytes.
+
+Changing a magic value, changing its Protobuf ID, or changing omissions alters
+the relevant format contract. Compatibility checks account for those selections;
+use retained historical schemas and explicit migration when changing an existing
+persisted representation. Regenerate all producers and consumers together.
+
+The [7 October 2026 verification record](verification-magic-2026-10-07.md)
+documents the retained native-language suite and editor package checks.

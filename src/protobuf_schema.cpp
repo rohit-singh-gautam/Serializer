@@ -66,13 +66,24 @@ void object(const class_node& value) {
       throw std::invalid_argument{"Protobuf JSON field-name collision: " + std::string{name}};
     }
   };
+  if (!value.magic_bytes.empty()) {
+    register_name("magic");
+    field_number(value.magic_id);
+  }
   for (const auto& base : value.parents) {
     register_name(base.display_name);
     field_number(base.id);
   }
   for (const auto& item : value.member_list) {
+    if (item.omits("protobuf") && item.omits("protojson") && item.omits("textproto")) {
+      continue;
+    }
     register_name(item.display_name);
     field_number(item.id);
+    if (!item.extent_expression.empty()) {
+      throw std::invalid_argument{"Protobuf: fixed arrays are unsupported: " +
+                                  value.get_full_name() + "." + item.name};
+    }
     if (item.modifier == member::modifier_type::map &&
         (item.key_node || item.key == "float" || item.key == "double")) {
       throw std::invalid_argument{"Protobuf map keys must be integers, bool, or string: " +
@@ -95,11 +106,11 @@ void object(const class_node& value) {
 
 // Validate only requested Protobuf output; existing formats retain their wider schema contract.
 void validate_protobuf_schema(const std::vector<std::unique_ptr<syntax_node>>& statements) {
-  require_variable_arrays(statements, "Protobuf");
   for (const auto& node : statements) {
     if (node->type == object_type::namespace_type) {
       validate_protobuf_schema(static_cast<const namespace_node&>(*node).statements);
-    } else if (node->type == object_type::class_type) {
+    } else if (node->type == object_type::class_type ||
+               node->type == object_type::generic_definition) {
       object(static_cast<const class_node&>(*node));
     } else if (node->type == object_type::enum_type) {
       const auto& names = static_cast<const enum_node&>(*node).enum_name_list;

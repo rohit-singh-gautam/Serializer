@@ -114,5 +114,15 @@
       "  };$0"
     ],
     "description": "Fold release age/count acceptance into a minimum version during generation"
+  },
+  "Schema magic": {
+    "prefix": "magic",
+    "body": "${1:private} magic {'${2:SRLFILE}'};$0",
+    "description": "Declare immutable magic bytes validated by binary and JSON codecs"
+  },
+  "Omitted field": {
+    "prefix": "omit",
+    "body": "public ${1:string} ${2:name} (${3:2}) omit(${4:json});$0",
+    "description": "Exclude a field from named formats and keep defaults when decoding"
   }
 }

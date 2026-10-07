@@ -26,6 +26,14 @@ to compatibility bounds during generation; generated codecs contain no release-d
 processing. All eleven language outputs share current/historical read policies and versioned
 positional binary layouts. See the [versioning examples](example/README.md#versioning).
 
+Schema-owned [magic headers and format omissions](docs/magic_and_omission.md)
+use `private magic { 'SRLFILE' };` and `omit(json, binary_positional)`.
+These declarations require owning classes; view modes reject them explicitly.
+Magic is static metadata: writers emit it, readers verify and discard it, and
+JSON includes the fixed `magic` string by default. Native binary writes exact
+header bytes before the separate version discriminator. C++ format selection
+and omissions resolve at compile time without per-object flags.
+
 ## How it works
 
 1. Describe your types, fields, and defaults in a `.serializer` file.
@@ -172,7 +180,7 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editor_extension.md) |
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
-Both extensions use release version **1.1.15**, independent of compiler version
+Both extensions use release version **1.1.19**, independent of compiler version
 **1.0.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
 for supported destinations and language-service prerequisites.
 VS Code also supports navigation from read-only Git index/history tabs, using

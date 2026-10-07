@@ -1,4 +1,5 @@
 #include "version_writer.hpp"
+#include "format_writer.hpp"
 #include <rohit/serializer_creator.hpp>
 
 #include <algorithm>
@@ -445,8 +446,26 @@ class emitter {
     line("if (" + invalid +
          ") { throw new IllegalArgumentException(\"Unsupported schema version\"); }");
   }
+  // Form immutable UTF-8 metadata without embedding arbitrary bytes in source literals.
+  std::string magic_text(const class_node& value) const {
+    std::string bytes;
+    for (const auto byte : value.magic_bytes) {
+      bytes += (bytes.empty() ? "" : ", ") + std::string{"(byte)"} +
+               std::to_string(static_cast<unsigned char>(byte));
+    }
+    return "new String(new byte[] {" + bytes + "}, java.nio.charset.StandardCharsets.UTF_8)";
+  }
   // Retain keyed field presence while skipping inactive positional bytes.
-  void read_versioned_member(const class_node& owner, const member& item, int alternative = -1) {
+  void read_versioned_member(const class_node& owner, const member& item, int alternative = -1,
+                             bool positional = false) {
+    if (positional && item.omits("binary_none")) {
+      return;
+    }
+    const auto omitted = omitted_condition(item.omitted_formats, "in.protocol", "Protocol.",
+                                            protocol_name_style::upper_snake);
+    if (!positional && !omitted.empty()) {
+      line("if (" + omitted + ") { throw in.error(\"Field omitted from selected format\"); }");
+    }
     const auto* version = owner.version_member();
     if (version) {
       const auto slot = std::to_string(version_slot(owner, item));
@@ -735,6 +754,18 @@ class emitter {
     const auto name = type_name(value.name);
     line("public static final class " + name + " {");
     ++level;
+    if (!value.magic_bytes.empty()) {
+      std::string bytes;
+      for (const auto byte : value.magic_bytes) {
+        bytes += (bytes.empty() ? "" : ", ") + std::string("(byte)") +
+                 std::to_string(static_cast<unsigned char>(byte));
+      }
+      const auto visibility = value.magic_access == access_type::public_access ? "public " :
+          value.magic_access == access_type::protected_access ? "protected " : "private ";
+      line("/** Immutable schema identity; it is never stored in an instance or JSON. */");
+      line(std::string(visibility) + "static final java.util.List<Byte> MAGIC = "
+           "java.util.List.of(" + bytes + ");");
+    }
     for (std::size_t index = 0; index < value.parents.size(); ++index) {
       const auto base_type = names.at(value.parents[index].parent_class);
       const auto access = value.parents[index].access;
@@ -776,19 +807,52 @@ class emitter {
     if (value.version_member()) {
       check_version(value, false);
     }
+    if (!value.magic_bytes.empty()) {
+      const auto omitted = omitted_condition(value.magic_omitted_formats, "out.protocol",
+                                              "Protocol.", protocol_name_style::upper_snake);
+      line("if (out.protocol != Protocol.JSON" +
+           (omitted.empty() ? "" : " && !(" + omitted + ")") + ") {");
+      ++level;
+      for (const auto byte : value.magic_bytes) {
+        line("out.integer(" + std::to_string(static_cast<unsigned char>(byte)) + ", 1, true);");
+      }
+      --level;
+      line("}");
+    }
     line("out.beginObject();");
     bool first = true;
+    const bool variable_first = std::any_of(value.member_list.begin(), value.member_list.end(),
+                                           [](const auto& item) { return item.omits("json"); });
+    if (variable_first) {
+      line("boolean firstField = true;");
+    }
+    const auto first_flag = [&](bool initial) {
+      return variable_first ? std::string{"firstField"} : std::string{initial ? "true" : "false"};
+    };
+    const bool magic_json = !value.magic_bytes.empty() && !value.magic_omits("json");
+    if (magic_json) {
+      line("if (out.json()) {");
+      ++level;
+      line("out.field(" + std::to_string(value.magic_id) + ", \"magic\", true);");
+      line("out.text(" + magic_text(value) + ");");
+      if (variable_first) { line("firstField = false;"); }
+      --level;
+      line("}");
+      first = false;
+    }
     if (const auto* version = value.version_member()) {
       line("out.field(" + std::to_string(version->id) + ", " + quote(version->display_name) +
-           ", true);");
+           ", " + first_flag(first) + ");");
       write_field(*version);
+      if (variable_first) { line("firstField = false;"); }
       first = false;
     }
     for (std::size_t index = 0; index < value.parents.size(); ++index) {
       const auto& base = value.parents[index];
       line("out.field(" + std::to_string(base.id) + ", " + quote(base.display_name) + ", " +
-           (first ? "true" : "false") + ");");
+           first_flag(first) + ");");
       line("this.base" + std::to_string(index) + ".write(out);");
+      if (variable_first) { line("firstField = false;"); }
       first = false;
     }
     for (const auto& item : value.member_list) {
@@ -803,6 +867,12 @@ class emitter {
         line("if (" + active + ") {");
         ++level;
       }
+      const auto omitted = omitted_condition(item.omitted_formats, "out.protocol", "Protocol.",
+                                              protocol_name_style::upper_snake);
+      if (!omitted.empty()) {
+        line("if (!(" + omitted + ")) {");
+        ++level;
+      }
       line("{");
       ++level;
       if (item.modifier == member::modifier_type::variant) {
@@ -814,7 +884,7 @@ class emitter {
           ++level;
           line("out.field(" + std::to_string(item.id) + ", " +
                quote(item.display_name + ":" + alternative.enum_name) + ", " +
-               (first ? "true" : "false") + ");");
+               first_flag(first) + ");");
           line("if (out.protocol == Protocol.BINARY_NONE || out.protocol == "
                "Protocol.BINARY_INTEGER) { out.compact(" +
                std::to_string(index) + "); }");
@@ -830,11 +900,16 @@ class emitter {
         line("}");
       } else {
         line("out.field(" + std::to_string(item.id) + ", " + quote(item.display_name) + ", " +
-             (first ? "true" : "false") + ");");
+             first_flag(first) + ");");
         write_field(item);
       }
       --level;
       line("}");
+      if (variable_first) { line("firstField = false;"); }
+      if (!omitted.empty()) {
+        --level;
+        line("}");
+      }
       if (!active.empty()) {
         --level;
         line("}");
@@ -853,6 +928,20 @@ class emitter {
     line("/** Merge duplicate nested fields in input order within this fresh message. */");
     line("private static " + name + " read(Reader in, " + name + " result) {");
     ++level;
+    if (!value.magic_bytes.empty()) {
+      const auto omitted = omitted_condition(value.magic_omitted_formats, "in.protocol",
+                                              "Protocol.", protocol_name_style::upper_snake);
+      line("if (in.protocol != Protocol.JSON" +
+           (omitted.empty() ? "" : " && !(" + omitted + ")") + ") {");
+      ++level;
+      for (const auto byte : value.magic_bytes) {
+        line("if (in.integer(1, true) != " + std::to_string(static_cast<unsigned char>(byte)) +
+             ") { throw new java.lang.IllegalArgumentException(\"Incorrect schema magic\"); }");
+      }
+      --level;
+      line("}");
+    }
+    if (magic_json) { line("boolean magicSeen = false;"); }
     if (value.version_member()) {
       line("boolean[] seen = new boolean[" +
            std::to_string(value.parents.size() + value.member_list.size()) + "];");
@@ -861,7 +950,7 @@ class emitter {
     line("if (in.protocol == Protocol.BINARY_NONE) {");
     ++level;
     if (const auto* version = value.version_member()) {
-      read_versioned_member(value, *version);
+      read_versioned_member(value, *version, -1, true);
     }
     for (std::size_t index = 0; index < value.parents.size(); ++index) {
       line("result.base" + std::to_string(index) + " = " +
@@ -874,7 +963,7 @@ class emitter {
       }
       line("{");
       ++level;
-      read_versioned_member(value, item);
+      read_versioned_member(value, item, -1, true);
       --level;
       line("}");
     }
@@ -916,6 +1005,18 @@ class emitter {
     line("if (!in.json() && key.isEmpty()) { break; }");
     line("switch (key) {");
     ++level;
+    if (magic_json) {
+      line("case \"magic\": {");
+      ++level;
+      line("if (!in.json() || magicSeen || !in.text().equals(" + magic_text(value) +
+           ")) { throw in.error(\"Incorrect or duplicate schema magic\"); }");
+      line("magicSeen = true; break;");
+      --level;
+      line("}");
+    }
+    if (!value.magic_bytes.empty() && !magic_json) {
+      line("case \"magic\": throw in.error(\"Field omitted from selected format\");");
+    }
     for (std::size_t index = 0; index < value.parents.size(); ++index) {
       line("case " + quote(value.parents[index].display_name) + ": result.base" +
            std::to_string(index) + " = " + names.at(value.parents[index].parent_class) +
@@ -949,6 +1050,9 @@ class emitter {
     --level;
     line("}");
     line("in.endObject();");
+    if (magic_json) {
+      line("if (in.json() && !magicSeen) { throw in.error(\"Missing schema magic\"); }");
+    }
     if (const auto* version = value.version_member()) {
       line("if (!seen[" + std::to_string(version_slot(value, *version)) +
            "]) { throw in.error(\"Missing schema version\"); }");

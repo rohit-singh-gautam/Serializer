@@ -53,6 +53,18 @@ and `mutable`. Their order does not matter. `packed` controls generated native
 C++ layout, depends on compiler support, and cannot be combined with `view`.
 Binary serialization always encodes fields individually.
 
+### Fixed magic and format exclusions
+
+`private magic (99) { 'SRLFILE' };` declares static fixed header bytes. Readers
+verify and discard them; native binary writes the exact bytes before the payload
+revision, while JSON includes `"magic":"SRLFILE"`. Access controls the generated
+constant's visibility. `public` exposes the constant and does not add object state.
+Use trailing `omit(json, binary_positional)` on magic or an ordinary field to
+exclude it from named output formats in owning classes. C++ view modes reject
+omissions explicitly. The generated reader expects the selected
+layout and retains defaults for absent excluded payload fields. See
+[magic and omission](magic_and_omission.md) for aliases, limits, and codec contracts.
+
 ### Generic owning classes
 
 Declare type parameters with `class result<T>`. C++ emits a native template even

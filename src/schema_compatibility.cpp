@@ -149,13 +149,14 @@ struct field_contract {
 };
 
 // Preserve parent-before-member order, field identity, map keys, and ordered union alternatives.
-std::vector<field_contract> fields(const class_node& type) {
+std::vector<field_contract> fields(const class_node& type, std::string_view format = {}) {
   std::vector<field_contract> result{};
   for (const auto& base : type.parents) {
     result.push_back(
         {base.id, base.display_name, "parent:" + base.parent_class->get_full_name(), {}, {}});
   }
   for (const auto& field : type.member_list) {
+    if (!format.empty() && field.omits(format)) { continue; }
     field_contract contract{field.id, field.display_name, {}, field.default_value, {}};
     contract.fixed_extent = field.fixed_extent;
     switch (field.modifier) {
@@ -286,6 +287,16 @@ void check_class(std::vector<compatibility_issue>& result, const class_node& pre
                  const class_node& current, compatibility_protocol protocol,
                  const compatibility_policy& policy) {
   const auto path = previous.get_full_name();
+  const std::string_view format = protocol == compatibility_protocol::json ? "json" :
+      protocol == compatibility_protocol::binary_none ? "binary_none" :
+      protocol == compatibility_protocol::binary_integer ? "binary_integer" :
+      protocol == compatibility_protocol::binary_string ? "binary_string" : "protobuf";
+  const bool old_magic = !previous.magic_bytes.empty() && !previous.magic_omits(format);
+  const bool new_magic = !current.magic_bytes.empty() && !current.magic_omits(format);
+  if (old_magic != new_magic || (old_magic && (previous.magic_bytes != current.magic_bytes ||
+      (protocol == compatibility_protocol::protobuf_binary && previous.magic_id != current.magic_id)))) {
+    issue(result, path, "Magic header added, removed, or changed; select a separate contract");
+  }
   const auto* before_version = previous.version_member();
   const auto* after_version = current.version_member();
   if (before_version || after_version) {
@@ -354,8 +365,8 @@ void check_class(std::vector<compatibility_issue>& result, const class_node& pre
     }
     return;
   }
-  const auto old_fields = fields(previous);
-  const auto new_fields = fields(current);
+  const auto old_fields = fields(previous, format);
+  const auto new_fields = fields(current, format);
   const auto reservations = class_reservations(current, policy);
   const auto* reservation = &reservations;
   const bool positional = protocol == compatibility_protocol::binary_none;
@@ -417,7 +428,7 @@ void check_class(std::vector<compatibility_issue>& result, const class_node& pre
 
 // Keep CLI protocol selection explicit; text Protobuf needs a separately defined comparison policy.
 compatibility_protocol parse_compatibility_protocol(std::string_view name) {
-  if (name == "binary_none") {
+  if (name == "binary_none" || name == "binary_positional") {
     return compatibility_protocol::binary_none;
   }
   if (name == "binary_integer") {
@@ -429,7 +440,7 @@ compatibility_protocol parse_compatibility_protocol(std::string_view name) {
   if (name == "json") {
     return compatibility_protocol::json;
   }
-  if (name == "protobuf_binary") {
+  if (name == "protobuf_binary" || name == "protobuf") {
     return compatibility_protocol::protobuf_binary;
   }
   throw std::invalid_argument{"Unsupported compatibility protocol: " + std::string{name}};

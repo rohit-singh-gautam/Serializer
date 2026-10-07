@@ -725,6 +725,33 @@ parse_releases(const rohit::type_check::schema_input_buffer auto& input) {
   return releases;
 }
 
+// Normalize output exclusions once so backends receive only canonical format names.
+std::vector<std::string> parse_omitted_formats(const rohit::type_check::schema_input_buffer auto& input) {
+  parse_identifier_impl(input);
+  skip_whitespace_and_comment(input);
+  check_and_increase(input, '(');
+  std::vector<std::string> result{};
+  do {
+    skip_whitespace_and_comment(input);
+    auto format = parse_identifier_impl(input);
+    if (format == "binary_positional") { format = "binary_none"; }
+    if (format == "protobuf_binary") { format = "protobuf"; }
+    if (format != "json" && format != "binary_none" && format != "binary_integer" &&
+        format != "binary_string" && format != "protobuf" && format != "protojson" && format != "textproto") {
+      throw exception::bad_member_spec{input, "Unsupported omitted output format: " + format};
+    }
+    if (std::find(result.begin(), result.end(), format) != result.end()) {
+      throw exception::bad_member_spec{input, "Repeated omitted output format"};
+    }
+    result.push_back(std::move(format));
+    skip_whitespace_and_comment(input);
+    if (*input != ',') { break; }
+    ++input;
+  } while (true);
+  check_and_increase(input, ')');
+  return result;
+}
+
 // Parse field visibility, storage, wire identity, and optional version lifecycle metadata.
 member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_stream,
                          const std::uint32_t id, namespace_node* declared_namespace) {
@@ -753,6 +780,85 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   }
   auto access = parse_access_type_impl(in_stream);
   skip_whitespace_and_comment(in_stream);
+  if (next_keyword(in_stream, "magic")) {
+    if (lifecycle.obsolete || !lifecycle.created_version.empty() ||
+        !lifecycle.obsolete_version.empty() || !lifecycle.replaced_member.empty()) {
+      throw exception::bad_member_spec{in_stream, "Magic cannot have field lifecycle annotations"};
+    }
+    parse_identifier_impl(in_stream);
+    skip_whitespace_and_comment(in_stream);
+    std::uint32_t magic_id{1};
+    std::string magic_name{"magic"};
+    bool explicit_magic_id{};
+    if (*in_stream == '(') {
+      parse_name_spec(in_stream, magic_id, magic_name, explicit_magic_id);
+      skip_whitespace_and_comment(in_stream);
+      if (magic_name != "magic") {
+        throw exception::bad_member_spec{in_stream, "Magic retains the fixed wire name magic"};
+      }
+    }
+    const auto literal = get_default_value(in_stream);
+    if (literal.size() < 3 || literal.front() != '\'' || literal.back() != '\'') {
+      throw exception::bad_member_spec{in_stream, "Magic requires a nonempty single-quoted byte literal"};
+    }
+    std::string bytes{};
+    constexpr std::size_t maximum_magic_bytes = 64;
+    // Decode only portable byte escapes, keeping every generator independent of source syntax.
+    for (std::size_t index = 1; index + 1 < literal.size(); ++index) {
+      auto character = literal[index];
+      if (character == '\\') {
+        if (++index + 1 >= literal.size()) {
+          throw exception::bad_member_spec{in_stream, "Incomplete magic byte escape"};
+        }
+        character = literal[index];
+        switch (character) {
+        case 'n': character = '\n'; break;
+        case 'r': character = '\r'; break;
+        case 't': character = '\t'; break;
+        case '0': character = '\0'; break;
+        case '\\': case '\'': case '"': break;
+        case 'x': {
+          if (index + 3 >= literal.size()) {
+            throw exception::bad_member_spec{in_stream, "Magic hex escape requires exactly two digits"};
+          }
+          unsigned value{};
+          const auto* first = literal.data() + index + 1;
+          const auto parsed = std::from_chars(first, first + 2, value, 16);
+          if (parsed.ec != std::errc{} || parsed.ptr != first + 2) {
+            throw exception::bad_member_spec{in_stream, "Invalid magic hex byte escape"};
+          }
+          character = static_cast<char>(value);
+          index += 2;
+          break;
+        }
+        default:
+          throw exception::bad_member_spec{in_stream, "Unsupported magic byte escape"};
+        }
+      } else if (character == '\'' || character == '\n' || character == '\r') {
+        throw exception::bad_member_spec{in_stream, "Magic literals require escaped quotes and newlines"};
+      }
+      if (bytes.size() >= maximum_magic_bytes) {
+        throw exception::bad_member_spec{in_stream, "Magic exceeds the 64-byte header bound"};
+      }
+      bytes.push_back(character);
+    }
+    skip_whitespace_and_comment(in_stream);
+    std::vector<std::string> omitted{};
+    if (next_keyword(in_stream, "omit")) {
+      omitted = parse_omitted_formats(in_stream);
+      skip_whitespace_and_comment(in_stream);
+    }
+    try {
+      ::rohit::serializer::detail::validate_utf8({reinterpret_cast<const std::uint8_t*>(bytes.data()), bytes.size()});
+    } catch (const std::invalid_argument&) {
+      throw exception::bad_member_spec{in_stream, "Magic bytes must form valid UTF-8 for portable text output"};
+    }
+    check_and_increase(in_stream, ';');
+    member result{access, member::modifier_type::none, {}, "magic", "magic", magic_id, {}, {}, explicit_magic_id};
+    result.magic_bytes = std::move(bytes);
+    result.omitted_formats = std::move(omitted);
+    return result;
+  }
   const bool version = next_keyword(in_stream, "version");
   if (version) {
     parse_identifier_impl(in_stream);
@@ -813,6 +919,7 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   std::string compatibility{};
   std::vector<version_release> releases{};
   std::optional<version_policy> policy{};
+  std::vector<std::string> omitted{};
   while (true) {
     skip_whitespace_and_comment(in_stream);
     if (*in_stream == '(') {
@@ -844,6 +951,11 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
       }
       parse_identifier_impl(in_stream);
       releases = parse_releases(in_stream);
+    } else if (next_keyword(in_stream, "omit")) {
+      if (version || !omitted.empty()) {
+        throw exception::bad_member_spec{in_stream, "Version cannot omit formats; only one omit declaration is allowed"};
+      }
+      omitted = parse_omitted_formats(in_stream);
     } else if (next_keyword(in_stream, "policy")) {
       if (!version || policy) {
         throw exception::bad_member_spec{in_stream, "Policy requires one version declaration"};
@@ -865,6 +977,7 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
                 explicit_id, nullptr, managed};
   result.extent_expression = std::move(extent);
   result.version = version;
+  result.omitted_formats = std::move(omitted);
   result.compatibility_version = std::move(compatibility);
   result.releases = std::move(releases);
   result.policy = std::move(policy);
@@ -970,6 +1083,19 @@ void parse_class_body_impl(const rohit::type_check::schema_input_buffer auto& in
       continue;
     }
     auto member = parse_member_impl(in_stream, id++, obj->parent_namespace);
+    if (!member.magic_bytes.empty()) {
+      if (!obj->magic_bytes.empty()) {
+        throw exception::bad_member_spec{in_stream, "Only one magic declaration is allowed per class"};
+      }
+      obj->magic_bytes = std::move(member.magic_bytes);
+      obj->magic_access = member.access;
+      obj->magic_id = member.id;
+      obj->magic_explicit_id = member.explicit_id;
+      obj->magic_omitted_formats = std::move(member.omitted_formats);
+      --id; // Header metadata does not consume an ordinary schema field identity.
+      skip_whitespace_and_comment(in_stream);
+      continue;
+    }
     obj->member_list.push_back(std::move(member));
     skip_whitespace_and_comment(in_stream);
   }
@@ -1123,6 +1249,9 @@ void validate_class_keys(const rohit::type_check::schema_input_buffer auto& inpu
   for (const auto& base : obj.parents) {
     occupied.insert(base.id);
   }
+  if (!obj.magic_bytes.empty() && obj.magic_explicit_id) {
+    occupied.insert(obj.magic_id);
+  }
   for (const auto& field : obj.member_list) {
     if (!field.version || field.explicit_id) {
       occupied.insert(field.id);
@@ -1136,6 +1265,10 @@ void validate_class_keys(const rohit::type_check::schema_input_buffer auto& inpu
       validate_field_key(input, field.id, field.display_name);
       occupied.insert(field.id);
     }
+  }
+  if (!obj.magic_bytes.empty() && !obj.magic_explicit_id) {
+    while (occupied.contains(obj.magic_id)) { ++obj.magic_id; }
+    occupied.insert(obj.magic_id);
   }
   std::unordered_set<std::uint32_t> ids;
   std::unordered_set<std::string> names;
@@ -1158,6 +1291,10 @@ void validate_class_keys(const rohit::type_check::schema_input_buffer auto& inpu
   }
   for (const auto& name : obj.reserved_names) {
     add_name(name);
+  }
+  if (!obj.magic_bytes.empty()) {
+    add_id(obj.magic_id, true);
+    add_name("magic");
   }
   std::unordered_set<std::string> variables{};
   for (const auto& name : obj.reserved_variables) {
@@ -1270,6 +1407,23 @@ parse_class(const rohit::type_check::schema_input_buffer auto& in_stream,
   register_declaration(in_stream, *obj, declarations);
   // At this point all whitespace is skipped
   parse_class_body_impl(in_stream, obj.get(), id);
+  if (obj->storage_modes != static_cast<std::uint8_t>(storage_mode::owning) &&
+      std::any_of(obj->member_list.begin(), obj->member_list.end(), [](const auto& field) {
+        return !field.omitted_formats.empty();
+      })) {
+    throw exception::bad_class{in_stream, "Output omissions currently require an owning class without view modes"};
+  }
+  if (!obj->magic_bytes.empty()) {
+    if (obj->storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
+        obj->supports_managed()) {
+      throw exception::bad_class{in_stream, "Binary magic requires an unmanaged owning class"};
+    }
+    if (std::any_of(obj->member_list.begin(), obj->member_list.end(), [](const auto& field) {
+          return field.name == "magic";
+        })) {
+      throw exception::bad_member_spec{in_stream, "The magic constant conflicts with an ordinary field"};
+    }
+  }
   validate_class_keys(in_stream, *obj);
   return obj;
 }

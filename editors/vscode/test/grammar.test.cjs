@@ -178,6 +178,23 @@ test('dimension defaults and fixed extents highlight numbers, operators and para
 });
 
 
+test('magic literals and generic exclusions preserve metadata scopes', async () => {
+  const grammar = await loadGrammar();
+  const line = "private magic (7) {'SRLFILE\\0'} omit(json, binary_none); public lib::record value (2) omit(binary_integer);";
+  const tokens = grammar.tokenizeLine(line, INITIAL).tokens;
+  for (const word of ['magic', 'omit']) {
+    const offset = line.indexOf(word);
+    assert.equal(tokens.find(token => token.startIndex <= offset && token.endIndex > offset).scopes.at(-1),
+      'keyword.control.serializer');
+  }
+  const bytes = line.indexOf('SRLFILE');
+  assert.ok(tokens.find(token => token.startIndex <= bytes && token.endIndex > bytes).scopes.includes('string.quoted.single.serializer'));
+  const type = line.indexOf('record');
+  assert.equal(tokens.find(token => token.startIndex <= type && token.endIndex > type).scopes.at(-1),
+    'entity.name.type.serializer');
+});
+
+
 test('version lifecycles and component types use the canonical shared grammar', async () => {
   const grammar = await loadGrammar();
   const line = 'public version version3 ver (6) { "1.10.0" } compatibility { "1.2.0" }; obsolete(3) public uint64 id (2); created(3) replaced(id) public float identity (4); reserve id {7} variable {retired} display {"old"};';

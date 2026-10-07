@@ -32,6 +32,27 @@ bool breaks_new_reader(const std::vector<codec::compatibility_issue>& issues) {
 }
 } // namespace
 
+// Fixed magic bytes and exclusions affect only the formats that actually include them.
+TEST(schema_compatibility, magic_and_omissions_follow_selected_wire_formats) {
+  const auto previous = schema("class record stable_ids { private magic (100) { 'OLD' } "
+      "omit(json); public uint32 value (1); public uint32 diagnostic (2) omit(binary_positional); }");
+  const auto changed = schema("class record stable_ids { private magic (100) { 'NEW' } "
+      "omit(json); public uint32 value (1); public uint32 diagnostic (2) omit(binary_positional); }");
+  EXPECT_TRUE(codec::check_schema_compatibility(previous, changed, protocol::json).empty());
+  EXPECT_TRUE(reports(codec::check_schema_compatibility(previous, changed, protocol::binary_none),
+                      "Magic header"));
+  EXPECT_TRUE(reports(codec::check_schema_compatibility(previous, changed, protocol::protobuf_binary),
+                      "Magic header"));
+  const auto same_wire = schema("class record stable_ids { private magic (100) { 'OLD' } "
+      "omit(json); public uint32 value (1); public uint64 diagnostic (2) omit(binary_positional); }");
+  EXPECT_TRUE(codec::check_schema_compatibility(previous, same_wire, protocol::binary_none).empty());
+  EXPECT_TRUE(reports(codec::check_schema_compatibility(previous, same_wire, protocol::json), "Field type"));
+  const auto included = schema("class record stable_ids { private magic (100) { 'OLD' } "
+      "omit(json); public uint32 value (1); public uint32 diagnostic (2); }");
+  EXPECT_TRUE(reports(codec::check_schema_compatibility(previous, included, protocol::binary_none),
+                      "Positional fields"));
+}
+
 // Named codecs permit an ordinary field and union alternatives to share a base-name prefix.
 TEST(schema_compatibility, named_union_base_names_do_not_confuse_field_matching) {
   constexpr std::string_view text =

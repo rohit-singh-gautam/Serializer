@@ -5,6 +5,20 @@ layouts, field lifetimes, replacements, reservations, common read policies, and
 compiler-only release-date/count policies. These resolve to ordinary version bounds
 and add no dates or policy evaluation to generated codecs.
 
+[Fixed magic and format exclusions](magic_and_omission.md) are opt-in owning
+schema annotations. Native binary formats prepend the exact magic bytes before
+the version and other object fields, with no length, key or NUL terminator.
+Native JSON includes one required matching `magic` string unless explicitly
+excluded. Protobuf uses the declared magic field ID and fixed string value.
+
+`omit(format, ...)` removes the field's bytes, key and positional slot only from
+the selected representation. Decoding preserves its schema default and rejects
+an explicitly supplied excluded known keyed field. C++ selects these layouts
+at compile time. The compatibility checker compares magic and omissions per
+format; migrating an existing artifact requires agreed schemas for both peers.
+Unmarked classes retain their existing layout. `binary_positional` is an exact
+alias of `binary_none`.
+
 [Schema generics](generics.md) are expanded before codec generation. Each concrete
 application encodes exactly like an equivalent ordinary class; no parameter names,
 type tags, or generic envelope bytes are added. Both peers must agree on the

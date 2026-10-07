@@ -223,6 +223,7 @@ schema::schema(const std::vector<std::unique_ptr<syntax_node>>& statements) {
       continue;
     }
     const auto& object = static_cast<const class_node&>(*node);
+    if (!object.magic_bytes.empty() && !object.magic_omits("json")) { add_key("magic"); }
     if (object.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
         (object.attributes & class_attributes::packed) != class_attributes::none) {
       throw std::invalid_argument{"Native output supports owning classes only"};

@@ -3,6 +3,7 @@
 #include <rohit/protobuf.hpp>
 #include <rohit/serializer_creator.hpp>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <initializer_list>
@@ -14,6 +15,13 @@
 
 namespace {
 namespace codec = rohit::serializer;
+
+// Access control and wire identity never require a per-object magic member.
+template <typename T> constexpr bool exposes_magic = requires { T::magic; };
+static_assert(!exposes_magic<protobuf_test::magic_record>);
+static_assert(exposes_magic<protobuf_test::public_magic_record>);
+static_assert(sizeof(protobuf_test::public_magic_record) == sizeof(std::uint32_t));
+static_assert(sizeof(protobuf_test::public_magic_record::magic) == 3);
 
 // Encode through the same compile-time protocol API used by the established codecs.
 template <template <codec::serialize_type> class Protocol, typename T>
@@ -371,5 +379,55 @@ TEST(protobuf_codec, parents_empty_and_limits) {
   limits.max_allocation_bytes = 1;
   EXPECT_THROW(decode<codec::protojson>(R"({"numbers":[1]})", limits), std::exception);
   EXPECT_THROW(decode<codec::textproto>("display_name: '\\777'"), std::exception);
+}
+// Every optional mapping validates fixed magic while constexpr omission preserves defaults.
+TEST(protobuf_codec, applies_magic_and_omissions_across_mappings) {
+  protobuf_test::magic_record value{};
+  value.stored = 5;
+  value.json_only = 70;
+  value.binary_only = 80;
+  value.ignored = {1, 2, 3};
+  const auto binary = encode<codec::protobuf_binary>(value);
+  const auto binary_copy = decode<codec::protobuf_binary, protobuf_test::magic_record>(binary);
+  EXPECT_EQ(binary_copy.stored, value.stored);
+  EXPECT_EQ(binary_copy.json_only, 99);
+  EXPECT_EQ(binary_copy.binary_only, value.binary_only);
+  EXPECT_EQ(binary_copy.ignored, (std::array<std::uint8_t, 3>{}));
+
+  const auto json = encode<codec::protojson>(value);
+  EXPECT_NE(json.find("\"magic\":\"SRLTEST\""), std::string::npos);
+  EXPECT_EQ(json.find("binaryOnly"), std::string::npos);
+  const auto json_copy = decode<codec::protojson, protobuf_test::magic_record>(json);
+  EXPECT_EQ(json_copy.stored, value.stored);
+  EXPECT_EQ(json_copy.json_only, value.json_only);
+  EXPECT_EQ(json_copy.binary_only, 23);
+
+  const auto text = encode<codec::textproto>(value);
+  const auto text_copy = decode<codec::textproto, protobuf_test::magic_record>(text);
+  EXPECT_EQ(text_copy.json_only, 99);
+  EXPECT_EQ(text_copy.binary_only, value.binary_only);
+  EXPECT_THROW((decode<codec::protojson, protobuf_test::magic_record>("{}")), std::exception);
+  EXPECT_THROW((decode<codec::protojson, protobuf_test::magic_record>(
+      R"({"magic":"WRONG"})")), std::exception);
+  EXPECT_THROW((decode<codec::textproto, protobuf_test::magic_record>(
+      "magic: \"WRONG\"")), std::exception);
+  auto corrupted = binary;
+  const auto magic_offset = corrupted.find("SRLTEST");
+  ASSERT_NE(magic_offset, std::string::npos);
+  corrupted[magic_offset] ^= 1;
+  EXPECT_THROW((decode<codec::protobuf_binary, protobuf_test::magic_record>(corrupted)),
+               std::exception);
+}
+
+// A format excluded at generation has no magic field and no read-time magic requirement.
+TEST(protobuf_codec, omits_fixed_magic_only_for_the_selected_format) {
+  protobuf_test::omitted_magic_record value{};
+  value.value = 12;
+  const auto json = encode<codec::protojson>(value);
+  EXPECT_EQ(json.find("magic"), std::string::npos);
+  EXPECT_EQ((decode<codec::protojson, protobuf_test::omitted_magic_record>(json)).value, 12);
+  const auto binary = encode<codec::protobuf_binary>(value);
+  EXPECT_NE(binary.find("ABC"), std::string::npos);
+  EXPECT_EQ((decode<codec::protobuf_binary, protobuf_test::omitted_magic_record>(binary)).value, 12);
 }
 } // namespace

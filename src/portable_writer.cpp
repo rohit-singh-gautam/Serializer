@@ -457,6 +457,9 @@ class emitter {
         continue;
       }
       const auto& value = static_cast<const class_node&>(*node);
+      if (!value.magic_bytes.empty() && !value.magic_omits("json")) {
+        add("magic");
+      }
       for (const auto& base : value.parents) {
         add(base.display_name);
       }
@@ -843,7 +846,20 @@ class emitter {
     close();
   }
   // Record field presence and omit inactive positional fields without consuming bytes.
-  void read_versioned_member(const class_node& owner, const member& item, int alternative = -1) {
+  void read_versioned_member(const class_node& owner, const member& item, int alternative = -1,
+                             bool positional = false) {
+    if (positional && item.omits("binary_none")) {
+      return;
+    }
+    const auto omitted = omitted_protocols(item.omitted_formats, "input");
+    if (!positional && !omitted.empty()) {
+      condition(omitted);
+      statement("input.fail(\"Field omitted from selected format\")");
+      if (language == target::go) {
+        statement("return result");
+      }
+      close();
+    }
     const auto* version = owner.version_member();
     if (!version) {
       if (alternative >= 0) {
@@ -875,11 +891,75 @@ class emitter {
       check_version(owner, true);
     }
   }
+  // Emit exact raw artifact identity before object framing for all native binary protocols.
+  void magic_prefix(const class_node& value, bool reading) {
+    if (value.magic_bytes.empty()) {
+      return;
+    }
+    const auto stream = reading ? "input" : "output";
+    auto active = std::string(stream) + ".protocol != " + protocol("JSON");
+    const auto omitted = omitted_protocols(value.magic_omitted_formats, stream);
+    if (!omitted.empty()) {
+      active += " && !(" + omitted + ")";
+    }
+    condition(active);
+    for (const auto byte : value.magic_bytes) {
+      const auto literal = std::to_string(static_cast<unsigned char>(byte));
+      if (reading) {
+        condition("input.integer(1, true) != " + literal);
+        statement("input.fail(\"Incorrect schema magic\")");
+        if (language == target::go) {
+          statement("return result");
+        }
+        close();
+      } else {
+        statement("output.integer(" + literal + ", 1, true)");
+      }
+    }
+    close();
+  }
+  // Select configured native omissions; other backends have separate codec dispatch.
+  std::string omitted_protocols(const std::vector<std::string>& formats,
+                                std::string_view stream) const {
+    std::string expression;
+    for (const auto& format : formats) {
+      if (format != "json" && format != "binary_none" && format != "binary_integer" &&
+          format != "binary_string") {
+        continue;
+      }
+      auto constant = format;
+      std::transform(constant.begin(), constant.end(), constant.begin(), [](unsigned char byte) {
+        return static_cast<char>(std::toupper(byte));
+      });
+      expression += (expression.empty() ? "" : " || ") + std::string(stream) +
+                    ".protocol == " + protocol(constant);
+    }
+    return expression;
+  }
+  // Form validated UTF-8 schema text without depending on source-file escaping.
+  std::string magic_text(const class_node& value) const {
+    std::string bytes;
+    std::string escaped{"\""};
+    constexpr std::string_view hex{"0123456789abcdef"};
+    for (const auto byte : value.magic_bytes) {
+      const auto number = static_cast<unsigned char>(byte);
+      bytes += (bytes.empty() ? "" : ", ") + std::to_string(number);
+      escaped += "\\x";
+      escaped += hex[number >> 4];
+      escaped += hex[number & 0x0f];
+    }
+    escaped += '"';
+    return choose("new TextDecoder('utf-8', {fatal: true}).decode(Uint8Array.from([" + bytes +
+                      "]))",
+                  escaped,
+                  "System.Text.Encoding.UTF8.GetString(new byte[] { " + bytes + " })");
+  }
   // Write every parent and member in declaration order.
   void write_object(const class_node& value) {
     if (value.version_member()) {
       check_version(value, false);
     }
+    magic_prefix(value, false);
     statement("output.beginObject()");
     if (language == target::go) {
       condition("output.err != nil");
@@ -887,19 +967,45 @@ class emitter {
       close();
     }
     bool first = true;
+    const bool variable_first = std::any_of(value.member_list.begin(), value.member_list.end(),
+                                           [](const auto& item) { return item.omits("json"); });
+    if (variable_first) {
+      local("firstField", "true");
+    }
+    const auto first_flag = [&](bool initial) {
+      return variable_first ? std::string{"firstField"} : std::string{initial ? "true" : "false"};
+    };
+    const bool magic_json = !value.magic_bytes.empty() && !value.magic_omits("json");
+    if (magic_json) {
+      condition("output.json()");
+      statement("output.field(" + std::to_string(value.magic_id) + ", " + wire_key("magic") +
+                ", true)");
+      statement("output.text(" + magic_text(value) + ")");
+      if (variable_first) {
+        statement("firstField = false");
+      }
+      close();
+      first = false;
+    }
     if (const auto* version = value.version_member()) {
       statement("output.field(" + std::to_string(version->id) + ", " +
-                wire_key(version->display_name) + ", true)");
+                wire_key(version->display_name) + ", " + first_flag(first) + ")");
       write_field(*version);
+      if (variable_first) {
+        statement("firstField = false");
+      }
       first = false;
     }
     for (std::size_t i = 0; i < value.parents.size(); ++i) {
       const auto& base = value.parents[i];
       statement("output.field(" + std::to_string(base.id) + ", " + wire_key(base.display_name) +
-                ", " + (first ? "true" : "false") + ")");
+                ", " + first_flag(first) + ")");
       statement(choose("this.", "value.", "this.") +
                 field("base" + std::to_string(i), base.access) +
                 choose(".write(output)", ".write(output)", ".Write(output)"));
+      if (variable_first) {
+        statement("firstField = false");
+      }
       first = false;
     }
     for (const auto& item : value.member_list) {
@@ -914,6 +1020,10 @@ class emitter {
       if (!active.empty()) {
         condition(active);
       }
+      const auto omitted = omitted_protocols(item.omitted_formats, "output");
+      if (!omitted.empty()) {
+        condition("!(" + omitted + ")");
+      }
       open("");
       if (item.modifier == member::modifier_type::variant) {
         const auto expression = choose("this.", "value.", "this.") + field(item.name, item.access);
@@ -925,7 +1035,7 @@ class emitter {
           ++level;
           statement("output.field(" + std::to_string(item.id) + ", " +
                     wire_key(item.display_name + ":" + alternative.enum_name) + ", " +
-                    (first ? "true" : "false") + ")");
+                    first_flag(first) + ")");
           condition("output.protocol == " + protocol("BINARY_NONE") +
                     " || output.protocol == " + protocol("BINARY_INTEGER"));
           statement("output.compact(" + std::to_string(i) + ")");
@@ -946,10 +1056,16 @@ class emitter {
         close();
       } else {
         statement("output.field(" + std::to_string(item.id) + ", " + wire_key(item.display_name) +
-                  ", " + (first ? "true" : "false") + ")");
+                  ", " + first_flag(first) + ")");
         write_field(item);
       }
       close();
+      if (variable_first) {
+        statement("firstField = false");
+      }
+      if (!omitted.empty()) {
+        close();
+      }
       if (!active.empty()) {
         close();
       }
@@ -978,6 +1094,11 @@ class emitter {
   }
   // Dispatch known keys through native switches, avoiding linear field lookup.
   void read_object(const class_node& value) {
+    magic_prefix(value, true);
+    const bool magic_json = !value.magic_bytes.empty() && !value.magic_omits("json");
+    if (magic_json) {
+      local("magicSeen", "false");
+    }
     if (value.version_member()) {
       local(
           "seen",
@@ -995,7 +1116,7 @@ class emitter {
     }
     condition("input.protocol == " + protocol("BINARY_NONE"));
     if (const auto* version = value.version_member()) {
-      read_versioned_member(value, *version);
+      read_versioned_member(value, *version, -1, true);
     }
     for (std::size_t i = 0; i < value.parents.size(); ++i) {
       read_parent(value.parents[i], i);
@@ -1005,7 +1126,7 @@ class emitter {
         continue;
       }
       open("");
-      read_versioned_member(value, item);
+      read_versioned_member(value, item, -1, true);
       close();
     }
     for (const bool numeric : {true, false}) {
@@ -1042,6 +1163,25 @@ class emitter {
         close();
       }
       open(choose("switch (key)", "switch key", "switch (key)"));
+      if (!numeric && magic_json) {
+        line("case \"magic\":");
+        open("");
+        condition("!input.json() || magicSeen || input.text() != " + magic_text(value));
+        statement("input.fail(\"Incorrect or duplicate schema magic\")");
+        close();
+        statement("magicSeen = true");
+        if (language != target::go) {
+          statement("break");
+        }
+        close();
+      }
+      if (!numeric && !value.magic_bytes.empty() && !magic_json) {
+        line("case \"magic\":");
+        open("");
+        statement("input.fail(\"Field omitted from selected format\")");
+        statement(language == target::go ? "return result" : "break");
+        close();
+      }
       for (std::size_t i = 0; i < value.parents.size(); ++i) {
         const auto& base = value.parents[i];
         line("case " + (numeric ? std::to_string(base.id) : quote(base.display_name)) + ":");
@@ -1074,6 +1214,11 @@ class emitter {
     }
     close();
     statement("input.endObject()");
+    if (magic_json) {
+      condition("input.json() && !magicSeen");
+      statement("input.fail(\"Missing schema magic\")");
+      close();
+    }
     if (const auto* version = value.version_member()) {
       condition("!seen[" + std::to_string(version_slot(value, *version)) + "]");
       statement("input.fail(\"Missing schema version\")");
@@ -1149,6 +1294,31 @@ class emitter {
          " owns its fields; concurrent mutation during encoding is unsupported.");
     open(choose("export class " + identifier, "type " + identifier + " struct",
                 "public sealed class " + identifier));
+    if (!value.magic_bytes.empty() && language != target::go) {
+      std::string values;
+      for (const auto byte : value.magic_bytes) {
+        values += (values.empty() ? "" : ", ") +
+                  std::to_string(static_cast<unsigned char>(byte));
+      }
+      const bool visible = value.magic_access == access_type::public_access;
+      line("// Fixed schema metadata has no per-object storage.");
+      if (language == target::js) {
+        statement("static #srlMagic = Object.freeze([" + values + "])");
+        if (visible) {
+          open("static get magic()");
+          statement("return " + identifier + ".#srlMagic");
+          close();
+        }
+      } else if (language == target::typescript) {
+        line(std::string(visible ? "" : "private ") +
+             "static readonly magic: readonly number[];");
+      } else {
+        statement("private static readonly byte[] srlMagic = new byte[] { " + values + " }");
+        // Owning C# classes are sealed, so all non-public schema metadata stays private.
+        const auto visibility = visible ? "public " : "private ";
+        statement(std::string(visibility) + "static System.ReadOnlySpan<byte> Magic => srlMagic");
+      }
+    }
     if (language == target::js) {
       for (std::size_t i = 0; i < value.parents.size(); ++i) {
         const auto& base = value.parents[i];
@@ -1187,6 +1357,24 @@ class emitter {
     }
     if (language == target::go) {
       close();
+      if (!value.magic_bytes.empty()) {
+        std::string bytes_literal = "\"";
+        constexpr std::string_view hex_digits = "0123456789abcdef";
+        for (const auto byte : value.magic_bytes) {
+          const auto value_byte = static_cast<unsigned char>(byte);
+          bytes_literal += "\\x";
+          bytes_literal += hex_digits[value_byte >> 4];
+          bytes_literal += hex_digits[value_byte & 0x0f];
+        }
+        bytes_literal += '"';
+        auto magic_name = identifier + "Magic";
+        if (value.magic_access != access_type::public_access) {
+          magic_name.front() = static_cast<char>(
+              std::tolower(static_cast<unsigned char>(magic_name.front())));
+        }
+        line("// Fixed schema identity is an immutable package constant.");
+        statement("const " + magic_name + " = " + bytes_literal);
+      }
       line("// New" + identifier + " constructs schema defaults; the Go zero value may differ.");
       open("func New" + identifier + "() *" + identifier);
       open("return &" + identifier);

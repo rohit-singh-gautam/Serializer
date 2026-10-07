@@ -1,5 +1,6 @@
 #include "native_schema.hpp"
 #include "version_writer.hpp"
+#include "format_writer.hpp"
 
 #include <algorithm>
 #include <set>
@@ -22,6 +23,7 @@ class c_emitter {
   std::string output{
       "#pragma once\n#ifndef SRL_NATIVE_RUNTIME_INCLUDED\n#define SRL_NATIVE_RUNTIME_INCLUDED\n"};
   std::size_t indent{};
+  bool variable_first{};
   std::string fields_name;
   // Reserve generated global symbols before emitting C's shared typedef/function namespace.
   void validate_symbols() const {
@@ -123,6 +125,11 @@ class c_emitter {
   }
   // Skip inactive positional bytes while retaining known keyed presence.
   void read_versioned_member(const class_node& owner, const member& item) {
+    const auto omitted = omitted_condition(item.omitted_formats, "in->protocol", "srl_",
+                                            protocol_name_style::lower_snake);
+    if (!omitted.empty()) {
+      line("if (" + omitted + ") { in->status = srl_invalid; break; }");
+    }
     const auto* version = owner.version_member();
     if (version) {
       const auto slot = std::to_string(version_slot(owner, item));
@@ -266,7 +273,8 @@ class c_emitter {
   // Reference immutable encoded key bytes.
   void key(std::uint32_t id, const std::string& text, bool first) {
     line("srl_write_field(out, " + std::to_string(id) + ", &" + fields_name + "[" +
-         std::to_string(model.keys.at(text)) + "], " + (first ? "true" : "false") + ");");
+         std::to_string(model.keys.at(text)) + "], " +
+         (variable_first ? "first_field" : first ? "true" : "false") + ");");
   }
   // Compare exact map key values without subtracting potentially overflowing integers.
   std::string compare(const type_name& value, const std::string& a, const std::string& b) const {
@@ -491,6 +499,18 @@ class c_emitter {
   // Define typed collection layouts before their owning class; map entries follow it.
   void declarations(const class_node& value) {
     const auto n = name(&value);
+    if (!value.magic_bytes.empty()) {
+      std::string bytes;
+      for (const auto byte : value.magic_bytes) {
+        bytes += (bytes.empty() ? "" : ", ") +
+                 std::to_string(static_cast<unsigned char>(byte));
+      }
+      const auto constant =
+          (value.magic_access == access_type::public_access ? "" : "srl_") + n + "_magic";
+      line("/* Immutable schema metadata; srl_ names are internal implementation details. */");
+      line("static const uint8_t " + constant + "[" +
+           std::to_string(value.magic_bytes.size()) + "] = {" + bytes + "};");
+    }
     for (const auto& f : value.member_list) {
       if (f.modifier != member::modifier_type::array && f.modifier != member::modifier_type::map) {
         continue;
@@ -588,22 +608,50 @@ class c_emitter {
     }
     line("if (status != srl_ok) { " + n + "_free(value); } return status;");
     close();
+    const auto magic_name = (value.magic_access == access_type::public_access ? "" : "srl_") +
+                            n + "_magic";
     line("/* Encode in schema order; the source retains ownership of all its fields. */");
     open("static inline void " + n + "_srl_write(srl_writer* out, const " + n + "* value)");
-    line("(void)value; if (out->status != srl_ok) { return; } srl_write_begin(out); if "
-         "(out->status != srl_ok) { return; }");
+    line("(void)value; if (out->status != srl_ok) { return; }");
     if (value.version_member()) {
       check_version(value, false);
     }
+    if (!value.magic_bytes.empty()) {
+      const auto omitted = omitted_condition(value.magic_omitted_formats, "out->protocol",
+                                              "srl_", protocol_name_style::lower_snake);
+      open("if (out->protocol != srl_json" +
+           (omitted.empty() ? "" : " && !(" + omitted + ")") + ")");
+      for (const auto byte : value.magic_bytes) {
+        line("srl_write_integer(out, " + std::to_string(static_cast<unsigned char>(byte)) +
+             ", 1, true);");
+      }
+      close();
+    }
+    line("srl_write_begin(out); if (out->status != srl_ok) { return; }");
     bool first = true;
+    variable_first = std::any_of(value.member_list.begin(), value.member_list.end(),
+                                 [](const auto& item) { return item.omits("json"); });
+    if (variable_first) { line("bool first_field = true;"); }
+    const bool magic_json = !value.magic_bytes.empty() && !value.magic_omits("json");
+    if (magic_json) {
+      open("if (out->protocol == srl_json)");
+      key(value.magic_id, "magic", true);
+      line("const srl_string text = {(char*)" + magic_name + ", sizeof(" + magic_name + ")};");
+      line("srl_write_string(out, &text);");
+      if (variable_first) { line("first_field = false;"); }
+      close();
+      first = false;
+    }
     if (const auto* version = value.version_member()) {
-      write_member(value, *version, true);
+      write_member(value, *version, first);
+      if (variable_first) { line("first_field = false;"); }
       first = false;
     }
     for (std::size_t i = 0; i < value.parents.size(); ++i) {
       const auto& base = value.parents[i];
       key(base.id, base.display_name, first);
       line(name(base.parent_class) + "_srl_write(out, &value->base" + std::to_string(i) + ");");
+      if (variable_first) { line("first_field = false;"); }
       first = false;
     }
     for (const auto& f : value.member_list) {
@@ -617,19 +665,40 @@ class c_emitter {
       if (!active.empty()) {
         open("if (" + active + ")");
       }
+      const auto omitted = omitted_condition(f.omitted_formats, "out->protocol", "srl_",
+                                              protocol_name_style::lower_snake);
+      if (!omitted.empty()) { open("if (!(" + omitted + "))"); }
       open("");
       write_member(value, f, first);
       close();
+      if (variable_first) { line("first_field = false;"); }
+      if (!omitted.empty()) { close(); }
       if (!active.empty()) {
         close();
       }
       first = false;
     }
+    variable_first = false;
     line("srl_write_end(out);");
     close();
     line("/* Decode into a private candidate; public decoding commits only complete messages. */");
     open("static inline void " + n + "_srl_read(srl_reader* in, " + n + "* value)");
-    line("(void)value; if (in->status != srl_ok) { return; } srl_read_begin(in);");
+    line("(void)value; if (in->status != srl_ok) { return; }");
+    if (!value.magic_bytes.empty()) {
+      const auto omitted = omitted_condition(value.magic_omitted_formats, "in->protocol",
+                                              "srl_", protocol_name_style::lower_snake);
+      open("if (in->protocol != srl_json" +
+           (omitted.empty() ? "" : " && !(" + omitted + ")") + ")");
+      for (const auto byte : value.magic_bytes) {
+        line("if (srl_read_integer(in, 1, true) != " +
+             std::to_string(static_cast<unsigned char>(byte)) +
+             " || in->status != srl_ok) { if (in->status == srl_ok) { in->status = "
+             "srl_invalid; } return; }");
+      }
+      close();
+    }
+    if (magic_json) { line("bool magic_seen = false;"); }
+    line("srl_read_begin(in);");
     if (value.version_member()) {
       line("bool seen[" + std::to_string(value.parents.size() + value.member_list.size()) +
            "] = {false};");
@@ -642,7 +711,7 @@ class c_emitter {
       ids += std::to_string(base.id) + ",";
     }
     for (const auto& f : value.member_list) {
-      if (!f.version) {
+      if (!f.version && !f.omits("binary_none")) {
         ids += std::to_string(f.id) + ",";
       }
     }
@@ -659,6 +728,7 @@ class c_emitter {
            "; alternative = " + std::to_string(alt) + "; }");
       branch_first = false;
     };
+    if (!value.magic_bytes.empty()) { branch("magic", value.magic_id, -1); }
     for (const auto& base : value.parents) {
       branch(base.display_name, base.id, -1);
     }
@@ -676,6 +746,19 @@ class c_emitter {
     close();
     line("srl_string_free(&key.name); (void)alternative; if (in->status != srl_ok) { break; }");
     open("switch (id)");
+    if (magic_json) {
+      open("case " + std::to_string(value.magic_id) + ":");
+      line("if (in->protocol != srl_json || magic_seen) { in->status = srl_invalid; break; }");
+      line("srl_string text = {0}; srl_read_string(in, &text);");
+      line("if (in->status == srl_ok && (text.size != sizeof(" + magic_name +
+           ") || memcmp(text.data, " + magic_name + ", sizeof(" + magic_name +
+           ")))) { in->status = srl_invalid; }");
+      line("srl_string_free(&text); magic_seen = true; break;");
+      close();
+    }
+    if (!value.magic_bytes.empty() && !magic_json) {
+      line("case " + std::to_string(value.magic_id) + ": in->status = srl_invalid; break;");
+    }
     for (std::size_t i = 0; i < value.parents.size(); ++i) {
       line("case " + std::to_string(value.parents[i].id) + ": " +
            name(value.parents[i].parent_class) + "_srl_read(in, &value->base" + std::to_string(i) +
@@ -691,6 +774,10 @@ class c_emitter {
     close();
     close();
     line("srl_read_end(in);");
+    if (magic_json) {
+      line("if (in->status == srl_ok && in->protocol == srl_json && !magic_seen) "
+           "{ in->status = srl_invalid; return; }");
+    }
     if (const auto* version = value.version_member()) {
       line("if (in->status != srl_ok) { return; }");
       line("if (!seen[" + std::to_string(version_slot(value, *version)) +

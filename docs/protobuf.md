@@ -103,6 +103,18 @@ message; `finish()` cannot infer where an application intended to split them.
 
 ## Mapping contract
 
+Class-level `magic` maps to a fixed UTF-8 `string` field using its declared
+schema ID. Generated writers emit it and readers verify it, including required
+presence, without retaining per-object storage. It is distinct from the raw
+fixed-byte prefix used by native binary formats. Declare an explicit ID for a
+durable contract, for example `private magic (20) {'SRLFILE'};`.
+
+Field-level `omit(protobuf, protojson, textproto)` selects the optional mappings
+to exclude. These are independent selectors; `omit(json)` selects native JSON.
+Generated C++ uses `if constexpr` on the protocol template parameter. Excluded
+fields retain schema defaults on decoding and incur no per-field omission
+dispatch. Excluding magic from a format also removes its presence requirement.
+
 The receiver needs an independently agreed equivalent Protobuf schema. Names of
 message types need not match, but field numbers, scalar types, nesting, enum
 values, and text field names must match this table:

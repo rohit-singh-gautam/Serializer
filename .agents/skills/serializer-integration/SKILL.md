@@ -1159,6 +1159,23 @@ installed runtime header.
 
 ## Payload revisions and schema evolution
 
+For file identification, use [magic and format omissions](../../../docs/magic_and_omission.md).
+`private magic (99) { 'SRLFILE' };` defines static immutable header bytes, not
+mutable payload storage. Native binary prefixes them before the version; JSON
+includes the fixed `magic` string. Every included format verifies and discards
+the header and rejects missing, wrong, or duplicate magic. Freeze the numeric
+magic ID for durable Protobuf contracts. Default IDs use the first free identity.
+Use trailing `omit(json, binary_positional)` on magic or any ordinary member of an
+owning class to exclude that field from the selected protocol. View modes reject
+omissions explicitly. Version discriminators cannot
+omit formats. Omitted fields keep schema defaults on fresh decode; keyed input
+must reject explicitly supplied excluded fields. Canonical format names are
+`json`, `binary_none`, `binary_integer`, `binary_string`, `protobuf`, `protojson`,
+and `textproto`; `binary_positional` and `protobuf_binary` are accepted aliases.
+C++ also exposes `binary_positional` as an unchanged alias of `binary_none`.
+Magic currently requires an unmanaged owning class and valid UTF-8 bytes.
+Regenerate all relevant language and editor outputs when changing these contracts.
+
 Consult the [versioning verification record](../../../docs/verification-versioning-2026-10-06.md) and [release-policy verification record](../../../docs/verification-release-policies-2026-10-06.md) for completed language, compiler, codec, and editor checks. Release catalogs and nested allow policies are evaluated entirely during schema compilation; generated readers and writers contain only resolved version bounds.
 
 Use [payload versioning](../../../docs/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the required `serializer version 1;` language header from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.

@@ -397,11 +397,42 @@ public:
   }
 
   // Emit C++ serializer out body for the parsed schema.
+  // Build a format-specific field list at generation time; no runtime omit flags are emitted.
+  class_node native_layout(const class_node& object, std::string_view format) {
+    class_node result{object.type, std::string{object.name}, object.parent_namespace,
+                      object.attributes, std::vector<parent>{object.parents}};
+    result.magic_bytes = object.magic_bytes;
+    result.magic_access = object.magic_access;
+    result.magic_id = object.magic_id;
+    result.magic_omitted_formats = object.magic_omitted_formats;
+    for (const auto& field : object.member_list) {
+      if (!field.omits(format)) { result.member_list.push_back(field); }
+    }
+    return result;
+  }
+
+  // Emit only compile-time protocol comparisons for explicitly excluded formats.
+  std::string omission_condition(const std::vector<std::string>& formats, std::string_view protocol) {
+    std::string condition{};
+    for (const auto& format : formats) {
+      if (!condition.empty()) { condition += " || "; }
+      condition += "::rohit::serializer::detail::protocol_wire_format<" + std::string{protocol} +
+                   ">() == ::rohit::serializer::wire_format::" + format;
+    }
+    return condition.empty() ? "false" : condition;
+  }
+
   void write_serializer_out_layout(rohit::type_check::output_buffer auto& out_stream,
                                    const class_node* obj,
                                    const rohit::serializer::serialize_key_type key_type,
-                                   const member* version = nullptr) {
+                                   const member* version = nullptr, bool json_magic = false) {
     bool first = true;
+    if (json_magic) {
+      out_stream.write("\n      ", local_name("serializer_protocol"),
+                       ".struct_serialize_out_start(::std::make_pair(", constant_output_name("magic"),
+                       ", ::std::string_view{magic, sizeof(magic)}));");
+      first = false;
+    }
     if (version) {
       write_serializer_out_body_non_union(out_stream, *version, key_type, first);
     }
@@ -430,6 +461,7 @@ public:
   class_node version_layout(const class_node& object, std::string_view revision) {
     class_node result{object_type::class_type, std::string{object.name}, object.parent_namespace,
                       object.attributes, std::vector<parent>{object.parents}};
+    result.magic_bytes = object.magic_bytes;
     const auto& version = *object.version_member();
     for (const auto& field : object.member_list) {
       if (!field.version && schema_version::active(field, version, revision)) {
@@ -458,10 +490,15 @@ public:
 
   // Emit one direct output path per distinct supported layout, with the version before parents.
   void write_serializer_out_body(rohit::type_check::output_buffer auto& output,
-                                 const class_node* object, serialize_key_type keys) {
+                                 const class_node* original, serialize_key_type keys, bool json = false) {
+    const auto filtered = native_layout(*original, json ? "json" : keys == serialize_key_type::none ?
+                                        "binary_none" : keys == serialize_key_type::integer ?
+                                        "binary_integer" : "binary_string");
+    const auto* object = &filtered;
+    const bool json_magic = json && !original->magic_bytes.empty() && !original->magic_omits("json");
     const auto* version = object->version_member();
     if (!version) {
-      write_serializer_out_layout(output, object, keys);
+      write_serializer_out_layout(output, object, keys, nullptr, json_magic);
       return;
     }
     const auto value = "this->" + member_name(*version);
@@ -475,7 +512,7 @@ public:
         output.write(std::string_view{index == 0 ? "      {\n" : "      else {\n"});
       }
       const auto layout = version_layout(*object, revisions[index]);
-      write_serializer_out_layout(output, &layout, keys, version);
+      write_serializer_out_layout(output, &layout, keys, version, json_magic);
       output.write("\n      }\n");
     }
   }
@@ -494,6 +531,13 @@ public:
          "SerializeOutProtocol::key_type == ::rohit::serializer::serialize_key_type::string,\n     "
          "  "
          " \"Unsupported serializer key type\");"));
+    if (!obj->magic_bytes.empty()) {
+      out_stream.write("\n    if constexpr (!::rohit::serializer::detail::is_json_protocol<SerializeOutProtocol> &&\n"
+                       "                  !requires { ", local_name("serializer_protocol"), ".protobuf_object(*this); } && !(",
+                       omission_condition(obj->magic_omitted_formats, "SerializeOutProtocol"), ")) {\n      ",
+                       local_name("serializer_protocol"),
+                       ".serialize_magic(::std::string_view{magic, sizeof(magic)});\n    }\n");
+    }
     if (protobuf_enabled) {
       out_stream.write("\n    if constexpr (requires { ", local_name("serializer_protocol"),
                        ".protobuf_object(*this); }) {\n      ", local_name("serializer_protocol"),
@@ -507,7 +551,11 @@ public:
     write_serializer_out_body(out_stream, obj, rohit::serializer::serialize_key_type::integer);
     out_stream.write("\n    } else if constexpr (SerializeOutProtocol::key_type == "
                      "::rohit::serializer::serialize_key_type::string) {");
+    out_stream.write("\n      if constexpr (::rohit::serializer::detail::is_json_protocol<SerializeOutProtocol>) {");
+    write_serializer_out_body(out_stream, obj, rohit::serializer::serialize_key_type::string, true);
+    out_stream.write("\n      } else {");
     write_serializer_out_body(out_stream, obj, rohit::serializer::serialize_key_type::string);
+    out_stream.write("\n      }");
     out_stream.write("\n    }\n  }\n\n");
     out_stream.write("  // Encode to a buffer or byte sink satisfying the output stream concept.\n"
                      "  template <template <::rohit::serializer::serialize_type> class Protocol,\n"
@@ -543,6 +591,10 @@ public:
   // Donate a present field's storage; absent keyed fields retain the fresh candidate's defaults.
   void write_field_input(rohit::type_check::output_buffer auto& output, const member& field,
                          std::string_view indent, bool explicit_type = true) {
+    if (!field.omitted_formats.empty()) {
+      output.write(indent, "if constexpr (", omission_condition(field.omitted_formats, "SerializeInProtocol"),
+                   ") { throw ::std::invalid_argument{\"Field omitted from selected format\"}; } else {\n");
+    }
     const auto cpp_type = get_cpp_type(field);
     const bool has_storage = field.modifier == member::modifier_type::array ||
                              field.modifier == member::modifier_type::map ||
@@ -562,6 +614,7 @@ public:
     } else {
       output.write(indent, read);
     }
+    if (!field.omitted_formats.empty()) { output.write(indent, "}\n"); }
   }
 
   // Emit C++ serializer in body for parent key none for the parsed schema.
@@ -602,6 +655,10 @@ public:
 
   // Decode one active union value through its correctly renamed discriminator and storage member.
   void write_union_input(rohit::type_check::output_buffer auto& output, const member& field) {
+    if (!field.omitted_formats.empty()) {
+      output.write("      if constexpr (", omission_condition(field.omitted_formats, "SerializeInProtocol"),
+                   ") { throw ::std::invalid_argument{\"Field omitted from selected format\"}; } else {\n");
+    }
     output.write("      this->", union_tag_name(field), " = static_cast<", union_enum_name(field),
                  (std::string{">("} + local_name("serializer_protocol") +
                   ".serialize_in_variable());\n      switch (this->"),
@@ -624,6 +681,7 @@ public:
              "      default:\n        throw ::rohit::serializer::exception::bad_input_data{"} +
          local_name("serializer_protocol") +
          ".get_stream(), \"Invalid union discriminator\"};\n      }\n"));
+    if (!field.omitted_formats.empty()) { output.write("      }\n"); }
   }
 
   // Decode a union selected by its numeric field identifier.
@@ -673,7 +731,9 @@ public:
 
   // Decode the prefix once, then retain direct reads and fixed-width batching in each layout.
   void write_serializer_in_body_key_none(rohit::type_check::output_buffer auto& output,
-                                         const class_node* object) {
+                                         const class_node* original) {
+    const auto filtered = native_layout(*original, "binary_none");
+    const auto* object = &filtered;
     const auto* version = object->version_member();
     if (!version) {
       write_serializer_in_layout(output, object);
@@ -862,9 +922,10 @@ public:
       const parent* base{};
       const member* field{};
       const serializer::type_name* alternative{};
+      bool magic{};
     };
     std::map<std::uint64_t, std::vector<entry>> groups;
-    if (obj->parents.empty() && obj->member_list.empty()) {
+    if (obj->parents.empty() && obj->member_list.empty() && obj->magic_bytes.empty()) {
       // Empty classes have no hash cases; avoid a default-only switch under MSVC /W4.
       out_stream.write(
           "  // Delegate unknown names to protocols that support compatible input.\n"
@@ -881,6 +942,11 @@ public:
           local_name("serializer_protocol"),
           ".get_stream(), \"Unknown field name\"};\n    }\n  }\n\n");
       return;
+    }
+    if (!obj->magic_bytes.empty()) {
+      // Included JSON headers are consumed by the fixed-header adapter; payload dispatch rejects
+      // this reserved name so flexible readers cannot silently accept an explicitly omitted header.
+      groups[detail::field_name_hash("magic")].push_back({"magic", nullptr, nullptr, nullptr, true});
     }
     for (const auto& base : obj->parents) {
       groups[detail::field_name_hash(base.display_name)].push_back({base.display_name, &base});
@@ -912,9 +978,15 @@ public:
       for (const auto& item : entries) {
         out_stream.write((std::string{"        if ("} + local_name("name") + " == \""), item.name,
                          "\") {\n");
-        if (item.base) {
+        if (item.magic) {
+          out_stream.write("          throw ::std::invalid_argument{\"Magic header supplied as payload field\"};\n");
+        } else if (item.base) {
           write_parent_input(out_stream, *item.base, "          ");
         } else if (item.alternative) {
+          if (!item.field->omitted_formats.empty()) {
+            out_stream.write("          if constexpr (", omission_condition(item.field->omitted_formats, "SerializeInProtocol"),
+                             ") { throw ::std::invalid_argument{\"Field omitted from selected format\"}; } else {\n");
+          }
           out_stream.write(
               "          this->", union_tag_name(*item.field), " = ", union_enum_name(*item.field),
               "::", enum_name(item.alternative->enum_name),
@@ -924,15 +996,22 @@ public:
               (std::string{");\n          "} + local_name("serializer_protocol") +
                ".serialize_in(this->"),
               member_name(*item.field), ".", field_name(item.alternative->enum_name), ");\n");
+          if (!item.field->omitted_formats.empty()) { out_stream.write("          }\n"); }
         } else if (item.field->modifier == member::modifier_type::none &&
                    item.field->type_name_list[0].type == object_type::enum_type) {
+          if (!item.field->omitted_formats.empty()) {
+            out_stream.write("          if constexpr (", omission_condition(item.field->omitted_formats, "SerializeInProtocol"),
+                             ") { throw ::std::invalid_argument{\"Field omitted from selected format\"}; } else {\n");
+          }
           out_stream.write((std::string{"          ::rohit::serializer::detail::read_named_enum("} +
                             local_name("serializer_protocol") + ", this->"),
                            member_name(*item.field), ");\n");
+          if (!item.field->omitted_formats.empty()) { out_stream.write("          }\n"); }
         } else {
           write_field_input(out_stream, *item.field, "          ", false);
         }
-        out_stream.write("          return;\n        }\n");
+        if (!item.magic) { out_stream.write("          return;\n"); }
+        out_stream.write("        }\n");
       }
       out_stream.write("        break;\n");
     }
@@ -945,6 +1024,17 @@ public:
                      ".get_stream(), \"Unknown field name\"};\n    }\n  }\n\n");
   }
   // Emit field reads selected at compile time, retaining keyed input dispatch where needed.
+  // Wrap JSON handlers only for schemas whose fixed header is present in that format.
+  void write_keyed_input(rohit::type_check::output_buffer auto& output, const class_node& object,
+                         std::string_view reader) {
+    if (!object.magic_bytes.empty() && !object.magic_omits("json")) {
+      output.write("::rohit::serializer::detail::read_magic_object(", local_name("serializer_protocol"),
+                   ", ", reader, ", ::std::string_view{magic, sizeof(magic)});");
+    } else {
+      output.write(local_name("serializer_protocol"), ".struct_serialize_in(&", reader, ");");
+    }
+  }
+
   void write_serializer_in_body(rohit::type_check::output_buffer auto& out_stream,
                                 const class_node* obj) {
     write_version_reader(out_stream, *obj);
@@ -970,6 +1060,13 @@ public:
         "SerializeInProtocol::key_type "
         "== ::rohit::serializer::serialize_key_type::string,\n        \"Unsupported serializer key "
         "type\");"));
+    if (!obj->magic_bytes.empty()) {
+      out_stream.write("\n    if constexpr (!::rohit::serializer::detail::is_json_protocol<SerializeInProtocol> &&\n"
+                       "                  !requires { ", local_name("serializer_protocol"), ".protobuf_object(*this); } && !(",
+                       omission_condition(obj->magic_omitted_formats, "SerializeInProtocol"), ")) {\n      ",
+                       local_name("serializer_protocol"),
+                       ".validate_magic(::std::string_view{magic, sizeof(magic)});\n    }\n");
+    }
     if (protobuf_enabled) {
       out_stream.write("\n    if constexpr (requires { ", local_name("serializer_protocol"),
                        ".protobuf_object(*this); }) {\n      ", local_name("serializer_protocol"),
@@ -985,17 +1082,21 @@ public:
     if (obj->version_member()) {
       out_stream.write("      serializer_version_reader<SerializeInProtocol, StorageSource> ",
                        local_name("storage_reader"), "{*this, ", local_name("storage_donor"),
-                       "};\n      ", local_name("serializer_protocol"), ".struct_serialize_in(&",
-                       local_name("storage_reader"), ");\n      ", local_name("storage_reader"),
-                       ".finish();\n");
+                       "};\n      ");
+      write_keyed_input(out_stream, *obj, local_name("storage_reader"));
+      out_stream.write("\n      ", local_name("storage_reader"), ".finish();\n");
     } else {
-      out_stream.write(
-          "      if constexpr (::std::is_same_v<StorageSource, ::std::nullptr_t>) {\n        ",
-          local_name("serializer_protocol"), ".template struct_serialize_in<", type_name(obj->name),
-          ">(this);\n      } else {\n        ::rohit::serializer::detail::reused_object_reader<",
+      out_stream.write("      if constexpr (::std::is_same_v<StorageSource, ::std::nullptr_t>) {\n        ");
+      if (!obj->magic_bytes.empty() && !obj->magic_omits("json")) {
+        write_keyed_input(out_stream, *obj, "*this");
+      } else {
+        out_stream.write(local_name("serializer_protocol"), ".template struct_serialize_in<", type_name(obj->name), ">(this);");
+      }
+      out_stream.write("\n      } else {\n        ::rohit::serializer::detail::reused_object_reader<",
           type_name(obj->name), "> ", local_name("storage_reader"), "{*this, *",
-          local_name("storage_donor"), "};\n        ", local_name("serializer_protocol"),
-          ".struct_serialize_in(&", local_name("storage_reader"), ");\n      }");
+          local_name("storage_donor"), "};\n        ");
+      write_keyed_input(out_stream, *obj, local_name("storage_reader"));
+      out_stream.write("\n      }");
     }
     out_stream.write(
         "\n    }\n  }\n\n  // Decode from a buffer or bounded EOF-delimited byte source.\n"
@@ -1097,39 +1198,70 @@ public:
     return result;
   }
 
+  // Build a protocol-template condition; omitted field branches disappear during compilation.
+  std::string protobuf_field_condition(const std::vector<std::string>& omitted,
+                                       std::string_view selector) {
+    std::string condition;
+    for (const auto* format : {"protobuf", "protojson", "textproto"}) {
+      if (std::find(omitted.begin(), omitted.end(), format) == omitted.end()) { continue; }
+      if (!condition.empty()) { condition += " && "; }
+      condition += std::string(selector) + " != ::rohit::serializer::wire_format::" + format;
+    }
+    return condition;
+  }
+
   // Emit direct typed Protobuf traversal; field IDs remain template arguments in all formats.
   void write_protobuf(rohit::type_check::output_buffer auto& output, const class_node& object) {
     if (object.version_member()) {
       throw std::invalid_argument{"Version lifecycle is not supported by Protobuf generation"};
     }
     const auto protocol = local_name("serializer_protocol");
-    output.write("\n  // Reset every field to the standard Protobuf default.\n"
+    output.write("\n  // Reset included fields to Protobuf defaults; omitted fields retain schema defaults.\n"
+                 "  template <::rohit::serializer::wire_format SelectedFormat = ::rohit::serializer::wire_format::protobuf>\n"
                  "  void serializer_protobuf_reset() {\n");
     for (const auto& base : object.parents) {
       output.write("    static_cast<", storage_type_name(base.name, base.parent_class),
-                   "*>(this)->serializer_protobuf_reset();\n");
+                   "*>(this)->template serializer_protobuf_reset<SelectedFormat>();\n");
     }
     for (const auto& item : object.member_list) {
+      const auto condition = protobuf_field_condition(item.omitted_formats, "SelectedFormat");
+      if (!condition.empty()) {
+        output.write("    if constexpr (", condition, ") {\n");
+      }
       if (item.modifier == member::modifier_type::variant) {
         const auto& alternative = item.type_name_list.front();
         output.write("    this->", union_tag_name(item), " = ", union_enum_name(item), "::",
                      enum_name(alternative.enum_name), ";\n    ::std::construct_at(&this->",
                      member_name(item), ".", field_name(alternative.enum_name), ");\n");
-        output.write("    ::rohit::serializer::detail::protobuf_reset(this->", member_name(item),
+        output.write("    ::rohit::serializer::detail::protobuf_reset<SelectedFormat>(this->", member_name(item),
                      ".", field_name(alternative.enum_name), ");\n");
       } else {
-        output.write("    ::rohit::serializer::detail::protobuf_reset(this->", member_name(item), ");\n");
+        output.write("    ::rohit::serializer::detail::protobuf_reset<SelectedFormat>(this->", member_name(item), ");\n");
+      }
+      if (!condition.empty()) {
+        output.write("    }\n");
       }
     }
     output.write("  }\n\n  // Encode statically typed fields through the selected Protobuf protocol.\n"
                  "  template <typename ProtobufProtocol>\n  void serializer_protobuf_write([[maybe_unused]] ProtobufProtocol& ",
                  protocol, ") const {\n");
+    if (!object.magic_bytes.empty()) {
+      const auto condition = protobuf_field_condition(object.magic_omitted_formats, "ProtobufProtocol::format");
+      if (!condition.empty()) { output.write("    if constexpr (", condition, ") {\n"); }
+      output.write("    ", protocol, ".template field<", object.magic_id,
+                   ">(\"magic\", \"magic\", ::std::string_view{magic, sizeof(magic)});\n");
+      if (!condition.empty()) { output.write("    }\n"); }
+    }
     for (const auto& base : object.parents) {
       output.write("    ", protocol, ".template field<", base.id, ">(\"", base.display_name,
                    "\", \"", protobuf_json_name(base.display_name), "\", *static_cast<const ",
                    storage_type_name(base.name, base.parent_class), "*>(this));\n");
     }
     for (const auto& item : object.member_list) {
+      const auto condition = protobuf_field_condition(item.omitted_formats, "ProtobufProtocol::format");
+      if (!condition.empty()) {
+        output.write("    if constexpr (", condition, ") {\n");
+      }
       const auto names = "\"" + item.display_name + "\", \"" + protobuf_json_name(item.display_name) + "\"";
       if (item.modifier == member::modifier_type::variant) {
         output.write("    ", protocol, ".template message_field<", item.id, ">(", names,
@@ -1147,6 +1279,9 @@ public:
         output.write("    ", protocol, ".template field<", item.id, ">(", names, ", this->",
                      member_name(item), ");\n");
       }
+      if (!condition.empty()) {
+        output.write("    }\n");
+      }
     }
     output.write("  }\n\n  // Dispatch known Protobuf fields directly; the protocol handles unknown fields.\n"
                  "  template <typename ProtobufProtocol>\n  void serializer_protobuf_read(ProtobufProtocol& ",
@@ -1155,9 +1290,25 @@ public:
       output.write("    bool protobuf_seen_", base.id, "{};\n");
     }
     for (const auto& item : object.member_list) {
-      output.write("    bool protobuf_seen_", item.id, "{};\n");
+      output.write("    [[maybe_unused]] bool protobuf_seen_", item.id, "{};\n");
+    }
+    if (!object.magic_bytes.empty()) {
+      output.write("    [[maybe_unused]] bool protobuf_seen_magic{};\n");
     }
     output.write("    while (", protocol, ".next_field()) {\n");
+    if (!object.magic_bytes.empty()) {
+      const auto condition = protobuf_field_condition(object.magic_omitted_formats, "ProtobufProtocol::format");
+      if (!condition.empty()) { output.write("      if constexpr (", condition, ") {\n"); }
+      output.write("      if (", protocol, ".template match<", object.magic_id,
+                   ">(\"magic\", \"magic\")) {\n        ", protocol,
+                   ".template occurrence<false>(protobuf_seen_magic);\n"
+                   "        ::std::string actual_magic;\n        ", protocol,
+                   ".field(actual_magic);\n"
+                   "        if (actual_magic != ::std::string_view{magic, sizeof(magic)}) {\n"
+                   "          throw ::std::invalid_argument{\"Magic mismatch\"};\n"
+                   "        }\n        continue;\n      }\n");
+      if (!condition.empty()) { output.write("      }\n"); }
+    }
     for (const auto& base : object.parents) {
       output.write("      if (", protocol, ".template match<", base.id, ">(\"", base.display_name,
                    "\", \"", protobuf_json_name(base.display_name), "\")) {\n        ", protocol,
@@ -1166,6 +1317,10 @@ public:
                    "*>(this));\n        continue;\n      }\n");
     }
     for (const auto& item : object.member_list) {
+      const auto condition = protobuf_field_condition(item.omitted_formats, "ProtobufProtocol::format");
+      if (!condition.empty()) {
+        output.write("    if constexpr (", condition, ") {\n");
+      }
       output.write("      if (", protocol, ".template match<", item.id, ">(\"", item.display_name,
                    "\", \"", protobuf_json_name(item.display_name), "\")) {\n");
       output.write("        ", protocol, ".template occurrence<",
@@ -1178,7 +1333,7 @@ public:
                      union_tag_name(item), " = ", union_enum_name(item), "::",
                      enum_name(first_alternative.enum_name), ";\n          ::std::construct_at(&this->",
                      member_name(item), ".", field_name(first_alternative.enum_name),
-                     ");\n          ::rohit::serializer::detail::protobuf_reset(this->",
+                     ");\n          ::rohit::serializer::detail::protobuf_reset<ProtobufProtocol::format>(this->",
                      member_name(item), ".", field_name(first_alternative.enum_name),
                      ");\n        };\n        ", protocol,
                      ".reset_json_field(protobuf_reset_union);\n        if (", protocol,
@@ -1199,7 +1354,7 @@ public:
                        "              nested.oneof(protobuf_selected, ", index, ");\n"
                        "              if (this->", union_tag_name(item), " != ", tag, ") {\n"
                        "                ::std::construct_at(&", payload, ");\n"
-                       "                ::rohit::serializer::detail::protobuf_reset(", payload, ");\n"
+                       "                ::rohit::serializer::detail::protobuf_reset<ProtobufProtocol::format>(", payload, ");\n"
                        "                this->", union_tag_name(item), " = ", tag, ";\n              }\n"
                        "              nested.field(", payload, ");\n              continue;\n            }\n");
         }
@@ -1208,8 +1363,18 @@ public:
         output.write("        ", protocol, ".field(this->", member_name(item), ");\n");
       }
       output.write("        continue;\n      }\n");
+      if (!condition.empty()) {
+        output.write("    }\n");
+      }
     }
-    output.write("      ", protocol, ".unknown();\n    }\n  }\n");
+    output.write("      ", protocol, ".unknown();\n    }\n");
+    if (!object.magic_bytes.empty()) {
+      const auto condition = protobuf_field_condition(object.magic_omitted_formats, "ProtobufProtocol::format");
+      if (!condition.empty()) { output.write("    if constexpr (", condition, ") {\n"); }
+      output.write("    if (!protobuf_seen_magic) { throw ::std::invalid_argument{\"Missing magic\"}; }\n");
+      if (!condition.empty()) { output.write("    }\n"); }
+    }
+    output.write("  }\n");
   }
 
   // Build a typed view codec expression without introducing a runtime field descriptor table.
@@ -1398,6 +1563,18 @@ public:
     }
 
     out_stream.write(" {\n");
+    if (!obj->magic_bytes.empty()) {
+      out_stream.write(::std::string_view{obj->magic_access == access_type::public_access ? "public:\n" :
+                       obj->magic_access == access_type::protected_access ? "protected:\n" :
+                                                                          "private:\n"},
+                       "  // Exact schema-owned binary header; no object storage or implicit terminator.\n"
+                       "  inline static constexpr char magic[] = {");
+      for (std::size_t index = 0; index < obj->magic_bytes.size(); ++index) {
+        if (index != 0) { out_stream.write(", "); }
+        out_stream.write("static_cast<char>(", static_cast<unsigned>(static_cast<unsigned char>(obj->magic_bytes[index])), ")");
+      }
+      out_stream.write("};\n");
+    }
     if (obj->type == object_type::generic_definition) {
       for (const auto& parameter : obj->generic_parameters) {
         if (parameter.kind == generic_argument_kind::dimension) {

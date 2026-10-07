@@ -152,7 +152,7 @@
       }
     },
     {
-      "match": "\\b(public|protected|private)\\s+(version)\\b",
+      "match": "\\b(public|protected|private)\\s+(version|magic)\\b",
       "captures": {
         "1": {
           "name": "storage.modifier.serializer"
@@ -163,7 +163,7 @@
       }
     },
     {
-      "match": "\\b(public|protected|private|managed)\\s+((?!(?:array|map|union|managed|version)\\b)(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
+      "match": "\\b(public|protected|private|managed)\\s+((?!(?:array|map|union|managed|version|magic)\\b)(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
       "captures": {
         "1": {
           "name": "storage.modifier.serializer"
@@ -247,7 +247,7 @@
     },
     {
       "name": "keyword.control.serializer",
-      "match": "\\b(serializer|version|compatibility|created|obsolete|replaced|reserve|releases|policy|any|all|max_age|keep_last|released_since|expires_on)\\b"
+      "match": "\\b(serializer|version|magic|omit|compatibility|created|obsolete|replaced|reserve|releases|policy|any|all|max_age|keep_last|released_since|expires_on)\\b"
     },
     {
       "name": "storage.type.serializer",

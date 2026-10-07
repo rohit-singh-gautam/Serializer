@@ -22,6 +22,12 @@ namespace rohit::serializer {
 // Select a standard Protobuf representation at compile time.
 enum class protobuf_format { binary, json, text };
 
+// Map the selected Protobuf template argument to the shared compile-time format identity.
+template <protobuf_format Format>
+inline constexpr wire_format protobuf_wire_format = Format == protobuf_format::binary
+    ? wire_format::protobuf : Format == protobuf_format::json
+    ? wire_format::protojson : wire_format::textproto;
+
 namespace detail {
 inline constexpr std::uint32_t protobuf_max_field = 536870911;
 inline constexpr unsigned protobuf_tag_bits = 3;
@@ -48,9 +54,11 @@ constexpr unsigned protobuf_wire_type() {
 }
 
 // Construct standard Protobuf defaults rather than carrying Serializer schema initializers.
-template <typename T>
+template <wire_format SelectedFormat = wire_format::protobuf, typename T>
 void protobuf_reset(T& value) {
-  if constexpr (requires { value.serializer_protobuf_reset(); }) {
+  if constexpr (requires { value.template serializer_protobuf_reset<SelectedFormat>(); }) {
+    value.template serializer_protobuf_reset<SelectedFormat>();
+  } else if constexpr (requires { value.serializer_protobuf_reset(); }) {
     value.serializer_protobuf_reset();
   } else {
     value = T{};
@@ -183,6 +191,7 @@ class protobuf_codec<serialize_type::out, Format, Stream> {
 
 public:
   using stream_type = Stream;
+  static constexpr wire_format format = protobuf_wire_format<Format>;
   template <rohit::type_check::output_buffer OtherStream>
   using rebind_stream = protobuf_codec<serialize_type::out, Format, OtherStream>;
 
@@ -790,6 +799,7 @@ class protobuf_codec<serialize_type::in, Format, Stream> : public json<serialize
 
 public:
   using stream_type = Stream;
+  static constexpr wire_format format = protobuf_wire_format<Format>;
   template <rohit::type_check::input_buffer OtherStream>
   using rebind_stream = protobuf_codec<serialize_type::in, Format, OtherStream>;
 
@@ -1005,7 +1015,7 @@ public:
   template <typename T>
   void field(T& value) {
     if (null_value()) {
-      detail::protobuf_reset(value);
+      detail::protobuf_reset<format>(value);
       return;
     }
     if constexpr (type_check::vector<T>) {
@@ -1013,7 +1023,7 @@ public:
       const auto append = [&] {
         collection_entry(sizeof(Element));
         Element element{};
-        detail::protobuf_reset(element);
+        detail::protobuf_reset<format>(element);
         if constexpr (Format == protobuf_format::json) {
           whitespace();
           if (remaining() >= 4 && std::memcmp(in_stream.curr(), "null", 4) == 0) {
@@ -1104,7 +1114,7 @@ public:
               fail("Null map value");
             }
             Value mapped{};
-            detail::protobuf_reset(mapped);
+            detail::protobuf_reset<format>(mapped);
             field(mapped);
             value.insert_or_assign(std::move(key), std::move(mapped));
             whitespace();
@@ -1121,7 +1131,7 @@ public:
           collection_entry(sizeof(typename T::value_type));
           Key key{};
           Value mapped{};
-          detail::protobuf_reset(mapped);
+          detail::protobuf_reset<format>(mapped);
           message([&](auto& entry) {
             bool seen_key{};
             bool seen_value{};
@@ -1160,7 +1170,7 @@ public:
         append_entry();
       }
     } else if constexpr (requires { value.serializer_protobuf_read(*this); }) {
-      reset_json_field([&] { detail::protobuf_reset(value); });
+      reset_json_field([&] { detail::protobuf_reset<format>(value); });
       message([&](auto& nested) { value.serializer_protobuf_read(nested); });
     } else {
       scalar(value);
@@ -1172,7 +1182,7 @@ public:
   void protobuf_object(T& value) {
     require_input(in_stream.remaining_buffer());
     T replacement{};
-    detail::protobuf_reset(replacement);
+    detail::protobuf_reset<format>(replacement);
     message([&](auto& input) { replacement.serializer_protobuf_read(input); }, true);
     finish();
     value = std::move(replacement);

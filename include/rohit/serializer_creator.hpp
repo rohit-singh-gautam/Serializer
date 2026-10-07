@@ -20,6 +20,7 @@
 #include <rohit/serializer.hpp>
 #include <rohit/stream.hpp>
 
+#include <algorithm>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
@@ -28,6 +29,7 @@
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <type_traits>
 #include <utility>
 #include <vector>
@@ -284,6 +286,12 @@ struct member {
   std::vector<dimension_expression> extent_expression{};
   std::uint64_t fixed_extent{}; // Zero denotes a variable-length collection.
   bool version{false};
+  std::string magic_bytes{}; // Temporary parser result; class metadata never enters member_list.
+  std::vector<std::string> omitted_formats{};
+  // Resolve output exclusion during generation rather than storing runtime format state.
+  bool omits(std::string_view format) const {
+    return std::find(omitted_formats.begin(), omitted_formats.end(), format) != omitted_formats.end();
+  }
   bool obsolete{false}; // Bare obsolete deprecates the API without changing its wire lifetime.
   std::string created_version{};
   std::string obsolete_version{};
@@ -299,6 +307,7 @@ struct member {
            type_name_list == rhs.type_name_list && name == rhs.name && managed == rhs.managed &&
            extent_expression == rhs.extent_expression && fixed_extent == rhs.fixed_extent &&
            version == rhs.version && obsolete == rhs.obsolete &&
+           omitted_formats == rhs.omitted_formats &&
            created_version == rhs.created_version && obsolete_version == rhs.obsolete_version &&
            replaced_member == rhs.replaced_member &&
            compatibility_version == rhs.compatibility_version && releases == rhs.releases &&
@@ -325,6 +334,15 @@ struct class_node : public syntax_node {
   std::uint8_t storage_modes{static_cast<std::uint8_t>(storage_mode::owning)};
   std::vector<parent> parents;
   std::vector<member> member_list{};
+  std::string magic_bytes{}; // Exact raw binary prefix; no terminator, length, or field identity.
+  access_type magic_access{access_type::private_access};
+  std::uint32_t magic_id{1};
+  bool magic_explicit_id{false};
+  std::vector<std::string> magic_omitted_formats{};
+  // Resolve fixed-header exclusions from compiler metadata.
+  bool magic_omits(std::string_view format) const {
+    return std::find(magic_omitted_formats.begin(), magic_omitted_formats.end(), format) != magic_omitted_formats.end();
+  }
   std::vector<std::string> type_parameters{};
   std::vector<generic_parameter> generic_parameters{};
   std::vector<type_name> instance_of{};
@@ -343,6 +361,9 @@ struct class_node : public syntax_node {
   class_node(class_node&& rhs)
       : syntax_node{std::move(rhs)}, attributes{rhs.attributes}, storage_modes{rhs.storage_modes},
         parents{std::move(rhs.parents)}, member_list{std::move(rhs.member_list)},
+        magic_bytes{std::move(rhs.magic_bytes)}, magic_access{rhs.magic_access},
+        magic_id{rhs.magic_id}, magic_explicit_id{rhs.magic_explicit_id},
+        magic_omitted_formats{std::move(rhs.magic_omitted_formats)},
         type_parameters{std::move(rhs.type_parameters)},
         generic_parameters{std::move(rhs.generic_parameters)},
         instance_of{std::move(rhs.instance_of)}, generic_name{std::move(rhs.generic_name)},

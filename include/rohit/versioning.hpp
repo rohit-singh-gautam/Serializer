@@ -19,6 +19,9 @@ namespace rohit::serializer {
 // Select accepted schema revisions and protocol-supported handling of unknown fields.
 enum class read_policy { strict, compatible, flexible };
 
+// Identify the protocol at compile time for schema-owned field exclusions.
+enum class wire_format { json, binary_none, binary_integer, binary_string, protobuf, protojson, textproto };
+
 namespace detail {
 // Custom codecs may opt into canonical dotted JSON strings with the same marker.
 template <typename Protocol>
@@ -29,6 +32,19 @@ inline constexpr bool is_json_protocol = [] {
     return false;
   }
 }();
+
+// Retain custom protocol compatibility by deriving native formats from their existing key marker.
+template <typename Protocol> consteval wire_format protocol_wire_format() {
+  if constexpr (requires { Protocol::format; }) {
+    return Protocol::format;
+  } else if constexpr (is_json_protocol<Protocol>) {
+    return wire_format::json;
+  } else {
+    return static_cast<unsigned>(Protocol::key_type) == 0 ? wire_format::binary_none :
+           static_cast<unsigned>(Protocol::key_type) == 1 ? wire_format::binary_integer :
+                                                         wire_format::binary_string;
+  }
+}
 } // namespace detail
 
 // An ordered version with a schema-fixed count of unsigned 16-bit components.

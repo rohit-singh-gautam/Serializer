@@ -1,0 +1,24 @@
+serializer version 1;
+
+namespace magic_test {
+  class record stable_ids {
+    public magic (100) { 'SRL\0UTF8' };
+    public version uint16 revision (101) { 2 } compatibility { 1 };
+    public uint32 kept (1);
+    public string human (2) { "default" } omit(binary_positional, binary_integer, binary_string);
+    public uint16 diagnostic (3) { 7 } omit(json);
+  }
+  class private_record {
+    private magic { 'FIXED' };
+    public string name;
+  }
+  class omitted_header {
+    private magic { 'OPTIONAL' } omit(json, binary_integer);
+    public uint32 value;
+  }
+  class generic_header<Value> {
+    public magic (100) { 'GENERIC' } omit(binary_integer);
+    public Value value;
+  }
+  instantiate generic_uint32 = generic_header<uint32>;
+}

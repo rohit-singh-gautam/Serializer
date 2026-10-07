@@ -1,3 +1,13 @@
+# 1.1.19
+
+- Use the portable `SRLFILE` magic snippet default in both synchronized editor packages.
+- Update package identities, build output paths, and current editor documentation together.
+
+# 1.1.18
+
+- Highlight immutable magic declarations and generic format exclusions.
+- Preserve adjacent type navigation and add shared magic/omit snippets and regression coverage.
+
 # 1.1.17
 
 - Highlight release catalogs, generation-time date/count policies, and nested any/all acceptance trees.

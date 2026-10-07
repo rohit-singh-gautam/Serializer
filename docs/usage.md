@@ -5,6 +5,10 @@ layouts, field lifetimes, replacements, reservations, common read policies, and
 compiler-only release-date/count policies. These resolve to ordinary version bounds
 and add no dates or policy evaluation to generated codecs.
 
+Use [magic and format omissions](magic_and_omission.md) for schema-owned fixed
+headers, verified JSON identities, exact binary prefixes, and compile-time C++
+output exclusions.
+
 New to the project? Start with the [project overview](../README.md#get-started).
 For editing and persistence concepts, read the
 [history, journal, collaboration, and authorization introduction](managed/getting_started.md).

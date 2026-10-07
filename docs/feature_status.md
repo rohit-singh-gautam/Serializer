@@ -20,6 +20,11 @@ Swift, Kotlin, and C output supporting JSON and three binary protocols. The comp
 all generators remain entirely C++; generated portable codecs have no native runtime
 dependency. The C++ runtime API and default generated C++ use `snake_case`.
 
+Owning schemas support fixed static `magic` and per-field `omit(format, ...)`
+across all native languages. C++ also supports these in its opt-in Protobuf
+mappings. Generated C++ selects omissions at compile time; view layouts reject
+these annotations explicitly. See [magic and omission](magic_and_omission.md).
+
 Opt-in C++ codecs also support **Protobuf binary, ProtoJSON, and TextProto** through
 compile-time protocol templates, for both encoding and decoding. See [Protobuf
 codecs](protobuf.md) for generation, schema mappings, and limitations. ProtoJSON

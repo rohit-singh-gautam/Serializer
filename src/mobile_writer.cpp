@@ -1,5 +1,6 @@
 #include "native_schema.hpp"
 #include "version_writer.hpp"
+#include "format_writer.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -20,6 +21,7 @@ class mobile_emitter {
   const bool swift;
   std::string output{};
   std::size_t indent{};
+  bool variable_first{};
   // Select syntax for the current native language.
   std::string select(std::string_view apple, std::string_view jvm) const {
     return std::string{swift ? apple : jvm};
@@ -174,8 +176,44 @@ class mobile_emitter {
                 "throw SerializerException(\"Unsupported schema version\")"));
     close();
   }
+  // Select explicitly excluded native formats in the platform's protocol vocabulary.
+  std::string omissions(const std::vector<std::string>& formats, bool reading) const {
+    return omitted_condition(formats,
+                             reading ? select("input.protocolValue", "input.protocol")
+                                     : select("out.protocolValue", "out.protocol"),
+                             select(".", "Protocol."), protocol_name_style::upper_snake);
+  }
+  // Form validated UTF-8 metadata from immutable class bytes.
+  std::string magic_text() const {
+    return select("String(decoding: Self.magic, as: UTF8.self)",
+                  "magic.map { it.toByte() }.toByteArray().toString(Charsets.UTF_8)");
+  }
+  // Emit metadata in the platform's existing static scope.
+  void magic_declaration(const class_node& value) {
+    if (value.magic_bytes.empty()) { return; }
+    std::string bytes;
+    for (const auto byte : value.magic_bytes) {
+      bytes += (bytes.empty() ? "" : ", ") +
+               std::to_string(static_cast<unsigned char>(byte)) + (swift ? "" : "u");
+    }
+    const bool visible = value.magic_access == access_type::public_access;
+    line("// Immutable schema identity has no per-instance storage.");
+    if (swift) {
+      line(std::string(visible ? "public " : "private ") + "static let magic: [UInt8] = [" + bytes + "]");
+    } else {
+      line(std::string(visible ? "" : "private ") +
+           "val magic: List<UByte> = java.util.Collections.unmodifiableList(listOf(" + bytes + "))");
+    }
+  }
   // Record presence and consume only fields active in positional input.
   void read_versioned_member(const class_node& owner, const member& item) {
+    const auto omitted = omissions(item.omitted_formats, true);
+    if (!omitted.empty()) {
+      open(select("if " + omitted, "if (" + omitted + ")"));
+      line(select("throw SerializerError.invalid(\"Field omitted from selected format\")",
+                  "throw SerializerException(\"Field omitted from selected format\")"));
+      close();
+    }
     const auto* version = owner.version_member();
     if (version) {
       const auto slot = std::to_string(version_slot(owner, item));
@@ -293,7 +331,7 @@ class mobile_emitter {
   // Emit a key index into the module's pre-encoded table.
   void key(std::uint32_t id, const std::string& name, bool first) {
     line(attempt() + "out.field(" + std::to_string(id) + ", " +
-         std::to_string(model.keys.at(name)) + ", " + (first ? "true" : "false") + ")");
+         std::to_string(model.keys.at(name)) + ", " + (variable_first ? "firstField" : first ? "true" : "false") + ")");
   }
   // Construct a deterministic map traversal including unsigned and UTF-8 keys.
   std::string sorted(const member& value, const std::string& source) const {
@@ -471,6 +509,7 @@ class mobile_emitter {
     const auto name = model.names.at(&value);
     line("// Owning schema model; avoid concurrent mutation during encoding.");
     open(select("public struct ", "class ") + name);
+    if (swift) { magic_declaration(value); }
     const auto declare = [&](const std::string& id, const std::string& type_name,
                              const std::string& initial_value, access_type access) {
       const auto visibility =
@@ -509,6 +548,7 @@ class mobile_emitter {
     close();
     if (!swift) {
       open("companion object");
+      magic_declaration(value);
     }
     std::string ids = select("[", "intArrayOf(");
     bool id_first = true;
@@ -526,7 +566,7 @@ class mobile_emitter {
       add_id(base.id);
     }
     for (const auto& item : value.member_list) {
-      if (!item.version) {
+      if (!item.version && !item.omits("binary_none")) {
         add_id(item.id);
       }
     }
@@ -561,16 +601,40 @@ class mobile_emitter {
     if (value.version_member()) {
       check_version(value, false);
     }
+    if (!value.magic_bytes.empty()) {
+      const auto omitted = omissions(value.magic_omitted_formats, false);
+      const auto active = "!out.json()" + (omitted.empty() ? "" : " && !(" + omitted + ")");
+      open(select("if " + active, "if (" + active + ")"));
+      for (const auto byte : value.magic_bytes) {
+        line("out.integer(" + std::to_string(static_cast<unsigned char>(byte)) +
+             select("", "uL") + ", 1, true)");
+      }
+      close();
+    }
     line(attempt() + "out.beginObject()");
     bool first = true;
+    variable_first = std::any_of(value.member_list.begin(), value.member_list.end(),
+                                 [](const auto& item) { return item.omits("json"); });
+    if (variable_first) { line("var firstField = true"); }
+    const bool magic_json = !value.magic_bytes.empty() && !value.magic_omits("json");
+    if (magic_json) {
+      open(select("if out.json()", "if (out.json())"));
+      key(value.magic_id, "magic", true);
+      line(attempt() + "out.text(" + magic_text() + ")");
+      if (variable_first) { line("firstField = false"); }
+      close();
+      first = false;
+    }
     if (const auto* version = value.version_member()) {
-      write_member(*version, true);
+      write_member(*version, first);
+      if (variable_first) { line("firstField = false"); }
       first = false;
     }
     for (std::size_t i = 0; i < value.parents.size(); ++i) {
       const auto& base = value.parents[i];
       key(base.id, base.display_name, first);
       line(attempt() + "base" + std::to_string(i) + ".srlWrite(out)");
+      if (variable_first) { line("firstField = false"); }
       first = false;
     }
     for (const auto& item : value.member_list) {
@@ -584,17 +648,36 @@ class mobile_emitter {
       if (!active.empty()) {
         open(select("if " + active, "if (" + active + ")"));
       }
+      const auto omitted = omissions(item.omitted_formats, false);
+      if (!omitted.empty()) { open(select("if !(" + omitted + ")", "if (!(" + omitted + "))")); }
       write_member(item, first);
+      if (variable_first) { line("firstField = false"); }
+      if (!omitted.empty()) { close(); }
       if (!active.empty()) {
         close();
       }
       first = false;
     }
+    variable_first = false;
     line("out.endObject()");
     close();
     line("// Merge repeated nested fields while replacing complete collections.");
     open(select("fileprivate mutating func srlRead(_ input: SrlReader) throws",
                 "internal fun srlRead(input: SrlReader)"));
+    if (!value.magic_bytes.empty()) {
+      const auto omitted = omissions(value.magic_omitted_formats, true);
+      const auto active = "!input.json()" + (omitted.empty() ? "" : " && !(" + omitted + ")");
+      open(select("if " + active, "if (" + active + ")"));
+      for (const auto byte : value.magic_bytes) {
+        const auto literal = std::to_string(static_cast<unsigned char>(byte)) + select("", "uL");
+        line(select("if try input.integer(1, true) != " + literal +
+                        " { throw SerializerError.invalid(\"Incorrect schema magic\") }",
+                    "if (input.integer(1, true) != " + literal +
+                        ") { throw SerializerException(\"Incorrect schema magic\") }"));
+      }
+      close();
+    }
+    if (magic_json) { line("var magicSeen = false"); }
     if (value.version_member()) {
       line(select("var seen = [Bool](repeating: false, count: ", "val seen = BooleanArray(") +
            std::to_string(value.parents.size() + value.member_list.size()) + ")");
@@ -608,7 +691,7 @@ class mobile_emitter {
       line("val key = input.key(srlIds, cursor) ?: break");
     }
     line("cursor += 1");
-    line((swift && value.parents.empty() && value.member_list.empty() ? "let " : "var ") +
+    line((swift && value.parents.empty() && value.member_list.empty() && value.magic_bytes.empty() ? "let " : "var ") +
          std::string{"id = key.id"});
     const bool has_union =
         std::any_of(value.member_list.begin(), value.member_list.end(), [](const auto& item) {
@@ -625,6 +708,7 @@ class mobile_emitter {
       line(select("case " + quote(text) + ": " + assignment,
                   quote(text) + " -> { " + assignment + " }"));
     };
+    if (!value.magic_bytes.empty()) { branch("magic", value.magic_id, -1); }
     for (const auto& base : value.parents) {
       branch(base.display_name, base.id, -1);
     }
@@ -643,6 +727,27 @@ class mobile_emitter {
     close();
     close();
     open(select("switch id", "when (id)"));
+    if (magic_json) {
+      if (swift) {
+        line("case " + std::to_string(value.magic_id) + ":");
+        ++indent;
+      } else {
+        open(std::to_string(value.magic_id) + " ->");
+      }
+      line(select("if !input.json() || magicSeen { throw SerializerError.invalid(\"Duplicate schema magic\") }",
+                  "if (!input.json() || magicSeen) { throw SerializerException(\"Duplicate schema magic\") }"));
+      line(select("let magicText = try input.text()", "val magicText = input.text()"));
+      line(select("if !magicText.utf8.elementsEqual(Self.magic) { throw SerializerError.invalid(\"Incorrect schema magic\") }",
+                  "if (magicText != " + magic_text() + ") { throw SerializerException(\"Incorrect schema magic\") }"));
+      line("magicSeen = true");
+      if (swift) { --indent; } else { close(); }
+    }
+    if (!value.magic_bytes.empty() && !magic_json) {
+      line(select("case " + std::to_string(value.magic_id) +
+                      ": throw SerializerError.invalid(\"Field omitted from selected format\")",
+                  std::to_string(value.magic_id) +
+                      " -> throw SerializerException(\"Field omitted from selected format\")"));
+    }
     for (std::size_t i = 0; i < value.parents.size(); ++i) {
       line(select("case ", "") + std::to_string(value.parents[i].id) + select(": try ", " -> ") +
            "base" + std::to_string(i) + ".srlRead(input)");
@@ -666,6 +771,10 @@ class mobile_emitter {
     close();
     close();
     line("input.endObject()");
+    if (magic_json) {
+      line(select("if input.json() && !magicSeen { throw SerializerError.invalid(\"Missing schema magic\") }",
+                  "if (input.json() && !magicSeen) { throw SerializerException(\"Missing schema magic\") }"));
+    }
     if (const auto* version = value.version_member()) {
       const auto slot = std::to_string(version_slot(value, *version));
       open(select("if !seen[" + slot + "]", "if (!seen[" + slot + "])"));

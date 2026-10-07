@@ -345,6 +345,9 @@ void naming::validate_names(const std::vector<std::unique_ptr<syntax_node>>& sta
                                      "SerializeOutProtocol",
                                      "SerializerStream",
                                      "Protocol"};
+        if (!object.magic_bytes.empty()) {
+          insert_name(owning, "magic");
+        }
         for (const auto& parameter : object.generic_parameters) {
           if (node.type == object_type::generic_definition) { insert_name(owning, parameter.name); }
         }

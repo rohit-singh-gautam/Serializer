@@ -1,0 +1,16 @@
+serializer version 1;
+include magic.serializer;
+include ../../example/schemas/versioning/model.serializer;
+
+class omission_first {
+  public uint32 json_removed (1) { 7 } omit(json);
+  public uint32 positional_removed (2) { 9 } omit(binary_none);
+  public uint32 integer_removed (3) { 11 } omit(binary_integer);
+  public uint32 string_removed (4) { 13 } omit(binary_string);
+  public uint32 visible (5) { 17 };
+}
+
+class unicode_magic {
+  protected magic { 'UTF8é🚀' };
+  public uint32 value { 5 };
+}

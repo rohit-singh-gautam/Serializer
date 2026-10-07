@@ -4,7 +4,7 @@ This extension supports the [Serializer schema compiler and serialization librar
 maintained in that repository.
 
 Edit `.serializer` schemas with syntax highlighting, bracket matching, comments,
-folding, and snippets. Version **1.1.17** includes navigation from includes and type
+folding, and snippets. Version **1.1.19** includes navigation from includes and type
 references to source schemas and existing generated code in all 11 output languages. Use the project's
 CMake configuration for the separate build and missing-header assistance commands.
 
@@ -78,7 +78,7 @@ same declaration, definition, and type-definition actions. Cursor offsets and
 local symbols come from the displayed snapshot. Includes, other schema files,
 and generated output resolve against the current workspace; this does not
 reconstruct a historical checkout. With an older extension, open the working
-file from Explorer to use navigation, or install 1.1.17 and reload VS Code.
+file from Explorer to use navigation, or install 1.1.19 and reload VS Code.
 
 Caller navigation depends on the language service's active project configuration.
 For this repository's managed ledger examples/tests, use
@@ -252,8 +252,16 @@ contracts; fixed-array output is currently unsupported there. The shared grammar
 highlights dimension arithmetic and the `matrix` snippet inserts a fixed-array
 example. Both packages use the same navigation implementation.
 
-Version 1.1.17 recognizes payload `version`/`compatibility`, `version2`/`version3`/`version4`, `created`/`obsolete`/`replaced`, and `reserve` syntax. Qualified field-type navigation remains available beside lifecycle metadata. See the [revision contract](../../docs/versioning.md).
+Version 1.1.19 recognizes payload `version`/`compatibility`, `version2`/`version3`/`version4`, `created`/`obsolete`/`replaced`, and `reserve` syntax. Qualified field-type navigation remains available beside lifecycle metadata. See the [revision contract](../../docs/versioning.md).
 
-## Release policies (1.1.17)
+## Release policies (1.1.19)
 
 Both extensions highlight `releases`, nested `policy` / `any` / `all`, and the `max_age`, `keep_last`, `released_since`, `expires_on`, and compatibility leaves. The schema compiler folds these into ordinary version bounds; generated readers contain no dates or policy tree. See the [release policy contract](../../docs/versioning.md#release-dates-and-compile-time-policies).
+
+## Magic and format exclusions (1.1.19)
+
+Both editors recognize static `magic` declarations and field `omit(...)` annotations.
+The compiler writes exact magic bytes before native binary payloads and verifies the
+fixed `magic` JSON field by default. `omit(json)` explicitly removes it from JSON;
+ordinary fields can exclude any supported format and retain their defaults on decode.
+Magic byte strings remain literals, and adjacent schema type references retain navigation.
