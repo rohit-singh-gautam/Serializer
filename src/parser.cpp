@@ -24,6 +24,7 @@
 #include "schema_version.hpp"
 
 #include <algorithm>
+#include <array>
 #include <charconv>
 #include <concepts>
 #include <cstdint>
@@ -1755,13 +1756,13 @@ void parse_version_header(const rohit::type_check::schema_input_buffer auto& inp
   skip_whitespace_and_comment(input);
   if (!(input == "serializer")) {
     if (required) {
-      throw exception::bad_input_data{input, "Expected first statement: serializer version 1;"};
+      throw exception::bad_input_data{input, "Expected first statement: serializer version 1.0.0;"};
     }
     return;
   }
   for (const auto token : {std::string_view{"serializer"}, std::string_view{"version"}}) {
     if (!(input == token)) {
-      throw exception::bad_input_data{input, "Expected header: serializer version 1;"};
+      throw exception::bad_input_data{input, "Expected header: serializer version 1.0.0;"};
     }
     input += token.size();
     if (!input.full() && is_identifier(*input)) {
@@ -1769,19 +1770,47 @@ void parse_version_header(const rohit::type_check::schema_input_buffer auto& inp
     }
     skip_whitespace_and_comment(input);
   }
-  const auto* begin = reinterpret_cast<const char*>(input.curr());
-  std::size_t digits{};
-  while (!input.full() && is_number(*input)) {
-    ++input;
-    ++digits;
+  // Read each bounded decimal component without arithmetic overflow or unbounded lookahead.
+  const auto read_component = [&input]() {
+    const auto* begin = reinterpret_cast<const char*>(input.curr());
+    std::size_t digits{};
+    while (!input.full() && is_number(*input)) {
+      ++input;
+      ++digits;
+    }
+    unsigned component{};
+    if (digits == 0) {
+      throw exception::bad_input_data{input, "Expected decimal schema language version component"};
+    }
+    const auto converted = std::from_chars(begin, begin + digits, component);
+    if (converted.ec != std::errc{}) {
+      throw exception::bad_input_data{input, "Schema language version component is out of range"};
+    }
+    return component;
+  };
+  constexpr std::array supported_version{schema_language_version_major,
+                                         schema_language_version_minor,
+                                         schema_language_version_patch};
+  constexpr std::array legacy_version{1u, 0u, 0u};
+  std::array<unsigned, supported_version.size()> version{};
+  version.front() = read_component();
+  if (!input.full() && *input == '.') {
+    for (std::size_t component = 1; component < version.size(); ++component) {
+      if (input.full() || *input != '.') {
+        throw exception::bad_input_data{input, "Expected schema language version major.minor.patch"};
+      }
+      ++input;
+      version[component] = read_component();
+    }
+  } else if (version != legacy_version) {
+    // Only the original version 1 has an integer alias, even after future major releases.
+    throw exception::bad_input_data{
+      input, "Expected major.minor.patch; only schema language version 1 aliases 1.0.0"};
   }
-  unsigned version{};
-  if (digits == 0) {
-    throw exception::bad_input_data{input, "Expected decimal schema language version"};
-  }
-  const auto converted = std::from_chars(begin, begin + digits, version);
-  if (converted.ec != std::errc{} || version != schema_language_version) {
-    throw exception::bad_input_data{input, "Unsupported schema language version; supported: 1"};
+  if (version.front() != supported_version.front() || version > supported_version) {
+    throw exception::bad_input_data{
+      input, "Unsupported schema language version; supported: " +
+               std::string{schema_language_version_text}};
   }
   skip_whitespace_and_comment(input);
   if (input.full() || *input != ';') {

@@ -17,7 +17,7 @@
   "Schema": {
     "prefix": "schema",
     "body": [
-      "serializer version 1;",
+      "serializer version 1.0.0;",
       "",
       "namespace ${1:models} {",
       "class ${2:account} stable_ids {",

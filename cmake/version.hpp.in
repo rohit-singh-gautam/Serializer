@@ -7,5 +7,10 @@
 namespace rohit::serializer {
 inline constexpr std::string_view compiler_version{"@PROJECT_VERSION@"};
 // Schema language versions are independent of compiler releases and wire encoding.
-inline constexpr unsigned schema_language_version = 1;
+inline constexpr std::string_view schema_language_version_text{"@serializer_schema_language_version@"};
+inline constexpr unsigned schema_language_version_major = @serializer_schema_language_version_major@;
+inline constexpr unsigned schema_language_version_minor = @serializer_schema_language_version_minor@;
+inline constexpr unsigned schema_language_version_patch = @serializer_schema_language_version_patch@;
+// Preserve the original scalar API as the language major; use the text for the full version.
+inline constexpr unsigned schema_language_version = schema_language_version_major;
 } // namespace rohit::serializer

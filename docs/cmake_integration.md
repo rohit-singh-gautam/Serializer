@@ -31,7 +31,8 @@ See [include usage](usage.md#share-declarations-with-includes) and
 Each helper explicitly selects its own backend, so both may share a configuration
 with `[output] language = cpp,java`. Schema paths use `.serializer`, and every
 schema starts with `serializer version 1;`. The installed package supports
-`find_package(Serializer 1.0.0 EXACT CONFIG REQUIRED)`; see
+`find_package(Serializer 1.1.0 EXACT CONFIG REQUIRED)`; omit `EXACT` to accept a
+newer compatible release within the same major version. See
 [compiler and schema versioning](command_line.md).
 
 Serializer ships a `serializer_generate` function with both its source tree and

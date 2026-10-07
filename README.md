@@ -10,6 +10,17 @@ Define your data once in a `.serializer` schema, then generate classes and codec
 for JSON and binary serialization. Serializer includes a C++20 schema compiler,
 a C++ runtime, and generators for multiple languages.
 
+The current compiler and runtime release is **1.1.0**. Bug fixes and minor updates
+increase the patch number; new features increase the minor number. Both preserve
+full compatibility. Developers change the major number manually, with best-effort
+compatibility across major releases. The schema language version is **1.0.0**;
+see [release and schema versions](docs/command_line.md).
+
+Use `serializer version 1.0.0;` for the language header. The original
+`serializer version 1;` is an exact compatibility alias for `1.0.0`, exclusive to
+version 1. Future versions require all three components; see the
+[schema language policy](docs/command_line.md#schema-language-version-policy).
+
 **Supported outputs:** C++, Java, JavaScript, TypeScript declarations, Go, C#,
 Rust, Python, Swift, Kotlin, and C. TypeScript uses the JavaScript runtime.
 
@@ -50,7 +61,7 @@ their target language without a native Serializer runtime dependency.
 Save this as `person.serializer`:
 
 ```text
-serializer version 1;
+serializer version 1.0.0;
 
 namespace demo {
   class person {
@@ -60,7 +71,8 @@ namespace demo {
 }
 ```
 
-Every schema begins with `serializer version 1;`. Each field declares its access
+Every schema begins with `serializer version 1.0.0;` (or the original `1` alias).
+Each field declares its access
 level, type, and name. Start with [schema examples](docs/schema_examples.md) for
 arrays, maps, enums, and defaults.
 
@@ -186,8 +198,8 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editor_extension.md) |
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
-Both extensions use release version **1.1.22**, independent of compiler version
-**1.0.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
+Both extensions use release version **1.1.23**, independent of compiler version
+**1.1.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
 for supported destinations and language-service prerequisites.
 VS Code also supports navigation from read-only Git index/history tabs, using
 the displayed snapshot and current workspace destinations.

@@ -34,7 +34,7 @@ endfunction()
 
 succeed(--version)
 if(NOT last_output MATCHES "Serializer compiler ${VERSION}" OR
-    NOT last_output MATCHES "Supported schema language version: 1")
+    NOT last_output MATCHES "Supported schema language version: 1[.]0[.]0[\r\n]")
   message(FATAL_ERROR "Incorrect compiler version: ${last_output}")
 endif()
 succeed(-v)
@@ -109,6 +109,10 @@ reject("Input must use .serializer" -i "${DIRECTORY}/legacy.def" -o "${cpp}")
 foreach(header IN ITEMS "" "serializer version 0;" "serializer version 2;"
     "serializer version 999999999999999999999;" "serializer version -1;"
     "serializer version 1" "serializer version 1.0;" "serializer version1;"
+    "serializer version 1..0;" "serializer version 1.0.0.0;"
+    "serializer version 1.0.1;" "serializer version 1.1.0;" "serializer version 2.0.0;"
+    "serializer version 1.999999999999999999999.0;"
+    "serializer version 1.0.999999999999999999999;"
     "serializer version 1; serializer version 1;")
   file(WRITE "${schema}" "${header}\nclass account {}\n")
   reject("Serializer:" -i "${schema}" -o "${cpp}" --cpp.format false)
@@ -116,11 +120,27 @@ endforeach()
 file(WRITE "${schema}" "// comment\n/* license */ serializer /* schema */ version 1;\nclass account {}\n")
 succeed(-i "${schema}" -o "${cpp}" --cpp.format=false)
 
+# The legacy alias and full language version must produce identical C++ and Java codecs.
+foreach(language_version IN ITEMS 1 1.0.0)
+  file(WRITE "${schema}" "serializer version ${language_version};\n"
+    "class account stable_ids { public uint32 id (7); }\n")
+  succeed(-i "${schema}" -l cpp,java --cpp.output "${cpp}" --java.output "${java}"
+    --cpp.format false)
+  file(SHA256 "${cpp}" cpp_hash)
+  file(SHA256 "${java}" java_hash)
+  if(language_version STREQUAL "1")
+    set(legacy_cpp_hash "${cpp_hash}")
+    set(legacy_java_hash "${java_hash}")
+  elseif(NOT cpp_hash STREQUAL legacy_cpp_hash OR NOT java_hash STREQUAL legacy_java_hash)
+    message(FATAL_ERROR "Schema language alias changed generated codecs")
+  endif()
+endforeach()
+
 # Both backends consume one include graph, and dependency output tracks the entire graph.
 file(MAKE_DIRECTORY "${DIRECTORY}/shared")
 file(WRITE "${DIRECTORY}/shared/common.serializer"
   "serializer version 1; namespace models { class account { public uint32 id (7); } }\n")
-file(WRITE "${schema}" "serializer version 1; include shared/common;\n"
+file(WRITE "${schema}" "serializer version 1.0.0; include shared/common;\n"
   "include shared/./common.serializer; namespace models { class request { public account owner; } }\n")
 set(depfile "${DIRECTORY}/model.d")
 succeed(-i "${schema}" -l cpp,java --cpp.output "${cpp}" --java.output "${java}"
@@ -136,6 +156,17 @@ list(LENGTH containers container_count)
 if(NOT container_count EQUAL 1)
   message(FATAL_ERROR "Reopened namespace must produce one Java container")
 endif()
+# Each dependency validates its own version, independently of the entry's header.
+file(WRITE "${DIRECTORY}/shared/common.serializer"
+  "serializer version 1.0.0; namespace models { class account { public uint32 id (7); } }\n")
+file(WRITE "${schema}" "serializer version 1; include shared/common;\n"
+  "namespace models { class request { public account owner; } }\n")
+succeed(-i "${schema}" -l cpp,java --cpp.output "${cpp}" --java.output "${java}"
+  --cpp.format false --depfile "${depfile}")
+file(WRITE "${DIRECTORY}/shared/common.serializer" "serializer version 1.0.1; class account {}")
+reject("Unsupported schema language version" -i "${schema}" -o "${cpp}" --cpp.format false)
+file(WRITE "${DIRECTORY}/shared/common.serializer"
+  "serializer version 1.0.0; namespace models { class account { public uint32 id (7); } }\n")
 reject("Depfile must not overwrite" -i "${schema}" -o "${cpp}" --cpp.format false --depfile "${cpp}")
 reject("Depfile must not overwrite" -i "${schema}" -o "${cpp}" --cpp.format false --depfile "${schema}")
 reject("Depfile must not overwrite" -i "${schema}" -o "${cpp}" --cpp.format false

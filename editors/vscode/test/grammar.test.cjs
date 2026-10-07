@@ -62,6 +62,24 @@ test('block comment state spans lines without highlighting keywords inside it', 
   assert.ok(next.tokens.some(token => token.scopes.includes('entity.name.type.serializer')));
 });
 
+test('schema language versions highlight all components without affecting following declarations', async () => {
+  const grammar = await loadGrammar();
+  for (const version of ['1', '1.0.0', '1.10.20']) {
+    const line = `serializer /* language */ version ${version}; class account { public double amount { 1.25 }; }`;
+    const result = grammar.tokenizeLine(line, INITIAL);
+    const start = line.indexOf(version);
+    const token = result.tokens.find(item => item.startIndex === start);
+    assert.equal(token.endIndex, start + version.length);
+    assert.equal(token.scopes.at(-1), 'constant.numeric.serializer');
+    for (const [word, scope] of [['account', 'entity.name.type.serializer'],
+      ['1.25', 'constant.numeric.serializer']]) {
+      const offset = line.indexOf(word);
+      assert.equal(result.tokens.find(item => item.startIndex <= offset && item.endIndex > offset).scopes.at(-1), scope);
+    }
+    assert.equal(result.ruleStack.depth, 1);
+  }
+});
+
 test('unquoted includes highlight keywords, relative paths, comments and terminators', async () => {
   const grammar = await loadGrammar();
   for (const file of ['common', '../shared/common', './v1/shared-types', 'v1.2/common', '.common',

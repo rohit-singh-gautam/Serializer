@@ -75,7 +75,9 @@ user specialization, and non-C++ native generic APIs remain unsupported. See the
 [qualification record](verification-dimensions-2026-10-04.md).
 
 Language-specific output profiles select layouts and naming conventions. Schemas use
-`.serializer` and begin with `serializer version 1;`. Share declarations with `include
+`.serializer` and begin with `serializer version 1.0.0;` (the original `1` header
+is an exact alias for `1.0.0`). Schema language and compiler versions are independent.
+Future versions require all three components. Share declarations with `include
 common;` before any declarations. Paths are unquoted and relative to the including file;
 `.serializer` is appended when the filename has no extension. Explicit `include
 common.serializer;` remains supported. Includes are loaded once per entry schema and
@@ -85,7 +87,7 @@ Namespace scopes are reused during parsing; duplicate types and namespace/type c
 are rejected. See [schema includes](usage.md#share-declarations-with-includes) and the
 [paired C++/Java examples](../example/includes/README.md). Quoted defaults preserve
 literal spaces, for example `public string label { "schema default" };`; escaping the
-space is unnecessary. Run `serializer --version` for compiler version **1.0.0** and
+space is unnecessary. Run `serializer --version` for compiler version **1.1.0** and
 supported schema versions. See [command-line options](command_line.md) for
 multi-language generation and overrides.
 

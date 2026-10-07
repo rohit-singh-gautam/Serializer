@@ -12,7 +12,10 @@ Start with [small schema examples](schema_examples.md) if you are new to the syn
 
 ## Schema structure
 
-Every `.serializer` file starts with `serializer version 1;` before declarations.
+Every `.serializer` file starts with `serializer version 1.0.0;` before declarations.
+The original `serializer version 1;` is exactly the `1.0.0` language contract;
+only version 1 has an integer shorthand. Future versions require all three
+components. Schema-language and compiler release versions are independent.
 The declaration snippets below omit this header. Complete files in `example/`
 include it. See [schema versioning](command_line.md#schema-files).
 

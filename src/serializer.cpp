@@ -45,7 +45,7 @@ constexpr rohit::serializer::cli::commandline_option command_options[] = {
      "Evaluate release policies on this date (default today's UTC date)."},
     {'\0', "version-policy-warnings-as-errors", "",
      "Fail generation when the current version exceeds a release time policy."},
-    {'i', "input", "schema.serializer", "Input with a serializer version 1; header."},
+    {'i', "input", "schema.serializer", "Input with a serializer version 1.0.0; header (1 is a legacy alias)."},
     {'\0', "check-against", "previous.serializer",
      "Check schema compatibility without generating output."},
     {'\0', "compatibility-protocol", "protocol",
@@ -188,7 +188,7 @@ int main(const int argc, const char* argv[]) {
     }
     if (parsed.contains("version")) {
       std::cout << "Serializer compiler " << compiler_version
-                << "\nSupported schema language version: " << schema_language_version << '\n';
+                << "\nSupported schema language version: " << schema_language_version_text << '\n';
       return 0;
     }
     if (!parsed.contains("input")) {
@@ -315,7 +315,7 @@ int main(const int argc, const char* argv[]) {
     const std::filesystem::path input_file{cli::first(parsed, "input")};
     if (input_file.extension() != ".serializer") {
       throw std::invalid_argument{
-          "Input must use .serializer; rename the schema and add serializer version 1;"};
+          "Input must use .serializer; rename the schema and add serializer version 1.0.0;"};
     }
     if (parsed.contains("output") && languages.size() != 1) {
       throw std::invalid_argument{

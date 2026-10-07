@@ -1,7 +1,14 @@
 cmake_minimum_required(VERSION 3.28)
 
-project(serializer VERSION 1.0.0 LANGUAGES CXX)
+project(serializer VERSION 1.1.0 LANGUAGES CXX)
 include(GNUInstallDirs)
+# The language contract evolves independently of the compiler/runtime release.
+set(serializer_schema_language_version 1.0.0)
+string(REPLACE "." ";" serializer_schema_language_version_components
+  "${serializer_schema_language_version}")
+list(GET serializer_schema_language_version_components 0 serializer_schema_language_version_major)
+list(GET serializer_schema_language_version_components 1 serializer_schema_language_version_minor)
+list(GET serializer_schema_language_version_components 2 serializer_schema_language_version_patch)
 configure_file(cmake/version.hpp.in generated/include/rohit/version.hpp @ONLY)
 
 # Require at least C++20 while preserving a caller's newer language mode.
@@ -169,7 +176,7 @@ if(SERIALIZER_INSTALL)
     INSTALL_DESTINATION "${serializer_package_directory}"
   )
   write_basic_package_version_file("${CMAKE_CURRENT_BINARY_DIR}/SerializerConfigVersion.cmake"
-    VERSION "${PROJECT_VERSION}" COMPATIBILITY SameMinorVersion)
+    VERSION "${PROJECT_VERSION}" COMPATIBILITY SameMajorVersion)
   install(TARGETS serializer_lib serializer EXPORT SerializerTargets
     RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
     LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"

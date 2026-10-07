@@ -326,6 +326,11 @@ add_test(NAME serializer_clang_format_discovery
     -P "${CMAKE_CURRENT_SOURCE_DIR}/clang_format_discovery.cmake")
 
 if(SERIALIZER_INSTALL AND NOT CMAKE_CROSSCOMPILING)
+  add_test(NAME serializer_package_version
+    COMMAND "${CMAKE_COMMAND}"
+      "-DVERSION_FILE=${PROJECT_BINARY_DIR}/SerializerConfigVersion.cmake"
+      "-DVERSION=${PROJECT_VERSION}"
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/package_version.cmake")
   add_test(NAME serializer_installed_package
     COMMAND "${CMAKE_COMMAND}" "-DBUILD_DIRECTORY=${PROJECT_BINARY_DIR}"
       "-DDIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/installed_package/$<CONFIG>"

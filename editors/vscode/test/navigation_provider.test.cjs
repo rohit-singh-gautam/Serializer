@@ -129,9 +129,9 @@ test('ledger declaration, definition and type definition accept names, keywords 
 
 test('schema type definition follows live transitive qualified types without CMake or output', async () => {
   const state = harness({ active: true });
-  state.put('root.serializer', 'serializer version 1; include middle; class root { public demo::renamed value; }');
+  state.put('root.serializer', 'serializer version 1.0.0; include middle; class root { public demo::renamed value; }');
   state.put('middle.serializer', 'serializer version 1; include types;');
-  state.put('types.serializer', 'serializer version 1; namespace demo { class original {} }');
+  state.put('types.serializer', 'serializer version 1.0.0; namespace demo { class original {} }');
   const original = state.document('types.serializer');
   const liveText = original.getText().replace('original', 'renamed');
   state.vscode.workspace.textDocuments.push({ ...original, getText: () => liveText,

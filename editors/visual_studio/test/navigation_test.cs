@@ -12,7 +12,7 @@ internal static class NavigationTest {
       var repository = Path.GetFullPath(args[0]);
       var generated = Path.GetFullPath(args[1]);
       var model = Path.GetFullPath(Path.Combine(repository, "example/schemas/complex/model.serializer"));
-      var text = File.ReadAllText(model);
+      var text = File.ReadAllText(model).Replace("serializer version 1;", "serializer version 1.0.0;");
       var live = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [model] = text };
       var checks = 0;
       foreach (var name in new[] { "demo::order", "demo::snapshot", "demo::customer" }) {
@@ -34,7 +34,8 @@ internal static class NavigationTest {
         }
       }
       var order = Path.GetFullPath(Path.Combine(repository, "example/schemas/complex/sales/order.serializer"));
-      live[order] = File.ReadAllText(order).Replace("class order ", "class unsaved_order ");
+      live[order] = File.ReadAllText(order).Replace("serializer version 1;", "serializer version 1.0.0;")
+        .Replace("class order ", "class unsaved_order ");
       live[model] = text.Replace("demo::order", "demo::unsaved_order");
       var unsaved = NavigationRunner.Resolve(model, live[model].IndexOf("demo::unsaved_order", StringComparison.Ordinal), false, generated, live, CancellationToken.None);
       Require(unsaved.Length == 1 && live[order].Substring(unsaved[0].start, unsaved[0].end - unsaved[0].start) == "unsaved_order", "unsaved transitive schema edits");

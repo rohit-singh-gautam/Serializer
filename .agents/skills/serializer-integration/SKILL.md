@@ -414,12 +414,21 @@ feature as a prerequisite without the user's request.
   generated replacement setters and the existing history/journal APIs.
   Consult [usage](../../../docs/usage.md), [migration](../../../migration.md), and
   [qualification](../../../docs/verification-dimensions-2026-10-04.md).
-- Use `.serializer` files beginning with `serializer version 1;`, before declarations
+- Use `.serializer` files beginning with `serializer version 1.0.0;`, before declarations
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
-  remains available through `parser::parse(input)`. Schema language version 1 is
-  independent of compiler release 1.0.0 and wire protocols. Use `serializer --version`
-  to inspect both; see [CLI and versioning](../../../docs/command_line.md).
+  remains available through `parser::parse(input)`. Schema language version 1.0.0 is
+  independent of compiler release 1.1.0 and wire protocols. Bug fixes and minor
+  updates increment the patch number; new features increment the minor number.
+  Minor and patch releases preserve full compatibility. Developers change the
+  major number manually, with best-effort compatibility across major releases.
+  Installed CMake packages accept earlier minor and patch versions in the same
+  major release. Use `serializer --version` to inspect the compiler and schema
+  versions; see [CLI and versioning](../../../docs/command_line.md).
+  The original `serializer version 1;` is exactly the `1.0.0` language baseline,
+  not an alias for the latest language release. Only version 1 has that integer
+  shorthand; future versions require all three decimal components. See the
+  independent [language versioning policy](../../../docs/command_line.md#schema-language-version-policy).
 - Use `class`, `enum`, and `namespace`. Every member needs an explicit access
   modifier and a trailing semicolon. Classes/enums have no trailing semicolon.
 - Share schema declarations with `include common;` after the version
@@ -621,7 +630,7 @@ versioned snippets, and invokes the same targets through CMake Tools. Run the ro
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 1.1.22 is shared with the Visual Studio extension and is independent of
+version 1.1.23 is shared with the Visual Studio extension and is independent of
 compiler and schema versions. Keep both editor extension versions equal.
 Both package descriptions and READMEs identify the
 [Serializer repository](https://github.com/rohit-singh-gautam/Serializer). Configure
@@ -1180,7 +1189,7 @@ Regenerate all relevant language and editor outputs when changing these contract
 
 Consult the [versioning verification record](../../../docs/verification-versioning-2026-10-06.md) and [release-policy verification record](../../../docs/verification-release-policies-2026-10-06.md) for completed language, compiler, codec, and editor checks. Release catalogs and nested allow policies are evaluated entirely during schema compilation; generated readers and writers contain only resolved version bounds.
 
-Use [payload versioning](../../../docs/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the required `serializer version 1;` language header from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.
+Use [payload versioning](../../../docs/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the required `serializer version 1.0.0;` language header (or its original `1` alias) from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.
 
 Keep retained historical definitions and relative positional order intact. Set the object's revision to write an older supported layout. Use `read_policy::compatible` for declared history, `strict` for the current revision, and `flexible` to skip safe JSON extensions within the declared interval. The former `json_read_policy::compatible` spelling is removed; its unknown-field behavior is `read_policy::flexible`. Native generated languages select `ReadPolicy` through `Limits`; C uses `srl_read_policy`.
 

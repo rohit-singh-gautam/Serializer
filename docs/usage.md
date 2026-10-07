@@ -253,7 +253,10 @@ class person stable_ids {
 ```
 
 - Use `class`, `enum`, and `namespace`; schema declarations are not C++ source.
-- Start every `.serializer` file with `serializer version 1;` before declarations.
+- Start every `.serializer` file with `serializer version 1.0.0;` before declarations.
+  The original `serializer version 1;` is an exact alias for `1.0.0`, exclusive to
+  version 1. Future versions require three components. The language version is
+  independent of the compiler release and application payload revisions.
   See [compiler options and versioning](command_line.md) for the file contract,
   compiler version, and generating C++ and Java together.
 - Write an access modifier on every member, followed by its schema type and name.
@@ -308,7 +311,8 @@ namespace demo {
   spaces, backslashes, absolute paths, and other extensions are rejected.
   `./` and `../` are supported. Paths resolve from the including file, independently
   of the compiler's working directory. Comments may separate directive tokens.
-- Every file requires its own `serializer version 1;` header. Includes follow that
+- Every file requires its own `serializer version 1.0.0;` header (or the original
+  `1` alias). Legacy and full headers may coexist in an include graph. Includes follow that
   header and precede all declarations, at file scope only.
 - Nested dependencies load before their includers. Repeated paths, normalized path
   aliases, mixed shorthand/explicit spellings, and diamond dependencies contribute

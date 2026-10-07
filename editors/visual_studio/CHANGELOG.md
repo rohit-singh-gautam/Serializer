@@ -1,3 +1,11 @@
+# 1.1.23
+
+- Highlight three-component schema language versions as complete numeric tokens.
+- Recognize the original `serializer version 1;` header as the `1.0.0` baseline.
+- Keep schema language versions independent of compiler releases; future majors require dotted headers.
+- Verify dotted headers beside qualified types, transitive includes, unsaved edits, and generated-output navigation.
+- Synchronize both editor extension versions and rebuild their packages.
+
 # 1.1.22
 
 - Update build and navigation guidance for default-enabled managed runtime support.

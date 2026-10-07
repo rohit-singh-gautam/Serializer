@@ -588,9 +588,25 @@ Replace bare CLI keys with long options: `input` becomes `--input`, `output` bec
 The CMake helpers already use the updated interface. For both languages, pass
 `--language cpp,java --cpp.output account.hpp --java.output AccountSchema.java`.
 Each backend's settings can be overridden independently on the command line.
-`serializer --version` reports compiler release 1.0.0 and schema language version 1.
+`serializer --version` reports compiler release 1.1.0 and schema language version 1.0.0.
 These are separate version domains; neither changes wire bytes. See
 [the complete CLI contract](docs/command_line.md).
+
+The canonical language header is now `serializer version 1.0.0;`. Existing
+`serializer version 1;` headers remain exact aliases for `1.0.0`, including in
+transitive includes; no schema rewrite is required. This integer shorthand is
+exclusive to the original version 1 and never tracks newer language releases.
+Future versions require all three decimal components; `2;` will not mean `2.0.0;`.
+Use `schema_language_version_text` and the `schema_language_version_major`,
+`schema_language_version_minor`, and `schema_language_version_patch` constants
+for complete language metadata. The original unsigned `schema_language_version`
+constant remains available as the language major.
+
+Compiler/runtime minor and patch releases preserve full compatibility. Installed
+CMake packages now accept requests for earlier minor and patch releases within
+the same major version; `EXACT` still requires the requested release precisely.
+Only developers change the major version manually, with best-effort compatibility
+and explicit migration guidance for breaking changes.
 
 ## Java output and example folders
 

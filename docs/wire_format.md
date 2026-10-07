@@ -1,5 +1,10 @@
 # Wire format and decoding contract
 
+The schema language header is compiler input metadata and is never serialized.
+`serializer version 1;` and `serializer version 1.0.0;` select the same contract
+and produce identical codecs. Schema-language and compiler release versions are
+independent of the application payload revisions described below.
+
 See [payload versioning](versioning.md) for revision types, historical positional
 layouts, field lifetimes, replacements, reservations, common read policies, and
 compiler-only release-date/count policies. These resolve to ordinary version bounds

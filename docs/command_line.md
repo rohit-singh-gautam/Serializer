@@ -1,18 +1,31 @@
 # Serializer compiler and schema versions
 
-The compiler version is **1.0.0**, defined by `project(... VERSION ...)` in the
+The compiler and runtime release is **1.1.0**, defined by `project(... VERSION ...)` in the
 root CMake file. `serializer --version` (or `-v`) prints that release and the
 supported schema language version. CMake generates `<rohit/version.hpp>` with
-`rohit::serializer::compiler_version` and `schema_language_version`; installed
+`rohit::serializer::compiler_version`, `schema_language_version_text`, and
+`schema_language_version_major`, `schema_language_version_minor`, and
+`schema_language_version_patch` constants. The original unsigned
+`schema_language_version` API remains the language major for compatibility; installed
 packages also provide `SerializerConfigVersion.cmake` for versioned discovery.
-Package compatibility is limited to the same major/minor release.
+Package discovery accepts earlier minor and patch releases within the same major
+version; requests for newer releases or a different major version are rejected.
+Use `EXACT` to require a specific release.
+
+Releases use `major.minor.patch`. Bug fixes and minor updates increment the third
+(patch) number. New features increment the second (minor) number and reset patch
+to zero. Both preserve full compatibility for existing schemas, public APIs,
+generated code, and serialized formats. Only developers change the first (major)
+number manually, resetting minor and patch to zero; compatibility across major
+releases is best effort and breaking changes require documented migration steps.
+The schema language version and payload revisions remain separate version domains.
 
 ## Schema files
 
 Use the `.serializer` extension and start each file with:
 
 ```text
-serializer version 1;
+serializer version 1.0.0;
 
 class account stable_ids {
   public uint32 id (1);
@@ -20,8 +33,13 @@ class account stable_ids {
 ```
 
 The statement must precede every declaration. Whitespace and `//` or `/* ... */`
-comments may precede it or separate its tokens. The version is a decimal integer;
-only `1` is supported. Missing, malformed, repeated, misplaced, or unsupported
+comments may precede it or separate its keywords. The version has exactly three
+unsigned decimal components separated by dots, without whitespace or comments
+inside the version. The supported language is **1.0.0**. The original
+`serializer version 1;` is an exact alias for `serializer version 1.0.0;`, exclusive
+to version 1; future integer majors such as `2;` are not aliases for `2.0.0;`.
+Prerelease and build labels are not supported. Missing, malformed, overflowing,
+repeated, misplaced, or unsupported
 version statements are rejected. The header selects the schema language grammar;
 it is not a minimum compiler release requirement or a serialized message header.
 It does not change field IDs, wire names, encoding, or runtime compatibility.
@@ -41,6 +59,29 @@ for path restrictions, namespace handling, duplicate detection, and output limit
 Library callers use `parser::parse_file(path)` for includes; its result owns the
 combined `statements` and records canonical `dependencies` (including the entry).
 Existing stream-only parsing does not read files.
+
+### Schema language version policy
+
+The repository's [schema language versioning policy](../AGENTS.md#schema-language-versioning)
+uses `major.minor.patch` for language releases, independently of the compiler
+release. `serializer_schema_language_version` in the root CMake file defines the
+language release separately from `project(... VERSION ...)`. Compiler **1.1.0**
+currently supports language **1.0.0**; `serializer --version` reports both.
+
+Compatible language bug fixes and minor updates increase patch; new language
+features increase minor and reset patch to zero. Only developers change major
+manually, with best-effort compatibility and migration guidance across major
+versions. Minor and patch language releases require full backward compatibility
+for existing schemas, their meaning, generated public APIs, and serialized formats.
+Compiler-only changes do not automatically increase the language version.
+
+The header selects the required language contract. Newer compilers accept older
+same-major contracts; older compilers may
+reject newer headers. Versions compare numerically by component, and unsupported
+future versions receive a clear diagnostic. Features must be available in the
+declared language version, including in included files. The `1` alias always means
+the `1.0.0` contract, even after later minor/patch language releases. The language
+header is independent of application payload versioning and does not alter wire bytes.
 
 ## Options
 

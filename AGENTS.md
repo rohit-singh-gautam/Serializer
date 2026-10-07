@@ -91,6 +91,71 @@
   `SKILL.md` frontmatter. Its hyphenated folder/name follows the skill format;
   C++ identifiers and file names continue to follow this repository's conventions.
 
+## Serializer release versioning
+
+- Use `major.minor.patch` for the compiler and runtime release. Keep
+  `project(serializer VERSION ...)` in `CMakeLists.txt` as the source of truth;
+  generate the public version header and CMake package version from it.
+- Every bug fix or minor update must increment the patch component (the third
+  number), for example `1.1.0` to `1.1.1`.
+- Adding a new feature must increment the minor component (the middle number)
+  and reset the patch component to zero, for example `1.1.1` to `1.2.0`.
+- Only developers may manually change the major component (the first number).
+  Agents must not increase it without an explicit developer instruction. A major
+  increase resets the minor and patch components to zero.
+- Minor and patch releases must preserve full compatibility for existing schemas,
+  public APIs, generated code, and serialized formats. Major releases provide
+  best-effort compatibility only and may introduce breaking changes; document
+  those changes and their migration steps explicitly.
+- Keep CMake package discovery compatible with earlier minor and patch releases
+  in the same major version. Update current release references in the README,
+  integration skill, and affected documentation together, rebuild through CMake,
+  and verify `serializer --version` and package-version compatibility.
+- The schema language version and payload revisions are separate from the
+  compiler/runtime release; do not change them merely to bump a release version.
+  The editor extensions retain the separate versioning policy below.
+
+## Schema language versioning
+
+- Version the schema language independently of compiler/runtime releases, editor
+  extensions, and application payload revisions. Increment its version only when
+  the language contract changes; compiler-only fixes or new output backends do
+  not automatically change the schema language version.
+- Use `serializer version major.minor.patch;` for schema language releases. The
+  current schema language is `1.0.0`, independent of compiler release `1.1.0`.
+  Keep its source of truth in `serializer_schema_language_version` in
+  `CMakeLists.txt`, separate from `project(serializer VERSION ...)`.
+- Recognize `serializer version 1;` as exactly `serializer version 1.0.0;`.
+  This compatibility alias belongs only to the original version 1 and must never
+  follow the latest minor/patch release or generalize to future integer majors.
+  Future versions require all three components: do not accept `2;` as `2.0.0;`.
+  Preserve existing schemas using the original alias.
+- Bug fixes and minor updates to the language contract must increment the patch
+  component (the third number), while preserving all previously valid schemas.
+- New language features must increment the minor component (the middle number)
+  and reset patch to zero. Examples include new schema declarations, annotations,
+  types, or grammar constructs.
+- Only developers may manually change the major component (the first number).
+  Agents must not increase it without an explicit developer instruction. A major
+  increase resets minor and patch to zero; compatibility across major releases
+  is best effort and breaking changes require documented migration steps.
+- Minor and patch language releases require full backward compatibility: newer
+  compilers must accept older schemas in the same major version and
+  preserve their meaning, generated public APIs, wire identities, and serialized
+  formats. A bug fix that would break that contract requires a developer-directed
+  major change instead of being released as a patch.
+- A version header selects the required schema language contract, not a compiler
+  release or payload revision. Compare dotted version components numerically;
+  reject headers newer than the compiler's supported language version with a
+  clear diagnostic. Reject features unavailable in the declared language version,
+  including in included files. Older compilers need not accept newer features.
+- When changing version-header syntax or supported language versions,
+  update the parser, public version metadata, `serializer --version` output,
+  relevant editor support, tests, README, integration skill, and affected usage,
+  schema, wire-format, and migration documentation together. Verify legacy
+  headers, older compatible versions, unsupported future versions, malformed
+  and overflowing components, includes, and unchanged serialization behavior.
+
 ## Extension versioning
 
 - Always keep both "Rohit Serializer" extensions, for **Visual Studio** and

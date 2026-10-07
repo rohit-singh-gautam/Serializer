@@ -81,13 +81,23 @@ async function main() {
   checks += await verify(path.join(repository, 'example/schemas/versioning/model.serializer'), path.join(directory, 'versioning'));
   checks += await verify(path.join(repository, 'example/generics/result.serializer'), path.join(directory, 'generics'));
   const input = path.join(directory, 'acronyms.serializer');
-  fs.writeFileSync(input, `serializer version 1;
+  const schema = `serializer version 1.0.0;
 namespace HTTPModels { enum HTTPState { Ready } class HTTPRecord { public HTTPState StateValue; } }
 namespace HTTP2Models { class ID2Record { public HTTPModels::HTTPRecord ItemValue; } }
 class Model { public HTTP2Models::ID2Record ItemValue; }
 namespace Names_ { class Value_Type {} }
-`);
+`;
+  const acronymDirectory = path.join(directory, 'acronyms');
+  fs.writeFileSync(input, schema.replace('serializer version 1.0.0;', 'serializer version 1;'));
+  checks += await verify(input, acronymDirectory);
+  const legacyOutputs = new Map(Object.values(outputs).map(name =>
+    [name, fs.readFileSync(path.join(acronymDirectory, name), 'utf8')]));
+  fs.writeFileSync(input, schema);
   checks += await verify(input, path.join(directory, 'acronyms'));
+  for (const [name, source] of legacyOutputs) {
+    assert.equal(fs.readFileSync(path.join(acronymDirectory, name), 'utf8'), source,
+      `${name}: legacy and dotted headers must produce identical codecs`);
+  }
   checks += await verify(input, path.join(directory, 'preserve'),
     ['cpp', 'java', 'js', 'go', 'csharp'].flatMap(language => [`--${language}.naming`, 'preserve']));
   for (const profile of ['serializer', 'core', 'google', 'llvm', 'gnu', 'cert', 'misra', 'autosar', 'qt']) {
@@ -109,7 +119,7 @@ namespace Names_ { class Value_Type {} }
     checks += await verify(input, path.join(directory, `java-${profile}`),
       ['--java.coding_standard', profile, '--java.package', 'example.models'], { java: outputs.java });
   }
-  console.log(`Fresh compiler navigation passed: ${checks} bidirectional type checks across all 11 output languages, transitive includes, acronyms, preserved names, and direct/separated managed classes across all C++ profiles.`);
+  console.log(`Fresh compiler navigation passed: ${checks} bidirectional type checks across all 11 output languages, identical codecs for legacy/dotted headers, transitive includes, acronyms, preserved names, and direct/separated managed classes across all C++ profiles.`);
 }
 
 main().catch(error => { console.error(error.stderr?.toString() || error); process.exitCode = 1; });
