@@ -1,6 +1,6 @@
 Bundled navigation dependencies
 
-Jint 4.16.2 — https://github.com/sebastienros/jint
+Jint 4.16.4 — https://github.com/sebastienros/jint
 
 BSD 2-Clause License
 

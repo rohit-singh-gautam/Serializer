@@ -1,3 +1,10 @@
+# 1.1.20
+
+- Refresh the shared TypeScript compiler, bundler, Node.js declarations, and locked dependency graph.
+- Update the Visual Studio navigation engine to Jint 4.16.4 and VSSDK build tools to 18.5.40034 while retaining the supported editor baselines.
+- Patch the Visual Studio SDK's MessagePack dependency without adding its runtime assemblies to the package.
+- Declare compiler ambient types explicitly for TypeScript 7 and synchronize both extension packages.
+
 # 1.1.19
 
 - Use the portable `SRLFILE` magic snippet default in both synchronized editor packages.

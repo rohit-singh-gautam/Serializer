@@ -2,6 +2,7 @@
   "compilerOptions": {
     "target": "ES2022",
     "module": "commonjs",
+    "types": ["node", "vscode"],
     "rootDir": "src",
     "outDir": "out",
     "strict": true,

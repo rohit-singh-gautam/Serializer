@@ -4,11 +4,26 @@
     ".NETFramework,Version=v4.7.2": {
       "Jint": {
         "type": "Direct",
-        "requested": "[4.16.2, )",
-        "resolved": "4.16.2",
-        "contentHash": "/sN+uRO1bUOgp490lM5+K40buKqpghO3E9sV1hNxf2Kg+3bS7MqDtosa6vixFBnFQGIaYnByFwQ6Fft/IEr4WA==",
+        "requested": "[4.16.4, )",
+        "resolved": "4.16.4",
+        "contentHash": "Gdqc4XA5N7MqUxv2phUZ7U2ZMvcz7tF6ktCe1xVfpP0MEykP41QTKmjyaFTmVPGgawUgQAW4jJi8jv/YEQQY2w==",
         "dependencies": {
           "Acornima": "1.7.0"
+        }
+      },
+      "MessagePack": {
+        "type": "Direct",
+        "requested": "[2.5.307, )",
+        "resolved": "2.5.307",
+        "contentHash": "P9LNJ2bz/wx8J5W0EQW4Bh7G5BiEikXiiDqGvw/WOMRyRI0QcxVvRM4XkqhidGJG6uzMT7iF89o0uYGLwmGifQ==",
+        "dependencies": {
+          "MessagePack.Annotations": "2.5.307",
+          "Microsoft.Bcl.AsyncInterfaces": "6.0.0",
+          "Microsoft.NET.StringTools": "17.6.3",
+          "System.Collections.Immutable": "6.0.0",
+          "System.Memory": "4.5.5",
+          "System.Runtime.CompilerServices.Unsafe": "6.0.0",
+          "System.Threading.Tasks.Extensions": "4.5.4"
         }
       },
       "Microsoft.NETFramework.ReferenceAssemblies": {
@@ -148,12 +163,12 @@
       },
       "Microsoft.VSSDK.BuildTools": {
         "type": "Direct",
-        "requested": "[17.14.2142, )",
-        "resolved": "17.14.2142",
-        "contentHash": "iF5b5Nu0/h72U5WLujhuJ8SFxNyM5ua7gPeeNdYuhZwv2G4Mr1YyOgXF8ymhLfyq/iJtUvkZPA/pTYilvxN6RA==",
+        "requested": "[18.5.40034, )",
+        "resolved": "18.5.40034",
+        "contentHash": "5g0HSWvzIunNqTlaHPRBnKo/zix5omWXBrJzLyrbJS9c7Xkpd34QMqVOk6WTqgt7yHqpGj4ajnBx82zGABdSew==",
         "dependencies": {
-          "Microsoft.VisualStudio.SDK.Analyzers": "17.7.79",
-          "Microsoft.VsSDK.CompatibilityAnalyzer": "17.14.2142"
+          "Microsoft.VisualStudio.SDK.Analyzers": "17.7.105",
+          "Microsoft.VsSDK.CompatibilityAnalyzer": "18.3.1108"
         }
       },
       "Acornima": {
@@ -205,24 +220,10 @@
           "Microsoft.VisualStudio.Interop": "17.14.40260"
         }
       },
-      "MessagePack": {
-        "type": "Transitive",
-        "resolved": "2.5.192",
-        "contentHash": "Jtle5MaFeIFkdXtxQeL9Tu2Y3HsAQGoSntOzrn6Br/jrl6c8QmG22GEioT5HBtZJR0zw0s46OnKU8ei2M3QifA==",
-        "dependencies": {
-          "MessagePack.Annotations": "2.5.192",
-          "Microsoft.Bcl.AsyncInterfaces": "6.0.0",
-          "Microsoft.NET.StringTools": "17.6.3",
-          "System.Collections.Immutable": "6.0.0",
-          "System.Memory": "4.5.5",
-          "System.Runtime.CompilerServices.Unsafe": "6.0.0",
-          "System.Threading.Tasks.Extensions": "4.5.4"
-        }
-      },
       "MessagePack.Annotations": {
         "type": "Transitive",
-        "resolved": "2.5.192",
-        "contentHash": "jaJuwcgovWIZ8Zysdyf3b7b34/BrADw4v82GaEZymUhDd3ScMPrYd/cttekeDteJJPXseJxp04yTIcxiVUjTWg=="
+        "resolved": "2.5.307",
+        "contentHash": "kIGiwydfCKWRim1ZoFbZ1qVHDHrQfXdJ+FEFVPEqse/XzvPT7lVUjIb1LOuocP3Tx1+PtFEdEandRhxB64Xd4A=="
       },
       "Microsoft.Bcl.AsyncInterfaces": {
         "type": "Transitive",
@@ -728,8 +729,8 @@
       },
       "Microsoft.VisualStudio.SDK.Analyzers": {
         "type": "Transitive",
-        "resolved": "17.7.79",
-        "contentHash": "oJ3C9D1KQCksM0D0MTYrjYkz1vGK7WMBJkdplqse8rpIoxOV4cFj2rntPq+TNEkwY95BkjNm53gIdYV9jm1U0w=="
+        "resolved": "17.7.105",
+        "contentHash": "pQK/THPoNjzmfVGnjdP/13nR3bZViUwu4CsjPAFFvg2xMc6xhVcgprgKwrSDakTkd92n57iCy+AC58ZKKuoaKw=="
       },
       "Microsoft.VisualStudio.Setup.Configuration.Interop": {
         "type": "Transitive",
@@ -1231,8 +1232,8 @@
       },
       "Microsoft.VsSDK.CompatibilityAnalyzer": {
         "type": "Transitive",
-        "resolved": "17.14.2142",
-        "contentHash": "t7lqlLlMLXG0SpM+b4t6Ou7E3KD7SEZQnKOBytaixSBLr+p6BRrdWNXXIQP49UjMJwpMMA0rdkSpZjkF8RfY5Q=="
+        "resolved": "18.3.1108",
+        "contentHash": "ol/XAbRAkpZmpswNL1pV+Ey2dqcEZNe1tYT74lkD/+ow5r0rqC0XLq72rVyiz4w/oCIN+480PO1xO+7/4hrqKw=="
       },
       "Microsoft.Win32.Registry": {
         "type": "Transitive",

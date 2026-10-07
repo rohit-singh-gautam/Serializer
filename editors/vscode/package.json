@@ -3,7 +3,7 @@
   "displayName": "Rohit Serializer",
   "icon": "dist/serializer_logo.png",
   "description": "Editor support for Serializer (https://github.com/rohit-singh-gautam/Serializer): schema navigation, highlighting, and CMake assistance.",
-  "version": "1.1.19",
+  "version": "1.1.20",
   "publisher": "rohitjairajsingh",
   "author": {
     "name": "Rohit Jairaj Singh",
@@ -180,16 +180,16 @@
     "test:navigation": "npm run build && node test/run_navigation.cjs",
     "test:navigation:project": "npm run build && node test/run_navigation_project.cjs",
     "vscode:prepublish": "npm run build",
-    "package": "vsce package --no-dependencies --out ../../out/extensions/serializer-vscode-1.1.19.vsix",
+    "package": "vsce package --no-dependencies --out ../../out/extensions/serializer-vscode-1.1.20.vsix",
     "test:navigation:generated": "npm run compile && node test/generated_navigation.cjs"
   },
   "devDependencies": {
-    "@types/node": "^22.0.0",
+    "@types/node": "^22.20.5",
     "@types/vscode": "1.96.0",
     "@vscode/test-electron": "3.1.0",
     "@vscode/vsce": "4.0.0",
-    "esbuild": "^0.25.0",
-    "typescript": "^5.9.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2",
     "vscode-cmake-tools": "1.7.0",
     "vscode-oniguruma": "^2.0.1",
     "vscode-textmate": "^9.2.0"

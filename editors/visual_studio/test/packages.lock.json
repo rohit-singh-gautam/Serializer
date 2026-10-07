@@ -4,9 +4,9 @@
     ".NETFramework,Version=v4.7.2": {
       "Jint": {
         "type": "Direct",
-        "requested": "[4.16.2, )",
-        "resolved": "4.16.2",
-        "contentHash": "/sN+uRO1bUOgp490lM5+K40buKqpghO3E9sV1hNxf2Kg+3bS7MqDtosa6vixFBnFQGIaYnByFwQ6Fft/IEr4WA==",
+        "requested": "[4.16.4, )",
+        "resolved": "4.16.4",
+        "contentHash": "Gdqc4XA5N7MqUxv2phUZ7U2ZMvcz7tF6ktCe1xVfpP0MEykP41QTKmjyaFTmVPGgawUgQAW4jJi8jv/YEQQY2w==",
         "dependencies": {
           "Acornima": "1.7.0"
         }
