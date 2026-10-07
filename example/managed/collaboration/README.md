@@ -46,7 +46,7 @@ call `synchronize()` to handle these steps through their bound transport.
 Build from a configured repository build:
 
 ```sh
-cmake -S . -B out/collaboration -DSERIALIZER_BUILD_MANAGED=ON -DSERIALIZER_BUILD_TESTS=OFF
+cmake -S . -B out/collaboration -DSERIALIZER_BUILD_MANAGED_EXAMPLES=ON -DSERIALIZER_BUILD_TESTS=OFF
 cmake --build out/collaboration --config Release --target managed_collaboration_local_sync managed_collaboration_changes managed_collaboration_locks managed_collaboration_sessions managed_collaboration_undo
 ```
 

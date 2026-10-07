@@ -1,10 +1,10 @@
 # CMake integration for consumers
 
-For the optional [C++ managed snapshot runtime](managed/cpp_runtime.md), enable
-`SERIALIZER_BUILD_MANAGED=ON` and link `Serializer::managed`. This native-build
-target generates its record header using the compiler and clang-format; it is
-exported by packages installed with the option enabled. Ordinary applications do
-not need this option. Schemas with `managed` declarations use the same
+The [C++ managed snapshot runtime](managed/cpp_runtime.md) is built by default
+(`SERIALIZER_BUILD_MANAGED=ON`); link `Serializer::managed` when using its APIs.
+The target generates both runtime record headers using the compiler, with internal
+formatting disabled, and exports them in installed packages. No formatter is
+needed for these records. Explicit OFF builds omit headers that require them. Schemas with `managed` declarations use the same
 `serializer_generate` helper; pass `CONFIG project.ini` for a shared `[managed]
 id_type = uint64` setting. See the [standalone ledger example](../example/managed/ledger/README.md).
 
@@ -42,10 +42,13 @@ has no editor dependency and requires no `.vscode` files.
 ## Build this repository
 
 Optional message compression is controlled by `SERIALIZER_WITH_ZSTD`,
-`SERIALIZER_WITH_LZ4`, and `SERIALIZER_WITH_ZLIB` (all OFF by default). Enable the
-matching `compression-zstd`, `compression-lz4`, and `compression-zlib` vcpkg manifest
-features through `VCPKG_MANIFEST_FEATURES`, or provide upstream CMake installations
-through `CMAKE_PREFIX_PATH`. Installed packages rediscover enabled dependencies
+`SERIALIZER_WITH_LZ4`, and `SERIALIZER_WITH_ZLIB` (all ON by default). The repository
+vcpkg manifest enables the matching `compression-zstd`, `compression-lz4`, and
+`compression-zlib` features by default, or provide upstream CMake installations
+through `CMAKE_PREFIX_PATH`. For a reduced dependency set, disable unwanted CMake
+backends, set `VCPKG_MANIFEST_NO_DEFAULT_FEATURES=ON`, and select retained manifest
+features through `VCPKG_MANIFEST_FEATURES`. Cached values are preserved; reset
+`SERIALIZER_BUILD_MANAGED` and `SERIALIZER_WITH_*` with `-U` or override them explicitly. Installed packages rediscover enabled dependencies
 for their exported runtime target. See [compression](compression.md) for targets,
 limits, and supported format profiles. Missing enabled dependencies are errors.
 
@@ -57,6 +60,7 @@ GoogleTest and clang-format 19+ must be available. `all` configures and builds,
 | Requirement | When it is needed |
 | --- | --- |
 | CMake 3.28+ | Every source build; CTest is included with CMake. |
+| Zstandard, LZ4, and zlib CMake packages | Default runtime build; the repository vcpkg manifest acquires them automatically. Disable individual backends with `SERIALIZER_WITH_*=OFF`. |
 | C++20 compiler and standard library | Library, schema compiler, and C++ consumers; the selected compiler must support the target architecture. |
 | Native build tool | GNU Make for `make all`; Ninja for the Linux and Windows presets; MSBuild/Visual Studio C++ tools or another configured generator for the Windows wrapper. |
 | PowerShell | Windows `make.ps1` wrapper. |
@@ -230,6 +234,7 @@ vcpkg_cmake_configure(
   OPTIONS
     -DSERIALIZER_BUILD_TESTS=OFF
     -DSERIALIZER_BUILD_PROTOBUF_INTEROP_TESTS=OFF
+    -DSERIALIZER_BUILD_MANAGED_EXAMPLES=OFF
     -DSERIALIZER_BUILD_STYLE_EXAMPLES=OFF
     -DSERIALIZER_BUILD_IOSTREAM_EXAMPLES=OFF
     -DSERIALIZER_BUILD_JAVA_EXAMPLES=OFF
@@ -239,8 +244,12 @@ vcpkg_cmake_configure(
 )
 ```
 
-This configuration needs no GoogleTest, clang-format, JDK, Protobuf runtime, or
-sanitizer libraries. Declare `vcpkg-cmake` and `vcpkg-cmake-config` as host
+This configuration builds all runtime features by default and needs Zstandard,
+LZ4, and zlib. It needs no GoogleTest, clang-format, JDK, Protobuf runtime, or
+sanitizer libraries. Map the compression dependencies to default-enabled port
+features, and keep `SERIALIZER_BUILD_MANAGED=ON` for the generated records.
+The root repository manifest is for development; a vcpkg port must declare its
+own dependencies. Declare `vcpkg-cmake` and `vcpkg-cmake-config` as host
 dependencies when using their helpers; vcpkg manages its CMake/Ninja tooling,
 while the CI host supplies the compiler and platform SDK. Keep download hashes,
 patches, CMake package/tool relocation, copyright installation, and version

@@ -47,7 +47,8 @@ adapters](usage.md#stream-concepts-and-implicit-adapters).
 ## Message compression
 
 Optional C++ [message compression](compression.md) supports standard Zstandard, LZ4,
-gzip, zlib, and raw DEFLATE formats through separately enabled dependencies. Generated
+gzip, zlib, and raw DEFLATE formats. All three backend dependencies are enabled
+by default; compression calls remain explicit. Generated
 member/static calls accept compression options; free helpers support existing headers.
 Calls validate one complete frame with independent input, output, and window limits.
 Additional formats can supply a custom backend. See
@@ -57,7 +58,7 @@ record](verification-compression-2026-09-17.md).
 The [compression examples](../example/compression/README.md) provide runnable programs
 for all five built-in formats, uncompressed output, and a custom backend. Build enabled
 formats with `SERIALIZER_BUILD_COMPRESSION_EXAMPLES=ON` or the standard test build;
-select dependencies separately with `SERIALIZER_WITH_*`. The [iostream
+reduce the enabled dependencies with `SERIALIZER_WITH_*`. The [iostream
 examples](../example/iostream/README.md) provide seven runnable memory, file, buffered,
 and custom stream examples with a shared 52-class, 645-field schema. They run in the
 standard test build or independently with `SERIALIZER_BUILD_IOSTREAM_EXAMPLES=ON`.
@@ -111,7 +112,7 @@ or qualified in this repository.
 ## Implemented C++ managed features
 
 The [C++ managed interface](managed/cpp_runtime.md) is available with
-`SERIALIZER_BUILD_MANAGED=ON` and `Serializer::managed`. Bare `managed` declarations
+`SERIALIZER_BUILD_MANAGED=ON` (the default) and `Serializer::managed`. Bare `managed` declarations
 generate direct `persistent_id` fields and typed transaction editors by default. Set
 `[managed] separate_values = true` to opt into ID-free values and storage wrappers. New
 stores generate document namespaces automatically; object IDs increment from 1 within

@@ -51,7 +51,10 @@ install clang-format. See [formatter setup](cmake_integration.md#formatter-setup
 for Windows and custom installation paths.
 The [build requirements](cmake_integration.md#build-this-repository) distinguish
 default and optional tools; [vcpkg package builds](cmake_integration.md#vcpkg-package-builds)
-disable development targets and do not require their dependencies.
+disable development targets and do not require their dependencies. Runtime features
+(managed records, SIMD, and all compression backends) are enabled by default.
+Package builds require Zstandard, LZ4, and zlib; internal managed-record generation
+needs no formatter.
 
 To build only the enabled CMake targets, use:
 

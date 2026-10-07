@@ -38,7 +38,7 @@ From the repository root, in a C++ developer environment with CMake and
 clang-format available:
 
 ```sh
-cmake -S . -B out/managed-points -DSERIALIZER_BUILD_MANAGED=ON -DSERIALIZER_BUILD_TESTS=OFF
+cmake -S . -B out/managed-points -DSERIALIZER_BUILD_MANAGED_EXAMPLES=ON -DSERIALIZER_BUILD_TESTS=OFF
 cmake --build out/managed-points --config Release --target managed_point_examples
 ```
 

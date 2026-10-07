@@ -139,8 +139,9 @@ feature set.
 
 Version 1.1.12 adds a real CMake/C++ project regression using the managed ledger
 schema and three caller files with repeated `using ledger` aliases. A clean build
-does not itself repair missing project configuration: `SERIALIZER_BUILD_MANAGED`
-defaults to OFF, and CMake Tools must configure the same build and provide the
+does not itself repair missing project configuration. Fresh builds enable
+`SERIALIZER_BUILD_MANAGED`; existing caches retain their values. CMake Tools must
+configure the same build and provide the
 source target's include paths to Microsoft C/C++. The two targets in the test
 deliberately generate the same qualified type and header filename from different
 schema paths, so matching by name alone cannot pass.

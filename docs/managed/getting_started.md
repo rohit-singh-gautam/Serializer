@@ -23,7 +23,7 @@ policies remain proposals.
 
 ## Start with a managed model
 
-Enable `SERIALIZER_BUILD_MANAGED=ON`, link your C++ application to
+Managed support defaults to `SERIALIZER_BUILD_MANAGED=ON`. Link your C++ application to
 `Serializer::managed`, and generate a model with supported bare `managed`
 declarations. See the [build and schema setup](cpp_runtime.md#build-and-include).
 

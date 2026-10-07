@@ -1,5 +1,25 @@
 # Migrating to the snake_case Serializer API
 
+## Default runtime features (7 October 2026)
+
+Fresh builds enable managed runtime records and all Zstandard, LZ4, and zlib
+compression backends. SIMD remains enabled. The repository vcpkg manifest acquires
+compression dependencies through default features. Existing caches keep their
+values: reset `SERIALIZER_BUILD_MANAGED` and `SERIALIZER_WITH_*` with CMake `-U`,
+or override them explicitly. Compression calls and on-wire formats remain unchanged.
+
+Managed records generate during normal builds, including package builds without
+tests or examples, and do not require a host formatter. Default installations
+export `Serializer::managed` and its complete header dependencies. Explicit
+`SERIALIZER_BUILD_MANAGED=OFF` installations omit record-dependent headers.
+
+Development tools remain optional. Managed examples are included in managed test
+builds; with tests disabled, select `SERIALIZER_BUILD_MANAGED_EXAMPLES=ON`.
+Reduced dependency builds can disable compression backends and set
+`VCPKG_MANIFEST_NO_DEFAULT_FEATURES=ON`, selecting any retained manifest features.
+The separately maintained vcpkg port must be updated to a published source revision
+and declare default compression dependencies before these defaults reach its users.
+
 ## Release policies (6 October 2026)
 
 Regenerate with the current schema compiler before using `releases` or nested

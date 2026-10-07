@@ -252,7 +252,8 @@ representation/wire migration, and proposed capabilities beyond implemented hist
 
 ## Build and run
 
-In the repository, configure `SERIALIZER_BUILD_MANAGED=ON`, build `managed_example`,
+In the repository, use the default managed test build or configure
+`SERIALIZER_BUILD_MANAGED_EXAMPLES=ON` with tests disabled, build `managed_example`,
 and run it. It prints a confirmation after checking the restored values and ID.
 With tests enabled, CTest also registers `managed_example`.
 

@@ -24,7 +24,7 @@ and clang-format 19+. Make the selected dependencies available through
 [compression dependency guide](../../docs/compression.md#build-and-dependency-options).
 For Ninja on Windows, use an initialized MSVC developer shell.
 
-Enable all three dependencies to build all seven examples:
+All three backend dependencies are enabled by default. Build all seven examples:
 
 ```sh
 cmake -S . -B out/build/compression-examples -DSERIALIZER_BUILD_TESTS=OFF -DSERIALIZER_BUILD_COMPRESSION_EXAMPLES=ON -DSERIALIZER_WITH_ZSTD=ON -DSERIALIZER_WITH_LZ4=ON -DSERIALIZER_WITH_ZLIB=ON
@@ -34,7 +34,7 @@ ctest --test-dir out/build/compression-examples -C Debug -L serializer_compressi
 
 The standalone examples option needs no GoogleTest. With
 `SERIALIZER_BUILD_TESTS=ON`, the regular test build also includes the examples
-for enabled formats. Compression dependencies still default to OFF; CMake lists
+for enabled formats. Compression dependencies default to ON; CMake lists
 the enabled examples and omits executables for disabled backends. Missing
 dependencies explicitly enabled with `SERIALIZER_WITH_*` are configuration errors.
 Set `CMAKE_BUILD_TYPE=Debug` at configuration time for a single-configuration

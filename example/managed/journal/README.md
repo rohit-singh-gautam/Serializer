@@ -22,7 +22,7 @@ exercise interruptions during writes, synchronization, publication, and tail rep
 From the repository root in a C++ developer environment:
 
 ```sh
-cmake -S . -B out/journal-example -DSERIALIZER_BUILD_MANAGED=ON -DSERIALIZER_BUILD_TESTS=OFF
+cmake -S . -B out/journal-example -DSERIALIZER_BUILD_MANAGED_EXAMPLES=ON -DSERIALIZER_BUILD_TESTS=OFF
 cmake --build out/journal-example --config Release --target managed_journal_example
 ```
 

@@ -15,7 +15,9 @@ only formats whose dependencies are enabled receive executable targets.
 
 ## Build and dependency options
 
-All options default to OFF:
+All three backend options default to ON. Compression remains explicit at the
+message boundary; existing calls remain uncompressed. Set any backend option to
+OFF to build without that dependency:
 
 | CMake option | Dependency target | Formats |
 | --- | --- | --- |
@@ -29,9 +31,11 @@ add their installation prefixes to `CMAKE_PREFIX_PATH`. Set the options before
 their enabled dependencies, including for static consumers. Consumer source needs
 no third-party compression headers. Missing enabled dependencies fail configuration.
 
-The optional vcpkg manifest features are `compression-zstd`, `compression-lz4`,
-and `compression-zlib`. Select matching features through `VCPKG_MANIFEST_FEATURES`
-as well as the CMake options; the default manifest does not acquire these libraries.
+The repository vcpkg manifest enables `compression-zstd`, `compression-lz4`,
+and `compression-zlib` as default features and acquires all three libraries. For
+a reduced build, set `VCPKG_MANIFEST_NO_DEFAULT_FEATURES=ON`, enable any retained
+features through `VCPKG_MANIFEST_FEATURES`, and set the corresponding CMake backend
+options explicitly. Cached OFF values remain OFF until reset or overridden.
 See [CMake integration](cmake_integration.md) and the
 [tested versions/configurations](verification-compression-2026-09-17.md).
 

@@ -12,7 +12,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(SERIALIZER_BUILD_TESTS "Build Serializer's tests" ${PROJECT_IS_TOP_LEVEL})
-option(SERIALIZER_BUILD_MANAGED "Build the optional C++ managed snapshot runtime records" OFF)
+option(SERIALIZER_BUILD_MANAGED "Build the C++ managed snapshot runtime records" ON)
+option(SERIALIZER_BUILD_MANAGED_EXAMPLES "Build C++ managed runtime examples without the test suite" OFF)
 option(SERIALIZER_BUILD_PROTOBUF_INTEROP_TESTS "Verify codecs against the official Protobuf runtime" OFF)
 option(SERIALIZER_BUILD_BENCHMARKS "Build separate codec timing and allocation tools" OFF)
 option(SERIALIZER_BUILD_FUZZERS "Build instrumented Clang libFuzzer targets and seed corpus tools" OFF)
@@ -27,9 +28,9 @@ option(SERIALIZER_EXAMPLE_SANITIZERS "Use address/undefined sanitizers for nativ
 option(SERIALIZER_EXAMPLE_BIG_ENDIAN "Include QEMU s390x C/C++ in all-language interoperability" OFF)
 option(SERIALIZER_INSTALL "Install the library, compiler, and CMake integration" ${PROJECT_IS_TOP_LEVEL})
 option(SERIALIZER_ENABLE_SIMD "Accelerate schema scanning and runtime codecs on supported CPUs" ON)
-option(SERIALIZER_WITH_ZSTD "Enable standard Zstandard frame compression" OFF)
-option(SERIALIZER_WITH_LZ4 "Enable standard LZ4 frame compression" OFF)
-option(SERIALIZER_WITH_ZLIB "Enable gzip, zlib, and raw DEFLATE compression" OFF)
+option(SERIALIZER_WITH_ZSTD "Enable standard Zstandard frame compression" ON)
+option(SERIALIZER_WITH_LZ4 "Enable standard LZ4 frame compression" ON)
+option(SERIALIZER_WITH_ZLIB "Enable gzip, zlib, and raw DEFLATE compression" ON)
 include(cmake/serializer_compression.cmake)
 
 add_library(serializer_lib
@@ -144,15 +145,17 @@ include(cmake/serializer_generate_source.cmake)
 
 # Generate runtime records after the compiler, avoiding a compiler/library dependency cycle.
 if(SERIALIZER_BUILD_MANAGED)
-  include(cmake/serializer_find_clang_format.cmake)
-  serializer_find_clang_format()
   add_library(serializer_managed INTERFACE)
   set_target_properties(serializer_managed PROPERTIES EXPORT_NAME managed)
   add_library(Serializer::managed ALIAS serializer_managed)
   serializer_generate(TARGET serializer_managed SCHEMAS schemas/managed_records.serializer
     schemas/collaboration_records.serializer
+    CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/schemas/runtime_records.ini"
     OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed/include/rohit"
     CODING_STANDARD serializer)
+  # Generate installed records even when no examples or consumers link the interface target.
+  add_custom_target(serializer_managed_records ALL)
+  add_dependencies(serializer_managed_records serializer_managed_serializer_headers)
   target_include_directories(serializer_managed INTERFACE
     "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/managed/include>"
     "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>")
@@ -180,8 +183,16 @@ if(SERIALIZER_INSTALL)
     install(FILES schemas/managed_records.serializer schemas/collaboration_records.serializer
       DESTINATION "${CMAKE_INSTALL_DATADIR}/Serializer/schemas")
   endif()
+  # Install record-dependent APIs only when their generated dependencies are available.
+  set(serializer_disabled_header_patterns)
+  if(NOT SERIALIZER_BUILD_MANAGED)
+    foreach(header IN ITEMS managed.hpp collaboration_history.hpp collaboration_sessions.hpp
+        managed_collaboration.hpp managed_local_collaboration.hpp)
+      list(APPEND serializer_disabled_header_patterns PATTERN "${header}" EXCLUDE)
+    endforeach()
+  endif()
   install(DIRECTORY include/rohit DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}"
-    FILES_MATCHING PATTERN "*.hpp")
+    FILES_MATCHING PATTERN "*.hpp" ${serializer_disabled_header_patterns})
   install(FILES "${CMAKE_CURRENT_BINARY_DIR}/generated/include/rohit/version.hpp"
     DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/rohit")
   install(EXPORT SerializerTargets NAMESPACE Serializer::
@@ -211,6 +222,7 @@ endif()
 # Formatting is a generator-time dependency; runtime users do not need clang-format.
 if(SERIALIZER_BUILD_TESTS OR SERIALIZER_BUILD_BENCHMARKS OR SERIALIZER_BUILD_FUZZERS
     OR SERIALIZER_BUILD_STYLE_EXAMPLES OR SERIALIZER_BUILD_IOSTREAM_EXAMPLES
+    OR (SERIALIZER_BUILD_MANAGED AND SERIALIZER_BUILD_MANAGED_EXAMPLES)
     OR SERIALIZER_BUILD_COMPRESSION_EXAMPLES)
   include(cmake/serializer_find_clang_format.cmake)
   serializer_find_clang_format()
@@ -225,7 +237,7 @@ if(SERIALIZER_BUILD_TESTS)
   find_package(GTest CONFIG REQUIRED)
   add_subdirectory(test)
 endif()
-if(SERIALIZER_BUILD_MANAGED)
+if(SERIALIZER_BUILD_MANAGED AND (SERIALIZER_BUILD_TESTS OR SERIALIZER_BUILD_MANAGED_EXAMPLES))
   add_subdirectory(example/managed)
 endif()
 

@@ -1,3 +1,8 @@
+# 1.1.22
+
+- Update build and navigation guidance for default-enabled managed runtime support.
+- Synchronize both extension releases with the current repository build defaults.
+
 # 1.1.21
 
 - Refresh the packaged extension logo from the updated canonical 128×128 artwork.

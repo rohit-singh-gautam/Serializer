@@ -31,7 +31,7 @@ there instead of relying on the relative links.
   [authorization guide](../../../docs/managed/authorization.md).
   See [agent setup](../../../docs/agent_integration.md) for discovery and use from another project.
 - Use the [C++ managed interface](../../../docs/managed/cpp_runtime.md) for
-  schema-driven identity and local snapshot history. Enable `SERIALIZER_BUILD_MANAGED`,
+  schema-driven identity and local snapshot history. `SERIALIZER_BUILD_MANAGED` defaults ON;
   link `Serializer::managed`, and declare bare `managed` on eligible leaf classes
   and independently identified members. Classes carry `persistent_id` directly by
   default; `[managed] separate_values = true` opts into ID-free values and storage
@@ -525,7 +525,7 @@ For this repository's own build, run `make all` / `make test` on Linux or
 `./make.ps1 all` / `./make.ps1 test` on Windows. Both wrappers default to Release,
 build all enabled CMake targets, and use the `VCPKG_ROOT` toolchain when set.
 The test target builds before running CTest. They require the same compiler,
-GoogleTest, and clang-format dependencies as direct CMake; Java, benchmarks, and
+GoogleTest, compression libraries, and clang-format dependencies as direct CMake; Java, benchmarks, and
 fuzzers remain opt-in. See [wrapper options](../../../docs/cmake_integration.md#build-this-repository)
 for configurations, separate build directories, and CMake overrides.
 If a cached Visual Studio instance no longer exists, use
@@ -621,7 +621,7 @@ versioned snippets, and invokes the same targets through CMake Tools. Run the ro
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 1.1.21 is shared with the Visual Studio extension and is independent of
+version 1.1.22 is shared with the Visual Studio extension and is independent of
 compiler and schema versions. Keep both editor extension versions equal.
 Both package descriptions and READMEs identify the
 [Serializer repository](https://github.com/rohit-singh-gautam/Serializer). Configure
@@ -658,9 +658,9 @@ Palette when other providers add non-schema declaration locations. That explicit
 command also follows a native type-definition result for aliases/variables when
 ordinary definition stops at their local declaration; native commands retain
 their language semantics. For this repository's managed ledger tests/examples,
-keep `SERIALIZER_BUILD_MANAGED=ON` in the active CMake configuration and pass it
-again after removing the build cache (`./make.ps1 all -CMakeArgs
-'-DSERIALIZER_BUILD_MANAGED=ON'`). A clean default build leaves managed targets off.
+keep `SERIALIZER_BUILD_MANAGED=ON` in the active CMake configuration. Fresh builds
+enable it by default; existing caches retain OFF values until reset or overridden
+with `./make.ps1 all -CMakeArgs '-DSERIALIZER_BUILD_MANAGED=ON'`.
 Use the same build directory/configuration in CMake Tools as the command-line build;
 do not combine include paths from unrelated targets. Do not override
 VS Code's global commands or disable other language services.
@@ -822,9 +822,11 @@ user instruction to defer generation/builds/tests and report what remains unveri
 ## Implement the C++ codec calls
 
 - For optional compression, read [the compression contract](../../../docs/compression.md)
-  and [usage examples](../../../docs/usage.md#compress-complete-messages). Enable only
-  the needed `SERIALIZER_WITH_ZSTD`, `SERIALIZER_WITH_LZ4`, or `SERIALIZER_WITH_ZLIB`
-  dependencies. Select typed compression options at the whole-message boundary;
+  and [usage examples](../../../docs/usage.md#compress-complete-messages). All three
+  `SERIALIZER_WITH_ZSTD`, `SERIALIZER_WITH_LZ4`, and `SERIALIZER_WITH_ZLIB` backends
+  default ON, and the repository manifest acquires their libraries by default.
+  Disable unused backends explicitly for a reduced build. Select typed compression
+  options at the whole-message boundary;
   keep inner protocol/endian/schema agreements explicit. Regenerate owning headers
   for member/static overloads, or use free helpers with existing generated headers.
   Input requires an explicit compression format and exactly one frame/member.

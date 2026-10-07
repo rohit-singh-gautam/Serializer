@@ -8,7 +8,7 @@ Serializer provides separate packages for VS Code and Visual Studio. Both use
 to the VS Code extension. For the Visual Studio VSIX, see
 [Visual Studio](#visual-studio-extension) below.
 
-Both extensions use release version **1.1.21**. Keep their versions equal and
+Both extensions use release version **1.1.22**. Keep their versions equal and
 increment them together for future changes, including changes to only one package.
 
 Version 1.1.14 restored VS Code navigation actions in Git index/history tabs.
@@ -32,7 +32,7 @@ Both resolve either spelling for navigation; VS Code also supplies a shorthand
 
 ## VS Code
 
-The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.21**, provides `.serializer`
+The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.22**, provides `.serializer`
 syntax highlighting, snippets, declaration/definition navigation, and CMake generated-header commands. Schemas use
 the current `serializer version 1;` header. Legacy `.def` and `.struct` names are
 not registered. Generation remains owned by the project's build rules. Navigation
@@ -79,13 +79,13 @@ Packaging compiles and bundles TypeScript, copies the canonical grammar, logo,
 and repository license into the extension, and writes:
 
 ```text
-out/extensions/serializer-vscode-1.1.21.vsix
+out/extensions/serializer-vscode-1.1.22.vsix
 ```
 
 From the repository root, install it with:
 
 ```sh
-code --install-extension out/extensions/serializer-vscode-1.1.21.vsix
+code --install-extension out/extensions/serializer-vscode-1.1.22.vsix
 ```
 
 Alternatively run **Extensions: Install from VSIX** and select the file. The
@@ -191,14 +191,15 @@ editor API findings, regression coverage and remaining verification boundaries.
 
 ## Development and tests
 
-For this repository's managed ledger examples/tests, enable the optional targets:
+Fresh repository builds include managed ledger examples/tests. Existing caches
+that have managed support disabled can enable it explicitly:
 
 ```powershell
 ./make.ps1 all -CMakeArgs '-DSERIALIZER_BUILD_MANAGED=ON'
 ```
 
-Pass the option again after removing the CMake cache. The default is OFF, so a
-successful clean default build can omit `ledger.hpp` and the managed test targets.
+Fresh configurations default to ON; an existing cached OFF value remains OFF
+until reset or overridden.
 Select that same build/configuration in CMake Tools and run **Serializer: Configure
 IntelliSense** to supply per-target include paths to Microsoft C/C++. Do not merge
 all generated directories into one global include path. Building VSIX files does
@@ -452,7 +453,7 @@ outside this extension's implementation.
 ## Visual Studio extension
 
 The separate [Visual Studio package](../editors/visual_studio/README.md), version
-**1.1.21**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
+**1.1.22**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
 grammar, editing configuration and a native MEF navigation component using the
 same resolver as VS Code. The grammar's `fileTypes` associates `.serializer` files;
 a `.pkgdef` registers its grammar and editing configuration.
@@ -465,7 +466,7 @@ npm ci --prefix editors/vscode
 ```
 
 The script restores locked NuGet dependencies, rebuilds package intermediates, and writes
-`out/extensions/serializer-visual-studio-1.1.21.vsix`. Close Visual Studio,
+`out/extensions/serializer-visual-studio-1.1.22.vsix`. Close Visual Studio,
 double-click this VSIX, install into the desired instance, and restart Visual
 Studio. The root `install_extension.ps1` remains the VS Code installer.
 

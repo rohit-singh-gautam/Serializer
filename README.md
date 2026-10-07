@@ -143,6 +143,12 @@ explicitly select `read_policy::flexible` after regenerating their classes.
 
 ## Build and test
 
+Fresh builds enable managed history, journaling, collaboration, SIMD, and all
+compression backends. Zstandard, LZ4, and zlib are required; the repository vcpkg
+manifest acquires them through its default features. Existing caches retain their
+settings; use `-U SERIALIZER_BUILD_MANAGED -U SERIALIZER_WITH_*` to adopt the new
+defaults, or set each option explicitly.
+
 The default development build needs CMake 3.28+, a C++20 compiler and standard
 library, clang-format 19+, and GoogleTest. See the
 [requirements and setup guide](docs/cmake_integration.md#build-this-repository)
@@ -180,7 +186,7 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editor_extension.md) |
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
-Both extensions use release version **1.1.21**, independent of compiler version
+Both extensions use release version **1.1.22**, independent of compiler version
 **1.0.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
 for supported destinations and language-service prerequisites.
 VS Code also supports navigation from read-only Git index/history tabs, using
@@ -262,6 +268,7 @@ for reporting barriers to using the project.
 - [Schema examples](docs/schema_examples.md): small declarations you can adapt.
 - [Migration guide](migration.md): upgrade requirements and compatibility changes.
 - [Feature status and roadmap](docs/feature_status.md): implemented behavior and future work.
+- [Default runtime verification](docs/verification-default-features-2026-10-07.md): managed/compression defaults and installed-header checks.
 - [Verification record](docs/verification-2026-09-17.md): tested revisions, configurations, and outstanding checks.
 - [Versioning verification](docs/verification-versioning-2026-10-06.md): historical layouts, all eleven language examples, and editor checks.
 - [Release-policy verification](docs/verification-release-policies-2026-10-06.md): compiler folding, calendar boundaries, nested policies, and generation options.

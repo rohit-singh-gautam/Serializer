@@ -2,6 +2,11 @@
   "dependencies": [
     "gtest"
   ],
+  "default-features": [
+    "compression-zstd",
+    "compression-lz4",
+    "compression-zlib"
+  ],
   "features": {
     "compression-zstd": {
       "description": "Optional Zstandard compression backend",

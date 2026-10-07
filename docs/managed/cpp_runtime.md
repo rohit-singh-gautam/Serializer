@@ -35,23 +35,28 @@ For channels, callback forwarding, and collection target resolution, see the
 
 ## Build and include
 
-Configure with `-DSERIALIZER_BUILD_MANAGED=ON` (default OFF), link
-`Serializer::managed`, and generate the application schema normally in C++20:
+Managed runtime records are built by default (`SERIALIZER_BUILD_MANAGED=ON`).
+The build option exposes the managed APIs; it adds no persistent IDs, transaction
+checks, or history storage to ordinary schemas. Those costs arise when a schema
+uses `managed` or an application creates managed stores and uses their features.
+
+Link `Serializer::managed`, and generate the application schema normally in C++20:
 
 ```cmake
-set(SERIALIZER_BUILD_MANAGED ON CACHE BOOL "Build managed support")
 add_subdirectory(path/to/Serializer serializer-build)
 add_executable(application main.cpp)
 target_link_libraries(application PRIVATE Serializer::managed)
 serializer_generate(TARGET application SCHEMAS model.serializer)
 ```
 
-The optional target generates its envelope classes from
+The target generates its envelope classes from
 [managed_records.serializer](../../schemas/managed_records.serializer) after the
-compiler builds. It requires the normal native generator/clang-format setup; a
-separate cross-compilation host generator override is not provided for this target.
-Installed packages built with this option export the same target and record header.
-Ordinary schemas remain usable without it. A generated header containing managed
+compiler builds, even without tests or examples. Internal record generation uses
+`schemas/runtime_records.ini` with formatting disabled and requires no clang-format.
+A separate cross-compilation host generator override is not provided for this target.
+Installed packages export the same target and both managed/collaboration record
+headers. Set `SERIALIZER_BUILD_MANAGED=OFF` to omit the record-dependent APIs;
+independent journal, editor, and runtime headers remain available. A generated header containing managed
 companions includes `<rohit/managed.hpp>` and therefore requires this target.
 
 ## Schema and identity

@@ -226,8 +226,8 @@ Navigation never builds or offers generation; see
 the [navigation coverage matrix](editor_navigation.md#navigation-coverage-matrix).
 In VS Code, the explicit **Serializer: Go to Schema Declaration** command also
 follows native type definitions through aliases and variables. Managed ledger
-examples/tests require `SERIALIZER_BUILD_MANAGED=ON` in the active CMake build,
-including after deleting the build cache. See
+examples/tests require `SERIALIZER_BUILD_MANAGED=ON` in the active CMake build.
+Fresh configurations enable it by default; existing caches retain their values. See
 [available-file navigation](editor_extension.md#navigate-available-schemas-and-headers).
 The separate [Visual Studio extension](../editors/visual_studio/README.md) packages
 the shared grammar, custom-type highlighting, and native schema navigation for
@@ -1155,9 +1155,9 @@ explains automatic selection and use from a consuming project's root.
 
 ## Compress complete messages
 
-Enable `SERIALIZER_WITH_ZSTD`, `SERIALIZER_WITH_LZ4`, and/or `SERIALIZER_WITH_ZLIB`
-when building the runtime, with matching dependency packages available. All are
-optional and default OFF. See [compression contracts and dependencies](compression.md).
+`SERIALIZER_WITH_ZSTD`, `SERIALIZER_WITH_LZ4`, and `SERIALIZER_WITH_ZLIB` default
+to ON when building the runtime, with matching dependency packages required. Set
+individual options to OFF for a reduced build. Compression use remains explicit. See [compression contracts and dependencies](compression.md).
 For complete programs covering every built-in format, identity output, and a
 custom backend, see [compression examples](../example/compression/README.md).
 They include generated member/static calls, standard streams, standalone byte

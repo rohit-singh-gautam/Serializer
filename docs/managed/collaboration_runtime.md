@@ -1,7 +1,7 @@
 # C++ collaboration runtime
 
 Status: implemented single-authority, snapshot-based C++ collaboration. Enable
-`SERIALIZER_BUILD_MANAGED=ON`, link `Serializer::managed`, and include
+`SERIALIZER_BUILD_MANAGED=ON` (the default), link `Serializer::managed`, and include
 `<rohit/managed_collaboration.hpp>`. Regenerate managed model headers to obtain
 the `visit_collaboration`, `visit_collaboration_fields`, and `merge_collaboration`
 traits. Existing schema
