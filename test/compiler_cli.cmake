@@ -34,7 +34,7 @@ endfunction()
 
 succeed(--version)
 if(NOT last_output MATCHES "Serializer compiler ${VERSION}" OR
-    NOT last_output MATCHES "Supported schema language version: 1[.]0[.]0[\r\n]")
+    NOT last_output MATCHES "Supported schema language version: 1[.]2[.]0[\r\n]")
   message(FATAL_ERROR "Incorrect compiler version: ${last_output}")
 endif()
 succeed(-v)
@@ -110,7 +110,7 @@ foreach(header IN ITEMS "" "serializer version 0;" "serializer version 2;"
     "serializer version 999999999999999999999;" "serializer version -1;"
     "serializer version 1" "serializer version 1.0;" "serializer version1;"
     "serializer version 1..0;" "serializer version 1.0.0.0;"
-    "serializer version 1.0.1;" "serializer version 1.1.0;" "serializer version 2.0.0;"
+    "serializer version 1.2.1;" "serializer version 1.3.0;" "serializer version 2.0.0;"
     "serializer version 1.999999999999999999999.0;"
     "serializer version 1.0.999999999999999999999;"
     "serializer version 1; serializer version 1;")
@@ -121,7 +121,7 @@ file(WRITE "${schema}" "// comment\n/* license */ serializer /* schema */ versio
 succeed(-i "${schema}" -o "${cpp}" --cpp.format=false)
 
 # The legacy alias and full language version must produce identical C++ and Java codecs.
-foreach(language_version IN ITEMS 1 1.0.0)
+foreach(language_version IN ITEMS 1 1.0.0 1.0.1 1.1.0 1.1.1 1.2.0)
   file(WRITE "${schema}" "serializer version ${language_version};\n"
     "class account stable_ids { public uint32 id (7); }\n")
   succeed(-i "${schema}" -l cpp,java --cpp.output "${cpp}" --java.output "${java}"
@@ -163,7 +163,7 @@ file(WRITE "${schema}" "serializer version 1; include shared/common;\n"
   "namespace models { class request { public account owner; } }\n")
 succeed(-i "${schema}" -l cpp,java --cpp.output "${cpp}" --java.output "${java}"
   --cpp.format false --depfile "${depfile}")
-file(WRITE "${DIRECTORY}/shared/common.serializer" "serializer version 1.0.1; class account {}")
+file(WRITE "${DIRECTORY}/shared/common.serializer" "serializer version 1.2.1; class account {}")
 reject("Unsupported schema language version" -i "${schema}" -o "${cpp}" --cpp.format false)
 file(WRITE "${DIRECTORY}/shared/common.serializer"
   "serializer version 1.0.0; namespace models { class account { public uint32 id (7); } }\n")
@@ -237,3 +237,57 @@ if(NOT result EQUAL 0 OR NOT error MATCHES "current version remains readable")
   message(FATAL_ERROR "Expired current version must warn without failing: ${output}\n${error}")
 endif()
 succeed(-i "${schema}" --check-against "${schema}" --compatibility-protocol binary_none --version-policy-as-of 2026-10-06 --verbose)
+
+# Compact fields require their declared contract in every included file.
+foreach(declaration IN ITEMS
+    "public compact_prefix strict uint32 value (3) { 32 };"
+    "public compact_varint uint64 value (3) { 32 };")
+  foreach(language_version IN ITEMS 1 1.0.0 1.1.0 1.1.999)
+    file(WRITE "${schema}" "serializer version ${language_version}; class account { ${declaration} }")
+    reject("requires serializer version 1.2.0" -i "${schema}" -o "${cpp}" --cpp.format false)
+  endforeach()
+  file(WRITE "${schema}" "serializer version 1.2.0; class account { ${declaration} }")
+  succeed(-i "${schema}" -o "${cpp}" --cpp.format false)
+endforeach()
+file(WRITE "${DIRECTORY}/shared/common.serializer"
+  "serializer version 1.1.0; class account { public compact_varint uint32 value; }")
+file(WRITE "${schema}" "serializer version 1.2.0; include shared/common; class request {}")
+reject("requires serializer version 1.2.0" -i "${schema}" -o "${cpp}" --cpp.format false)
+file(WRITE "${DIRECTORY}/shared/common.serializer"
+  "serializer version 1.2.0; class account { public compact_varint uint32 value; }")
+file(WRITE "${schema}" "serializer version 1.1.0; include shared/common; class request {}")
+succeed(-i "${schema}" -o "${cpp}" --cpp.format false)
+file(WRITE "${schema}" "serializer version 1.1.0; include shared/common; "
+  "class request { public compact_prefix uint32 value; }")
+reject("requires serializer version 1.2.0" -i "${schema}" -o "${cpp}" --cpp.format false)
+
+# The current language contract accepts the additions and older contracts reject them transactionally.
+foreach(declaration IN ITEMS
+    "private magic uint32 (99) { 0x534552 };"
+    "public array[] char signature (1) { 'SRLFILE' };")
+  foreach(language_version IN ITEMS 1 1.0.0 1.0.1)
+    file(WRITE "${schema}" "serializer version ${language_version}; class account { ${declaration} }")
+    reject("requires serializer version 1.1.0" -i "${schema}" -o "${cpp}" --cpp.format false)
+  endforeach()
+  file(WRITE "${schema}" "serializer version 1.1.0; class account { ${declaration} }")
+  succeed(-i "${schema}" -o "${cpp}" --cpp.format false)
+endforeach()
+
+# Included files select their own syntax contract; a child cannot upgrade its parent.
+file(WRITE "${DIRECTORY}/shared/common.serializer"
+  "serializer version 1.0.0; class account { private magic uint32 { 42 }; }")
+file(WRITE "${schema}" "serializer version 1.1.0; include shared/common; class request {}")
+reject("requires serializer version 1.1.0" -i "${schema}" -o "${cpp}" --cpp.format false)
+file(WRITE "${DIRECTORY}/shared/common.serializer"
+  "serializer version 1.1.0; class account { private magic uint32 { 42 }; }")
+file(WRITE "${schema}" "serializer version 1.0.0; include shared/common; class request {}")
+succeed(-i "${schema}" -o "${cpp}" --cpp.format false)
+file(WRITE "${schema}"
+  "serializer version 1.0.0; include shared/common; class request { public array[] char signature { 'SRL' }; }")
+reject("requires serializer version 1.1.0" -i "${schema}" -o "${cpp}" --cpp.format false)
+
+# An inferred declaration in an older dependency fails even when its includer uses the current version.
+file(WRITE "${DIRECTORY}/shared/common.serializer"
+  "serializer version 1.0.1; class account { public array[] char signature { 'SRL' }; }")
+file(WRITE "${schema}" "serializer version 1.1.0; include shared/common; class request {}")
+reject("requires serializer version 1.1.0" -i "${schema}" -o "${cpp}" --cpp.format false)

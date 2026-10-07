@@ -121,6 +121,26 @@ private static final class Writer {
     }
   }
 
+  /** Encode compact unsigned fields; lenient prefixes retain exactly the low 30 bits. */
+  void compactValue(long value, int width, boolean prefix, boolean strict) {
+    if (json()) { integer(value, width, true); return; }
+    if (width < java.lang.Long.BYTES) { value &= (1L << (width*8))-1; }
+    if (prefix) {
+      if (strict && java.lang.Long.compareUnsigned(value, COMPACT_MAX) > 0) {
+        throw new java.lang.IllegalArgumentException("Compact prefix integer range");
+      }
+      int payload = (int) (value & COMPACT_MAX);
+      int extra = payload <= 0x3f ? 0 : payload <= 0x3fff ? 1 : payload <= 0x3fffff ? 2 : 3;
+      bytes.write((extra << 6) | (payload >>> (extra*8)));
+      for (int shift = (extra-1)*8; shift >= 0; shift -= 8) { bytes.write(payload >>> shift); }
+      return;
+    }
+    while (java.lang.Long.compareUnsigned(value, 0x80) >= 0) {
+      bytes.write((int) (value & 0x7f) | 0x80);
+      value >>>= 7;
+    }
+    bytes.write((int) value);
+  }
   /** Preserve floating-point binary bits and reject nonfinite JSON values. */
   void floating(double value, boolean single) {
     if (json()) {
@@ -329,6 +349,35 @@ private static final class Reader {
     } catch (java.lang.NumberFormatException error) { throw error("java.lang.Integer out of range"); }
   }
 
+)java"
+R"java(  /** Validate complete compact fields and target-width overflow before advancing. */
+  long compactValue(int width, boolean prefix) {
+    if (json()) { return integer(width, true); }
+    int start = offset;
+    if (prefix) {
+      long value = compact();
+      if (width < java.lang.Long.BYTES && value >= 1L << (width*8)) {
+        offset = start;
+        throw error("Compact integer range");
+      }
+      return value;
+    }
+    int bits = width*8;
+    long value = 0;
+    for (int index = 0; index < (bits+6)/7; ++index) {
+      require(index+1);
+      int current = java.lang.Byte.toUnsignedInt(bytes[start+index]);
+      int payload = current & 0x7f;
+      if (payload >= 1 << java.lang.Math.min(7, bits-index*7)) { throw error("Compact integer range"); }
+      value |= (long) payload << (index*7);
+      if (current < 0x80) {
+        if (index != 0 && payload == 0) { throw error("Noncanonical compact integer"); }
+        offset = start+index+1;
+        return value;
+      }
+    }
+    throw error("Unterminated compact integer");
+  }
   /** Decode floating-point bits or a finite, grammatical JSON number. */
   double floating(boolean single) {
     if (!json()) {

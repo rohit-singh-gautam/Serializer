@@ -142,6 +142,11 @@ class python_emitter {
     const auto destination = "result." + field(value.name, value.access);
     const auto& item = value.type_name_list.front();
     if (value.modifier == member::modifier_type::none) {
+      if (value.compact != compact_encoding::none) {
+        line(destination + " = input.compact_value(" + std::to_string(width(item)) + ", " +
+             (value.compact == compact_encoding::prefix ? "True" : "False") + ")");
+        return;
+      }
       line(destination + " = " + read(item, false, destination));
       return;
     }
@@ -209,6 +214,12 @@ class python_emitter {
     key(value.id, value.display_name, first);
     const auto& item = value.type_name_list.front();
     if (value.modifier == member::modifier_type::none) {
+      if (value.compact != compact_encoding::none) {
+        line("out.compact_value(" + source + ", " + std::to_string(width(item)) + ", " +
+             (value.compact == compact_encoding::prefix ? "True" : "False") + ", " +
+             (value.compact_strict ? "True" : "False") + ")");
+        return;
+      }
       write(item, source, false);
       return;
     }
@@ -276,14 +287,18 @@ class python_emitter {
   }
   // Emit slot-based owning models with independent defaults and exact decode APIs.
   void object(const class_node& value) {
-    dynamic_first = !value.magic_bytes.empty() && !value.magic_omits("json");
+    dynamic_first = value.has_magic() && !value.magic_omits("json");
     for (const auto& item : value.member_list) {
       dynamic_first = dynamic_first || !omitted_condition(item.omitted_formats, "out").empty();
     }
     const auto name = model.names.at(&value);
     open("class " + name);
     line("\"\"\"Owning schema model; do not mutate during encoding.\"\"\"");
-    if (!value.magic_bytes.empty()) {
+    if (value.magic_field) {
+      const auto& magic = *value.magic_field;
+      line(field("magic", value.magic_access) + " = " +
+           initial(magic.type_name_list.front(), literal(magic)));
+    } else if (value.has_magic()) {
       std::string bytes = "bytes((";
       for (const auto byte : value.magic_bytes) {
         bytes += std::to_string(static_cast<unsigned char>(byte)) + ",";
@@ -345,22 +360,33 @@ class python_emitter {
     --indent;
     open("def _write(self, out)");
     line("\"\"\"Write typed fields in schema order.\"\"\"");
-    if (!value.magic_bytes.empty()) {
+    if (value.has_magic()) {
       const auto omitted = omitted_condition(value.magic_omitted_formats, "out");
       open("if out.protocol != Protocol.JSON" + (omitted.empty() ? "" : " and not (" + omitted + ")"));
-      open("for magic_byte in " + name + "." + field("magic", value.magic_access));
-      line("out.integer(magic_byte, 1, True)");
-      indent -= 2;
+      if (value.magic_field) {
+        write(value.magic_field->type_name_list.front(),
+              name + "." + field("magic", value.magic_access), false);
+      } else {
+        open("for magic_byte in " + name + "." + field("magic", value.magic_access));
+        line("out.integer(magic_byte, 1, True)");
+        --indent;
+      }
+      --indent;
     }
     if (const auto* version = value.version_member()) {
       check_version(value, "self." + field(version->name, version->access), false);
     }
     line("out.begin_object()");
     if (dynamic_first) { line("_srl_first = True"); }
-    if (!value.magic_bytes.empty() && !value.magic_omits("json")) {
+    if (value.has_magic() && !value.magic_omits("json")) {
       open("if out.protocol == Protocol.JSON");
       key(value.magic_id, "magic", true);
-      line("out.text(" + name + "." + field("magic", value.magic_access) + ".decode('utf-8'))");
+      if (value.magic_field) {
+        write(value.magic_field->type_name_list.front(),
+              name + "." + field("magic", value.magic_access), false);
+      } else {
+        line("out.text(" + name + "." + field("magic", value.magic_access) + ".decode('utf-8'))");
+      }
       --indent;
     }
     bool first = true;
@@ -399,15 +425,21 @@ class python_emitter {
     line("@classmethod");
     open("def _read(cls, input, result=None)");
     line("\"\"\"Merge ordinary nested fields while preserving input order.\"\"\"");
-    if (!value.magic_bytes.empty()) {
+    if (value.has_magic()) {
       const auto omitted = omitted_condition(value.magic_omitted_formats, "input");
       open("if input.protocol != Protocol.JSON" + (omitted.empty() ? "" : " and not (" + omitted + ")"));
-      open("for magic_byte in cls." + field("magic", value.magic_access));
-      line("if input.integer(1, True) != magic_byte: raise ValueError('Binary magic header mismatch')");
-      indent -= 2;
+      if (value.magic_field) {
+        line("if " + read(value.magic_field->type_name_list.front(), false) + " != cls." +
+             field("magic", value.magic_access) + ": raise ValueError('Binary magic header mismatch')");
+      } else {
+        open("for magic_byte in cls." + field("magic", value.magic_access));
+        line("if input.integer(1, True) != magic_byte: raise ValueError('Binary magic header mismatch')");
+        --indent;
+      }
+      --indent;
     }
     line("if result is None: result = cls()");
-    const bool json_magic = !value.magic_bytes.empty() && !value.magic_omits("json");
+    const bool json_magic = value.has_magic() && !value.magic_omits("json");
     if (json_magic) { line("_srl_magic_seen = False"); }
     if (value.version_member()) {
       line("seen = set()");
@@ -429,10 +461,15 @@ class python_emitter {
     if (json_magic) {
       open("case 'magic' if input.protocol == Protocol.JSON");
       line("if _srl_magic_seen: raise ValueError('Duplicate magic header')");
-      line("if input.text() != cls." + field("magic", value.magic_access) + ".decode('utf-8'): raise ValueError('JSON magic header mismatch')");
+      const auto magic_value = value.magic_field
+          ? read(value.magic_field->type_name_list.front(), false) : "input.text()";
+      const auto expected = "cls." + field("magic", value.magic_access) +
+                            (value.magic_field ? "" : ".decode('utf-8')");
+      line("if " + magic_value + " != " + expected +
+           ": raise ValueError('JSON magic header mismatch')");
       line("_srl_magic_seen = True");
       --indent;
-    } else if (!value.magic_bytes.empty()) {
+    } else if (value.has_magic()) {
       open("case 'magic' if input.protocol == Protocol.JSON");
       line("raise ValueError('Magic header omitted from JSON')");
       --indent;

@@ -1,0 +1,24 @@
+serializer version 1.2.0;
+namespace compact_test {
+  class prefix_record {
+    public compact_prefix strict uint32 value (3) {32};
+  }
+  class lenient_record {
+    public compact_prefix lenient uint32 value (3) {4294967295};
+  }
+  class varint_record {
+    public compact_varint uint64 value (3) {0};
+  }
+  class narrow_record {
+    public compact_varint uint8 value {0};
+  }
+  class prefix_narrow_record {
+    public compact_prefix uint8 value {0};
+  }
+  class mixed_record {
+    public uint32 before {1};
+    public compact_varint uint32 value {128};
+    public uint32 after {2};
+    public uint16 tail {3};
+  }
+}

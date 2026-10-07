@@ -1,3 +1,19 @@
+# 1.1.25
+
+- Highlight schema language 1.2.0 `compact_prefix` and `compact_varint` fields with explicit `strict` or `lenient` overflow policy.
+- Preserve type navigation beside compact modifiers and keep generated-output navigation shared by both editors.
+- Add compact field snippets and select schema language 1.2.0 in new schemas.
+- Keep the Visual Studio and Visual Studio Code package versions synchronized.
+
+# 1.1.24
+
+- Recognize schema language 1.1.0 inferred fixed arrays and scalar/enum magic declarations.
+- Highlight empty fixed-array extents and their element types.
+- Navigate typed magic enum operands and enum initializers through transitive includes and unsaved edits.
+- Preserve generated namespace navigation beside C++ numeric separators in inferred defaults.
+- Add VS Code snippets for inferred arrays and typed magic; new schemas select language 1.1.0.
+- Synchronize both editor versions and rebuild the local packages.
+
 # 1.1.23
 
 - Highlight three-component schema language versions as complete numeric tokens.

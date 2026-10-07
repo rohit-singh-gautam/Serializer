@@ -1,0 +1,69 @@
+serializer version 1.1.0;
+
+namespace typed_magic_test {
+  enum kind {
+    first,
+    second
+  }
+  class bool_record stable_ids {
+    public magic bool (99) { false };
+    public uint32 value (1) { 7 };
+  }
+  class char_record stable_ids {
+    public magic char (99) { 'A' };
+    public uint32 value (1) { 7 };
+  }
+  class int8_record stable_ids {
+    public magic int8 (99) { -128 };
+    public uint32 value (1) { 7 };
+  }
+  class uint8_record stable_ids {
+    public magic uint8 (99) { 255 };
+    public uint32 value (1) { 7 };
+  }
+  class int16_record stable_ids {
+    public magic int16 (99) { -32768 };
+    public uint32 value (1) { 7 };
+  }
+  class uint16_record stable_ids {
+    public magic uint16 (99) { 65535 };
+    public uint32 value (1) { 7 };
+  }
+  class int32_record stable_ids {
+    public magic int32 (99) { -2147483648 };
+    public uint32 value (1) { 7 };
+  }
+  class uint32_record stable_ids {
+    public magic uint32 (99) { 0x5345524C };
+    public uint32 value (1) { 7 };
+  }
+  class int64_record stable_ids {
+    public magic int64 (99) { -9223372036854775808 };
+    public uint32 value (1) { 7 };
+  }
+  class uint64_record stable_ids {
+    public magic uint64 (99) { 18446744073709551615 };
+    public uint32 value (1) { 7 };
+  }
+  class float_record stable_ids {
+    public magic float (99) { 0.1 };
+    public uint32 value (1) { 7 };
+  }
+  class double_record stable_ids {
+    public magic double (99) { -1.25 };
+    public uint32 value (1) { 7 };
+  }
+  class enum_record stable_ids {
+    public magic kind (99) { second };
+    public uint32 value (1) { 7 };
+  }
+  class omitted_record {
+    private magic uint32 { 42 } omit(json, binary_integer);
+    public uint32 value;
+  }
+  class generic_record<T> {
+    public magic uint32 (99) { 42 };
+    public T value (1);
+  }
+  instantiate concrete_record = generic_record<uint32>;
+}

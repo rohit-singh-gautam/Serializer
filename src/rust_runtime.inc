@@ -62,6 +62,23 @@ impl SrlWriter {
             self.put(text.as_bytes())
         } else { self.put(&value.to_le_bytes()[..width]) }
     }
+    /// Encode unsigned compact fields with deterministic low-30-bit lenient prefixes.
+    fn compact_value(&mut self, mut value: u64, width: usize, prefix: bool, strict: bool) -> SrlResult<()> {
+        if self.json() { return self.integer(value, width, true); }
+        if prefix {
+            if strict && value > 0x3fffffff { return Err(Error("Compact prefix integer range")); }
+            let payload = value & 0x3fffffff;
+            let extra = if payload <= 63 { 0 } else if payload <= 16383 { 1 } else if payload <= 4194303 { 2 } else { 3 };
+            let mut bytes = [0u8; 4]; bytes[0] = ((extra as u8) << 6) | ((payload >> (extra*8)) as u8);
+            for index in 0..extra { bytes[index+1] = (payload >> ((extra-index-1)*8)) as u8; }
+            return self.put(&bytes[..extra+1]);
+        }
+        let mut bytes = [0u8; 10];
+        let mut count = 0;
+        while value >= 0x80 { bytes[count] = (value as u8 & 0x7f) | 0x80; count += 1; value >>= 7; }
+        bytes[count] = value as u8;
+        self.put(&bytes[..count+1])
+    }
     /// Write binary32 without widening its binary NaN payload.
     fn float32(&mut self, value: f32) -> SrlResult<()> {
         if !self.json() { return self.put(&value.to_le_bytes()); }
@@ -184,6 +201,36 @@ impl<'a> SrlReader<'a> {
             let value = text.parse::<i64>().map_err(|_| Error("Integer range"))?;
             if width < 8 && (value < -(1i64 << (bits-1)) || value >= (1i64 << (bits-1))) { return Err(Error("Integer range")); } Ok(value as u64)
         }
+    }
+)serializer"
+R"serializer(    /// Reject malformed compact fields and range overflow before publishing the cursor.
+    fn compact_value(&mut self, width: usize, prefix: bool) -> SrlResult<u64> {
+        if self.json() { return self.integer(width, true); }
+        let start = self.offset;
+        if prefix {
+            let first = *self.data.get(start).ok_or(Error("Truncated input"))?;
+            let count = 1 + (first >> 6) as usize;
+            if count > self.data.len()-start { return Err(Error("Truncated input")); }
+            let mut value = (first & 0x3f) as u64;
+            for byte in &self.data[start+1..start+count] { value = (value << 8) | *byte as u64; }
+            if width < 8 && value >= 1u64 << (width*8) { self.offset = start; return Err(Error("Compact integer range")); }
+            self.offset = start+count;
+            return Ok(value);
+        }
+        let bits = width*8;
+        let mut value = 0u64;
+        for index in 0..bits.div_ceil(7) {
+            let byte = *self.data.get(start+index).ok_or(Error("Truncated input"))?;
+            let payload = byte & 0x7f;
+            if (payload as u64) >= 1u64 << std::cmp::min(7, bits-index*7) { return Err(Error("Compact integer range")); }
+            value |= (payload as u64) << (index*7);
+            if byte < 0x80 {
+                if index != 0 && payload == 0 { return Err(Error("Noncanonical compact integer")); }
+                self.offset = start+index+1;
+                return Ok(value);
+            }
+        }
+        Err(Error("Unterminated compact integer"))
     }
     /// Decode binary32 directly, rejecting JSON overflow and underflow.
     fn float32(&mut self) -> SrlResult<f32> {

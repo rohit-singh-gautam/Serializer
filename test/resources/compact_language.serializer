@@ -1,0 +1,27 @@
+serializer version 1.2.0;
+
+class compact_record {
+  public compact_prefix uint8 prefix_u8 (1) {255};
+  public compact_prefix uint16 prefix_u16 (2) {65535};
+  public compact_prefix uint32 prefix_zero (3) {0};
+  public compact_prefix uint32 prefix_63 (4) {63};
+  public compact_prefix uint32 prefix_64 (5) {64};
+  public compact_prefix uint32 prefix_16383 (6) {16383};
+  public compact_prefix uint32 prefix_16384 (7) {16384};
+  public compact_prefix uint32 prefix_4194303 (8) {4194303};
+  public compact_prefix uint32 prefix_4194304 (9) {4194304};
+  public compact_prefix strict uint32 prefix_max (10) {1073741823};
+  public compact_prefix lenient uint32 lenient_u32 (11) {4294967295};
+  public compact_prefix lenient uint64 lenient_u64 (12) {18446744073709551615};
+  public compact_varint uint8 varint_u8 (13) {255};
+  public compact_varint uint16 varint_u16 (14) {65535};
+  public compact_varint uint32 varint_zero (15) {0};
+  public compact_varint uint32 varint_127 (16) {127};
+  public compact_varint uint32 varint_128 (17) {128};
+  public compact_varint uint32 varint_16383 (18) {16383};
+  public compact_varint uint32 varint_16384 (19) {16384};
+  public compact_varint strict uint32 varint_u32_max (20) {4294967295};
+  public compact_varint lenient uint64 varint_u64_max (21) {18446744073709551615};
+  public compact_prefix strict uint32 strict_overflow (22) {0};
+  public compact_prefix strict uint64 prefix_u64 (23) {1073741823};
+}

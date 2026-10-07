@@ -252,6 +252,10 @@ class emitter {
     }
     const auto last = value.default_value.find_last_not_of(" \t\r\n");
     const auto text = value.default_value.substr(first, last - first + 1);
+    if (value.magic && item.name == "char") {
+      // Typed magic is canonicalized to its validated byte value by the parser.
+      return text;
+    }
     if (item.type == object_type::enum_type) {
       const auto separator = text.rfind("::");
       const auto constant = separator == std::string::npos ? text : text.substr(separator + 2);
@@ -457,7 +461,7 @@ class emitter {
         continue;
       }
       const auto& value = static_cast<const class_node&>(*node);
-      if (!value.magic_bytes.empty() && !value.magic_omits("json")) {
+      if (value.has_magic() && !value.magic_omits("json")) {
         add("magic");
       }
       for (const auto& base : value.parents) {
@@ -637,7 +641,18 @@ class emitter {
     const auto destination = "result." + field(value.name, value.access);
     const auto& item = value.type_name_list.front();
     if (value.modifier == member::modifier_type::none) {
-      statement(destination + " = " + read_value(item, false, destination));
+      if (value.compact != compact_encoding::none) {
+        const auto expression = "input." + std::string{value.compact == compact_encoding::prefix
+                                                         ? "compactPrefix("
+                                                         : "compactVarint("} +
+                                std::to_string(width(item.name)) + ")";
+        const auto converted = language == target::go       ? type(item) + "(" + expression + ")"
+                               : language == target::csharp ? "(" + type(item) + ")" + expression
+                                                            : expression;
+        statement(destination + " = " + converted);
+      } else {
+        statement(destination + " = " + read_value(item, false, destination));
+      }
       return;
     }
     local("count", "input.beginArray()");
@@ -730,7 +745,17 @@ class emitter {
     const auto expression = choose("this.", "value.", "this.") + field(value.name, value.access);
     const auto& item = value.type_name_list.front();
     if (value.modifier == member::modifier_type::none) {
-      write_value(item, expression, false);
+      if (value.compact != compact_encoding::none) {
+        const auto converted = language == target::go       ? "uint64(" + expression + ")"
+                               : language == target::csharp ? "(ulong)" + expression
+                                                            : expression;
+        const auto method = value.compact == compact_encoding::prefix ? "compactPrefix"
+                                                                     : "compactVarint";
+        statement("output." + std::string{method} + (value.compact_strict ? "(" : "Lenient(") +
+                  converted + ", " + std::to_string(width(item.name)) + ")");
+      } else {
+        write_value(item, expression, false);
+      }
       return;
     }
     if (value.modifier == member::modifier_type::array) {
@@ -891,9 +916,30 @@ class emitter {
       check_version(owner, true);
     }
   }
-  // Emit exact raw artifact identity before object framing for all native binary protocols.
+  // Reference static metadata in the target's class or package scope.
+  std::string magic_constant(const class_node& value) const {
+    const auto identifier = names.at(&value);
+    auto go_name = identifier + "Magic";
+    if (value.magic_access != access_type::public_access) {
+      go_name.front() = static_cast<char>(
+          std::tolower(static_cast<unsigned char>(go_name.front())));
+    }
+    return choose(identifier + ".#srlMagic", go_name, identifier + ".Magic");
+  }
+  // Write typed metadata through a runtime value where Go constant conversions would overflow.
+  void write_magic_constant(const class_node& value) {
+    const auto expression = magic_constant(value);
+    if (language == target::go) {
+      // Signed negative constants cannot be converted directly to uint64 in Go.
+      local("magicValue", expression);
+      write_value(value.magic_field->type_name_list.front(), "magicValue", false);
+    } else {
+      write_value(value.magic_field->type_name_list.front(), expression, false);
+    }
+  }
+  // Emit scalar encoding or legacy raw identity before native binary object framing.
   void magic_prefix(const class_node& value, bool reading) {
-    if (value.magic_bytes.empty()) {
+    if (!value.has_magic()) {
       return;
     }
     const auto stream = reading ? "input" : "output";
@@ -903,17 +949,31 @@ class emitter {
       active += " && !(" + omitted + ")";
     }
     condition(active);
-    for (const auto byte : value.magic_bytes) {
-      const auto literal = std::to_string(static_cast<unsigned char>(byte));
+    if (value.magic_field) {
+      const auto& magic_type = value.magic_field->type_name_list.front();
       if (reading) {
-        condition("input.integer(1, true) != " + literal);
+        condition(read_value(magic_type, false) + " != " + magic_constant(value));
         statement("input.fail(\"Incorrect schema magic\")");
         if (language == target::go) {
           statement("return result");
         }
         close();
       } else {
-        statement("output.integer(" + literal + ", 1, true)");
+        write_magic_constant(value);
+      }
+    } else {
+      for (const auto byte : value.magic_bytes) {
+        const auto literal = std::to_string(static_cast<unsigned char>(byte));
+        if (reading) {
+          condition("input.integer(1, true) != " + literal);
+          statement("input.fail(\"Incorrect schema magic\")");
+          if (language == target::go) {
+            statement("return result");
+          }
+          close();
+        } else {
+          statement("output.integer(" + literal + ", 1, true)");
+        }
       }
     }
     close();
@@ -975,12 +1035,16 @@ class emitter {
     const auto first_flag = [&](bool initial) {
       return variable_first ? std::string{"firstField"} : std::string{initial ? "true" : "false"};
     };
-    const bool magic_json = !value.magic_bytes.empty() && !value.magic_omits("json");
+    const bool magic_json = value.has_magic() && !value.magic_omits("json");
     if (magic_json) {
       condition("output.json()");
       statement("output.field(" + std::to_string(value.magic_id) + ", " + wire_key("magic") +
                 ", true)");
-      statement("output.text(" + magic_text(value) + ")");
+      if (value.magic_field) {
+        write_magic_constant(value);
+      } else {
+        statement("output.text(" + magic_text(value) + ")");
+      }
       if (variable_first) {
         statement("firstField = false");
       }
@@ -1095,7 +1159,7 @@ class emitter {
   // Dispatch known keys through native switches, avoiding linear field lookup.
   void read_object(const class_node& value) {
     magic_prefix(value, true);
-    const bool magic_json = !value.magic_bytes.empty() && !value.magic_omits("json");
+    const bool magic_json = value.has_magic() && !value.magic_omits("json");
     if (magic_json) {
       local("magicSeen", "false");
     }
@@ -1166,7 +1230,11 @@ class emitter {
       if (!numeric && magic_json) {
         line("case \"magic\":");
         open("");
-        condition("!input.json() || magicSeen || input.text() != " + magic_text(value));
+        const auto comparison = value.magic_field
+            ? read_value(value.magic_field->type_name_list.front(), false) + " != " +
+                  magic_constant(value)
+            : "input.text() != " + magic_text(value);
+        condition("!input.json() || magicSeen || " + comparison);
         statement("input.fail(\"Incorrect or duplicate schema magic\")");
         close();
         statement("magicSeen = true");
@@ -1175,7 +1243,7 @@ class emitter {
         }
         close();
       }
-      if (!numeric && !value.magic_bytes.empty() && !magic_json) {
+      if (!numeric && value.has_magic() && !magic_json) {
         line("case \"magic\":");
         open("");
         statement("input.fail(\"Field omitted from selected format\")");
@@ -1294,7 +1362,25 @@ class emitter {
          " owns its fields; concurrent mutation during encoding is unsupported.");
     open(choose("export class " + identifier, "type " + identifier + " struct",
                 "public sealed class " + identifier));
-    if (!value.magic_bytes.empty() && language != target::go) {
+    if (value.magic_field && language != target::go) {
+      const auto& magic = *value.magic_field;
+      const bool visible = value.magic_access == access_type::public_access;
+      line("// Fixed scalar schema metadata has no per-object storage.");
+      if (language == target::js) {
+        statement("static #srlMagic = " + default_value(magic));
+        if (visible) {
+          open("static get magic()");
+          statement("return " + identifier + ".#srlMagic");
+          close();
+        }
+      } else if (language == target::typescript) {
+        line(std::string(visible ? "" : "private ") + "static readonly magic: " +
+             type(magic.type_name_list.front()) + ";");
+      } else {
+        statement(std::string(visible ? "public " : "private ") + "const " +
+                  type(magic.type_name_list.front()) + " Magic = " + default_value(magic));
+      }
+    } else if (value.has_magic() && language != target::go) {
       std::string values;
       for (const auto byte : value.magic_bytes) {
         values += (values.empty() ? "" : ", ") +
@@ -1357,7 +1443,12 @@ class emitter {
     }
     if (language == target::go) {
       close();
-      if (!value.magic_bytes.empty()) {
+      if (value.magic_field) {
+        const auto& magic = *value.magic_field;
+        line("// Fixed scalar identity is an immutable package constant.");
+        statement("const " + magic_constant(value) + " " + type(magic.type_name_list.front()) +
+                  " = " + default_value(magic));
+      } else if (value.has_magic()) {
         std::string bytes_literal = "\"";
         constexpr std::string_view hex_digits = "0123456789abcdef";
         for (const auto byte : value.magic_bytes) {

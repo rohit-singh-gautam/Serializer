@@ -109,6 +109,14 @@ presence, without retaining per-object storage. It is distinct from the raw
 fixed-byte prefix used by native binary formats. Declare an explicit ID for a
 durable contract, for example `private magic (20) {'SRLFILE'};`.
 
+Schema language `1.1.0` also permits typed scalar/enum magic, for example
+`private magic uint32 (20) {42};`. It uses the same field ID and mapping as the
+corresponding scalar or enum row below, including `char` as unsigned-byte
+`uint32`, enum ordinals in binary and enum names in the text formats. Writers
+always emit the constant; readers require and validate it, then discard it.
+`array[]` remains fixed-array syntax and is explicitly unsupported by direct
+Protobuf generation.
+
 Field-level `omit(protobuf, protojson, textproto)` selects the optional mappings
 to exclude. These are independent selectors; `omit(json)` selects native JSON.
 Generated C++ uses `if constexpr` on the protocol template parameter. Excluded

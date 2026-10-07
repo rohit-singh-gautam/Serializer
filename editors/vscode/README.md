@@ -4,7 +4,7 @@ This extension supports the [Serializer schema compiler and serialization librar
 maintained in that repository.
 
 Edit `.serializer` schemas with syntax highlighting, bracket matching, comments,
-folding, and snippets. Version **1.1.23** includes navigation from includes and type
+folding, and snippets. Version **1.1.25** includes navigation from includes and type
 references to source schemas and existing generated code in all 11 output languages. Use the project's
 CMake configuration for the separate build and missing-header assistance commands.
 
@@ -78,7 +78,7 @@ same declaration, definition, and type-definition actions. Cursor offsets and
 local symbols come from the displayed snapshot. Includes, other schema files,
 and generated output resolve against the current workspace; this does not
 reconstruct a historical checkout. With an older extension, open the working
-file from Explorer to use navigation, or install 1.1.23 and reload VS Code.
+file from Explorer to use navigation, or install 1.1.25 and reload VS Code.
 
 Caller navigation depends on the language service's active project configuration.
 For this repository's managed ledger examples/tests, use
@@ -252,16 +252,40 @@ contracts; fixed-array output is currently unsupported there. The shared grammar
 highlights dimension arithmetic and the `matrix` snippet inserts a fixed-array
 example. Both packages use the same navigation implementation.
 
-Version 1.1.23 recognizes payload `version`/`compatibility`, `version2`/`version3`/`version4`, `created`/`obsolete`/`replaced`, and `reserve` syntax. Qualified field-type navigation remains available beside lifecycle metadata. See the [revision contract](../../docs/versioning.md).
+Version 1.1.25 recognizes payload `version`/`compatibility`, `version2`/`version3`/`version4`, `created`/`obsolete`/`replaced`, and `reserve` syntax. Qualified field-type navigation remains available beside lifecycle metadata. See the [revision contract](../../docs/versioning.md).
 
-## Release policies (1.1.23)
+## Release policies (1.1.25)
 
 Both extensions highlight `releases`, nested `policy` / `any` / `all`, and the `max_age`, `keep_last`, `released_since`, `expires_on`, and compatibility leaves. The schema compiler folds these into ordinary version bounds; generated readers contain no dates or policy tree. See the [release policy contract](../../docs/versioning.md#release-dates-and-compile-time-policies).
 
-## Magic and format exclusions (1.1.23)
+## Magic and format exclusions (1.1.25)
 
 Both editors recognize static `magic` declarations and field `omit(...)` annotations.
 The compiler writes exact magic bytes before native binary payloads and verifies the
 fixed `magic` JSON field by default. `omit(json)` explicitly removes it from JSON;
 ordinary fields can exclude any supported format and retain their defaults on decode.
 Magic byte strings remain literals, and adjacent schema type references retain navigation.
+
+## Inferred arrays and typed magic (1.1.25)
+
+Both packages recognize schema language `1.1.0` declarations such as
+`public array[] uint32 values {1, 2, 3};` and `private magic uint32 (99) {42};`.
+Empty extents and element types receive fixed-array highlighting. Enum type
+operands and qualified enum defaults in typed magic retain declaration, definition,
+and type-definition navigation, including unsaved and transitive included schemas.
+VS Code includes `array_inferred` and `magic_typed` snippets; its schema snippet
+selects `serializer version 1.2.0;`. The original `1` header remains exactly
+`1.0.0` and does not enable these features. See the
+[magic contract](../../docs/magic_and_omission.md) and [fixed arrays](../../docs/generics.md).
+
+## Compact integer fields (1.1.25)
+
+Both packages recognize schema language `1.2.0` modifiers such as
+`public compact_prefix strict uint32 value (3) {32};` and
+`public compact_varint uint64 count (4);`. Encoding and overflow-policy keywords
+receive modifier highlighting; generic type operands retain normal navigation.
+The `compact-prefix` and `compact-varint` VS Code snippets insert unsigned scalar fields.
+The compiler supports compact fields in unpacked owning classes: the prefix encoding
+holds at most 30 payload bits, while unsigned LEB128 varints retain the host type's
+full range. `strict` is the default; `lenient` prefix output keeps the low 30 bits.
+JSON and Protobuf scalar encodings retain their existing representation.

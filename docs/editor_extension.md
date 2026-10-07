@@ -8,7 +8,7 @@ Serializer provides separate packages for VS Code and Visual Studio. Both use
 to the VS Code extension. For the Visual Studio VSIX, see
 [Visual Studio](#visual-studio-extension) below.
 
-Both extensions use release version **1.1.23**. Keep their versions equal and
+Both extensions use release version **1.1.25**. Keep their versions equal and
 increment them together for future changes, including changes to only one package.
 
 Version 1.1.14 restored VS Code navigation actions in Git index/history tabs.
@@ -32,9 +32,10 @@ Both resolve either spelling for navigation; VS Code also supplies a shorthand
 
 ## VS Code
 
-The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.23**, provides `.serializer`
+The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.25**, provides `.serializer`
 syntax highlighting, snippets, declaration/definition navigation, and CMake generated-header commands. Schemas use
-the current `serializer version 1.0.0;` header and its original `1` alias. Schema
+the current `serializer version 1.1.0;` header, older compatible headers, and the original
+`1` alias for language `1.0.0`. Schema
 language versions are independent of compiler releases, and future versions
 require all three components. Legacy `.def` and `.struct` names are
 not registered. Generation remains owned by the project's build rules. Navigation
@@ -81,13 +82,13 @@ Packaging compiles and bundles TypeScript, copies the canonical grammar, logo,
 and repository license into the extension, and writes:
 
 ```text
-out/extensions/serializer-vscode-1.1.23.vsix
+out/extensions/serializer-vscode-1.1.25.vsix
 ```
 
 From the repository root, install it with:
 
 ```sh
-code --install-extension out/extensions/serializer-vscode-1.1.23.vsix
+code --install-extension out/extensions/serializer-vscode-1.1.25.vsix
 ```
 
 Alternatively run **Extensions: Install from VSIX** and select the file. The
@@ -455,7 +456,7 @@ outside this extension's implementation.
 ## Visual Studio extension
 
 The separate [Visual Studio package](../editors/visual_studio/README.md), version
-**1.1.23**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
+**1.1.25**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
 grammar, editing configuration and a native MEF navigation component using the
 same resolver as VS Code. The grammar's `fileTypes` associates `.serializer` files;
 a `.pkgdef` registers its grammar and editing configuration.
@@ -468,7 +469,7 @@ npm ci --prefix editors/vscode
 ```
 
 The script restores locked NuGet dependencies, rebuilds package intermediates, and writes
-`out/extensions/serializer-visual-studio-1.1.23.vsix`. Close Visual Studio,
+`out/extensions/serializer-visual-studio-1.1.25.vsix`. Close Visual Studio,
 double-click this VSIX, install into the desired instance, and restart Visual
 Studio. The root `install_extension.ps1` remains the VS Code installer.
 
@@ -544,3 +545,30 @@ The shared magic snippet uses the portable `SRLFILE` signature. Qualified type
 navigation remains available beside the metadata. See the
 [magic and omission contract](magic_and_omission.md) and its
 [verification record](verification-magic-2026-10-07.md).
+
+## Compact unsigned fields (1.1.25)
+
+The shared grammar recognizes language `1.2.0` fields such as
+`public compact_prefix strict uint32 value (3) {32};` and
+`public compact_varint uint64 count (4);`. Encoding and overflow-policy keywords
+use modifier colors, unsigned builtins use type colors, and generic operands
+retain declaration/type-definition navigation. VS Code supplies `compact-prefix`
+and `compact-varint` snippets and selects language `1.2.0` in new schemas.
+
+The compiler restricts compact modifiers to unsigned scalar fields in unpacked
+owning classes. A prefix holds at most 30 payload bits; unsigned LEB128 varints
+retain the underlying type's full range. The default `strict` policy checks prefix
+overflow when serializing; `lenient` keeps the low 30 bits. JSON and Protobuf keep
+their existing scalar representations. See the [wire contract](wire_format.md).
+
+## Inferred arrays and typed magic (1.1.24)
+
+Both packages recognize schema language `1.1.0` declarations such as
+`public array[] uint32 values {1, 2, 3};` and `private magic uint32 (99) {42};`.
+Empty extents and element types receive fixed-array highlighting. Enum type
+operands and qualified enum defaults in typed magic retain declaration, definition,
+and type-definition navigation, including unsaved and transitive included schemas.
+VS Code includes `array_inferred` and `magic_typed` snippets; its schema snippet
+selects `serializer version 1.1.0;`. The original `1` header remains exactly
+`1.0.0` and does not enable these features. See the
+[magic contract](magic_and_omission.md) and [fixed arrays](generics.md).

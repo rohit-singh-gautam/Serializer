@@ -66,7 +66,7 @@ void object(const class_node& value) {
       throw std::invalid_argument{"Protobuf JSON field-name collision: " + std::string{name}};
     }
   };
-  if (!value.magic_bytes.empty()) {
+  if (value.has_magic()) {
     register_name("magic");
     field_number(value.magic_id);
   }

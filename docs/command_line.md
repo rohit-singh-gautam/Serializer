@@ -1,6 +1,6 @@
 # Serializer compiler and schema versions
 
-The compiler and runtime release is **1.1.1**, defined by `project(... VERSION ...)` in the
+The compiler and runtime release is **1.3.0**, defined by `project(... VERSION ...)` in the
 root CMake file. `serializer --version` (or `-v`) prints that release and the
 supported schema language version. CMake generates `<rohit/version.hpp>` with
 `rohit::serializer::compiler_version`, `schema_language_version_text`, and
@@ -25,7 +25,7 @@ The schema language version and payload revisions remain separate version domain
 Use the `.serializer` extension and start each file with:
 
 ```text
-serializer version 1.0.0;
+serializer version 1.1.0;
 
 class account stable_ids {
   public uint32 id (1);
@@ -35,7 +35,8 @@ class account stable_ids {
 The statement must precede every declaration. Whitespace and `//` or `/* ... */`
 comments may precede it or separate its keywords. The version has exactly three
 unsigned decimal components separated by dots, without whitespace or comments
-inside the version. The supported language is **1.0.0**. The original
+inside the version. The supported language is **1.2.0**, accepting older contracts
+in the same major version. The original
 `serializer version 1;` is an exact alias for `serializer version 1.0.0;`, exclusive
 to version 1; future integer majors such as `2;` are not aliases for `2.0.0;`.
 Prerelease and build labels are not supported. Missing, malformed, overflowing,
@@ -65,8 +66,18 @@ Existing stream-only parsing does not read files.
 The repository's [schema language versioning policy](../AGENTS.md#schema-language-versioning)
 uses `major.minor.patch` for language releases, independently of the compiler
 release. `serializer_schema_language_version` in the root CMake file defines the
-language release separately from `project(... VERSION ...)`. Compiler **1.1.1**
-currently supports language **1.0.0**; `serializer --version` reports both.
+language release separately from `project(... VERSION ...)`. Compiler **1.3.0**
+currently supports language **1.2.0**; `serializer --version` reports both.
+
+Language `1.2.0` adds `compact_prefix` and `compact_varint` unsigned scalar
+annotations with strict/lenient policies. Each declaring file requires `1.2.0`.
+See [compact encodings](compact_integers.md).
+
+Language `1.1.0` adds `array[] T` extent inference from a nonempty initializer and
+typed scalar/enum `magic`. Both require a `1.1.0` or newer compatible header in
+their declaring file, including included files. A newer entry file does not enable
+new syntax in a dependency that declares `1.0.0` or the original `1` alias.
+See [fixed arrays](generics.md) and [typed magic](magic_and_omission.md).
 
 Compatible language bug fixes and minor updates increase patch; new language
 features increase minor and reset patch to zero. Only developers change major

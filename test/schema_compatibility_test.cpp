@@ -6,6 +6,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <vector>
 
 namespace {
@@ -31,6 +32,23 @@ bool breaks_new_reader(const std::vector<codec::compatibility_issue>& issues) {
                      [](const auto& issue) { return issue.breaks_new_reader; });
 }
 } // namespace
+
+// Compact encodings change native binary shape while overflow policy and text retain the contract.
+TEST(schema_compatibility, compact_encodings_are_native_binary_contracts) {
+  const auto fixed = schema("class record stable_ids { public uint32 value (1); }");
+  const auto prefix = schema("class record stable_ids { public compact_prefix uint32 value (1); }");
+  const auto lenient = schema("class record stable_ids { public compact_prefix lenient uint32 value (1); }");
+  const auto varint = schema("class record stable_ids { public compact_varint uint32 value (1); }");
+  for (const auto mode : {protocol::binary_none, protocol::binary_integer, protocol::binary_string}) {
+    EXPECT_TRUE(reports(codec::check_schema_compatibility(fixed, prefix, mode), "Compact integer encoding"));
+    EXPECT_TRUE(reports(codec::check_schema_compatibility(prefix, varint, mode), "Compact integer encoding"));
+    EXPECT_TRUE(codec::check_schema_compatibility(prefix, lenient, mode).empty());
+  }
+  for (const auto mode : {protocol::json, protocol::protobuf_binary}) {
+    EXPECT_TRUE(codec::check_schema_compatibility(fixed, prefix, mode).empty());
+    EXPECT_TRUE(codec::check_schema_compatibility(prefix, varint, mode).empty());
+  }
+}
 
 // Fixed magic bytes and exclusions affect only the formats that actually include them.
 TEST(schema_compatibility, magic_and_omissions_follow_selected_wire_formats) {
@@ -250,4 +268,93 @@ TEST(schema_compatibility, recognizes_schema_reservations) {
   const auto changes =
       codec::check_schema_compatibility(previous, current, protocol::protobuf_binary);
   EXPECT_FALSE(reports(changes, "requires its ID"));
+}
+
+// Typed header values and types are durable contracts; canonical hex spelling is equivalent.
+TEST(schema_compatibility, typed_magic_tracks_type_value_identity_and_omissions) {
+  const auto original = schema("class record { public magic uint32 (99) { 42 }; }");
+  const auto same = schema("class record { public magic uint32 (99) { 0x2a }; }");
+  const auto changed_value = schema("class record { public magic uint32 (99) { 43 }; }");
+  const auto changed_type = schema("class record { public magic uint64 (99) { 42 }; }");
+  const auto changed_id = schema("class record { public magic uint32 (98) { 42 }; }");
+  for (const auto mode : {protocol::binary_none, protocol::binary_integer, protocol::binary_string,
+                          protocol::json, protocol::protobuf_binary}) {
+    EXPECT_TRUE(codec::check_schema_compatibility(original, same, mode).empty());
+    EXPECT_TRUE(reports(codec::check_schema_compatibility(original, changed_value, mode), "Magic header"));
+    EXPECT_TRUE(reports(codec::check_schema_compatibility(original, changed_type, mode), "Magic header"));
+  }
+  EXPECT_TRUE(codec::check_schema_compatibility(original, changed_id, protocol::json).empty());
+  EXPECT_TRUE(reports(codec::check_schema_compatibility(original, changed_id, protocol::protobuf_binary), "Magic header"));
+  const auto excluded = schema("class record { public magic uint32 { 42 } omit(json); }");
+  EXPECT_TRUE(codec::check_schema_compatibility(excluded, schema("class record {}"), protocol::json).empty());
+}
+
+// Inferring an existing fixed cardinality preserves defaults and every native wire contract.
+TEST(schema_compatibility, explicit_and_inferred_fixed_arrays_preserve_literal_defaults) {
+  const auto previous = schema("serializer version 1.0.0; class record stable_ids { "
+      "public array[2] uint32 values (1) {1,2}; }");
+  const auto current = schema("serializer version 1.1.0; class record stable_ids { "
+      "public array[] uint32 values (1) { 1, 2 }; }");
+  for (const auto mode : {protocol::binary_none, protocol::binary_integer,
+                          protocol::binary_string, protocol::json}) {
+    EXPECT_TRUE(codec::check_schema_compatibility(previous, current, mode).empty());
+    EXPECT_TRUE(codec::check_schema_compatibility(current, previous, mode).empty());
+  }
+  const auto& before = static_cast<const codec::class_node&>(*previous.statements.back());
+  const auto& after = static_cast<const codec::class_node&>(*current.statements.back());
+  EXPECT_EQ(before.member_list.front().default_value, "1,2");
+  EXPECT_EQ(after.member_list.front().default_value, "1, 2");
+
+  const auto different_extent = schema("class record stable_ids { "
+      "public array[] uint32 values (1) { 1, 2, 3 }; }");
+  const auto different_default = schema("class record stable_ids { "
+      "public array[] uint32 values (1) { 1, 3 }; }");
+  for (const auto mode : {protocol::binary_none, protocol::binary_integer,
+                          protocol::binary_string, protocol::json}) {
+    EXPECT_TRUE(reports(codec::check_schema_compatibility(previous, different_extent, mode),
+                        "Fixed array cardinality"));
+    EXPECT_TRUE(reports(codec::check_schema_compatibility(previous, different_default, mode),
+                        "Schema default changed"));
+  }
+}
+
+// Safe literal normalization covers declaration-qualified enums, char bytes, numeric precision, and text.
+TEST(schema_compatibility, fixed_array_defaults_compare_safe_literals_by_value) {
+  for (const auto& [type, before, after] :
+       std::vector<std::tuple<std::string, std::string, std::string>>{
+           {"char", "'A','\\0'", "65, 0"},
+           {"char", "'\\xFF','A'", "255, 65"},
+           {"uint64", "0xFF,0x10", "255, 16"},
+           {"float", "1.0,0.50", "1, 5e-1"},
+           {"float", "1'000,2", "1000, 2"},
+           {"string", "\"a,b\",\"a b\"", "\"a,b\", \"a b\""},
+           {"kind", "kind::first,kind::second", "first, second"}}) {
+    SCOPED_TRACE(type);
+    const std::string prefix = "namespace model { enum kind { first, second } class record stable_ids { ";
+    const auto previous = schema(prefix + "public array[2] " + type + " values (1) {" + before + "}; } }");
+    const auto current = schema(prefix + "public array[] " + type + " values (1) {" + after + "}; } }");
+    for (const auto mode : {protocol::binary_none, protocol::binary_integer,
+                            protocol::binary_string, protocol::json}) {
+      EXPECT_TRUE(codec::check_schema_compatibility(previous, current, mode).empty());
+    }
+  }
+}
+
+// Quoted whitespace and unevaluated host expressions retain conservative default diagnostics.
+TEST(schema_compatibility, fixed_array_default_normalization_preserves_significant_source) {
+  const auto spaced = schema("class record stable_ids { public array[] string values (1) { \"a b\" }; }");
+  const auto joined = schema("class record stable_ids { public array[] string values (1) { \"ab\" }; }");
+  const auto expression = schema("class record stable_ids { public array[] uint32 values (1) { 1+2, 4 }; }");
+  const auto evaluated = schema("class record stable_ids { public array[] uint32 values (1) { 3, 4 }; }");
+  const auto integer_zero = schema("class record stable_ids { public array[] float values (1) { -0 }; }");
+  const auto floating_zero = schema("class record stable_ids { public array[] float values (1) { -0.0 }; }");
+  const auto unsigned_negation = schema("class record stable_ids { public array[] float values (1) { -0xFFFFFFFF }; }");
+  const auto signed_negation = schema("class record stable_ids { public array[] float values (1) { -4294967295 }; }");
+  for (const auto mode : {protocol::binary_none, protocol::binary_integer,
+                          protocol::binary_string, protocol::json}) {
+    EXPECT_TRUE(reports(codec::check_schema_compatibility(spaced, joined, mode), "Schema default changed"));
+    EXPECT_TRUE(reports(codec::check_schema_compatibility(expression, evaluated, mode), "Schema default changed"));
+    EXPECT_TRUE(reports(codec::check_schema_compatibility(integer_zero, floating_zero, mode), "Schema default changed"));
+    EXPECT_TRUE(reports(codec::check_schema_compatibility(unsigned_negation, signed_negation, mode), "Schema default changed"));
+  }
 }

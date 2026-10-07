@@ -17,7 +17,7 @@
   "Schema": {
     "prefix": "schema",
     "body": [
-      "serializer version 1.0.0;",
+      "serializer version 1.2.0;",
       "",
       "namespace ${1:models} {",
       "class ${2:account} stable_ids {",
@@ -124,5 +124,25 @@
     "prefix": "omit",
     "body": "public ${1:string} ${2:name} (${3:2}) omit(${4:json});$0",
     "description": "Exclude a field from named formats and keep defaults when decoding"
+  },
+  "Compact prefix field": {
+    "prefix": "compact-prefix",
+    "body": "public compact_prefix ${1|strict,lenient|} ${2|uint32,uint64,uint16,uint8|} ${3:value} (${4:1});",
+    "description": "Use a two-bit byte-count prefix with at most 30 payload bits (schema language 1.2.0)"
+  },
+  "Compact varint field": {
+    "prefix": "compact-varint",
+    "body": "public compact_varint ${1|uint32,uint64,uint16,uint8|} ${2:value} (${3:1});",
+    "description": "Use unsigned LEB128 without reducing the scalar value range (schema language 1.2.0)"
+  },
+  "Inferred fixed array": {
+    "prefix": "array_inferred",
+    "body": "public array[] ${1:uint32} ${2:values} (${3:1}) { ${4:1, 2, 3} };$0",
+    "description": "Infer native C++ fixed array storage from nonempty defaults (schema language 1.1.0)"
+  },
+  "Typed magic": {
+    "prefix": "magic_typed",
+    "body": "${1:private} magic ${2:uint32} (${3:99}) { ${4:42} };$0",
+    "description": "Declare an immutable scalar or enum magic value (schema language 1.1.0)"
   }
 }

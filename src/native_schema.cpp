@@ -112,6 +112,10 @@ std::string literal(const member& value) {
   const auto text = value.default_value.substr(
       first, value.default_value.find_last_not_of(" \t\r\n") - first + 1);
   const auto& type = value.type_name_list.front();
+  if (value.magic && type.name == "char") {
+    // The parser validates and canonicalizes typed magic bytes before generation.
+    return text;
+  }
   if (type.type == object_type::enum_type) {
     const auto pos = text.rfind("::");
     const auto name = pos == std::string::npos ? text : text.substr(pos + 2);
@@ -223,7 +227,7 @@ schema::schema(const std::vector<std::unique_ptr<syntax_node>>& statements) {
       continue;
     }
     const auto& object = static_cast<const class_node&>(*node);
-    if (!object.magic_bytes.empty() && !object.magic_omits("json")) { add_key("magic"); }
+    if (object.has_magic() && !object.magic_omits("json")) { add_key("magic"); }
     if (object.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
         (object.attributes & class_attributes::packed) != class_attributes::none) {
       throw std::invalid_argument{"Native output supports owning classes only"};

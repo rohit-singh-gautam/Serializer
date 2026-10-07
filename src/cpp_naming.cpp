@@ -211,6 +211,54 @@ std::string naming::full_type_name(const syntax_node* node) const {
 
 // Retain C++ expressions, spell 64-bit boundary literals portably, and resolve enum names.
 std::string naming::default_value(const member& field) const {
+  if (field.inferred_extent && field.modifier == member::modifier_type::array) {
+    // Inferred initializers are parsed schema lists; preserve nested aggregates and quoted commas.
+    std::string result;
+    std::size_t begin{};
+    std::size_t depth{};
+    char quote{};
+    bool escaped{};
+    // Format each deduced element through the existing scalar naming and boundary-literal rules.
+    const auto append_element = [&](std::size_t end) {
+      auto element = field;
+      element.modifier = member::modifier_type::none;
+      element.inferred_extent = false;
+      element.default_value = field.default_value.substr(begin, end - begin);
+      if (!result.empty()) { result += ", "; }
+      const auto value = default_value(element);
+      if (element.type_name_list.front().name == "char") {
+        result += "static_cast<char>(" + value + ")";
+      } else if (element.type_name_list.front().name == "float") {
+        result += "static_cast<float>(" + value + ")";
+      } else {
+        result += value;
+      }
+    };
+    constexpr std::string_view character_literal_boundaries{" \t\r\n{([,"};
+    for (std::size_t index = 0; index < field.default_value.size(); ++index) {
+      const auto character = field.default_value[index];
+      if (quote) {
+        if (escaped) { escaped = false; }
+        else if (character == '\\') { escaped = true; }
+        else if (character == quote) { quote = 0; }
+      } else if (character == '"' ||
+                 (character == '\'' && (index == 0 ||
+                  character_literal_boundaries.find(field.default_value[index - 1]) !=
+                      std::string_view::npos))) {
+        // Apostrophes inside numeric tokens are digit separators, not character quotes.
+        quote = character;
+      } else if (character == '{' || character == '(' || character == '[') {
+        ++depth;
+      } else if (character == '}' || character == ')' || character == ']') {
+        --depth;
+      } else if (character == ',' && depth == 0) {
+        append_element(index);
+        begin = index + 1;
+      }
+    }
+    append_element(field.default_value.size());
+    return result;
+  }
   if (field.version) {
     return schema_version::cpp_literal(field, field.default_value);
   }
@@ -345,7 +393,7 @@ void naming::validate_names(const std::vector<std::unique_ptr<syntax_node>>& sta
                                      "SerializeOutProtocol",
                                      "SerializerStream",
                                      "Protocol"};
-        if (!object.magic_bytes.empty()) {
+        if (object.has_magic()) {
           insert_name(owning, "magic");
         }
         for (const auto& parameter : object.generic_parameters) {

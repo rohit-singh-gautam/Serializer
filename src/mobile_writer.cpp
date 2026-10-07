@@ -190,7 +190,16 @@ class mobile_emitter {
   }
   // Emit metadata in the platform's existing static scope.
   void magic_declaration(const class_node& value) {
-    if (value.magic_bytes.empty()) { return; }
+    if (!value.has_magic()) { return; }
+    if (value.magic_field) {
+      const auto& magic = *value.magic_field;
+      const bool visible = value.magic_access == access_type::public_access;
+      line("// Immutable scalar schema identity has no per-instance storage.");
+      line(std::string(visible ? (swift ? "public " : "") : "private ") +
+           select("static let magic: ", "val magic: ") + type(magic.type_name_list.front()) +
+           " = " + initial(magic.type_name_list.front(), literal(magic)));
+      return;
+    }
     std::string bytes;
     for (const auto byte : value.magic_bytes) {
       bytes += (bytes.empty() ? "" : ", ") +
@@ -384,6 +393,15 @@ class mobile_emitter {
     key(value.id, value.display_name, first);
     const auto& t = value.type_name_list.front();
     if (value.modifier == member::modifier_type::none) {
+      if (value.compact != compact_encoding::none) {
+        const auto compact_value = swift ? "UInt64(" + src + ")"
+                                        : t.name == "uint64" ? src : src + ".toULong()";
+        line(attempt() + "out.compactValue(" + compact_value + ", " +
+             std::to_string(width(t)) + ", " +
+             (value.compact == compact_encoding::prefix ? "true" : "false") + ", " +
+             (value.compact_strict ? "true" : "false") + ")");
+        return;
+      }
       write(t, src, false);
       return;
     }
@@ -411,6 +429,14 @@ class mobile_emitter {
     const auto dst = select("self.", "this.") + field(value.name);
     const auto& t = value.type_name_list.front();
     if (value.modifier == member::modifier_type::none) {
+      if (value.compact != compact_encoding::none) {
+        const auto expression = "input.compactValue(" + std::to_string(width(t)) + ", " +
+                                (value.compact == compact_encoding::prefix ? "true" : "false") + ")";
+        line(dst + " = " +
+             (swift ? type(t) + "(try " + expression + ")"
+                    : t.name == "uint64" ? expression : expression + ".to" + type(t) + "()"));
+        return;
+      }
       line(t.type == object_type::class_type ? attempt() + dst + ".srlRead(input)"
                                              : dst + " = " + read(t, false));
       return;
@@ -601,13 +627,17 @@ class mobile_emitter {
     if (value.version_member()) {
       check_version(value, false);
     }
-    if (!value.magic_bytes.empty()) {
+    if (value.has_magic()) {
       const auto omitted = omissions(value.magic_omitted_formats, false);
       const auto active = "!out.json()" + (omitted.empty() ? "" : " && !(" + omitted + ")");
       open(select("if " + active, "if (" + active + ")"));
-      for (const auto byte : value.magic_bytes) {
-        line("out.integer(" + std::to_string(static_cast<unsigned char>(byte)) +
-             select("", "uL") + ", 1, true)");
+      if (value.magic_field) {
+        write(value.magic_field->type_name_list.front(), select("Self.magic", "magic"), false);
+      } else {
+        for (const auto byte : value.magic_bytes) {
+          line("out.integer(" + std::to_string(static_cast<unsigned char>(byte)) +
+               select("", "uL") + ", 1, true)");
+        }
       }
       close();
     }
@@ -616,11 +646,15 @@ class mobile_emitter {
     variable_first = std::any_of(value.member_list.begin(), value.member_list.end(),
                                  [](const auto& item) { return item.omits("json"); });
     if (variable_first) { line("var firstField = true"); }
-    const bool magic_json = !value.magic_bytes.empty() && !value.magic_omits("json");
+    const bool magic_json = value.has_magic() && !value.magic_omits("json");
     if (magic_json) {
       open(select("if out.json()", "if (out.json())"));
       key(value.magic_id, "magic", true);
-      line(attempt() + "out.text(" + magic_text() + ")");
+      if (value.magic_field) {
+        write(value.magic_field->type_name_list.front(), select("Self.magic", "magic"), false);
+      } else {
+        line(attempt() + "out.text(" + magic_text() + ")");
+      }
       if (variable_first) { line("firstField = false"); }
       close();
       first = false;
@@ -664,16 +698,23 @@ class mobile_emitter {
     line("// Merge repeated nested fields while replacing complete collections.");
     open(select("fileprivate mutating func srlRead(_ input: SrlReader) throws",
                 "internal fun srlRead(input: SrlReader)"));
-    if (!value.magic_bytes.empty()) {
+    if (value.has_magic()) {
       const auto omitted = omissions(value.magic_omitted_formats, true);
       const auto active = "!input.json()" + (omitted.empty() ? "" : " && !(" + omitted + ")");
       open(select("if " + active, "if (" + active + ")"));
-      for (const auto byte : value.magic_bytes) {
-        const auto literal = std::to_string(static_cast<unsigned char>(byte)) + select("", "uL");
-        line(select("if try input.integer(1, true) != " + literal +
-                        " { throw SerializerError.invalid(\"Incorrect schema magic\") }",
-                    "if (input.integer(1, true) != " + literal +
-                        ") { throw SerializerException(\"Incorrect schema magic\") }"));
+      if (value.magic_field) {
+        const auto comparison = read(value.magic_field->type_name_list.front(), false) +
+                                " != " + select("Self.magic", "magic");
+        line(select("if " + comparison + " { throw SerializerError.invalid(\"Incorrect schema magic\") }",
+                    "if (" + comparison + ") { throw SerializerException(\"Incorrect schema magic\") }"));
+      } else {
+        for (const auto byte : value.magic_bytes) {
+          const auto literal = std::to_string(static_cast<unsigned char>(byte)) + select("", "uL");
+          line(select("if try input.integer(1, true) != " + literal +
+                          " { throw SerializerError.invalid(\"Incorrect schema magic\") }",
+                      "if (input.integer(1, true) != " + literal +
+                          ") { throw SerializerException(\"Incorrect schema magic\") }"));
+        }
       }
       close();
     }
@@ -691,7 +732,7 @@ class mobile_emitter {
       line("val key = input.key(srlIds, cursor) ?: break");
     }
     line("cursor += 1");
-    line((swift && value.parents.empty() && value.member_list.empty() && value.magic_bytes.empty() ? "let " : "var ") +
+    line((swift && value.parents.empty() && value.member_list.empty() && !value.has_magic() ? "let " : "var ") +
          std::string{"id = key.id"});
     const bool has_union =
         std::any_of(value.member_list.begin(), value.member_list.end(), [](const auto& item) {
@@ -708,7 +749,7 @@ class mobile_emitter {
       line(select("case " + quote(text) + ": " + assignment,
                   quote(text) + " -> { " + assignment + " }"));
     };
-    if (!value.magic_bytes.empty()) { branch("magic", value.magic_id, -1); }
+    if (value.has_magic()) { branch("magic", value.magic_id, -1); }
     for (const auto& base : value.parents) {
       branch(base.display_name, base.id, -1);
     }
@@ -736,13 +777,20 @@ class mobile_emitter {
       }
       line(select("if !input.json() || magicSeen { throw SerializerError.invalid(\"Duplicate schema magic\") }",
                   "if (!input.json() || magicSeen) { throw SerializerException(\"Duplicate schema magic\") }"));
-      line(select("let magicText = try input.text()", "val magicText = input.text()"));
-      line(select("if !magicText.utf8.elementsEqual(Self.magic) { throw SerializerError.invalid(\"Incorrect schema magic\") }",
-                  "if (magicText != " + magic_text() + ") { throw SerializerException(\"Incorrect schema magic\") }"));
+      if (value.magic_field) {
+        const auto comparison = read(value.magic_field->type_name_list.front(), false) +
+                                " != " + select("Self.magic", "magic");
+        line(select("if " + comparison + " { throw SerializerError.invalid(\"Incorrect schema magic\") }",
+                    "if (" + comparison + ") { throw SerializerException(\"Incorrect schema magic\") }"));
+      } else {
+        line(select("let magicText = try input.text()", "val magicText = input.text()"));
+        line(select("if !magicText.utf8.elementsEqual(Self.magic) { throw SerializerError.invalid(\"Incorrect schema magic\") }",
+                    "if (magicText != " + magic_text() + ") { throw SerializerException(\"Incorrect schema magic\") }"));
+      }
       line("magicSeen = true");
       if (swift) { --indent; } else { close(); }
     }
-    if (!value.magic_bytes.empty() && !magic_json) {
+    if (value.has_magic() && !magic_json) {
       line(select("case " + std::to_string(value.magic_id) +
                       ": throw SerializerError.invalid(\"Field omitted from selected format\")",
                   std::to_string(value.magic_id) +

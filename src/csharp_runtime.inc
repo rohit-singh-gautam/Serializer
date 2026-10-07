@@ -27,6 +27,10 @@ R"serializer(
   // Order dotted revisions by numeric components.
   private static int SrlVersionCompare(string a, string b, int count) { var x = SrlVersionParts(a, count); var y = SrlVersionParts(b, count); for (int i = 0; i < count; ++i) if (x[i] != y[i]) return x[i].CompareTo(y[i]); return 0; }
   private static readonly System.Text.UTF8Encoding SrlUtf8 = new System.Text.UTF8Encoding(false, true);
+  private const ulong SrlCompactPrefixMax = 0x3fffffff;
+  private const int SrlVarintPayloadBits = 7;
+  private const ulong SrlVarintPayloadMask = 0x7f;
+  private const byte SrlVarintContinuation = 0x80;
   // Compare strings by UTF-8 bytes and other supported keys by their native values.
   private static int SrlCompare<T>(T first, T second) {
     if (first is string a && second is string b) {
@@ -71,6 +75,33 @@ R"serializer(
       putByte((byte)((extra << 6) | (value >> (extra * 8))));
       for (int shift = (extra - 1) * 8; shift >= 0; shift -= 8) putByte((byte)(value >> shift));
     }
+    // Emit a proven 30-bit prefix without another range check.
+    private void compactPrefixBits(ulong value) {
+      int extra = value <= 0x3f ? 0 : value <= 0x3fff ? 1 : value <= 0x3fffff ? 2 : 3;
+      putByte((byte)(((ulong)extra << 6) | (value >> (extra * 8))));
+      for (int shift = (extra - 1) * 8; shift >= 0; shift -= 8) putByte((byte)(value >> shift));
+    }
+    // Strict fields reject binary prefix overflow before emitting the payload.
+    internal void compactPrefix(ulong value, int width) {
+      if (json()) { integer(value, width, true); return; }
+      if (value > SrlCompactPrefixMax) fail("Compact prefix out of range");
+      compactPrefixBits(value);
+    }
+    // Lenient binary prefix fields deliberately retain only their low 30 bits.
+    internal void compactPrefixLenient(ulong value, int width) {
+      if (json()) { integer(value, width, true); return; }
+      compactPrefixBits(value & SrlCompactPrefixMax);
+    }
+    // Emit canonical unsigned LEB128 with every bit of the typed value preserved.
+    internal void compactVarint(ulong value, int width) {
+      if (json()) { integer(value, width, true); return; }
+      do {
+        byte payload = (byte)(value & SrlVarintPayloadMask); value >>= SrlVarintPayloadBits;
+        putByte((byte)(payload | (value == 0 ? 0 : SrlVarintContinuation)));
+      } while (value != 0);
+    }
+    // Typed unsigned storage makes lenient varints identical without runtime range checks.
+    internal void compactVarintLenient(ulong value, int width) { compactVarint(value, width); }
     // Write unsigned bit patterns, interpreting signed JSON values at their width.
     internal void integer(ulong value, int width, bool unsigned) {
       if (json()) {
@@ -135,7 +166,8 @@ R"serializer(
       Json = SrlUtf8.GetBytes(System.Text.Json.JsonSerializer.Serialize(name) + ":");
     }
   }
-  /// <summary>Bounded cursor shared by nested readers; failures expose no partial result.</summary>
+)serializer"
+R"serializer(  /// <summary>Bounded cursor shared by nested readers; failures expose no partial result.</summary>
   internal sealed class SrlReader {
     // Decode and validate the schema's fixed component count.
     internal string version(int count) { var parts = new ushort[count]; string value; if (json()) value = text(); else { for (int i = 0; i < count; ++i) parts[i] = (ushort)integer(2, true); value = string.Join(".", parts); } SrlVersionParts(value, count); return value; }
@@ -175,6 +207,33 @@ R"serializer(
       require(1); int first = data.Span[offset], extra = first >> 6; require(extra + 1); int value = first & 63;
       for (int i = 1; i <= extra; ++i) value = (value << 8) | data.Span[offset + i];
       offset += extra + 1; return value;
+    }
+    // Validate the decoded destination width before committing a complete prefix.
+    internal ulong compactPrefix(int width) {
+      if (json()) return integer(width, true);
+      require(1); int first = data.Span[offset], extra = first >> 6; require(extra + 1);
+      ulong value = (ulong)(first & 63);
+      for (int index = 1; index <= extra; ++index) value = (value << 8) | data.Span[offset + index];
+      if (width < sizeof(uint) && value >= (1UL << (width * 8))) fail("Compact prefix out of range");
+      offset += extra + 1; return value;
+    }
+    // Reject truncated, overflowing, or noncanonical varints before cursor movement.
+    internal ulong compactVarint(int width) {
+      if (json()) return integer(width, true);
+      int bits = width * 8, count = (bits + SrlVarintPayloadBits - 1) / SrlVarintPayloadBits;
+      ulong value = 0;
+      for (int index = 0; index < count; ++index) {
+        require(index + 1); byte encoded = data.Span[offset + index];
+        ulong payload = (ulong)encoded & SrlVarintPayloadMask;
+        int shift = index * SrlVarintPayloadBits, available = bits - shift;
+        if (available < SrlVarintPayloadBits && payload >= (1UL << available)) fail("Compact varint out of range");
+        value |= payload << shift;
+        if ((encoded & SrlVarintContinuation) == 0) {
+          if (index > 0 && payload == 0) fail("Noncanonical compact varint");
+          offset += index + 1; return value;
+        }
+      }
+      fail("Compact varint out of range"); return 0;
     }
     // Preserve numeric digits until a typed parse is requested.
     private string token() {

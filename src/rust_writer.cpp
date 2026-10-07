@@ -212,6 +212,12 @@ class rust_emitter {
     const auto dst = "self." + field(value.name);
     const auto& t = value.type_name_list.front();
     if (value.modifier == member::modifier_type::none) {
+      if (value.compact != compact_encoding::none) {
+        line(dst + " = input.compact_value(" + std::to_string(width(t)) + ", " +
+             (value.compact == compact_encoding::prefix ? "true" : "false") + ")? as " +
+             type(t) + ";");
+        return;
+      }
       if (t.type == object_type::class_type) {
         line(dst + ".srl_read(input)?;");
       } else {
@@ -296,6 +302,12 @@ class rust_emitter {
     }
     key(value.id, value.display_name, first);
     if (value.modifier == member::modifier_type::none) {
+      if (value.compact != compact_encoding::none) {
+        line("out.compact_value(" + src + " as u64, " + std::to_string(width(t)) + ", " +
+             (value.compact == compact_encoding::prefix ? "true" : "false") + ", " +
+             (value.compact_strict ? "true" : "false") + ")?;");
+        return;
+      }
       write(t, "(&" + src + ")", false);
       return;
     }
@@ -366,7 +378,13 @@ class rust_emitter {
     close();
     close();
     open("impl " + name);
-    if (!value.magic_bytes.empty()) {
+    if (value.magic_field) {
+      const auto& magic = *value.magic_field;
+      line("/// Immutable scalar schema identity without per-instance storage.");
+      line(std::string(value.magic_access == access_type::public_access ? "pub " : "") +
+           "const MAGIC: " + type(magic.type_name_list.front()) + " = " +
+           initial(magic.type_name_list.front(), literal(magic)) + ";");
+    } else if (value.has_magic()) {
       std::string bytes;
       for (const auto byte : value.magic_bytes) {
         bytes += (bytes.empty() ? "" : ", ") +
@@ -400,12 +418,16 @@ class rust_emitter {
     if (value.version_member()) {
       check_version(value, false);
     }
-    if (!value.magic_bytes.empty()) {
+    if (value.has_magic()) {
       const auto omitted = omitted_condition(value.magic_omitted_formats, "out.protocol",
                                               "Protocol::", protocol_name_style::pascal);
       open("if !out.json()" + (omitted.empty() ? "" : " && !(" + omitted + ")"));
-      for (const auto byte : value.magic_bytes) {
-        line("out.integer(" + std::to_string(static_cast<unsigned char>(byte)) + ", 1, true)?;");
+      if (value.magic_field) {
+        write(value.magic_field->type_name_list.front(), "(&Self::MAGIC)", false);
+      } else {
+        for (const auto byte : value.magic_bytes) {
+          line("out.integer(" + std::to_string(static_cast<unsigned char>(byte)) + ", 1, true)?;");
+        }
       }
       close();
     }
@@ -416,11 +438,15 @@ class rust_emitter {
     if (variable_first) {
       line("let mut first_field = true;");
     }
-    const bool magic_json = !value.magic_bytes.empty() && !value.magic_omits("json");
+    const bool magic_json = value.has_magic() && !value.magic_omits("json");
     if (magic_json) {
       open("if out.json()");
       key(value.magic_id, "magic", true);
-      line("out.text(std::str::from_utf8(&Self::MAGIC).expect(\"validated schema magic\"))?;");
+      if (value.magic_field) {
+        write(value.magic_field->type_name_list.front(), "(&Self::MAGIC)", false);
+      } else {
+        line("out.text(std::str::from_utf8(&Self::MAGIC).expect(\"validated schema magic\"))?;");
+      }
       if (variable_first) { line("first_field = false;"); }
       close();
       first = false;
@@ -469,13 +495,18 @@ class rust_emitter {
     close();
     line("/// Merge repeated nested objects while replacing collections.");
     open("fn srl_read(&mut self, input: &mut SrlReader<'_>) -> SrlResult<()>");
-    if (!value.magic_bytes.empty()) {
+    if (value.has_magic()) {
       const auto omitted = omitted_condition(value.magic_omitted_formats, "input.protocol",
                                               "Protocol::", protocol_name_style::pascal);
       open("if !input.json()" + (omitted.empty() ? "" : " && !(" + omitted + ")"));
-      for (const auto byte : value.magic_bytes) {
-        line("if input.integer(1, true)? != " + std::to_string(static_cast<unsigned char>(byte)) +
-             " { return Err(Error(\"Incorrect schema magic\")); }");
+      if (value.magic_field) {
+        line("if " + read(value.magic_field->type_name_list.front(), false) +
+             " != Self::MAGIC { return Err(Error(\"Incorrect schema magic\")); }");
+      } else {
+        for (const auto byte : value.magic_bytes) {
+          line("if input.integer(1, true)? != " + std::to_string(static_cast<unsigned char>(byte)) +
+               " { return Err(Error(\"Incorrect schema magic\")); }");
+        }
       }
       close();
     }
@@ -505,7 +536,7 @@ class rust_emitter {
     ++indent;
     line("SrlKey::Id(value) => (value, None),");
     open("SrlKey::Name(name) => match name.as_str()");
-    if (!value.magic_bytes.empty()) {
+    if (value.has_magic()) {
       line("\"magic\" => (" + std::to_string(value.magic_id) + ", None),");
     }
     for (const auto& base : value.parents) {
@@ -529,12 +560,15 @@ class rust_emitter {
     open("match id");
     if (magic_json) {
       open(std::to_string(value.magic_id) + " =>");
-      line("if !input.json() || magic_seen || input.text()?.as_bytes() != Self::MAGIC.as_slice() "
-           "{ return Err(Error(\"Incorrect or duplicate schema magic\")); }");
+      const auto comparison = value.magic_field
+          ? read(value.magic_field->type_name_list.front(), false) + " != Self::MAGIC"
+          : "input.text()?.as_bytes() != Self::MAGIC.as_slice()";
+      line("if !input.json() || magic_seen || " + comparison +
+           " { return Err(Error(\"Incorrect or duplicate schema magic\")); }");
       line("magic_seen = true;");
       close();
     }
-    if (!value.magic_bytes.empty() && !magic_json) {
+    if (value.has_magic() && !magic_json) {
       line(std::to_string(value.magic_id) +
            " => return Err(Error(\"Field omitted from selected format\")),");
     }

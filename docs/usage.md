@@ -7,7 +7,23 @@ and add no dates or policy evaluation to generated codecs.
 
 Use [magic and format omissions](magic_and_omission.md) for schema-owned fixed
 headers, verified JSON identities, exact binary prefixes, and compile-time C++
-output exclusions.
+output exclusions. Language `1.1.0` also supports scalar/enum magic values.
+
+Language `1.2.0` supports [compact unsigned scalar fields](compact_integers.md)
+in every output language. Keep existing generation and codec calls:
+
+```text
+serializer version 1.2.0;
+class counter {
+  public compact_prefix strict uint32 value (3) {32};
+  public compact_varint uint64 total (4) {128};
+}
+```
+
+Native positional binary writes `20 80 01` for these defaults; JSON keeps the
+ordinary integer values. Prefix allows 30 value bits; explicit `lenient` writes
+the low 30 bits without an overflow check. Varint preserves the full unsigned
+type range. See the compact guide for all policies, limits and migration rules.
 
 New to the project? Start with the [project overview](../README.md#get-started).
 For editing and persistence concepts, read the
@@ -37,6 +53,31 @@ exact input enforces cardinality and ordinary decode budgets. Fixed arrays outsi
 C++ native codecs are explicitly rejected. For a managed root containing ordinary
 point/frame/matrix values, use generated whole-value setters within transactions;
 the fixed arrays have no resize/insert/erase editor operations.
+
+To infer a fixed extent from defaults, select schema language `1.1.0`:
+
+```text
+serializer version 1.1.0;
+enum artifact_kind {
+  document,
+  image
+}
+class artifact stable_ids {
+  private magic artifact_kind (99) {artifact_kind::document};
+  public array[] uint32 samples (1) {1, 2, 3};
+  public array[] char signature (2) {'SRLFILE'};
+}
+```
+
+The C++ fields use `std::array<std::uint32_t, 3>` and `std::array<char, 7>`.
+The char literal contributes decoded bytes with no implicit terminator. A missing
+or empty initializer cannot infer an extent; every fixed extent remains
+1..65,536. A fixed array retains its usual wire sequence count. Typed magic is
+an immutable static scalar/enum constant, verified and discarded on input, with
+no per-object storage. It uses the selected codec's scalar/enum encoding before
+other native binary payload fields. Choose `private magic uint32 (99) {42};`
+for an integer signature. See [fixed arrays](generics.md#infer-an-extent-from-defaults)
+and [typed magic](magic_and_omission.md) for the complete contracts.
 
 For a small introduction, work through the [point examples](../example/managed/README.md)
 in order: create a schema-generated managed point, inspect a transaction callback,
@@ -257,7 +298,8 @@ class person stable_ids {
 ```
 
 - Use `class`, `enum`, and `namespace`; schema declarations are not C++ source.
-- Start every `.serializer` file with `serializer version 1.0.0;` before declarations.
+- Start every new `.serializer` file with `serializer version 1.2.0;` before declarations.
+  Older `1.0.0` files remain supported.
   The original `serializer version 1;` is an exact alias for `1.0.0`, exclusive to
   version 1. Future versions require three components. The language version is
   independent of the compiler release and application payload revisions.
@@ -315,8 +357,9 @@ namespace demo {
   spaces, backslashes, absolute paths, and other extensions are rejected.
   `./` and `../` are supported. Paths resolve from the including file, independently
   of the compiler's working directory. Comments may separate directive tokens.
-- Every file requires its own `serializer version 1.0.0;` header (or the original
-  `1` alias). Legacy and full headers may coexist in an include graph. Includes follow that
+- Every file requires its own supported version header. `1.0.0`, `1.1.0`, `1.2.0`, and the
+  original `1` alias may coexist in an include graph. Typed magic and inferred
+  arrays require `1.1.0` in the file that declares them. Includes follow that
   header and precede all declarations, at file scope only.
 - Nested dependencies load before their includers. Repeated paths, normalized path
   aliases, mixed shorthand/explicit spellings, and diamond dependencies contribute

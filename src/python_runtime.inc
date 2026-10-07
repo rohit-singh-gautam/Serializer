@@ -66,6 +66,24 @@ class _Writer:
         """Range-check integers and preserve their full width."""
         _bounds(value, width, unsigned)
         self.data.extend(str(value).encode('ascii') if self.protocol == 0 else value.to_bytes(width, 'little', signed=not unsigned))
+    def compact_value(self, value, width, prefix, strict):
+        """Encode an unsigned compact field; lenient prefixes retain the low 30 bits."""
+        if self.protocol == 0:
+            self.integer(value, width, True)
+            return
+        if prefix:
+            if strict and (type(value) is not int or not 0 <= value <= min((1 << (width*8))-1, 0x3fffffff)):
+                raise ValueError('Compact prefix integer out of range')
+            value &= 0x3fffffff
+            extra = 0 if value <= 63 else 1 if value <= 16383 else 2 if value <= 4194303 else 3
+            self.data.append((extra << 6) | (value >> (extra*8)))
+            self.data.extend((value & ((1 << (extra*8))-1)).to_bytes(extra, 'big'))
+            return
+        _bounds(value, width, True)
+        while value >= 0x80:
+            self.data.append((value & 0x7f) | 0x80)
+            value >>= 7
+        self.data.append(value)
     def floating(self, value, single):
         """Round binary32 once and reject nonfinite JSON values."""
         if type(value) not in (int, float):
@@ -217,6 +235,33 @@ class _Reader:
         value = int.from_bytes(self.data[self.offset:self.offset+width], 'little', signed=not unsigned)
         self.offset += width
         return value
+)serializer"
+R"serializer(    def compact_value(self, width, prefix):
+        """Validate compact framing and the target range before advancing the cursor."""
+        if self.protocol == 0:
+            return self.integer(width, True)
+        start = self.offset
+        if prefix:
+            try:
+                value = self.compact()
+                if value >= 1 << (width*8): raise ValueError('Compact integer out of range')
+                return value
+            except ValueError:
+                self.offset = start
+                raise
+        bits = width*8
+        for index in range((bits+6)//7):
+            self.require(index+1)
+            byte = self.data[start+index]
+            payload = byte & 0x7f
+            if payload >= 1 << min(7, bits-index*7): raise ValueError('Compact integer out of range')
+            if index == 0: value = 0
+            value |= payload << (index*7)
+            if byte < 0x80:
+                if index and payload == 0: raise ValueError('Noncanonical compact integer')
+                self.offset = start+index+1
+                return value
+        raise ValueError('Unterminated compact integer')
     def floating(self, single):
         """Decode IEEE values or strictly validated finite JSON numbers."""
         codec = _FLOAT if single else _DOUBLE

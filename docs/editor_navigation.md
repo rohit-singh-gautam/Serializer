@@ -187,3 +187,27 @@ Native C++ and TypeScript are verified separately from the compiler-format check
 Native Java, C#, Go, Rust, Python, Swift and Kotlin services, Linux/macOS, remote
 hosts, symlink workspaces and every editor/provider version remain separate
 integration environments, not claims established by the shared tests.
+
+## Typed magic and inferred arrays (1.1.24)
+
+Typed magic enum operands and qualified enum initializer prefixes navigate to
+their schema declaration or available generated enum definitions.
+`array[]` element types use the existing collection navigation rules. The shared
+resolver preserves qualified-name cursor boundaries, transitive includes and
+unsaved source edits. Scalar builtins and literal magic bytes add no schema-type
+navigation destination.
+
+## Compact unsigned fields (1.1.25)
+
+The shared resolver skips `compact_prefix`, `compact_varint`, and their optional
+`strict`/`lenient` policies before indexing the scalar type operand. Generic type
+parameters retain their declaration targets, and adjacent qualified types still
+navigate through unsaved transitive includes and existing output files. The
+modifiers and scalar builtin types add no navigation destination.
+
+Existing schemas may use these spellings as ordinary type names. A compact
+modifier requires a separate scalar type and field name; ordinary fields such as
+`public compact_prefix value;` retain their type navigation and compiler meaning.
+Shared grammar/resolver tests cover both interpretations, and the Visual Studio
+interpreter tests exercise compact generic operands and all 11 adjacent output
+destinations.

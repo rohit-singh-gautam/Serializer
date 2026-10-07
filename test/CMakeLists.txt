@@ -1,6 +1,6 @@
 set(schemas)
 foreach(fixture IN ITEMS enum person test1 array map variable assessment views storage_reuse
-    fixed_fields constant_names includes wire_compatibility generics dimensions versioning magic)
+    fixed_fields constant_names includes wire_compatibility generics dimensions versioning magic typed_magic inferred_arrays compact_fields)
   list(APPEND schemas "${CMAKE_CURRENT_SOURCE_DIR}/resources/${fixture}.serializer")
 endforeach()
 
@@ -17,6 +17,9 @@ add_executable(core_serializer_test
   schema_version_test.cpp
   versioning_test.cpp
   magic_test.cpp
+  typed_magic_test.cpp
+  inferred_array_test.cpp
+  compact_fields_test.cpp
   schema_policy_test.cpp
   schema_generics_test.cpp
   dimension_templates_test.cpp
@@ -99,6 +102,10 @@ if(Python3_Interpreter_FOUND)
   add_test(NAME serializer_generic_python
     COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/example/generics/run.py"
       --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/generic_python")
+  add_test(NAME serializer_compact_python
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/compact_languages.py"
+      --compiler "$<TARGET_FILE:serializer>" --language python
+      --build "${CMAKE_CURRENT_BINARY_DIR}/compact_python")
 endif()
 if(SERIALIZER_BUILD_MANAGED)
   foreach(profile IN ITEMS managed32 managed64 separate64)
@@ -258,8 +265,8 @@ if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|C
   add_test(NAME stream_allocation_failure_test COMMAND stream_allocation_failure_test)
 endif()
 
-add_executable(protobuf_codec_test protobuf_codec_test.cpp protobuf_stream_test.cpp)
-serializer_generate(TARGET protobuf_codec_test SCHEMAS resources/protobuf.serializer
+add_executable(protobuf_codec_test protobuf_codec_test.cpp protobuf_stream_test.cpp typed_magic_protobuf_test.cpp)
+serializer_generate(TARGET protobuf_codec_test SCHEMAS resources/protobuf.serializer resources/typed_magic.serializer
   CONFIG protobuf.ini OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/protobuf")
 target_link_libraries(protobuf_codec_test PRIVATE GTest::gtest_main)
 add_test(NAME protobuf_codec_test COMMAND protobuf_codec_test)

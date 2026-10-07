@@ -30,8 +30,10 @@ See [include usage](usage.md#share-declarations-with-includes) and
 [C++/Java examples](../example/includes/README.md).
 Each helper explicitly selects its own backend, so both may share a configuration
 with `[output] language = cpp,java`. Schema paths use `.serializer`, and every
-schema starts with `serializer version 1;`. The installed package supports
-`find_package(Serializer 1.1.1 EXACT CONFIG REQUIRED)`; omit `EXACT` to accept a
+schema starts with a supported language header; use `serializer version 1.1.0;`
+for inferred arrays and typed magic. The original `1` header remains an exact
+alias for `1.0.0`. The installed package supports
+`find_package(Serializer 1.2.0 EXACT CONFIG REQUIRED)`; omit `EXACT` to accept a
 newer compatible release within the same major version. See
 [compiler and schema versioning](command_line.md).
 

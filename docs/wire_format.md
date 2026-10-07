@@ -4,6 +4,18 @@ The schema language header is compiler input metadata and is never serialized.
 `serializer version 1;` and `serializer version 1.0.0;` select the same contract
 and produce identical codecs. Schema-language and compiler release versions are
 independent of the application payload revisions described below.
+Language `1.1.0` adds inferred fixed-array extents and typed magic; selecting a
+newer header alone does not change existing declarations' bytes or public APIs.
+
+Language `1.2.0` adds [compact unsigned scalar payloads](compact_integers.md).
+`compact_prefix` uses the existing two-MSB byte-count tag and 30-bit maximum;
+`compact_varint` uses canonical unsigned LEB128 with seven payload bits per
+byte and a continuation MSB. Only annotated owning uint8/16/32/64 fields change
+their native binary payload encoding. Keys, counts, enums and union indices
+retain their existing prefix encoding. JSON and optional Protobuf scalar mappings
+remain unchanged. Strict prefix output rejects overflow; lenient output retains
+the low 30 bits. Every reader checks bounds and declared scalar width; varint
+readers also reject overlong, overflowing and unterminated encodings.
 
 See [payload versioning](versioning.md) for revision types, historical positional
 layouts, field lifetimes, replacements, reservations, common read policies, and
@@ -13,8 +25,14 @@ and add no dates or policy evaluation to generated codecs.
 [Fixed magic and format exclusions](magic_and_omission.md) are opt-in owning
 schema annotations. Native binary formats prepend the exact magic bytes before
 the version and other object fields, with no length, key or NUL terminator.
-Native JSON includes one required matching `magic` string unless explicitly
-excluded. Protobuf uses the declared magic field ID and fixed string value.
+Native JSON includes one required matching `magic` value unless explicitly
+excluded. Legacy byte magic is a UTF-8 string. Language `1.1.0` typed magic uses
+the selected native scalar/enum encoding, with no additional magic key, field ID,
+or sequence count in binary. Enum magic uses compact ordinals in positional and
+integer-key binary; string-key binary uses the usual length-prefixed enum name.
+JSON uses its ordinary scalar or enum-name representation. Protobuf uses the
+declared magic field ID and corresponding scalar/enum mapping; legacy magic
+remains a fixed string. All readers validate and discard the constant.
 
 `omit(format, ...)` removes the field's bytes, key and positional slot only from
 the selected representation. Decoding preserves its schema default and rejects

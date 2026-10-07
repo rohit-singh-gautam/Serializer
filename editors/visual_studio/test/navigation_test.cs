@@ -33,6 +33,53 @@ internal static class NavigationTest {
           ++checks;
         }
       }
+      // Exercise the new metadata type operands against the same transitive and generated enum graph.
+      var typedText = "serializer version 1.1.0; include sales/order; class typed_model { " +
+        "public array[] float numbers (2) {1'000.25, 2'000.5}; " +
+        "private magic demo::order_state (99) {demo::order_state::draft}; " +
+        "public array[] demo::order_state states (1) {demo::order_state::draft}; }";
+      live[model] = typedText;
+      var enumName = "demo::order_state";
+      for (var occurrence = typedText.IndexOf(enumName, StringComparison.Ordinal); occurrence >= 0;
+           occurrence = typedText.IndexOf(enumName, occurrence + enumName.Length, StringComparison.Ordinal)) {
+        for (var offset = occurrence; offset <= occurrence + enumName.Length; ++offset) {
+          var destination = NavigationRunner.Resolve(model, offset, false, generated, live, CancellationToken.None);
+          Require(destination.Length == 1 && Path.GetFileName(destination[0].file) == "order.serializer",
+            "typed magic/inferred array enum cursor boundary");
+          ++checks;
+        }
+        var definitions = NavigationRunner.Resolve(model, occurrence, true, generated, live, CancellationToken.None);
+        Require(definitions.Select(item => item.file).Distinct().Count() == 11,
+          "typed magic/inferred array enum definitions in every output language");
+        ++checks;
+      }
+      live[model] = text;
+      // Generic compact operands remain navigable and modifiers never become destinations.
+      var compactText = "serializer version 1.2.0; include sales/order; class compact_box<T> { " +
+        "public compact_prefix strict T first; public compact_varint lenient T second; " +
+        "public compact_varint T third; public demo::order owner; }";
+      live[model] = compactText;
+      foreach (var member in new[] { "T first", "T second", "T third" }) {
+        var start = compactText.IndexOf(member, StringComparison.Ordinal);
+        for (var offset = start; offset <= start + 1; ++offset) {
+          var destination = NavigationRunner.Resolve(model, offset, false, generated, live, CancellationToken.None);
+          Require(destination.Length == 1 && destination[0].file == model &&
+            compactText.Substring(destination[0].start, destination[0].end - destination[0].start) == "T",
+            "compact generic type cursor boundary");
+          ++checks;
+        }
+      }
+      foreach (var modifier in new[] { "compact_prefix", "compact_varint", "strict", "lenient" }) {
+        var offset = compactText.IndexOf(modifier, StringComparison.Ordinal);
+        Require(NavigationRunner.Resolve(model, offset, false, generated, live, CancellationToken.None).Length == 0,
+          "compact modifier is not a type reference");
+        ++checks;
+      }
+      var compactOwner = compactText.IndexOf("demo::order", StringComparison.Ordinal);
+      Require(NavigationRunner.Resolve(model, compactOwner, true, generated, live, CancellationToken.None).Length == 11,
+        "adjacent compact output navigation in every language");
+      ++checks;
+      live[model] = text;
       var order = Path.GetFullPath(Path.Combine(repository, "example/schemas/complex/sales/order.serializer"));
       live[order] = File.ReadAllText(order).Replace("serializer version 1;", "serializer version 1.0.0;")
         .Replace("class order ", "class unsaved_order ");
@@ -81,7 +128,7 @@ internal static class NavigationTest {
           }
         }
       }
-      Console.WriteLine("Visual Studio shared resolver passed: " + checks + " source/output checks, real .NET interpreter, all 11 languages, dimension defaults/extents, selection endpoints, unsaved includes and cancellation.");
+      Console.WriteLine("Visual Studio shared resolver passed: " + checks + " source/output checks, real .NET interpreter, all 11 languages, dimension defaults/extents, typed magic/inferred arrays, selection endpoints, unsaved includes and cancellation.");
       return 0;
     } catch (Exception error) { Console.Error.WriteLine(error); return 1; }
   }

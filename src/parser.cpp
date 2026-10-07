@@ -26,13 +26,16 @@
 #include <algorithm>
 #include <array>
 #include <charconv>
+#include <cmath>
 #include <concepts>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <queue>
+#include <regex>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -76,6 +79,43 @@ std::string get_full_name_for_namespace(const namespace_node* namespace_ptr) {
 }
 
 namespace parser {
+
+// Each entry schema and included file selects its own language contract on this thread.
+using language_version = std::array<unsigned, 3>;
+thread_local language_version active_language_version{
+    schema_language_version_major, schema_language_version_minor, schema_language_version_patch};
+
+// Restore the including file's contract after recursively parsing a dependency.
+struct language_version_scope {
+  const language_version previous{active_language_version};
+  // Apply one file's declared contract for its declarations.
+  explicit language_version_scope(language_version version) {
+    active_language_version = version;
+  }
+  // Return this thread's parser to the surrounding file or fragment contract.
+  ~language_version_scope() {
+    active_language_version = previous;
+  }
+};
+
+// Reject new syntax in an older declared contract instead of silently changing its meaning.
+void require_language_1_1(const rohit::type_check::schema_input_buffer auto& input,
+                          std::string_view feature) {
+  constexpr language_version introduced{1u, 1u, 0u};
+  if (active_language_version < introduced) {
+    throw exception::bad_member_spec{
+        input, std::string{feature} + " requires serializer version 1.1.0 or newer"};
+  }
+}
+// Keep field encoding modifiers unavailable in schemas selecting older language contracts.
+void require_language_1_2(const rohit::type_check::schema_input_buffer auto& input,
+                          std::string_view feature) {
+  constexpr language_version introduced{1u, 2u, 0u};
+  if (active_language_version < introduced) {
+    throw exception::bad_member_spec{
+        input, std::string{feature} + " requires serializer version 1.2.0 or newer"};
+  }
+}
 // Test for the ASCII whitespace characters accepted by the parser.
 constexpr bool is_whitespace(const char val) noexcept {
   return val == ' ' || val == '\t' || val == '\n' || val == '\r';
@@ -753,6 +793,243 @@ std::vector<std::string> parse_omitted_formats(const rohit::type_check::schema_i
   return result;
 }
 
+// Decode explicit byte escapes without adding a text terminator or relying on host char layout.
+std::string decode_byte_literal(std::string_view literal) {
+  if (literal.size() < 2 || (literal.front() != '\'' && literal.front() != '"') ||
+      literal.back() != literal.front()) {
+    throw std::invalid_argument{"Expected a quoted byte literal"};
+  }
+  std::string bytes{};
+  for (std::size_t index = 1; index + 1 < literal.size(); ++index) {
+    auto character = literal[index];
+    if (character == '\\') {
+      if (++index + 1 >= literal.size()) {
+        throw std::invalid_argument{"Incomplete byte escape"};
+      }
+      character = literal[index];
+      switch (character) {
+      case 'b': character = '\b'; break;
+      case 'f': character = '\f'; break;
+      case 'n': character = '\n'; break;
+      case 'r': character = '\r'; break;
+      case 't': character = '\t'; break;
+      case '0': character = '\0'; break;
+      case '\\': case '\'': case '"': break;
+      case 'x': {
+        if (index + 3 >= literal.size()) {
+          throw std::invalid_argument{"Hex byte escape requires exactly two digits"};
+        }
+        unsigned value{};
+        const auto* first = literal.data() + index + 1;
+        const auto parsed = std::from_chars(first, first + 2, value, 16);
+        if (parsed.ec != std::errc{} || parsed.ptr != first + 2) {
+          throw std::invalid_argument{"Invalid hex byte escape"};
+        }
+        character = static_cast<char>(value);
+        index += 2;
+        break;
+      }
+      default: throw std::invalid_argument{"Unsupported byte escape"};
+      }
+    } else if (character == literal.front() || character == '\n' || character == '\r') {
+      throw std::invalid_argument{"Byte literals require escaped quotes and newlines"};
+    }
+    bytes.push_back(character);
+  }
+  return bytes;
+}
+
+// Recognize digit separators only inside a numeric token, keeping malformed character quotes visible.
+bool numeric_separator_prefix(std::string_view value) {
+  auto begin = value.size();
+  while (begin != 0 && (is_identifier(value[begin - 1]) || value[begin - 1] == '.' ||
+                        value[begin - 1] == '\'')) {
+    --begin;
+  }
+  return begin < value.size() && is_number(value[begin]);
+}
+
+// Count top-level initializers while bounding nested aggregate/expression groups and quoted text.
+std::vector<std::string> parse_array_initializer(
+    const rohit::type_check::schema_input_buffer auto& input) {
+  constexpr std::size_t maximum_fixed_elements = 65536;
+  constexpr std::size_t maximum_initializer_depth = 32;
+  constexpr std::size_t maximum_initializer_groups = 256;
+  check_and_increase(input, '{');
+  std::vector<std::string> values{};
+  skip_whitespace_and_comment(input);
+  while (!input.full() && *input != '}') {
+    std::string value{};
+    std::vector<char> groups{};
+    std::size_t group_count{};
+    char quote{};
+    bool escaped{};
+    while (!input.full()) {
+      const auto character = static_cast<char>(*input);
+      if (quote == 0) {
+        if (groups.empty() && (character == ',' || character == '}')) {
+          break;
+        }
+        if (input == "//" || input == "/*") {
+          skip_whitespace_and_comment(input);
+          value += ' ';
+          continue;
+        }
+        if (character == '{' || character == '(' || character == '[') {
+          if (groups.size() >= maximum_initializer_depth ||
+              ++group_count > maximum_initializer_groups) {
+            throw exception::bad_member_spec{input, "Inferred array initializer nesting limit exceeded"};
+          }
+          groups.push_back(character);
+        } else if (character == '}' || character == ')' || character == ']') {
+          const auto expected = character == '}' ? '{' : character == ')' ? '(' : '[';
+          if (groups.empty() || groups.back() != expected) {
+            throw exception::bad_member_spec{input, "Unbalanced inferred array initializer delimiter"};
+          }
+          groups.pop_back();
+        }
+      }
+      value.push_back(character);
+      ++input;
+      if (quote != 0) {
+        if (escaped) {
+          escaped = false;
+        } else if (character == '\\') {
+          escaped = true;
+        } else if (character == quote) {
+          quote = 0;
+        }
+      } else if (character == '"' ||
+                 (character == '\'' &&
+                  !numeric_separator_prefix(std::string_view{value}.substr(0, value.size() - 1)))) {
+        // Numeric digit separators remain part of an unquoted host literal.
+        quote = character;
+      }
+    }
+    value = schema_version::trim(value);
+    if (!value.empty() && value.front() != '\'' && value.front() != '"' && group_count == 0 &&
+        value.find_first_of(" \t\r\n") != std::string::npos) {
+      throw exception::bad_member_spec{input, "Inferred array values require comma separators"};
+    }
+    if (quote != 0 || !groups.empty() || value.empty() || values.size() >= maximum_fixed_elements) {
+      throw exception::bad_member_spec{input, "Invalid or excessive inferred array initializer"};
+    }
+    values.push_back(std::move(value));
+    if (input.full()) {
+      throw exception::bad_member_spec{input, "Unterminated inferred array initializer"};
+    }
+    if (*input == '}') {
+      break;
+    }
+    ++input;
+    skip_whitespace_and_comment(input);
+  }
+  check_and_increase(input, '}');
+  return values;
+}
+
+// Convert a text initializer to exact char bytes, otherwise retain the explicit scalar list.
+std::vector<std::string> normalize_array_initializer(
+    const rohit::type_check::schema_input_buffer auto& input, std::string_view type,
+    std::vector<std::string> values) {
+  if (type != "char") {
+    return values;
+  }
+  try {
+    if (values.size() == 1 && !values.front().empty() &&
+        (values.front().front() == '\'' || values.front().front() == '"')) {
+      const auto bytes = decode_byte_literal(values.front());
+      values.clear();
+      for (const auto character : bytes) {
+        values.push_back(std::to_string(static_cast<unsigned char>(character)));
+      }
+    } else {
+      for (auto& value : values) {
+        if (!value.empty() && value.front() == '\'') {
+          const auto bytes = decode_byte_literal(value);
+          if (bytes.size() != 1) {
+            throw std::invalid_argument{"Each char initializer must contain one byte"};
+          }
+          value = std::to_string(static_cast<unsigned char>(bytes.front()));
+        }
+      }
+    }
+  } catch (const std::invalid_argument& error) {
+    throw exception::bad_member_spec{input, error.what()};
+  }
+  return values;
+}
+
+// Parse a typed identity using ordinary scalar type and field identity metadata.
+member parse_typed_magic(const rohit::type_check::schema_input_buffer auto& input,
+                         access_type access, namespace_node* declared_namespace) {
+  require_language_1_1(input, "Typed magic");
+  auto type = parse_type_expression(input, declared_namespace);
+  if (type.kind != generic_argument_kind::type || type.application ||
+      parse_member_modifier(type.name) != member::modifier_type::none) {
+    throw exception::bad_member_spec{input, "Typed magic requires a scalar or enum type"};
+  }
+  skip_whitespace_and_comment(input);
+  std::uint32_t id{1};
+  std::string name{"magic"};
+  bool explicit_id{};
+  if (!input.full() && *input == '(') {
+    parse_name_spec(input, id, name, explicit_id);
+    skip_whitespace_and_comment(input);
+  }
+  if (name != "magic") {
+    throw exception::bad_member_spec{input, "Magic retains the fixed wire name magic"};
+  }
+  const auto value = get_default_value(input);
+  if (value.empty()) {
+    throw exception::bad_member_spec{input, "Typed magic requires a constant initializer"};
+  }
+  skip_whitespace_and_comment(input);
+  std::vector<std::string> omitted{};
+  if (next_keyword(input, "omit")) {
+    omitted = parse_omitted_formats(input);
+    skip_whitespace_and_comment(input);
+  }
+  check_and_increase(input, ';');
+  validate_field_key(input, id, name);
+  member result{access, member::modifier_type::none, {std::move(type)}, "magic", "magic",
+                id, {}, value, explicit_id};
+  result.magic = true;
+  result.omitted_formats = std::move(omitted);
+  return result;
+}
+
+// Distinguish encoding modifiers from existing types with the same source spelling.
+bool next_compact_modifier(const rohit::type_check::schema_input_buffer auto& input) {
+  if (!next_keyword(input, "compact_prefix") && !next_keyword(input, "compact_varint")) {
+    return false;
+  }
+  const auto lookahead = make_constant_full_stream(input.curr(), input.remaining_buffer());
+  parse_identifier_impl(lookahead);
+  skip_whitespace_and_comment(lookahead);
+  // Existing generic and qualified type uses retain their ordinary type interpretation.
+  if (lookahead.full() || *lookahead == '<' || *lookahead == ':') { return false; }
+  if (next_keyword(lookahead, "strict") || next_keyword(lookahead, "lenient")) {
+    parse_identifier_impl(lookahead);
+    skip_whitespace_and_comment(lookahead);
+  }
+  if (!is_first_identifier(lookahead)) { return false; }
+  const auto type = parse_type_expression(lookahead, nullptr);
+  skip_whitespace_and_comment(lookahead);
+  if (next_keyword(lookahead, "omit")) {
+    const auto metadata = make_constant_full_stream(lookahead.curr(), lookahead.remaining_buffer());
+    try {
+      static_cast<void>(parse_omitted_formats(metadata));
+      return false; // An existing type followed by its field name and format exclusions.
+    } catch (const std::exception&) {
+      // A field may itself be named omit; its numeric/quoted identity is not format metadata.
+    }
+  }
+  // A second identifier belongs to the field; one identifier followed by metadata is a type use.
+  return is_first_identifier(lookahead) ||
+         (type.name == "array" && !lookahead.full() && *lookahead == '[');
+}
+
 // Parse field visibility, storage, wire identity, and optional version lifecycle metadata.
 member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_stream,
                          const std::uint32_t id, namespace_node* declared_namespace) {
@@ -781,6 +1058,25 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   }
   auto access = parse_access_type_impl(in_stream);
   skip_whitespace_and_comment(in_stream);
+  compact_encoding compact{compact_encoding::none};
+  bool compact_strict{true};
+  if (next_compact_modifier(in_stream)) {
+    require_language_1_2(in_stream, "Compact integer fields");
+    const auto encoding = parse_identifier_impl(in_stream);
+    compact = encoding == "compact_prefix" ? compact_encoding::prefix : compact_encoding::varint;
+    skip_whitespace_and_comment(in_stream);
+    if (next_keyword(in_stream, "strict") || next_keyword(in_stream, "lenient")) {
+      compact_strict = parse_identifier_impl(in_stream) == "strict";
+      skip_whitespace_and_comment(in_stream);
+    }
+    if (next_keyword(in_stream, "strict") || next_keyword(in_stream, "lenient") ||
+        next_keyword(in_stream, "compact_prefix") || next_keyword(in_stream, "compact_varint")) {
+      throw exception::bad_member_spec{in_stream, "Compact encoding and overflow policy may appear only once"};
+    }
+    if (next_keyword(in_stream, "magic") || next_keyword(in_stream, "version")) {
+      throw exception::bad_member_spec{in_stream, "Compact encoding requires an ordinary unsigned scalar field"};
+    }
+  }
   if (next_keyword(in_stream, "magic")) {
     if (lifecycle.obsolete || !lifecycle.created_version.empty() ||
         !lifecycle.obsolete_version.empty() || !lifecycle.replaced_member.empty()) {
@@ -788,6 +1084,9 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
     }
     parse_identifier_impl(in_stream);
     skip_whitespace_and_comment(in_stream);
+    if (is_first_identifier(in_stream)) {
+      return parse_typed_magic(in_stream, access, declared_namespace);
+    }
     std::uint32_t magic_id{1};
     std::string magic_name{"magic"};
     bool explicit_magic_id{};
@@ -892,13 +1191,20 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   }
   std::string key{};
   std::vector<dimension_expression> extent{};
+  bool infer_extent{};
   if (member_modifier == member::modifier_type::none) {
     type_name_list.push_back(std::move(next_type));
   } else if (member_modifier == member::modifier_type::array) {
     skip_whitespace_and_comment(in_stream);
     if (!in_stream.full() && *in_stream == '[') {
       ++in_stream;
-      extent.push_back(parse_dimension_expression(in_stream));
+      skip_whitespace_and_comment(in_stream);
+      infer_extent = !in_stream.full() && *in_stream == ']';
+      if (infer_extent) {
+        require_language_1_1(in_stream, "Inferred fixed arrays");
+      } else {
+        extent.push_back(parse_dimension_expression(in_stream));
+      }
       check_and_increase(in_stream, ']');
       skip_whitespace_and_comment(in_stream);
     }
@@ -917,6 +1223,7 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   bool explicit_id{false};
   bool parsed_default_value{false};
   std::string default_value{};
+  std::vector<std::string> array_values{};
   std::string compatibility{};
   std::vector<version_release> releases{};
   std::optional<version_policy> policy{};
@@ -934,7 +1241,12 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
         throw exception::bad_member_spec{in_stream, "Only one default value is allowed"};
       }
       parsed_default_value = true;
-      default_value = get_default_value(in_stream);
+      if (infer_extent) {
+        array_values = normalize_array_initializer(
+            in_stream, type_name_list.front().name, parse_array_initializer(in_stream));
+      } else {
+        default_value = get_default_value(in_stream);
+      }
     } else if (next_keyword(in_stream, "compatibility")) {
       if (!version || !compatibility.empty()) {
         throw exception::bad_member_spec{in_stream,
@@ -976,7 +1288,34 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   validate_field_key(in_stream, new_id, display_name);
   member result{access, member_modifier, type_name_list, name, display_name, new_id, key, default_value,
                 explicit_id, nullptr, managed};
+  if (infer_extent) {
+    constexpr std::size_t maximum_fixed_elements = 65536;
+    if (!parsed_default_value || array_values.empty() ||
+        array_values.size() > maximum_fixed_elements) {
+      throw exception::bad_member_spec{
+          in_stream, "array[] requires 1 through 65536 initializer elements"};
+    }
+    extent.push_back({dimension_expression::operation::literal,
+                      static_cast<std::uint64_t>(array_values.size()), {}, {}, 0});
+    for (const auto& value : array_values) {
+      if (!default_value.empty()) {
+        default_value += ", ";
+      }
+      default_value += value;
+    }
+  }
+  result.inferred_extent = infer_extent;
+  result.compact = compact;
+  result.compact_strict = compact_strict;
+  if (compact != compact_encoding::none &&
+      (member_modifier != member::modifier_type::none || managed)) {
+    throw exception::bad_member_spec{in_stream, "Compact encoding requires an ordinary unsigned scalar field"};
+  }
   result.extent_expression = std::move(extent);
+  if (infer_extent) {
+    result.default_value = std::move(default_value);
+    result.fixed_extent = result.extent_expression.front().value;
+  }
   result.version = version;
   result.omitted_formats = std::move(omitted);
   result.compatibility_version = std::move(compatibility);
@@ -1084,15 +1423,18 @@ void parse_class_body_impl(const rohit::type_check::schema_input_buffer auto& in
       continue;
     }
     auto member = parse_member_impl(in_stream, id++, obj->parent_namespace);
-    if (!member.magic_bytes.empty()) {
-      if (!obj->magic_bytes.empty()) {
+    if (!member.magic_bytes.empty() || member.magic) {
+      if (obj->has_magic()) {
         throw exception::bad_member_spec{in_stream, "Only one magic declaration is allowed per class"};
       }
       obj->magic_bytes = std::move(member.magic_bytes);
       obj->magic_access = member.access;
       obj->magic_id = member.id;
       obj->magic_explicit_id = member.explicit_id;
-      obj->magic_omitted_formats = std::move(member.omitted_formats);
+      obj->magic_omitted_formats = member.omitted_formats;
+      if (member.magic) {
+        obj->magic_field = std::move(member);
+      }
       --id; // Header metadata does not consume an ordinary schema field identity.
       skip_whitespace_and_comment(in_stream);
       continue;
@@ -1250,7 +1592,7 @@ void validate_class_keys(const rohit::type_check::schema_input_buffer auto& inpu
   for (const auto& base : obj.parents) {
     occupied.insert(base.id);
   }
-  if (!obj.magic_bytes.empty() && obj.magic_explicit_id) {
+  if (obj.has_magic() && obj.magic_explicit_id) {
     occupied.insert(obj.magic_id);
   }
   for (const auto& field : obj.member_list) {
@@ -1267,9 +1609,13 @@ void validate_class_keys(const rohit::type_check::schema_input_buffer auto& inpu
       occupied.insert(field.id);
     }
   }
-  if (!obj.magic_bytes.empty() && !obj.magic_explicit_id) {
+  if (obj.has_magic() && !obj.magic_explicit_id) {
     while (occupied.contains(obj.magic_id)) { ++obj.magic_id; }
+    validate_field_key(input, obj.magic_id, "magic");
     occupied.insert(obj.magic_id);
+  }
+  if (obj.magic_field) {
+    obj.magic_field->id = obj.magic_id;
   }
   std::unordered_set<std::uint32_t> ids;
   std::unordered_set<std::string> names;
@@ -1293,7 +1639,7 @@ void validate_class_keys(const rohit::type_check::schema_input_buffer auto& inpu
   for (const auto& name : obj.reserved_names) {
     add_name(name);
   }
-  if (!obj.magic_bytes.empty()) {
+  if (obj.has_magic()) {
     add_id(obj.magic_id, true);
     add_name("magic");
   }
@@ -1408,13 +1754,19 @@ parse_class(const rohit::type_check::schema_input_buffer auto& in_stream,
   register_declaration(in_stream, *obj, declarations);
   // At this point all whitespace is skipped
   parse_class_body_impl(in_stream, obj.get(), id);
+  if (std::any_of(obj->member_list.begin(), obj->member_list.end(), [](const auto& field) {
+        return field.compact != compact_encoding::none;
+      }) && (obj->storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
+             (obj->attributes & class_attributes::packed) == class_attributes::packed)) {
+    throw exception::bad_class{in_stream, "Compact fields require an unpacked owning class without view modes"};
+  }
   if (obj->storage_modes != static_cast<std::uint8_t>(storage_mode::owning) &&
       std::any_of(obj->member_list.begin(), obj->member_list.end(), [](const auto& field) {
         return !field.omitted_formats.empty();
       })) {
     throw exception::bad_class{in_stream, "Output omissions currently require an owning class without view modes"};
   }
-  if (!obj->magic_bytes.empty()) {
+  if (obj->has_magic()) {
     if (obj->storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
         obj->supports_managed()) {
       throw exception::bad_class{in_stream, "Binary magic requires an unmanaged owning class"};
@@ -1619,6 +1971,191 @@ void resolve_type(const rohit::type_check::schema_input_buffer auto& input, type
   check_member_type_for_primitive(input, type);
 }
 
+// Canonicalize integer magic without target-language literal suffixes or unchecked narrowing.
+std::string integer_magic_literal(std::string_view type, std::string_view input) {
+  auto text = schema_version::trim(input);
+  const bool negative = !text.empty() && text.front() == '-';
+  std::string_view magnitude{text};
+  if (negative) {
+    magnitude.remove_prefix(1);
+  }
+  const bool unsigned_type = type.starts_with("uint") || type == "char";
+  if (magnitude.empty() || (negative && unsigned_type)) {
+    throw std::invalid_argument{"Invalid integer magic literal"};
+  }
+  int radix = 10;
+  if (magnitude.starts_with("0x") || magnitude.starts_with("0X")) {
+    radix = 16;
+    magnitude.remove_prefix(2);
+  } else if (magnitude.size() > 1 && magnitude.front() == '0') {
+    throw std::invalid_argument{"Magic integers require canonical decimal or hexadecimal literals"};
+  }
+  std::uint64_t value{};
+  const auto parsed = std::from_chars(magnitude.data(), magnitude.data() + magnitude.size(), value, radix);
+  if (magnitude.empty() || parsed.ec != std::errc{} ||
+      parsed.ptr != magnitude.data() + magnitude.size()) {
+    throw std::invalid_argument{"Invalid integer magic literal"};
+  }
+  const auto bits = type == "char" || type.ends_with("8") ? 8u
+                    : type.ends_with("16") ? 16u : type.ends_with("32") ? 32u : 64u;
+  constexpr auto maximum_unsigned = std::numeric_limits<std::uint64_t>::max();
+  const auto maximum = unsigned_type ? maximum_unsigned >> (64u - bits)
+                       : negative ? std::uint64_t{1} << (bits - 1u)
+                                  : maximum_unsigned >> (65u - bits);
+  if (value > maximum) {
+    throw std::invalid_argument{"Magic literal exceeds its declared type"};
+  }
+  return (negative && value != 0 ? "-" : "") + std::to_string(value);
+}
+
+// Validate resolved unsigned compact fields and canonicalize representable literal defaults.
+void validate_compact_member(const rohit::type_check::schema_input_buffer auto& input,
+                             member& field, bool dependent) {
+  if (field.compact == compact_encoding::none) { return; }
+  if (field.modifier != member::modifier_type::none || field.type_name_list.size() != 1 ||
+      field.version || field.magic || field.managed) {
+    throw exception::bad_member_spec{input, "Compact encoding requires an ordinary unsigned scalar field"};
+  }
+  const auto& type = field.type_name_list.front();
+  if (dependent && type.type == object_type::unresolved) { return; }
+  if (type.type != object_type::primitive ||
+      (type.name != "uint8" && type.name != "uint16" && type.name != "uint32" &&
+       type.name != "uint64")) {
+    throw exception::bad_member_type{input, "Compact encoding supports only uint8, uint16, uint32, and uint64"};
+  }
+  const auto text = schema_version::trim(field.default_value);
+  if (text.empty()) { return; }
+  try {
+    field.default_value = integer_magic_literal(type.name, text);
+    std::uint64_t value{};
+    const auto parsed = std::from_chars(field.default_value.data(),
+        field.default_value.data() + field.default_value.size(), value);
+    constexpr std::uint64_t maximum_prefix_value = constants::variable_four_byte_max;
+    if (parsed.ec != std::errc{} ||
+        (field.compact == compact_encoding::prefix && field.compact_strict &&
+         value > maximum_prefix_value)) {
+      throw std::invalid_argument{"Strict compact_prefix default exceeds the 30-bit payload range"};
+    }
+  } catch (const std::invalid_argument& error) {
+    throw exception::bad_member_spec{input, std::string{"Invalid compact default: "} + error.what()};
+  }
+}
+
+// Validate fixed scalar/enum identity constants after normal declaration and generic resolution.
+void validate_magic_constant(const rohit::type_check::schema_input_buffer auto& input,
+                             member& field) {
+  if (field.modifier != member::modifier_type::none || field.type_name_list.size() != 1) {
+    throw exception::bad_member_spec{input, "Typed magic requires a scalar or enum type"};
+  }
+  constexpr unsigned maximum_ascii_byte = 0x7f;
+  const auto& type = field.type_name_list.front();
+  auto text = schema_version::trim(field.default_value);
+  try {
+    if (type.type == object_type::enum_type && type.resolved_node) {
+      const auto& node = static_cast<const enum_node&>(*type.resolved_node);
+      const auto separator = text.rfind("::");
+      const auto name = separator == std::string::npos ? text : text.substr(separator + 2);
+      if ((separator == std::string::npos || text.substr(0, separator) == type.name ||
+           text.substr(0, separator) == node.name || text.substr(0, separator) == node.get_full_name()) &&
+          std::find(node.enum_name_list.begin(), node.enum_name_list.end(), name) !=
+              node.enum_name_list.end()) {
+        field.default_value = name;
+        return;
+      }
+      throw std::invalid_argument{"Magic requires a declared enum member"};
+    }
+    if (type.type != object_type::primitive) {
+      throw std::invalid_argument{"Typed magic requires a resolved scalar or enum type"};
+    }
+    if (type.name == "bool" && (text == "true" || text == "false")) {
+      field.default_value = text;
+      return;
+    }
+    if (type.name == "char" && !text.empty() && text.front() == '\'') {
+      const auto bytes = decode_byte_literal(text);
+      if (bytes.size() != 1) {
+        throw std::invalid_argument{"Char magic requires exactly one byte"};
+      }
+      field.default_value = std::to_string(static_cast<unsigned char>(bytes.front()));
+      if (field.magic && static_cast<unsigned char>(bytes.front()) > maximum_ascii_byte && !field.omits("json")) {
+        throw std::invalid_argument{"Non-ASCII char magic requires omit(json)"};
+      }
+      return;
+    }
+    if (type.name == "char" || type.name == "int8" || type.name == "int16" ||
+        type.name == "int32" || type.name == "int64" || type.name == "uint8" ||
+        type.name == "uint16" || type.name == "uint32" || type.name == "uint64") {
+      field.default_value = integer_magic_literal(type.name, text);
+      if (field.magic && type.name == "char" && std::stoul(field.default_value) > maximum_ascii_byte &&
+          !field.omits("json")) {
+        throw std::invalid_argument{"Non-ASCII char magic requires omit(json)"};
+      }
+      return;
+    }
+    if (type.name == "float" || type.name == "double") {
+      static const std::regex floating_literal{
+          R"(-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?)"};
+      float single{};
+      double value{};
+      const auto parsed = type.name == "float"
+          ? std::from_chars(text.data(), text.data() + text.size(), single)
+          : std::from_chars(text.data(), text.data() + text.size(), value);
+      if (!std::regex_match(text, floating_literal) || parsed.ec != std::errc{} ||
+          parsed.ptr != text.data() + text.size() ||
+          !std::isfinite(type.name == "float" ? static_cast<double>(single) : value)) {
+        throw std::invalid_argument{"Magic requires a finite floating literal"};
+      }
+      // Canonicalize the declared wire precision, making equivalent spellings one contract.
+      constexpr auto capacity = std::numeric_limits<double>::max_digits10 +
+          std::numeric_limits<int>::digits10 + sizeof("-0.e-");
+      std::array<char, capacity> canonical{};
+      const auto converted = type.name == "float"
+          ? std::to_chars(canonical.data(), canonical.data() + canonical.size(), single)
+          : std::to_chars(canonical.data(), canonical.data() + canonical.size(), value);
+      if (converted.ec != std::errc{}) {
+        throw std::invalid_argument{"Cannot canonicalize floating magic literal"};
+      }
+      field.default_value.assign(canonical.data(), converted.ptr);
+      if (field.default_value.find_first_of(".eE") == std::string::npos) {
+        field.default_value += ".0";
+      }
+      return;
+    }
+    throw std::invalid_argument{"Typed magic supports char, bool, numeric scalars, and named enums"};
+  } catch (const std::invalid_argument& error) {
+    throw exception::bad_member_spec{input, error.what()};
+  }
+}
+
+// Validate inferred char bytes and qualify enum values after their element type is resolved.
+void normalize_inferred_constants(const rohit::type_check::schema_input_buffer auto& input,
+                             member& field) {
+  const auto& type = field.type_name_list.front();
+  if (!field.inferred_extent ||
+      (type.type != object_type::enum_type && type.name != "char")) {
+    return;
+  }
+  std::string normalized{};
+  std::string_view remaining{field.default_value};
+  while (!remaining.empty()) {
+    const auto comma = remaining.find(',');
+    auto element = field;
+    element.modifier = member::modifier_type::none;
+    element.default_value = schema_version::trim(remaining.substr(0, comma));
+    validate_magic_constant(input, element);
+    if (!normalized.empty()) {
+      normalized += ", ";
+    }
+    normalized += type.type == object_type::enum_type
+        ? type.get_full_name() + "::" + element.default_value : element.default_value;
+    if (comma == std::string_view::npos) {
+      break;
+    }
+    remaining.remove_prefix(comma + 1);
+  }
+  field.default_value = std::move(normalized);
+}
+
 // Require every nested class to provide the representation used by its containing class.
 void validate_nested_modes(const rohit::type_check::schema_input_buffer auto& input,
                            const class_node& owner, const syntax_node* node, bool map_key = false) {
@@ -1714,6 +2251,10 @@ void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream
           base.parent_class = static_cast<class_node*>(node);
           validate_nested_modes(in_stream, *class_ptr, node);
         }
+        if (class_ptr->magic_field) {
+          resolve_type(in_stream, class_ptr->magic_field->type_name_list.front(), variable_type_map);
+          validate_magic_constant(in_stream, *class_ptr->magic_field);
+        }
         for (auto& member : class_ptr->member_list) {
           for (auto& type : member.type_name_list) {
             resolve_type(in_stream, type, variable_type_map);
@@ -1726,6 +2267,8 @@ void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream
                   "managed members require a class declared managed or containing its own managed member"};
             }
           }
+          normalize_inferred_constants(in_stream, member);
+          validate_compact_member(in_stream, member, false);
           if (member.modifier == member::modifier_type::map) {
           type_name key{std::string{member.key}, member.type_name_list.front().declared_namespace};
             resolve_type(in_stream, key, variable_type_map);
@@ -1752,13 +2295,15 @@ void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream
 
 // Consume the leading version statement before any declarations; comments may precede it.
 // Bound every read so incomplete headers report schema errors instead of stream overflow.
-void parse_version_header(const rohit::type_check::schema_input_buffer auto& input, bool required) {
+language_version parse_version_header(const rohit::type_check::schema_input_buffer auto& input,
+                                      bool required) {
   skip_whitespace_and_comment(input);
   if (!(input == "serializer")) {
     if (required) {
       throw exception::bad_input_data{input, "Expected first statement: serializer version 1.0.0;"};
     }
-    return;
+    return {schema_language_version_major, schema_language_version_minor,
+            schema_language_version_patch};
   }
   for (const auto token : {std::string_view{"serializer"}, std::string_view{"version"}}) {
     if (!(input == token)) {
@@ -1817,6 +2362,7 @@ void parse_version_header(const rohit::type_check::schema_input_buffer auto& inp
     throw exception::bad_input_data{input, "Expected ';' after schema language version"};
   }
   ++input;
+  return version;
 }
 
 namespace {
@@ -1900,7 +2446,7 @@ class file_loader {
       files.emplace(identity, file_state::loading);
       result.dependencies.push_back(canonical);
       const auto input = rohit::make_stream_from_file(canonical);
-      parse_version_header(input, true);
+      const language_version_scope contract{parse_version_header(input, true)};
       skip_whitespace_and_comment(input);
       while (starts_include(input)) {
         const auto included = parse_include(input);
@@ -1956,7 +2502,7 @@ parsed_schema parse_file(const std::filesystem::path& path, const parse_options&
 std::vector<std::unique_ptr<syntax_node>>
 parse_schema(const rohit::type_check::schema_input_buffer auto& in_stream, bool require_version,
              const parse_options& options) {
-  parse_version_header(in_stream, require_version);
+  const language_version_scope contract{parse_version_header(in_stream, require_version)};
   std::unordered_map<std::string, syntax_node*> declarations{};
   auto statements = parse_statement_list(in_stream, nullptr, declarations);
   if (!in_stream.full()) {

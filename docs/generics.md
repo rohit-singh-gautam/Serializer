@@ -89,6 +89,37 @@ instantiation. Each extent is 1..65,536; expression parsing permits 32 levels an
 minimum inline storage must fit the generator host's ptrdiff_t range. Native C++
 instantiations also obey the target compiler's object-size limits.
 
+### Infer an extent from defaults
+
+With schema language `1.1.0`, omit the extent expression to infer it from a
+nonempty initializer:
+
+```text
+serializer version 1.1.0;
+class header stable_ids {
+  public array[] uint32 values (1) {1, 2, 3};
+  public array[] char signature (2) {'SRLFILE'};
+}
+```
+
+These fields generate `std::array<std::uint32_t, 3>` and `std::array<char, 7>`.
+A char text literal uses its decoded byte count, including explicit escaped NUL
+bytes and excluding any implicit terminator. Element lists infer their element
+count. UTF-8 text contributes bytes rather than Unicode character count; ordinary
+char-array JSON encoding still requires ASCII elements. Strings containing commas
+and nested aggregate delimiters still count
+as single top-level elements; class and generic aggregate defaults are supported
+when they are valid C++ initializers for the declared element type.
+Missing/empty initializers, malformed literals, invalid element defaults,
+and inferred extents beyond 65,536 reject. The element type remains explicit;
+extent inference does not deduce it. Dependencies need their own `1.1.0` header.
+The legacy `1` header remains `1.0.0` and rejects empty extent syntax.
+
+The inferred extent is fixed at generation time. Its native C++ storage,
+wire count, cardinality checks, compatibility analysis, and backend limitations
+are the same as `array[N] T`; other language outputs and direct Protobuf
+generation continue to reject fixed arrays.
+
 All generic definitions require unpacked, unmanaged owning storage, without
 inheritance, unions, recursive ownership, variadics, or user specializations.
 Schema arguments cannot be managed/view classes. Definition names resolve in

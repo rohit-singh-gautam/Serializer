@@ -1,4 +1,4 @@
-# Fixed magic headers and output exclusions
+# Magic headers and output exclusions
 
 Magic identifies an artifact independently of its payload revision. Declare it
 once in the schema; generated writers emit the constant and generated readers
@@ -15,7 +15,8 @@ class document stable_ids {
 }
 ```
 
-In C++, the generated declaration is an `inline static constexpr char magic[N]`
+For the legacy byte-literal form, the C++ generated declaration is an
+`inline static constexpr char magic[N]`
 containing exactly the declared bytes, with no implicit NUL terminator.
 `public`, `protected`, and `private` control constant visibility independently of
 serialization. Other languages expose their corresponding static immutable
@@ -30,10 +31,65 @@ value, wherever that key appears. Readers discard the value after validation.
 Protobuf mappings use the magic numeric field ID and fixed string value.
 Magic and payload versioning remain separate features.
 
+## Typed scalar and enum magic
+
+Schema language `1.1.0` supports an explicit type after `magic`:
+
+```text
+serializer version 1.1.0;
+enum artifact_kind {
+  document,
+  image
+}
+class document stable_ids {
+  private magic uint32 (99) {42};
+  public uint64 id (1);
+}
+class image stable_ids {
+  public magic artifact_kind (99) {artifact_kind::image};
+  public uint32 width (1);
+}
+```
+
+Supported types are `char`, `bool`, `int8/16/32/64`, `uint8/16/32/64`, finite
+`float`/`double`, and declared enums. Each declaration requires exactly one
+initializer compatible with its type. Integers must fit their declared width;
+enum constants must belong to the declared enum. Strings, classes, collections,
+type parameters, and `version2/3/4` component types are unsupported. `char` uses
+its byte-valued scalar contract. Values 128..255 require `omit(json)` because
+native JSON char values are ASCII; ProtoJSON/TextProto use numeric char values
+and do not require that omission. The type does not introduce a member name: the constant remains
+`magic`. C++ emits an `inline static constexpr` constant of the declared type;
+other backends use their existing scalar/enum type mapping and immutable static
+constant convention. There is no mutable per-instance storage.
+
+Typed magic uses the selected codec's ordinary scalar/enum value representation:
+
+| Format | Typed magic representation |
+| --- | --- |
+| Positional and integer-key native binary | Unkeyed scalar value; enums use compact ordinals |
+| String-key native binary | Unkeyed scalar value; enums use their usual length-prefixed name |
+| Native JSON | Required `magic` key with its scalar value or declared enum name |
+| C++ Protobuf binary, ProtoJSON, TextProto | Declared magic field ID with the corresponding scalar/enum mapping |
+
+Native binary writes the typed constant before the payload version and ordinary
+fields, with no additional magic field key, numeric ID, or collection count.
+An enum's string length prefix belongs to its existing value encoding. Readers
+validate and discard magic before reading the native binary payload. Keyed formats
+require exactly one matching magic value; omissions remove that requirement for
+the selected format. Floating constants are rounded to their declared type and
+must remain finite. Legacy `magic {'SRLFILE'};` continues to generate the exact
+fixed byte array, raw native binary prefix, and string JSON/Protobuf value.
+
+Typed magic requires a `serializer version 1.1.0;` header in the file that declares
+it, including an included file. A `1.1.0` entry file does not enable typed magic in
+a dependency declaring `1.0.0` or the original `1` alias. This language requirement
+also applies to [inferred fixed arrays](generics.md#infer-an-extent-from-defaults).
+
 The ID defaults to the first unused identity. Specify it explicitly for durable
 Protobuf contracts. Only one magic declaration is allowed in an unmanaged owning
 class. It cannot have lifecycle annotations or conflict with an ordinary member
-named `magic`. Its single-quoted initializer contains 1 through 64 decoded bytes,
+named `magic`. The legacy single-quoted initializer contains 1 through 64 decoded bytes,
 must form valid UTF-8, and supports `\\`, `\'`, `\"`, `\n`, `\r`, `\t`,
 `\0`, and exactly two hexadecimal digits after `\x`. Escaped NUL is an explicit
 byte; there is no automatic terminator. Views and managed classes currently reject
@@ -69,10 +125,12 @@ remain supported. Other languages keep their established protocol-selecting APIs
 `binary_positional` is also a C++ alias of `binary_none`, with identical template
 parameters and bytes.
 
-Changing a magic value, changing its Protobuf ID, or changing omissions alters
+Changing a magic type or value, changing its Protobuf ID, or changing omissions alters
 the relevant format contract. Compatibility checks account for those selections;
 use retained historical schemas and explicit migration when changing an existing
 persisted representation. Regenerate all producers and consumers together.
 
 The [7 October 2026 verification record](verification-magic-2026-10-07.md)
-documents the retained native-language suite and editor package checks.
+documents the earlier byte-magic native-language suite and editor package checks.
+See the [inferred arrays and typed magic verification record](verification-array-magic-2026-10-07.md)
+for the language `1.1.0` and extension `1.1.24` checks.

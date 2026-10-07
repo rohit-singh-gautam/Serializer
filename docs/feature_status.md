@@ -24,6 +24,14 @@ Owning schemas support fixed static `magic` and per-field `omit(format, ...)`
 across all native languages. C++ also supports these in its opt-in Protobuf
 mappings. Generated C++ selects omissions at compile time; view layouts reject
 these annotations explicitly. See [magic and omission](magic_and_omission.md).
+Language `1.1.0` adds typed scalar/enum magic while preserving legacy byte literals.
+
+Language `1.2.0` adds owning unsigned scalar `compact_prefix` and `compact_varint`
+annotations with strict/lenient policies across all eleven outputs. Prefix uses
+the 30-bit ID/length encoding; varint preserves the full unsigned type range.
+JSON and optional Protobuf mappings remain unchanged. Signed/floating compact
+formats, collections, magic, payload versions, packing and views are unsupported.
+See [compact encodings](compact_integers.md) for the wire contract and proposals.
 
 Opt-in C++ codecs also support **Protobuf binary, ProtoJSON, and TextProto** through
 compile-time protocol templates, for both encoding and decoding. See [Protobuf
@@ -73,10 +81,14 @@ explicitly reject them. Ordinary generic values can be contained by managed C++
 roots. Generic managed/view declarations, inheritance, unions, recursive ownership,
 user specialization, and non-C++ native generic APIs remain unsupported. See the
 [qualification record](verification-dimensions-2026-10-04.md).
+Language `1.1.0` adds `array[] T` extent inference from nonempty defaults, including
+decoded byte counts for a single char text literal. Fixed extent limits and wire
+behavior remain unchanged.
 
 Language-specific output profiles select layouts and naming conventions. Schemas use
-`.serializer` and begin with `serializer version 1.0.0;` (the original `1` header
-is an exact alias for `1.0.0`). Schema language and compiler versions are independent.
+`.serializer` and begin with a supported language header; new schemas use
+`serializer version 1.2.0;`. Older `1.1.0`, `1.0.0` and the original `1` alias remain supported.
+Schema language and compiler versions are independent.
 Future versions require all three components. Share declarations with `include
 common;` before any declarations. Paths are unquoted and relative to the including file;
 `.serializer` is appended when the filename has no extension. Explicit `include
@@ -87,7 +99,7 @@ Namespace scopes are reused during parsing; duplicate types and namespace/type c
 are rejected. See [schema includes](usage.md#share-declarations-with-includes) and the
 [paired C++/Java examples](../example/includes/README.md). Quoted defaults preserve
 literal spaces, for example `public string label { "schema default" };`; escaping the
-space is unnecessary. Run `serializer --version` for compiler version **1.1.1** and
+space is unnecessary. Run `serializer --version` for compiler version **1.3.0** and
 supported schema versions. See [command-line options](command_line.md) for
 multi-language generation and overrides.
 

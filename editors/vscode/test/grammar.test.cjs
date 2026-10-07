@@ -5,6 +5,35 @@ const { test } = require('node:test');
 const { Registry, INITIAL } = require('vscode-textmate');
 const onig = require('vscode-oniguruma');
 
+test('compact keyword spellings remain type operands in older ordinary fields', async () => {
+  const grammar = await loadGrammar();
+  const line = 'serializer version 1.0.0; class record { public compact_prefix prefix omit(json); public compact_varint varint omit /* format */ (binary_string); public strict checked; public lenient relaxed; }';
+  const tokens = grammar.tokenizeLine(line, INITIAL).tokens;
+  for (const word of ['compact_prefix', 'compact_varint', 'strict', 'lenient']) {
+    const offset = line.indexOf(word);
+    assert.equal(tokens.find(token => token.startIndex <= offset && token.endIndex > offset).scopes.at(-1),
+      'entity.name.type.serializer', word);
+  }
+});
+
+test('compact modifiers highlight unsigned and generic operands without claiming field names', async () => {
+  const grammar = await loadGrammar();
+  const line = 'serializer version 1.2.0; class box<T> { public compact_prefix strict uint32 value (3) {32}; public compact_varint lenient T other; }';
+  const tokens = grammar.tokenizeLine(line, INITIAL).tokens;
+  for (const word of ['public', 'compact_prefix', 'strict', 'compact_varint', 'lenient']) {
+    const offset = line.indexOf(word);
+    assert.equal(tokens.find(token => token.startIndex <= offset && token.endIndex > offset).scopes.at(-1),
+      'storage.modifier.serializer', word);
+  }
+  const integer = line.indexOf('uint32');
+  assert.equal(tokens.find(token => token.startIndex <= integer && token.endIndex > integer).scopes.at(-1),
+    'support.type.serializer');
+  const generic = line.indexOf('T other');
+  assert.equal(tokens.find(token => token.startIndex <= generic && token.endIndex > generic).scopes.at(-1),
+    'entity.name.type.serializer');
+  assert.equal(grammar.tokenizeLine(line, INITIAL).ruleStack.depth, 1);
+});
+
 test('generic declarations, nested arguments and concrete field uses retain type scopes', async () => {
   const grammar = await loadGrammar();
   const line = 'class box<T> { public array box<lib::person> values; } class root { public box<box<uint32>> value; }';
@@ -232,6 +261,21 @@ test('release catalogs and nested acceptance policies use the shared grammar', a
   for (const keyword of ['releases', 'policy', 'all', 'any', 'max_age', 'keep_last', 'compatibility', 'released_since', 'expires_on']) {
     const offset = line.indexOf(keyword);
     assert.equal(tokens.find(t => t.startIndex <= offset && t.endIndex > offset).scopes.at(-1), 'keyword.control.serializer', keyword);
+  }
+  assert.equal(grammar.tokenizeLine(line, INITIAL).ruleStack.depth, 1);
+});
+
+test('inferred arrays and typed magic preserve element and enum scopes', async () => {
+  const grammar = await loadGrammar();
+  const line = "public array[] lib::status values (1) {lib::status::ready, lib::status::done}; private magic lib::status (99) {lib::status::ready}; protected magic uint32 {42}; public array[] float numbers {1'000.25, 2'000.5};";
+  const tokens = grammar.tokenizeLine(line, INITIAL).tokens;
+  for (const match of line.matchAll(/status/g)) {
+    const expected = 'entity.name.type.serializer';
+    assert.equal(tokens.find(token => token.startIndex <= match.index && token.endIndex > match.index).scopes.at(-1), expected);
+  }
+  for (const [word, scope] of [['magic', 'keyword.control.serializer'], ['uint32', 'support.type.serializer'], ['42', 'constant.numeric.serializer']]) {
+    const offset = line.indexOf(word);
+    assert.equal(tokens.find(token => token.startIndex <= offset && token.endIndex > offset).scopes.at(-1), scope);
   }
   assert.equal(grammar.tokenizeLine(line, INITIAL).ruleStack.depth, 1);
 });

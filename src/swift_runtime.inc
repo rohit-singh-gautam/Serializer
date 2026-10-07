@@ -81,6 +81,21 @@ fileprivate final class SrlWriter {
             else { let shift = (8-width)*8; raw(String(Int64(bitPattern: value << shift) >> shift)) }
         } else { for i in 0..<width { bytes.append(UInt8(truncatingIfNeeded: value >> (i*8))) } }
     }
+    // Encode unsigned compact fields with explicit strict or low-30-bit prefix behavior.
+    func compactValue(_ value: UInt64, _ width: Int, _ prefix: Bool, _ strict: Bool) throws {
+        if json() { integer(value, width, true); return }
+        if prefix {
+            if strict && value > 0x3fffffff { throw SerializerError.invalid("Compact prefix integer range") }
+            let payload = value & 0x3fffffff
+            let extra = payload <= 63 ? 0 : payload <= 16383 ? 1 : payload <= 4194303 ? 2 : 3
+            bytes.append(UInt8(extra << 6) | UInt8(payload >> (extra*8)))
+            if extra > 0 { for i in stride(from: extra-1, through: 0, by: -1) { bytes.append(UInt8(truncatingIfNeeded: payload >> (i*8))) } }
+            return
+        }
+        var remaining = value
+        while remaining >= 0x80 { bytes.append(UInt8(remaining & 0x7f) | 0x80); remaining >>= 7 }
+        bytes.append(UInt8(remaining))
+    }
     // Preserve binary32 bits; reject nonfinite JSON numbers.
     func float32(_ value: Float) throws {
         if json() { guard value.isFinite else { throw SerializerError.invalid("Nonfinite JSON number") }; raw(String(value)) }
@@ -188,6 +203,32 @@ fileprivate final class SrlReader {
         }
         guard let value = Int64(text), width == 8 || (value >= -(Int64(1) << (width*8-1)) && value < Int64(1) << (width*8-1)) else { throw SerializerError.invalid("Integer range") }
         return UInt64(bitPattern: value)
+    }
+)serializer"
+R"serializer(    // Validate compact framing and the declared unsigned range before moving the cursor.
+    func compactValue(_ width: Int, _ prefix: Bool) throws -> UInt64 {
+        if json() { return try integer(width, true) }
+        let start = offset
+        if prefix {
+            let value = UInt64(try compact())
+            guard width == 8 || value <= UInt64.max >> ((8-width)*8) else { offset = start; throw SerializerError.invalid("Compact integer range") }
+            return value
+        }
+        let bits = width*8
+        var value: UInt64 = 0
+        for index in 0..<(bits+6)/7 {
+            try requireBytes(index+1)
+            let byte = data[start+index]
+            let payload = byte & 0x7f
+            guard UInt64(payload) < UInt64(1) << min(7, bits-index*7) else { throw SerializerError.invalid("Compact integer range") }
+            value |= UInt64(payload) << (index*7)
+            if byte < 0x80 {
+                guard index == 0 || payload != 0 else { throw SerializerError.invalid("Noncanonical compact integer") }
+                offset = start+index+1
+                return value
+            }
+        }
+        throw SerializerError.invalid("Unterminated compact integer")
     }
     // Decode binary32 and reject nonfinite or underflowed JSON numbers.
     func float32() throws -> Float {

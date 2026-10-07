@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.28)
 
-project(serializer VERSION 1.1.1 LANGUAGES CXX)
+project(serializer VERSION 1.3.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
-set(serializer_schema_language_version 1.0.0)
+set(serializer_schema_language_version 1.2.0)
 string(REPLACE "." ";" serializer_schema_language_version_components
   "${serializer_schema_language_version}")
 list(GET serializer_schema_language_version_components 0 serializer_schema_language_version_major)
@@ -303,6 +303,11 @@ if(SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
     COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/test/magic_languages.py"
       --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_lib>"
       --build "${PROJECT_BINARY_DIR}/magic_languages"
+      "--wsl-languages=${SERIALIZER_EXAMPLE_WSL_LANGUAGES}")
+  add_test(NAME serializer_typed_magic_languages
+    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/test/typed_magic_languages.py"
+      --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_lib>"
+      --build "${PROJECT_BINARY_DIR}/typed_magic_languages"
       "--wsl-languages=${SERIALIZER_EXAMPLE_WSL_LANGUAGES}")
   add_test(NAME serializer_generic_languages
     COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/example/generics/run.py"

@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <exception>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -30,6 +31,36 @@ template <template <rohit::serializer::serialize_type> class Protocol, typename 
 Value decode(std::string_view bytes) {
   auto input = rohit::make_constant_stream(bytes.data(), bytes.size());
   return rohit::serializer::deserialize_exact<Value, Protocol>(input);
+}
+
+// Model an existing caller's borrowed text adapter rather than an owning string or raw pointer.
+struct magic_text_adapter {
+  std::string_view text;
+  // Expose the borrowed fixed bytes through the original string_view conversion contract.
+  constexpr operator std::string_view() const noexcept {
+    return text;
+  }
+};
+
+// Exercise legacy deduction and explicit helper calls with an implicitly convertible text adapter.
+template <bool UseDeduction>
+magic_test::omitted_header decode_text_adapter(std::string_view bytes) {
+  const auto input = rohit::make_constant_stream(bytes.data(), bytes.size());
+  rohit::serializer::json<rohit::serializer::serialize_type::in> protocol{input};
+  magic_test::omitted_header target{};
+  constexpr char expected_bytes[]{"FIX\0ED"};
+  const magic_text_adapter expected{{expected_bytes, sizeof(expected_bytes) - 1}};
+  if constexpr (UseDeduction) {
+    rohit::serializer::detail::json_magic_reader header{target, expected};
+    static_assert(std::is_same_v<decltype(header.expected), std::string_view>);
+    protocol.struct_serialize_in(&header);
+    header.finish();
+  } else {
+    rohit::serializer::detail::read_magic_object<decltype(protocol), decltype(target)>(
+        protocol, target, expected);
+  }
+  protocol.finish();
+  return target;
 }
 
 // Verify all native binary modes prefix exact bytes and omit schema-selected fields.
@@ -120,4 +151,18 @@ TEST(magic_header, named_generic_instantiation_preserves_header_metadata) {
   const auto integer = encode<rohit::serializer::binary_integer>(value);
   EXPECT_NE(integer.substr(0, 7), "GENERIC");
   EXPECT_EQ((decode<rohit::serializer::binary_integer, magic_test::generic_uint32>(integer)).value, 31);
+}
+
+// Legacy convertible text retains exact byte length and required, matching, unique JSON identity.
+TEST(magic_header, json_adapter_preserves_implicit_string_view_callers) {
+  const std::string_view matching{R"({"magic":"FIX\u0000ED","value":23})"};
+  EXPECT_EQ(decode_text_adapter<true>(matching).value, 23);
+  EXPECT_EQ(decode_text_adapter<false>(matching).value, 23);
+  for (const std::string_view invalid : {
+           R"({"magic":"FIX","value":23})", R"({"value":23})",
+           R"({"magic":"FIX\u0000ED","magic":"FIX\u0000ED","value":23})"}) {
+    SCOPED_TRACE(invalid);
+    EXPECT_THROW(decode_text_adapter<true>(invalid), std::exception);
+    EXPECT_THROW(decode_text_adapter<false>(invalid), std::exception);
+  }
 }

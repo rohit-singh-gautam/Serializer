@@ -19,6 +19,10 @@ const (
   BINARY_INTEGER
   BINARY_STRING
 )
+const srlCompactPrefixMax uint64 = 0x3fffffff
+const srlVarintPayloadBits = 7
+const srlVarintPayloadMask uint64 = 0x7f
+const srlVarintContinuation byte = 0x80
 
 // Limits bounds each message; MaxElements counts collection entries cumulatively.
 // ReadPolicy controls revision acceptance and safe JSON extensions.
@@ -79,6 +83,39 @@ func (out *srlWriter) compact(value int) {
   out.bytes = append(out.bytes, byte(extra << 6 | value >> (extra * 8)))
   for shift := (extra - 1) * 8; shift >= 0; shift -= 8 { out.bytes = append(out.bytes, byte(value >> shift)) }
 }
+// compactPrefixBits writes a proven 30-bit value without a range branch.
+func (out *srlWriter) compactPrefixBits(value uint64) {
+  extra := 0
+  if value > 0x3fffff { extra = 3 } else if value > 0x3fff { extra = 2 } else if value > 0x3f { extra = 1 }
+  out.bytes = append(out.bytes, byte(uint64(extra) << 6 | value >> (extra * 8)))
+  for shift := (extra - 1) * 8; shift >= 0; shift -= 8 { out.bytes = append(out.bytes, byte(value >> shift)) }
+}
+// compactPrefix rejects values above its 30-bit binary contract before payload output.
+func (out *srlWriter) compactPrefix(value uint64, width int) {
+  if out.err != nil { return }
+  if out.json() { out.integer(value, width, true); return }
+  if value > srlCompactPrefixMax { out.fail("Compact prefix out of range"); return }
+  out.compactPrefixBits(value)
+}
+// compactPrefixLenient deliberately masks binary values without a range branch.
+func (out *srlWriter) compactPrefixLenient(value uint64, width int) {
+  if out.err != nil { return }
+  if out.json() { out.integer(value, width, true); return }
+  out.compactPrefixBits(value & srlCompactPrefixMax)
+}
+// compactVarint preserves all unsigned storage bits using canonical LEB128.
+func (out *srlWriter) compactVarint(value uint64, width int) {
+  if out.err != nil { return }
+  if out.json() { out.integer(value, width, true); return }
+  for {
+    payload := byte(value & srlVarintPayloadMask); value >>= srlVarintPayloadBits
+    if value != 0 { payload |= srlVarintContinuation }
+    out.bytes = append(out.bytes, payload)
+    if value == 0 { return }
+  }
+}
+// compactVarintLenient needs no checks because the generated storage is unsigned and typed.
+func (out *srlWriter) compactVarintLenient(value uint64, width int) { out.compactVarint(value, width) }
 // integer preserves the declared width and formats signed values explicitly.
 func (out *srlWriter) integer(value uint64, width int, unsigned bool) {
   if out.err != nil { return }
@@ -151,7 +188,8 @@ func (out *srlWriter) element(index int) { if out.json() && index != 0 { out.raw
 // endArray closes a JSON collection.
 func (out *srlWriter) endArray() { if out.json() { out.raw("]") } }
 
-// srlReader is a bounded shared cursor; methods stop after the first error.
+)serializer"
+R"serializer(// srlReader is a bounded shared cursor; methods stop after the first error.
 type srlReader struct { bytes []byte; protocol Protocol; limits Limits; offset, depth, elements int; err error }
 // srlNewReader checks policy and input before any allocation driven by data.
 func srlNewReader(bytes []byte, protocol Protocol, limits Limits) *srlReader {
@@ -184,6 +222,33 @@ func (in *srlReader) compact() int {
   if !in.require(extra + 1) { return 0 }; value := int(first & 63)
   for i := 1; i <= extra; i++ { value = value << 8 | int(in.bytes[in.offset + i]) }
   in.offset += extra + 1; return value
+}
+// compactPrefix validates destination width before committing the complete binary prefix.
+func (in *srlReader) compactPrefix(width int) uint64 {
+  if in.json() { return in.integer(width, true) }
+  if !in.require(1) { return 0 }; first := in.bytes[in.offset]; extra := int(first >> 6)
+  if !in.require(extra + 1) { return 0 }; value := uint64(first & 63)
+  for index := 1; index <= extra; index++ { value = value << 8 | uint64(in.bytes[in.offset + index]) }
+  if width < 4 && value >= uint64(1) << (width * 8) { in.fail("Compact prefix out of range"); return 0 }
+  in.offset += extra + 1; return value
+}
+// compactVarint validates count, overflow, and canonical form before committing its cursor.
+func (in *srlReader) compactVarint(width int) uint64 {
+  if in.json() { return in.integer(width, true) }
+  bits := width * 8; count := (bits + srlVarintPayloadBits - 1) / srlVarintPayloadBits
+  var value uint64
+  for index := 0; index < count; index++ {
+    if !in.require(index + 1) { return 0 }
+    encoded := in.bytes[in.offset + index]; payload := uint64(encoded) & srlVarintPayloadMask
+    shift := index * srlVarintPayloadBits; available := bits - shift
+    if available < srlVarintPayloadBits && payload >= uint64(1) << available { in.fail("Compact varint out of range"); return 0 }
+    value |= payload << shift
+    if encoded & srlVarintContinuation == 0 {
+      if index > 0 && payload == 0 { in.fail("Noncanonical compact varint"); return 0 }
+      in.offset += index + 1; return value
+    }
+  }
+  in.fail("Compact varint out of range"); return 0
 }
 // token preserves numeric digits until a typed parse is requested.
 func (in *srlReader) token() string {

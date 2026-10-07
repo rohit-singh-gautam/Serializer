@@ -1,0 +1,99 @@
+serializer version 1.1.0;
+
+enum header_kind {
+  unknown,
+  record
+}
+
+class bool_magic {
+  public magic bool (99) { false };
+  public uint16 value (1) { 7 };
+}
+
+class character_magic {
+  private magic char (99) { 'Q' };
+  public uint16 value (1) { 7 };
+}
+
+class signed8_magic {
+  public magic int8 (99) { -128 };
+  public uint16 value (1) { 7 };
+}
+
+class unsigned8_magic {
+  private magic uint8 (99) { 255 };
+  public uint16 value (1) { 7 };
+}
+
+class signed16_magic {
+  public magic int16 (99) { -32768 };
+  public uint16 value (1) { 7 };
+}
+
+class unsigned16_magic {
+  private magic uint16 (99) { 65535 };
+  public uint16 value (1) { 7 };
+}
+
+class signed32_magic {
+  public magic int32 (99) { -2147483648 };
+  public uint16 value (1) { 7 };
+}
+
+class unsigned32_magic {
+  private magic uint32 (99) { 4294967295 };
+  public uint16 value (1) { 7 };
+}
+
+class signed64_magic {
+  public magic int64 (99) { -9223372036854775808 };
+  public uint16 value (1) { 7 };
+}
+
+class unsigned64_magic {
+  private magic uint64 (99) { 18446744073709551615 };
+  public uint16 value (1) { 7 };
+}
+
+class single_magic {
+  public magic float (99) { 0.1 };
+  public uint16 value (1) { 7 };
+}
+
+class double_magic {
+  private magic double (99) { 1.25 };
+  public uint16 value (1) { 7 };
+}
+
+class enum_magic {
+  public magic header_kind (99) { header_kind::record };
+  public uint16 value (1) { 7 };
+}
+
+class zero_magic {
+  private magic uint32 (99) { 0 };
+  public uint16 value (1) { 7 };
+}
+
+class omitted_magic {
+  public magic uint32 (99) { 123 } omit(json, binary_integer);
+  public uint16 value (1) { 7 };
+}
+
+class typed_magic_record {
+  public bool_magic bool_header (1);
+  public character_magic character_header (2);
+  public signed8_magic signed8_header (3);
+  public unsigned8_magic unsigned8_header (4);
+  public signed16_magic signed16_header (5);
+  public unsigned16_magic unsigned16_header (6);
+  public signed32_magic signed32_header (7);
+  public unsigned32_magic unsigned32_header (8);
+  public signed64_magic signed64_header (9);
+  public unsigned64_magic unsigned64_header (10);
+  public single_magic single_header (11);
+  public double_magic double_header (12);
+  public enum_magic enum_header (13);
+  public zero_magic zero_header (14);
+  public omitted_magic omitted_header (15);
+}

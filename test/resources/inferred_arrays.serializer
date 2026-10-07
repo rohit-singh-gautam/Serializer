@@ -1,0 +1,26 @@
+serializer version 1.1.0;
+
+namespace inferred_array_test {
+  enum kind {
+    first,
+    second
+  }
+  class child {
+    public uint32 left;
+    public uint32 right;
+  }
+  class record {
+    public array[] char signature { 'SRL\0é' };
+    public array[] uint64 numbers { 0, 18446744073709551615 };
+    public array[] float fractions { 0.1, -1.25 };
+    public array[] float separated_numbers { 1'000, 2 };
+    public array[] kind choices { first, second };
+    public array uint32 dynamic_values {1,2};
+    public array[] string names { "a,b", "second" };
+    public array[] child children { {1, 2}, {3, 4} };
+  }
+  class generic_record<T> {
+    public array[] T values { 1, 2, 3 };
+  }
+  instantiate concrete_record = generic_record<uint32>;
+}

@@ -1,6 +1,10 @@
 R"serializer(
 /** Native protocols. Binary scalars are little-endian. */
 export const Protocol = Object.freeze({JSON: 0, BINARY_NONE: 1, BINARY_INTEGER: 2, BINARY_STRING: 3});
+const srlCompactPrefixMax = 0x3fffffff;
+const srlVarintPayloadBits = 7;
+const srlVarintPayloadMask = 0x7f;
+const srlVarintContinuation = 0x80;
 /** Per-message policy; entries are counted cumulatively. */
 export const ReadPolicy = Object.freeze({STRICT: 0, COMPATIBLE: 1, FLEXIBLE: 2});
 export class Limits {
@@ -87,6 +91,52 @@ class SrlWriter {
     this.reserve(extra + 1); this.buffer[this.offset++] = (extra << 6) | (value >>> (extra * 8));
     for (let shift = (extra - 1) * 8; shift >= 0; shift -= 8) this.buffer[this.offset++] = value >>> shift;
   }
+  // Emit a proven 30-bit payload without rechecking its range.
+  compactPrefixBits(value) {
+    const extra = value <= 0x3f ? 0 : value <= 0x3fff ? 1 : value <= 0x3fffff ? 2 : 3;
+    this.reserve(extra + 1); this.buffer[this.offset++] = (extra << 6) | (value >>> (extra * 8));
+    for (let shift = (extra - 1) * 8; shift >= 0; shift -= 8) this.buffer[this.offset++] = value >>> shift;
+  }
+  // Validate dynamic integer storage before compact binary output.
+  compactUnsigned(value, width) {
+    if (width === 8) {
+      if (typeof value !== 'bigint') throw new TypeError('Expected bigint');
+      if (value < 0n || value > (1n << 64n) - 1n) this.fail('Integer out of range');
+    } else if (!Number.isInteger(value) || value < 0 || value >= 2 ** (width * 8)) {
+      this.fail('Integer out of range');
+    }
+  }
+  // Strict prefix fields reject overflow before writing their payload.
+  compactPrefix(value, width) {
+    if (this.json()) { this.integer(value, width, true); return; }
+    this.compactUnsigned(value, width);
+    if (value > (width === 8 ? BigInt(srlCompactPrefixMax) : srlCompactPrefixMax)) this.fail('Compact prefix out of range');
+    this.compactPrefixBits(Number(value));
+  }
+  // Lenient prefix fields deliberately retain only the low 30 binary bits.
+  compactPrefixLenient(value, width) {
+    if (this.json()) { this.integer(value, width, true); return; }
+    this.compactPrefixBits(width === 8 ? Number(value & BigInt(srlCompactPrefixMax)) : value & srlCompactPrefixMax);
+  }
+  // Emit a canonical unsigned LEB128 payload from already normalized bits.
+  compactVarintBits(value) {
+    const payloadBits = BigInt(srlVarintPayloadBits), payloadMask = BigInt(srlVarintPayloadMask);
+    this.reserve(Math.ceil(64 / srlVarintPayloadBits));
+    do {
+      const payload = Number(value & payloadMask); value >>= payloadBits;
+      this.buffer[this.offset++] = payload | (value === 0n ? 0 : srlVarintContinuation);
+    } while (value !== 0n);
+  }
+  // Strict varints preserve every bit of the declared unsigned storage type.
+  compactVarint(value, width) {
+    if (this.json()) { this.integer(value, width, true); return; }
+    this.compactUnsigned(value, width); this.compactVarintBits(BigInt(value));
+  }
+  // Lenient binary varints normalize dynamic values to their declared width.
+  compactVarintLenient(value, width) {
+    if (this.json()) { this.integer(value, width, true); return; }
+    this.compactVarintBits(BigInt.asUintN(width * 8, BigInt(value)));
+  }
   // Range-check integers before preserving their declared-width bit patterns.
   integer(value, width, unsigned) {
     if (width === 8) {
@@ -158,7 +208,8 @@ function srlMakeField(name) {
   const binary = new SrlWriter(Protocol.BINARY_STRING); binary.text(name);
   return Object.freeze({binary: binary.bytes(), json: srlEncoder.encode(JSON.stringify(name) + ':')});
 }
-/** Streaming token reader preserves duplicate fields and exact integer tokens. */
+)serializer"
+R"serializer(/** Streaming token reader preserves duplicate fields and exact integer tokens. */
 class SrlReader {
   // Decode and validate a canonical dotted discriminator.
   version(count) { const value = this.json() ? this.text() : Array.from({length: count}, () => this.integer(2, true)).join('.'); srlVersionParts(value, count); return value; }
@@ -198,6 +249,33 @@ class SrlReader {
     let value = first & 63;
     for (let i = 1; i <= extra; ++i) value = value * 256 + this.bytes[this.offset + i];
     this.offset += extra + 1; return value;
+  }
+  // Prefix decoding still validates the declared destination width.
+  compactPrefix(width) {
+    if (this.json()) return this.integer(width, true);
+    this.require(1); const count = (this.bytes[this.offset] >>> 6) + 1; this.require(count);
+    let value = this.bytes[this.offset] & 63;
+    for (let index = 1; index < count; ++index) value = value * 256 + this.bytes[this.offset + index];
+    if (width < 4 && value >= 2 ** (width * 8)) this.fail('Compact prefix out of range');
+    this.offset += count; return width === 8 ? BigInt(value) : value;
+  }
+  // Validate canonical bounded varints before committing the input cursor.
+  compactVarint(width) {
+    if (this.json()) return this.integer(width, true);
+    const bits = width * 8, count = Math.ceil(bits / srlVarintPayloadBits);
+    let value = 0n;
+    for (let index = 0; index < count; ++index) {
+      this.require(index + 1);
+      const byte = this.bytes[this.offset + index], payload = byte & srlVarintPayloadMask;
+      const shift = index * srlVarintPayloadBits, available = Math.min(srlVarintPayloadBits, bits - shift);
+      if (payload >= 2 ** available) this.fail('Compact varint out of range');
+      value |= BigInt(payload) << BigInt(shift);
+      if ((byte & srlVarintContinuation) === 0) {
+        if (index > 0 && payload === 0) this.fail('Noncanonical compact varint');
+        this.offset += index + 1; return width === 8 ? value : Number(value);
+      }
+    }
+    this.fail('Compact varint out of range');
   }
   // Read one unconverted JSON token, retaining all integer digits.
   token() {

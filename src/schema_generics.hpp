@@ -26,6 +26,16 @@ syntax_node* find_declared_type(const std::string& name, namespace_node* current
 void resolve_type(const rohit::type_check::schema_input_buffer auto& input, type_name& type,
                   const std::unordered_map<std::string, syntax_node*>& types);
 
+// Validate fixed scalar/enum identities after declaration and generic resolution.
+void validate_magic_constant(const rohit::type_check::schema_input_buffer auto& input,
+                             member& field);
+// Normalize inferred char bytes and enum values once their element type is bound.
+void normalize_inferred_constants(const rohit::type_check::schema_input_buffer auto& input,
+                             member& field);
+// Check unsigned compact constraints after lexical binding and again after specialization.
+void validate_compact_member(const rohit::type_check::schema_input_buffer auto& input,
+                             member& field, bool dependent);
+
 // Lower concrete contracts once while retaining validated native C++ template definitions.
 template <typename Input>
 class generic_lowering {
@@ -309,6 +319,7 @@ class generic_lowering {
     concrete->generic_parameters = definition->generic_parameters;
     concrete->member_list = definition->member_list;
     concrete->magic_bytes = definition->magic_bytes;
+    concrete->magic_field = definition->magic_field;
     concrete->magic_access = definition->magic_access;
     concrete->magic_id = definition->magic_id;
     concrete->magic_explicit_id = definition->magic_explicit_id;
@@ -362,6 +373,13 @@ class generic_lowering {
   void resolve_fields(class_node& object,
                       const std::unordered_map<std::string, type_name>& bindings,
                       std::size_t depth) {
+    if (object.magic_field) {
+      auto& field = *object.magic_field;
+      for (auto& type : field.type_name_list) {
+        resolve(type, bindings, depth);
+      }
+      validate_magic_constant(input, field);
+    }
     for (auto& field : object.member_list) {
       if (!field.extent_expression.empty()) {
         constexpr std::uint64_t maximum_fixed_elements = 65536;
@@ -388,6 +406,8 @@ class generic_lowering {
           }
         }
       }
+      normalize_inferred_constants(input, field);
+      validate_compact_member(input, field, false);
       if (field.modifier == member::modifier_type::map) {
         type_name key{std::string{field.key}, field.type_name_list.front().declared_namespace};
         // Generic bodies were bound lexically at declaration, including qualified map keys.
@@ -449,6 +469,13 @@ class generic_lowering {
               earlier.type_parameters.push_back(parameter.name);
               earlier.generic_parameters.push_back(parameter);
             }
+            if (object.magic_field) {
+              auto& field = *object.magic_field;
+              for (auto& type : field.type_name_list) {
+                validate_expression(type, object);
+              }
+              validate_magic_constant(input, field);
+            }
             for (auto& field : object.member_list) {
               if (!field.extent_expression.empty()) {
                 const auto extent = evaluate(field.extent_expression.front(), placeholders(object), true);
@@ -462,6 +489,7 @@ class generic_lowering {
               for (auto& type : field.type_name_list) {
                 validate_expression(type, object);
               }
+              validate_compact_member(input, field, true);
               if (field.modifier == member::modifier_type::map) {
                 type_name key{std::string{field.key}, object.parent_namespace};
                 validate_expression(key, object);
@@ -483,6 +511,7 @@ class generic_lowering {
             object.attributes = source.attributes;
             object.member_list = source.member_list;
             object.magic_bytes = source.magic_bytes;
+            object.magic_field = source.magic_field;
             object.magic_access = source.magic_access;
             object.magic_id = source.magic_id;
             object.magic_explicit_id = source.magic_explicit_id;

@@ -6,6 +6,7 @@
 
 #include <gtest/gtest.h>
 
+#include <string>
 #include <string_view>
 
 // A versioned schema has the same declarations, names, and wire IDs as a legacy fragment.
@@ -27,15 +28,16 @@ TEST(schema_version, preserves_declarations) {
     EXPECT_EQ(record->member_list.front().id, 7u);
   }
   EXPECT_EQ(rohit::serializer::schema_language_version, 1u);
-  EXPECT_EQ(rohit::serializer::schema_language_version_text, "1.0.0");
+  EXPECT_EQ(rohit::serializer::schema_language_version_text, "1.2.0");
   EXPECT_EQ(rohit::serializer::schema_language_version_major, 1u);
-  EXPECT_EQ(rohit::serializer::schema_language_version_minor, 0u);
+  EXPECT_EQ(rohit::serializer::schema_language_version_minor, 2u);
   EXPECT_EQ(rohit::serializer::schema_language_version_patch, 0u);
 }
 
 // All truncated header prefixes fail through schema diagnostics without out-of-bounds reads.
 TEST(schema_version, truncated_headers) {
-  constexpr std::string_view headers[]{"serializer version 1;", "serializer version 1.0.0;"};
+  constexpr std::string_view headers[]{"serializer version 1;", "serializer version 1.0.0;",
+                                        "serializer version 1.1.0;", "serializer version 1.2.0;"};
   for (const auto header : headers) {
     SCOPED_TRACE(header);
     for (std::size_t length = 0; length < header.size(); ++length) {
@@ -64,8 +66,8 @@ TEST(schema_version, invalid_versions_and_positions) {
                                           "serializer version 1.0.0+build;",
                                           "serializer version 1.0.-1;",
                                           "serializer version 0.0.0;",
-                                          "serializer version 1.0.1;",
-                                          "serializer version 1.1.0;",
+                                          "serializer version 1.2.1;",
+                                          "serializer version 1.3.0;",
                                           "serializer version 1.10.0;",
                                           "serializer version 2.0.0;",
                                           "serializer version 999999999999999999999999.0.0;",
@@ -96,4 +98,15 @@ TEST(schema_version, optional_for_library_fragments) {
   EXPECT_EQ(rohit::serializer::parser::parse(fragment).size(), 1u);
   const auto file = rohit::make_constant_stream(source.data(), source.size());
   EXPECT_THROW(rohit::serializer::parser::parse(file, true), rohit::exception::base_parser);
+}
+
+// Compare dotted components numerically so a newer minor accepts every older compatible patch.
+TEST(schema_version, accepts_older_contracts_with_numeric_component_order) {
+  for (const std::string_view version : {"1", "1.0.0", "1.0.1", "1.0.10", "1.0.999", "1.1.0", "1.1.1", "1.2.0"}) {
+    SCOPED_TRACE(version);
+    const auto source = "serializer version " + std::string{version} +
+        "; class record { public uint32 value; }";
+    const auto input = rohit::make_constant_stream(source.data(), source.size());
+    EXPECT_EQ(rohit::serializer::parser::parse(input, true).size(), 1);
+  }
 }

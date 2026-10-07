@@ -301,6 +301,10 @@ class emitter {
     }
     const auto last = value.default_value.find_last_not_of(" \t\r\n");
     const auto text = value.default_value.substr(first, last - first + 1);
+    if (value.magic && item.name == "char") {
+      // Typed magic is canonicalized to its validated byte value by the parser.
+      return "(byte) " + text;
+    }
     if (item.type == object_type::enum_type) {
       const auto separator = text.rfind("::");
       const auto name = separator == std::string::npos ? text : text.substr(separator + 2);
@@ -524,6 +528,12 @@ class emitter {
     const auto name = "this." + field(value.name);
     const auto& item = value.type_name_list.front();
     if (value.modifier == member::modifier_type::none) {
+      if (value.compact != compact_encoding::none) {
+        line("out.compactValue(" + name + ", " + width(item.name) + ", " +
+             (value.compact == compact_encoding::prefix ? "true" : "false") + ", " +
+             (value.compact_strict ? "true" : "false") + ");");
+        return;
+      }
       write_value(item, name, false);
       return;
     }
@@ -557,6 +567,12 @@ class emitter {
     const auto name = "result." + field(value.name);
     const auto& item = value.type_name_list.front();
     if (value.modifier == member::modifier_type::none) {
+      if (value.compact != compact_encoding::none) {
+        const auto cast = type(item) == "long" ? "" : "(" + type(item) + ") ";
+        line(name + " = " + cast + "in.compactValue(" + width(item.name) + ", " +
+             (value.compact == compact_encoding::prefix ? "true" : "false") + ");");
+        return;
+      }
       line(name + " = " +
            (item.type == object_type::class_type ? type(item) + ".read(in, " + name + ")"
                                                  : read_value(item, "in", false)) +
@@ -754,7 +770,14 @@ class emitter {
     const auto name = type_name(value.name);
     line("public static final class " + name + " {");
     ++level;
-    if (!value.magic_bytes.empty()) {
+    if (value.magic_field) {
+      const auto& magic = *value.magic_field;
+      const auto visibility = value.magic_access == access_type::public_access ? "public " :
+          value.magic_access == access_type::protected_access ? "protected " : "private ";
+      line("/** Immutable scalar schema identity without instance storage. */");
+      line(std::string(visibility) + "static final " + type(magic.type_name_list.front()) +
+           " MAGIC = " + default_value(magic) + ";");
+    } else if (value.has_magic()) {
       std::string bytes;
       for (const auto byte : value.magic_bytes) {
         bytes += (bytes.empty() ? "" : ", ") + std::string("(byte)") +
@@ -762,7 +785,7 @@ class emitter {
       }
       const auto visibility = value.magic_access == access_type::public_access ? "public " :
           value.magic_access == access_type::protected_access ? "protected " : "private ";
-      line("/** Immutable schema identity; it is never stored in an instance or JSON. */");
+      line("/** Immutable schema identity without instance storage. */");
       line(std::string(visibility) + "static final java.util.List<Byte> MAGIC = "
            "java.util.List.of(" + bytes + ");");
     }
@@ -807,14 +830,18 @@ class emitter {
     if (value.version_member()) {
       check_version(value, false);
     }
-    if (!value.magic_bytes.empty()) {
+    if (value.has_magic()) {
       const auto omitted = omitted_condition(value.magic_omitted_formats, "out.protocol",
                                               "Protocol.", protocol_name_style::upper_snake);
       line("if (out.protocol != Protocol.JSON" +
            (omitted.empty() ? "" : " && !(" + omitted + ")") + ") {");
       ++level;
-      for (const auto byte : value.magic_bytes) {
-        line("out.integer(" + std::to_string(static_cast<unsigned char>(byte)) + ", 1, true);");
+      if (value.magic_field) {
+        write_value(value.magic_field->type_name_list.front(), "MAGIC", false);
+      } else {
+        for (const auto byte : value.magic_bytes) {
+          line("out.integer(" + std::to_string(static_cast<unsigned char>(byte)) + ", 1, true);");
+        }
       }
       --level;
       line("}");
@@ -829,12 +856,16 @@ class emitter {
     const auto first_flag = [&](bool initial) {
       return variable_first ? std::string{"firstField"} : std::string{initial ? "true" : "false"};
     };
-    const bool magic_json = !value.magic_bytes.empty() && !value.magic_omits("json");
+    const bool magic_json = value.has_magic() && !value.magic_omits("json");
     if (magic_json) {
       line("if (out.json()) {");
       ++level;
       line("out.field(" + std::to_string(value.magic_id) + ", \"magic\", true);");
-      line("out.text(" + magic_text(value) + ");");
+      if (value.magic_field) {
+        write_value(value.magic_field->type_name_list.front(), "MAGIC", false);
+      } else {
+        line("out.text(" + magic_text(value) + ");");
+      }
       if (variable_first) { line("firstField = false;"); }
       --level;
       line("}");
@@ -928,15 +959,20 @@ class emitter {
     line("/** Merge duplicate nested fields in input order within this fresh message. */");
     line("private static " + name + " read(Reader in, " + name + " result) {");
     ++level;
-    if (!value.magic_bytes.empty()) {
+    if (value.has_magic()) {
       const auto omitted = omitted_condition(value.magic_omitted_formats, "in.protocol",
                                               "Protocol.", protocol_name_style::upper_snake);
       line("if (in.protocol != Protocol.JSON" +
            (omitted.empty() ? "" : " && !(" + omitted + ")") + ") {");
       ++level;
-      for (const auto byte : value.magic_bytes) {
-        line("if (in.integer(1, true) != " + std::to_string(static_cast<unsigned char>(byte)) +
-             ") { throw new java.lang.IllegalArgumentException(\"Incorrect schema magic\"); }");
+      if (value.magic_field) {
+        line("if (" + read_value(value.magic_field->type_name_list.front(), "in", false) +
+             " != MAGIC) { throw in.error(\"Incorrect schema magic\"); }");
+      } else {
+        for (const auto byte : value.magic_bytes) {
+          line("if (in.integer(1, true) != " + std::to_string(static_cast<unsigned char>(byte)) +
+               ") { throw new java.lang.IllegalArgumentException(\"Incorrect schema magic\"); }");
+        }
       }
       --level;
       line("}");
@@ -1008,13 +1044,16 @@ class emitter {
     if (magic_json) {
       line("case \"magic\": {");
       ++level;
-      line("if (!in.json() || magicSeen || !in.text().equals(" + magic_text(value) +
-           ")) { throw in.error(\"Incorrect or duplicate schema magic\"); }");
+      const auto comparison = value.magic_field
+          ? read_value(value.magic_field->type_name_list.front(), "in", false) + " != MAGIC"
+          : "!in.text().equals(" + magic_text(value) + ")";
+      line("if (!in.json() || magicSeen || " + comparison +
+           ") { throw in.error(\"Incorrect or duplicate schema magic\"); }");
       line("magicSeen = true; break;");
       --level;
       line("}");
     }
-    if (!value.magic_bytes.empty() && !magic_json) {
+    if (value.has_magic() && !magic_json) {
       line("case \"magic\": throw in.error(\"Field omitted from selected format\");");
     }
     for (std::size_t index = 0; index < value.parents.size(); ++index) {

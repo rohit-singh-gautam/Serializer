@@ -430,4 +430,18 @@ TEST(protobuf_codec, omits_fixed_magic_only_for_the_selected_format) {
   EXPECT_NE(binary.find("ABC"), std::string::npos);
   EXPECT_EQ((decode<codec::protobuf_binary, protobuf_test::omitted_magic_record>(binary)).value, 12);
 }
+
+// Existing byte headers retain Protobuf scalar repetition rules while every value is validated.
+TEST(protobuf_codec, legacy_magic_preserves_matching_scalar_occurrences) {
+  protobuf_test::public_magic_record value{};
+  value.value = 9;
+  const auto binary = encode<codec::protobuf_binary>(value);
+  const std::string matching_header{"\x12\x03" "ABC", 5};
+  EXPECT_EQ((decode<codec::protobuf_binary, protobuf_test::public_magic_record>(
+      binary + matching_header)).value, value.value);
+  EXPECT_EQ((decode<codec::protojson, protobuf_test::public_magic_record>(
+      R"({"magic":"ABC","magic":"ABC","value":9})")).value, value.value);
+  EXPECT_THROW((decode<codec::protojson, protobuf_test::public_magic_record>(
+      R"({"magic":"ABC","magic":"BAD","value":9})")), std::exception);
+}
 } // namespace

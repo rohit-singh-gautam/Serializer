@@ -343,6 +343,12 @@ class c_emitter {
     const auto dst = "value->" + field(value.name);
     const auto& t = value.type_name_list.front();
     if (value.modifier == member::modifier_type::none) {
+      if (value.compact != compact_encoding::none) {
+        line(dst + " = (" + type(t) + ")srl_read_compact_value(in, " +
+             std::to_string(width(t)) + ", " +
+             (value.compact == compact_encoding::prefix ? "true" : "false") + ");");
+        return;
+      }
       read_value(t, dst, false);
       return;
     }
@@ -450,6 +456,13 @@ class c_emitter {
     }
     key(value.id, value.display_name, first);
     if (value.modifier == member::modifier_type::none) {
+      if (value.compact != compact_encoding::none) {
+        line("srl_write_compact_value(out, (uint64_t)" + src + ", " +
+             std::to_string(width(t)) + ", " +
+             (value.compact == compact_encoding::prefix ? "true" : "false") + ", " +
+             (value.compact_strict ? "true" : "false") + ");");
+        return;
+      }
       write_value(t, src, false);
       return;
     }
@@ -499,7 +512,14 @@ class c_emitter {
   // Define typed collection layouts before their owning class; map entries follow it.
   void declarations(const class_node& value) {
     const auto n = name(&value);
-    if (!value.magic_bytes.empty()) {
+    if (value.magic_field) {
+      const auto& magic = *value.magic_field;
+      const auto constant =
+          (value.magic_access == access_type::public_access ? "" : "srl_") + n + "_magic";
+      line("/* Immutable scalar schema metadata without per-object storage. */");
+      line("static const " + type(magic.type_name_list.front()) + " " + constant + " = " +
+           scalar_default(magic.type_name_list.front(), literal(magic)) + ";");
+    } else if (value.has_magic()) {
       std::string bytes;
       for (const auto byte : value.magic_bytes) {
         bytes += (bytes.empty() ? "" : ", ") +
@@ -616,14 +636,18 @@ class c_emitter {
     if (value.version_member()) {
       check_version(value, false);
     }
-    if (!value.magic_bytes.empty()) {
+    if (value.has_magic()) {
       const auto omitted = omitted_condition(value.magic_omitted_formats, "out->protocol",
                                               "srl_", protocol_name_style::lower_snake);
       open("if (out->protocol != srl_json" +
            (omitted.empty() ? "" : " && !(" + omitted + ")") + ")");
-      for (const auto byte : value.magic_bytes) {
-        line("srl_write_integer(out, " + std::to_string(static_cast<unsigned char>(byte)) +
-             ", 1, true);");
+      if (value.magic_field) {
+        write_value(value.magic_field->type_name_list.front(), magic_name, false);
+      } else {
+        for (const auto byte : value.magic_bytes) {
+          line("srl_write_integer(out, " + std::to_string(static_cast<unsigned char>(byte)) +
+               ", 1, true);");
+        }
       }
       close();
     }
@@ -632,12 +656,16 @@ class c_emitter {
     variable_first = std::any_of(value.member_list.begin(), value.member_list.end(),
                                  [](const auto& item) { return item.omits("json"); });
     if (variable_first) { line("bool first_field = true;"); }
-    const bool magic_json = !value.magic_bytes.empty() && !value.magic_omits("json");
+    const bool magic_json = value.has_magic() && !value.magic_omits("json");
     if (magic_json) {
       open("if (out->protocol == srl_json)");
       key(value.magic_id, "magic", true);
-      line("const srl_string text = {(char*)" + magic_name + ", sizeof(" + magic_name + ")};");
-      line("srl_write_string(out, &text);");
+      if (value.magic_field) {
+        write_value(value.magic_field->type_name_list.front(), magic_name, false);
+      } else {
+        line("const srl_string text = {(char*)" + magic_name + ", sizeof(" + magic_name + ")};");
+        line("srl_write_string(out, &text);");
+      }
       if (variable_first) { line("first_field = false;"); }
       close();
       first = false;
@@ -684,16 +712,24 @@ class c_emitter {
     line("/* Decode into a private candidate; public decoding commits only complete messages. */");
     open("static inline void " + n + "_srl_read(srl_reader* in, " + n + "* value)");
     line("(void)value; if (in->status != srl_ok) { return; }");
-    if (!value.magic_bytes.empty()) {
+    if (value.has_magic()) {
       const auto omitted = omitted_condition(value.magic_omitted_formats, "in->protocol",
                                               "srl_", protocol_name_style::lower_snake);
       open("if (in->protocol != srl_json" +
            (omitted.empty() ? "" : " && !(" + omitted + ")") + ")");
-      for (const auto byte : value.magic_bytes) {
-        line("if (srl_read_integer(in, 1, true) != " +
-             std::to_string(static_cast<unsigned char>(byte)) +
-             " || in->status != srl_ok) { if (in->status == srl_ok) { in->status = "
-             "srl_invalid; } return; }");
+      if (value.magic_field) {
+        const auto& magic_type = value.magic_field->type_name_list.front();
+        line(type(magic_type) + " decoded_magic = {0};");
+        read_value(magic_type, "decoded_magic", false);
+        line("if (decoded_magic != " + magic_name + " || in->status != srl_ok) { "
+             "if (in->status == srl_ok) { in->status = srl_invalid; } return; }");
+      } else {
+        for (const auto byte : value.magic_bytes) {
+          line("if (srl_read_integer(in, 1, true) != " +
+               std::to_string(static_cast<unsigned char>(byte)) +
+               " || in->status != srl_ok) { if (in->status == srl_ok) { in->status = "
+               "srl_invalid; } return; }");
+        }
       }
       close();
     }
@@ -728,7 +764,7 @@ class c_emitter {
            "; alternative = " + std::to_string(alt) + "; }");
       branch_first = false;
     };
-    if (!value.magic_bytes.empty()) { branch("magic", value.magic_id, -1); }
+    if (value.has_magic()) { branch("magic", value.magic_id, -1); }
     for (const auto& base : value.parents) {
       branch(base.display_name, base.id, -1);
     }
@@ -749,14 +785,23 @@ class c_emitter {
     if (magic_json) {
       open("case " + std::to_string(value.magic_id) + ":");
       line("if (in->protocol != srl_json || magic_seen) { in->status = srl_invalid; break; }");
-      line("srl_string text = {0}; srl_read_string(in, &text);");
-      line("if (in->status == srl_ok && (text.size != sizeof(" + magic_name +
-           ") || memcmp(text.data, " + magic_name + ", sizeof(" + magic_name +
-           ")))) { in->status = srl_invalid; }");
-      line("srl_string_free(&text); magic_seen = true; break;");
+      if (value.magic_field) {
+        const auto& magic_type = value.magic_field->type_name_list.front();
+        line(type(magic_type) + " decoded_magic = {0};");
+        read_value(magic_type, "decoded_magic", false);
+        line("if (in->status == srl_ok && decoded_magic != " + magic_name +
+             ") { in->status = srl_invalid; }");
+      } else {
+        line("srl_string text = {0}; srl_read_string(in, &text);");
+        line("if (in->status == srl_ok && (text.size != sizeof(" + magic_name +
+             ") || memcmp(text.data, " + magic_name + ", sizeof(" + magic_name +
+             ")))) { in->status = srl_invalid; }");
+        line("srl_string_free(&text);");
+      }
+      line("magic_seen = true; break;");
       close();
     }
-    if (!value.magic_bytes.empty() && !magic_json) {
+    if (value.has_magic() && !magic_json) {
       line("case " + std::to_string(value.magic_id) + ": in->status = srl_invalid; break;");
     }
     for (std::size_t i = 0; i < value.parents.size(); ++i) {

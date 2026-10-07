@@ -10,13 +10,13 @@ Define your data once in a `.serializer` schema, then generate classes and codec
 for JSON and binary serialization. Serializer includes a C++20 schema compiler,
 a C++ runtime, and generators for multiple languages.
 
-The current compiler and runtime release is **1.1.1**. Bug fixes and minor updates
+The current compiler and runtime release is **1.3.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
-compatibility across major releases. The schema language version is **1.0.0**;
+compatibility across major releases. The schema language version is **1.2.0**;
 see [release and schema versions](docs/command_line.md).
 
-Use `serializer version 1.0.0;` for the language header. The original
+Use `serializer version 1.2.0;` for new schemas. Older `1.0.0` and `1.1.0` schemas remain supported. The original
 `serializer version 1;` is an exact compatibility alias for `1.0.0`, exclusive to
 version 1. Future versions require all three components; see the
 [schema language policy](docs/command_line.md#schema-language-version-policy).
@@ -38,12 +38,19 @@ processing. All eleven language outputs share current/historical read policies a
 positional binary layouts. See the [versioning examples](example/README.md#versioning).
 
 Schema-owned [magic headers and format omissions](docs/magic_and_omission.md)
-use `private magic { 'SRLFILE' };` and `omit(json, binary_positional)`.
+use `private magic { 'SRLFILE' };`, typed `private magic uint32 (99) {42};`,
+and `omit(json, binary_positional)`.
 These declarations require owning classes; view modes reject them explicitly.
 Magic is static metadata: writers emit it, readers verify and discard it, and
-JSON includes the fixed `magic` string by default. Native binary writes exact
-header bytes before the separate version discriminator. C++ format selection
+JSON includes the fixed `magic` value by default. Native binary writes legacy
+header bytes or the declared scalar/enum encoding before the separate version discriminator. C++ format selection
 and omissions resolve at compile time without per-object flags.
+
+Language `1.2.0` adds [compact unsigned scalar fields](docs/compact_integers.md):
+`public compact_prefix strict uint32 value (3) {32};` uses the existing 30-bit
+prefix encoding, while `compact_varint uint64 count;` uses full-width unsigned
+LEB128. Explicit `lenient` selects deterministic truncation. All output languages
+support these owning scalar annotations; JSON retains ordinary integer values.
 
 ## How it works
 
@@ -61,7 +68,7 @@ their target language without a native Serializer runtime dependency.
 Save this as `person.serializer`:
 
 ```text
-serializer version 1.0.0;
+serializer version 1.2.0;
 
 namespace demo {
   class person {
@@ -71,7 +78,9 @@ namespace demo {
 }
 ```
 
-Every schema begins with `serializer version 1.0.0;` (or the original `1` alias).
+Every schema begins with a supported language header. `array[]` and typed `magic`
+require `serializer version 1.1.0;` in the file that declares them; the original
+`1` alias remains exactly `1.0.0`.
 Each field declares its access
 level, type, and name. Start with [schema examples](docs/schema_examples.md) for
 arrays, maps, enums, and defaults.
@@ -110,6 +119,9 @@ Reusable [schema generics](docs/generics.md), such as `class result<T>`, emit
 native C++ templates: application code can use `result<std::uint32_t>` without
 concrete schema declarations. Nested templates, trailing defaults, positive uint64
 dimensions, and fixed `array[N] T` storage are supported in C++.
+Language `1.1.0` adds `array[] T` with an extent inferred from nonempty defaults:
+`public array[] uint32 values {1, 2, 3};` produces `std::array<std::uint32_t, 3>`.
+`public array[] char signature {'SRLFILE'};` uses seven decoded bytes with no NUL terminator.
 Optional `instantiate person_result = result<person>;` declarations and concrete
 schema fields define contracts for all eleven generators. Other languages keep
 concrete APIs; fixed arrays currently produce explicit unsupported diagnostics
@@ -198,8 +210,8 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editor_extension.md) |
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
-Both extensions use release version **1.1.23**, independent of compiler version
-**1.1.1**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
+Both extensions use release version **1.1.25**, independent of compiler version
+**1.3.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
 for supported destinations and language-service prerequisites.
 VS Code also supports navigation from read-only Git index/history tabs, using
 the displayed snapshot and current workspace destinations.
@@ -282,6 +294,7 @@ for reporting barriers to using the project.
 - [Feature status and roadmap](docs/feature_status.md): implemented behavior and future work.
 - [Four-toolchain verification](docs/verification-toolchains-2026-10-07.md): x64 Windows/MSVC and clang-cl, and Ubuntu WSL2/GCC and Clang, with default runtime features enabled.
 - [Default runtime verification](docs/verification-default-features-2026-10-07.md): managed/compression defaults and installed-header checks.
+- [Compact scalar qualification](docs/verification-compact-2026-10-07.md): all eleven SDKs, frozen wire fixtures, strict/lenient cases, native tests, and editor checks.
 - [Verification record](docs/verification-2026-09-17.md): tested revisions, configurations, and outstanding checks.
 - [Versioning verification](docs/verification-versioning-2026-10-06.md): historical layouts, all eleven language examples, and editor checks.
 - [Release-policy verification](docs/verification-release-policies-2026-10-06.md): compiler folding, calendar boundaries, nested policies, and generation options.

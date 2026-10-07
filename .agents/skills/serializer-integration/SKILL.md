@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin, or C applications from a provided repository or existing dependency. Use for .serializer schemas, native C++ generic templates, optional cross-language contracts, dimension parameters and fixed arrays, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, payload revisions, compiler-only release policies, lifecycle annotations, schema compatibility checks and reservations, stream concepts, durable file streams and iostream adapters, exact fresh-value decoding, managed journal/crash recovery and C++ local collaboration with store-owned sessions, timed synchronization and undo, optional message compression, JSON or binary codecs, database persistence guidance, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
+description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin, or C applications from a provided repository or existing dependency. Use for compact unsigned prefix/varint scalars, .serializer schemas, native C++ generic templates, optional cross-language contracts, dimension parameters, inferred fixed arrays, typed scalar/enum magic, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, payload revisions, compiler-only release policies, lifecycle annotations, schema compatibility checks and reservations, stream concepts, durable file streams and iostream adapters, exact fresh-value decoding, managed journal/crash recovery and C++ local collaboration with store-owned sessions, timed synchronization and undo, optional message compression, JSON or binary codecs, database persistence guidance, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
 ---
 
 # Serializer Integration
@@ -406,6 +406,13 @@ feature as a prerequisite without the user's request.
   1..65,536, with 32 expression levels and 256 parse nodes. Generic parse/expansion
   limits remain 32 levels, 1,024 concrete applications, and 4,096 identity bytes.
   C++ emits std::array with compile-time checks for application-only specializations.
+  With language `1.1.0`, use `array[] T field {values};` to infer a fixed extent
+  from a nonempty initializer list. Count top-level elements; nested aggregate
+  values and quoted commas do not create additional elements. A single char text
+  literal uses decoded byte count, including escaped NUL and excluding any
+  implicit terminator. Missing/empty defaults or extents above 65,536 reject.
+  Preserve the explicit element type. Each declaring dependency needs its own
+  `1.1.0` header; the original `1` alias remains exactly `1.0.0`.
   Other backends and Protobuf reject fixed arrays explicitly; do not claim mappings.
   Preserve existing runtime decode limits and exact cardinality. Missing keyed
   fields retain defaults; explicitly empty fixed arrays fail. Generic managed/view
@@ -414,11 +421,11 @@ feature as a prerequisite without the user's request.
   generated replacement setters and the existing history/journal APIs.
   Consult [usage](../../../docs/usage.md), [migration](../../../migration.md), and
   [qualification](../../../docs/verification-dimensions-2026-10-04.md).
-- Use `.serializer` files beginning with `serializer version 1.0.0;`, before declarations
+- Use `.serializer` files beginning with `serializer version 1.2.0;`, before declarations
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
-  remains available through `parser::parse(input)`. Schema language version 1.0.0 is
-  independent of compiler release 1.1.1 and wire protocols. Bug fixes and minor
+  remains available through `parser::parse(input)`. Schema language version 1.2.0 is
+  independent of compiler release 1.3.0 and wire protocols. Bug fixes and minor
   updates increment the patch number; new features increment the minor number.
   Minor and patch releases preserve full compatibility. Developers change the
   major number manually, with best-effort compatibility across major releases.
@@ -517,6 +524,18 @@ class person stable_ids {
 
 Adding `public string country;` is rejected; `public string country (3);` assigns
 an unused ID. Existing explicit IDs work even without `stable_ids`.
+
+- With language `1.2.0`, use [compact unsigned scalars](../../../docs/compact_integers.md):
+  `public compact_prefix strict uint32 value (3) {32};` or `compact_varint uint64`.
+  Both keep the host type and ordinary JSON/Protobuf mappings. Prefix has a 30-bit
+  maximum; strict checks binary writes, lenient deliberately retains the low 30
+  bits without an overflow branch. Varint is full-width unsigned LEB128. Dynamic
+  lenient varint values retain the low declared-width bits. All eleven outputs
+  support owning unsigned scalars; collections, signed/floating types, enums,
+  views, packing, magic and payload versions reject. Defaults must be unsigned
+  literals fitting the host type; strict prefix defaults must fit the wire range.
+  Each declaring include needs its own `1.2.0` header. Changing the encoding is a
+  native binary migration; do not silently compact existing contracts.
 
 ## Integrate generated headers
 
@@ -634,7 +653,7 @@ versioned snippets, and invokes the same targets through CMake Tools. Run the ro
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 1.1.23 is shared with the Visual Studio extension and is independent of
+version 1.1.25 is shared with the Visual Studio extension and is independent of
 compiler and schema versions. Keep both editor extension versions equal.
 Both package descriptions and READMEs identify the
 [Serializer repository](https://github.com/rohit-singh-gautam/Serializer). Configure
@@ -1190,12 +1209,25 @@ must reject explicitly supplied excluded fields. Canonical format names are
 `json`, `binary_none`, `binary_integer`, `binary_string`, `protobuf`, `protojson`,
 and `textproto`; `binary_positional` and `protobuf_binary` are accepted aliases.
 C++ also exposes `binary_positional` as an unchanged alias of `binary_none`.
-Magic currently requires an unmanaged owning class and valid UTF-8 bytes.
+Magic requires an unmanaged owning class. Legacy byte literals require valid UTF-8.
+With schema language `1.1.0`, use `private magic uint32 (99) {42};` or a
+declared enum value. Supported types are `char`, `bool`, signed/unsigned
+integer widths, finite `float`/`double`, and enums; strings, classes, collections,
+type parameters and payload-version component types reject. Typed char values
+128..255 require `omit(json)`; ProtoJSON/TextProto retain numeric char mappings.
+Each declaring file
+needs its own `1.1.0` header. Emit and validate the immutable typed constant
+using the selected codec's scalar/enum mapping, with no per-object storage.
+Native binary prefixes it without an extra magic key, field ID or collection
+count: enum values use compact ordinals in positional/integer-key binary and
+length-prefixed names in string-key binary. JSON carries the scalar value or
+enum name; Protobuf uses the corresponding scalar/enum field mapping. Retain
+legacy byte-magic declarations unchanged unless migration is explicitly requested.
 Regenerate all relevant language and editor outputs when changing these contracts.
 
 Consult the [versioning verification record](../../../docs/verification-versioning-2026-10-06.md) and [release-policy verification record](../../../docs/verification-release-policies-2026-10-06.md) for completed language, compiler, codec, and editor checks. Release catalogs and nested allow policies are evaluated entirely during schema compilation; generated readers and writers contain only resolved version bounds.
 
-Use [payload versioning](../../../docs/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the required `serializer version 1.0.0;` language header (or its original `1` alias) from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.
+Use [payload versioning](../../../docs/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the supported schema language header (`1.2.0`, older `1.1.0`/`1.0.0`, or the original `1` alias for `1.0.0`) from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.
 
 Keep retained historical definitions and relative positional order intact. Set the object's revision to write an older supported layout. Use `read_policy::compatible` for declared history, `strict` for the current revision, and `flexible` to skip safe JSON extensions within the declared interval. The former `json_read_policy::compatible` spelling is removed; its unknown-field behavior is `read_policy::flexible`. Native generated languages select `ReadPolicy` through `Limits`; C uses `srl_read_policy`.
 

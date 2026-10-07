@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { test } = require('node:test');
 const { Navigator } = require('../out/navigator');
-const { indexSource, generatedNames, dependencySchemas, cppIncludeAt } = require('../out/navigation_model');
+const { indexSource, generatedNames, dependencySchemas, cppIncludeAt, resolveType } = require('../out/navigation_model');
 const { indexGeneratedSource, outputNames } = require('../out/generated_navigation');
 
 const root = path.resolve('navigation workspace');
@@ -485,4 +485,61 @@ test('magic and omitted-format metadata preserve adjacent qualified type navigat
     assert.deepEqual(selected(state, await state.resolver().schema(file('model.serializer'), cursor, false)),
       [['common.serializer', 'person']]);
   }
+});
+
+test('typed magic and inferred arrays navigate enum types through unsaved transitive includes', async () => {
+  const source = 'serializer version 1.1.0; include middle; class model { private magic lib::status (99) {lib::status::ready}; public array[] lib::status values (1) {lib::status::ready, lib::status::done}; }';
+  const common = 'serializer version 1.0.0; namespace lib { enum status { ready, done } }';
+  const state = fixture({ 'model.serializer': source, 'middle.serializer': 'serializer version 1.0.0; include common;', 'common.serializer': common });
+  const index = indexSource(source, true);
+  assert.ok(!index.references.some(reference => ['magic', 'array', 'ready'].includes(reference.name)));
+  for (const match of source.matchAll(/lib::status/g)) {
+    for (let offset = match.index; offset <= match.index + match[0].length; ++offset) {
+      assert.deepEqual(selected(state, await state.resolver().schema(file('model.serializer'), offset, false)), [['common.serializer', 'status']]);
+    }
+  }
+  state.files.set(file('common.serializer'), common.replace('status', 'renamed'));
+  assert.deepEqual(await state.resolver().schema(file('model.serializer'), source.indexOf('lib::status'), false), []);
+  assert.deepEqual(await state.resolver().schema(file('model.serializer'), source.indexOf('ready'), false), []);
+});
+
+test('compact keyword type names and qualified namespaces retain legacy navigation', () => {
+  const source = 'serializer version 1.0.0; class compact_prefix {} class strict {} class lenient {} ' +
+    'namespace compact_varint { class nested {} } class record { public compact_prefix prefix omit(json); ' +
+    'public strict checked; public lenient relaxed; public compact_varint::nested value; }';
+  const index = indexSource(source, true);
+  for (const [name, member] of [['compact_prefix', 'prefix'], ['strict', 'checked'], ['lenient', 'relaxed'],
+    ['compact_varint::nested', 'value']]) {
+    const start = source.indexOf(`${name} ${member}`);
+    const reference = index.references.find(item => item.start === start);
+    assert.equal(reference?.name, name);
+    assert.equal(resolveType(reference, index.symbols).length, 1);
+  }
+});
+
+test('compact policies retain generic navigation and adjacent unsaved transitive includes', async () => {
+  const source = 'serializer version 1.2.0; include middle; class box<T> { public compact_prefix strict T first; public compact_varint lenient T second; public compact_varint T third; public lib::person owner; }';
+  const state = fixture({ 'model.serializer': source, 'middle.serializer': 'serializer version 1.0.0; include common;',
+    'common.serializer': 'serializer version 1.0.0; namespace lib { class person {} }' });
+  const references = indexSource(source, true).references;
+  assert.ok(!references.some(reference => ['compact_prefix', 'compact_varint', 'strict', 'lenient', 'first', 'second', 'third'].includes(reference.name)));
+  for (const member of ['T first', 'T second', 'T third']) {
+    const start = source.indexOf(member);
+    for (const offset of [start, start + 1]) {
+      assert.deepEqual(selected(state, await state.resolver().schema(file('model.serializer'), offset, false)), [['model.serializer', 'T']]);
+    }
+  }
+  const start = source.indexOf('lib::person');
+  for (let offset = start; offset <= start + 'lib::person'.length; ++offset) {
+    assert.deepEqual(selected(state, await state.resolver().schema(file('model.serializer'), offset, false)), [['common.serializer', 'person']]);
+  }
+  state.files.set(file('common.serializer'), 'serializer version 1.0.0; namespace lib { class renamed {} }');
+  assert.deepEqual(await state.resolver().schema(file('model.serializer'), start, false), []);
+});
+
+test('generated numeric separators preserve namespace scopes and prefixed character literals stay hidden', () => {
+  const source = "namespace values { class first { float values[2] = {1'000.0f, 2'000.0f}; char marker = L'}'; }; } " +
+    'namespace values { class second {}; }';
+  assert.deepEqual(indexSource(source, false).symbols.map(symbol => symbol.qualified),
+    ['values::first', 'values::second']);
 });

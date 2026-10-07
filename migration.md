@@ -1,5 +1,53 @@
 # Migrating to the snake_case Serializer API
 
+## Compact scalar encodings (7 October 2026)
+
+Compiler/runtime **1.3.0** supports schema language **1.2.0** and editor
+extensions **1.1.25**. Existing 1.0.0/1.1.0 contracts and the original integer
+header alias remain supported with their existing public APIs and bytes.
+
+Opt into `compact_prefix [strict|lenient]` or
+`compact_varint [strict|lenient]` on owning uint8/16/32/64 scalar fields. Select
+`serializer version 1.2.0;` in each declaring file and regenerate all affected
+language outputs. Omitted policy means strict. Prefix has a 30-bit maximum;
+lenient explicitly truncates to the low 30 bits. Varint uses unsigned LEB128
+and preserves the full declared type range. JSON and optional C++ Protobuf
+mappings remain unchanged.
+
+Adding or changing an encoding changes native binary bytes. Coordinate peers
+and explicitly decode/convert existing stored data with its original contract;
+a compiler upgrade does not auto-migrate payloads. Changing only strict/lenient
+preserves valid bytes but changes writer acceptance. Signed/floating formats
+remain proposals. See [compact fields](docs/compact_integers.md).
+
+## Inferred arrays and typed magic (7 October 2026)
+
+Compiler/runtime release **1.2.0** supports schema language **1.1.0**. Existing
+`serializer version 1;` headers remain exactly the `1.0.0` language contract;
+all existing explicit arrays and legacy byte magic preserve their generated APIs
+and wire bytes. Updating the compiler alone requires no schema migration.
+
+Select `serializer version 1.1.0;` in each file that uses either new declaration,
+including included files. `public array[] uint32 values {1, 2, 3};` infers fixed
+extent three. `public array[] char signature {'SRLFILE'};` infers seven decoded
+bytes without an implicit terminator. Empty/missing initializers reject, and
+fixed arrays remain limited to 1..65,536 elements and native C++ output.
+Replacing an explicit extent with an equal inferred extent preserves storage
+and wire cardinality; changing defaults later can change the inferred contract.
+
+Use `private magic uint32 (99) {42};` or a declared enum for typed magic.
+Supported types are `char`, `bool`, signed/unsigned integer widths, finite
+`float`/`double`, and enums. Writers use the chosen codec's scalar/enum mapping;
+readers require, validate, and discard the constant without object storage.
+Keep a durable magic value, type, and Protobuf ID fixed. Changing a legacy byte
+signature to a typed value can change native and Protobuf representations and
+requires coordinated producer/consumer migration.
+
+Both editor packages advance together to **1.1.24**, adding inferred-array
+highlighting/snippets and typed-magic enum navigation. See
+[fixed arrays](docs/generics.md), [magic](docs/magic_and_omission.md), and
+[schema versions](docs/command_line.md).
+
 ## Compiler portability (7 October 2026)
 
 Compiler/runtime release 1.1.1 guards the durable output adapter's standard

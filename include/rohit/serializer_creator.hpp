@@ -103,6 +103,9 @@ void to_lower_in_place(std::string& value);
 
 enum class access_type { error, private_access, protected_access, public_access };
 
+// Select an optional unsigned scalar encoding without changing the host value type.
+enum class compact_encoding { none, prefix, varint };
+
 enum class object_type { unresolved, namespace_type, class_type, enum_type, primitive, instantiation,
                          generic_definition };
 
@@ -300,13 +303,20 @@ struct member {
   std::vector<version_release> releases{};
   std::optional<version_policy> policy{};
   std::string resolved_compatibility_version{};
+  bool inferred_extent{false}; // array[] derives storage from its explicit initializer.
+  bool magic{false}; // Typed immutable schema identity, distinct from ordinary object fields.
+  compact_encoding compact{compact_encoding::none};
+  bool compact_strict{true}; // Prefix overflow is checked unless truncation is explicit.
 
   // Compare the relevant values without modifying either operand.
   bool operator==(const member& rhs) const {
     return access == rhs.access && modifier == rhs.modifier &&
            type_name_list == rhs.type_name_list && name == rhs.name && managed == rhs.managed &&
            extent_expression == rhs.extent_expression && fixed_extent == rhs.fixed_extent &&
-           version == rhs.version && obsolete == rhs.obsolete &&
+           inferred_extent == rhs.inferred_extent &&
+           version == rhs.version && magic == rhs.magic &&
+           compact == rhs.compact && compact_strict == rhs.compact_strict &&
+           obsolete == rhs.obsolete &&
            omitted_formats == rhs.omitted_formats &&
            created_version == rhs.created_version && obsolete_version == rhs.obsolete_version &&
            replaced_member == rhs.replaced_member &&
@@ -335,10 +345,15 @@ struct class_node : public syntax_node {
   std::vector<parent> parents;
   std::vector<member> member_list{};
   std::string magic_bytes{}; // Exact raw binary prefix; no terminator, length, or field identity.
+  std::optional<member> magic_field{}; // Typed scalar or enum identity; no per-object storage.
   access_type magic_access{access_type::private_access};
   std::uint32_t magic_id{1};
   bool magic_explicit_id{false};
   std::vector<std::string> magic_omitted_formats{};
+  // Report either legacy fixed bytes or an explicitly typed immutable identity.
+  bool has_magic() const {
+    return !magic_bytes.empty() || magic_field.has_value();
+  }
   // Resolve fixed-header exclusions from compiler metadata.
   bool magic_omits(std::string_view format) const {
     return std::find(magic_omitted_formats.begin(), magic_omitted_formats.end(), format) != magic_omitted_formats.end();
@@ -361,7 +376,8 @@ struct class_node : public syntax_node {
   class_node(class_node&& rhs)
       : syntax_node{std::move(rhs)}, attributes{rhs.attributes}, storage_modes{rhs.storage_modes},
         parents{std::move(rhs.parents)}, member_list{std::move(rhs.member_list)},
-        magic_bytes{std::move(rhs.magic_bytes)}, magic_access{rhs.magic_access},
+        magic_bytes{std::move(rhs.magic_bytes)}, magic_field{std::move(rhs.magic_field)},
+        magic_access{rhs.magic_access},
         magic_id{rhs.magic_id}, magic_explicit_id{rhs.magic_explicit_id},
         magic_omitted_formats{std::move(rhs.magic_omitted_formats)},
         type_parameters{std::move(rhs.type_parameters)},

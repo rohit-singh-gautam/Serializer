@@ -66,7 +66,7 @@
           "name": "punctuation.section.group.serializer"
         }
       },
-      "end": "\\]",
+      "end": "(\\])(?:\\s+((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*))?",
       "patterns": [
         {
           "include": "#comments"
@@ -82,16 +82,10 @@
         {
           "include": "#type_name"
         }
-      ]
-    },
-    {
-      "include": "#generic_arguments"
-    },
-    {
-      "match": "(\\{)\\s*((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)(::)([A-Za-z_][A-Za-z_0-9]*)(?=\\s*\\})",
-      "captures": {
+      ],
+      "endCaptures": {
         "1": {
-          "name": "punctuation.section.block.serializer"
+          "name": "punctuation.section.group.serializer"
         },
         "2": {
           "patterns": [
@@ -99,11 +93,26 @@
               "include": "#type_name"
             }
           ]
+        }
+      }
+    },
+    {
+      "include": "#generic_arguments"
+    },
+    {
+      "match": "(?<=[{,])\\s*((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)(::)([A-Za-z_][A-Za-z_0-9]*)(?=\\s*[,}])",
+      "captures": {
+        "1": {
+          "patterns": [
+            {
+              "include": "#type_name"
+            }
+          ]
         },
-        "3": {
+        "2": {
           "name": "keyword.operator.serializer"
         },
-        "4": {
+        "3": {
           "name": "constant.other.enum.serializer"
         }
       }
@@ -143,6 +152,45 @@
           "name": "storage.type.serializer"
         },
         "2": {
+          "patterns": [
+            {
+              "include": "#type_name"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "match": "\\b(?:(public|protected|private)\\s+)?(compact_prefix|compact_varint)\\b(?:\\s+(strict|lenient)\\b)?\\s+((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)(?=\\s+(?!omit\\b(?:\\s|/\\*.*?\\*/)*\\((?:\\s|/\\*.*?\\*/)*[A-Za-z_])[A-Za-z_][A-Za-z_0-9]*\\b)",
+      "captures": {
+        "1": {
+          "name": "storage.modifier.serializer"
+        },
+        "2": {
+          "name": "storage.modifier.serializer"
+        },
+        "3": {
+          "name": "storage.modifier.serializer"
+        },
+        "4": {
+          "patterns": [
+            {
+              "include": "#type_name"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "match": "\\b(public|protected|private)\\s+(magic)\\s+((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
+      "captures": {
+        "1": {
+          "name": "storage.modifier.serializer"
+        },
+        "2": {
+          "name": "keyword.control.serializer"
+        },
+        "3": {
           "patterns": [
             {
               "include": "#type_name"
@@ -255,7 +303,7 @@
     },
     {
       "name": "storage.modifier.serializer",
-      "match": "\\b(public|protected|private|stable_ids|managed|owning|view|readonly|mutable|packed)\\b"
+      "match": "\\b(public|protected|private|stable_ids|managed|owning|view|readonly|mutable|packed|compact_prefix|compact_varint|strict|lenient)\\b"
     },
     {
       "name": "support.type.serializer",
@@ -320,7 +368,7 @@
         },
         {
           "name": "string.quoted.single.serializer",
-          "begin": "'",
+          "begin": "(?<![A-Za-z_0-9])'",
           "end": "'",
           "patterns": [
             {

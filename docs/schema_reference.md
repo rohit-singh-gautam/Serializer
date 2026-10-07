@@ -12,7 +12,8 @@ Start with [small schema examples](schema_examples.md) if you are new to the syn
 
 ## Schema structure
 
-Every `.serializer` file starts with `serializer version 1.0.0;` before declarations.
+Every `.serializer` file starts with a supported language header before declarations.
+Use `serializer version 1.2.0;` for new schemas; older `1.0.0` and `1.1.0` remain supported.
 The original `serializer version 1;` is exactly the `1.0.0` language contract;
 only version 1 has an integer shorthand. Future versions require all three
 components. Schema-language and compiler release versions are independent.
@@ -62,6 +63,11 @@ Binary serialization always encodes fields individually.
 verify and discard them; native binary writes the exact bytes before the payload
 revision, while JSON includes `"magic":"SRLFILE"`. Access controls the generated
 constant's visibility. `public` exposes the constant and does not add object state.
+Language `1.1.0` also accepts `private magic uint32 (99) {42};` or
+`public magic status (99) {status::ready};`. Typed magic supports `char`, `bool`,
+signed/unsigned integer widths, finite `float`/`double`, and declared enums.
+It uses the selected codec's existing scalar/enum representation; strings,
+classes, collections, and payload-version component types are rejected.
 Use trailing `omit(json, binary_positional)` on magic or an ordinary field to
 exclude it from named output formats in owning classes. C++ view modes reject
 omissions explicitly. The generated reader expects the selected
@@ -85,6 +91,15 @@ checked uint64 arithmetic rejects negative/zero dimensions and overflow.
 Fixed arrays require 1..65,536 elements. C++ uses `std::array`; other backends and
 Protobuf generation explicitly reject fixed arrays. See [generics](generics.md)
 for scope resolution, resource limits, native C++ use, and support boundaries.
+
+Language `1.1.0` supports `public array[] uint32 values {1, 2, 3};`, inferring
+extent three from the initializer. A single text literal in
+`public array[] char signature {'SRLFILE'};` supplies seven decoded bytes,
+without an implicit NUL terminator. Empty/missing initializers and extents above
+65,536 reject. This is fixed owning storage with the same count and exact
+cardinality checks as an explicit extent; it is not a variable-length array.
+Both inferred arrays and typed magic require language `1.1.0` in their own
+declaring file, including dependencies. The original `1` alias enables neither.
 
 ### Owning objects and buffer views
 
@@ -322,10 +337,16 @@ For one `uint8` field with value `7`, numeric ID `3`, and wire name `total`:
 | Integer-key | `03 07 00` |
 | String-key | `05 74 6f 74 61 6c 07 00` |
 
-Only IDs, lengths, numeric enum values, and union indices use the compact integer
+Unannotated fields use fixed-width integers. Language `1.2.0` adds owning unsigned
+scalar modifiers `compact_prefix [strict|lenient]` and
+`compact_varint [strict|lenient]`, with strict as the default. Prefix uses the
+existing 30-bit encoding; varint uses full-width unsigned LEB128. See
+[compact fields](compact_integers.md) for syntax, bounds and supported scope.
+
+IDs, lengths, numeric enum values, and union indices retain the compact integer
 encoding. Ordinary integer fields retain their declared byte width. Negative
-compact integers and values above `0x3fffffff` throw `std::out_of_range` before
-writing that integer.
+values and values above `0x3fffffff` in this ID/length/ordinal prefix encoding
+throw `std::out_of_range` before writing that prefix.
 
 ## Native JSON host types
 

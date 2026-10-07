@@ -125,6 +125,8 @@ coverage.out
 .DS_Store
 Thumbs.db
 Desktop.ini
+# Windows tool caches created with an unexpanded drive variable.
+/%SystemDrive%/ProgramData/Microsoft/Windows/Caches/
 *~
 *.swp
 *.swo

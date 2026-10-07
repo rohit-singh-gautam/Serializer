@@ -3,7 +3,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { execFileSync } = require('node:child_process');
 const { Navigator } = require('../out/navigator');
-const { indexSource, managedNames } = require('../out/navigation_model');
+const { indexSource, managedNames, resolveType } = require('../out/navigation_model');
 const { fileKey } = require('../out/model');
 
 const repository = path.resolve(__dirname, '../../..');
@@ -13,7 +13,7 @@ const outputs = { cpp: 'model.hpp', java: 'Schema.java', js: 'schema.mjs', types
   kotlin: 'Schema.kt', c: 'schema.h' };
 
 /** Check both directions against freshly generated types, rather than handwritten output approximations. */
-async function verify(entry, directory, options = [], selectedOutputs = outputs) {
+async function verify(entry, directory, options = [], selectedOutputs = outputs, enumReferences = false) {
   const args = ['--input', entry, '--language', Object.keys(selectedOutputs).join(','), '--cpp.format', 'false',
     '--depfile', path.join(directory, 'all.d'), ...options];
   fs.mkdirSync(directory, { recursive: true });
@@ -67,6 +67,23 @@ async function verify(entry, directory, options = [], selectedOutputs = outputs)
         }
       }
     }
+    if (enumReferences) {
+      const symbols = schemas.flatMap(source => source.index.symbols);
+      for (const reference of schema.index.references) {
+        const target = resolveType(reference, symbols).find(symbol => symbol.kind === 'enum');
+        if (!target) { continue; }
+        const origin = schemas.find(source => source.index.symbols.includes(target));
+        for (let cursor = reference.start; cursor <= reference.end; ++cursor) {
+          const declarations = await resolver.schema(schema.file, cursor, false);
+          assert.deepEqual(declarations.map(item => [fileKey(item.file), item.start, item.end]),
+            [[fileKey(origin.file), target.start, target.end]], 'typed magic/array enum boundary');
+          const definitions = await resolver.schema(schema.file, cursor, true);
+          assert.equal(new Set(definitions.map(item => item.file)).size, files.length,
+            'typed magic/array enum definitions in each generated language');
+          ++checks;
+        }
+      }
+    }
   }
   return checks;
 }
@@ -80,6 +97,12 @@ async function main() {
   let checks = await verify(path.join(repository, 'example/schemas/complex/model.serializer'), path.join(directory, 'complex'));
   checks += await verify(path.join(repository, 'example/schemas/versioning/model.serializer'), path.join(directory, 'versioning'));
   checks += await verify(path.join(repository, 'example/generics/result.serializer'), path.join(directory, 'generics'));
+  checks += await verify(path.join(repository, 'test/resources/typed_magic_language.serializer'),
+    path.join(directory, 'typed-magic'), [], outputs, true);
+  checks += await verify(path.join(repository, 'test/resources/compact_language.serializer'),
+    path.join(directory, 'compact-fields'));
+  checks += await verify(path.join(repository, 'test/resources/inferred_arrays.serializer'),
+    path.join(directory, 'inferred-arrays'), [], { cpp: outputs.cpp }, true);
   const input = path.join(directory, 'acronyms.serializer');
   const schema = `serializer version 1.0.0;
 namespace HTTPModels { enum HTTPState { Ready } class HTTPRecord { public HTTPState StateValue; } }
@@ -119,7 +142,7 @@ namespace Names_ { class Value_Type {} }
     checks += await verify(input, path.join(directory, `java-${profile}`),
       ['--java.coding_standard', profile, '--java.package', 'example.models'], { java: outputs.java });
   }
-  console.log(`Fresh compiler navigation passed: ${checks} bidirectional type checks across all 11 output languages, identical codecs for legacy/dotted headers, transitive includes, acronyms, preserved names, and direct/separated managed classes across all C++ profiles.`);
+  console.log(`Fresh compiler navigation passed: ${checks} bidirectional type checks across all 11 output languages, compact fields, typed magic and inferred arrays, identical codecs for legacy/dotted headers, transitive includes, acronyms, preserved names, and direct/separated managed classes across all C++ profiles.`);
 }
 
 main().catch(error => { console.error(error.stderr?.toString() || error); process.exitCode = 1; });

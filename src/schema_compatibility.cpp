@@ -1,15 +1,24 @@
 #include <rohit/schema_compatibility.hpp>
 
+#include "native_schema.hpp"
 #include "protobuf_schema.hpp"
 #include "schema_version.hpp"
 
 #include <algorithm>
+#include <array>
+#include <charconv>
 #include <cstddef>
+#include <cstdint>
 #include <fstream>
+#include <limits>
 #include <map>
+#include <optional>
 #include <set>
 #include <stdexcept>
+#include <string>
+#include <string_view>
 #include <utility>
+#include <vector>
 
 namespace rohit::serializer {
 namespace {
@@ -139,6 +148,173 @@ std::string type_identity(const type_name& type) {
   return type.resolved_node ? type.resolved_node->get_full_name() : type.name;
 }
 
+// Split a flat literal list without rewriting quoted text or interpreting arbitrary C++ expressions.
+std::optional<std::vector<std::string>> fixed_array_literals(std::string_view input) {
+  std::vector<std::string> result{};
+  std::size_t begin{};
+  char quote{};
+  bool escaped{};
+  for (std::size_t index = 0; index < input.size(); ++index) {
+    const auto character = input[index];
+    if (quote != 0) {
+      if (escaped) {
+        escaped = false;
+      } else if (character == '\\') {
+        escaped = true;
+      } else if (character == quote) {
+        quote = 0;
+      }
+      continue;
+    }
+    if (character == '"' ||
+        (character == '\'' && schema_version::trim(input.substr(begin, index - begin)).empty())) {
+      quote = character;
+    } else if (character == '{' || character == '}' || character == '(' || character == ')' ||
+               character == '[' || character == ']') {
+      return std::nullopt;
+    } else if (character == ',') {
+      auto literal = schema_version::trim(input.substr(begin, index - begin));
+      if (literal.empty()) {
+        return std::nullopt;
+      }
+      result.push_back(std::move(literal));
+      begin = index + 1;
+    }
+  }
+  if (quote != 0) {
+    return std::nullopt;
+  }
+  auto literal = schema_version::trim(input.substr(begin));
+  if (!literal.empty()) {
+    result.push_back(std::move(literal));
+  } else if (result.empty()) {
+    return std::nullopt;
+  }
+  return result;
+}
+
+// Remove only valid numeric digit separators, preserving whitespace and every nonnumeric token.
+std::string fixed_array_numeric_token(std::string text) {
+  const auto digits = text.starts_with("0x") || text.starts_with("0X") ||
+                      text.starts_with("-0x") || text.starts_with("-0X")
+      ? std::string_view{"0123456789abcdefABCDEF"} : std::string_view{"0123456789"};
+  std::string result{};
+  for (std::size_t index = 0; index < text.size(); ++index) {
+    if (text[index] == '\'') {
+      if (index == 0 || index + 1 == text.size() ||
+          digits.find(text[index - 1]) == std::string_view::npos ||
+          digits.find(text[index + 1]) == std::string_view::npos) {
+        throw std::invalid_argument{"Not a numeric digit separator"};
+      }
+    } else {
+      result += text[index];
+    }
+  }
+  const bool negative = result.starts_with('-');
+  auto magnitude = std::string_view{result};
+  if (negative) {
+    magnitude.remove_prefix(1);
+  }
+  if (magnitude.starts_with("0x") || magnitude.starts_with("0X")) {
+    if (negative) {
+      // Unary minus may wrap an unsigned C++ hex literal before conversion to the field type.
+      throw std::invalid_argument{"Keep negative hexadecimal expressions conservative"};
+    }
+    magnitude.remove_prefix(2);
+    std::uint64_t value{};
+    const auto parsed = std::from_chars(magnitude.data(), magnitude.data() + magnitude.size(), value, 16);
+    if (magnitude.empty() || parsed.ec != std::errc{} ||
+        parsed.ptr != magnitude.data() + magnitude.size()) {
+      throw std::invalid_argument{"Not an integer hexadecimal literal"};
+    }
+    return (negative ? "-" : "") + std::to_string(value);
+  }
+  return result;
+}
+
+// Compare safe scalar defaults by value while leaving arbitrary aggregate/expression text conservative.
+std::string fixed_array_default(const member& field) {
+  if (field.modifier != member::modifier_type::array || field.fixed_extent == 0 ||
+      field.type_name_list.size() != 1 || field.default_value.empty()) {
+    return field.default_value;
+  }
+  const auto& type = field.type_name_list.front();
+  if ((type.type != object_type::primitive && type.type != object_type::enum_type) ||
+      (type.type == object_type::enum_type && !type.resolved_node)) {
+    return field.default_value;
+  }
+  const auto literals = fixed_array_literals(field.default_value);
+  if (!literals || literals->size() != field.fixed_extent) {
+    return field.default_value;
+  }
+  std::string result{};
+  try {
+    for (auto text : *literals) {
+      auto scalar = field;
+      scalar.modifier = member::modifier_type::none;
+      scalar.magic = false;
+      if (type.name == "char" && type.type == object_type::primitive) {
+        if (text.size() == 6 && text.starts_with("'\\x") && text.back() == '\'') {
+          unsigned byte{};
+          const auto parsed = std::from_chars(text.data() + 3, text.data() + 5, byte, 16);
+          if (parsed.ec != std::errc{} || parsed.ptr != text.data() + 5) {
+            return field.default_value;
+          }
+          text = std::to_string(byte);
+        }
+        if (!text.starts_with('\'')) {
+          scalar.type_name_list.front().name = "uint8";
+          text = fixed_array_numeric_token(std::move(text));
+        }
+      } else if (type.type == object_type::primitive &&
+                 (type.name.starts_with("int") || type.name.starts_with("uint") ||
+                  type.name == "float" || type.name == "double")) {
+        text = fixed_array_numeric_token(std::move(text));
+      }
+      scalar.default_value = std::move(text);
+      auto normalized = writer::native::literal(scalar);
+      if (type.type == object_type::primitive && (type.name == "float" || type.name == "double")) {
+        // An integer -0 initializer converts to positive floating zero in generated C++.
+        if (normalized == "-0") {
+          normalized = "0";
+        }
+        float single{};
+        double value{};
+        const auto parsed = type.name == "float"
+            ? std::from_chars(normalized.data(), normalized.data() + normalized.size(), single)
+            : std::from_chars(normalized.data(), normalized.data() + normalized.size(), value);
+        if (parsed.ec != std::errc{} || parsed.ptr != normalized.data() + normalized.size()) {
+          return field.default_value;
+        }
+        constexpr auto capacity = std::numeric_limits<double>::max_digits10 +
+            std::numeric_limits<int>::digits10 + sizeof("-0.e-");
+        std::array<char, capacity> canonical{};
+        const auto converted = type.name == "float"
+            ? std::to_chars(canonical.data(), canonical.data() + canonical.size(), single)
+            : std::to_chars(canonical.data(), canonical.data() + canonical.size(), value);
+        if (converted.ec != std::errc{}) {
+          return field.default_value;
+        }
+        normalized.assign(canonical.data(), converted.ptr);
+      } else if (type.type == object_type::primitive && type.name.starts_with("int")) {
+        std::int64_t value{};
+        const auto parsed = std::from_chars(normalized.data(), normalized.data() + normalized.size(), value);
+        if (parsed.ec != std::errc{} || parsed.ptr != normalized.data() + normalized.size()) {
+          return field.default_value;
+        }
+        normalized = std::to_string(value);
+      }
+      if (!result.empty()) {
+        result += ',';
+      }
+      result += normalized;
+    }
+  } catch (const std::invalid_argument&) {
+    return field.default_value;
+  }
+  return result;
+}
+
 struct field_contract {
   std::uint32_t id{};
   std::string name{};
@@ -146,6 +322,7 @@ struct field_contract {
   std::string default_value{};
   std::vector<std::pair<std::string, std::string>> alternatives{};
   std::uint64_t fixed_extent{};
+  compact_encoding compact{compact_encoding::none};
 };
 
 // Preserve parent-before-member order, field identity, map keys, and ordered union alternatives.
@@ -157,8 +334,9 @@ std::vector<field_contract> fields(const class_node& type, std::string_view form
   }
   for (const auto& field : type.member_list) {
     if (!format.empty() && field.omits(format)) { continue; }
-    field_contract contract{field.id, field.display_name, {}, field.default_value, {}};
+    field_contract contract{field.id, field.display_name, {}, fixed_array_default(field), {}};
     contract.fixed_extent = field.fixed_extent;
+    contract.compact = field.compact;
     switch (field.modifier) {
     case member::modifier_type::none:
       contract.shape = "value:" + type_identity(field.type_name_list.front());
@@ -291,9 +469,15 @@ void check_class(std::vector<compatibility_issue>& result, const class_node& pre
       protocol == compatibility_protocol::binary_none ? "binary_none" :
       protocol == compatibility_protocol::binary_integer ? "binary_integer" :
       protocol == compatibility_protocol::binary_string ? "binary_string" : "protobuf";
-  const bool old_magic = !previous.magic_bytes.empty() && !previous.magic_omits(format);
-  const bool new_magic = !current.magic_bytes.empty() && !current.magic_omits(format);
-  if (old_magic != new_magic || (old_magic && (previous.magic_bytes != current.magic_bytes ||
+  const bool old_magic = previous.has_magic() && !previous.magic_omits(format);
+  const bool new_magic = current.has_magic() && !current.magic_omits(format);
+  const bool typed_magic_changed = previous.magic_field.has_value() != current.magic_field.has_value() ||
+      (previous.magic_field && current.magic_field &&
+       (type_identity(previous.magic_field->type_name_list.front()) !=
+            type_identity(current.magic_field->type_name_list.front()) ||
+        previous.magic_field->default_value != current.magic_field->default_value));
+  if (old_magic != new_magic || (old_magic && (typed_magic_changed ||
+      previous.magic_bytes != current.magic_bytes ||
       (protocol == compatibility_protocol::protobuf_binary && previous.magic_id != current.magic_id)))) {
     issue(result, path, "Magic header added, removed, or changed; select a separate contract");
   }
@@ -403,6 +587,11 @@ void check_class(std::vector<compatibility_issue>& result, const class_node& pre
     }
     if (before.shape != found->shape) {
       issue(result, field_path, "Field type, container shape, map key, or parent identity changed");
+    }
+    if ((protocol == compatibility_protocol::binary_none ||
+         protocol == compatibility_protocol::binary_integer ||
+         protocol == compatibility_protocol::binary_string) && before.compact != found->compact) {
+      issue(result, field_path, "Compact integer encoding changed");
     }
     if (before.fixed_extent != found->fixed_extent) {
       issue(result, field_path, "Fixed array cardinality changed", before.fixed_extent != 0,

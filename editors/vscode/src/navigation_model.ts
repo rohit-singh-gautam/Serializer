@@ -37,7 +37,9 @@ function schemaIncludeName(name: string): string | undefined {
 
 /** Hide comments and literals while preserving UTF-16 offsets used by VS Code. */
 export function codeOnly(text: string): string {
-  return text.replace(/\/\*[\s\S]*?(?:\*\/|$)|\/\/[^\r\n]*|(?:u8|u|U|L)?R"([^ ()\\\t\r\n]{0,16})\([\s\S]*?\)\1"|"(?:\\[\s\S]|[^"\\])*"|'(?:\\[\s\S]|[^'\\])*'/g,
+  // Numeric separators must not open literals and hide later declarations or namespace braces.
+  // Include character prefixes so their contents remain masked with the same source offsets.
+  return text.replace(/\/\*[\s\S]*?(?:\*\/|$)|\/\/[^\r\n]*|(?:u8|u|U|L)?R"([^ ()\\\t\r\n]{0,16})\([\s\S]*?\)\1"|"(?:\\[\s\S]|[^"\\])*"|(?<![A-Za-z_0-9])(?:u8|u|U|L)?'(?:\\[\s\S]|[^'\\])*'/g,
     match => match.replace(/[^\r\n]/g, ' '));
 }
 
@@ -69,6 +71,17 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
     const maximumTypeDepth = 128;
     if (depth >= maximumTypeDepth) { return start + 1; }
     const token = tokens[start]?.text;
+    if ((token === 'compact_prefix' || token === 'compact_varint') && tokens[start + 1]?.text !== '::') {
+      const policy = tokens[start + 1]?.text;
+      const operand = start + (policy === 'strict' || policy === 'lenient' ? 2 : 1);
+      const name = qualified(operand);
+      const metadata = name && tokens[name.next]?.text === 'omit' &&
+        tokens[name.next + 1]?.text === '(' && /^[A-Za-z_]\w*$/.test(tokens[name.next + 2]?.text ?? '');
+      // Older schemas may declare a type with an encoding keyword's spelling.
+      if (name && !metadata && /^[A-Za-z_]\w*$/.test(tokens[name.next]?.text ?? '')) {
+        return typeReference(operand, depth + 1);
+      }
+    }
     if (token === 'managed') { return typeReference(start + 1, depth + 1); }
     if (token === 'array') {
       let next = start + 1;
@@ -112,21 +125,24 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
     return next;
   }
 
-  /** Index only the enum type prefix of a field default, excluding its value and quoted text. */
-  function defaultReference(member: number): void {
-    if (!/^[A-Za-z_]\w*$/.test(tokens[member]?.text ?? '')) { return; }
-    for (let next = member + 1; next < tokens.length; ++next) {
+  /** Index enum type prefixes in field and magic defaults, excluding values and quoted text. */
+  function defaultReference(member: number, metadata = false): void {
+    if (!metadata && !/^[A-Za-z_]\w*$/.test(tokens[member]?.text ?? '')) { return; }
+    for (let next = metadata ? member : member + 1; next < tokens.length; ++next) {
       const token = tokens[next].text;
       if ([';', '}', 'public', 'private', 'protected'].includes(token)) { return; }
       if (token !== '{') { continue; }
-      const value = qualified(next + 1);
-      if (value && tokens[value.next]?.text === '}') {
-        const separator = value.next - 2;
-        if (separator > next + 1 && tokens[separator].text === '::') {
-          result.references.push({ start: value.start, end: tokens[separator - 1].end,
-            name: value.name.slice(0, value.name.lastIndexOf('::')),
-            scope: [...currentScope()], kind: 'enum' });
+      for (let entry = next + 1; entry < tokens.length && tokens[entry].text !== '}';) {
+        const value = qualified(entry);
+        if (value && [',', '}'].includes(tokens[value.next]?.text)) {
+          const separator = value.next - 2;
+          if (separator > entry && tokens[separator].text === '::') {
+            result.references.push({ start: value.start, end: tokens[separator - 1].end,
+              name: value.name.slice(0, value.name.lastIndexOf('::')),
+              scope: [...currentScope()], kind: 'enum' });
+          }
         }
+        entry = value?.next ?? entry + 1;
       }
       return;
     }
@@ -168,8 +184,12 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
         typeReference(i + 3);
       }
     } else if (schema && ['public', 'private', 'protected'].includes(token.text)) {
-      // Version and magic declarations contain metadata, never schema type references.
-      if (!['version', 'magic'].includes(tokens[i + 1]?.text)) { defaultReference(typeReference(i + 1)); }
+      // Typed magic can reference an enum; legacy magic and payload versions have no type operand.
+      if (tokens[i + 1]?.text === 'magic') {
+        if (qualified(i + 2)) { defaultReference(typeReference(i + 2), true); }
+      } else if (tokens[i + 1]?.text !== 'version') {
+        defaultReference(typeReference(i + 1));
+      }
     } else if (token.text === 'class' || token.text === 'struct' || token.text === 'enum') {
       if (tokens[i - 1]?.text === 'enum') { continue; }
       const nameIndex = token.text === 'enum' && ['class', 'struct'].includes(tokens[i + 1]?.text)

@@ -99,6 +99,21 @@ static inline void srl_write_integer(srl_writer* out, uint64_t value, unsigned w
   do { text[--used] = (char)('0' + value%10); value /= 10; } while (value);
   srl_put(out, text+used, sizeof(text)-used);
 }
+/* Encode unsigned compact fields, masking low 30 bits for lenient prefixes. */
+static inline void srl_write_compact_value(srl_writer* out, uint64_t value, unsigned width, bool prefix, bool strict) {
+  if (out->protocol == srl_json) { srl_write_integer(out, value, width, true); return; }
+  if (prefix) {
+    if (strict && value > UINT64_C(0x3fffffff)) { if (out->status == srl_ok) { out->status = srl_range; } return; }
+    value &= UINT64_C(0x3fffffff);
+    const unsigned extra = value <= 63 ? 0 : value <= 16383 ? 1 : value <= 4194303 ? 2 : 3;
+    srl_put_byte(out, (uint8_t)((extra << 6) | (value >> (extra*8))));
+    for (unsigned i = extra; i > 0; --i) { srl_put_byte(out, (uint8_t)(value >> ((i-1)*8))); }
+    return;
+  }
+  uint8_t bytes[10]; size_t count = 0;
+  while (value >= UINT64_C(0x80)) { bytes[count++] = (uint8_t)((value & UINT64_C(0x7f)) | UINT64_C(0x80)); value >>= 7; }
+  bytes[count++] = (uint8_t)value; srl_put(out, bytes, count);
+}
 /* Normalize the process locale's decimal separator without changing global locale state. */
 static inline void srl_write_float(srl_writer* out, double value, bool single) {
   if (out->protocol != srl_json) {
@@ -201,6 +216,31 @@ static inline uint64_t srl_read_integer(srl_reader* in, unsigned width, bool pos
     if (negative) { value = ~value+1; }
   }
   srl_token_free(in, text); return value;
+}
+/* Validate complete compact framing and target-width overflow before cursor publication. */
+static inline uint64_t srl_read_compact_value(srl_reader* in, unsigned width, bool prefix) {
+  if (in->protocol == srl_json) { return srl_read_integer(in, width, true); }
+  const size_t start = in->offset;
+  if (prefix) {
+    const uint64_t value = srl_read_compact(in);
+    if (in->status == srl_ok && width < 8 && value >= (UINT64_C(1) << (width*8))) { in->offset = start; in->status = srl_range; return 0; }
+    return value;
+  }
+  const unsigned bits = width*8;
+  uint64_t value = 0;
+  for (unsigned index = 0; index < (bits+6)/7; ++index) {
+    if (!srl_require(in, index+1)) { return 0; }
+    const uint8_t byte = in->data[start+index], payload = byte & 0x7f;
+    const unsigned remaining_bits = bits-index*7;
+    if (payload >= (UINT64_C(1) << (remaining_bits < 7 ? remaining_bits : 7))) { in->status = srl_range; return 0; }
+    value |= (uint64_t)payload << (index*7);
+    if (byte < 0x80) {
+      if (index != 0 && payload == 0) { in->status = srl_invalid; return 0; }
+      in->offset = start+index+1;
+      return value;
+    }
+  }
+  in->status = srl_invalid; return 0;
 }
 /* Recover a signed value without implementation-defined unsigned-to-signed narrowing. */
 static inline int64_t srl_signed(uint64_t value, unsigned width) {

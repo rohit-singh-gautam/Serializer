@@ -69,6 +69,10 @@ inline constexpr int variable_four_byte_max = 0x3fffffff;
 inline constexpr std::uint32_t binary_object_end_id = 0;
 inline constexpr std::uint32_t wire_byte_mask = 0xffU;
 inline constexpr unsigned wire_byte_bits = 8;
+// Unsigned LEB128 uses seven payload bits and one continuation bit per byte.
+inline constexpr unsigned varint_payload_bits = 7;
+inline constexpr std::uint8_t varint_payload_mask = 0x7f;
+inline constexpr std::uint8_t varint_continuation_mask = 0x80;
 inline constexpr int decimal_radix = 10;
 inline constexpr std::string_view map_key_name = "key";
 inline constexpr std::string_view map_value_name = "value";
@@ -79,6 +83,33 @@ static_assert((variable_tag_mask & variable_payload_mask) == 0);
 } // namespace constants
 
 namespace detail {
+// Keep public scalar storage and JSON values independent of the native binary encoding.
+template <bool Prefix, bool Strict, std::unsigned_integral T>
+struct compact_output {
+  T value;
+
+  // Select the binary compact hook; other protocols retain their ordinary scalar mapping.
+  template <typename Protocol>
+  void serialize_out(Protocol& protocol) const {
+    if constexpr (requires { protocol.template serialize_out_compact<Prefix, Strict>(value); }) {
+      protocol.template serialize_out_compact<Prefix, Strict>(value);
+    } else {
+      protocol.serialize_out(value);
+    }
+  }
+};
+
+// Decode through the binary compact hook, preserving all other protocol mappings.
+template <bool Prefix, typename Protocol, std::unsigned_integral T>
+void read_compact(Protocol& protocol, T& value) {
+  if constexpr (requires { protocol.template serialize_in_compact<Prefix>(value); }) {
+    protocol.template serialize_in_compact<Prefix>(value);
+  } else {
+    protocol.serialize_in(value);
+  }
+}
+
+
 // Only padding-free fixed-width scalars can share bulk binary input/output paths.
 template <typename T>
 concept binary_array_scalar =
@@ -390,16 +421,17 @@ concept functions = std::invocable<const T&, Stream&>;
 namespace detail {
 // Generated owning classes opt in to typed storage donation while retaining fresh field defaults.
 // Verify and discard a required JSON header while forwarding mutable payload fields.
-template <typename Reader> struct json_magic_reader {
+template <typename Reader, typename Expected = std::string_view> struct json_magic_reader {
   Reader& target;
-  std::string_view expected;
+  Expected expected;
   bool seen{};
   // Validate the fixed value without introducing per-object magic storage.
   template <typename Protocol>
   void serialize_in_member_by_name(Protocol& protocol, std::string_view name) {
     if (name == "magic") {
       if (seen) { throw std::invalid_argument{"Duplicate magic header"}; }
-      std::string actual;
+      // Legacy byte literals decode as strings; typed headers retain their scalar type.
+      std::conditional_t<std::convertible_to<Expected, std::string_view>, std::string, Expected> actual{};
       protocol.serialize_in(actual);
       if (actual != expected) { throw std::invalid_argument{"JSON magic header mismatch"}; }
       seen = true;
@@ -418,15 +450,47 @@ template <typename Reader> struct json_magic_reader {
   }
 };
 
+// Preserve legacy implicit text adaptation while deducing newly typed scalar identities directly.
+template <typename Reader, typename Expected>
+json_magic_reader(Reader&, Expected, bool = false)
+    -> json_magic_reader<Reader, std::conditional_t<std::convertible_to<Expected, std::string_view>,
+                                                  std::string_view, Expected>>;
+
 // Add fixed JSON identity validation without changing native binary keyed dispatch.
-template <typename Protocol, typename Reader>
-void read_magic_object(Protocol& protocol, Reader& reader, std::string_view expected) {
+template <typename Protocol, typename Reader, typename Expected>
+void read_magic_object(Protocol& protocol, Reader& reader, const Expected& expected) {
   if constexpr (is_json_protocol<Protocol>) {
-    json_magic_reader<Reader> header{reader, expected};
+    using expected_type = std::conditional_t<std::convertible_to<Expected, std::string_view>,
+                                             std::string_view, Expected>;
+    json_magic_reader<Reader, expected_type> header{reader, expected};
     protocol.struct_serialize_in(&header);
     header.finish();
   } else {
     protocol.struct_serialize_in(&reader);
+  }
+}
+
+// Emit a typed header through the same scalar or named-enum codec as payload fields.
+template <typename Protocol, typename T>
+void write_typed_magic(Protocol& protocol, const T& expected) {
+  if constexpr (std::is_enum_v<T> && Protocol::key_type == decltype(Protocol::key_type)::string) {
+    protocol.serialize_out(enum_name(expected));
+  } else {
+    protocol.serialize_out(expected);
+  }
+}
+
+// Validate and discard a typed binary prefix before decoding mutable payload fields.
+template <typename Protocol, typename T>
+void validate_typed_magic(Protocol& protocol, const T& expected) {
+  T actual{};
+  if constexpr (std::is_enum_v<T> && Protocol::key_type == decltype(Protocol::key_type)::string) {
+    read_named_enum(protocol, actual);
+  } else {
+    protocol.serialize_in(actual);
+  }
+  if (actual != expected) {
+    throw std::invalid_argument{"Binary magic header mismatch"};
   }
 }
 
@@ -1705,6 +1769,43 @@ public:
     return value;
   }
 
+  // Decode an unsigned compact field without publishing a partial scalar on failure.
+  template <bool Prefix, std::unsigned_integral T>
+  void serialize_in_compact(T& value) {
+    static_assert(!std::same_as<T, bool> && std::numeric_limits<T>::digits <= 64);
+    charge_work();
+    if constexpr (Prefix) {
+      const auto candidate = serialize_in_variable();
+      if (candidate > std::numeric_limits<T>::max()) {
+        throw exception::numeric_range{in_stream, "Compact prefix exceeds scalar width", limits.diagnostics};
+      }
+      value = static_cast<T>(candidate);
+    } else {
+      constexpr auto maximum_bytes =
+          (std::numeric_limits<T>::digits + constants::varint_payload_bits - 1) /
+          constants::varint_payload_bits;
+      T candidate{};
+      for (unsigned index = 0; index < maximum_bytes; ++index) {
+        const auto byte = *read_bytes(1);
+        const auto payload = static_cast<T>(byte & constants::varint_payload_mask);
+        const auto shift = index * constants::varint_payload_bits;
+        // Check before shifting so the final byte cannot overflow the destination.
+        if (payload > (std::numeric_limits<T>::max() >> shift)) {
+          throw exception::numeric_range{in_stream, "Compact varint exceeds scalar width", limits.diagnostics};
+        }
+        candidate = static_cast<T>(candidate | (static_cast<T>(payload) << shift));
+        if ((byte & constants::varint_continuation_mask) == 0) {
+          if (index != 0 && payload == 0) {
+            throw exception::bad_input_data{in_stream, "Noncanonical compact varint", limits.diagnostics};
+          }
+          value = candidate;
+          return;
+        }
+      }
+      throw exception::bad_input_data{in_stream, "Compact varint exceeds maximum byte count", limits.diagnostics};
+    }
+  }
+
   // Borrow a length-prefixed name for immediate dispatch; callers must retain the input storage.
   std::string_view serialize_in_name() {
     const auto size = serialize_in_variable();
@@ -2155,6 +2256,39 @@ public:
           static_cast<std::uint8_t>(id & constants::wire_byte_mask));
     } else {
       throw std::out_of_range{"Binary variable integer exceeds the 30-bit wire range"};
+    }
+  }
+
+  // Stage one compact scalar before a single output reservation.
+  // Strict overflow leaves this payload unwritten; lenient prefix keeps the low 30 bits.
+  template <bool Prefix, bool Strict, std::unsigned_integral T>
+  void serialize_out_compact(T value) {
+    static_assert(!std::same_as<T, bool> && std::numeric_limits<T>::digits <= 64);
+    if constexpr (Prefix) {
+      if constexpr (Strict && std::numeric_limits<T>::digits > 30) {
+        if (value > constants::variable_four_byte_max) {
+          throw std::out_of_range{"Compact prefix exceeds the 30-bit wire range"};
+        }
+      }
+      const auto candidate = static_cast<std::uint32_t>(value & constants::variable_four_byte_max);
+      constexpr auto maximum_prefix_bytes = detail::fixed_prefix_bytes(constants::variable_four_byte_max);
+      std::array<std::uint8_t, maximum_prefix_bytes> bytes{};
+      auto* cursor = bytes.data();
+      detail::write_fixed_prefix(cursor, candidate);
+      out_stream.append_external(bytes.data(), static_cast<std::size_t>(cursor - bytes.data()));
+    } else {
+      constexpr auto maximum_bytes =
+          (std::numeric_limits<T>::digits + constants::varint_payload_bits - 1) /
+          constants::varint_payload_bits;
+      std::array<std::uint8_t, maximum_bytes> bytes{};
+      std::size_t size{};
+      do {
+        auto byte = static_cast<std::uint8_t>(value & constants::varint_payload_mask);
+        value >>= constants::varint_payload_bits;
+        if (value != 0) { byte |= constants::varint_continuation_mask; }
+        bytes[size++] = byte;
+      } while (value != 0);
+      out_stream.append_external(bytes.data(), size);
     }
   }
 

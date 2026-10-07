@@ -72,6 +72,21 @@ internal class SrlWriter(val protocol: Protocol) {
             if (unsigned) raw(value.toString()) else { val shift = (8-width)*8; raw(((value shl shift).toLong() shr shift).toString()) }
         } else { for (i in 0 until width) output.write((value shr (i*8)).toInt()) }
     }
+    // Encode unsigned compact fields; lenient prefixes mask deterministically without range checks.
+    fun compactValue(value: ULong, width: Int, prefix: Boolean, strict: Boolean) {
+        if (json()) { integer(value, width, true); return }
+        if (prefix) {
+            if (strict && value > 0x3fffffffUL) throw SerializerException("Compact prefix integer range")
+            val payload = (value and 0x3fffffffUL).toInt()
+            val extra = if (payload <= 63) 0 else if (payload <= 16383) 1 else if (payload <= 4194303) 2 else 3
+            output.write((extra shl 6) or (payload ushr (extra*8)))
+            for (i in extra-1 downTo 0) output.write(payload ushr (i*8))
+            return
+        }
+        var remaining = value
+        while (remaining >= 0x80UL) { output.write(((remaining and 0x7fUL) or 0x80UL).toInt()); remaining = remaining shr 7 }
+        output.write(remaining.toInt())
+    }
     // Preserve binary32 bits, including NaNs; JSON requires finite values.
     fun float32(value: Float) {
         if (json()) { if (!value.isFinite()) throw SerializerException("Nonfinite JSON number"); raw(value.toString()) }
@@ -187,6 +202,32 @@ internal class SrlReader(val data: ByteArray, val protocol: Protocol, val limits
         val value = text.toLongOrNull() ?: throw SerializerException("Integer range")
         if (width < 8 && (value < -(1L shl (width*8-1)) || value >= (1L shl (width*8-1)))) throw SerializerException("Integer range")
         return value.toULong()
+    }
+)serializer"
+R"serializer(    // Reject malformed compact framing, noncanonical varints, and target-width overflow.
+    fun compactValue(width: Int, prefix: Boolean): ULong {
+        if (json()) return integer(width, true)
+        val start = offset
+        if (prefix) {
+            val value = compact().toULong()
+            if (width < 8 && value > (ULong.MAX_VALUE shr ((8-width)*8))) { offset = start; throw SerializerException("Compact integer range") }
+            return value
+        }
+        val bits = width*8
+        var value = 0UL
+        for (index in 0 until (bits+6)/7) {
+            requireBytes(index+1)
+            val byte = data[start+index].toInt() and 255
+            val payload = byte and 0x7f
+            if (payload >= (1 shl minOf(7, bits-index*7))) throw SerializerException("Compact integer range")
+            value = value or (payload.toULong() shl (index*7))
+            if (byte < 0x80) {
+                if (index != 0 && payload == 0) throw SerializerException("Noncanonical compact integer")
+                offset = start+index+1
+                return value
+            }
+        }
+        throw SerializerException("Unterminated compact integer")
     }
     // Read binary32 directly and validate finite JSON range including underflow.
     fun float32(): Float {
