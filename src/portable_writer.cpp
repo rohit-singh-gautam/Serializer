@@ -425,7 +425,7 @@ class emitter {
         for (const auto& alternative : item.type_name_list) {
           if (alternative.resolved_node == node &&
               (item.modifier == member::modifier_type::none ||
-               item.modifier == member::modifier_type::variant)) {
+               item.modifier == member::modifier_type::variant || item.fixed_extent != 0)) {
             throw std::invalid_argument{"Direct self-containing owning default"};
           }
         }
@@ -589,6 +589,14 @@ class emitter {
     return language == target::go ? "make(" + collection_type(value) + ", 0)"
                                   : "new " + collection_type(value) + "()";
   }
+  // Construct independent fixed elements while leaving variable collections empty.
+  std::string initial_collection(const member& value) const {
+    if (value.fixed_extent != 0) {
+      return "Array.from({ length: " + std::to_string(value.fixed_extent) + " }, () => " +
+             initial(value.type_name_list.front()) + ")";
+    }
+    return empty_collection(value);
+  }
   // Declare or initialize one field using target-specific visibility.
   void declaration(const std::string& identifier, const std::string& field_type,
                    const std::string& initial_value, access_type access) {
@@ -632,7 +640,7 @@ class emitter {
       } else if (item.modifier == member::modifier_type::none) {
         declare(identifier, type(item.type_name_list.front()), default_value(item), item.access);
       } else {
-        declare(identifier, collection_type(item), empty_collection(item), item.access);
+        declare(identifier, collection_type(item), initial_collection(item), item.access);
       }
     }
   }
@@ -656,6 +664,11 @@ class emitter {
       return;
     }
     local("count", "input.beginArray()");
+    if (value.fixed_extent != 0) {
+      condition("count !== -1 && count !== " + std::to_string(value.fixed_extent));
+      statement("input.fail(\"Fixed array extent mismatch\")");
+      close();
+    }
     std::string initial_collection = empty_collection(value);
     if (value.modifier == member::modifier_type::array && language != target::js) {
       const auto& scalar = value.type_name_list.front();
@@ -673,6 +686,11 @@ class emitter {
     }
     local("values", initial_collection);
     read_loop();
+    if (value.fixed_extent != 0) {
+      condition("index >= " + std::to_string(value.fixed_extent));
+      statement("input.fail(\"Fixed array extent mismatch\")");
+      close();
+    }
     if (value.modifier == member::modifier_type::array) {
       const auto expression = read_value(item, true);
       statement(choose("values.push(" + expression + ")",
@@ -738,6 +756,11 @@ class emitter {
       }
     }
     close();
+    if (value.fixed_extent != 0) {
+      condition("values.length !== " + std::to_string(value.fixed_extent));
+      statement("input.fail(\"Fixed array extent mismatch\")");
+      close();
+    }
     statement(destination + " = values");
   }
   // Encode arrays and maps directly, sorting keys to preserve native map ordering.
@@ -761,6 +784,11 @@ class emitter {
     if (value.modifier == member::modifier_type::array) {
       const auto count =
           choose(expression + ".length", "len(" + expression + ")", expression + ".Count");
+      if (value.fixed_extent != 0) {
+        condition(count + " !== " + std::to_string(value.fixed_extent));
+        statement("output.fail(\"Fixed array extent mismatch\")");
+        close();
+      }
       statement("output.beginArray(" + count + ")");
       open(choose("for (let index = 0; index < " + count + "; ++index)",
                   "for index := 0; index < " + count + "; index++",
@@ -1647,7 +1675,9 @@ public:
 std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,
                      std::string_view language, std::string_view unit_name,
                      const portable_options& options) {
-  require_variable_arrays(statements, language);
+  if (language != "js" && language != "typescript" && language != "python") {
+    require_variable_arrays(statements, language);
+  }
   require_unmanaged_backend(statements);
   if (language == "c") { return native::c(native::schema{statements}); }
   if (language == "swift") { return native::swift(native::schema{statements}); }

@@ -32,7 +32,7 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **1.5.0**. Bug fixes and minor updates
+The current compiler and runtime release is **1.6.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.2.0**;
@@ -178,8 +178,9 @@ Language `1.1.0` adds `array[] T` with an extent inferred from nonempty defaults
 `public array[] char signature {'SRLFILE'};` uses seven decoded bytes with no NUL terminator.
 Optional `instantiate person_result = result<person>;` declarations and concrete
 schema fields define contracts for all eleven generators. Other languages keep
-concrete APIs; fixed arrays currently produce explicit unsupported diagnostics
-outside native C++ codecs. See the [generic examples](example/generics/README.md)
+concrete APIs. JavaScript/TypeScript and Python also support fixed arrays without
+explicit initializers, enforcing the extent during encoding and decoding. Other
+backends reject fixed arrays explicitly. See the [generic examples](example/generics/README.md)
 and [qualification record](docs/verification-dimensions-2026-10-04.md).
 
 All languages use the same schema compiler. Their generated APIs and runtime
@@ -284,7 +285,7 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
 Both extensions use source release version **1.1.26**, independent of compiler version
-**1.5.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
+**1.6.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
 for supported destinations and language-service prerequisites.
 VS Code also supports navigation from read-only Git index/history tabs, using
 the displayed snapshot and current workspace destinations.

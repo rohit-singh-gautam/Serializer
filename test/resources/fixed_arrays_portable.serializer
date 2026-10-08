@@ -1,0 +1,23 @@
+serializer version 1.1.0;
+
+class sha1_hash stable_ids {
+  public array[20] uint8 bytes (1);
+}
+class sha256_hash stable_ids {
+  public array[32] uint8 bytes (1);
+}
+class item stable_ids {
+  public uint16 value (1) { 7 };
+}
+class fixture stable_ids {
+  public sha1_hash short_hash (1);
+  public sha256_hash long_hash (2);
+  public array[2] item nested (3);
+  public union(uint8=absent, sha1_hash=sha1, sha256_hash=sha256) commit (4);
+}
+class fixed_bytes stable_ids {
+  public array[32] uint8 bytes (1);
+}
+class variable_bytes stable_ids {
+  public array uint8 bytes (1);
+}

@@ -256,7 +256,7 @@ schema::schema(const std::vector<std::unique_ptr<syntax_node>>& statements) {
       for (const auto& alternative : field.type_name_list) {
         if (alternative.resolved_node == node &&
             (field.modifier == member::modifier_type::none ||
-             field.modifier == member::modifier_type::variant)) {
+             field.modifier == member::modifier_type::variant || field.fixed_extent != 0)) {
           throw std::invalid_argument{"Direct self-containing owning default"};
         }
       }

@@ -147,6 +147,18 @@ foreach(profile IN ITEMS serializer core google llvm gnu cert misra autosar qt)
 endforeach()
 find_package(Python3 3.10 COMPONENTS Interpreter QUIET)
 if(Python3_Interpreter_FOUND)
+  find_program(serializer_fixed_array_node NAMES node)
+  if(serializer_fixed_array_node)
+    add_executable(fixed_arrays_portable_test fixed_arrays_portable_test.cpp)
+    serializer_generate(TARGET fixed_arrays_portable_test
+      SCHEMAS resources/fixed_arrays_portable.serializer
+      OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/fixed_arrays_portable")
+    add_test(NAME serializer_fixed_arrays_portable
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/fixed_arrays_portable_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --native "$<TARGET_FILE:fixed_arrays_portable_test>"
+        --node "${serializer_fixed_array_node}"
+        --build "${CMAKE_CURRENT_BINARY_DIR}/fixed_arrays_portable")
+  endif()
   add_test(NAME serializer_runtime_literals
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/runtime_literal_test.py")
   add_test(NAME serializer_generic_python

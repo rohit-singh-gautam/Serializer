@@ -55,8 +55,10 @@ Use `class matrix<uint64 Rows, uint64 Cols = Rows, T = double>` with
 `public array[Rows * Cols] T elements;` for C++ fixed owning storage.
 `matrix<3>` and `matrix<3,3,double>` are the same native specialization.
 Fill `value.elements` as a `std::array` and serialize with the existing APIs;
-exact input enforces cardinality and ordinary decode budgets. Fixed arrays outside
-C++ native codecs are explicitly rejected. For a managed root containing ordinary
+exact input enforces cardinality and ordinary decode budgets. JavaScript/TypeScript
+and Python support fixed arrays without explicit initializers from compiler 1.6.0;
+their codecs enforce the same cardinality and retain ordinary sequence counts.
+Other backends reject fixed arrays. For a managed root containing ordinary
 point/frame/matrix values, use generated whole-value setters within transactions;
 the fixed arrays have no resize/insert/erase editor operations.
 

@@ -142,10 +142,13 @@ TEST(dimension_templates, canonical_resource_boundaries) {
   EXPECT_THROW(parse_dimensions(source + "public tag<1025> extra; }"), std::exception);
 }
 
-// Every non-C++ backend explicitly refuses loss of fixed-array cardinality.
+// Backends without an exact-length codec refuse loss of fixed-array cardinality.
 TEST(dimension_templates, backend_diagnostics) {
   const auto nodes = parse_dimensions("class p { public array[3] double x; }");
-  for (const auto language : {"js", "typescript", "go", "csharp", "rust", "python", "swift", "kotlin", "c"}) {
+  for (const auto language : {"js", "typescript", "python"}) {
+    EXPECT_NO_THROW(schema::writer::portable::generate(nodes, language, "Schema"));
+  }
+  for (const auto language : {"go", "csharp", "rust", "swift", "kotlin", "c"}) {
     SCOPED_TRACE(language);
     EXPECT_THROW(schema::writer::portable::generate(nodes, language, "Schema"), std::invalid_argument);
   }

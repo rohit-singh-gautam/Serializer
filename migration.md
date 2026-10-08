@@ -1,5 +1,17 @@
 # Migrating to the snake_case Serializer API
 
+## Portable fixed arrays (8 October 2026)
+
+Compiler/runtime **1.6.0** adds JavaScript/TypeScript and Python generation for
+fixed arrays without explicit initializers. Regenerate those outputs to use
+`array[N] T`; existing variable-array schemas and wire formats are unchanged.
+The schema language remains **1.2.0**. Owning arrays/lists start with exactly `N`
+independent element defaults, and their codecs enforce cardinality in all four
+native protocols. The ordinary sequence count remains encoded. TypeScript uses
+`T[]` declarations, so enforce cardinality through the generated JS codec.
+Explicit collection initializers, other portable backends, and direct Protobuf
+fixed-array output remain unsupported. See [the backend matrix](docs/generics.md#backend-support).
+
 ## Several generation configurations from one parse (8 October 2026)
 
 Compiler/runtime **1.5.0** accepts repeated `--config` and output options to
@@ -100,7 +112,8 @@ Select `serializer version 1.1.0;` in each file that uses either new declaration
 including included files. `public array[] uint32 values {1, 2, 3};` infers fixed
 extent three. `public array[] char signature {'SRLFILE'};` infers seven decoded
 bytes without an implicit terminator. Empty/missing initializers reject, and
-fixed arrays remain limited to 1..65,536 elements and native C++ output.
+fixed arrays remain limited to 1..65,536 elements. Inferred or initialized fixed
+arrays require native C++ output; portable support above covers uninitialized extents.
 Replacing an explicit extent with an equal inferred extent preserves storage
 and wire cardinality; changing defaults later can change the inferred contract.
 
@@ -207,8 +220,8 @@ remains 1). The supporting revision is recorded in the
 [qualification report](docs/verification-dimensions-2026-10-04.md); no earlier released
 compiler is advertised as supporting these additions.
 
-Fixed arrays enforce exact present-field cardinality. They currently require C++
-native protocols; other language and Protobuf generation reject them explicitly.
+Fixed arrays enforce exact present-field cardinality. At that release, they required
+C++ native protocols; other language and Protobuf generation rejected them explicitly.
 Both editor packages advance together to 1.1.15. See [generics](docs/generics.md).
 
 ## Schema generics

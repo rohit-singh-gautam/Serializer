@@ -427,6 +427,10 @@ feature as a prerequisite without the user's request.
   implicit terminator. Missing/empty defaults or extents above 65,536 reject.
   Preserve the explicit element type. Each declaring dependency needs its own
   `1.1.0` header; the original `1` alias remains exactly `1.0.0`.
+  Compiler/runtime 1.6.0 also supports fixed arrays without explicit initializers
+  in JavaScript/TypeScript and Python. Their owning arrays/lists start with exactly
+  the schema extent and reject short/extra elements during encoding and decoding.
+  TypeScript retains ordinary array annotations; the JS codec enforces cardinality.
   Other backends and Protobuf reject fixed arrays explicitly; do not claim mappings.
   Preserve existing runtime decode limits and exact cardinality. Missing keyed
   fields retain defaults; explicitly empty fixed arrays fail. Generic managed/view
@@ -439,7 +443,7 @@ feature as a prerequisite without the user's request.
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
   remains available through `parser::parse(input)`. Schema language version 1.2.0 is
-  independent of compiler release 1.5.0 and wire protocols. Bug fixes and minor
+  independent of compiler release 1.6.0 and wire protocols. Bug fixes and minor
   updates increment the patch number; new features increment the minor number.
   Minor and patch releases preserve full compatibility. Developers change the
   major number manually, with best-effort compatibility across major releases.

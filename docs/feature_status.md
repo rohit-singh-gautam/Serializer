@@ -110,8 +110,9 @@ standard test build or independently with `SERIALIZER_BUILD_IOSTREAM_EXAMPLES=ON
 [Schema generics](generics.md) support native C++ templates without concrete schema
 uses, nested applications, trailing defaults, and positive uint64 dimensions.
 Optional named roots and concrete fields produce contracts for all eleven outputs.
-Fixed arrays use std::array and native C++ codecs; other backends and Protobuf
-explicitly reject them. Ordinary generic values can be contained by managed C++
+Fixed arrays use std::array and native C++ codecs; JavaScript/TypeScript and
+Python also support explicit extents without initializers in compiler 1.6.0.
+Other backends and Protobuf explicitly reject them. Ordinary generic values can be contained by managed C++
 roots. Generic managed/view declarations, inheritance, unions, recursive ownership,
 user specialization, and non-C++ native generic APIs remain unsupported. See the
 [qualification record](verification-dimensions-2026-10-04.md).
@@ -133,7 +134,7 @@ Namespace scopes are reused during parsing; duplicate types and namespace/type c
 are rejected. See [schema includes](usage.md#share-declarations-with-includes) and the
 [paired C++/Java examples](../example/includes/README.md). Quoted defaults preserve
 literal spaces, for example `public string label { "schema default" };`; escaping the
-space is unnecessary. Run `serializer --version` for compiler version **1.5.0** and
+space is unnecessary. Run `serializer --version` for compiler version **1.6.0** and
 supported schema versions. See [command-line options](command_line.md) for
 multi-language generation and overrides.
 
@@ -144,6 +145,12 @@ for several configured targets. INI syntax, schema language **1.2.0**, and exist
 single-configuration calls remain compatible. See
 [batch generation](command_line.md#generate-several-configurations-from-one-parse)
 for output ordering and failure behavior.
+
+Compiler **1.6.0** adds fixed-array generation without explicit initializers to
+JavaScript/TypeScript and Python. Native sequence counts remain unchanged;
+generated codecs enforce exact extent in all four protocols. Other portable
+backends and initialized collection defaults remain unsupported. See the
+[backend matrix](generics.md#backend-support).
 
 See [Java output](java.md) for dependency-free Java 17+ codecs and [all
 examples](../example/README.md) for self-contained example folders.

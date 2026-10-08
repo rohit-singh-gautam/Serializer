@@ -675,7 +675,10 @@ array must contain exactly its schema extent. Binary readers check the count
 before elements; JSON bounds iteration and rejects short/extra elements. Missing
 keyed fields retain destination/default values; an explicit empty sequence is not
 a missing field. Runtime budgets and endian selection are unchanged. Direct
-Protobuf generation of fixed arrays is explicitly rejected. See
+Protobuf generation of fixed arrays is explicitly rejected. From compiler 1.6.0,
+JavaScript/TypeScript and Python fixed arrays without initializers use the same
+counts and exact-cardinality checks as native C++; their owning arrays/lists are
+initialized to the extent. Other portable backends remain unsupported. See
 [generic contracts](generics.md) and [qualification](verification-dimensions-2026-10-04.md).
 
 ## Compatible native JSON input

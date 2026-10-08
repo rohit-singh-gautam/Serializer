@@ -338,22 +338,25 @@ R"serializer(    def compact_value(self, width, prefix):
                 first = False
                 yield key
         self.depth -= 1
-    def entries(self):
-        """Charge collection slots incrementally, never preallocating untrusted counts."""
+    def entries(self, expected=None):
+        """Bound collection slots and reject fixed extents before reading extra values."""
         if self.protocol == 0: self.expect(91); count = None
         else:
             count = self.compact()
             if count > self.limits.max_elements-self.elements: raise ValueError('Element limit')
+            if expected is not None and count != expected: raise ValueError('Fixed array extent mismatch')
         index = 0
         while count is None or index < count:
             if count is None:
                 self.whitespace(); self.require(1)
                 if self.data[self.offset] == 93: self.offset += 1; break
                 if index: self.expect(44)
+            if expected is not None and index >= expected: raise ValueError('Fixed array extent mismatch')
             self.elements += 1
             if self.elements > self.limits.max_elements: raise ValueError('Element limit')
             yield index
             index += 1
+        if expected is not None and index != expected: raise ValueError('Fixed array extent mismatch')
     def skip_value(self):
         """Skip a complete JSON value with normal validation and resource limits."""
         if self.protocol != Protocol.JSON or self.limits.read_policy != ReadPolicy.FLEXIBLE:

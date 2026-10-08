@@ -165,7 +165,8 @@ class python_emitter {
       return;
     }
     if (value.modifier == member::modifier_type::array) {
-      line(destination + " = [" + read(item, true) + " for _ in input.entries()]");
+      const auto extent = value.fixed_extent ? std::to_string(value.fixed_extent) : std::string{};
+      line(destination + " = [" + read(item, true) + " for _ in input.entries(" + extent + ")]");
       return;
     }
     line("values = {}");
@@ -222,6 +223,10 @@ class python_emitter {
       }
       write(item, source, false);
       return;
+    }
+    if (value.fixed_extent != 0) {
+      line("if len(" + source + ") != " + std::to_string(value.fixed_extent) +
+           ": raise ValueError('Fixed array extent mismatch')");
     }
     line("out.begin_array(len(" + source + "))");
     open("for index, item in enumerate(" +
@@ -327,6 +332,8 @@ class python_emitter {
                           {item.modifier == member::modifier_type::array
                                ? "list[" + type(t) + "]"
                                : "dict[" + type(map_key(item)) + ", " + type(t) + "]",
+                           item.fixed_extent ? "[" + initial(t) + " for _ in range(" +
+                               std::to_string(item.fixed_extent) + ")]" :
                            item.modifier == member::modifier_type::array ? "[]" : "{}"}});
       }
     }

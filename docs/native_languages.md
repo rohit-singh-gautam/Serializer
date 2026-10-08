@@ -89,6 +89,11 @@ Little-endian refers to the wire bytes, independently of the host CPU. The share
 interop runner can add big-endian C/C++ hosts using `--big-endian`; all participants
 check the same frozen positional bytes. Strings require valid UTF-8 in every
 backend, including C++; use `array uint8` for arbitrary binary data.
+Python supports `array[N] T` without explicit initializers from compiler 1.6.0.
+It constructs exactly `N` independent defaults and validates the extent during
+encoding and decoding, including binary counts before reading elements and JSON
+iteration bounds. The sequence count remains encoded. Other backends in this
+guide reject fixed arrays. See [the support matrix](generics.md#backend-support).
 Swift's strict UTF-8 decoder preserves a leading U+FEFF as string data on every
 platform, including Windows. Regenerate Swift output to obtain that correction;
 it continues to reject malformed UTF-8 and invalid token/field-name prefixes.

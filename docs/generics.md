@@ -117,8 +117,10 @@ The legacy `1` header remains `1.0.0` and rejects empty extent syntax.
 
 The inferred extent is fixed at generation time. Its native C++ storage,
 wire count, cardinality checks, compatibility analysis, and backend limitations
-are the same as `array[N] T`; other language outputs and direct Protobuf
-generation continue to reject fixed arrays.
+are the same as `array[N] T`. JavaScript/TypeScript and Python support explicit
+extents without initializers from compiler 1.6.0; collection initializers,
+including inferred extents, remain unsupported in those backends. Other language
+outputs and direct Protobuf generation continue to reject fixed arrays.
 
 All generic definitions require unpacked, unmanaged owning storage, without
 inheritance, unions, recursive ownership, variadics, or user specializations.
@@ -129,17 +131,25 @@ Collections are field modifiers, not type arguments; wrap a collection in a clas
 
 ## Backend support
 
-| Feature | C++ | Other ten languages |
-| --- | --- | --- |
-| Native generic declaration without concrete contracts | Native template and codecs | No model emitted |
-| Concrete type/dimension applications without fixed arrays | Supported | Existing concrete records/codecs |
-| Fixed arrays, including point/frame/matrix above | std::array, four native protocols | Explicit generation-time unsupported diagnostic |
-| Fixed arrays with direct Protobuf output | Explicit generation-time unsupported diagnostic | Not advertised |
-| Ordinary generic values in managed roots | Generated replacement setters/history/journals | Managed runtime remains unsupported |
+| Feature | C++ | JavaScript/TypeScript and Python | Other languages |
+| --- | --- | --- | --- |
+| Native generic declaration without concrete contracts | Native template and codecs | No model emitted | No model emitted |
+| Concrete type/dimension applications without fixed arrays | Supported | Existing concrete records/codecs | Existing concrete records/codecs |
+| Fixed arrays without initializers, including point/frame/matrix above | std::array, four native protocols | Array/list, four native protocols with exact extent checks | Explicit generation-time unsupported diagnostic |
+| Fixed arrays with initializers or direct Protobuf output | Initializers supported; Protobuf rejected | Explicit generation-time unsupported diagnostic | Explicit generation-time unsupported diagnostic |
+| Ordinary generic values in managed roots | Generated replacement setters/history/journals | Managed runtime remains unsupported | Managed runtime remains unsupported |
+
+Portable fixed arrays initialize each element independently, preserving nested
+class defaults without shared mutable values. Binary readers reject a count
+different from the extent before decoding elements; JSON readers bound iteration
+by the extent and reject short or extra arrays. Missing keyed fields retain
+defaults. TypeScript uses ordinary `T[]` declarations and runtime cardinality checks.
 
 Fixed-array diagnostics identify the backend, field, and schema byte offset.
 There is no implicit variable-length fallback. The [qualification record](verification-dimensions-2026-10-04.md)
 distinguishes native Windows results, WSL results, and remaining limitations.
+See [portable fixed-array verification](verification-portable-fixed-arrays-2026-10-08.md)
+for the later C++/JavaScript/Python wire and cardinality checks.
 
 ## Wire and compatibility behavior
 

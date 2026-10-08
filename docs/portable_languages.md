@@ -71,6 +71,7 @@ configured namespace. `Schema.cs` therefore exposes
 | `bool` | `boolean` | `bool` | `bool` |
 | `string` | `string`, strict Unicode | `string`, strict UTF-8 | `string`, strict Unicode |
 | `array T` | `T[]` | `[]T` | `List<T>` |
+| `array[N] T` without initializer (compiler 1.6.0+) | `T[]`, exact runtime extent | Unsupported | Unsupported |
 | `map(K) T` | `Map<K, T>` | `map[K]T` | `Dictionary<K, T>` |
 | Class field | Generated class | Pointer to generated struct | Generated class |
 | Enum | Frozen named ordinal object, typed declaration | Named integer type and constants | Enum |
@@ -84,6 +85,14 @@ not establish subtype inheritance. Only the selected union alternative is
 serialized; inactive fields remain in memory.
 
 ## JavaScript and TypeScript
+
+Fixed arrays without explicit initializers start with exactly `N` independent
+element defaults. Their generated JS codecs reject wrong lengths on write,
+validate binary counts before reading elements, and bound JSON iteration by `N`.
+The wire retains its ordinary sequence count; TypeScript's `T[]` annotation does
+not impose a compile-time tuple length. Python provides the same checks with
+owning lists. Other portable backends and explicit collection initializers remain
+unsupported. Existing variable arrays retain their storage and wire behavior.
 
 The generated module targets modern browsers and Node.js with ES2020 BigInt,
 `DataView` BigInt accessors, `TextEncoder.encodeInto`, and fatal UTF-8 decoding.

@@ -88,8 +88,10 @@ earlier parameters. Empty `<>` is valid when every parameter has a default.
 `array[Rows * Cols] T` has an exact owning extent; `array T` is unchanged.
 Expressions permit decimal literals, dimension names, parentheses, `+`, and `*`;
 checked uint64 arithmetic rejects negative/zero dimensions and overflow.
-Fixed arrays require 1..65,536 elements. C++ uses `std::array`; other backends and
-Protobuf generation explicitly reject fixed arrays. See [generics](generics.md)
+Fixed arrays require 1..65,536 elements. C++ uses `std::array`;
+JavaScript/TypeScript and Python support arrays/lists without explicit initializers
+from compiler 1.6.0 and enforce exact cardinality in their codecs. Other backends
+and Protobuf generation explicitly reject fixed arrays. See [generics](generics.md)
 for scope resolution, resource limits, native C++ use, and support boundaries.
 
 Language `1.1.0` supports `public array[] uint32 values {1, 2, 3};`, inferring
