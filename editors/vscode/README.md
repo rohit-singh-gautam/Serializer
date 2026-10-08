@@ -1,10 +1,13 @@
 # Rohit Serializer for Visual Studio Code
 
-This extension supports the [Serializer schema compiler and serialization library](https://github.com/rohit-singh-gautam/Serializer)
-maintained in that repository.
+**Editor support for Serializer — State Framework**
+
+Rohit Serializer helps you edit `.serializer` schemas and navigate between schemas
+and existing generated code in Visual Studio Code. It provides syntax highlighting,
+snippets, and CMake assistance for projects using Serializer — State Framework.
 
 Edit `.serializer` schemas with syntax highlighting, bracket matching, comments,
-folding, and snippets. Version **1.1.25** includes navigation from includes and type
+folding, and snippets. Version **1.1.26** includes navigation from includes and type
 references to source schemas and existing generated code in all 11 output languages. Use the project's
 CMake configuration for the separate build and missing-header assistance commands.
 
@@ -26,7 +29,22 @@ unquoted path, and semicolon scopes. Relative paths such as `../shared/common`
 resolve to `.serializer` files during navigation; explicit `.serializer` includes
 remain supported. The compiler must support shorthand to build these schemas.
 Place includes after the version header and before declarations;
-quoted paths and angle brackets are invalid. See [schema includes](../../docs/usage.md#share-declarations-with-includes).
+quoted paths and angle brackets are invalid. See [schema includes](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/usage.md#share-declarations-with-includes).
+
+## About Serializer
+
+Serializer is a schema-driven framework that combines multi-language serialization and schema evolution with C++ application-state management, including transactional editing, undo/redo history, crash-recovery journaling, and collaborative editing.
+
+The extension provides editor support; it does not install the Serializer compiler
+or runtime. Application history, journals, and collaborative editing are C++
+framework capabilities integrated by the application, not editing features supplied
+by this extension. Other generated languages can exchange managed wire records;
+native managed engines currently run in C++.
+
+[Project website](https://www.singh.org.in/serializer.html) ·
+[Serializer repository](https://github.com/rohit-singh-gautam/Serializer) ·
+[Serialization guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/usage.md) ·
+[C++ state-management guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/managed/getting_started.md)
 
 ## Download and install Serializer
 
@@ -78,7 +96,7 @@ same declaration, definition, and type-definition actions. Cursor offsets and
 local symbols come from the displayed snapshot. Includes, other schema files,
 and generated output resolve against the current workspace; this does not
 reconstruct a historical checkout. With an older extension, open the working
-file from Explorer to use navigation, or install 1.1.25 and reload VS Code.
+file from Explorer to use navigation, or install the current extension package and reload VS Code.
 
 Caller navigation depends on the language service's active project configuration.
 For this repository's managed ledger examples/tests, use
@@ -92,7 +110,7 @@ resolve the generated class. Selecting a later use of the left-hand alias normal
 opens the `using` declaration; **Go to Type Definition** follows its underlying class.
 **Serializer: Go to Schema Declaration** follows either to the original schema,
 including through alias chains and variables when a native type provider is available.
-The [coverage matrix](../../docs/editor_navigation.md#navigation-coverage-matrix)
+The [coverage matrix](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/editor_navigation.md#navigation-coverage-matrix)
 records required cases and remaining native-host verification limits.
 
 Right-click a `.serializer` file in **Explorer** or its **editor tab**, then choose
@@ -197,7 +215,7 @@ Generic declarations (`class box<T>`), nested type arguments, and named roots
 navigate to their local declaration. Generic definitions navigate to their C++
 native template or concrete generated models in the other languages. Without a
 concrete schema contract, only C++ has a generated destination. Generated concrete classes navigate back to the generic
-definition. See [schema generics](../../docs/generics.md) for compiler limits.
+definition. See [schema generics](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/generics.md) for compiler limits.
 
 - Build assistance requires an already configured CMake Tools project. It works
   through CMake with Makefile, Ninja, and Visual Studio generators; handwritten
@@ -226,15 +244,18 @@ definition. See [schema generics](../../docs/generics.md) for compiler limits.
   their language service to reach the generated declaration.
 
 See the repository's [extension guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/editor_extension.md)
-for development, validation, and packaging instructions. This source distribution
-has not been published to Marketplace.
+for development, validation, and packaging instructions. A published extension is
+available on [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=rohitjairajsingh.serializer-language).
+This source checkout may include changes not yet available in the published package;
+compare the Marketplace version with the [extension changelog](https://github.com/rohit-singh-gautam/Serializer/blob/main/editors/vscode/CHANGELOG.md) before
+relying on recently added behavior. Building a local VSIX does not publish it.
 
 The C++ `managed` class/member keyword is highlighted and skipped when locating a
 member's type. Direct, array, and map managed references retain declaration and
 definition navigation. Generated managed data, storage, and editor class declarations
 map back to the original schema type; schema-to-output navigation still selects the
 ordinary class. Capability selectors and other-language managed runtimes remain
-unimplemented; see the [managed runtime guide](../../docs/managed/cpp_runtime.md).
+unimplemented; see the [managed runtime guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/managed/cpp_runtime.md).
 
 Managed classes now expose persistent IDs directly by default. Set
 `[managed] separate_values = true` (or `--managed.separate_values true`) when
@@ -252,11 +273,11 @@ contracts; fixed-array output is currently unsupported there. The shared grammar
 highlights dimension arithmetic and the `matrix` snippet inserts a fixed-array
 example. Both packages use the same navigation implementation.
 
-Version 1.1.25 recognizes payload `version`/`compatibility`, `version2`/`version3`/`version4`, `created`/`obsolete`/`replaced`, and `reserve` syntax. Qualified field-type navigation remains available beside lifecycle metadata. See the [revision contract](../../docs/versioning.md).
+Version 1.1.25 recognizes payload `version`/`compatibility`, `version2`/`version3`/`version4`, `created`/`obsolete`/`replaced`, and `reserve` syntax. Qualified field-type navigation remains available beside lifecycle metadata. See the [revision contract](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/versioning.md).
 
 ## Release policies (1.1.25)
 
-Both extensions highlight `releases`, nested `policy` / `any` / `all`, and the `max_age`, `keep_last`, `released_since`, `expires_on`, and compatibility leaves. The schema compiler folds these into ordinary version bounds; generated readers contain no dates or policy tree. See the [release policy contract](../../docs/versioning.md#release-dates-and-compile-time-policies).
+Both extensions highlight `releases`, nested `policy` / `any` / `all`, and the `max_age`, `keep_last`, `released_since`, `expires_on`, and compatibility leaves. The schema compiler folds these into ordinary version bounds; generated readers contain no dates or policy tree. See the [release policy contract](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/versioning.md#release-dates-and-compile-time-policies).
 
 ## Magic and format exclusions (1.1.25)
 
@@ -276,7 +297,7 @@ and type-definition navigation, including unsaved and transitive included schema
 VS Code includes `array_inferred` and `magic_typed` snippets; its schema snippet
 selects `serializer version 1.2.0;`. The original `1` header remains exactly
 `1.0.0` and does not enable these features. See the
-[magic contract](../../docs/magic_and_omission.md) and [fixed arrays](../../docs/generics.md).
+[magic contract](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/magic_and_omission.md) and [fixed arrays](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/generics.md).
 
 ## Compact integer fields (1.1.25)
 

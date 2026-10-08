@@ -1,15 +1,26 @@
 # Serializer editor extensions
 
-Both extensions are for the [Serializer schema compiler and serialization library](https://github.com/rohit-singh-gautam/Serializer).
-Their package descriptions and extension READMEs identify this repository directly.
+Both Rohit Serializer extensions provide editor support for **Serializer — State Framework**.
+
+Serializer is a schema-driven framework that combines multi-language serialization and schema evolution with C++ application-state management, including transactional editing, undo/redo history, crash-recovery journaling, and collaborative editing.
+
+The editor packages help edit schemas and navigate available generated output. They
+install neither the compiler nor the runtime, and do not supply application history,
+journals, or runtime collaboration inside the IDE. Those managed capabilities are
+integrated by C++ applications; other generated languages can exchange managed wire
+records without equivalent native managed engines. See the
+[project website](https://www.singh.org.in/serializer.html), [serialization guide](usage.md), and
+[C++ state-management guide](managed/getting_started.md).
 
 Serializer provides separate packages for VS Code and Visual Studio. Both use
 `editors/serializer.tmLanguage.json`; build assistance commands currently belong
 to the VS Code extension. For the Visual Studio VSIX, see
 [Visual Studio](#visual-studio-extension) below.
 
-Both extensions use release version **1.1.25**. Keep their versions equal and
+Both extensions use release version **1.1.26**. Keep their versions equal and
 increment them together for future changes, including changes to only one package.
+Their release number is independent of the compiler/runtime release and the schema
+language version; only the two editor packages are synchronized.
 
 Version 1.1.14 restored VS Code navigation actions in Git index/history tabs.
 It uses snapshot text for local symbols and the current workspace for includes
@@ -32,9 +43,9 @@ Both resolve either spelling for navigation; VS Code also supplies a shorthand
 
 ## VS Code
 
-The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.25**, provides `.serializer`
+The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.26**, provides `.serializer`
 syntax highlighting, snippets, declaration/definition navigation, and CMake generated-header commands. Schemas use
-the current `serializer version 1.1.0;` header, older compatible headers, and the original
+the current `serializer version 1.2.0;` header, older compatible headers, and the original
 `1` alias for language `1.0.0`. Schema
 language versions are independent of compiler releases, and future versions
 require all three components. Legacy `.def` and `.struct` names are
@@ -82,13 +93,13 @@ Packaging compiles and bundles TypeScript, copies the canonical grammar, logo,
 and repository license into the extension, and writes:
 
 ```text
-out/extensions/serializer-vscode-1.1.25.vsix
+out/extensions/serializer-vscode-1.1.26.vsix
 ```
 
 From the repository root, install it with:
 
 ```sh
-code --install-extension out/extensions/serializer-vscode-1.1.25.vsix
+code --install-extension out/extensions/serializer-vscode-1.1.26.vsix
 ```
 
 Alternatively run **Extensions: Install from VSIX** and select the file. The
@@ -286,6 +297,20 @@ The fixture disables generated-output formatting so it does not need clang-forma
 
 ### Verification performed
 
+Version **1.1.26** passed all 86 shared/provider tests. Both local VSIX packages
+were rebuilt through `editors/build.ps1`; the Visual Studio package validator
+passed. JSON/XML and package inspection confirmed synchronized versions, stable
+identities, unchanged functional metadata and dependency locks, the canonical
+About text, and 61 repository-document links and fragment destinations.
+
+The isolated VS Code host passed native navigation, forward/reversed selections,
+unsaved schemas, real Git index views, native Microsoft C/C++ 1.34.4, and built-in
+TypeScript checks. The rebuilt Visual Studio .NET resolver passed 154 checks using
+existing generated-output fixtures from the previous verification. These checks
+validate the resolver and package metadata; a fresh current-compiler generation
+suite and the native Visual Studio host were not rerun for this documentation
+update. The packages were neither installed in the normal editors nor published.
+
 Version **1.1.16** passed all 74 shared tests and 13,376 fresh-compiler navigation
 checks across all eleven output languages, including versioned models. The Visual
 Studio .NET resolver passed 89 checks. Both packages were rebuilt and validated;
@@ -442,8 +467,15 @@ VS Code's extension listing confirmed `serializer-language@0.1.0` was installed.
 
 ## Publishing
 
-The local VSIX can be distributed before Marketplace publication. To publish,
-use the registered `rohitjairajsingh` Marketplace publisher, matching `publisher`
+Published extensions are available on Visual Studio Marketplace for
+[VS Code](https://marketplace.visualstudio.com/items?itemName=rohitjairajsingh.serializer-language)
+and [Visual Studio](https://marketplace.visualstudio.com/items?itemName=rohitjairajsingh.rohitserializervisualstudio).
+This source checkout may include changes not yet available in those packages;
+compare each Marketplace version with its extension changelog before relying on
+recently added behavior. Source versions, locally built VSIX files, and published
+versions are separate release states.
+
+To publish a new VS Code release, use the registered `rohitjairajsingh` Marketplace publisher, matching `publisher`
 in `package.json`, and keep the extension ID stable thereafter. Increment the extension
 version and update the package output name for each release. Review packaged files,
 license, README, and changelog, then follow Microsoft's
@@ -456,7 +488,7 @@ outside this extension's implementation.
 ## Visual Studio extension
 
 The separate [Visual Studio package](../editors/visual_studio/README.md), version
-**1.1.25**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
+**1.1.26**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
 grammar, editing configuration and a native MEF navigation component using the
 same resolver as VS Code. The grammar's `fileTypes` associates `.serializer` files;
 a `.pkgdef` registers its grammar and editing configuration.
@@ -469,7 +501,7 @@ npm ci --prefix editors/vscode
 ```
 
 The script restores locked NuGet dependencies, rebuilds package intermediates, and writes
-`out/extensions/serializer-visual-studio-1.1.25.vsix`. Close Visual Studio,
+`out/extensions/serializer-visual-studio-1.1.26.vsix`. Close Visual Studio,
 double-click this VSIX, install into the desired instance, and restart Visual
 Studio. The root `install_extension.ps1` remains the VS Code installer.
 
@@ -498,7 +530,11 @@ CMake commands and snippets remain outside this package.
 Package checks verify identity, architecture, grammar/MEF registration, interpreter
 dependencies and notices, and byte-for-byte agreement with canonical assets.
 See [verification](#verification-performed) and the package README for native-host
-coverage, build steps and resolver tests. Marketplace publication remains pending.
+coverage, build steps and resolver tests. The maintained
+[Visual Studio Marketplace overview](../editors/visual_studio/marketplace_overview.md)
+is a separate portal payload; building the VSIX does not update the listing or
+publish a package. Review that overview with the release before applying it to the
+existing Visual Studio listing.
 
 ## Managed interface support (1.1.10)
 

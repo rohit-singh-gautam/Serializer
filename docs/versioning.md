@@ -1,6 +1,12 @@
 # Schema revisions and compatibility
 
-Every schema still begins with `serializer version 1;`. That declaration selects the schema language. A class member declared with `version` is a separate **payload revision**, serialized with the object.
+Every schema begins with a supported schema-language header. Use
+`serializer version 1.2.0;` for new schemas; older `1.0.0` and `1.1.0`
+headers remain supported. The original `serializer version 1;` is an exact alias
+for `1.0.0`, not the latest language version. See the
+[schema-language policy](command_line.md#schema-language-version-policy).
+A class member declared with `version` is a separate **payload revision**,
+serialized with the object; neither version selects the compiler/runtime release.
 
 ```text
 class example_model stable_ids {

@@ -48,6 +48,10 @@ sanitizers, and performance checks relevant to your change.
 
 ## Make a focused change
 
+- Use the [product-positioning reference](docs/product_positioning.md) for
+  descriptions of Serializer — State Framework. Match claims to implemented
+  capabilities and the package being described; distinguish editor support from
+  the compiler and application runtime.
 - Follow [CodingStandard.md](CodingStandard.md) and [AGENTS.md](AGENTS.md).
   New C++ identifiers and files use lowercase `snake_case`, `.hpp`/`.cpp`, and
   two-space indentation. Preserve existing public include paths and APIs unless

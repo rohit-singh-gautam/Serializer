@@ -1,5 +1,11 @@
 # Using Serializer in a C++ application
 
+Serializer — **State Framework** provides generated serialization codecs and a
+C++ managed runtime. This guide starts with data exchange; serialization-only
+applications can use ordinary generated models. For transactional editing,
+history, recovery, and collaboration, follow the
+[managed-state quick start](managed/getting_started.md).
+
 See [payload versioning](versioning.md) for revision types, historical positional
 layouts, field lifetimes, replacements, reservations, common read policies, and
 compiler-only release-date/count policies. These resolve to ordinary version bounds

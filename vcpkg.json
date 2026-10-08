@@ -1,4 +1,6 @@
 {
+  "description": "Serializer is a schema-driven framework that combines multi-language serialization and schema evolution with C++ application-state management, including transactional editing, undo/redo history, crash-recovery journaling, and collaborative editing.",
+  "homepage": "https://www.singh.org.in/serializer.html",
   "dependencies": [
     "gtest"
   ],

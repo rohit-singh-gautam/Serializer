@@ -226,6 +226,11 @@ above; keep tests enabled when intending to run `make test` or `./make.ps1 test`
 
 ### vcpkg package builds
 
+This section describes packaging the current source. The published upstream
+`rohit-singh-gautam-serializer` port can use an older revision and different
+options; see [source and package availability](distribution.md). The root
+development manifest does not control that port's installed capabilities.
+
 A port builds the library and schema compiler directly through CMake; it does
 not run `setup.sh` or the repository's Make/PowerShell wrappers. Follow vcpkg's
 [maintainer guidance](https://learn.microsoft.com/en-us/vcpkg/contributing/maintainer-guide#do-not-build-testsdocsexamples-by-default)

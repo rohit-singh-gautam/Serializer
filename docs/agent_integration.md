@@ -9,8 +9,15 @@ This guide explains discovery, packaging, and use from another project.
 ## Repository skill
 
 The [serializer-integration skill](../.agents/skills/serializer-integration/SKILL.md)
-guides an agent through using this library in a C++ application: schema design,
-`stable_ids` adoption, generated headers, protocol selection, and bounded input.
+guides an agent through integrating Serializer — State Framework: schema design,
+`stable_ids` adoption, generated language-specific models, CMake generation,
+protocol selection, and bounded input. It also covers C++ managed transactions,
+history, journals, and collaboration. Other languages have generated codecs and
+managed record exchange; native managed engines currently run in C++.
+
+Select the [serialization quick start](../README.md#get-started) or
+[managed-state quick start](managed/getting_started.md) for the application, and
+check [package availability](distribution.md) against the dependency in use.
 
 ### Why the directory starts with a dot
 

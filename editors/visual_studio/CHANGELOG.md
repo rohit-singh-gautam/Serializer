@@ -1,3 +1,10 @@
+# 1.1.26
+
+- Clarify Serializer's State Framework positioning, product links, and editor/runtime boundaries.
+- Distinguish published Marketplace versions from newer source and local packages.
+- Update extension descriptions and discovery terms while preserving identities and editor behavior.
+- Keep both extension versions synchronized; no schema or runtime behavior changes.
+
 # 1.1.25
 
 - Highlight schema language 1.2.0 `compact_prefix` and `compact_varint` fields with explicit `strict` or `lenient` overflow policy.

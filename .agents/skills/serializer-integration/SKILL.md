@@ -5,6 +5,13 @@ description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#
 
 # Serializer Integration
 
+Serializer — **State Framework** combines multi-language generated codecs and
+schema evolution with C++ application-state management. Choose ordinary generated
+models for data exchange or the managed runtime for editable C++ models. Native
+managed engines outside C++ remain unimplemented; exchanging managed wire records
+does not provide those engines. See the
+[positioning and scope reference](../../../docs/product_positioning.md).
+
 Implement the user's requested Serializer integration using the version present
 in their project. Preserve established wire IDs, names, protocol choices, and
 application ownership requirements.
@@ -30,6 +37,13 @@ there instead of relying on the relative links.
   read the [managed features overview](../../../docs/managed/getting_started.md) and
   [authorization guide](../../../docs/managed/authorization.md).
   See [agent setup](../../../docs/agent_integration.md) for discovery and use from another project.
+- Check the dependency's actual release, build options, installed targets, and
+  headers before using source-documentation features. The root `vcpkg.json` is a
+  development dependency manifest, separate from the upstream
+  `rohit-singh-gautam-serializer` port. Follow
+  [distribution guidance](../../../docs/distribution.md) when package availability
+  differs; prefer a source build of the needed revision rather than assuming a
+  published port contains current managed APIs or generation helpers.
 - Use the [C++ managed interface](../../../docs/managed/cpp_runtime.md) for
   schema-driven identity and local snapshot history. `SERIALIZER_BUILD_MANAGED` defaults ON;
   link `Serializer::managed`, and declare bare `managed` on eligible leaf classes

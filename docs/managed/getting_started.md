@@ -2,12 +2,18 @@
 
 [Back to the project overview](../../README.md)
 
-Serializer's optional C++ managed runtime adds transactions and persistent object
-identity to generated models. You can then keep undo history, recover edits from
-disk, and synchronize changes between clients.
+Serializer — **State Framework** combines generated data-exchange codecs with
+application-state management. Its optional C++ managed runtime adds transactions
+and persistent object identity to generated models. You can then keep undo history,
+recover committed edits from disk, and synchronize changes between clients.
 
 Start with a small local model. Add persistence and collaboration when the
 application needs them; each introduces a different responsibility.
+
+Serialization-only applications can use ordinary generated models without a
+managed store. Building managed support does not add identity or history to those
+schemas. The source build enables managed support by default; using it in an
+application remains an explicit choice.
 
 | Feature | Question it answers | Current support |
 | --- | --- | --- |
@@ -26,6 +32,13 @@ policies remain proposals.
 Managed support defaults to `SERIALIZER_BUILD_MANAGED=ON`. Link your C++ application to
 `Serializer::managed`, and generate a model with supported bare `managed`
 declarations. See the [build and schema setup](cpp_runtime.md#build-and-include).
+
+Select history mode and journal/collaboration support independently at compile
+time. Stores default to linear history, disabled action labels, and
+`store_features::all`; disabled features omit their attachment storage and APIs.
+For history-only, journal-only, or collaboration-only stores, follow
+[independent store features](cpp_runtime.md#independent-store-features). Schema
+feature selectors and exclusions remain proposals.
 
 Managed classes carry `persistent_id` by default. Document namespaces and object
 IDs identify the model independently of user accounts or collaboration sessions.

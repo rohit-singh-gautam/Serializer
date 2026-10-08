@@ -85,9 +85,10 @@ to schema syntax.
 ## Protocol boundaries
 
 - Positional binary requires the same field order and shape in both directions.
-- Native keyed binary and JSON reject unknown fields. Adding a field can be
-  backward-readable, but is not forward-readable. Removing a reserved field can
-  be forward-readable, but new native readers reject old messages containing it.
+- Native keyed binary and default strict JSON readers reject unknown fields.
+  Adding a field can be backward-readable, but is not forward-readable under
+  these rules. Removing a reserved field can be forward-readable, but new
+  readers reject old messages containing it.
 - C++ Protobuf binary skips unknown fields, so added fields and properly reserved
   removed fields can pass in both directions. The checker first validates each
   schema against Serializer's supported Protobuf mapping. Unknown fields are
@@ -102,6 +103,12 @@ lack type/extent metadata, so the reader cannot safely discover an unknown value
 end. Adding that capability requires a separately versioned format with an agreed
 encoding and negotiation mechanism. It must not be silently added to an existing
 protocol or inferred from `serializer version 1;`.
+
+JSON can opt into [`read_policy::flexible`](versioning.md#read-policies) to skip
+additional fields after regenerating the model. Skipped values still undergo
+validation and decode-limit checks; duplicate keys and unsupported payload
+revisions remain errors. The compatibility checker has no reader-policy option
+and conservatively applies the unknown-field rejection rules above.
 
 ## Library API
 

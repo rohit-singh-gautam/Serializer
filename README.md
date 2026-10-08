@@ -1,14 +1,36 @@
 # Serializer
 
-Native JSON supports `std::optional<T>` as a host type (`null` or a typed value).
-For evolving JSON documents, use the opt-in `read_policy::flexible`
-reader to skip additional fields while rejecting duplicate keys and enforcing
-decode limits. Default JSON input remains strict. Regenerate classes to enable
-the unknown-member protocol hook; see [JSON compatibility](docs/usage.md#json-compatibility).
+**State Framework**
 
-Define your data once in a `.serializer` schema, then generate classes and codecs
-for JSON and binary serialization. Serializer includes a C++20 schema compiler,
-a C++ runtime, and generators for multiple languages.
+Serializer is a schema-driven framework that combines multi-language serialization and schema evolution with C++ application-state management, including transactional editing, undo/redo history, crash-recovery journaling, and collaborative editing.
+
+Define models in `.serializer` schemas and generate language-specific code for
+exchanging data. For editable C++ applications, add the managed runtime to group
+changes into transactions, retain history, recover committed work, and coordinate
+collaborative edits through an authority.
+
+Generated codecs support multiple languages. Native history, journaling, and
+collaboration engines currently run in C++; other languages can exchange managed
+wire records but do not have equivalent native managed engines.
+
+[Project website](https://www.singh.org.in/serializer.html) ·
+[Serialization quick start](#get-started) ·
+[State-management quick start](docs/managed/getting_started.md) ·
+[Feature status](docs/feature_status.md)
+
+**Using a coding agent?** Give it the
+[Serializer integration skill](.agents/skills/serializer-integration/SKILL.md).
+
+| Need | Component | Entry point |
+| --- | --- | --- |
+| Define and exchange data | Schema compiler and generated codecs | [Usage guide](docs/usage.md) |
+| Evolve serialized payloads | Payload revisions and compatibility checks | [Versioning](docs/versioning.md), [schema evolution](docs/schema_evolution.md) |
+| Group editable-model changes | C++ managed transactions and persistent identity | [Managed quick start](docs/managed/getting_started.md) |
+| Undo, redo, and retain branches | C++ linear or tree snapshot history | [Managed runtime](docs/managed/cpp_runtime.md) |
+| Recover committed work | C++ appended or sidecar journals | [Journal contract](docs/managed/journal.md) |
+| Coordinate edits across clients | C++ collaboration and authority policy hooks | [Local collaboration](docs/managed/local_collaboration.md) |
+
+## Releases and supported outputs
 
 The current compiler and runtime release is **1.5.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
@@ -26,9 +48,6 @@ Rust, Python, Swift, Kotlin, and C. TypeScript uses the JavaScript runtime.
 
 **Start here:** [Usage guide](docs/usage.md) · [Runnable examples](example/README.md) ·
 [CMake integration](docs/cmake_integration.md)
-
-**Using a coding agent?** Give it the
-[Serializer integration skill](.agents/skills/serializer-integration/SKILL.md).
 
 Payload [versioning and schema evolution](docs/versioning.md) support `version`,
 `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` declarations.
@@ -134,6 +153,20 @@ schema is parsed once and generates every target's variant in that build command
 Next, follow the [C++ usage guide](docs/usage.md) to serialize a value and decode a
 complete message with explicit limits, or run the [basic C++ example](example/cpp/basic/README.md).
 
+### Build an editable C++ application
+
+Follow the [managed-state quick start](docs/managed/getting_started.md) and
+[runnable managed examples](example/managed/README.md) to generate typed editors,
+link `Serializer::managed`, and edit a `model_store` through transactions. Start
+with local history, then add a journal or collaboration when the application needs
+them. History mode and journal/collaboration support can be selected at compile
+time; the application supplies transport, synchronization scheduling, and trusted
+sessions for collaboration.
+
+The managed runtime is optional for serialization-only applications. Fresh source
+builds expose it by default; ordinary schemas do not acquire managed identity or
+history storage merely because it was built.
+
 ## Choose a language
 
 Reusable [schema generics](docs/generics.md), such as `class result<T>`, emit
@@ -173,6 +206,12 @@ Serializer supports four native protocols across its generated language codecs.
 | Positional binary | Values in schema order, without field keys |
 | Integer-key binary | A numeric field ID before each value |
 | String-key binary | A wire field name before each value |
+
+Native JSON supports `std::optional<T>` as a host type (`null` or a typed value).
+For evolving JSON documents, use the opt-in `read_policy::flexible`
+reader to skip additional fields while rejecting duplicate keys and enforcing
+decode limits. Default JSON input remains strict. Regenerate classes to enable
+the unknown-member protocol hook; see [JSON compatibility](docs/usage.md#json-compatibility).
 
 Native binary codecs default to little-endian byte order. Strings require valid
 UTF-8; use `array uint8` for arbitrary bytes. Read the
@@ -220,6 +259,19 @@ and Visual Studio MSBuild; it does not install the packages. The `test` and
 For direct CMake commands, presets, builds without GoogleTest, and troubleshooting,
 see [build and generation](docs/build_and_generation.md#build-and-test).
 
+The upstream vcpkg package is `rohit-singh-gautam-serializer`:
+
+```sh
+vcpkg install rohit-singh-gautam-serializer
+```
+
+Package availability can lag the source repository. Check the port version and
+build options for the features you need; use the
+[source-build guide](docs/cmake_integration.md#build-this-repository) for the
+documented current source capabilities. The root `vcpkg.json` acquires development
+dependencies and is separate from the upstream port; see
+[distribution guidance](docs/distribution.md).
+
 ## Editor support
 
 Both **Rohit Serializer** extensions highlight `.serializer` files and provide
@@ -231,7 +283,7 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editor_extension.md) |
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
-Both extensions use release version **1.1.25**, independent of compiler version
+Both extensions use source release version **1.1.26**, independent of compiler version
 **1.5.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
 for supported destinations and language-service prerequisites.
 VS Code also supports navigation from read-only Git index/history tabs, using
@@ -310,6 +362,7 @@ for reporting barriers to using the project.
 
 ## Reference and project status
 
+- [Product positioning](docs/product_positioning.md): shared descriptions and capability boundaries for documentation and distributions.
 - [Schema and protocol reference](docs/schema_reference.md): types, field IDs, views, and protocol examples.
 - [Schema examples](docs/schema_examples.md): small declarations you can adapt.
 - [Migration guide](migration.md): upgrade requirements and compatibility changes.

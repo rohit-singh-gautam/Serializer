@@ -1,9 +1,12 @@
 # Rohit Serializer for Visual Studio
 
-This extension supports the [Serializer schema compiler and serialization library](https://github.com/rohit-singh-gautam/Serializer)
-maintained in that repository.
+**Editor support for Serializer — State Framework**
 
-Version **1.1.25** provides `.serializer` highlighting and native navigation in
+Rohit Serializer helps you edit `.serializer` schemas and navigate between schemas
+and existing generated code in Visual Studio. It provides syntax highlighting,
+editing assistance, and native navigation for projects using Serializer — State Framework.
+
+Version **1.1.26** provides `.serializer` highlighting and native navigation in
 **Visual Studio 2022 and Visual Studio 2026 on Windows x64**. It shares the VS Code
 extension's grammar and schema/generated-output resolver. Custom type references
 such as `demo::order`, `demo::snapshot` and `demo::customer` use the active theme's
@@ -42,6 +45,21 @@ It does not provide semantic diagnostics, completion, member/function navigation
 snippets or VS Code's CMake commands. Use existing CMake targets for generation.
 See [usage](../../docs/usage.md), [CMake integration](../../docs/cmake_integration.md)
 and the [navigation investigation](../../docs/editor_navigation.md).
+
+## About Serializer
+
+Serializer is a schema-driven framework that combines multi-language serialization and schema evolution with C++ application-state management, including transactional editing, undo/redo history, crash-recovery journaling, and collaborative editing.
+
+The extension provides editor support; it does not install the Serializer compiler
+or runtime. Application history, journals, and collaborative editing are C++
+framework capabilities integrated by the application, not editing features supplied
+by this extension. Other generated languages can exchange managed wire records;
+native managed engines currently run in C++.
+
+[Project website](https://www.singh.org.in/serializer.html) ·
+[Serializer repository](https://github.com/rohit-singh-gautam/Serializer) ·
+[Serialization guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/usage.md) ·
+[C++ state-management guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/managed/getting_started.md)
 
 ## Download and install Serializer
 
@@ -84,13 +102,21 @@ installation. It uses full-framework MSBuild with locked dependencies, bundles
 the current shared resolver, rebuilds and validates:
 
 ```text
-out/extensions/serializer-visual-studio-1.1.25.vsix
+out/extensions/serializer-visual-studio-1.1.26.vsix
 ```
 
 Close Visual Studio, double-click the VSIX, select the installation and restart
 the IDE. **Extensions > Manage Extensions** lists **Rohit Serializer**. The root
-`install_extension.ps1` is the separate VS Code installer. Marketplace publication
-is pending.
+`install_extension.ps1` is the separate VS Code installer. A published extension is
+available on [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=rohitjairajsingh.rohitserializervisualstudio).
+This source checkout may include changes not yet available in the published package;
+compare the Marketplace version with the [extension changelog](CHANGELOG.md) before
+relying on recently added behavior. Building a local VSIX does not publish it.
+
+The maintained [Marketplace overview](marketplace_overview.md) is a separate payload
+for the Visual Studio listing's Overview field. Updating or rebuilding this source
+checkout does not apply that portal text; publish it with the corresponding reviewed
+extension release. Keep the package description and listing overview aligned.
 
 ## Implementation and verification
 

@@ -2,6 +2,10 @@
 
 [Back to the project overview](../README.md)
 
+Serializer — **State Framework** combines schema-driven data exchange with C++
+application-state management. Generated codecs cover multiple languages; native
+transactions, history, journals, and collaboration currently run in C++.
+
 See [payload versioning](versioning.md) for revision types, historical positional
 layouts, field lifetimes, replacements, reservations, common read policies, and
 compiler-only release-date/count policies. These resolve to ordinary version bounds
@@ -10,7 +14,7 @@ and add no dates or policy evaluation to generated codecs.
 Use this guide for advanced capabilities and their limits. Implemented behavior
 is described separately from broader design proposals.
 
-For an introduction to editing features, begin with
+For an introduction to application editing features, begin with
 [history, journals, collaboration, and authorization](managed/getting_started.md).
 
 ## Serialization and streams
