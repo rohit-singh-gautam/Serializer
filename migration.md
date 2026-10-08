@@ -1,5 +1,35 @@
 # Migrating to the snake_case Serializer API
 
+## Several generation configurations from one parse (8 October 2026)
+
+Compiler/runtime **1.5.0** accepts repeated `--config` and output options to
+generate independent variants of one schema from one parse. Existing single-config
+commands, INI syntax, generated APIs, and serialization formats remain compatible.
+The schema language stays **1.2.0**; no schema or payload-version migration is needed.
+
+Keep existing INIs and replace separate compiler invocations with one invocation.
+Pair configs and generic outputs in order, one output per config. Each config must
+select exactly one language when using `--output`. Configs selecting several
+languages require repeated language-specific outputs, one per config selecting
+that language. Scalar CLI overrides are shared by all configs, and `--language`
+replaces their language selections. See
+[CLI examples](docs/command_line.md#generate-several-configurations-from-one-parse).
+
+For C++ consumers, replace separate `serializer_generate` calls for the same
+schemas with `serializer_generate_variants(TARGETS ... SCHEMAS ... CONFIGS ...)`.
+Targets/configs pair by order, with independent generated include directories.
+The existing per-target header-generation targets and
+`serializer_generated_headers` aggregate remain available. Changes to any tracked
+input regenerate all variants for the affected entry schema; all variant outputs
+are owned by one rule to support concurrent consumer builds. See
+[CMake migration examples](docs/cmake_integration.md#generate-several-configurations-from-one-parse).
+
+Choose one consistent generated model definition within each consumer's compiled
+translation units. Combining differing managed widths, representations, or naming
+profiles in one binary is not made valid by batch generation. Invalid schemas,
+options, and backend failures preserve all prior outputs and the shared depfile;
+filesystem write failures may leave partial results.
+
 ## C++20 constant binary output (7 October 2026)
 
 Compiler/runtime **1.4.0** adds `binary_none_size`,

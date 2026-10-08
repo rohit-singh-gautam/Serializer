@@ -459,6 +459,48 @@ The default profile converts names such as `personID` to `person_id` while
 retaining their wire spellings. Use `--cpp.naming preserve` when retaining an
 existing schema-derived C++ API is required.
 
+### Generate several configurations from one parse
+
+Compiler/runtime **1.5.0** can generate several variants of the same schema in one
+invocation using the existing INI files. For example, from the repository root:
+
+```sh
+serializer --input test/resources/dimensions_managed.serializer \
+  --config test/resources/dimensions_managed32.ini \
+  --config test/resources/dimensions_managed64.ini \
+  --config test/resources/dimensions_separate64.ini \
+  --output out/managed32/dimensions_managed.hpp \
+  --output out/managed64/dimensions_managed.hpp \
+  --output out/separate64/dimensions_managed.hpp
+```
+
+Create the three output directories first. Configs and outputs pair by order:
+32-bit IDs, 64-bit IDs, then 64-bit IDs with separate ordinary values and managed
+wrappers. The schema and its includes are parsed once; each configuration then
+generates its own output. INI files are independent and CLI scalar overrides apply
+to all of them. Schema language **1.2.0** and the INI syntax remain unchanged.
+
+For C++ build integration, replace separate helper calls for those variants with:
+
+```cmake
+serializer_generate_variants(
+  TARGETS models32 models64 models_separate64
+  SCHEMAS schemas/dimensions_managed.serializer
+  CONFIGS profiles/managed32.ini profiles/managed64.ini profiles/separate64.ini)
+```
+
+Create those targets first, then link consumers to the selected model target.
+Each target receives its own `generated/<target>` include directory. Each entry
+schema uses one generation command for all configurations, and unchanged builds
+skip that command. A parse, validation, or backend failure preserves all existing
+outputs; filesystem writes across the batch are not atomic. Keep one consistent
+definition of each generated model within a compiled consumer.
+
+See [the CMake helper contract](cmake_integration.md#generate-several-configurations-from-one-parse)
+for explicit output directories and shared overrides, and
+[the CLI contract](command_line.md#generate-several-configurations-from-one-parse)
+for configurations selecting several languages.
+
 Build commands, when validation is being performed:
 
 ```sh

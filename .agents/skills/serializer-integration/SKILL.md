@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin, or C applications from a provided repository or existing dependency. Use for opt-in C++20 constant binary sizing and exact-array emission, positional-only generation and borrowed emission-only models, compact unsigned prefix/varint scalars, .serializer schemas, native C++ generic templates, optional cross-language contracts, dimension parameters, inferred fixed arrays, typed scalar/enum magic, CMake generation, language-specific coding profiles, owning classes or C++ binary views, stable_ids, payload revisions, compiler-only release policies, lifecycle annotations, schema compatibility checks and reservations, stream concepts, durable file streams and iostream adapters, exact fresh-value decoding, managed journal/crash recovery and C++ local collaboration with store-owned sessions, timed synchronization and undo, optional message compression, JSON or binary codecs, database persistence guidance, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
+description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin, or C applications from a provided repository or existing dependency. Use for opt-in C++20 constant binary sizing and exact-array emission, positional-only generation and borrowed emission-only models, compact unsigned prefix/varint scalars, .serializer schemas, native C++ generic templates, optional cross-language contracts, dimension parameters, inferred fixed arrays, typed scalar/enum magic, CMake generation, several INI variants from one schema parse, language-specific coding profiles, owning classes or C++ binary views, stable_ids, payload revisions, compiler-only release policies, lifecycle annotations, schema compatibility checks and reservations, stream concepts, durable file streams and iostream adapters, exact fresh-value decoding, managed journal/crash recovery and C++ local collaboration with store-owned sessions, timed synchronization and undo, optional message compression, JSON or binary codecs, database persistence guidance, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
 ---
 
 # Serializer Integration
@@ -425,7 +425,7 @@ feature as a prerequisite without the user's request.
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
   remains available through `parser::parse(input)`. Schema language version 1.2.0 is
-  independent of compiler release 1.4.1 and wire protocols. Bug fixes and minor
+  independent of compiler release 1.5.0 and wire protocols. Bug fixes and minor
   updates increment the patch number; new features increment the minor number.
   Minor and patch releases preserve full compatibility. Developers change the
   major number manually, with best-effort compatibility across major releases.
@@ -548,6 +548,27 @@ runtime linkage, and the C++20 minimum. CMake 3.28+ is required; keep a newer C+
 mode if the application already uses one. Source dependencies build the generator
 as needed; installed packages use their installed executable. `SERIALIZER_INSTALL`
 controls installation and defaults off when Serializer is embedded.
+
+With compiler/runtime 1.5.0 or newer, group several C++ targets needing different
+INI configurations of the same schemas with `serializer_generate_variants`:
+
+```cmake
+serializer_generate_variants(
+  TARGETS models32 models64 models_separate64
+  SCHEMAS schemas/model.serializer
+  CONFIGS profiles/managed32.ini profiles/managed64.ini profiles/separate64.ini)
+```
+
+Create the local targets first. Pair `TARGETS` and `CONFIGS` by order, one INI per
+target; optional `OUTPUT_DIRECTORIES` must have that same length. Defaults are
+`generated/<target>` in the current build directory. The helper parses each entry
+schema once for the whole batch, tracks transitive schema/config inputs, and keeps
+the existing generated-header properties and per-target/aggregate generation
+targets. Shared helper overrides apply to every config. Keep one consistent model
+definition within each consuming binary, especially when changing managed ID
+width, separate-values representation, or naming profiles. See the
+[variants helper contract](../../../docs/cmake_integration.md#generate-several-configurations-from-one-parse)
+and [usage examples](../../../docs/usage.md#generate-several-configurations-from-one-parse).
 
 For this repository's own build, run `make all` / `make test` on Linux or
 `./make.ps1 all` / `./make.ps1 test` on Windows. Both wrappers default to Release,
@@ -765,6 +786,30 @@ instead of `--output` for multiple languages. Prefix backend overrides with `--`
 such as `--cpp.coding_standard google --java.coding_standard oracle` and
 `--java.package app.models`. All backend config settings have CLI overrides.
 `--java.package=` and `--cpp.format_file=` clear configured optional values.
+
+For several configurations from one schema parse, keep separate existing INIs
+and repeat `--config` with corresponding output paths:
+
+```sh
+serializer --input schemas/model.serializer \
+  --config profiles/managed32.ini --config profiles/managed64.ini \
+  --config profiles/separate64.ini \
+  --output out/managed32/model.hpp --output out/managed64/model.hpp \
+  --output out/separate64/model.hpp --depfile out/model.d
+```
+
+Create destination directories first. Each config starts from defaults; configs
+do not overlay one another. Scalar CLI overrides apply to all configurations,
+and explicit CLI languages replace every config's selection. Generic outputs
+require one selected language per config and exactly one path per config in
+config order. For multiple languages per config, repeat language-specific output
+options once per config selecting that language, also in config order. Never mix
+generic and language-specific outputs. The shared depfile lists all outputs and
+configuration/schema inputs. All backends finish generation/formatting before
+writes start; parse/validation/backend failures preserve existing outputs, while
+filesystem writes across files are not atomic. INI syntax and schema language
+1.2.0 do not change; one INI with named configurations is unsupported. See
+[batch CLI details](../../../docs/command_line.md#generate-several-configurations-from-one-parse).
 
 Use the actual built executable path when it is not on `PATH`. Regenerate through
 the real build pipeline when execution is part of the task; preserve an explicit

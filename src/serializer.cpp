@@ -24,15 +24,17 @@
 #include "command_line.hpp"
 #include "schema_policy.hpp"
 
-#include <algorithm>
+#include <cstddef>
 #include <exception>
 #include <filesystem>
 #include <iostream>
+#include <map>
 #include <memory>
 #include <set>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -40,7 +42,7 @@ namespace {
 constexpr rohit::serializer::cli::commandline_option command_options[] = {
     {'h', "help", "", "Display this help."},
     {'v', "version", "", "Display compiler and supported schema language versions."},
-    {'\0', "verbose", "", "Report resolved release-policy dates and minimum versions."},
+    {'\0', "verbose", "", "Report parse reuse, release-policy dates, and minimum versions."},
     {'\0', "version-policy-as-of", "YYYY-MM-DD",
      "Evaluate release policies on this date (default today's UTC date)."},
     {'\0', "version-policy-warnings-as-errors", "",
@@ -55,23 +57,25 @@ constexpr rohit::serializer::cli::commandline_option command_options[] = {
      "Reader direction to enforce (default both)."},
     {'\0', "compatibility-policy", "policy.json",
      "Versioned reservations for retired field IDs and wire names."},
-    {'o', "output", "file", "Output path when selecting exactly one language."},
+    {'o', "output", "file", "One output per configuration selecting exactly one language.", true},
     {'\0', "depfile", "file.d", "Write Make-style dependencies for all generated outputs."},
-    {'c', "config", "file.ini", "Generator configuration; CLI options override its values."},
+    {'c', "config", "file.ini", "Independent generator configuration; repeat to parse once.", true},
     {'l', "language", "cpp|java|js|typescript|go|csharp|rust|python|swift|kotlin|c",
      "Select output languages; repeat or comma-separate values.", true},
-    {'\0', "cpp.output", "file.hpp", "C++ output path; required for multi-language generation."},
+    {'\0', "cpp.output", "file.hpp", "C++ output path; repeat in configuration order.", true},
     {'\0', "java.output", "ClassName.java",
-     "Java output path; required for multi-language generation."},
-    {'\0', "js.output", "schema.mjs", "JavaScript ES module output."},
-    {'\0', "typescript.output", "schema.d.mts", "TypeScript declarations matching JS output."},
-    {'\0', "go.output", "schema.go", "Go source output."},
-    {'\0', "csharp.output", "Schema.cs", "C# source output; filename supplies outer class."},
-    {'\0', "rust.output", "schema.rs", "Rust source output."},
-    {'\0', "python.output", "schema.py", "Python source output."},
-    {'\0', "swift.output", "Schema.swift", "Swift source output."},
-    {'\0', "kotlin.output", "Schema.kt", "Kotlin source output."},
-    {'\0', "c.output", "schema.h", "C11 source output."},
+     "Java output path; repeat in configuration order.", true},
+    {'\0', "js.output", "schema.mjs", "JavaScript ES module output; repeat per configuration.", true},
+    {'\0', "typescript.output", "schema.d.mts",
+     "TypeScript declarations matching JS output; repeat per configuration.", true},
+    {'\0', "go.output", "schema.go", "Go source output; repeat per configuration.", true},
+    {'\0', "csharp.output", "Schema.cs",
+     "C# source output; filename supplies outer class; repeat per configuration.", true},
+    {'\0', "rust.output", "schema.rs", "Rust source output; repeat per configuration.", true},
+    {'\0', "python.output", "schema.py", "Python source output; repeat per configuration.", true},
+    {'\0', "swift.output", "Schema.swift", "Swift source output; repeat per configuration.", true},
+    {'\0', "kotlin.output", "Schema.kt", "Kotlin source output; repeat per configuration.", true},
+    {'\0', "c.output", "schema.h", "C11 source output; repeat per configuration.", true},
     {'\0', "js.naming", "profile|preserve", "JS and TypeScript identifier naming."},
     {'\0', "go.naming", "profile|preserve", "Go identifier naming."},
     {'\0', "csharp.naming", "profile|preserve", "C# identifier naming."},
@@ -98,6 +102,207 @@ constexpr rohit::serializer::cli::commandline_option command_options[] = {
     {'\0', "java.naming", "profile|preserve", "Java identifier naming policy."},
     {'\0', "java.package", "package.name", "Java package; --java.package= clears it.", false, true},
 };
+
+// Apply global command-line values independently to each configuration.
+void apply_output_overrides(rohit::serializer::writer::output_options& options,
+                            const rohit::serializer::cli::arguments& arguments) {
+  using namespace rohit::serializer;
+  if (arguments.contains("language")) {
+    options.language.clear();
+    for (const auto& value : arguments.at("language")) {
+      if (!options.language.empty()) {
+        options.language += ',';
+      }
+      options.language += value;
+    }
+  }
+  if (arguments.contains("java.coding_standard")) {
+    options.java.standard =
+        writer::parse_java_coding_standard(cli::first(arguments, "java.coding_standard"));
+  }
+  if (arguments.contains("java.package")) {
+    options.java.package_name = cli::first(arguments, "java.package");
+  }
+  if (arguments.contains("java.naming")) {
+    const auto& value = cli::first(arguments, "java.naming");
+    if (value != "profile" && value != "preserve") {
+      throw std::invalid_argument{"java.naming must be profile or preserve"};
+    }
+    options.java.rename_identifiers = value == "profile";
+  }
+  if (arguments.contains("cpp.coding_standard")) {
+    options.cpp.standard =
+        writer::parse_coding_standard(cli::first(arguments, "cpp.coding_standard"));
+  }
+  if (arguments.contains("cpp.naming")) {
+    const auto& value = cli::first(arguments, "cpp.naming");
+    if (value != "profile" && value != "preserve") {
+      throw std::invalid_argument{"cpp.naming must be profile or preserve"};
+    }
+    options.cpp.rename_identifiers = value == "profile";
+  }
+  if (arguments.contains("managed.id_type")) {
+    options.cpp.managed_id_type = cli::first(arguments, "managed.id_type");
+    if (options.cpp.managed_id_type != "uint32" && options.cpp.managed_id_type != "uint64") {
+      throw std::invalid_argument{"managed.id_type must be uint32 or uint64"};
+    }
+  }
+  if (arguments.contains("managed.separate_values")) {
+    const auto& value = cli::first(arguments, "managed.separate_values");
+    if (value != "true" && value != "false") {
+      throw std::invalid_argument{"managed.separate_values must be true or false"};
+    }
+    options.cpp.managed_separate_values = value == "true";
+  }
+  if (arguments.contains("cpp.constant_evaluation")) {
+    const auto& value = cli::first(arguments, "cpp.constant_evaluation");
+    if (value != "true" && value != "false") {
+      throw std::invalid_argument{"cpp.constant_evaluation must be true or false"};
+    }
+    options.cpp.constant_evaluation = value == "true";
+  }
+  if (arguments.contains("cpp.emission_only")) {
+    const auto& value = cli::first(arguments, "cpp.emission_only");
+    if (value != "true" && value != "false") {
+      throw std::invalid_argument{"cpp.emission_only must be true or false"};
+    }
+    options.cpp.emission_only = value == "true";
+  }
+  if (arguments.contains("cpp.protocols")) {
+    options.cpp.protocols = writer::parse_cpp_protocols(cli::first(arguments, "cpp.protocols"));
+  }
+  if (arguments.contains("cpp.protobuf")) {
+    const auto& value = cli::first(arguments, "cpp.protobuf");
+    if (value != "true" && value != "false") {
+      throw std::invalid_argument{"cpp.protobuf must be true or false"};
+    }
+    options.cpp.protobuf = value == "true";
+  }
+  if (arguments.contains("cpp.format")) {
+    const auto& value = cli::first(arguments, "cpp.format");
+    if (value != "true" && value != "false") {
+      throw std::invalid_argument{"cpp.format must be true or false"};
+    }
+    options.cpp.format = value == "true";
+  }
+  if (arguments.contains("cpp.clang_format")) {
+    options.cpp.clang_format = cli::first(arguments, "cpp.clang_format");
+  }
+  if (arguments.contains("cpp.format_file")) {
+    options.cpp.format_file = cli::first(arguments, "cpp.format_file");
+  }
+  if (!options.cpp.format && !options.cpp.format_file.empty()) {
+    throw std::invalid_argument{"cpp.format_file requires cpp.format true"};
+  }
+  for (const auto language : {"js", "go", "csharp"}) {
+    auto& settings = std::string_view{language} == "js"   ? options.js
+                     : std::string_view{language} == "go" ? options.go
+                                                          : options.csharp;
+    const auto key = std::string{language} + ".naming";
+    if (arguments.contains(key)) {
+      const auto& value = cli::first(arguments, key);
+      if (value != "profile" && value != "preserve") {
+        throw std::invalid_argument{key + " must be profile or preserve"};
+      }
+      settings.rename_identifiers = value == "profile";
+    }
+  }
+  if (arguments.contains("go.package")) {
+    options.go.package_name = cli::first(arguments, "go.package");
+  }
+  if (arguments.contains("csharp.namespace")) {
+    options.csharp.namespace_name = cli::first(arguments, "csharp.namespace");
+  }
+  if (arguments.contains("kotlin.package")) {
+    options.kotlin.package_name = cli::first(arguments, "kotlin.package");
+  }
+}
+
+struct generation_configuration {
+  rohit::serializer::writer::output_options options{};
+  std::vector<std::string> languages{};
+};
+
+struct generation_request {
+  std::size_t configuration_index{};
+  std::string language{};
+  std::filesystem::path destination{};
+};
+
+// Load independent INIs, or one default configuration, then apply shared CLI overrides.
+std::vector<generation_configuration>
+read_configurations(const rohit::serializer::cli::arguments& arguments) {
+  std::vector<generation_configuration> configurations{};
+  if (arguments.contains("config")) {
+    for (const auto& file : arguments.at("config")) {
+      configurations.push_back({rohit::serializer::writer::read_output_options(file), {}});
+    }
+  } else {
+    configurations.emplace_back();
+  }
+  for (auto& configuration : configurations) {
+    apply_output_overrides(configuration.options, arguments);
+    configuration.languages =
+        rohit::serializer::writer::parse_output_languages(configuration.options.language);
+  }
+  return configurations;
+}
+
+// Match each output list to configurations selecting its language, preserving configuration order.
+std::vector<generation_request>
+resolve_generation_requests(const rohit::serializer::cli::arguments& arguments,
+                            const std::vector<generation_configuration>& configurations) {
+  std::map<std::string, std::size_t> language_counts{};
+  for (const auto& configuration : configurations) {
+    if (arguments.contains("output") && configuration.languages.size() != 1) {
+      throw std::invalid_argument{
+          "Use language-specific --<language>.output paths for multiple languages"};
+    }
+    for (const auto& language : configuration.languages) {
+      ++language_counts[language];
+    }
+  }
+  if (arguments.contains("output") &&
+      arguments.at("output").size() != configurations.size()) {
+    throw std::invalid_argument{
+        "--output requires one output path per configuration (expected " +
+        std::to_string(configurations.size()) + ", got " +
+        std::to_string(arguments.at("output").size()) + ")"};
+  }
+  for (const auto language : {"cpp", "java", "js", "typescript", "go", "csharp", "rust", "python",
+                              "swift", "kotlin", "c"}) {
+    const auto key = std::string{language} + ".output";
+    if (!arguments.contains(key)) {
+      continue;
+    }
+    if (!language_counts.contains(language)) {
+      throw std::invalid_argument{"Output path supplied for unselected language: " +
+                                  std::string{language}};
+    }
+    if (arguments.contains("output")) {
+      throw std::invalid_argument{"Specify only one of --output and --" + key};
+    }
+    if (arguments.at(key).size() != language_counts.at(language)) {
+      throw std::invalid_argument{
+          "--" + key + " requires one output path per selected configuration (expected " +
+          std::to_string(language_counts.at(language)) + ", got " +
+          std::to_string(arguments.at(key).size()) + ")"};
+    }
+  }
+  std::vector<generation_request> requests{};
+  std::map<std::string, std::size_t> output_indices{};
+  for (std::size_t index = 0; index < configurations.size(); ++index) {
+    for (const auto& language : configurations[index].languages) {
+      const auto key = arguments.contains("output") ? "output" : language + ".output";
+      if (!arguments.contains(key)) {
+        throw std::invalid_argument{"Missing output path: --" + key};
+      }
+      const auto output_index = arguments.contains("output") ? index : output_indices[language]++;
+      requests.push_back({index, language, arguments.at(key).at(output_index)});
+    }
+  }
+  return requests;
+}
 
 // Detect aliases and hard links as well as identical normalized paths before replacing output.
 bool same_file(const std::filesystem::path& first, const std::filesystem::path& second) {
@@ -221,152 +426,33 @@ int main(const int argc, const char* argv[]) {
         parsed.contains("compatibility-policy")) {
       throw std::invalid_argument{"Compatibility options require --check-against"};
     }
-    auto options = parsed.contains("config")
-                       ? writer::read_output_options(cli::first(parsed, "config"))
-                       : writer::output_options{};
-    if (parsed.contains("language")) {
-      options.language.clear();
-      for (const auto& value : parsed.at("language")) {
-        if (!options.language.empty()) {
-          options.language += ',';
-        }
-        options.language += value;
-      }
-    }
-    const auto languages = writer::parse_output_languages(options.language);
-    if (parsed.contains("java.coding_standard")) {
-      options.java.standard =
-          writer::parse_java_coding_standard(cli::first(parsed, "java.coding_standard"));
-    }
-    if (parsed.contains("java.package")) {
-      options.java.package_name = cli::first(parsed, "java.package");
-    }
-    if (parsed.contains("java.naming")) {
-      const auto& value = cli::first(parsed, "java.naming");
-      if (value != "profile" && value != "preserve") {
-        throw std::invalid_argument{"java.naming must be profile or preserve"};
-      }
-      options.java.rename_identifiers = value == "profile";
-    }
-    if (parsed.contains("cpp.coding_standard")) {
-      options.cpp.standard =
-          writer::parse_coding_standard(cli::first(parsed, "cpp.coding_standard"));
-    }
-    if (parsed.contains("cpp.naming")) {
-      const auto& value = cli::first(parsed, "cpp.naming");
-      if (value != "profile" && value != "preserve") {
-        throw std::invalid_argument{"cpp.naming must be profile or preserve"};
-      }
-      options.cpp.rename_identifiers = value == "profile";
-    }
-    if (parsed.contains("managed.id_type")) {
-      options.cpp.managed_id_type = cli::first(parsed, "managed.id_type");
-      if (options.cpp.managed_id_type != "uint32" && options.cpp.managed_id_type != "uint64") {
-        throw std::invalid_argument{"managed.id_type must be uint32 or uint64"};
-      }
-    }
-    if (parsed.contains("managed.separate_values")) {
-      const auto& value = cli::first(parsed, "managed.separate_values");
-      if (value != "true" && value != "false") {
-        throw std::invalid_argument{"managed.separate_values must be true or false"};
-      }
-      options.cpp.managed_separate_values = value == "true";
-    }
-    if (parsed.contains("cpp.constant_evaluation")) {
-      const auto& value = cli::first(parsed, "cpp.constant_evaluation");
-      if (value != "true" && value != "false") {
-        throw std::invalid_argument{"cpp.constant_evaluation must be true or false"};
-      }
-      options.cpp.constant_evaluation = value == "true";
-    }
-    if (parsed.contains("cpp.emission_only")) {
-      const auto& value = cli::first(parsed, "cpp.emission_only");
-      if (value != "true" && value != "false") {
-        throw std::invalid_argument{"cpp.emission_only must be true or false"};
-      }
-      options.cpp.emission_only = value == "true";
-    }
-    if (parsed.contains("cpp.protocols")) {
-      options.cpp.protocols = writer::parse_cpp_protocols(cli::first(parsed, "cpp.protocols"));
-    }
-    if (parsed.contains("cpp.protobuf")) {
-      const auto& value = cli::first(parsed, "cpp.protobuf");
-      if (value != "true" && value != "false") {
-        throw std::invalid_argument{"cpp.protobuf must be true or false"};
-      }
-      options.cpp.protobuf = value == "true";
-    }
-    if (parsed.contains("cpp.format")) {
-      const auto& value = cli::first(parsed, "cpp.format");
-      if (value != "true" && value != "false") {
-        throw std::invalid_argument{"cpp.format must be true or false"};
-      }
-      options.cpp.format = value == "true";
-    }
-    if (parsed.contains("cpp.clang_format")) {
-      options.cpp.clang_format = cli::first(parsed, "cpp.clang_format");
-    }
-    if (parsed.contains("cpp.format_file")) {
-      options.cpp.format_file = cli::first(parsed, "cpp.format_file");
-    }
-    if (!options.cpp.format && !options.cpp.format_file.empty()) {
-      throw std::invalid_argument{"cpp.format_file requires cpp.format true"};
-    }
-    for (const auto language : {"js", "go", "csharp"}) {
-      auto& settings = std::string_view{language} == "js"   ? options.js
-                       : std::string_view{language} == "go" ? options.go
-                                                            : options.csharp;
-      const auto key = std::string{language} + ".naming";
-      if (parsed.contains(key)) {
-        const auto& value = cli::first(parsed, key);
-        if (value != "profile" && value != "preserve") {
-          throw std::invalid_argument{key + " must be profile or preserve"};
-        }
-        settings.rename_identifiers = value == "profile";
-      }
-    }
-    if (parsed.contains("go.package")) {
-      options.go.package_name = cli::first(parsed, "go.package");
-    }
-    if (parsed.contains("csharp.namespace")) {
-      options.csharp.namespace_name = cli::first(parsed, "csharp.namespace");
-    }
-    if (parsed.contains("kotlin.package")) {
-      options.kotlin.package_name = cli::first(parsed, "kotlin.package");
-    }
+    const auto configurations = read_configurations(parsed);
     const std::filesystem::path input_file{cli::first(parsed, "input")};
     if (input_file.extension() != ".serializer") {
       throw std::invalid_argument{
           "Input must use .serializer; rename the schema and add serializer version 1.0.0;"};
     }
-    if (parsed.contains("output") && languages.size() != 1) {
-      throw std::invalid_argument{
-          "Use language-specific --<language>.output paths for multiple languages"};
+    const auto requests = resolve_generation_requests(parsed, configurations);
+    std::vector<std::filesystem::path> configuration_dependencies{input_file};
+    if (parsed.contains("config")) {
+      for (const auto& file : parsed.at("config")) {
+        configuration_dependencies.emplace_back(file);
+      }
     }
-    for (const auto language : {"cpp", "java", "js", "typescript", "go", "csharp", "rust", "python",
-                                "swift", "kotlin", "c"}) {
-      if (parsed.contains(std::string{language} + ".output") &&
-          std::find(languages.begin(), languages.end(), language) == languages.end()) {
-        throw std::invalid_argument{"Output path supplied for unselected language: " +
-                                    std::string{language}};
+    for (const auto& configuration : configurations) {
+      if (!configuration.options.cpp.format_file.empty()) {
+        configuration_dependencies.push_back(configuration.options.cpp.format_file);
       }
     }
     std::vector<std::filesystem::path> destinations{};
-    for (const auto& language : languages) {
-      const auto key = language + ".output";
-      if (parsed.contains("output") && parsed.contains(key)) {
-        throw std::invalid_argument{"Specify only one of --output and --" + key};
-      }
-      if (!parsed.contains("output") && !parsed.contains(key)) {
-        throw std::invalid_argument{"Missing output path: --" + key};
-      }
-      const std::filesystem::path output_file{
-          cli::first(parsed, parsed.contains("output") ? "output" : key)};
-      if (same_file(input_file, output_file) ||
-          (parsed.contains("config") && same_file(cli::first(parsed, "config"), output_file)) ||
-          (!options.cpp.format_file.empty() && same_file(options.cpp.format_file, output_file))) {
-        throw std::invalid_argument{
-            "Output must not overwrite the schema or an output configuration"};
+    for (const auto& request : requests) {
+      const auto& language = request.language;
+      const auto& output_file = request.destination;
+      for (const auto& dependency : configuration_dependencies) {
+        if (same_file(dependency, output_file)) {
+          throw std::invalid_argument{
+              "Output must not overwrite the schema or an output configuration"};
+        }
       }
       for (const auto& previous : destinations) {
         if (same_file(previous, output_file)) {
@@ -400,13 +486,14 @@ int main(const int argc, const char* argv[]) {
       destinations.push_back(output_file);
     }
     const auto schema = parser::parse_file(input_file, parse_options);
+    if (parsed.contains("verbose")) {
+      std::cout << "Serializer: Parsed schema once for " << configurations.size()
+                << " configurations\n";
+    }
     auto dependencies = schema.dependencies;
-    if (parsed.contains("config")) {
-      dependencies.emplace_back(cli::first(parsed, "config"));
-    }
-    if (!options.cpp.format_file.empty()) {
-      dependencies.emplace_back(options.cpp.format_file);
-    }
+    // The parser supplies the root and transitive schemas; add every INI and custom format file.
+    dependencies.insert(dependencies.end(), configuration_dependencies.begin() + 1,
+                        configuration_dependencies.end());
     for (const auto& destination : destinations) {
       for (const auto& dependency : dependencies) {
         if (same_file(destination, dependency)) {
@@ -446,31 +533,34 @@ int main(const int argc, const char* argv[]) {
       dependency_text += '\n';
     }
     std::vector<std::unique_ptr<rohit::full_stream_auto_alloc>> outputs{};
-    for (std::size_t index = 0; index < languages.size(); ++index) {
+    for (const auto& request : requests) {
+      const auto& options = configurations[request.configuration_index].options;
       auto output = std::make_unique<rohit::full_stream_auto_alloc>();
-      if (languages[index] == "java") {
-        writer::java::write(*output, schema.statements, destinations[index].stem().string(),
+      if (request.language == "java") {
+        writer::java::write(*output, schema.statements, request.destination.stem().string(),
                             options.java);
-      } else if (languages[index] == "cpp") {
+      } else if (request.language == "cpp") {
         writer::cpp::write(*output, schema.statements, options.cpp);
       } else {
-        const auto& language = languages[index];
+        const auto& language = request.language;
         const auto& settings = language == "go"       ? options.go
                                : language == "csharp" ? options.csharp
                                : language == "kotlin" ? options.kotlin
                                                       : options.js;
         output->write(writer::portable::generate(schema.statements, language,
-                                                 destinations[index].stem().string(), settings));
+                                                 request.destination.stem().string(), settings));
       }
       outputs.push_back(std::move(output));
     }
     // Backend/formatter failures leave all destinations intact. Filesystem writes can still fail.
-    for (std::size_t index = 0; index < languages.size(); ++index) {
-      outputs[index]->write_to_file_till_offset(destinations[index]);
-      std::cout << "Generated " << destinations[index] << " (" << languages[index] << ", "
-                << (languages[index] == "java"
+    for (std::size_t index = 0; index < requests.size(); ++index) {
+      const auto& request = requests[index];
+      const auto& options = configurations[request.configuration_index].options;
+      outputs[index]->write_to_file_till_offset(request.destination);
+      std::cout << "Generated " << request.destination << " (" << request.language << ", "
+                << (request.language == "java"
                         ? writer::java_coding_standard_name(options.java.standard)
-                    : languages[index] == "cpp" ? writer::coding_standard_name(options.cpp.standard)
+                    : request.language == "cpp" ? writer::coding_standard_name(options.cpp.standard)
                                                 : "native")
                 << ")\n";
     }

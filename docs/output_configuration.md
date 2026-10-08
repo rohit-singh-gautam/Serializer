@@ -35,6 +35,14 @@ and `--java.output` to generate both backends in one run; `[output] language = c
 also selects both. See [the full command-line contract](command_line.md), including
 short options, version reporting, and required `.serializer` version headers.
 
+For several variants of the same schema, repeat `--config` and supply matching
+output paths for each configuration. Each INI is loaded independently over the defaults;
+shared CLI overrides apply to each variant. The compiler parses the schema once
+and generates all variants before writing any output. The INI format is unchanged
+and has no named-configuration sections. See
+[batch-generation examples and output ordering](command_line.md#generate-several-configurations-from-one-parse)
+and the [CMake variants helper](cmake_integration.md#generate-several-configurations-from-one-parse).
+
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `[output] language` | `cpp` | Select `cpp`, `java`, `js`, `typescript`, `go`, `csharp`, or a comma-separated list. |

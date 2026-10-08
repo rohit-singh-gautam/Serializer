@@ -284,6 +284,16 @@ Use `CONFIG output.ini` to select output profiles. See the
 [CMake integration guide](cmake_integration.md) for complete source-dependency
 and installed-package examples, options, and shared schemas.
 
+When several C++ targets need different configurations of the same schemas,
+register them together with `serializer_generate_variants(TARGETS ... SCHEMAS ...
+CONFIGS ...)`. Each entry schema is parsed once and generates all configured
+variants in one incremental build command. Direct CLI callers can repeat
+`--config` and the matching outputs. See
+[batch CLI generation](command_line.md#generate-several-configurations-from-one-parse)
+and [CMake variants](cmake_integration.md#generate-several-configurations-from-one-parse)
+for ordering, output-directory rules, and examples. Existing INI files retain
+their syntax.
+
 This integration works independently of editor settings. `.vscode/*` remains
 ignored. For VS Code, select CMake Tools as the C/C++ configuration provider so it
 receives the consumer's include paths. The real header must also exist: configure

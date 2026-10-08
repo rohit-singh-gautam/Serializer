@@ -129,9 +129,17 @@ Namespace scopes are reused during parsing; duplicate types and namespace/type c
 are rejected. See [schema includes](usage.md#share-declarations-with-includes) and the
 [paired C++/Java examples](../example/includes/README.md). Quoted defaults preserve
 literal spaces, for example `public string label { "schema default" };`; escaping the
-space is unnecessary. Run `serializer --version` for compiler version **1.4.1** and
+space is unnecessary. Run `serializer --version` for compiler version **1.5.0** and
 supported schema versions. See [command-line options](command_line.md) for
 multi-language generation and overrides.
+
+Compiler **1.5.0** also generates independent INI configurations from one schema
+parse by repeating `--config` and the corresponding outputs. The C++
+`serializer_generate_variants` helper registers one generation command per schema
+for several configured targets. INI syntax, schema language **1.2.0**, and existing
+single-configuration calls remain compatible. See
+[batch generation](command_line.md#generate-several-configurations-from-one-parse)
+for output ordering and failure behavior.
 
 See [Java output](java.md) for dependency-free Java 17+ codecs and [all
 examples](../example/README.md) for self-contained example folders.

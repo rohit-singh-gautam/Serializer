@@ -10,7 +10,7 @@ Define your data once in a `.serializer` schema, then generate classes and codec
 for JSON and binary serialization. Serializer includes a C++20 schema compiler,
 a C++ runtime, and generators for multiple languages.
 
-The current compiler and runtime release is **1.4.1**. Bug fixes and minor updates
+The current compiler and runtime release is **1.5.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.2.0**;
@@ -110,6 +110,10 @@ serializer --input person.serializer --output person.hpp
 Use [output configuration](docs/output_configuration.md) to choose a language or
 naming profile. The [command-line guide](docs/command_line.md) lists all options.
 
+To generate several configurations of the same schema from one parse, repeat
+`--config` and supply corresponding output paths. Existing INI files
+remain independent; see [batch generation](docs/command_line.md#generate-several-configurations-from-one-parse).
+
 ### 3. Add it to your build
 
 For a C++ application with Serializer already added as a CMake dependency:
@@ -122,6 +126,10 @@ serializer_generate(TARGET my_app SCHEMAS person.serializer)
 A normal build generates the header and supplies the include directory, runtime
 library, and C++20 requirement. See [CMake integration](docs/cmake_integration.md)
 for complete source-dependency and installed-package setups.
+
+Use [`serializer_generate_variants`](docs/cmake_integration.md#generate-several-configurations-from-one-parse)
+when several C++ targets need different configurations of the same schemas. Each
+schema is parsed once and generates every target's variant in that build command.
 
 Next, follow the [C++ usage guide](docs/usage.md) to serialize a value and decode a
 complete message with explicit limits, or run the [basic C++ example](example/cpp/basic/README.md).
@@ -224,7 +232,7 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
 Both extensions use release version **1.1.25**, independent of compiler version
-**1.3.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
+**1.5.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
 for supported destinations and language-service prerequisites.
 VS Code also supports navigation from read-only Git index/history tabs, using
 the displayed snapshot and current workspace destinations.

@@ -33,7 +33,7 @@ with `[output] language = cpp,java`. Schema paths use `.serializer`, and every
 schema starts with a supported language header; use `serializer version 1.1.0;`
 for inferred arrays and typed magic. The original `1` header remains an exact
 alias for `1.0.0`. The installed package supports
-`find_package(Serializer 1.2.0 EXACT CONFIG REQUIRED)`; omit `EXACT` to accept a
+`find_package(Serializer 1.5.0 EXACT CONFIG REQUIRED)`; omit `EXACT` to accept a
 newer compatible release within the same major version. See
 [compiler and schema versioning](command_line.md).
 
@@ -382,8 +382,8 @@ serializer_generate(TARGET my_app
 | `GENERATOR` | Executable target or existing executable path; defaults to `Serializer::serializer` |
 | `VISIBILITY` | `PRIVATE`, `PUBLIC`, or `INTERFACE`; defaults to `PRIVATE` except for interface libraries, which require `INTERFACE` |
 | `DEPENDS` | Additional files or targets affecting generation, using CMake's custom-command dependency rules |
-| `VERSION_POLICY_AS_OF` | Optional pinned `YYYY-MM-DD` for compile-time release policies; supported by all three generation helpers |
-| `VERSION_POLICY_WARNINGS_AS_ERRORS` | Flag promoting current-release expiry warnings to generation failure; supported by all three helpers |
+| `VERSION_POLICY_AS_OF` | Optional pinned `YYYY-MM-DD` for compile-time release policies; supported by all generation helpers |
+| `VERSION_POLICY_WARNINGS_AS_ERRORS` | Flag promoting current-release expiry warnings to generation failure; supported by all helpers |
 
 Relative schema, config, format-file, and generator paths use the current source
 directory. Prefer an absolute path for `CLANG_FORMAT`; a bare executable name is
@@ -411,6 +411,65 @@ multiple rules writing the same destination, including duplicate schema stems.
 Cross-compilation needs a host-built Serializer executable. Pass its absolute
 path as `GENERATOR`; the helper rejects the default source-built target during
 cross-compilation. The runtime library is still built for the application's target.
+
+## Generate several configurations from one parse
+
+Use `serializer_generate_variants` when several C++ targets need different INI
+configurations of the same schemas. It is available from both source dependencies
+and installed packages starting with compiler/runtime **1.5.0**:
+
+```cmake
+add_library(models32 INTERFACE)
+add_library(models64 INTERFACE)
+add_library(models_separate64 INTERFACE)
+
+serializer_generate_variants(
+  TARGETS models32 models64 models_separate64
+  SCHEMAS schemas/dimensions_managed.serializer
+  CONFIGS profiles/managed32.ini profiles/managed64.ini profiles/separate64.ini
+  OUTPUT_DIRECTORIES
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/models32"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/models64"
+    "${CMAKE_CURRENT_BINARY_DIR}/generated/models_separate64")
+```
+
+Each `CONFIGS` entry belongs to the corresponding `TARGETS` entry. Supply one INI
+per target; omitting `CONFIGS` is allowed only for a single target using defaults.
+The three profiles above can set `id_type` under `[managed]` to `uint32`,
+`uint64`, and `uint64` with `separate_values = true`, respectively.
+Link each consumer to its selected model target. Keep each compiled
+consumer's generated model definitions consistent; different profiles do not
+automatically gain distinct C++ namespaces.
+
+`OUTPUT_DIRECTORIES` is optional and defaults to
+`${CMAKE_CURRENT_BINARY_DIR}/generated/<target>` for each target. When supplied,
+its length must match `TARGETS`; relative entries use the current build directory.
+Each schema produces `<stem>.hpp` in every target's directory. Targets must be
+existing local executables or libraries, and output paths must be distinct.
+
+The helper accepts the same shared `CODING_STANDARD`, `FORMAT_FILE`,
+`CLANG_FORMAT`, `GENERATOR`, `VISIBILITY`, `VERSION_POLICY_AS_OF`,
+`VERSION_POLICY_WARNINGS_AS_ERRORS`, and `DEPENDS` arguments as `serializer_generate`.
+Shared CLI overrides apply to every configuration. Omitted `VISIBILITY` selects
+`PRIVATE` for ordinary targets and `INTERFACE` for interface libraries independently;
+an explicit visibility must be valid for every target. Schema and config paths
+follow the existing source-directory rules. The helper explicitly selects C++.
+
+For each entry schema, one custom command invokes the compiler with all configs
+and outputs. The compiler parses that schema and its includes once, prepares every
+variant, then writes the headers and one shared depfile. A single generation rule
+owns the batch, so building several consumers concurrently cannot run competing
+commands for the same outputs. Changing a tracked schema, config, formatter input,
+or generator regenerates that schema's variants together; an unchanged incremental
+build skips generation. All configurations participate when any registered target
+requests that batch.
+
+Each target retains its own include directory, runtime linkage, generated-header
+properties, and `<target>_serializer_headers` target. The existing
+`serializer_generated_headers` aggregate also includes all variants. Editor build
+and navigation discovery therefore use the same target and depfile contracts.
+For direct compiler calls, see
+[batch-generation output ordering and failure behavior](command_line.md#generate-several-configurations-from-one-parse).
 
 ## Share a schema between targets
 

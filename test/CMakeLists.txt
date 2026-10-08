@@ -158,13 +158,15 @@ if(Python3_Interpreter_FOUND)
       --build "${CMAKE_CURRENT_BINARY_DIR}/compact_python")
 endif()
 if(SERIALIZER_BUILD_MANAGED)
+  set(dimension_history_targets)
+  set(dimension_history_configs)
+  set(dimension_history_directories)
   foreach(profile IN ITEMS managed32 managed64 separate64)
     add_executable(dimension_history_${profile}_test dimension_history_test.cpp)
     set_target_properties(dimension_history_${profile}_test PROPERTIES CXX_STANDARD 23)
-    serializer_generate(TARGET dimension_history_${profile}_test
-      SCHEMAS resources/dimensions_managed.serializer
-      CONFIG resources/dimensions_${profile}.ini
-      OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/dimensions_${profile}")
+    list(APPEND dimension_history_targets dimension_history_${profile}_test)
+    list(APPEND dimension_history_configs resources/dimensions_${profile}.ini)
+    list(APPEND dimension_history_directories "${CMAKE_CURRENT_BINARY_DIR}/dimensions_${profile}")
     target_link_libraries(dimension_history_${profile}_test PRIVATE Serializer::managed)
     if(Python3_Interpreter_FOUND)
       add_test(NAME dimension_history_${profile}_test
@@ -172,6 +174,10 @@ if(SERIALIZER_BUILD_MANAGED)
           --helper "$<TARGET_FILE:dimension_history_${profile}_test>")
     endif()
   endforeach()
+  serializer_generate_variants(TARGETS ${dimension_history_targets}
+    SCHEMAS resources/dimensions_managed.serializer
+    CONFIGS ${dimension_history_configs}
+    OUTPUT_DIRECTORIES ${dimension_history_directories})
   add_executable(managed_collaboration_test managed_collaboration_test.cpp
     managed_collaboration_ownership_test.cpp managed_collaboration_proposal_test.cpp
     managed_collaboration_session_test.cpp managed_collaboration_history_test.cpp
@@ -355,6 +361,11 @@ add_test(NAME serializer_compiler_cli
     "-DVERSION=${PROJECT_VERSION}" "-DDIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/compiler_cli"
     -P "${CMAKE_CURRENT_SOURCE_DIR}/compiler_cli.cmake")
 
+add_test(NAME serializer_batch_config_cli
+  COMMAND "${CMAKE_COMMAND}" "-DGENERATOR=$<TARGET_FILE:serializer>"
+    "-DDIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/batch_config_cli"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/batch_config_cli.cmake")
+
 add_test(NAME serializer_compatibility_cli
   COMMAND "${CMAKE_COMMAND}" "-DGENERATOR=$<TARGET_FILE:serializer>"
     "-DDIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/compatibility_cli"
@@ -370,6 +381,11 @@ if(CMAKE_GENERATOR MATCHES "Ninja")
   set(serializer_test_ninja "${CMAKE_MAKE_PROGRAM}")
 endif()
 if(serializer_test_ninja)
+  add_test(NAME serializer_batch_config_dependencies
+    COMMAND "${CMAKE_COMMAND}" "-DGENERATOR=$<TARGET_FILE:serializer>"
+      "-DREPOSITORY=${PROJECT_SOURCE_DIR}" "-DNINJA=${serializer_test_ninja}"
+      "-DDIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/batch_config_dependencies"
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/batch_config_build.cmake")
   add_test(NAME serializer_include_dependencies
     COMMAND "${CMAKE_COMMAND}" "-DGENERATOR=$<TARGET_FILE:serializer>"
       "-DREPOSITORY=${PROJECT_SOURCE_DIR}" "-DNINJA=${serializer_test_ninja}"

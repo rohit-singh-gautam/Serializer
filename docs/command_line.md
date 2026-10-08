@@ -1,6 +1,6 @@
 # Serializer compiler and schema versions
 
-The compiler and runtime release is **1.3.0**, defined by `project(... VERSION ...)` in the
+The compiler and runtime release is **1.5.0**, defined by `project(... VERSION ...)` in the
 root CMake file. `serializer --version` (or `-v`) prints that release and the
 supported schema language version. CMake generates `<rohit/version.hpp>` with
 `rohit::serializer::compiler_version`, `schema_language_version_text`, and
@@ -66,7 +66,7 @@ Existing stream-only parsing does not read files.
 The repository's [schema language versioning policy](../AGENTS.md#schema-language-versioning)
 uses `major.minor.patch` for language releases, independently of the compiler
 release. `serializer_schema_language_version` in the root CMake file defines the
-language release separately from `project(... VERSION ...)`. Compiler **1.3.0**
+language release separately from `project(... VERSION ...)`. Compiler **1.5.0**
 currently supports language **1.2.0**; `serializer --version` reports both.
 
 Language `1.2.0` adds `compact_prefix` and `compact_varint` unsigned scalar
@@ -113,9 +113,9 @@ values, and repeated non-repeatable options are errors.
 | `--compatibility-protocol` | | Required for checking: `binary_none`, `binary_integer`, `binary_string`, `json`, or `protobuf_binary` |
 | `--compatibility-direction` | | `backward` (new reader), `forward` (old reader), or `both` (default) |
 | `--compatibility-policy` | | Optional version-1 JSON reservations file |
-| `--output` | `-o` | Output file for exactly one selected language |
+| `--output` | `-o` | Output file for exactly one selected language per configuration; repeat once per config in batch generation |
 | `--depfile` | | Optional Make-style dependency file for all selected outputs and their transitive schema/configuration inputs |
-| `--config` | `-c` | Optional generator INI configuration |
+| `--config` | `-c` | Optional generator INI configuration; repeat for independent variants from one schema parse |
 | `--language` | `-l` | `cpp`, `java`, `js`, `typescript`, `go`, `csharp`, `rust`, `python`, `swift`, `kotlin`, `c`, or a comma-separated list; repeatable |
 | `--cpp.output` | | C++ `.h`, `.hpp`, or `.hxx` destination |
 | `--java.output` | | Java `.java` destination; filename supplies the outer class |
@@ -153,6 +153,10 @@ explicit CLI language selection replaces the config selection. Config paths are
 relative to the configuration file; command-line paths are relative to the working
 directory. `[output] language = cpp, java` also selects both languages. Duplicate
 or unknown languages and empty list entries are rejected.
+
+`--config`, `--output`, and language-specific output options are repeatable for
+[batch generation](#generate-several-configurations-from-one-parse). Scalar backend
+settings remain non-repeatable and apply to every configuration.
 
 Compatibility options require `--check-against` and cannot be combined with
 generation/configuration/output options. Both schema revisions resolve their own
@@ -193,6 +197,61 @@ option, or backend failures leave existing destinations unchanged. Filesystem
 write failures are reported but writes across multiple files are not atomic.
 Outputs cannot alias each other, the input schema, the INI file, or custom format
 file. See [output configuration](output_configuration.md) for profile scope.
+
+## Generate several configurations from one parse
+
+Compiler/runtime **1.5.0** adds repeatable `--config` and output options. Keep the
+existing INI files and pass all variants in one invocation:
+
+```sh
+serializer --input test/resources/dimensions_managed.serializer \
+  --config test/resources/dimensions_managed32.ini \
+  --config test/resources/dimensions_managed64.ini \
+  --config test/resources/dimensions_separate64.ini \
+  --output out/managed32/dimensions_managed.hpp \
+  --output out/managed64/dimensions_managed.hpp \
+  --output out/separate64/dimensions_managed.hpp \
+  --depfile out/dimensions_managed.d --verbose
+```
+
+Create those output directories first. The first output belongs to the first
+configuration, and so on; argument interleaving does not change that ordering.
+Each INI starts with built-in defaults and supplies its own settings, including
+managed ID width and separate-values representation. Configurations are not
+merged with one another. Scalar CLI overrides apply to every configuration;
+`--language` replaces every INI's language selection. Relative config paths resolve
+from their own INI directories, and CLI paths resolve from the working directory.
+
+The schema and its included declarations are parsed once. Every variant then runs
+its own backend validation, generation, and formatting against that parsed model.
+`--verbose` reports `Parsed schema once for 3 configurations` for the example.
+Use the [CMake variants helper](cmake_integration.md#generate-several-configurations-from-one-parse)
+to register this as one incremental generation command per entry schema.
+
+With generic `--output`, supply exactly one path per configuration and select
+exactly one language in each configuration. Those languages may differ. Do not
+combine generic outputs with language-specific output options. For configurations
+selecting several languages, repeat each language's output option once for every
+configuration selecting that language, in configuration order:
+
+```sh
+serializer --input account.serializer --config google.ini --config oracle.ini \
+  --language cpp,java \
+  --cpp.output out/google/account.hpp --cpp.output out/oracle/account.hpp \
+  --java.output out/google/AccountSchema.java --java.output out/oracle/AccountSchema.java
+```
+
+`--cpp.output`, `--java.output`, and the other language output options are repeatable
+for this purpose. Missing or surplus output paths are errors. Single-config
+invocations retain their existing behavior. INI syntax and schema language **1.2.0**
+remain unchanged; named configurations inside one INI are not supported.
+
+The shared depfile records all outputs, all configurations, and transitive schema
+inputs. Outputs cannot alias each other or any input/config/format file in the
+batch. Every source is generated and formatted before writes begin, so an invalid
+later configuration or backend failure preserves earlier destinations and the
+depfile too. Filesystem write failures may leave partial results; writing several
+files is not atomic.
 
 ## Constant-evaluation C++ generation
 
@@ -288,8 +347,9 @@ IDs and transaction editors by default. Opt into ordinary classes plus managed
 companions with `--managed.separate_values true`. See the [managed interface](managed/cpp_runtime.md)
 for eligibility and representation rules. Configuration accepts `[managed]` with
 `id_type = uint32|uint64` and `separate_values = true|false`. Command-line settings
-take precedence. Every output sharing a model must use the same ID width and
-representation. Non-C++ managed generation
+take precedence. Every compiled consumer sharing a model must use the same ID
+width and representation across its translation units. A batch may generate
+different variants for separate consumers. Non-C++ managed generation
 and capability selectors are rejected; they never silently produce ordinary output.
 
 ## Typed command-line declarations
