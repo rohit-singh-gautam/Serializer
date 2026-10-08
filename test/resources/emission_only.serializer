@@ -32,4 +32,17 @@ namespace emission_models {
     public compact_prefix strict uint32 prefix;
     public compact_varint uint64 variable;
   }
+  // Escaped controls and high bytes must retain their exact binary header identity.
+  class escaped_magic_record stable_ids {
+    public magic (100) { 'A\'\"\\\0\n\xC3\xA9\xC2\x80\xC3\xBFF' };
+    public uint8 value (1);
+  }
+  // By-value generic fields use logical traversal rather than raw DTO copies.
+  class generic_value_packet<Value> {
+    public Value value;
+  }
+  // A span remains borrowed storage even when its source element type owns memory.
+  class generic_array_packet<Value> {
+    public array Value values;
+  }
 }

@@ -381,7 +381,8 @@ TEST(output_options, emission_only_generation) {
       "class record : public base { public string label; public array uint8 data; "
       "public array[3] uint16 fixed; public inner::child nested; "
       "public state mode { state::ready }; public union(uint32 = number, inner::child = node) payload; } "
-      "class box<T = inner::child> { public array T values; } }", options);
+      "class box<T = inner::child> { public array T values; } "
+      "class generic_value<T> { public T first; public T second; } }", options);
   EXPECT_NE(source.find("#include <rohit/constant_binary_output.hpp>"), std::string::npos);
   EXPECT_NE(source.find("namespace emission {"), std::string::npos);
   EXPECT_NE(source.find("::outer::inner::emission::child"), std::string::npos);
@@ -392,6 +393,8 @@ TEST(output_options, emission_only_generation) {
   EXPECT_NE(source.find("::std::span<const ::std::uint16_t> fixed"), std::string::npos);
   EXPECT_NE(source.find("Emission array extent mismatch"), std::string::npos);
   EXPECT_NE(source.find("serializer_emission_only = true"), std::string::npos);
+  EXPECT_EQ(source.find("is_trivially_copyable"), std::string::npos);
+  EXPECT_NE(source.find("is_trivially_destructible"), std::string::npos);
   EXPECT_NE(source.find("constexpr void serialize_out(::rohit::serializer::binary_none_output&"),
             std::string::npos);
   for (const auto removed : {"serialize_constant_out", "serialize_in(", "static auto serialize(",
@@ -407,4 +410,48 @@ TEST(output_options, emission_only_generation) {
   EXPECT_NE(emit("namespace api { enum State { Ready } "
                 "class Record { public State mode { State::Ready }; } }", options)
                 .find("::api::emission::State::Ready"), std::string::npos);
+}
+
+// Keep header declarations readable without changing their exact byte-array contract.
+TEST(output_options, readable_magic_literals_in_owning_and_emission_profiles) {
+  constexpr std::string_view schema = R"schema(
+    class readable_header { public magic (100) { 'HEAD1' }; public uint8 value (1); }
+    class escaped_header {
+      public magic (100) { 'A\'\"\\\0\n\xC3\xA9\xC2\x80\xC3\xBFF' };
+      public uint8 value (1);
+    }
+  )schema"
+      "class question_header { public magic (100) { '" "?" "?/" "' }; }";
+  constexpr std::string_view readable_comment =
+      R"comment(// Fixed schema-owned header "HEAD1"; no per-object storage.)comment";
+  constexpr std::string_view readable_array =
+      "inline static constexpr char magic[] = {'H', 'E', 'A', 'D', '1'};";
+  constexpr std::string_view escaped_comment =
+      R"comment(// Fixed schema-owned header "A\'\"\\\000\n\303\251\302\200\303\277F"; no per-object storage.)comment";
+  constexpr std::string_view escaped_array =
+      R"magic(inline static constexpr char magic[] = {'A', '\'', '\"', '\\', '\000', '\n', '\303', '\251', '\302', '\200', '\303', '\277', 'F'};)magic";
+  constexpr std::string_view question_comment =
+      R"comment(// Fixed schema-owned header "\?\?/"; no per-object storage.)comment";
+  constexpr std::string_view question_array =
+      R"magic(inline static constexpr char magic[] = {'\?', '\?', '/'};)magic";
+  for (const bool emission_only : {false, true}) {
+    SCOPED_TRACE(emission_only ? "emission" : "owning");
+    writer::cpp_options options{};
+    if (emission_only) {
+      options.constant_evaluation = true;
+      options.protocols = writer::cpp_protocols::binary_none;
+      options.emission_only = true;
+    }
+    const auto source = emit(schema, options);
+    EXPECT_NE(source.find(readable_comment), std::string::npos);
+    EXPECT_NE(source.find(readable_array), std::string::npos);
+    EXPECT_NE(source.find(escaped_comment), std::string::npos);
+    EXPECT_NE(source.find(escaped_array), std::string::npos);
+    EXPECT_NE(source.find(question_comment), std::string::npos);
+    EXPECT_NE(source.find(question_array), std::string::npos);
+    EXPECT_EQ(source.find("static_cast<char>"), std::string::npos);
+    EXPECT_EQ(source.find(std::string(1, '\0')), std::string::npos);
+    EXPECT_EQ(source.find(std::string(1, static_cast<char>(0x80))), std::string::npos);
+    EXPECT_EQ(source.find(std::string(1, static_cast<char>(0xc3))), std::string::npos);
+  }
 }

@@ -588,6 +588,14 @@ including fixed schema arrays. Fixed spans use dynamic extent for default constr
 the emitted active-field traversal validates the declared fixed count before encoding.
 Text/count framing and every retained wire value match the owning schema contract.
 
+Serializer tests verify that supported borrowed representations and generated
+records/unions are trivially copyable. Generated headers do not repeat
+`is_trivially_copyable_v` assertions for each field. Encoding traverses logical
+fields and never copies the DTO object representation. Native generic type
+arguments retain their supplied C++ representation and are not required to be
+trivially copyable merely to emit bytes. The separate raw-union destruction
+constraints remain in force.
+
 Each emission DTO exposes one concrete output method:
 
 ```cpp
@@ -605,8 +613,8 @@ compile-time and memory improvements require measurements of the actual applicat
 There is no emitted `serialize_constant_out`,
 reader, stream/static codec convenience or JSON/keyed dispatch API. Static
 `serializer_emission_only`, constant-evaluation metadata and the exact-type alias
-identify explicit API eligibility without object storage. The model borrows all
-variable payload storage, which must outlive the synchronous traversal.
+identify explicit API eligibility without object storage. Schema strings and arrays
+borrow their variable payload storage, which must outlive the synchronous traversal.
 
 The public concrete `binary_none_output` defaults to count mode; constructing it
 with a writable `span<uint8_t>` selects memory mode. Its `position_bytes()`

@@ -10,7 +10,7 @@ Define your data once in a `.serializer` schema, then generate classes and codec
 for JSON and binary serialization. Serializer includes a C++20 schema compiler,
 a C++ runtime, and generators for multiple languages.
 
-The current compiler and runtime release is **1.4.0**. Bug fixes and minor updates
+The current compiler and runtime release is **1.4.1**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.2.0**;
@@ -45,6 +45,8 @@ Magic is static metadata: writers emit it, readers verify and discard it, and
 JSON includes the fixed `magic` value by default. Native binary writes legacy
 header bytes or the declared scalar/enum encoding before the separate version discriminator. C++ format selection
 and omissions resolve at compile time without per-object flags.
+C++ byte magic uses readable character literals and a comment showing its escaped
+contents, preserving the exact bytes without an implicit terminator.
 
 Language `1.2.0` adds [compact unsigned scalar fields](docs/compact_integers.md):
 `public compact_prefix strict uint32 value (3) {32};` uses the existing 30-bit

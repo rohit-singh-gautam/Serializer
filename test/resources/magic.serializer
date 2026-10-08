@@ -21,4 +21,9 @@ namespace magic_test {
     public Value value;
   }
   instantiate generic_uint32 = generic_header<uint32>;
+  // Escaped controls and high bytes must retain their exact binary header identity.
+  class escaped_magic_record stable_ids {
+    public magic (100) { 'A\'\"\\\0\n\xC3\xA9\xC2\x80\xC3\xBFF' };
+    public uint8 value (1);
+  }
 }

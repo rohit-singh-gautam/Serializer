@@ -425,7 +425,7 @@ feature as a prerequisite without the user's request.
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
   remains available through `parser::parse(input)`. Schema language version 1.2.0 is
-  independent of compiler release 1.4.0 and wire protocols. Bug fixes and minor
+  independent of compiler release 1.4.1 and wire protocols. Bug fixes and minor
   updates increment the patch number; new features increment the minor number.
   Minor and patch releases preserve full compatibility. Developers change the
   major number manually, with best-effort compatibility across major releases.
@@ -890,6 +890,10 @@ support without the full runtime serializer/I/O/JSON parser closure; include
 constant_binary.hpp when using the owning runtime-memory overload. Generate an
 ordinary owning header separately for runtime reading. Maps,
 managed/views, nonempty array defaults and multidimensional arrays are rejected.
+Native generic type arguments retain their supplied C++ representation. Emission
+writes fields logically, so copyability is not a wire requirement; generated headers
+do not repeat field-level copyability assertions. Serializer tests verify supported
+borrowed representations. Preserve the separate raw-union destruction constraints.
 
 Verify actual generated models, independent expected bytes and runtime reading;
 report the tested compiler/library combination and unavailable cases. Do not infer
@@ -1245,6 +1249,9 @@ mutable payload storage. Native binary prefixes them before the version; JSON
 includes the fixed `magic` string. Every included format verifies and discards
 the header and rejects missing, wrong, or duplicate magic. Freeze the numeric
 magic ID for durable Protobuf contracts. Default IDs use the first free identity.
+C++ byte magic is emitted as readable character literals with a comment showing
+its escaped contents. Preserve the exact array extent and bytes; do not replace
+the brace list with a string literal that adds a NUL terminator.
 Use trailing `omit(json, binary_positional)` on magic or any ordinary member of an
 owning class to exclude that field from the selected protocol. View modes reject
 omissions explicitly. Version discriminators cannot

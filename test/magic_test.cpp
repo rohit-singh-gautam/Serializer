@@ -3,6 +3,7 @@
 
 #include <gtest/gtest.h>
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <exception>
@@ -14,6 +15,23 @@ static_assert(sizeof(magic_test::record::magic) == 8);
 static_assert(std::is_same_v<decltype(magic_test::record::magic), const char[8]>);
 
 namespace {
+
+constexpr auto escaped_magic_prefix = std::to_array<std::uint8_t>(
+    {'A', '\'', '"', '\\', 0U, '\n', 0xc3U, 0xa9U, 0xc2U, 0x80U, 0xc3U, 0xbfU, 'F'});
+static_assert(sizeof(magic_test::escaped_magic_record::magic) == escaped_magic_prefix.size());
+static_assert(std::is_same_v<decltype(magic_test::escaped_magic_record::magic),
+                             const char[escaped_magic_prefix.size()]>);
+// Check every generated character's object byte against an independent frozen header fixture.
+static_assert([] {
+  for (std::size_t index = 0; index < escaped_magic_prefix.size(); ++index) {
+    if (static_cast<std::uint8_t>(magic_test::escaped_magic_record::magic[index]) !=
+        escaped_magic_prefix[index]) {
+      return false;
+    }
+  }
+  return true;
+}());
+
 template <rohit::serializer::serialize_type Direction>
 using flexible_json = rohit::serializer::json<Direction, rohit::stream,
                                               rohit::serializer::read_policy::flexible>;
@@ -84,6 +102,26 @@ void verify_binary() {
   }
   EXPECT_THROW((decode<Protocol, magic_test::record>(bytes + '\0')), std::exception);
 }
+
+// Verify escaped source spelling changes neither raw binary bytes nor checked reader identity.
+template <template <rohit::serializer::serialize_type> class Protocol>
+void verify_escaped_magic_binary() {
+  magic_test::escaped_magic_record value{};
+  value.value = 0xa5U;
+  const auto bytes = encode<Protocol>(value);
+  const std::string prefix{escaped_magic_prefix.begin(), escaped_magic_prefix.end()};
+  ASSERT_GE(bytes.size(), prefix.size());
+  EXPECT_EQ(bytes.substr(0, prefix.size()), prefix);
+  if constexpr (std::is_same_v<Protocol<rohit::serializer::serialize_type::out>,
+                               rohit::serializer::binary_none<rohit::serializer::serialize_type::out>>) {
+    EXPECT_EQ(bytes, prefix + static_cast<char>(value.value));
+  }
+  EXPECT_EQ((decode<Protocol, magic_test::escaped_magic_record>(bytes)).value, value.value);
+  auto mismatched = bytes;
+  mismatched[escaped_magic_prefix.size() - 2U] ^= 1;
+  EXPECT_THROW((decode<Protocol, magic_test::escaped_magic_record>(mismatched)), std::exception);
+}
+
 } // namespace
 
 // Preserve exact static char-array headers and prove all native binary readers verify them.
@@ -165,4 +203,11 @@ TEST(magic_header, json_adapter_preserves_implicit_string_view_callers) {
     EXPECT_THROW(decode_text_adapter<true>(invalid), std::exception);
     EXPECT_THROW(decode_text_adapter<false>(invalid), std::exception);
   }
+}
+
+// Preserve source-independent control/high bytes through every native binary protocol.
+TEST(magic_header, escaped_character_literals_preserve_wire_bytes) {
+  verify_escaped_magic_binary<rohit::serializer::binary_none>();
+  verify_escaped_magic_binary<rohit::serializer::binary_integer>();
+  verify_escaped_magic_binary<rohit::serializer::binary_string>();
 }

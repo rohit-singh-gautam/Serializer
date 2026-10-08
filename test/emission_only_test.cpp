@@ -21,6 +21,19 @@ namespace codec = rohit::serializer;
 namespace borrowed = emission_models::emission;
 namespace owned = emission_models;
 
+// Freeze raw magic bytes independently of the generator's source-literal spelling.
+constexpr auto escaped_magic_bytes = std::to_array<std::uint8_t>(
+    {'A', '\'', '"', '\\', 0U, '\n', 0xc3U, 0xa9U, 0xc2U, 0x80U, 0xc3U, 0xbfU, 'F', 0xa5U});
+constexpr auto escaped_magic_factory = [] {
+  borrowed::escaped_magic_record value{};
+  value.value = escaped_magic_bytes.back();
+  return value;
+};
+constexpr auto escaped_magic_output = codec::make_binary_none_bytes<escaped_magic_factory>();
+static_assert(escaped_magic_output == escaped_magic_bytes);
+static_assert(sizeof(borrowed::escaped_magic_record::magic) + sizeof(std::uint8_t) ==
+              escaped_magic_bytes.size());
+
 using payload_output_method = void (borrowed::payload::*)(codec::binary_none_output&) const;
 static_assert(std::same_as<decltype(&borrowed::payload::serialize_out), payload_output_method>);
 static_assert(std::same_as<decltype(borrowed::payload::label), std::string_view>);
@@ -28,6 +41,36 @@ static_assert(std::same_as<decltype(borrowed::payload::data), std::span<const st
 static_assert(
     std::same_as<decltype(borrowed::fixed_packet::values), std::span<const std::uint16_t>>);
 static_assert(std::is_trivially_copyable_v<borrowed::payload>);
+
+// Verify concrete storage representations in tests instead of repeating checks in generated APIs.
+static_assert(std::is_trivially_copyable_v<std::uint8_t>);
+static_assert(std::is_trivially_copyable_v<std::uint16_t>);
+static_assert(std::is_trivially_copyable_v<bool>);
+static_assert(std::is_trivially_copyable_v<std::string_view>);
+static_assert(std::is_trivially_copyable_v<std::span<const std::uint8_t>>);
+static_assert(std::is_trivially_copyable_v<std::span<const borrowed::payload>>);
+static_assert(std::is_trivially_copyable_v<std::array<std::uint8_t, 3>>);
+static_assert(std::is_trivially_copyable_v<std::array<borrowed::payload, 2>>);
+static_assert(std::is_trivially_copyable_v<borrowed::phase>);
+static_assert(std::is_trivially_copyable_v<borrowed::fixed_packet>);
+static_assert(std::is_trivially_copyable_v<borrowed::nested_packet>);
+static_assert(std::is_trivially_copyable_v<borrowed::special_packet>);
+static_assert(std::is_trivially_copyable_v<borrowed::choice>);
+static_assert(std::is_trivially_copyable_v<decltype(borrowed::choice::data)>);
+static_assert(std::is_trivially_copyable_v<borrowed::generic_value_packet<std::uint16_t>>);
+static_assert(std::is_trivially_copyable_v<borrowed::generic_array_packet<std::string>>);
+static_assert(!std::is_trivially_copyable_v<borrowed::generic_value_packet<std::string>>);
+
+// Keep an owning generic value transient; explicit field traversal does not require trivial DTOs.
+constexpr auto generic_string_factory = [] {
+  borrowed::generic_value_packet<std::string> value{};
+  value.value = std::string(80, 'g');
+  return value;
+};
+constexpr auto generic_string_output = codec::make_binary_none_bytes<generic_string_factory>();
+static_assert(generic_string_output.size() == 82);
+static_assert(generic_string_output[0] == 0x40 && generic_string_output[1] == 80);
+static_assert(generic_string_output[2] == 'g' && generic_string_output.back() == 'g');
 
 // Own inline construction data and create borrowed generated fields only at traversal time.
 struct fixed_payload_owner {
@@ -234,3 +277,26 @@ TEST(emission_only, contiguous_octet_pool_bounds_and_parity) {
 }
 
 } // namespace
+
+// Read constant escaped-header output through the owning runtime profile and compare its writer.
+TEST(emission_only, escaped_magic_preserves_exact_constant_bytes) {
+  const auto decoded = decode<owned::escaped_magic_record>(escaped_magic_output);
+  EXPECT_EQ(decoded.value, escaped_magic_bytes.back());
+  verify_owning_parity(decoded, escaped_magic_output);
+}
+
+// Traverse a nontrivial by-value generic field while keeping array sources borrowed.
+TEST(emission_only, generic_model_copyability_is_not_a_wire_requirement) {
+  const auto decoded = decode<owned::generic_value_packet<std::string>>(generic_string_output);
+  EXPECT_EQ(decoded.value, std::string(80, 'g'));
+  verify_owning_parity(decoded, generic_string_output);
+  const std::array<std::string, 2> text{"first", "second"};
+  borrowed::generic_array_packet<std::string> value{};
+  value.values = text;
+  std::array<std::uint8_t, 14> memory{};
+  ASSERT_EQ(codec::binary_none_size(value), memory.size());
+  ASSERT_EQ(codec::serialize_binary_none_to(memory, value), memory.size());
+  const auto array_decoded = decode<owned::generic_array_packet<std::string>>(memory);
+  EXPECT_EQ(array_decoded.values, (std::vector<std::string>{"first", "second"}));
+  verify_owning_parity(array_decoded, memory);
+}

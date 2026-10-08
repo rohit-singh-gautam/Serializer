@@ -35,6 +35,39 @@
 
 namespace rohit::serializer::writer::cpp {
 namespace {
+// Escape one decoded magic byte for both C++ character literals and a single-line comment.
+std::string escape_magic_byte(unsigned char byte) {
+  switch (byte) {
+  case '\0': return "\\000";
+  case '\a': return "\\a";
+  case '\b': return "\\b";
+  case '\t': return "\\t";
+  case '\n': return "\\n";
+  case '\v': return "\\v";
+  case '\f': return "\\f";
+  case '\r': return "\\r";
+  case '\'': return "\\'";
+  case '"': return "\\\"";
+  case '\\': return "\\\\";
+  case '?': return "\\?";
+  default: break;
+  }
+  constexpr unsigned char printable_ascii_begin = 0x20U;
+  constexpr unsigned char printable_ascii_end = 0x7eU;
+  if (byte >= printable_ascii_begin && byte <= printable_ascii_end) {
+    return std::string(1U, static_cast<char>(byte));
+  }
+  // Fixed-width octal escapes preserve byte values without source-encoding or digit ambiguity.
+  constexpr unsigned octal_digit_bits = 3U;
+  constexpr unsigned octal_digit_mask = (1U << octal_digit_bits) - 1U;
+  std::string result{"\\000"};
+  for (std::size_t index = 1U; index < result.size(); ++index) {
+    const auto shift = (result.size() - 1U - index) * octal_digit_bits;
+    result[index] = static_cast<char>('0' + ((byte >> shift) & octal_digit_mask));
+  }
+  return result;
+}
+
 // Emit one schema using an isolated naming policy; the parsed schema is never rewritten.
 class emitter : private naming {
   bool protobuf_enabled{false};
@@ -247,12 +280,6 @@ public:
       auto support = get_cpp_type_support(member);
       if (!support.empty()) {
         out_stream.write(support, '\n');
-      }
-      if (emission_only) {
-        out_stream.write("  static_assert(::std::is_trivially_copyable_v<",
-                         member.modifier == member::modifier_type::variant ?
-                             union_storage_name(member) : get_cpp_type(member),
-                         ">, \"Emission fields must be trivially copyable borrowed values\");\n");
       }
       out_stream.write("  ", get_cpp_type(member), ' ', member_name(member), "{");
       if (!member.default_value.empty()) {
@@ -1775,7 +1802,15 @@ public:
       out_stream.write(::std::string_view{obj->magic_access == access_type::public_access ? "public:\n" :
                        obj->magic_access == access_type::protected_access ? "protected:\n" :
                                                                           "private:\n"},
-                       "  // Fixed schema-owned header; no per-object storage.\n");
+                       "  // Fixed schema-owned header");
+      if (!obj->magic_field) {
+        out_stream.write(" \"");
+        for (const auto byte : obj->magic_bytes) {
+          out_stream.write(escape_magic_byte(static_cast<unsigned char>(byte)));
+        }
+        out_stream.write("\"");
+      }
+      out_stream.write("; no per-object storage.\n");
       if (obj->magic_field) {
         out_stream.write("  inline static constexpr ", get_cpp_type(*obj->magic_field),
                          " magic = ", magic_literal(*obj->magic_field), ";\n");
@@ -1783,7 +1818,7 @@ public:
         out_stream.write("  inline static constexpr char magic[] = {");
         for (std::size_t index = 0; index < obj->magic_bytes.size(); ++index) {
           if (index != 0) { out_stream.write(", "); }
-          out_stream.write("static_cast<char>(", static_cast<unsigned>(static_cast<unsigned char>(obj->magic_bytes[index])), ")");
+          out_stream.write('\'', escape_magic_byte(static_cast<unsigned char>(obj->magic_bytes[index])), '\'');
         }
         out_stream.write("};\n");
       }

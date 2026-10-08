@@ -18,6 +18,19 @@ class document stable_ids {
 For the legacy byte-literal form, the C++ generated declaration is an
 `inline static constexpr char magic[N]`
 containing exactly the declared bytes, with no implicit NUL terminator.
+
+C++ output uses character literals and an escaped comment to show the header:
+
+```cpp
+// Fixed schema-owned header "SRLFILE"; no per-object storage.
+inline static constexpr char magic[] = {'S', 'R', 'L', 'F', 'I', 'L', 'E'};
+```
+
+Quotes, backslashes, and control bytes are escaped. Other nonprintable and
+non-ASCII bytes use fixed-width octal escapes, preserving the exact byte values
+and array extent independently of the generated source encoding. This changes
+only source presentation; codecs, runtime storage, and wire bytes are unchanged.
+
 `public`, `protected`, and `private` control constant visibility independently of
 serialization. Other languages expose their corresponding static immutable
 constant representation. Python's nonpublic names follow its existing underscore
