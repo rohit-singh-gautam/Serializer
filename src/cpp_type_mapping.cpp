@@ -42,6 +42,7 @@ const std::string& get_cpp_type_or_empty(const std::string& type) {
       {"version3", "rohit::serializer::version3"},
       {"version4", "rohit::serializer::version4"},
       {"bool", "bool"},
+      {"digest", "std::vector<std::uint8_t>"},
       {"string", "std::string"}};
 
   static const std::string empty{};

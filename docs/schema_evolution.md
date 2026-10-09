@@ -82,6 +82,14 @@ original slots. Version 1 of this feature reserves class field/parent IDs and
 wire names; it does not add explicit enum numbers, union tags, or reserved holes
 to schema syntax.
 
+Digest contracts compare both the algorithm selector and fixed byte extent.
+Changing `digest` to `digest[N]`, changing the extent, or changing a named
+algorithm is reported even when two choices happen to produce equal-width bytes.
+Both peers must also agree on which input bytes were hashed; that application
+meaning is beyond the schema checker. Native digest values retain the ordinary
+byte-sequence wire representation, while Protobuf digest mappings reject
+explicitly. See [the digest guide](digest.md).
+
 ## Protocol boundaries
 
 - Positional binary requires the same field order and shape in both directions.

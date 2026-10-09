@@ -32,13 +32,13 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **1.7.0**. Bug fixes and minor updates
+The current compiler and runtime release is **1.8.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
-compatibility across major releases. The schema language version is **1.2.0**;
+compatibility across major releases. The schema language version is **1.3.0**;
 see [release and schema versions](docs/command_line.md).
 
-Use `serializer version 1.2.0;` for new schemas. Older `1.0.0` and `1.1.0` schemas remain supported. The original
+Use `serializer version 1.3.0;` for new schemas. Older `1.0.0`, `1.1.0`, and `1.2.0` schemas remain supported. The original
 `serializer version 1;` is an exact compatibility alias for `1.0.0`, exclusive to
 version 1. Future versions require all three components; see the
 [schema language policy](docs/command_line.md#schema-language-version-policy).
@@ -73,6 +73,12 @@ prefix encoding, while `compact_varint uint64 count;` uses full-width unsigned
 LEB128. Explicit `lenient` selects deterministic truncation. All output languages
 support these owning scalar annotations; JSON retains ordinary integer values.
 
+Language `1.3.0` adds [digest bytes and creation](docs/digest.md): bare `digest`
+stores a variable-length application-supplied value, `digest[32]` fixes its byte
+length, and `digest(sha256)` selects a standard algorithm's length. All native
+outputs support digest storage/codecs; C++ includes 0BSD creation and hex helpers
+without an OpenSSL dependency. Fields do not compute hashes automatically.
+
 C++20 [constant-evaluation binary output](docs/constant_evaluation.md) can count a
 value's exact positional size, write caller-owned memory, or return an exact-size
 byte array from a deterministic factory. Enable generated models with
@@ -100,6 +106,9 @@ choose the runtime target automatically. The compiler and its
 `Serializer::serializer_lib` parser/generator API remain
 [GPL-3.0-or-later](LICENSE). Third-party dependencies retain their own licenses.
 See [licensing and schema notices](docs/licensing.md) before redistributing a package.
+The [licensing rationale](docs/licensing.md#why-the-license-was-separated)
+explains why application support has separate permissions while the compiler
+retains GPL, and how those permissions differ from copyright ownership.
 
 ## How it works
 
@@ -117,7 +126,7 @@ their target language without a native Serializer runtime dependency.
 Save this as `person.serializer`:
 
 ```text
-serializer version 1.2.0;
+serializer version 1.3.0;
 
 namespace demo {
   class person {
@@ -305,8 +314,8 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editor_extension.md) |
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
-Both extensions use source release version **1.1.27**, independent of compiler version
-**1.7.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
+Both extensions use source release version **1.1.28**, independent of compiler version
+**1.8.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
 for supported destinations and language-service prerequisites.
 VS Code also supports navigation from read-only Git index/history tabs, using
 the displayed snapshot and current workspace destinations.
@@ -401,6 +410,8 @@ for reporting barriers to using the project.
 - [Qualification](qualification/README.md): interoperability, fuzzing, and performance workflows.
 - [Coding standard](CodingStandard.md) and [agent instructions](AGENTS.md): repository contribution rules.
 - [Licensing](docs/licensing.md): proprietary generated output, permissive application runtime, and GPL compiler scope.
+- [Digest storage and creation](docs/digest.md): byte contracts, supported algorithms, C++ helpers, and provider/licensing boundaries.
+- [Digest verification](docs/verification-digest-2026-10-09.md): recorded native, cross-language, and editor checks and their scope.
 
 When updating an existing application, check the migration guide and regenerate
 affected output before rebuilding. Verification records describe specific tested

@@ -71,6 +71,13 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
     const maximumTypeDepth = 128;
     if (depth >= maximumTypeDepth) { return start + 1; }
     const token = tokens[start]?.text;
+    if (token === 'digest' && ['(', '['].includes(tokens[start + 1]?.text ?? '')) {
+      // Algorithm names and manual byte extents are metadata, not schema type references.
+      const close = tokens[start + 1].text === '(' ? ')' : ']';
+      let next = start + 2;
+      while (next < tokens.length && ![close, ';', '}'].includes(tokens[next].text)) { ++next; }
+      return tokens[next]?.text === close ? next + 1 : next;
+    }
     if ((token === 'compact_prefix' || token === 'compact_varint') && tokens[start + 1]?.text !== '::') {
       const policy = tokens[start + 1]?.text;
       const operand = start + (policy === 'strict' || policy === 'lenient' ? 2 : 1);
@@ -212,6 +219,10 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
             if (depth === 1 && current === '=') { inDefault = true; }
             if (depth === 1 && parameterStart && /^[A-Za-z_]\w*$/.test(current)) {
               if (current !== 'uint64') { parameters.push(tokens[body]); parameterStart = false; }
+            } else if (inDefault && current === 'digest' &&
+                       ['(', '['].includes(tokens[body + 1]?.text ?? '')) {
+              // Digest defaults may name an algorithm that also exists as an unrelated schema type.
+              body = typeReference(body) - 1;
             } else if (inDefault && /^[A-Za-z_]\w*$/.test(current)) {
               const reference = qualified(body)!;
               result.references.push({ ...reference, scope: [...currentScope(), name.text] });

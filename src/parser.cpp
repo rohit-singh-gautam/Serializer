@@ -116,6 +116,15 @@ void require_language_1_2(const rohit::type_check::schema_input_buffer auto& inp
         input, std::string{feature} + " requires serializer version 1.2.0 or newer"};
   }
 }
+// Gate byte-container syntax while preserving declarations selected by older contracts.
+void require_language_1_3(const rohit::type_check::schema_input_buffer auto& input,
+                          std::string_view feature) {
+  constexpr language_version introduced{1u, 3u, 0u};
+  if (active_language_version < introduced) {
+    throw exception::bad_member_spec{
+        input, std::string{feature} + " requires serializer version 1.3.0 or newer"};
+  }
+}
 // Test for the ASCII whitespace characters accepted by the parser.
 constexpr bool is_whitespace(const char val) noexcept {
   return val == ' ' || val == '\t' || val == '\n' || val == '\r';
@@ -438,7 +447,66 @@ type_name parse_type_expression(const rohit::type_check::schema_input_buffer aut
   type_name result{parse_hierarchical_identifier_impl(input), scope};
   result.source_offset = source_offset;
   skip_whitespace_and_comment(input);
+  if (result.name == "digest") {
+    result.digest_language_supported = active_language_version >= language_version{1u, 3u, 0u};
+    if (!input.full() && *input == '(') {
+      require_language_1_3(input, "Digest types");
+      ++input;
+      skip_whitespace_and_comment(input);
+      const auto algorithm = parse_identifier_impl(input);
+      constexpr std::pair<std::string_view, rohit::digest_algorithm> algorithms[]{
+          {"md5", rohit::digest_algorithm::md5}, {"sha1", rohit::digest_algorithm::sha1},
+          {"sha224", rohit::digest_algorithm::sha224}, {"sha256", rohit::digest_algorithm::sha256},
+          {"sha384", rohit::digest_algorithm::sha384}, {"sha512", rohit::digest_algorithm::sha512},
+          {"sha512_224", rohit::digest_algorithm::sha512_224},
+          {"sha512_256", rohit::digest_algorithm::sha512_256},
+          {"sha3_224", rohit::digest_algorithm::sha3_224},
+          {"sha3_256", rohit::digest_algorithm::sha3_256},
+          {"sha3_384", rohit::digest_algorithm::sha3_384},
+          {"sha3_512", rohit::digest_algorithm::sha3_512}};
+      const auto found = std::find_if(std::begin(algorithms), std::end(algorithms),
+          [&](const auto& item) { return item.first == algorithm; });
+      if (found == std::end(algorithms)) {
+        throw exception::bad_member_type{input, "Unknown digest algorithm: " + algorithm};
+      }
+      result.digest = found->second;
+      result.digest_extent = static_cast<std::uint32_t>(rohit::digest_size(result.digest));
+      result.type = object_type::primitive;
+      skip_whitespace_and_comment(input);
+      if (input.full()) {
+        throw exception::bad_member_type{input, "Missing closing parenthesis in digest type"};
+      }
+      check_and_increase(input, ')');
+      skip_whitespace_and_comment(input);
+    } else if (!input.full() && *input == '[') {
+      require_language_1_3(input, "Fixed digest types");
+      ++input;
+      skip_whitespace_and_comment(input);
+      const auto* begin = reinterpret_cast<const char*>(input.curr());
+      std::size_t digits{};
+      while (!input.full() && *input >= '0' && *input <= '9') {
+        ++digits;
+        ++input;
+      }
+      constexpr std::uint32_t maximum_digest_bytes = 65536;
+      const auto parsed = std::from_chars(begin, begin + digits, result.digest_extent);
+      if (digits == 0 || parsed.ec != std::errc{} || result.digest_extent == 0 ||
+          result.digest_extent > maximum_digest_bytes) {
+        throw exception::bad_member_type{input, "Fixed digest length must be a decimal literal in 1..65536"};
+      }
+      result.type = object_type::primitive;
+      skip_whitespace_and_comment(input);
+      if (input.full()) {
+        throw exception::bad_member_type{input, "Missing closing bracket in digest type"};
+      }
+      check_and_increase(input, ']');
+      skip_whitespace_and_comment(input);
+    }
+  }
   if (!input.full() && *input == '<') {
+    if (result.is_digest()) {
+      throw exception::bad_member_type{input, "Digest types do not accept generic arguments"};
+    }
     result.application = true;
     ++input;
     skip_whitespace_and_comment(input);
@@ -1513,7 +1581,8 @@ parse_class_header(const rohit::type_check::schema_input_buffer auto& in_stream,
       if (std::find(parameters.begin(), parameters.end(), parameter) != parameters.end() ||
           std::find(std::begin(reserved_parameters), std::end(reserved_parameters), parameter) !=
               std::end(reserved_parameters) ||
-          !serializer::get_cpp_type_or_empty(parameter).empty() || parameter == name) {
+          (!serializer::get_cpp_type_or_empty(parameter).empty() && parameter != "digest") ||
+          parameter == name) {
         throw exception::bad_class{in_stream, "Duplicate or reserved generic parameter: " + parameter};
       }
       spec.name = parameter;
@@ -1933,6 +2002,9 @@ void check_member_type_for_primitive(const rohit::type_check::schema_input_buffe
   if (type_name.type != object_type::unresolved) {
     return;
   }
+  if (type_name.name == "digest" && !type_name.digest_language_supported) {
+    throw exception::bad_member_type{in_stream, "Digest types require serializer version 1.3.0 or newer"};
+  }
   if (serializer::get_cpp_type_or_empty(type_name.name).empty()) {
     std::string error_text{"Unknown type: "};
     error_text += type_name.name;
@@ -2127,6 +2199,20 @@ void validate_magic_constant(const rohit::type_check::schema_input_buffer auto& 
   }
 }
 
+// Keep digest values caller-supplied and refuse profiles without a checked byte-view codec.
+void validate_digest_member(const rohit::type_check::schema_input_buffer auto& input,
+                            const class_node& owner, const member& field) {
+  for (const auto& type : field.type_name_list) {
+    if (!type.is_digest()) { continue; }
+    if (!field.default_value.empty()) {
+      throw exception::bad_member_type{input, "Digest fields do not accept schema defaults"};
+    }
+    if (owner.storage_modes != static_cast<std::uint8_t>(storage_mode::owning)) {
+      throw exception::bad_member_type{input, "Digest fields currently require owning storage"};
+    }
+  }
+}
+
 // Validate inferred char bytes and qualify enum values after their element type is resolved.
 void normalize_inferred_constants(const rohit::type_check::schema_input_buffer auto& input,
                              member& field) {
@@ -2269,9 +2355,13 @@ void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream
           }
           normalize_inferred_constants(in_stream, member);
           validate_compact_member(in_stream, member, false);
+          validate_digest_member(in_stream, *class_ptr, member);
           if (member.modifier == member::modifier_type::map) {
-          type_name key{std::string{member.key}, member.type_name_list.front().declared_namespace};
+            type_name key{std::string{member.key}, member.type_name_list.front().declared_namespace};
             resolve_type(in_stream, key, variable_type_map);
+            if (key.is_digest()) {
+              throw exception::bad_member_type{in_stream, "Digest types cannot be map keys"};
+            }
             member.key_node = key.resolved_node;
             validate_nested_modes(in_stream, *class_ptr, member.key_node, true);
           }

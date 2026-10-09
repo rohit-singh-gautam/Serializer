@@ -1,0 +1,25 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: 0BSD
+serializer version 1.3.0;
+
+namespace digest_fixture {
+  class record {
+    public digest raw;
+    public digest(sha256) standard;
+    public digest[24] custom;
+    public array digest(md5) hashes;
+    public map(uint32) digest(sha3_256) values;
+  }
+  class fixed_blob {
+    public digest[3] value;
+  }
+  class fixed_bytes {
+    public array[3] uint8 value;
+  }
+  class variable_blob {
+    public digest value;
+  }
+  class variable_bytes {
+    public array uint8 value;
+  }
+}

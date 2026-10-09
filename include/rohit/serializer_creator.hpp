@@ -16,6 +16,7 @@
 //////////////////////////////////////////////////////////////////////////
 
 #pragma once
+#include <rohit/digest.hpp>
 #include <rohit/output_options.hpp>
 #include <rohit/serializer.hpp>
 #include <rohit/stream.hpp>
@@ -187,7 +188,9 @@ struct type_name {
       : name{rhs.name}, enum_name{rhs.enum_name}, declared_namespace{rhs.declared_namespace},
         defined_namespace{rhs.defined_namespace}, type{rhs.type}, resolved_node{rhs.resolved_node},
         arguments{rhs.arguments}, kind{rhs.kind}, expression{rhs.expression},
-        dimension{rhs.dimension}, application{rhs.application}, source_offset{rhs.source_offset} {}
+        dimension{rhs.dimension}, application{rhs.application}, source_offset{rhs.source_offset},
+        digest{rhs.digest}, digest_extent{rhs.digest_extent},
+        digest_language_supported{rhs.digest_language_supported} {}
   // Assign the documented view or value state from the source object.
   type_name& operator=(const type_name& rhs) {
     name = rhs.name;
@@ -202,6 +205,9 @@ struct type_name {
     dimension = rhs.dimension;
     application = rhs.application;
     source_offset = rhs.source_offset;
+    digest = rhs.digest;
+    digest_extent = rhs.digest_extent;
+    digest_language_supported = rhs.digest_language_supported;
     return *this;
   }
 
@@ -217,6 +223,14 @@ struct type_name {
   std::uint64_t dimension{};
   bool application{false};
   std::size_t source_offset{};
+  rohit::digest_algorithm digest{rohit::digest_algorithm::none};
+  std::uint32_t digest_extent{}; // Zero denotes caller-provided variable-length bytes.
+  bool digest_language_supported{true}; // The source file's selected contract survives includes.
+
+  // Identify byte-container primitives without confusing a user declaration named digest.
+  bool is_digest() const noexcept {
+    return type == object_type::primitive && name == "digest";
+  }
 
   // Resolve this syntax node name relative to its containing namespace.
   std::string get_full_name() const {
@@ -235,7 +249,7 @@ struct type_name {
     return name == rhs.name && enum_name == rhs.enum_name &&
            declared_namespace == rhs.declared_namespace && arguments == rhs.arguments &&
            kind == rhs.kind && expression == rhs.expression && dimension == rhs.dimension &&
-           application == rhs.application;
+           application == rhs.application && digest == rhs.digest && digest_extent == rhs.digest_extent;
   }
 };
 

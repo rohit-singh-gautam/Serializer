@@ -368,3 +368,24 @@ func srlReadEnum(in *srlReader, names []string, collection bool) int {
 // Keep the standard map-sort and endian helpers available for every schema shape.
 var _ = sort.Slice
 )serializer"
+R"serializer(
+// Store digest bytes without computing a hash during serialization.
+func srlWriteDigest(out *srlWriter, value []byte, expected int) {
+  if expected != 0 && len(value) != expected { out.fail("Digest length mismatch"); return }
+  out.beginArray(len(value))
+  for i, b := range value { out.element(i); out.integer(uint64(b), 1, true) }
+  out.endArray()
+}
+// Decode bounded digest storage; the caller commits only a successful candidate.
+func srlReadDigest(in *srlReader, expected int) []byte {
+  count := in.beginArray()
+  if expected != 0 && count != -1 && count != expected { in.fail("Digest length mismatch"); return nil }
+  value := make([]byte, 0, in.arrayCapacity(count, 1))
+  for i := 0; in.nextElement(i, count); i++ {
+    if expected != 0 && i >= expected { in.fail("Digest length mismatch"); return nil }
+    value = append(value, byte(in.integer(1, true)))
+  }
+  if expected != 0 && len(value) != expected { in.fail("Digest length mismatch") }
+  return value
+}
+)serializer"

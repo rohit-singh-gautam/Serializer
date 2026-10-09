@@ -387,3 +387,38 @@ static inline void srl_skip_value(srl_reader* in) {
   char* text = srl_token(in); if (!text) { return; } if (strcmp(text, "null") && strcmp(text, "true") && strcmp(text, "false") && !srl_number(text, false)) { in->status = srl_invalid; } srl_token_free(in, text);
 }
 )serializer"
+R"serializer(
+/* Reserve zeroed fixed digest storage; bare digest starts empty. */
+static inline srl_status srl_digest_init(srl_buffer* value, size_t expected) {
+  if (!expected) { return srl_ok; }
+  if (!srl_reserve(value, expected)) { return srl_allocation; }
+  memset(value->data, 0, expected); value->size = expected; return srl_ok;
+}
+/* Encode digest bytes without performing a hash computation. */
+static inline void srl_write_digest(srl_writer* out, const srl_buffer* value, size_t expected) {
+  if (out->status != srl_ok) { return; }
+  if ((expected && value->size != expected) || (value->size && !value->data)) { out->status = srl_invalid; return; }
+  srl_write_array(out, value->size);
+  for (size_t i = 0; i < value->size; ++i) { srl_write_element(out, i); srl_write_integer(out, value->data[i], 1, true); }
+  srl_write_array_end(out);
+}
+/* Decode transactionally with checked extents and geometric buffer growth. */
+static inline void srl_read_digest(srl_reader* in, srl_buffer* value, size_t expected) {
+  if (in->status != srl_ok) { return; }
+  const size_t count = srl_read_array(in);
+  if (in->status != srl_ok) { return; }
+  if (expected && in->protocol != srl_json && count != expected) { in->status = srl_invalid; return; }
+  srl_buffer fresh = {0};
+  const size_t capacity = srl_array_capacity(in, count, 1);
+  if (in->status == srl_ok && capacity && !srl_reserve(&fresh, capacity)) { in->status = srl_allocation; }
+  for (size_t i = 0; srl_read_element(in, i, count); ++i) {
+    if (expected && i >= expected) { in->status = srl_invalid; break; }
+    const uint8_t byte = (uint8_t)srl_read_integer(in, 1, true);
+    if (in->status != srl_ok) { break; }
+    if (!srl_reserve(&fresh, 1)) { in->status = srl_allocation; break; }
+    fresh.data[fresh.size++] = byte;
+  }
+  if (in->status == srl_ok && expected && fresh.size != expected) { in->status = srl_invalid; }
+  if (in->status == srl_ok) { srl_buffer_free(value); *value = fresh; } else { srl_buffer_free(&fresh); }
+}
+)serializer"

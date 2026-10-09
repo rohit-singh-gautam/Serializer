@@ -12,6 +12,7 @@ The [serializer-integration skill](../.agents/skills/serializer-integration/SKIL
 guides an agent through integrating Serializer — State Framework: schema design,
 `stable_ids` adoption, generated language-specific models, CMake generation,
 protocol selection, and bounded input. It also covers C++ managed transactions,
+digest storage and C++ creation, proprietary-compatible output/runtime licensing,
 history, journals, and collaboration. Other languages have generated codecs and
 managed record exchange; native managed engines currently run in C++.
 

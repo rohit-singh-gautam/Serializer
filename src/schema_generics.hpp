@@ -35,6 +35,9 @@ void normalize_inferred_constants(const rohit::type_check::schema_input_buffer a
 // Check unsigned compact constraints after lexical binding and again after specialization.
 void validate_compact_member(const rohit::type_check::schema_input_buffer auto& input,
                              member& field, bool dependent);
+// Validate digest defaults and unsupported storage profiles after substitutions.
+void validate_digest_member(const rohit::type_check::schema_input_buffer auto& input,
+                            const class_node& owner, const member& field);
 
 // Lower concrete contracts once while retaining validated native C++ template definitions.
 template <typename Input>
@@ -53,6 +56,10 @@ class generic_lowering {
 
   // Produce a canonical schema identity, independent of generated names and namespace spelling.
   std::string identity(const type_name& type) const {
+    if (type.is_digest()) {
+      return "digest:" + std::to_string(static_cast<unsigned>(type.digest)) + ":" +
+             std::to_string(type.digest_extent);
+    }
     if (type.kind == generic_argument_kind::dimension) {
       return "#uint64:" + std::to_string(type.dimension);
     }
@@ -186,6 +193,13 @@ class generic_lowering {
       }
       return;
     }
+    if (type.is_digest()) {
+      if (type.application) {
+        throw exception::bad_member_type{input, "Digest types do not accept generic arguments"};
+      }
+      type.declared_namespace = nullptr;
+      return;
+    }
     auto* node = find_declared_type(type.name, type.declared_namespace, visible);
     const auto* object = node && node->type == object_type::class_type
                              ? static_cast<const class_node*>(node)
@@ -222,6 +236,9 @@ class generic_lowering {
       type.resolved_node = node;
       type.type = node->type;
     } else {
+      if (type.name == "digest" && !type.digest_language_supported) {
+        throw exception::bad_member_type{input, "Digest types require serializer version 1.3.0 or newer"};
+      }
       type.type = object_type::primitive;
       type.declared_namespace = nullptr;
     }
@@ -353,7 +370,9 @@ class generic_lowering {
       if (field.modifier != member::modifier_type::none && field.fixed_extent == 0) { continue; }
       const auto& type = field.type_name_list.front();
       std::uint64_t bytes = 1;
-      if (type.resolved_node && type.resolved_node->type == object_type::class_type) {
+      if (type.is_digest() && type.digest_extent != 0) {
+        bytes = type.digest_extent;
+      } else if (type.resolved_node && type.resolved_node->type == object_type::class_type) {
         bytes = minimum_storage(static_cast<const class_node&>(*type.resolved_node), depth + 1);
       } else if (type.name == "double" || type.name == "uint64" || type.name == "int64") {
         bytes = 8;
@@ -410,11 +429,15 @@ class generic_lowering {
       }
       normalize_inferred_constants(input, field);
       validate_compact_member(input, field, false);
+      validate_digest_member(input, object, field);
       if (field.modifier == member::modifier_type::map) {
         type_name key{std::string{field.key}, field.type_name_list.front().declared_namespace};
         // Generic bodies were bound lexically at declaration, including qualified map keys.
         key.declared_namespace = object.generic_name.empty() ? object.parent_namespace : nullptr;
         resolve(key, bindings, depth);
+        if (key.is_digest()) {
+          throw exception::bad_member_type{input, "Digest types cannot be map keys"};
+        }
         field.key = key.get_full_name();
         field.key_node = key.resolved_node;
       }
@@ -492,9 +515,13 @@ class generic_lowering {
                 validate_expression(type, object);
               }
               validate_compact_member(input, field, true);
+              validate_digest_member(input, object, field);
               if (field.modifier == member::modifier_type::map) {
                 type_name key{std::string{field.key}, object.parent_namespace};
                 validate_expression(key, object);
+                if (key.is_digest()) {
+                  throw exception::bad_member_type{input, "Digest types cannot be map keys"};
+                }
                 field.key = key.name;
                 field.key_node = key.resolved_node;
               }

@@ -379,3 +379,25 @@ function srlReadEnum(input, names, collection) {
   if (value < 0 || value >= names.length) input.fail('Unknown enum'); return value;
 }
 )serializer"
+R"serializer(
+/** Store digest bytes as a uint8 sequence; hashing is caller-owned. */
+function srlWriteDigest(out, value, expected) {
+  if (value == null || (expected !== 0 && value.length !== expected)) throw new RangeError('Digest length mismatch');
+  out.beginArray(value.length);
+  for (let i = 0; i < value.length; ++i) { out.element(i); out.integer(value[i], 1, true); }
+  out.endArray();
+}
+/** Validate fixed lengths and charge every byte before returning fresh storage. */
+function srlReadDigest(input, expected) {
+  const count = input.beginArray();
+  if (expected !== 0 && count !== -1 && count !== expected) input.fail('Digest length mismatch');
+  if (count !== -1) input.require(count);
+  const value = [];
+  for (let i = 0; input.nextElement(i, count); ++i) {
+    if (expected !== 0 && i >= expected) input.fail('Digest length mismatch');
+    value.push(input.integer(1, true));
+  }
+  if (expected !== 0 && value.length !== expected) input.fail('Digest length mismatch');
+  return value;
+}
+)serializer"

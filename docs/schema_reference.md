@@ -13,7 +13,7 @@ Start with [small schema examples](schema_examples.md) if you are new to the syn
 ## Schema structure
 
 Every `.serializer` file starts with a supported language header before declarations.
-Use `serializer version 1.2.0;` for new schemas; older `1.0.0` and `1.1.0` remain supported.
+Use `serializer version 1.3.0;` for new schemas; older `1.0.0`, `1.1.0`, and `1.2.0` remain supported.
 The original `serializer version 1;` is exactly the `1.0.0` language contract;
 only version 1 has an integer shorthand. Future versions require all three
 components. Schema-language and compiler release versions are independent.
@@ -102,6 +102,22 @@ without an implicit NUL terminator. Empty/missing initializers and extents above
 cardinality checks as an explicit extent; it is not a variable-length array.
 Both inferred arrays and typed magic require language `1.1.0` in their own
 declaring file, including dependencies. The original `1` alias enables neither.
+
+### Digest bytes
+
+Language `1.3.0` adds `digest` for variable opaque bytes, `digest[N]` for an exact
+decimal byte extent from 1 through 65,536, and `digest(algorithm)` for a named
+algorithm's exact output length. For example, `public digest(sha256) hash (3);`
+stores 32 bytes. The bare form implies no algorithm. Applications supply or
+compute the bytes; field declarations do not automatically hash other fields.
+Fixed values initially contain zero bytes, while the bare value is empty.
+
+All eleven native outputs support these owning fields, including collection
+values and supported union alternatives. C++ fixed storage uses `std::array`;
+portable codecs validate the same cardinality. Map keys, nonempty digest
+initializers, C++ view layouts, and Protobuf mappings reject explicitly. Existing
+declared types named `digest` retain precedence for bare references. See the
+[digest guide](digest.md) for all twelve algorithms, creation APIs, and licensing.
 
 ### Owning objects and buffer views
 

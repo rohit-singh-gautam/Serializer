@@ -185,6 +185,9 @@ class emitter {
       return (language == target::go && value.type == object_type::class_type ? "*" : "") +
              names.at(value.resolved_node);
     }
+    if (value.is_digest()) {
+      return choose("number[]", "[]byte", "byte[]");
+    }
     if (value.name.starts_with("version")) {
       return "string";
     }
@@ -222,6 +225,11 @@ class emitter {
   }
   // Construct a fresh schema default.
   std::string initial(const rohit::serializer::type_name& value) const {
+    if (value.is_digest()) {
+      const auto size = std::to_string(value.digest_extent);
+      return choose("Array(" + size + ").fill(0)", "make([]byte, " + size + ")",
+                    "new byte[" + size + "]");
+    }
     if (value.type == object_type::class_type) {
       return choose("new ", "New", "new ") + names.at(value.resolved_node) + "()";
     }
@@ -490,6 +498,10 @@ class emitter {
   // Emit a scalar read expression, optionally merging an ordinary nested field.
   std::string read_value(const rohit::serializer::type_name& value, bool collection,
                          const std::string& previous = {}) const {
+    if (value.is_digest()) {
+      return choose("srlReadDigest", "srlReadDigest", "SrlReadDigest") +
+             "(input, " + std::to_string(value.digest_extent) + ")";
+    }
     if (value.type == object_type::class_type) {
       const auto identifier = names.at(value.resolved_node);
       const auto old = previous.empty() ? initial(value) : previous;
@@ -531,7 +543,10 @@ class emitter {
   // Write a scalar directly with explicit wire width and enum context.
   void write_value(const rohit::serializer::type_name& value, const std::string& expression,
                    bool collection) {
-    if (value.type == object_type::class_type) {
+    if (value.is_digest()) {
+      statement(choose("srlWriteDigest", "srlWriteDigest", "SrlWriteDigest") +
+                "(output, " + expression + ", " + std::to_string(value.digest_extent) + ")");
+    } else if (value.type == object_type::class_type) {
       statement(expression + choose(".write(output)", ".write(output)", ".Write(output)"));
     } else if (value.type == object_type::enum_type) {
       const auto converted = language == target::go       ? "int(" + expression + ")"
@@ -674,7 +689,7 @@ class emitter {
     if (value.modifier == member::modifier_type::array && language != target::js) {
       const auto& scalar = value.type_name_list.front();
       int scalar_width{};
-      if (scalar.type == object_type::primitive && scalar.name != "string") {
+      if (scalar.type == object_type::primitive && scalar.name != "string" && !scalar.is_digest()) {
         scalar_width = scalar.name == "bool" || scalar.name == "char" ? 1
                        : scalar.name == "float"                       ? 4
                        : scalar.name == "double"                      ? 8

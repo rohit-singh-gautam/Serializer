@@ -73,8 +73,11 @@ foreach(header IN LISTS headers)
 endforeach()
 
 file(WRITE "${source}/capabilities_test.cpp" "#include <rohit/compression.hpp>\n"
+  "#include <rohit/digest.hpp>\n"
   "// Check the linked installed runtime rather than compile-time option values.\n"
-  "int main() {\n  namespace compression = rohit::serializer::compression;\n")
+  "int main() {\n  namespace compression = rohit::serializer::compression;\n"
+  "  const auto digest = rohit::make_digest<rohit::digest_algorithm::sha256>(std::string_view{\"abc\"});\n"
+  "  if (rohit::digest_to_hex(digest) != \"ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad\") { return 1; }\n")
 foreach(backend IN ITEMS zstd lz4 zlib)
   if(WITH_${backend})
     set(expected true)

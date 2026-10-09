@@ -1,5 +1,10 @@
 # Rust, Python, Swift, Kotlin, and C
 
+Language `1.3.0` [digest fields](digest.md) support variable bytes, exact byte
+extents, and named-algorithm lengths in these owning outputs and all four native
+codecs. Digest computation uses the application's provider; only C++ supplies
+creation helpers in compiler/runtime `1.8.0`.
+
 The C++ compiler generates standalone owning codecs for these five targets. It
 parses the schema once and can produce every supported language in one command.
 There is no Python, Rust, JVM, or C# schema compiler, binding, or subprocess in

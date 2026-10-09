@@ -1,5 +1,8 @@
 # Generated owning objects and binary views
 
+[Digest fields](digest.md) currently require owning or emission-only models.
+Classes requesting C++ view layouts reject digest fields explicitly.
+
 Examples here use the default Serializer naming profile. Other
 [C++ output profiles](output_configuration.md) rename schema types and field
 accessors, while `map`, storage-mode values, and inherited runtime APIs keep

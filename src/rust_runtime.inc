@@ -348,3 +348,25 @@ fn srl_number(text: &str, integer: bool) -> bool {
     i == b.len()
 }
 )serializer"
+R"serializer(
+/// Store bytes as a uint8 sequence without computing their digest.
+fn srl_write_digest(out: &mut SrlWriter, value: &[u8], expected: usize) -> SrlResult<()> {
+    if expected != 0 && value.len() != expected { return Err(Error("Digest length mismatch")); }
+    out.begin_array(value.len())?;
+    for (i, byte) in value.iter().enumerate() { out.element(i)?; out.integer(u64::from(*byte), 1, true)?; }
+    out.end_array()
+}
+/// Return bounded fresh storage after validating the entire declared extent.
+fn srl_read_digest(input: &mut SrlReader, expected: usize) -> SrlResult<Vec<u8>> {
+    let count = input.begin_array()?;
+    if expected != 0 && count.is_some_and(|n| n != expected) { return Err(Error("Digest length mismatch")); }
+    let mut value = Vec::new();
+    value.try_reserve(input.capacity(count, 1)?).map_err(|_| Error("Digest allocation"))?;
+    while input.next_element(value.len(), count)? {
+        if expected != 0 && value.len() >= expected { return Err(Error("Digest length mismatch")); }
+        value.push(input.integer(1, true)? as u8);
+    }
+    if expected != 0 && value.len() != expected { return Err(Error("Digest length mismatch")); }
+    Ok(value)
+}
+)serializer"

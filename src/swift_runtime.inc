@@ -332,3 +332,25 @@ private func srlNumber(_ text: String, _ integer: Bool) -> Bool {
     return i == b.count
 }
 )serializer"
+R"serializer(
+// Store caller-provided digest bytes with the existing uint8 sequence framing.
+fileprivate func srlWriteDigest(_ out: SrlWriter, _ value: [UInt8], _ expected: Int) throws {
+    guard expected == 0 || value.count == expected else { throw SerializerError.invalid("Digest length mismatch") }
+    try out.beginArray(value.count)
+    for (i, byte) in value.enumerated() { out.element(i); out.integer(UInt64(byte), 1, true) }
+    out.endArray()
+}
+// Return fresh bytes after validating both wire length and resource limits.
+fileprivate func srlReadDigest(_ input: SrlReader, _ expected: Int) throws -> [UInt8] {
+    let count = try input.beginArray()
+    guard expected == 0 || count == -1 || count == expected else { throw SerializerError.invalid("Digest length mismatch") }
+    var value: [UInt8] = []
+    value.reserveCapacity(try input.capacity(count, 1))
+    while try input.nextElement(value.count, count) {
+        guard expected == 0 || value.count < expected else { throw SerializerError.invalid("Digest length mismatch") }
+        value.append(UInt8(try input.integer(1, true)))
+    }
+    guard expected == 0 || value.count == expected else { throw SerializerError.invalid("Digest length mismatch") }
+    return value
+}
+)serializer"

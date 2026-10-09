@@ -17,10 +17,17 @@ Serializer provides separate packages for VS Code and Visual Studio. Both use
 to the VS Code extension. For the Visual Studio VSIX, see
 [Visual Studio](#visual-studio-extension) below.
 
-Both extensions use release version **1.1.27**. Keep their versions equal and
+Both extensions use release version **1.1.28**. Keep their versions equal and
 increment them together for future changes, including changes to only one package.
 Their release number is independent of the compiler/runtime release and the schema
 language version; only the two editor packages are synchronized.
+
+Version **1.1.28** recognizes language `1.3.0` digest fields: bare `digest`,
+`digest[N]`, and `digest(algorithm)`. The shared grammar highlights all twelve
+algorithm names and decimal extents. The shared resolver skips those operands
+while retaining neighboring qualified/generic references and legacy declared
+types named `digest`. VS Code adds `digest`, `digest-opaque`, and `digest-fixed`
+snippets; its new schema snippet selects `1.3.0`. See [digest usage](digest.md).
 
 Version 1.1.27 directs generated applications to `Serializer::runtime`, the 0BSD
 application target introduced by compiler/runtime 1.7.0. `serializer_generate`
@@ -49,9 +56,9 @@ Both resolve either spelling for navigation; VS Code also supplies a shorthand
 
 ## VS Code
 
-The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.27**, provides `.serializer`
+The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.28**, provides `.serializer`
 syntax highlighting, snippets, declaration/definition navigation, and CMake generated-header commands. Schemas use
-the current `serializer version 1.2.0;` header, older compatible headers, and the original
+the current `serializer version 1.3.0;` header, older compatible headers, and the original
 `1` alias for language `1.0.0`. Schema
 language versions are independent of compiler releases, and future versions
 require all three components. Legacy `.def` and `.struct` names are
@@ -99,13 +106,13 @@ Packaging compiles and bundles TypeScript, copies the canonical grammar, logo,
 and repository license into the extension, and writes:
 
 ```text
-out/extensions/serializer-vscode-1.1.27.vsix
+out/extensions/serializer-vscode-1.1.28.vsix
 ```
 
 From the repository root, install it with:
 
 ```sh
-code --install-extension out/extensions/serializer-vscode-1.1.27.vsix
+code --install-extension out/extensions/serializer-vscode-1.1.28.vsix
 ```
 
 Alternatively run **Extensions: Install from VSIX** and select the file. The
@@ -302,6 +309,14 @@ consumer compilation, and a malformed schema leaving the prior header intact.
 The fixture disables generated-output formatting so it does not need clang-format.
 
 ### Verification performed
+
+Version **1.1.28** passed all 89 unit/grammar/provider tests and 17,182
+fresh-compiler bidirectional navigation checks, including digest fields in all
+eleven outputs. The rebuilt Visual Studio .NET/Jint shared resolver passed 276
+checks, including digest generic defaults/unions and legacy user types. Both packages rebuilt
+through `editors/build.ps1`, and Visual Studio package validation passed. Native
+editor-host checks, installation, and publication were not run for this change.
+See [digest verification](verification-digest-2026-10-09.md).
 
 Version **1.1.27** passed all 86 shared/provider tests and 17,037 fresh-compiler
 bidirectional navigation checks across all eleven outputs. The rebuilt Visual
@@ -502,7 +517,7 @@ outside this extension's implementation.
 ## Visual Studio extension
 
 The separate [Visual Studio package](../editors/visual_studio/README.md), version
-**1.1.27**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
+**1.1.28**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
 grammar, editing configuration and a native MEF navigation component using the
 same resolver as VS Code. The grammar's `fileTypes` associates `.serializer` files;
 a `.pkgdef` registers its grammar and editing configuration.
@@ -515,7 +530,7 @@ npm ci --prefix editors/vscode
 ```
 
 The script restores locked NuGet dependencies, rebuilds package intermediates, and writes
-`out/extensions/serializer-visual-studio-1.1.27.vsix`. Close Visual Studio,
+`out/extensions/serializer-visual-studio-1.1.28.vsix`. Close Visual Studio,
 double-click this VSIX, install into the desired instance, and restart Visual
 Studio. The root `install_extension.ps1` remains the VS Code installer.
 
@@ -603,7 +618,7 @@ The shared grammar recognizes language `1.2.0` fields such as
 `public compact_varint uint64 count (4);`. Encoding and overflow-policy keywords
 use modifier colors, unsigned builtins use type colors, and generic operands
 retain declaration/type-definition navigation. VS Code supplies `compact-prefix`
-and `compact-varint` snippets and selects language `1.2.0` in new schemas.
+and `compact-varint` snippets and selects language `1.3.0` in new schemas.
 
 The compiler restricts compact modifiers to unsigned scalar fields in unpacked
 owning classes. A prefix holds at most 30 payload bits; unsigned LEB128 varints

@@ -34,7 +34,7 @@ endfunction()
 
 succeed(--version)
 if(NOT last_output MATCHES "Serializer compiler ${VERSION}" OR
-    NOT last_output MATCHES "Supported schema language version: 1[.]2[.]0[\r\n]")
+    NOT last_output MATCHES "Supported schema language version: 1[.]3[.]0[\r\n]")
   message(FATAL_ERROR "Incorrect compiler version: ${last_output}")
 endif()
 succeed(-v)
@@ -180,7 +180,7 @@ foreach(header IN ITEMS "" "serializer version 0;" "serializer version 2;"
     "serializer version 999999999999999999999;" "serializer version -1;"
     "serializer version 1" "serializer version 1.0;" "serializer version1;"
     "serializer version 1..0;" "serializer version 1.0.0.0;"
-    "serializer version 1.2.1;" "serializer version 1.3.0;" "serializer version 2.0.0;"
+    "serializer version 1.3.1;" "serializer version 1.4.0;" "serializer version 2.0.0;"
     "serializer version 1.999999999999999999999.0;"
     "serializer version 1.0.999999999999999999999;"
     "serializer version 1; serializer version 1;")
@@ -191,7 +191,7 @@ file(WRITE "${schema}" "// comment\n/* license */ serializer /* schema */ versio
 succeed(-i "${schema}" -o "${cpp}" --cpp.format=false)
 
 # The legacy alias and full language version must produce identical C++ and Java codecs.
-foreach(language_version IN ITEMS 1 1.0.0 1.0.1 1.1.0 1.1.1 1.2.0)
+foreach(language_version IN ITEMS 1 1.0.0 1.0.1 1.1.0 1.1.1 1.2.0 1.2.1 1.3.0)
   file(WRITE "${schema}" "serializer version ${language_version};\n"
     "class account stable_ids { public uint32 id (7); }\n")
   succeed(-i "${schema}" -l cpp,java --cpp.output "${cpp}" --java.output "${java}"
@@ -233,7 +233,7 @@ file(WRITE "${schema}" "serializer version 1; include shared/common;\n"
   "namespace models { class request { public account owner; } }\n")
 succeed(-i "${schema}" -l cpp,java --cpp.output "${cpp}" --java.output "${java}"
   --cpp.format false --depfile "${depfile}")
-file(WRITE "${DIRECTORY}/shared/common.serializer" "serializer version 1.2.1; class account {}")
+file(WRITE "${DIRECTORY}/shared/common.serializer" "serializer version 1.3.1; class account {}")
 reject("Unsupported schema language version" -i "${schema}" -o "${cpp}" --cpp.format false)
 file(WRITE "${DIRECTORY}/shared/common.serializer"
   "serializer version 1.0.0; namespace models { class account { public uint32 id (7); } }\n")

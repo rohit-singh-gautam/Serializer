@@ -1,0 +1,21 @@
+serializer version 1.3.0;
+
+class digest_record stable_ids {
+  public digest raw (1);
+  public digest[32] manual (2);
+  public digest(md5) md5_value (3);
+  public digest(sha1) sha1_value (4);
+  public digest(sha224) sha224_value (5);
+  public digest(sha256) sha256_value (6);
+  public digest(sha384) sha384_value (7);
+  public digest(sha512) sha512_value (8);
+  public digest(sha512_224) sha512_224_value (9);
+  public digest(sha512_256) sha512_256_value (10);
+  public digest(sha3_224) sha3_224_value (11);
+  public digest(sha3_256) sha3_256_value (12);
+  public digest(sha3_384) sha3_384_value (13);
+  public digest(sha3_512) sha3_512_value (14);
+  public array digest(md5) values (15);
+  public map(string) digest[4] lookup (16);
+  public union(uint8=absent, digest(md5)=present) choice (17);
+}

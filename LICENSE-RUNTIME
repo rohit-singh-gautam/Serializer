@@ -11,7 +11,7 @@ This grant covers:
 - Runtime headers under include/rohit/, except the compiler-interface headers
   serializer_creator.hpp, output_options.hpp, and schema_compatibility.hpp.
 - cmake/version.hpp.in and the public version header generated from it.
-- src/file_stream.cpp, src/compression.cpp, src/managed_file_journal.cpp,
+- src/digest.cpp, src/file_stream.cpp, src/compression.cpp, src/managed_file_journal.cpp,
   src/managed_journal.cpp, src/runtime_simd.cpp, src/runtime_simd_avx2.cpp,
   src/simd_dispatch.cpp, and src/simd_dispatch.hpp.
 - The embedded language runtime templates src/*_runtime.inc.

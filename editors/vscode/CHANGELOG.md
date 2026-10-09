@@ -1,3 +1,10 @@
+# 1.1.28
+
+- Highlight schema language 1.3.0 bare, fixed-byte, and named-algorithm digest fields.
+- Add digest snippets and use language 1.3.0 for new schema snippets.
+- Skip algorithm selectors and byte extents during navigation while preserving adjacent and legacy user types.
+- Keep both extension versions synchronized and update local package names.
+
 # 1.1.27
 
 - Direct generated applications to the proprietary-compatible `Serializer::runtime` target.

@@ -19,6 +19,47 @@ part of the permissive application runtime grant. Consult the scope in the
 licensing files and individual source notices when using other repository source
 directly.
 
+## Why the license was separated
+
+Serializer is intended to generate models that applications can use and deploy
+under their chosen terms, including proprietary terms. Before the 1.7.0 split,
+the runtime headers and support code emitted by generators lacked an explicit
+proprietary-use permission separate from the repository's GPL license. That did
+not meet the requirement that a closed-source application be able to distribute
+both its generated models and the Serializer runtime used by those models.
+
+Using a GPL compiler as a build tool does not by itself require its output to use
+GPL. Serializer also supplies code that becomes part of the application: C++
+runtime headers and compiled helpers, generated codec bodies, and embedded runtime
+support for other languages. The permission for that code therefore needs to be
+explicit. The separate runtime target also makes the boundary concrete: a
+generated application can link its codec support without bringing in the GPL
+parser and generator library.
+
+The compiler remains GPL-3.0-or-later so redistribution of the compiler and its
+modifications continues under that license. The application runtime and
+Serializer-authored generated support receive 0BSD permissions. This allows
+closed-source use, modification, and redistribution without source-disclosure,
+royalty, attribution, or license-notice requirements imposed by Serializer. The
+generated-output permission states the same intended application use directly,
+including when emitted support originates from GPL generator source.
+
+This is a component-specific licensing policy rather than an ownership transfer.
+Your schema's existing copyright and license rights remain yours; the license
+grants permission to use Serializer's independently authored contributions. A
+generated file can consequently contain your schema-derived declarations and
+permissively licensed Serializer support while being distributed as part of a
+proprietary application. Preserved schema notices record the input authors' terms;
+they do not automatically assign every part of a generated file to one owner.
+
+Third-party schemas and dependencies keep their own conditions. These permissions
+cover Serializer-authored code and do not certify that every algorithm, provider,
+or application is free of third-party patents or other rights. Serializer's
+[digest creation helpers](digest.md) use original 0BSD runtime implementations
+without an OpenSSL dependency. Applications choosing another provider must review
+that provider's actual license and any redistributed dependencies separately
+from Serializer's own grant.
+
 ## Copyright and generated output
 
 You retain copyright in the schema you authored. Generation does not assign that

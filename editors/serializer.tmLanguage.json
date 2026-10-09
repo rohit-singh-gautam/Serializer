@@ -56,6 +56,21 @@
       "name": "entity.name.type.serializer"
     },
     {
+      "match": "\\b(public|protected|private|managed)\\s+(?:(?:array(?:\\s*\\[[^\\]]*\\])?|map\\s*\\([^)]*\\))\\s+)?(digest\\s*(?:\\([^)]*\\)|\\[[^\\]]*\\]))(?=\\s+[A-Za-z_])",
+      "captures": {
+        "1": {
+          "name": "storage.modifier.serializer"
+        },
+        "2": {
+          "patterns": [
+            {
+              "include": "#digest_spec"
+            }
+          ]
+        }
+      }
+    },
+    {
       "name": "meta.fixed-array.serializer",
       "begin": "\\b(array)\\s*(\\[)",
       "beginCaptures": {
@@ -246,7 +261,7 @@
           "include": "#comments"
         },
         {
-          "match": "((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)\\s*(=)\\s*([A-Za-z_][A-Za-z_0-9]*)",
+          "match": "(digest\\s*(?:\\([^)]*\\)|\\[[^\\]]*\\])|(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)\\s*(=)\\s*([A-Za-z_][A-Za-z_0-9]*)",
           "captures": {
             "1": {
               "patterns": [
@@ -262,6 +277,9 @@
               "name": "variable.other.member.serializer"
             }
           }
+        },
+        {
+          "include": "#digest_spec"
         },
         {
           "match": "(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*",
@@ -379,8 +397,23 @@
         }
       ]
     },
+    "digest_spec": {
+      "match": "\\b(digest)\\s*(?:(\\()\\s*(md5|sha1|sha224|sha256|sha384|sha512(?:_224|_256)?|sha3_(?:224|256|384|512))\\s*(\\))|(\\[)\\s*([0-9]+)\\s*(\\]))",
+      "captures": {
+        "1": { "name": "support.type.serializer" },
+        "2": { "name": "punctuation.section.group.serializer" },
+        "3": { "name": "constant.other.algorithm.serializer" },
+        "4": { "name": "punctuation.section.group.serializer" },
+        "5": { "name": "punctuation.section.group.serializer" },
+        "6": { "name": "constant.numeric.serializer" },
+        "7": { "name": "punctuation.section.group.serializer" }
+      }
+    },
     "type_name": {
       "patterns": [
+        {
+          "include": "#digest_spec"
+        },
         {
           "name": "support.type.serializer",
           "match": "\\b(version[234]|char|bool|string|float|double|u?int(?:8|16|32|64))\\b"

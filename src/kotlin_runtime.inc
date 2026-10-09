@@ -330,3 +330,24 @@ private val srlNumber = Regex("-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?")
 // Detect a nonzero mantissa to reject underflow while accepting signed zero.
 private fun srlNonzero(text: String): Boolean = text.takeWhile { it != 'e' && it != 'E' }.any { it in '1'..'9' }
 )serializer"
+R"serializer(
+// Store bytes without implicitly hashing any model field.
+internal fun srlWriteDigest(out: SrlWriter, value: UByteArray, expected: Int) {
+    if (expected != 0 && value.size != expected) throw SerializerException("Digest length mismatch")
+    out.beginArray(value.size)
+    value.forEachIndexed { i, byte -> out.element(i); out.integer(byte.toULong(), 1, true) }
+    out.endArray()
+}
+// Decode fresh byte storage with fixed extent and normal budget checks.
+internal fun srlReadDigest(input: SrlReader, expected: Int): UByteArray {
+    val count = input.beginArray()
+    if (expected != 0 && count != -1 && count != expected) throw SerializerException("Digest length mismatch")
+    val value = ArrayList<UByte>(input.capacity(count, 1))
+    while (input.nextElement(value.size, count)) {
+        if (expected != 0 && value.size >= expected) throw SerializerException("Digest length mismatch")
+        value.add(input.integer(1, true).toUByte())
+    }
+    if (expected != 0 && value.size != expected) throw SerializerException("Digest length mismatch")
+    return value.toUByteArray()
+}
+)serializer"

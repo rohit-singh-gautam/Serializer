@@ -344,3 +344,24 @@ R"serializer(      if (!json()) return single ? System.BitConverter.Int32BitsToS
     if (value < 0 || value >= names.Length) input.fail("Unknown enum"); return value;
   }
 )serializer"
+R"serializer(
+  // Store caller-provided bytes and validate the declared digest size.
+  private static void SrlWriteDigest(SrlWriter output, byte[] value, int expected) {
+    if (value == null || (expected != 0 && value.Length != expected)) { output.fail("Digest length mismatch"); return; }
+    output.beginArray(value.Length);
+    for (int i = 0; i < value.Length; ++i) { output.element(i); output.integer(value[i], 1, true); }
+    output.endArray();
+  }
+  // Decode fresh bounded byte storage before publishing the model candidate.
+  private static byte[] SrlReadDigest(SrlReader input, int expected) {
+    int count = input.beginArray();
+    if (expected != 0 && count != -1 && count != expected) input.fail("Digest length mismatch");
+    var value = new System.Collections.Generic.List<byte>(input.arrayCapacity(count, 1));
+    for (int i = 0; input.nextElement(i, count); ++i) {
+      if (expected != 0 && i >= expected) input.fail("Digest length mismatch");
+      value.Add((byte)input.integer(1, true));
+    }
+    if (expected != 0 && value.Count != expected) input.fail("Digest length mismatch");
+    return value.ToArray();
+  }
+)serializer"

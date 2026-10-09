@@ -382,3 +382,17 @@ R"serializer(    def compact_value(self, width, prefix):
         if self.protocol == 0: self.whitespace()
         if self.offset != len(self.data): raise ValueError('Trailing input')
 )serializer"
+R"serializer(
+def _write_digest(out, value, expected):
+    """Store caller-provided bytes; reject a changed fixed digest extent."""
+    if expected and len(value) != expected: raise ValueError('Digest length mismatch')
+    out.begin_array(len(value))
+    for i, byte in enumerate(value):
+        out.element(i)
+        out.integer(byte, 1, True)
+    out.end_array()
+
+def _read_digest(input, expected):
+    """Validate lengths and resource budgets before exposing fresh byte storage."""
+    return [input.integer(1, True) for _ in input.entries(expected or None)]
+)serializer"

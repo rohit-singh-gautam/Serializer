@@ -1,5 +1,10 @@
 # JavaScript, Go, and C# output
 
+Language `1.3.0` [digest fields](digest.md) provide variable or exact-length byte
+collections, including named-algorithm lengths, in all four native codecs.
+JavaScript/TypeScript, Go, and C# applications compute hashes through their own
+providers; the generated code adds no cryptographic library dependency.
+
 The `.serializer` parser, schema validation, and every code generator are written
 in **C++20**. The compiler emits standalone owning codecs for C++, Java,
 JavaScript, Go, and C#. Generating JS, Go, or C# requires no target-language SDK,

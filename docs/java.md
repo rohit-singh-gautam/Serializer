@@ -1,5 +1,10 @@
 # Java output
 
+Language `1.3.0` [digest fields](digest.md) provide variable and exact-length
+byte collections, including named-algorithm lengths, in all four native codecs.
+Compute hashes through the application's provider; generated Java does not
+automatically compute digest fields or import a cryptographic dependency.
+
 Serializer generates self-contained **Java 17+** source with no JNI, native library,
 reflection, third-party runtime, or formatter dependency. The C++ schema compiler
 is used at build time only. Each output file contains one public outer class,

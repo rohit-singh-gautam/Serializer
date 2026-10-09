@@ -101,6 +101,8 @@ async function main() {
     path.join(directory, 'typed-magic'), [], outputs, true);
   checks += await verify(path.join(repository, 'test/resources/compact_language.serializer'),
     path.join(directory, 'compact-fields'));
+  checks += await verify(path.join(repository, 'test/resources/digest_language.serializer'),
+    path.join(directory, 'digests'));
   checks += await verify(path.join(repository, 'test/resources/inferred_arrays.serializer'),
     path.join(directory, 'inferred-arrays'), [], { cpp: outputs.cpp }, true);
   const input = path.join(directory, 'acronyms.serializer');
@@ -142,7 +144,7 @@ namespace Names_ { class Value_Type {} }
     checks += await verify(input, path.join(directory, `java-${profile}`),
       ['--java.coding_standard', profile, '--java.package', 'example.models'], { java: outputs.java });
   }
-  console.log(`Fresh compiler navigation passed: ${checks} bidirectional type checks across all 11 output languages, compact fields, typed magic and inferred arrays, identical codecs for legacy/dotted headers, transitive includes, acronyms, preserved names, and direct/separated managed classes across all C++ profiles.`);
+  console.log(`Fresh compiler navigation passed: ${checks} bidirectional type checks across all 11 output languages, digest fields, compact fields, typed magic and inferred arrays, identical codecs for legacy/dotted headers, transitive includes, acronyms, preserved names, and direct/separated managed classes across all C++ profiles.`);
 }
 
 main().catch(error => { console.error(error.stderr?.toString() || error); process.exitCode = 1; });

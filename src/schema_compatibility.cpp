@@ -145,6 +145,10 @@ void collect(const std::vector<std::unique_ptr<syntax_node>>& statements, declar
 
 // Compare resolved type identities, avoiding false differences from relative type spellings.
 std::string type_identity(const type_name& type) {
+  if (type.is_digest()) {
+    return "digest:" + std::to_string(static_cast<unsigned>(type.digest)) + ":" +
+           std::to_string(type.digest_extent);
+  }
   return type.resolved_node ? type.resolved_node->get_full_name() : type.name;
 }
 

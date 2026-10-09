@@ -1,5 +1,9 @@
 # Protobuf binary, ProtoJSON, and TextProto
 
+[Digest byte types](digest.md) have four native codec mappings but currently
+reject Protobuf generation and protocol selection explicitly. A native digest
+must not silently acquire a different `bytes` or repeated-integer contract.
+
 C++ owning objects can encode and decode these three standard representations
 directly. The protocol is a template argument, just like `binary_integer`:
 

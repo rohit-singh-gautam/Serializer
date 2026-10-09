@@ -49,6 +49,7 @@ class rust_emitter {
     if (value.type != object_type::primitive) {
       return model.names.at(value.resolved_node);
     }
+    if (value.is_digest()) { return "Vec<u8>"; }
     if (value.name == "string" || value.name.starts_with("version")) {
       return "String";
     }
@@ -83,6 +84,7 @@ class rust_emitter {
   }
   // Construct independent schema defaults for owned values.
   std::string initial(const type_name& value, std::string literal_value = {}) const {
+    if (value.is_digest()) { return "vec![0; " + std::to_string(value.digest_extent) + "]"; }
     if (value.type == object_type::class_type) {
       return type(value) + "::default()";
     }
@@ -109,6 +111,9 @@ class rust_emitter {
   }
   // Decode one scalar with explicit wire context.
   std::string read(const type_name& value, bool collection) const {
+    if (value.is_digest()) {
+      return "srl_read_digest(input, " + std::to_string(value.digest_extent) + ")?";
+    }
     if (value.type == object_type::class_type) {
       return "{ let mut value = " + type(value) + "::default(); value.srl_read(input)?; value }";
     }
@@ -135,7 +140,10 @@ class rust_emitter {
   }
   // Write a borrowed scalar without copying owning fields.
   void write(const type_name& value, const std::string& expression, bool collection) {
-    if (value.type == object_type::class_type) {
+    if (value.is_digest()) {
+      const auto borrowed = expression.starts_with('(') ? expression.substr(1, expression.size() - 2) : "&" + expression;
+      line("srl_write_digest(out, " + borrowed + ", " + std::to_string(value.digest_extent) + ")?;");
+    } else if (value.type == object_type::class_type) {
       line(expression + ".srl_write(out)?;");
     } else if (value.type == object_type::enum_type) {
       line(expression + ".srl_write(out, " + (collection ? "true" : "false") + ")?;");

@@ -546,3 +546,25 @@ R"java(      java.lang.String mantissa = value.split("[eE]", 2)[0];
   }
 }
 )java"
+R"java(
+/** Store caller-provided bytes, using the existing uint8 sequence framing. */
+private static void srlWriteDigest(Writer out, byte[] value, int expected) {
+  if (value == null || (expected != 0 && value.length != expected)) throw new IllegalArgumentException("Digest length mismatch");
+  out.beginArray(value.length);
+  for (int i = 0; i < value.length; ++i) { out.element(i); out.integer(Byte.toUnsignedInt(value[i]), 1, true); }
+  out.endArray();
+}
+/** Decode bounded fresh storage and reject incorrect fixed digest lengths. */
+private static byte[] srlReadDigest(Reader in, int expected) {
+  int count = in.beginArray();
+  if (expected != 0 && count != -1 && count != expected) throw in.error("Digest length mismatch");
+  in.requireArray(count, 1);
+  java.io.ByteArrayOutputStream value = new java.io.ByteArrayOutputStream(count < 0 ? 0 : count);
+  for (int i = 0; in.nextElement(i, count); ++i) {
+    if (expected != 0 && i >= expected) throw in.error("Digest length mismatch");
+    value.write((int)in.integer(1, true));
+  }
+  if (expected != 0 && value.size() != expected) throw in.error("Digest length mismatch");
+  return value.toByteArray();
+}
+)java"

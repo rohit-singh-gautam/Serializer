@@ -1,5 +1,28 @@
 # Migrating to the snake_case Serializer API
 
+## Digest fields and creation (9 October 2026)
+
+Compiler/runtime **1.8.0** and language **1.3.0** add digest byte fields. Use
+`digest` for variable application-supplied bytes, `digest[N]` for a decimal fixed
+byte count, or `digest(sha256)` and other supported names for the algorithm's
+standard length. Update every schema that declares a built-in digest to language
+`1.3.0`, including included files, and regenerate with a compatible compiler.
+Older headers and schemas remain valid; declared types named `digest` keep their
+prior bare-reference meaning. Existing unrelated wire bytes and APIs are unchanged.
+
+Compute values explicitly in C++ with `<rohit/digest.hpp>` and
+`rohit::make_digest<rohit::digest_algorithm::sha256>(input)`; application linkage
+is still `Serializer::runtime`. Other outputs store/decode digests and use the
+application's provider for computation. No OpenSSL dependency is introduced.
+Fixed defaults are zero-filled storage, rather than the hash of an empty message.
+
+Native binary retains the ordinary byte-array count and JSON uses numeric arrays.
+Algorithm names add no payload tags; changing the algorithm requires peer
+agreement even at the same byte width. Use the compatibility checker before
+replacing an established field. Digest map keys, nonempty initializers, C++ views,
+and Protobuf mappings are unsupported. See [the digest contract](docs/digest.md)
+and [why application licensing was separated](docs/licensing.md#why-the-license-was-separated).
+
 ## Proprietary application runtime and generated output (9 October 2026)
 
 Compiler/runtime **1.7.0** separates the application runtime from the GPL compiler

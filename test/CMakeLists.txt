@@ -1,11 +1,14 @@
 set(schemas)
 foreach(fixture IN ITEMS enum person test1 array map variable assessment views storage_reuse
-    fixed_fields constant_names includes wire_compatibility generics dimensions versioning magic typed_magic inferred_arrays compact_fields)
+    fixed_fields constant_names includes wire_compatibility generics dimensions versioning magic typed_magic inferred_arrays compact_fields digests)
   list(APPEND schemas "${CMAKE_CURRENT_SOURCE_DIR}/resources/${fixture}.serializer")
 endforeach()
 
 add_executable(core_serializer_test
   core_serializer_test.cpp
+  digest_test.cpp
+  digest_schema_test.cpp
+  digest_codec_test.cpp
   command_line_test.cpp
   stream_boundary_test.cpp
   string_stream_test.cpp
@@ -169,6 +172,10 @@ if(Python3_Interpreter_FOUND)
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/compact_languages.py"
       --compiler "$<TARGET_FILE:serializer>" --language python
       --build "${CMAKE_CURRENT_BINARY_DIR}/compact_python")
+  add_test(NAME serializer_digest_python
+    COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/digest_languages.py"
+      --compiler "$<TARGET_FILE:serializer>" --language python
+      --build "${CMAKE_CURRENT_BINARY_DIR}/digest_python")
 endif()
 if(SERIALIZER_BUILD_MANAGED)
   set(dimension_history_targets)

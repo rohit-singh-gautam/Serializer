@@ -79,6 +79,7 @@ void validate_identifier(std::string_view value, std::string_view reserved) {
 }
 // Fixed-width values have an input lower bound usable before reserving collections.
 int width(const type_name& value) {
+  if (value.is_digest()) { return 0; }
   if (value.type != object_type::primitive || value.name == "string") {
     return 0;
   }

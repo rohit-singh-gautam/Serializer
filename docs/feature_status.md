@@ -37,6 +37,14 @@ JSON and optional Protobuf mappings remain unchanged. Signed/floating compact
 formats, collections, magic, payload versions, packing and views are unsupported.
 See [compact encodings](compact_integers.md) for the wire contract and proposals.
 
+Language `1.3.0` adds bare variable `digest`, fixed `digest[N]`, and named
+`digest(algorithm)` byte values in all eleven native outputs. Four native codecs
+retain the existing byte-sequence representation and validate fixed sizes. C++
+provides original 0BSD creation and hex helpers for twelve algorithms, without
+OpenSSL. Other languages use application-chosen providers for computation.
+Fields are application-supplied; map keys, nonempty defaults, C++ views, and
+Protobuf digest mappings are unsupported. See [digest storage and creation](digest.md).
+
 Opt-in C++ codecs also support **Protobuf binary, ProtoJSON, and TextProto** through
 compile-time protocol templates, for both encoding and decoding. See [Protobuf
 codecs](protobuf.md) for generation, schema mappings, and limitations. ProtoJSON
@@ -122,7 +130,7 @@ behavior remain unchanged.
 
 Language-specific output profiles select layouts and naming conventions. Schemas use
 `.serializer` and begin with a supported language header; new schemas use
-`serializer version 1.2.0;`. Older `1.1.0`, `1.0.0` and the original `1` alias remain supported.
+`serializer version 1.3.0;`. Older `1.2.0`, `1.1.0`, `1.0.0` and the original `1` alias remain supported.
 Schema language and compiler versions are independent.
 Future versions require all three components. Share declarations with `include
 common;` before any declarations. Paths are unquoted and relative to the including file;
@@ -134,7 +142,7 @@ Namespace scopes are reused during parsing; duplicate types and namespace/type c
 are rejected. See [schema includes](usage.md#share-declarations-with-includes) and the
 [paired C++/Java examples](../example/includes/README.md). Quoted defaults preserve
 literal spaces, for example `public string label { "schema default" };`; escaping the
-space is unnecessary. Run `serializer --version` for compiler version **1.7.0** and
+space is unnecessary. Run `serializer --version` for compiler version **1.8.0** and
 supported schema versions. See [command-line options](command_line.md) for
 multi-language generation and overrides.
 

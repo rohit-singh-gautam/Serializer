@@ -98,6 +98,7 @@ class c_emitter {
     if (value.type != object_type::primitive) {
       return name(value.resolved_node);
     }
+    if (value.is_digest()) { return "srl_buffer"; }
     if ((value.name == "string" || value.name.starts_with("version"))) {
       return "srl_string";
     }
@@ -195,7 +196,9 @@ class c_emitter {
   // Initialize one scalar in zeroed storage; propagate the first allocation failure.
   void init_value(const type_name& value, const std::string& dst, const std::string& literal_value,
                   const std::string& status) {
-    if (value.type == object_type::class_type) {
+    if (value.is_digest()) {
+      line("if (" + status + " == srl_ok) { " + status + " = srl_digest_init(&" + dst + ", " + std::to_string(value.digest_extent) + "); }");
+    } else if (value.type == object_type::class_type) {
       line("if (" + status + " == srl_ok) { " + status + " = " + type(value) + "_init(&" + dst +
            "); }");
     } else if ((value.name == "string" || value.name.starts_with("version"))) {
@@ -209,7 +212,9 @@ class c_emitter {
   }
   // Release one owning scalar; zeroing nested models prevents stale ownership.
   void free_value(const type_name& value, const std::string& dst) {
-    if (value.type == object_type::class_type) {
+    if (value.is_digest()) {
+      line("srl_buffer_free(&" + dst + ");");
+    } else if (value.type == object_type::class_type) {
       line(type(value) + "_free(&" + dst + ");");
     } else if ((value.name == "string" || value.name.starts_with("version"))) {
       line("srl_string_free(&" + dst + ");");
@@ -217,7 +222,9 @@ class c_emitter {
   }
   // Read a scalar directly into the candidate, merging ordinary nested objects.
   void read_value(const type_name& value, const std::string& dst, bool collection_context) {
-    if (value.type == object_type::class_type) {
+    if (value.is_digest()) {
+      line("srl_read_digest(in, &" + dst + ", " + std::to_string(value.digest_extent) + ");");
+    } else if (value.type == object_type::class_type) {
       line(type(value) + "_srl_read(in, &" + dst + ");");
     } else if (value.type == object_type::enum_type) {
       line(dst + " = (" + type(value) + ")srl_read_enum(in, " + type(value) +
@@ -247,7 +254,9 @@ class c_emitter {
   }
   // Write one typed scalar without a generic object representation.
   void write_value(const type_name& value, const std::string& src, bool collection_context) {
-    if (value.type == object_type::class_type) {
+    if (value.is_digest()) {
+      line("srl_write_digest(out, &" + src + ", " + std::to_string(value.digest_extent) + ");");
+    } else if (value.type == object_type::class_type) {
       line(type(value) + "_srl_write(out, &" + src + ");");
     } else if (value.type == object_type::enum_type) {
       line("srl_write_enum(out, (uint32_t)" + src + ", " + type(value) + "_srl_names, sizeof(" +

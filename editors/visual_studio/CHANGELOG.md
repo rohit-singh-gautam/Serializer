@@ -1,3 +1,10 @@
+# 1.1.28
+
+- Share schema language 1.3.0 digest highlighting and metadata-aware navigation with VS Code.
+- Preserve legacy declared digest types, qualified references, and adjacent generated-output navigation.
+- Synchronize with VS Code's digest snippets and current schema header.
+- Keep both extension versions synchronized and update local package names.
+
 # 1.1.27
 
 - Document generated output and application runtime support for proprietary applications.

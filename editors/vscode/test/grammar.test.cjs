@@ -5,6 +5,42 @@ const { test } = require('node:test');
 const { Registry, INITIAL } = require('vscode-textmate');
 const onig = require('vscode-oniguruma');
 
+test('digest algorithms and byte extents highlight without claiming field names', async () => {
+  const grammar = await loadGrammar();
+  for (const algorithm of ['md5', 'sha1', 'sha224', 'sha256', 'sha384', 'sha512',
+    'sha512_224', 'sha512_256', 'sha3_224', 'sha3_256', 'sha3_384', 'sha3_512']) {
+    const line = `serializer version 1.3.0; class item { public digest(${algorithm}) content_hash (1); public digest[32] manual (2); public digest opaque; public uint32 digest (4); }`;
+    const result = grammar.tokenizeLine(line, INITIAL);
+    /** Read the innermost TextMate scope at a source word. */
+    const scope = word => result.tokens.find(token => token.startIndex <= line.indexOf(word) &&
+      token.endIndex > line.indexOf(word)).scopes.at(-1);
+    assert.equal(scope(algorithm), 'constant.other.algorithm.serializer', algorithm);
+    assert.equal(scope(`digest(${algorithm})`), 'support.type.serializer');
+    assert.equal(scope('32]'), 'constant.numeric.serializer');
+    for (const name of ['content_hash', 'manual', 'opaque', 'digest (4)']) {
+      assert.ok(!['entity.name.type.serializer', 'support.type.serializer'].includes(scope(name)), name);
+    }
+    assert.equal(result.ruleStack.depth, 1);
+  }
+  const nested = 'class box<T = digest(sha3_256)> {} class item { public array digest(sha256) values; ' +
+    'public box<digest[32], digest(sha512)> pair; public union(digest(sha224)=hash, uint8=empty) choice; }';
+  const result = grammar.tokenizeLine(nested, INITIAL);
+  for (const word of ['sha3_256', 'sha256', 'sha512', 'sha224']) {
+    const offset = nested.indexOf(word);
+    assert.equal(result.tokens.find(token => token.startIndex <= offset && token.endIndex > offset).scopes.at(-1),
+      'constant.other.algorithm.serializer', word);
+  }
+  const alias = nested.indexOf('hash,');
+  assert.equal(result.tokens.find(token => token.startIndex <= alias && token.endIndex > alias).scopes.at(-1),
+    'variable.other.member.serializer');
+  assert.equal(result.ruleStack.depth, 1);
+  const legacy = 'serializer version 1.2.0; class digest {} class old { public digest value; }';
+  const offset = legacy.indexOf('digest value');
+  const tokens = grammar.tokenizeLine(legacy, INITIAL).tokens;
+  assert.equal(tokens.find(token => token.startIndex <= offset && token.endIndex > offset).scopes.at(-1),
+    'entity.name.type.serializer');
+});
+
 test('compact keyword spellings remain type operands in older ordinary fields', async () => {
   const grammar = await loadGrammar();
   const line = 'serializer version 1.0.0; class record { public compact_prefix prefix omit(json); public compact_varint varint omit /* format */ (binary_string); public strict checked; public lenient relaxed; }';

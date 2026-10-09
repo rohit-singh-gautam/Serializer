@@ -1,6 +1,6 @@
 interface:
   display_name: "Serializer Integration"
-  short_description: "Integrate codecs, permissive runtime, and managed state"
+  short_description: "Integrate codecs, digests, permissive runtime, and state"
 
 policy:
   allow_implicit_invocation: true

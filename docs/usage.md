@@ -14,6 +14,14 @@ compiled helpers use [`LICENSE-RUNTIME`](../LICENSE-RUNTIME) (0BSD). Use
 `Serializer::runtime` or `Serializer::managed` for application linkage; the
 compiler API library remains GPL. See [licensing and notices](licensing.md).
 
+Language `1.3.0` provides application-supplied digest bytes. Use `digest` for a
+variable custom value, `digest[32]` for exactly 32 bytes, or `digest(sha256)` for
+the standard algorithm's length. C++ creates values explicitly with
+`rohit::make_digest<rohit::digest_algorithm::sha256>(input)` from
+`<rohit/digest.hpp>` and the 0BSD runtime target. Other languages use their
+application's hash provider. See [digest storage and creation](digest.md) for the
+algorithm table, a complete example, wire behavior, and unsupported contexts.
+
 See [payload versioning](versioning.md) for revision types, historical positional
 layouts, field lifetimes, replacements, reservations, common read policies, and
 compiler-only release-date/count policies. These resolve to ordinary version bounds
@@ -314,7 +322,7 @@ class person stable_ids {
 ```
 
 - Use `class`, `enum`, and `namespace`; schema declarations are not C++ source.
-- Start every new `.serializer` file with `serializer version 1.2.0;` before declarations.
+- Start every new `.serializer` file with `serializer version 1.3.0;` before declarations.
   Older `1.0.0` files remain supported.
   The original `serializer version 1;` is an exact alias for `1.0.0`, exclusive to
   version 1. Future versions require three components. The language version is
@@ -373,9 +381,10 @@ namespace demo {
   spaces, backslashes, absolute paths, and other extensions are rejected.
   `./` and `../` are supported. Paths resolve from the including file, independently
   of the compiler's working directory. Comments may separate directive tokens.
-- Every file requires its own supported version header. `1.0.0`, `1.1.0`, `1.2.0`, and the
+- Every file requires its own supported version header. `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, and the
   original `1` alias may coexist in an include graph. Typed magic and inferred
-  arrays require `1.1.0` in the file that declares them. Includes follow that
+  arrays require `1.1.0`, compact scalars require `1.2.0`, and built-in digests
+  require `1.3.0` in the file that declares them. Includes follow that
   header and precede all declarations, at file scope only.
 - Nested dependencies load before their includers. Repeated paths, normalized path
   aliases, mixed shorthand/explicit spellings, and diamond dependencies contribute
@@ -494,7 +503,8 @@ Create the three output directories first. Configs and outputs pair by order:
 32-bit IDs, 64-bit IDs, then 64-bit IDs with separate ordinary values and managed
 wrappers. The schema and its includes are parsed once; each configuration then
 generates its own output. INI files are independent and CLI scalar overrides apply
-to all of them. Schema language **1.2.0** and the INI syntax remain unchanged.
+to all of them. Batching preserves each schema's selected language contract and
+the existing INI syntax.
 
 For C++ build integration, replace separate helper calls for those variants with:
 

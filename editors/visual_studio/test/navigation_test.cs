@@ -80,6 +80,41 @@ internal static class NavigationTest {
         "adjacent compact output navigation in every language");
       ++checks;
       live[model] = text;
+      // Digest selectors are metadata, while adjacent schema types and legacy names remain navigable.
+      var digestText = "serializer version 1.3.0; include sales/order; class sha256 {} " +
+        "class digest_box<T = digest(sha256), U = digest[32]> {} class digest_model { " +
+        "public digest opaque; public digest[32] fixed; public digest(sha256) named; " +
+        "public array digest(sha3_256) values; public digest_box<digest(sha512), demo::order> pair; " +
+        "public demo::order owner; public union(digest(sha256)=hash, demo::order=order) choice; }";
+      live[model] = digestText;
+      foreach (var metadata in new[] { "sha256", "sha3_256", "sha512", "32]", "opaque", "fixed", "named", "values" }) {
+        for (var start = digestText.IndexOf(metadata, digestText.IndexOf("class digest_box", StringComparison.Ordinal), StringComparison.Ordinal);
+             start >= 0; start = digestText.IndexOf(metadata, start + metadata.Length, StringComparison.Ordinal)) {
+          for (var offset = start; offset < start + metadata.Length; ++offset) {
+            Require(NavigationRunner.Resolve(model, offset, false, generated, live, CancellationToken.None).Length == 0,
+              "digest metadata is not a type reference");
+            ++checks;
+          }
+        }
+      }
+      for (var occurrence = digestText.IndexOf("demo::order", StringComparison.Ordinal); occurrence >= 0;
+           occurrence = digestText.IndexOf("demo::order", occurrence + "demo::order".Length, StringComparison.Ordinal)) {
+        for (var offset = occurrence; offset <= occurrence + "demo::order".Length; ++offset) {
+          Require(NavigationRunner.Resolve(model, offset, false, generated, live, CancellationToken.None).Length == 1,
+            "type navigation beside digest selectors");
+          ++checks;
+        }
+        Require(NavigationRunner.Resolve(model, occurrence, true, generated, live, CancellationToken.None).Length == 11,
+          "digest adjacent output navigation in every language");
+        ++checks;
+      }
+      var legacyDigest = "serializer version 1.2.0; class digest {} class old { public digest value; }";
+      live[model] = legacyDigest;
+      var legacyStart = legacyDigest.IndexOf("digest value", StringComparison.Ordinal);
+      Require(NavigationRunner.Resolve(model, legacyStart, false, generated, live, CancellationToken.None).Single().start ==
+        legacyDigest.IndexOf("digest {}", StringComparison.Ordinal), "legacy declared digest type");
+      ++checks;
+      live[model] = text;
       var order = Path.GetFullPath(Path.Combine(repository, "example/schemas/complex/sales/order.serializer"));
       live[order] = File.ReadAllText(order).Replace("serializer version 1;", "serializer version 1.0.0;")
         .Replace("class order ", "class unsaved_order ");
@@ -128,7 +163,7 @@ internal static class NavigationTest {
           }
         }
       }
-      Console.WriteLine("Visual Studio shared resolver passed: " + checks + " source/output checks, real .NET interpreter, all 11 languages, dimension defaults/extents, typed magic/inferred arrays, selection endpoints, unsaved includes and cancellation.");
+      Console.WriteLine("Visual Studio shared resolver passed: " + checks + " source/output checks, real .NET interpreter, all 11 languages, digest metadata/legacy names, dimension defaults/extents, typed magic/inferred arrays, selection endpoints, unsaved includes and cancellation.");
       return 0;
     } catch (Exception error) { Console.Error.WriteLine(error); return 1; }
   }

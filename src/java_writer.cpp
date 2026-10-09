@@ -227,12 +227,19 @@ class emitter {
 
   // Resolve a fully qualified generated Java type to avoid shadowing by schema fields.
   std::string type(const rohit::serializer::type_name& value, bool boxed = false) const {
+    if (value.is_digest()) { return "byte[]"; }
     return value.type == object_type::primitive ? primitive(value.name, boxed)
                                                 : names.at(value.resolved_node);
   }
 
+  // Allocate outer arrays before a digest value's byte dimension.
+  std::string array_initial(const rohit::serializer::type_name& value, const std::string& count) const {
+    return value.is_digest() ? "new byte[" + count + "][]" : "new " + type(value) + "[" + count + "]";
+  }
+
   // Construct a fresh schema default for a single value.
   std::string initial(const rohit::serializer::type_name& value) const {
+    if (value.is_digest()) { return "new byte[" + std::to_string(value.digest_extent) + "]"; }
     if (value.type == object_type::class_type) {
       return "new " + type(value) + "()";
     }
@@ -381,6 +388,9 @@ class emitter {
   // Build a direct scalar read expression with context-sensitive enum representation.
   std::string read_value(const rohit::serializer::type_name& value, const std::string& reader,
                          bool collection) const {
+    if (value.is_digest()) {
+      return "srlReadDigest(" + reader + ", " + std::to_string(value.digest_extent) + ")";
+    }
     if (value.type == object_type::class_type) {
       return type(value) + ".read(" + reader + ")";
     }
@@ -414,7 +424,9 @@ class emitter {
   // Emit a scalar write without reflection or a generic object dispatch table.
   void write_value(const rohit::serializer::type_name& value, const std::string& expression,
                    bool collection) {
-    if (value.type == object_type::class_type) {
+    if (value.is_digest()) {
+      line("srlWriteDigest(out, " + expression + ", " + std::to_string(value.digest_extent) + ");");
+    } else if (value.type == object_type::class_type) {
       line(expression + ".write(out);");
     } else if (value.type == object_type::enum_type) {
       line(expression + ".write(out, " + (collection ? "true" : "false") + ");");
@@ -509,7 +521,7 @@ class emitter {
                                   value.name};
     }
     if (value.modifier == member::modifier_type::array) {
-      line(access + type(item) + "[] " + name + " = new " + type(item) + "[0];");
+      line(access + type(item) + "[] " + name + " = " + array_initial(item, "0") + ";");
     } else if (value.modifier == member::modifier_type::map) {
       line(access + "java.util.NavigableMap<" + type(key_type(value), true) + ", " +
            type(item, true) + "> " + name + " = " + map_initializer(value) + ";");
@@ -583,7 +595,7 @@ class emitter {
     line("int count = in.beginArray();");
     if (value.modifier == member::modifier_type::array) {
       std::string element_width{"0"};
-      if (item.type == object_type::primitive && item.name != "string") {
+      if (item.type == object_type::primitive && item.name != "string" && !item.is_digest()) {
         element_width = item.name == "bool" || item.name == "char" ? "1"
                         : item.name == "float"                     ? "4"
                         : item.name == "double"                    ? "8"
@@ -592,7 +604,7 @@ class emitter {
       line("if (!in.json()) {");
       ++level;
       line("in.requireArray(count, " + element_width + ");");
-      line(name + " = new " + type(item) + "[count];");
+      line(name + " = " + array_initial(item, "count") + ";");
       line("for (int index = 0; in.nextElement(index, count); ++index) {");
       ++level;
       line(name + "[index] = " + read_value(item, "in", true) + ";");
@@ -607,7 +619,7 @@ class emitter {
       line("values.add(" + read_value(item, "in", true) + ");");
       --level;
       line("}");
-      line(name + " = new " + type(item) + "[values.size()];");
+      line(name + " = " + array_initial(item, "values.size()") + ";");
       line("for (int index = 0; index < values.size(); ++index) { " + name +
            "[index] = values.get(index); }");
       --level;

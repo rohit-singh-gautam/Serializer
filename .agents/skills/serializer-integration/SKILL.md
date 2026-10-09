@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin, or C applications from a provided repository or existing dependency. Use for proprietary-compatible generated output and application runtime, opt-in C++20 constant binary sizing and exact-array emission, positional-only generation and borrowed emission-only models, compact unsigned prefix/varint scalars, .serializer schemas, native C++ generic templates, optional cross-language contracts, dimension parameters, inferred fixed arrays, typed scalar/enum magic, CMake generation, several INI variants from one schema parse, language-specific coding profiles, owning classes or C++ binary views, stable_ids, payload revisions, compiler-only release policies, lifecycle annotations, schema compatibility checks and reservations, stream concepts, durable file streams and iostream adapters, exact fresh-value decoding, managed journal/crash recovery and C++ local collaboration with store-owned sessions, timed synchronization and undo, optional message compression, JSON or binary codecs, database persistence guidance, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
+description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin, or C applications from a provided repository or existing dependency. Use for proprietary-compatible generated output and application runtime, digest byte fields and C++ digest creation, opt-in C++20 constant binary sizing and exact-array emission, positional-only generation and borrowed emission-only models, compact unsigned prefix/varint scalars, .serializer schemas, native C++ generic templates, optional cross-language contracts, dimension parameters, inferred fixed arrays, typed scalar/enum magic, CMake generation, several INI variants from one schema parse, language-specific coding profiles, owning classes or C++ binary views, stable_ids, payload revisions, compiler-only release policies, lifecycle annotations, schema compatibility checks and reservations, stream concepts, durable file streams and iostream adapters, exact fresh-value decoding, managed journal/crash recovery and C++ local collaboration with store-owned sessions, timed synchronization and undo, optional message compression, JSON or binary codecs, database persistence guidance, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
 ---
 
 # Serializer Integration
@@ -453,11 +453,11 @@ feature as a prerequisite without the user's request.
   generated replacement setters and the existing history/journal APIs.
   Consult [usage](../../../docs/usage.md), [migration](../../../migration.md), and
   [qualification](../../../docs/verification-dimensions-2026-10-04.md).
-- Use `.serializer` files beginning with `serializer version 1.2.0;`, before declarations
+- Use `.serializer` files beginning with `serializer version 1.3.0;`, before declarations
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
-  remains available through `parser::parse(input)`. Schema language version 1.2.0 is
-  independent of compiler release 1.7.0 and wire protocols. Bug fixes and minor
+  remains available through `parser::parse(input)`. Schema language version 1.3.0 is
+  independent of compiler release 1.8.0 and wire protocols. Bug fixes and minor
   updates increment the patch number; new features increment the minor number.
   Minor and patch releases preserve full compatibility. Developers change the
   major number manually, with best-effort compatibility across major releases.
@@ -492,6 +492,26 @@ feature as a prerequisite without the user's request.
   See [include usage](../../../docs/usage.md#share-declarations-with-includes) and
   [paired C++/Java examples](../../../example/includes/README.md).
 - In owning representations, map `array T` to `std::vector<T>` and `map(K) T` to `std::map<K, T>`.
+- With language `1.3.0` and compiler/runtime `1.8.0`, use `digest` for variable
+  application-supplied bytes, `digest[N]` for a decimal fixed byte extent
+  (1..65,536), or `digest(algorithm)` for a supported standard output length.
+  The bare form implies no algorithm. Preserve existing declared types named
+  `digest`, which take precedence for bare references. Require `1.3.0` in each
+  declaring included file; keep older compatible headers for unrelated schemas.
+  C++ fixed values use `std::array<uint8_t, N>` and start with zero bytes;
+  bare storage is an empty `std::vector<uint8_t>`. All eleven native outputs
+  support storage/codecs with fixed cardinality checks. Map keys, nonempty digest
+  defaults, C++ views, and Protobuf mappings reject explicitly.
+  Compute hashes explicitly through `<rohit/digest.hpp>` and
+  `rohit::make_digest<rohit::digest_algorithm::sha256>(input)` with
+  `Serializer::runtime`; portable applications choose their own provider.
+  Native binary keeps the byte-array count, and JSON uses numeric byte arrays.
+  Use `digest_to_hex`/`digest_from_hex` for application text conversion only.
+  Serializer's creation helpers are 0BSD and introduce no OpenSSL dependency.
+  Treat MD5/SHA-1 as legacy algorithms, and preserve the agreed meaning when
+  migrating equal-width digest types. Follow [digest usage](../../../docs/digest.md),
+  [licensing rationale](../../../docs/licensing.md#why-the-license-was-separated),
+  and [migration](../../../migration.md#digest-fields-and-creation-9-october-2026).
 - For new portable byte-keyed maps, prefer `map(uint8)`. Existing `map(char)`
   output retains signed Java `byte` ordering and compiler-dependent C++ `char`
   ordering; other backends use unsigned bytes. High-byte keys decode across
@@ -859,8 +879,8 @@ options once per config selecting that language, also in config order. Never mix
 generic and language-specific outputs. The shared depfile lists all outputs and
 configuration/schema inputs. All backends finish generation/formatting before
 writes start; parse/validation/backend failures preserve existing outputs, while
-filesystem writes across files are not atomic. INI syntax and schema language
-1.2.0 do not change; one INI with named configurations is unsupported. See
+filesystem writes across files are not atomic. Batching preserves INI syntax and
+each selected schema contract; one INI with named configurations is unsupported. See
 [batch CLI details](../../../docs/command_line.md#generate-several-configurations-from-one-parse).
 
 Use the actual built executable path when it is not on `PATH`. Regenerate through
@@ -1375,7 +1395,7 @@ Regenerate all relevant language and editor outputs when changing these contract
 
 Consult the [versioning verification record](../../../docs/verification-versioning-2026-10-06.md) and [release-policy verification record](../../../docs/verification-release-policies-2026-10-06.md) for completed language, compiler, codec, and editor checks. Release catalogs and nested allow policies are evaluated entirely during schema compilation; generated readers and writers contain only resolved version bounds.
 
-Use [payload versioning](../../../docs/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the supported schema language header (`1.2.0`, older `1.1.0`/`1.0.0`, or the original `1` alias for `1.0.0`) from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.
+Use [payload versioning](../../../docs/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the supported schema language header (`1.3.0`, older `1.2.0`/`1.1.0`/`1.0.0`, or the original `1` alias for `1.0.0`) from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.
 
 Keep retained historical definitions and relative positional order intact. Set the object's revision to write an older supported layout. Use `read_policy::compatible` for declared history, `strict` for the current revision, and `flexible` to skip safe JSON extensions within the declared interval. The former `json_read_policy::compatible` spelling is removed; its unknown-field behavior is `read_policy::flexible`. Native generated languages select `ReadPolicy` through `Limits`; C uses `srl_read_policy`.
 

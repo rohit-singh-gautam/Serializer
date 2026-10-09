@@ -17,6 +17,14 @@ remain unchanged. Strict prefix output rejects overflow; lenient output retains
 the low 30 bits. Every reader checks bounds and declared scalar width; varint
 readers also reject overlong, overflowing and unterminated encodings.
 
+Language `1.3.0` adds [digest byte fields](digest.md). The four native protocols
+encode them as ordinary `uint8` sequences: compact element count followed by raw
+bytes in binary, and numeric byte arrays in JSON. Fixed `digest[N]` and named
+`digest(algorithm)` retain the count and require exact cardinality. The algorithm
+name adds no wire tag and is not verified against a message's content. Bare
+`digest` has no implied algorithm or size. Existing schema types named `digest`
+retain their prior meaning. Views and optional Protobuf digest mappings reject.
+
 See [payload versioning](versioning.md) for revision types, historical positional
 layouts, field lifetimes, replacements, reservations, common read policies, and
 compiler-only release-date/count policies. These resolve to ordinary version bounds

@@ -68,6 +68,7 @@ class mobile_emitter {
     if (value.type != object_type::primitive) {
       return model.names.at(value.resolved_node);
     }
+    if (value.is_digest()) { return select("[UInt8]", "UByteArray"); }
     if (value.name.starts_with("version")) {
       return "String";
     }
@@ -117,6 +118,10 @@ class mobile_emitter {
   }
   // Create fresh scalar defaults, with explicit full-width integer spelling.
   std::string initial(const type_name& value, std::string literal_value = {}) const {
+    if (value.is_digest()) {
+      const auto size = std::to_string(value.digest_extent);
+      return select("[UInt8](repeating: 0, count: " + size + ")", "UByteArray(" + size + ")");
+    }
     if (value.type == object_type::class_type) {
       return type(value) + "()";
     }
@@ -249,7 +254,7 @@ class mobile_emitter {
   }
   // Primitive Kotlin arrays avoid per-element boxing on numeric hot paths.
   bool primitive_array(const type_name& value) const {
-    return !swift && value.type == object_type::primitive && value.name != "string";
+    return !swift && value.type == object_type::primitive && value.name != "string" && !value.is_digest();
   }
   // Map collections to owning native containers.
   std::string collection_type(const member& value) const {
@@ -279,6 +284,9 @@ class mobile_emitter {
   // Decode a fresh scalar or nested value.
   std::string read(const type_name& value, bool collection, bool key = false) const {
     const auto prefix = attempt();
+    if (value.is_digest()) {
+      return attempt() + "srlReadDigest(input, " + std::to_string(value.digest_extent) + ")";
+    }
     if (value.type == object_type::class_type) {
       return prefix + type(value) + ".srlCreate(input)";
     }
@@ -312,7 +320,9 @@ class mobile_emitter {
   // Write typed values directly; Swift map strings retain their exact byte identity.
   void write(const type_name& value, const std::string& expression, bool collection,
              bool key = false) {
-    if (value.type == object_type::class_type) {
+    if (value.is_digest()) {
+      line(attempt() + "srlWriteDigest(out, " + expression + ", " + std::to_string(value.digest_extent) + ")");
+    } else if (value.type == object_type::class_type) {
       line(attempt() + expression + ".srlWrite(out)");
     } else if (value.type == object_type::enum_type) {
       line(attempt() + "out.enumeration(" + expression + select(".rawValue", ".ordinal") + ", " +

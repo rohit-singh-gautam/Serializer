@@ -49,6 +49,7 @@ class python_emitter {
   }
   // Resolve a default without sharing mutable objects between instances.
   std::string initial(const type_name& value, const std::string& literal_value = {}) const {
+    if (value.is_digest()) { return "[0] * " + std::to_string(value.digest_extent); }
     if (value.type == object_type::class_type) {
       return model.names.at(value.resolved_node) + "()";
     }
@@ -71,6 +72,7 @@ class python_emitter {
     if (value.type != object_type::primitive) {
       return model.names.at(value.resolved_node);
     }
+    if (value.is_digest()) { return "list[int]"; }
     return (value.name == "string" || value.name.starts_with("version")) ? "str"
            : value.name == "bool"                                        ? "bool"
            : value.name == "float" || value.name == "double"             ? "float"
@@ -78,6 +80,9 @@ class python_emitter {
   }
   // Build a scalar decoding expression; ordinary nested fields merge in order.
   std::string read(const type_name& value, bool collection, const std::string& old = {}) const {
+    if (value.is_digest()) {
+      return "_read_digest(input, " + std::to_string(value.digest_extent) + ")";
+    }
     if (value.type == object_type::class_type) {
       return model.names.at(value.resolved_node) + "._read(input, " + (old.empty() ? "None" : old) +
              ")";
@@ -107,7 +112,9 @@ class python_emitter {
   }
   // Write one typed scalar directly to the output buffer.
   void write(const type_name& value, const std::string& expression, bool collection) {
-    if (value.type == object_type::class_type) {
+    if (value.is_digest()) {
+      line("_write_digest(out, " + expression + ", " + std::to_string(value.digest_extent) + ")");
+    } else if (value.type == object_type::class_type) {
       line(expression + "._write(out)");
     } else if (value.type == object_type::enum_type) {
       line("out.enumeration(" + expression + ", _" + model.names.at(value.resolved_node) +
