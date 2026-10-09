@@ -6,8 +6,11 @@ Keep native target behavior and options synchronized with the Linux Makefile.
 The all and rebuild targets build enabled CMake targets and both editor VSIX packages without
 installing them. Extension packaging requires Windows, Node.js 22+, npm and Visual
 Studio MSBuild. The configure and test targets operate on CMake targets only.
-Clean removes native build outputs through CMake while retaining configuration,
-dependencies and editor packages. An unconfigured build needs no cleanup.
+Clean is equivalent to git clean -fdx across this repository. It removes all
+untracked and ignored files, including caches, dependencies, editor packages,
+untracked source and local configuration. Tracked files and their edits remain.
+Rebuild performs that repository cleanup before configuring and building again.
+The extension target builds both editor VSIX packages without running CMake or cleanup.
 .EXAMPLE
 ./make.ps1 all
 .EXAMPLE
@@ -17,12 +20,14 @@ dependencies and editor packages. An unconfigured build needs no cleanup.
 .EXAMPLE
 ./make.ps1 rebuild -Jobs 8
 .EXAMPLE
+./make.ps1 extension
+.EXAMPLE
 ./make.ps1 all -CMakeArgs '-DSERIALIZER_BUILD_TESTS=OFF'
 #>
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('all', 'configure', 'test', 'clean', 'rebuild')]
+    [ValidateSet('all', 'configure', 'test', 'clean', 'rebuild', 'extension')]
     [string]$Target = 'all',
     [ValidateSet('Debug', 'Release', 'RelWithDebInfo', 'MinSizeRel')]
     [string]$Configuration = 'Release',
@@ -49,20 +54,34 @@ function Invoke-BuildCommand {
     }
 }
 
+# Verify the cleanup boundary, then remove only Git's untracked and ignored files.
+function Invoke-RepositoryClean {
+    $gitRoot = Invoke-BuildCommand 'git' @('-C', $PSScriptRoot, 'rev-parse', '--show-toplevel')
+    $expectedRoot = [System.IO.Path]::GetFullPath($PSScriptRoot)
+    $actualRoot = [System.IO.Path]::GetFullPath($gitRoot)
+    if (-not [string]::Equals($expectedRoot, $actualRoot,
+            [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw 'Refusing to clean outside the repository containing make.ps1.'
+    }
+    Invoke-BuildCommand 'git' @('-C', $expectedRoot, 'clean', '-fdx')
+}
+
+if ($Target -eq 'extension') {
+    & (Join-Path $PSScriptRoot 'editors/build.ps1')
+    return
+}
+
+if ($Target -in @('clean', 'rebuild')) {
+    Invoke-RepositoryClean
+    if ($Target -eq 'clean') {
+        return
+    }
+}
+
 if (-not $BuildDirectory) {
     $BuildDirectory = Join-Path $PSScriptRoot "out/build/make-$Configuration"
 } elseif (-not [System.IO.Path]::IsPathRooted($BuildDirectory)) {
     $BuildDirectory = Join-Path $PSScriptRoot $BuildDirectory
-}
-
-if ($Target -eq 'clean') {
-    if (Test-Path -LiteralPath (Join-Path $BuildDirectory 'CMakeCache.txt') -PathType Leaf) {
-        Invoke-BuildCommand $CMakeCommand @('--build', $BuildDirectory,
-            '--config', $Configuration, '--target', 'clean')
-    } else {
-        Write-Host "No configured build to clean: $BuildDirectory"
-    }
-    return
 }
 
 $configureArguments = @('-S', $PSScriptRoot, '-B', $BuildDirectory,

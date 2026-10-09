@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.28)
 
-project(serializer VERSION 1.8.1 LANGUAGES CXX)
+project(serializer VERSION 1.8.2 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
 set(serializer_schema_language_version 1.3.0)

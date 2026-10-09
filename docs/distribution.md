@@ -9,7 +9,7 @@ particular distribution actually exposes.
 
 ## Choose the dependency for your application
 
-The current source release **1.8.1** provides proprietary-compatible generated
+The current source release **1.8.2** provides proprietary-compatible generated
 output and a 0BSD application runtime. Packages of this release should include
 `LICENSE`, `LICENSE-RUNTIME`, and `LICENSE-GENERATED`, and export the separate
 `Serializer::runtime` application target. The compiler and

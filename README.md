@@ -32,7 +32,7 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **1.8.1**. Bug fixes and minor updates
+The current compiler and runtime release is **1.8.2**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.3.0**;
@@ -269,6 +269,12 @@ or an installed GTest CMake package; it is separate from the application runtime
 Windows test builds automatically copy imported shared runtime DLLs beside each
 test executable so CTest and direct launches can load them.
 
+**`clean` and `rebuild` delete all untracked and ignored files and directories
+through `git clean -fdx`, including untracked source, local configuration, build
+caches, dependencies, and editor packages.** Tracked files and local tracked
+edits remain intact. Cleanup covers the repository regardless of build-directory
+or configuration options.
+
 On Linux with GNU Make:
 
 ```sh
@@ -276,6 +282,8 @@ make all
 make test
 make clean
 make rebuild
+# WSL with a Windows/MSBuild host:
+make extension
 ```
 
 On Windows with PowerShell:
@@ -285,18 +293,27 @@ On Windows with PowerShell:
 ./make.ps1 test
 ./make.ps1 clean
 ./make.ps1 rebuild
+./make.ps1 extension
 ```
 
-Both wrappers provide synchronized `configure`, `all`, `test`, `clean`, and
-`rebuild` commands. `clean` uses CMake's clean target for an existing configured
-tree, preserving its cache and installed dependencies; an unconfigured tree is a
-successful no-op. `rebuild` configures normally and uses CMake's `--clean-first`
-to finish native cleanup before rebuilding.
+Both wrappers provide synchronized `configure`, `all`, `test`, `clean`, `rebuild`,
+and `extension` commands. `clean` verifies the repository root and runs Git cleanup;
+Git is required and CMake is not. Git metadata, the index, and nested Git
+repositories protected by Git's single-force semantics remain intact. External
+build/toolchain directories are outside the cleanup scope. `rebuild` cleans the
+repository first, then configures and uses CMake's `--clean-first` to finish native
+cleanup before rebuilding.
 
 Windows `all` and `rebuild` also package both editor extensions. They require
 Node.js 22+, npm, and Visual Studio MSBuild; they do not install the packages.
-Linux builds native CMake targets. Windows `test`, `configure`, and `clean` remain
-CMake-only.
+Linux `all`, `test`, and `rebuild` build native CMake targets. Windows `test` and
+`configure` remain CMake-only.
+
+`./make.ps1 extension` builds only the two editor packages, without configuring
+or building CMake targets or cleaning the repository. WSL `make extension` invokes
+the same Windows packaging script through PowerShell. Both require the Windows
+tools above; native Linux cannot build the Visual Studio VSIX and reports that
+limitation.
 
 For direct CMake commands, presets, builds without GoogleTest, and troubleshooting,
 see [build and generation](docs/build_and_generation.md#build-and-test).
@@ -325,8 +342,8 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editor_extension.md) |
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
-Both extensions use source release version **1.1.28**, independent of compiler version
-**1.8.1**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
+Both extensions use source release version **1.1.29**, independent of compiler version
+**1.8.2**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
 for supported destinations and language-service prerequisites.
 VS Code also supports navigation from read-only Git index/history tabs, using
 the displayed snapshot and current workspace destinations.

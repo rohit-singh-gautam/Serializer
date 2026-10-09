@@ -7,7 +7,7 @@ and existing generated code in Visual Studio Code. It provides syntax highlighti
 snippets, and CMake assistance for projects using Serializer — State Framework.
 
 Edit `.serializer` schemas with syntax highlighting, bracket matching, comments,
-folding, and snippets. Version **1.1.28** includes navigation from includes and type
+folding, and snippets. Version **1.1.29** includes navigation from includes and type
 references to source schemas and existing generated code in all 11 output languages. Use the project's
 CMake configuration for the separate build and missing-header assistance commands.
 
@@ -73,10 +73,16 @@ and source-schema notices. The editor extension retains its own repository licen
 
 ## Install and use
 
-From the repository root on Windows, `./make.ps1 all` builds Serializer and both
-editor VSIX packages; `./editors/build.ps1` builds only the packages. These commands
+From the repository root on Windows, `./make.ps1 extension` builds both editor
+VSIX packages without CMake configuration, native builds, or repository cleanup.
+`./make.ps1 all` builds Serializer and both packages; `./editors/build.ps1` remains
+the underlying packaging script. These commands
 require Node.js 22+, npm and Visual Studio MSBuild, restore locked dependencies,
 and write to `out/extensions` without installing either extension.
+WSL `make extension` invokes that Windows script through `powershell.exe` and
+`wslpath`; it needs the same Windows tools. Native Linux cannot build both packages
+because the Visual Studio VSIX requires Windows/MSBuild. Individual VS Code-only
+development remains available through `npm` commands.
 
 Install the packaged VSIX through **Extensions: Install from VSIX**. The extension
 supports VS Code 1.96+ on desktop and remote extension hosts. Highlighting,

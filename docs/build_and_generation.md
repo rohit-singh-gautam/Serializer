@@ -8,7 +8,11 @@ For the shortest introduction, start with the [README](../README.md#get-started)
 ## Build and test
 
 With CMake, a C++20-or-newer compiler and standard library, clang-format 19+, and
-GoogleTest 1.18.0 or newer available:
+GoogleTest 1.18.0 or newer available, use the commands below.
+
+**`clean` and `rebuild` run repository-wide `git clean -fdx`. They delete untracked
+source files and local configuration along with ignored build caches, dependencies,
+and editor packages.** Tracked files and local tracked edits remain intact.
 
 ```sh
 # Linux (GNU Make)
@@ -16,6 +20,8 @@ make all
 make test
 make clean
 make rebuild
+# WSL with a Windows/MSBuild host:
+make extension
 ```
 
 ```powershell
@@ -25,25 +31,30 @@ make rebuild
 ./make.ps1 test
 ./make.ps1 clean
 ./make.ps1 rebuild
+./make.ps1 extension
 ```
 
 The Linux `Makefile` and Windows `make.ps1` keep their common commands, defaults,
 and corresponding options synchronized. Both default to Release and configure/build
 all enabled CMake targets, including tests and C++ style examples on a fresh cache.
 
-| Command | Common CMake behavior |
+| Command | Common behavior |
 | --- | --- |
 | `configure` | Configure the selected build tree without building. |
 | `all` (default) | Configure and build all enabled targets. |
 | `test` | Configure and build all enabled targets, then run CTest. |
-| `clean` | Run CMake's clean target for an existing configured tree; otherwise succeed without configuring. |
-| `rebuild` | Configure, then use CMake's `--clean-first` to finish native cleanup before building, including with parallel GNU Make. |
+| `clean` | Verify the repository root and run `git clean -fdx` there; Git is required, CMake is not. |
+| `rebuild` | Finish repository cleanup before configuring, then use CMake's `--clean-first` before building, including with parallel GNU Make. |
+| `extension` | Build both editor packages only; use a Windows/MSBuild host directly or through WSL. |
 
-`clean` preserves `CMakeCache.txt`, installed dependencies, and extension packages;
-it never recursively deletes the build tree. It needs no vcpkg toolchain validation
-or compiler configuration for an unconfigured tree. Use the same build-directory
-and configuration options for `all`, `clean`, and `rebuild` to select the intended
-outputs. This clean is separate from CMake's `--fresh` cache recovery.
+Cleanup preserves the Git index and metadata, tracked files, local tracked edits,
+and nested Git repositories protected by Git's single-force semantics. It never
+runs `git reset`. Build-directory and configuration options do not restrict
+cleanup: all untracked and ignored files in the repository are eligible. External
+build/toolchain paths are outside the cleanup scope. A rebuild must reacquire
+dependencies removed from inside the repository and reapply nondefault options
+previously supplied only through its deleted CMake cache. This cleanup is separate
+from CMake's `--fresh` cache recovery.
 
 Set `VCPKG_ROOT` to use its toolchain for GoogleTest, or provide an installed
 GoogleTest package through CMake. The wrappers do
@@ -72,10 +83,19 @@ dependencies and build both editor extension packages in `out/extensions`, after
 the CMake build succeeds. This requires Node.js 22+, npm, and Visual Studio
 2022/2026 or Build Tools with MSBuild. The wrapper checks that extension versions
 match and stops on packaging failures; neither package is
-installed. Run `./editors/build.ps1` to build only the two extension packages.
+installed. Run `./make.ps1 extension` to build only the two extension packages;
+`./editors/build.ps1` remains the underlying packaging script.
 
-Linux wrapper commands build native CMake targets. Windows `configure`, `test`,
-and `clean` remain CMake-only.
+Linux `all`, `test`, and `rebuild` build native CMake targets. Windows `configure`
+and `test` remain CMake-only; `clean` uses Git only.
+
+The `extension` command performs no CMake configuration, native compilation, or
+repository cleanup. In WSL, `make extension` resolves the Windows path with
+`wslpath` and delegates to the same packaging script using `powershell.exe`.
+Windows Node.js 22+, npm, and Visual Studio MSBuild must be available to that
+process. Native Linux cannot produce the Visual Studio VSIX and fails with a
+Windows/MSBuild host requirement. VS Code-only development remains available
+through the individual [extension build commands](editor_extension.md#build-and-install-locally).
 
 If configuration reports a missing clang-format, install version 19 or newer and
 rerun `make all`. On Ubuntu/Debian with that package available, use

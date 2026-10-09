@@ -1,3 +1,9 @@
+# 1.1.29
+
+- Add the synchronized root `extension` command to package both editors without CMake configuration, native builds, or repository cleanup.
+- Document Windows packaging and WSL delegation, including the Windows/MSBuild requirement for the Visual Studio VSIX.
+- Keep both extension versions synchronized and update current local package names.
+
 # 1.1.28
 
 - Highlight schema language 1.3.0 bare, fixed-byte, and named-algorithm digest fields.

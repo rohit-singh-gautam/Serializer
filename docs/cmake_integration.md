@@ -58,20 +58,22 @@ limits, and supported format profiles. Missing enabled dependencies are errors.
 The root wrappers forward to CMake and preserve its incremental build and schema
 generation rules. On a fresh build, tests and all C++ style examples are enabled;
 GoogleTest 1.18.0+ and clang-format 19+ must be available. Both platforms provide
-`configure`, `all`, `test`, `clean`, and `rebuild` with synchronized defaults and
-corresponding options. `all` configures and builds, `test` also runs CTest, and
-`configure` stops after configuration. `clean` uses the selected configured tree's
-CMake clean target; `rebuild` configures normally and uses CMake's `--clean-first`
-to complete native cleanup before building.
+`configure`, `all`, `test`, `clean`, `rebuild`, and `extension` with synchronized
+defaults and corresponding options. `all` configures and builds, `test` also runs CTest, and
+`configure` stops after configuration. `clean` verifies the repository root and
+runs `git clean -fdx` there. `rebuild` completes that repository cleanup before
+configuration, then uses CMake's `--clean-first` before building.
+`extension` builds both editor packages only, without CMake or repository cleanup.
 
 | Requirement | When it is needed |
 | --- | --- |
+| Git | `clean` and `rebuild`, which remove untracked and ignored files repository-wide; no CMake installation is needed for `clean`. |
 | CMake 3.28+ | Every source build; CTest is included with CMake. |
 | Zstandard, LZ4, and zlib CMake packages | Default runtime build; the repository vcpkg manifest acquires them automatically. Disable individual backends with `SERIALIZER_WITH_*=OFF`. |
 | C++20 compiler and standard library | Library, schema compiler, and C++ consumers; the selected compiler must support the target architecture. |
 | Native build tool | GNU Make for `make all`; Ninja for the Linux and Windows presets; MSBuild/Visual Studio C++ tools or another configured generator for the Windows wrapper. |
 | PowerShell | Windows `make.ps1` wrapper. |
-| Node.js 22+, npm and Visual Studio 2022/2026 MSBuild | Both editor extension packages, included in Windows `make.ps1 all` and `rebuild`; `configure`, `test`, and `clean` remain CMake-only. |
+| Windows Node.js 22+, npm and Visual Studio 2022/2026 MSBuild | Both editor packages: Windows `make.ps1 extension`, `all`, and `rebuild`, or WSL `make extension`. Native Linux cannot build the Visual Studio VSIX. |
 | Git, HTTPS certificates, curl, zip, unzip, tar | Obtaining sources and bootstrapping/downloading vcpkg dependencies; the Linux setup installs these tools. |
 | GoogleTest 1.18.0+ CMake config package | `SERIALIZER_BUILD_TESTS=ON`; supplied by this checkout's vcpkg `gtest` dependency or an existing installation, discovered with `find_package(GTest 1.18.0 CONFIG REQUIRED)`. |
 | clang-format 19+ | Generated C++ tests, style/iostream/compression examples, benchmarks, fuzzers, and consumer generation with formatting enabled. |
@@ -130,11 +132,19 @@ Distribution package names alone do not guarantee the required versions: check
 `cmake --version` and use a C++20-capable compiler/standard library. Set
 `VCPKG_ROOT` in the shell running Make after setup, as recorded in `~/.bashrc`.
 
+**`clean` and `rebuild` remove every untracked and ignored file and directory
+eligible for `git clean -fdx`, including untracked source, local configuration,
+build caches, dependency installations, and editor packages.** Tracked files and
+local tracked edits remain intact. Build-directory and configuration options do
+not limit the repository-wide cleanup scope.
+
 ```sh
 make all
 make test CONFIG=Debug JOBS=8
-make clean CONFIG=Debug
+make clean
 make rebuild CONFIG=Debug JOBS=8
+# WSL with a Windows/MSBuild host:
+make extension
 make all BUILD_DIR=out/build/minimal CMAKE_ARGS='-DSERIALIZER_BUILD_TESTS=OFF'
 ```
 
@@ -143,8 +153,9 @@ On Windows, use PowerShell without installing GNU Make:
 ```powershell
 ./make.ps1 all
 ./make.ps1 test -Configuration Debug -Jobs 8
-./make.ps1 clean -Configuration Debug
+./make.ps1 clean
 ./make.ps1 rebuild -Configuration Debug -Jobs 8
+./make.ps1 extension
 ./make.ps1 all -BuildDirectory out/build/minimal -CMakeArgs '-DSERIALIZER_BUILD_TESTS=OFF'
 ```
 
@@ -155,26 +166,43 @@ any packaging failure
 fails the command. Packages are written to `out/extensions` and are not installed.
 Visual Studio's full-framework MSBuild is required for the VSIX even if CMake
 uses Ninja or another generator. First builds need npm/NuGet access for dependencies.
-Run `./editors/build.ps1` to package only the extensions, optionally with
-`-MSBuildPath '<path to MSBuild.exe>'`. Use direct CMake commands for a CMake-only
+Run `./make.ps1 extension` to package only the extensions; it performs no CMake
+configuration, native build, or repository cleanup. The underlying
+`./editors/build.ps1` script also accepts `-MSBuildPath '<path to MSBuild.exe>'`.
+Use direct CMake commands for a CMake-only
 build; Windows `configure`, `test`, and `clean` do not package extensions. Linux
-wrapper commands build native CMake targets only.
+`all`, `test`, and `rebuild` build native CMake targets only.
+
+In WSL, `make extension` converts the repository path using `wslpath` and invokes
+the same Windows packaging script through `powershell.exe`. Windows Node.js,
+npm, and Visual Studio MSBuild must be available to that process. Native Linux
+cannot build the Visual Studio VSIX; the command fails clearly and requires a
+Windows/MSBuild build host. Neither platform's `extension` command installs the
+packages. Individual VS Code-only development commands remain available in the
+[editor guide](editor_extension.md#build-and-install-locally).
 
 Both default to Release, four build jobs, and `out/build/make-Release`; changing
 configuration changes the default directory. Relative PowerShell build paths are
 resolved against the repository root, and the script can be invoked from another
 directory. Run GNU Make from the repository root (or use `make -C`).
 
-`clean` runs `cmake --build <directory> --config <configuration> --target clean`
-only when that build tree has `CMakeCache.txt`. Without a configured tree it is a
-successful no-op: it does not configure, acquire dependencies, or validate a vcpkg
-toolchain. It preserves the cache, installed dependencies, and extension packages
-and never recursively deletes directories. Select the intended build directory
-and configuration explicitly when using nondefault values. `rebuild` configures
-normally, then runs `cmake --build` with `--clean-first`. CMake completes native
-cleanup before building, so `make -j rebuild` cannot race the two steps. Windows
-then packages the editor extensions as with `all`. To refresh a stale
-configuration instead, follow
+`clean` verifies that the checkout containing the wrapper is the expected Git
+repository root, then runs `git clean -fdx` from that root. It requires Git but
+does not configure, require CMake, acquire dependencies, or validate a vcpkg
+toolchain. It preserves tracked files, the index, local tracked edits, and Git
+metadata; it never runs `git reset`. Nested Git repositories remain protected
+according to Git's single-force semantics. External build/toolchain paths are
+outside the cleanup scope. `BUILD_DIR`/`-BuildDirectory` and `CONFIG`/`-Configuration`
+do not narrow cleanup to a particular build tree.
+
+`rebuild` completes repository cleanup first, then configures normally and runs
+`cmake --build` with `--clean-first`. These steps remain sequential with
+`make -j rebuild`. CMake's clean-first step also refreshes selected build outputs
+when the configured build directory is outside the repository. Windows then
+packages the editor extensions as with `all`. Dependencies removed from inside
+the repository must be reacquired, so dependency downloads may be required.
+Reapply any nondefault configuration previously stored only in a deleted CMake
+cache. To refresh a stale configuration without repository cleanup, follow
 [cache recovery](#recover-a-stale-visual-studio-instance).
 
 The common options map between wrappers as follows:

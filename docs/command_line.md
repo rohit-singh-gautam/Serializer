@@ -1,6 +1,6 @@
 # Serializer compiler and schema versions
 
-The compiler and runtime release is **1.8.1**, defined by `project(... VERSION ...)` in the
+The compiler and runtime release is **1.8.2**, defined by `project(... VERSION ...)` in the
 root CMake file. `serializer --version` (or `-v`) prints that release and the
 supported schema language version. CMake generates `<rohit/version.hpp>` with
 `rohit::serializer::compiler_version`, `schema_language_version_text`, and
@@ -71,7 +71,7 @@ the complete parsed result. See [licensing and notice rules](licensing.md).
 The repository's [schema language versioning policy](../AGENTS.md#schema-language-versioning)
 uses `major.minor.patch` for language releases, independently of the compiler
 release. `serializer_schema_language_version` in the root CMake file defines the
-language release separately from `project(... VERSION ...)`. Compiler **1.8.1**
+language release separately from `project(... VERSION ...)`. Compiler **1.8.2**
 currently supports language **1.3.0**; `serializer --version` reports both.
 
 Language `1.3.0` adds `digest`, `digest[N]`, and `digest(algorithm)` byte fields.

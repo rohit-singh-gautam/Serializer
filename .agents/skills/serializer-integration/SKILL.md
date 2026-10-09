@@ -457,7 +457,7 @@ feature as a prerequisite without the user's request.
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
   remains available through `parser::parse(input)`. Schema language version 1.3.0 is
-  independent of compiler release 1.8.1 and wire protocols. Bug fixes and minor
+  independent of compiler release 1.8.2 and wire protocols. Bug fixes and minor
   updates increment the patch number; new features increment the minor number.
   Minor and patch releases preserve full compatibility. Developers change the
   major number manually, with best-effort compatibility across major releases.
@@ -627,17 +627,24 @@ width, separate-values representation, or naming profiles. See the
 and [usage examples](../../../docs/usage.md#generate-several-configurations-from-one-parse).
 
 For this repository's own build, use GNU `make` on Linux and `./make.ps1` on
-Windows. Keep their common `configure`, `all`, `test`, `clean`, and `rebuild`
-commands, defaults, corresponding options, and CMake behavior synchronized, and
+Windows. Keep their common `configure`, `all`, `test`, `clean`, `rebuild`, and
+`extension` commands, defaults, corresponding options, and behavior synchronized, and
 verify both when changing either. Both default to Release and four build jobs,
 build all enabled CMake targets, and use the `VCPKG_ROOT` toolchain when set.
 The test target builds before running CTest; configure stops before building.
-Clean only invokes CMake's clean target for an existing configured tree and is a
-successful no-op otherwise, without configuring or validating vcpkg. It preserves
-the cache and installed dependencies and never recursively deletes the build tree.
-Rebuild configures normally, then uses CMake's `--clean-first` to complete native
-cleanup before building, including `make -j rebuild`. Select the same build
-directory and configuration when cleaning or rebuilding an existing build.
+Clean verifies the expected repository root and runs `git clean -fdx` from that
+root. **Clean and rebuild delete untracked source files and local configuration
+along with ignored build caches, dependencies, and editor packages.** They
+preserve tracked files, local tracked edits, the index, Git metadata, and nested
+Git repositories protected by Git's single-force semantics; never use `git reset`
+for cleanup. Build-directory and configuration options do not restrict the
+repository-wide cleanup, and external build/toolchain paths are outside its scope.
+Clean requires Git, not CMake, and performs no configuration or vcpkg validation.
+Verify destructive cleanup only in disposable Git repositories.
+Rebuild must complete repository cleanup before configuration, then use CMake's
+`--clean-first` before building, including `make -j rebuild`. Reacquire dependencies
+removed from inside the repository and reapply nondefault options previously kept
+only in the deleted cache.
 Normal builds require the same compiler, GoogleTest 1.18.0+, compression libraries,
 and clang-format dependencies as direct CMake; Java, benchmarks, and fuzzers remain
 opt-in. Use Make's `CMAKE`/`CTEST` or PowerShell's `-CMakeCommand`/`-CTestCommand`
@@ -668,9 +675,14 @@ On Windows, `./make.ps1 all` and `./make.ps1 rebuild` additionally package both
 editor extensions after a successful CMake build. They require Node.js 22+, npm
 and Visual Studio MSBuild, restore locked npm dependencies, and reject unequal
 extension versions. Packages go to `out/extensions`; the commands do not install
-them. Use `./editors/build.ps1` for
-extension packaging alone. Linux builds native CMake targets; Windows `configure`,
-`test`, and `clean` remain CMake-only. Cleaning does not remove extension packages.
+them. Use `./make.ps1 extension` for both packages without CMake configuration,
+native builds, or repository cleanup; `./editors/build.ps1` is its packaging script.
+WSL `make extension` delegates to that Windows script through `powershell.exe`
+after `wslpath` conversion. Require Windows Node.js, npm, and Visual Studio MSBuild;
+native Linux cannot build the Visual Studio VSIX and must report that limitation.
+Linux `all`, `test`, and `rebuild` build native CMake targets; Windows `configure`
+and `test` remain CMake-only. Clean uses Git and removes untracked/ignored extension
+packages with the other repository artifacts.
 
 The repository's Windows presets explicitly use Ninja and x64 architecture with
 `strategy: external`. Visual Studio supplies the compiler environment; command-line
@@ -758,7 +770,7 @@ versioned snippets, and invokes the same targets through CMake Tools. Run the ro
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 1.1.25 is shared with the Visual Studio extension and is independent of
+version 1.1.29 is shared with the Visual Studio extension and is independent of
 compiler and schema versions. Keep both editor extension versions equal.
 Both package descriptions and READMEs identify the
 [Serializer repository](https://github.com/rohit-singh-gautam/Serializer). Configure

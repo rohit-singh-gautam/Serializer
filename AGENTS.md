@@ -110,17 +110,31 @@
 ## Synchronized Linux and Windows build commands
 
 - Use `make` with the root `Makefile` on Linux and `./make.ps1` on Windows.
-  Keep their common `configure`, `all`, `test`, `clean`, and `rebuild` targets,
-  defaults, corresponding options, and CMake behavior synchronized. Update and
+  Keep their common `configure`, `all`, `test`, `clean`, `rebuild`, and `extension`
+  targets, defaults, corresponding options, and behavior synchronized. Update and
   verify both wrappers whenever either changes.
-- `clean` must run CMake's clean target only for an existing configured build
-  tree; an unconfigured tree is a successful no-op. Preserve the CMake cache and
-  installed dependencies, and never recursively delete the build directory.
-  `rebuild` must configure normally and complete native cleanup before building
-  through CMake's `--clean-first`, including under parallel GNU Make invocation.
+- `clean` must verify the expected repository root and run `git clean -fdx` from
+  that root. This removes untracked and ignored files and directories, including
+  build caches, installed dependencies, editor packages, untracked source files,
+  and local configuration. Preserve tracked files, the index, local tracked
+  edits, Git metadata, and nested Git repositories according to Git's single-force
+  semantics; never run `git reset` as part of cleaning. Build-directory and
+  configuration options must not restrict the repository-wide cleanup, and
+  external build/toolchain directories must not be cleaned.
+- `rebuild` must complete repository cleanup before configuration, then use
+  CMake's `--clean-first` to complete native cleanup before building. Keep these
+  steps sequential, including under parallel GNU Make invocation. Explain the
+  deletion scope in help and usage documentation. Verify destructive cleanup in
+  disposable Git repositories rather than the active worktree.
 - Document platform-specific steps and prerequisites explicitly. Windows `all`
-  and `rebuild` also package both editor extensions; Linux builds native CMake
-  targets. Windows `configure`, `test`, and `clean` remain CMake-only.
+  and `rebuild` also package both editor extensions; Linux `all`, `test`, and
+  `rebuild` build native CMake targets. Windows `configure` and `test` remain
+  CMake-only; `clean` requires Git and does not require CMake.
+- `extension` must build both editor packages only, without CMake configuration,
+  native builds, or repository cleanup. On Windows use `./make.ps1 extension`;
+  WSL `make extension` must delegate to the same Windows packaging script.
+  Native Linux must fail clearly because the Visual Studio VSIX requires a
+  Windows/MSBuild build host. Keep both package versions synchronized.
 
 ## Serializer release versioning
 
@@ -153,7 +167,7 @@
   the language contract changes; compiler-only fixes or new output backends do
   not automatically change the schema language version.
 - Use `serializer version major.minor.patch;` for schema language releases. The
-  current schema language is `1.3.0`, independent of compiler release `1.8.1`.
+  current schema language is `1.3.0`, independent of compiler release `1.8.2`.
   Keep its source of truth in `serializer_schema_language_version` in
   `CMakeLists.txt`, separate from `project(serializer VERSION ...)`.
 - Recognize `serializer version 1;` as exactly `serializer version 1.0.0;`.
