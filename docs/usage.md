@@ -6,6 +6,14 @@ applications can use ordinary generated models. For transactional editing,
 history, recovery, and collaboration, follow the
 [managed-state quick start](managed/getting_started.md).
 
+Generated models may be distributed under your application's license, including
+proprietary terms, subject to the input schemas' copyright and license conditions.
+Serializer's own generated support code is covered by
+[`LICENSE-GENERATED`](../LICENSE-GENERATED), and application runtime headers and
+compiled helpers use [`LICENSE-RUNTIME`](../LICENSE-RUNTIME) (0BSD). Use
+`Serializer::runtime` or `Serializer::managed` for application linkage; the
+compiler API library remains GPL. See [licensing and notices](licensing.md).
+
 See [payload versioning](versioning.md) for revision types, historical positional
 layouts, field lifetimes, replacements, reservations, common read policies, and
 compiler-only release-date/count policies. These resolve to ordinary version bounds
@@ -242,7 +250,7 @@ The same option also controls [runtime SIMD](runtime_simd.md): JSON string and
 whitespace scanning, and endian conversion of C++ binary numeric arrays on input
 and output across all key modes. Bulk decoding preserves resource limits and
 partial-failure behavior.
-Link `Serializer::serializer_lib` even when using pre-generated headers.
+Link `Serializer::runtime` even when using pre-generated headers.
 
 The examples below describe the current source API. The
 [latest four-toolchain verification](verification-toolchains-2026-10-07.md) records
@@ -442,7 +450,7 @@ serializer_generate(TARGET serializer_example SCHEMAS schemas/person.serializer)
 The helper ships with Serializer and is also available through an installed
 `find_package(Serializer CONFIG REQUIRED)` package. It generates
 `build/generated/serializer_example/person.hpp` before compiling the application,
-adds its include directory, and links `Serializer::serializer_lib`, which supplies
+adds its include directory, and links `Serializer::runtime`, which supplies
 the C++20 minimum. A newer language mode is preserved. Schema, config, and
 generator dependencies drive regeneration; do not edit generated headers manually.
 The default formatter must be available as `clang-format` on `PATH`; pass

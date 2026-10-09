@@ -26,7 +26,7 @@ add_custom_target(serializer_interop_sources DEPENDS ${outputs})
 
 add_executable(serializer_interop_cpp ../cpp/interoperability/main.cpp "${generated}/cpp/message.hpp")
 target_include_directories(serializer_interop_cpp PRIVATE "${generated}/cpp")
-target_link_libraries(serializer_interop_cpp PRIVATE Serializer::serializer_lib)
+target_link_libraries(serializer_interop_cpp PRIVATE Serializer::runtime)
 add_dependencies(serializer_interop_cpp serializer_interop_sources)
 if(MSVC)
   target_compile_options(serializer_interop_cpp PRIVATE /W4 /WX)

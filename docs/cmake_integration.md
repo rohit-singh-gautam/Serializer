@@ -57,7 +57,7 @@ limits, and supported format profiles. Missing enabled dependencies are errors.
 
 The root wrappers forward to CMake and preserve its incremental build and schema
 generation rules. On a fresh build, tests and all C++ style examples are enabled;
-GoogleTest and clang-format 19+ must be available. `all` configures and builds,
+GoogleTest 1.18.0+ and clang-format 19+ must be available. `all` configures and builds,
 `test` also runs CTest, and `configure` stops after configuration.
 
 | Requirement | When it is needed |
@@ -69,11 +69,56 @@ GoogleTest and clang-format 19+ must be available. `all` configures and builds,
 | PowerShell | Windows `make.ps1` wrapper. |
 | Node.js 22+, npm and Visual Studio 2022/2026 MSBuild | Both editor extension packages, included in Windows `make.ps1 all`; the `configure` and `test` targets remain CMake-only. |
 | Git, HTTPS certificates, curl, zip, unzip, tar | Obtaining sources and bootstrapping/downloading vcpkg dependencies; the Linux setup installs these tools. |
-| GoogleTest CMake package | `SERIALIZER_BUILD_TESTS=ON`; supplied by this checkout's vcpkg manifest or an existing installation. |
+| GoogleTest 1.18.0+ CMake config package | `SERIALIZER_BUILD_TESTS=ON`; supplied by this checkout's vcpkg `gtest` dependency or an existing installation, discovered with `find_package(GTest 1.18.0 CONFIG REQUIRED)`. |
 | clang-format 19+ | Generated C++ tests, style/iostream/compression examples, benchmarks, fuzzers, and consumer generation with formatting enabled. |
 | JDK 17+ (`java` and `javac`) | `SERIALIZER_BUILD_JAVA_EXAMPLES=ON`; Java source generation itself requires no JDK. |
 | Official Protobuf library and `protoc` | `SERIALIZER_BUILD_TESTS=ON` together with `SERIALIZER_BUILD_PROTOBUF_INTEROP_TESTS=ON`; Serializer's own Protobuf codecs do not require them. |
 | Clang with libFuzzer, AddressSanitizer, and UndefinedBehaviorSanitizer | `SERIALIZER_BUILD_FUZZERS=ON`; the fuzz target rejects MSVC mode. |
+
+### Windows test runtime DLLs
+
+GoogleTest is used only by repository tests. The vcpkg `gtest` package or an
+installed GTest config package at version 1.18.0 or newer supplies its imported
+CMake targets; it is separate
+from the generated application's runtime dependencies.
+
+Every executable built in `test/` has a Windows post-build step that copies its
+transitive imported shared runtime DLLs beside the executable, including shared
+GoogleTest libraries. CMake's `TARGET_RUNTIME_DLLS` and `TARGET_FILE_DIR` provide
+the paths for the selected configuration, so Debug and Release use their matching
+libraries without hardcoded vcpkg locations. Copies occur only when files differ;
+an empty dependency list needs no action. CTest and direct launches then find
+these DLLs in the executable directory.
+
+The repository manifest sets a `gtest` minimum of 1.18.0 while retaining the
+default registry baseline for unrelated dependencies. An older cached
+`GTest_DIR` can still select an outdated external installation. Upgrade that
+installation or use a vcpkg install satisfying the manifest, clear the override,
+and reconfigure with the existing toolchain and build options:
+
+```sh
+cmake -S . -B build -U GTest_DIR
+```
+
+Rebuild test executables after selecting the new package so their imported
+library metadata and staged DLLs match. Changing the cache alone does not update
+an already built executable or its local dependency copies.
+
+For an older cached build or a missing `gtest.dll` loader error, reconfigure and
+rebuild the affected test target to add or refresh these local copies. For example,
+after the normal configure step:
+
+```sh
+cmake --build build --config Release --target core_serializer_test
+ctest --test-dir build -C Release -R "^core_serializer_test$" --output-on-failure
+```
+
+The staging step covers test-directory executables rather than the installation
+or deployment of application binaries. See the
+[verification record](verification-proprietary-licensing-2026-10-09.md) for the
+configurations actually tested.
+
+### Build wrapper commands
 
 `setup.sh` installs the default Linux build tools and bootstraps vcpkg; it does
 not install optional Java, Protobuf interoperability, or fuzzing dependencies.
@@ -304,7 +349,7 @@ cmake --build build --config Debug --target my_app
 The build compiles the Serializer generator when needed, produces
 `build/generated/my_app/account.hpp`, then compiles `my_app`. The consumer can
 write `#include <account.hpp>`; the helper supplies its include directory, links
-`Serializer::serializer_lib`, and propagates the C++20 minimum. Existing newer
+`Serializer::runtime`, and propagates the C++20 minimum. Existing newer
 language modes are preserved. Editing the schema, generator, or tracked output
 configuration makes the next build regenerate the header.
 
@@ -320,7 +365,7 @@ files and are not propagated to applications.
 Set `SERIALIZER_ENABLE_SIMD=OFF` in the CMake cache before adding Serializer to
 disable its explicit SIMD backends. Installed generators and runtime libraries
 retain the choice made when they were built; `serializer_generate` does not change it.
-Applications using pre-generated headers also link `Serializer::serializer_lib`
+Applications using pre-generated headers also link `Serializer::runtime`
 for the shared runtime helpers. Bulk array reads/writes remain enabled when SIMD is disabled.
 This is separate from output coding profiles and requires no schema syntax
 changes. See the
@@ -338,7 +383,7 @@ cmake --install build/package --config Release --prefix /path/to/serializer-inst
 
 Use a writable prefix appropriate for the platform, such as `C:/deps/Serializer`
 on Windows. This installs the library, generator executable, public headers,
-license, exported CMake targets, and generation helper. `SERIALIZER_INSTALL`
+licensing files, exported CMake targets, and generation helper. `SERIALIZER_INSTALL`
 defaults to enabled for a top-level Serializer build and disabled when embedded.
 It does not install a compiler, editor extension, or clang-format.
 
@@ -358,11 +403,19 @@ cmake -S . -B build -DCMAKE_PREFIX_PATH=/path/to/serializer-install
 cmake --build build --config Release --target my_app
 ```
 
-The package exposes `Serializer::serializer_lib` and `Serializer::serializer`,
+The package exposes `Serializer::runtime` and `Serializer::serializer`,
 with the same names as the source-dependency aliases. Generation uses the installed
 executable. Choose an installation compatible with the consuming compiler and
 target platform; the generation executable must also run on the build host.
 This is CMake install/export support, not an automatically downloaded binary release.
+
+`Serializer::runtime` contains the application runtime and uses 0BSD, permitting
+proprietary applications. `Serializer::managed`, when enabled, uses the same
+runtime license and links this target. The existing `Serializer::serializer_lib`
+target remains available for compiler/parser/generator API compatibility and
+continues under GPL-3.0-or-later; generated-model applications should use the
+runtime target. Running the GPL generator at build time does not license its output
+under GPL. See [licensing](licensing.md) for schema notices and dependency terms.
 
 ## Helper options
 

@@ -135,7 +135,8 @@ UndefinedBehaviorSanitizer runtimes, CMake 3.28+, and clang-format 19+. Configur
 checks that all three runtimes link. Clang-cl/MSVC are not supported by these targets.
 GoogleTest, Java, and the external Protobuf runtime are not required.
 
-`serializer_fuzz_runtime` recompiles the production library's complete source list
+`serializer_fuzz_runtime` recompiles the production application runtime's complete
+source list, excluding compiler/parser/generator sources,
 with `-fsanitize=fuzzer-no-link,address,undefined`. It retains the production
 definitions and per-source AVX2 flags. Fuzz executables link only this instrumented
 variant and add libFuzzer's main; the normal library, generator, benchmarks, and

@@ -10,7 +10,7 @@ file(WRITE "${DIRECTORY}/source/policy.serializer"
 set(source [=[
 cmake_minimum_required(VERSION 3.28)
 project(include_dependencies LANGUAGES NONE)
-add_library(Serializer::serializer_lib INTERFACE IMPORTED)
+add_library(Serializer::runtime INTERFACE IMPORTED)
 include("@REPOSITORY@/cmake/serializer_generate.cmake")
 include("@REPOSITORY@/cmake/serializer_generate_java.cmake")
 include("@REPOSITORY@/cmake/serializer_generate_source.cmake")

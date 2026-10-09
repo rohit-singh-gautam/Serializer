@@ -1,0 +1,33 @@
+Serializer Generated Output Permission
+
+Serializer imposes no requirement to publish an application's .serializer
+schemas, generated source, application source, or linked runtime modifications.
+Generated output may be used, modified, and distributed under terms selected by
+the schema/application author, including proprietary, closed-source terms.
+
+Any Serializer-authored code emitted into generated output is separately
+licensed under the BSD Zero Clause License (0BSD) in LICENSE-RUNTIME. This
+permission includes emitted codec bodies, declarations, inline implementations,
+support code, and embedded language runtimes. It applies to the emitted code
+even when the compiler or generator source that produces it is licensed under
+the GNU General Public License. The compiler's GPL license does not impose GPL
+licensing or source-disclosure requirements on that generated output.
+
+The schema author's existing copyright and license rights are preserved.
+Copyright/license notices supplied in a schema are carried into generated
+output as documented in docs/licensing.md. Serializer does not assign a new
+copyright owner to the author's schema-derived code, require that the author
+claim copyright, or require that the author's output use an open-source license.
+This permission grants rights only in Serializer-authored generated code; it
+does not override restrictions in third-party schemas, copied code, or independent
+dependencies. It does not transfer copyright ownership in Serializer's support
+code or grant trademark rights.
+
+The supporting runtime headers and compiled runtime are independently available
+under LICENSE-RUNTIME. Use Serializer::runtime, or Serializer::managed for the
+managed runtime, when linking an application. Serializer::serializer_lib exposes
+the GPL compiler API and is not the application runtime target.
+
+The warranty disclaimer in LICENSE-RUNTIME applies to Serializer-authored
+generated code and supporting runtime code. This permission grants no warranty
+that every schema-derived output is copyrightable or free of third-party rights.

@@ -28,7 +28,7 @@ async function main() {
 project(serializer_navigation LANGUAGES CXX)
 include("\${SERIALIZER_SOURCE_DIR}/cmake/serializer_generate.cmake")
 add_library(serializer_runtime INTERFACE)
-add_library(Serializer::serializer_lib ALIAS serializer_runtime)
+add_library(Serializer::runtime ALIAS serializer_runtime)
 target_include_directories(serializer_runtime INTERFACE "\${SERIALIZER_SOURCE_DIR}/include" "\${CMAKE_BINARY_DIR}/runtime")
 target_compile_features(serializer_runtime INTERFACE cxx_std_23)
 add_library(records INTERFACE)

@@ -24,15 +24,15 @@ target_link_options(serializer_fuzz_instrumentation INTERFACE -fsanitize=address
 
 # Clone the actual source list in the root directory so source-specific AVX2 options also apply.
 # Mirroring target settings keeps future compiled helpers instrumented without a second source list.
-get_target_property(serializer_fuzz_sources serializer_lib SOURCES)
+get_target_property(serializer_fuzz_sources serializer_runtime SOURCES)
 add_library(serializer_fuzz_runtime STATIC ${serializer_fuzz_sources})
 target_include_directories(serializer_fuzz_runtime PUBLIC
-  "$<TARGET_PROPERTY:serializer_lib,INTERFACE_INCLUDE_DIRECTORIES>")
+  "$<TARGET_PROPERTY:serializer_runtime,INTERFACE_INCLUDE_DIRECTORIES>")
 target_compile_features(serializer_fuzz_runtime PUBLIC
-  "$<TARGET_PROPERTY:serializer_lib,INTERFACE_COMPILE_FEATURES>")
+  "$<TARGET_PROPERTY:serializer_runtime,INTERFACE_COMPILE_FEATURES>")
 target_compile_definitions(serializer_fuzz_runtime PRIVATE
-  "$<TARGET_PROPERTY:serializer_lib,COMPILE_DEFINITIONS>")
+  "$<TARGET_PROPERTY:serializer_runtime,COMPILE_DEFINITIONS>")
 target_compile_options(serializer_fuzz_runtime PRIVATE
-  "$<TARGET_PROPERTY:serializer_lib,COMPILE_OPTIONS>")
+  "$<TARGET_PROPERTY:serializer_runtime,COMPILE_OPTIONS>")
 target_link_libraries(serializer_fuzz_runtime PUBLIC serializer_fuzz_instrumentation)
 target_link_libraries(serializer_fuzz_runtime PRIVATE ${serializer_compression_libraries})

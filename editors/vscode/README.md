@@ -7,7 +7,7 @@ and existing generated code in Visual Studio Code. It provides syntax highlighti
 snippets, and CMake assistance for projects using Serializer — State Framework.
 
 Edit `.serializer` schemas with syntax highlighting, bracket matching, comments,
-folding, and snippets. Version **1.1.26** includes navigation from includes and type
+folding, and snippets. Version **1.1.27** includes navigation from includes and type
 references to source schemas and existing generated code in all 11 output languages. Use the project's
 CMake configuration for the separate build and missing-header assistance commands.
 
@@ -58,6 +58,11 @@ The editor extension is separate from the Serializer compiler and runtime:
   to add Serializer to your project and generate code from schemas.
 
 Installing this extension does not install the compiler or runtime.
+For compiler/runtime 1.7.0 and newer, generated applications link the 0BSD
+`Serializer::runtime` target; the generation helper supplies this automatically.
+The GPL `Serializer::serializer_lib` target is reserved for compiler API use.
+See the [licensing guide](../../docs/licensing.md) for proprietary applications
+and source-schema notices. The editor extension retains its own repository license.
 
 ## Install and use
 

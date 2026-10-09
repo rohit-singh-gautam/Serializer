@@ -1,3 +1,6 @@
+// Copyright (C) 2024, 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: 0BSD
+// Serializer runtime template source; emitted support may also be used under 0BSD.
 R"serializer(
   /// <summary>Native wire protocols with little-endian binary scalars.</summary>
   public enum Protocol { JSON, BINARY_NONE, BINARY_INTEGER, BINARY_STRING }

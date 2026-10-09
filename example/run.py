@@ -97,7 +97,7 @@ class Runner:
         elif language == 'rust':
             run(self.command(language, 'rustc', '--edition=2021', '-O', '-D', 'warnings', path('main.rs'), '-o', executable))
         elif language in ('cpp', 'c') and os.name == 'nt' and language not in self.wsl:
-            library = self.args.cpp_library or self.args.compiler.parent / 'serializer_lib.lib'
+            library = self.args.cpp_library or self.args.compiler.parent / 'serializer_runtime.lib'
             command = self.command(language, 'cl', '/nologo', '/MD', '/O2', '/W4', '/WX', '/utf-8', '/I' + path('.'), '/Fe:' + executable)
             if language == 'cpp':
                 command += ['/std:c++20', '/EHsc', '/I' + self.path(language, ROOT / 'include'), path('main.cpp'), str(library)]
@@ -111,7 +111,7 @@ class Runner:
             command = self.command(language, compiler, '-std=c11' if language == 'c' else '-std=c++20',
                                    '-O2', '-Wall', '-Wextra', '-Wpedantic', '-Werror', path('main.c' if language == 'c' else 'main.cpp'), '-o', executable)
             if language == 'cpp':
-                library = self.args.cpp_library or self.args.compiler.parent / 'libserializer_lib.a'
+                library = self.args.cpp_library or self.args.compiler.parent / 'libserializer_runtime.a'
                 command += ['-I' + self.path(language, ROOT / 'include'), '-I' + path('.'), self.path(language, library)]
             else:
                 command += ['-lm']

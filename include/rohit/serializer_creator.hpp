@@ -123,13 +123,15 @@ struct syntax_node {
   std::string name;
   namespace_node* parent_namespace{nullptr};
   std::string source_path{};
+  // Shared leading source notices belong to the compilation unit, not its wire identities.
+  std::shared_ptr<const std::vector<std::string>> source_notices{};
   // Initialize this object from the supplied storage or value state.
   syntax_node(object_type type, std::string&& name, namespace_node* parent_namespace)
       : type{type}, name{std::move(name)}, parent_namespace{parent_namespace} {}
   // Initialize this object from the supplied storage or value state.
   syntax_node(syntax_node&& base)
       : type{base.type}, name{std::move(base.name)}, parent_namespace{base.parent_namespace},
-        source_path{std::move(base.source_path)} {}
+        source_path{std::move(base.source_path)}, source_notices{std::move(base.source_notices)} {}
   // Release resources owned by this object.
   virtual ~syntax_node() = default;
   // Initialize this object from the supplied storage or value state.
@@ -487,6 +489,8 @@ std::string version_policy_reference_date();
 struct parsed_schema {
   std::vector<std::unique_ptr<syntax_node>> statements{};
   std::vector<std::filesystem::path> dependencies{};
+  // Retain file-level notices even when the complete schema has no declarations.
+  std::shared_ptr<const std::vector<std::string>> source_notices{};
 };
 
 // Load versioned files with unquoted, file-relative includes and include-once semantics.
@@ -597,6 +601,8 @@ namespace writer::cpp {
 // Validate names and return a completely generated and formatted C++ header.
 std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,
                      const cpp_options& options = {});
+// Preserve file-level source notices, including those from declaration-free schemas.
+std::string generate_schema(const parser::parsed_schema& schema, const cpp_options& options = {});
 // Append validated generated text to any concept-conforming buffer or byte sink.
 inline void write(rohit::type_check::output_stream auto& output,
                   const std::vector<std::unique_ptr<syntax_node>>& statements,
@@ -613,6 +619,9 @@ namespace writer::java {
 // Validate and return one self-contained Java 17 source file.
 std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,
                      std::string_view outer_class, const java_options& options = {});
+// Generate a parsed file while preserving notices even when it declares no models.
+std::string generate_schema(const parser::parsed_schema& schema, std::string_view outer_class,
+                            const java_options& options = {});
 // Append validated generated Java text through the same output stream concept.
 inline void write(rohit::type_check::output_stream auto& output,
                   const std::vector<std::unique_ptr<syntax_node>>& statements,
@@ -631,5 +640,8 @@ namespace writer::portable {
 std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,
                      std::string_view language, std::string_view unit_name,
                      const portable_options& options = {});
+// Preserve complete file-level notices, including declaration-free schemas and their includes.
+std::string generate_schema(const parser::parsed_schema& schema, std::string_view language,
+                            std::string_view unit_name, const portable_options& options = {});
 } // namespace writer::portable
 } // namespace rohit::serializer

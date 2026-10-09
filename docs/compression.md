@@ -98,7 +98,7 @@ concatenation options are not implemented.
 
 `compression::available(format)` reports compiled-in built-in formats. Requesting
 a disabled backend throws before serialization or input I/O. Include
-`<rohit/compression.hpp>` and link `Serializer::serializer_lib` for standalone
+`<rohit/compression.hpp>` and link `Serializer::runtime` for standalone
 `compress(span, options[, limits])` and `decompress(span, decode_options)`; both
 return owned byte vectors.
 

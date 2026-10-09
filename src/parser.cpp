@@ -2368,6 +2368,84 @@ language_version parse_version_header(const rohit::type_check::schema_input_buff
 namespace {
 constexpr std::string_view schema_extension{".serializer"};
 
+// Collect complete leading notice groups without changing the parser cursor or schema meaning.
+void append_source_notices(const rohit::type_check::schema_input_buffer auto& input,
+                           std::vector<std::string>& notices) {
+  const std::string_view source{reinterpret_cast<const char*>(input.curr()),
+                                input.remaining_buffer()};
+  std::size_t offset{};
+  while (offset < source.size()) {
+    while (offset < source.size() && is_whitespace(source[offset])) {
+      ++offset;
+    }
+    std::string contents;
+    if (source.substr(offset).starts_with("//")) {
+      // Adjacent line comments form one notice, preserving license text following its marker.
+      while (source.substr(offset).starts_with("//")) {
+        const auto begin = offset + std::string_view{"//"}.size();
+        const auto end = source.find('\n', begin);
+        auto line = source.substr(begin, end == std::string_view::npos ? end : end - begin);
+        if (line.ends_with('\r')) { line.remove_suffix(1); }
+        if (line.starts_with(' ')) { line.remove_prefix(1); }
+        if (!contents.empty()) { contents += '\n'; }
+        contents += line;
+        if (end == std::string_view::npos) {
+          offset = source.size();
+          break;
+        }
+        offset = end + 1;
+        while (offset < source.size() &&
+               (source[offset] == ' ' || source[offset] == '\t' || source[offset] == '\r')) {
+          ++offset;
+        }
+      }
+    } else if (source.substr(offset).starts_with("/*")) {
+      const auto begin = offset + std::string_view{"/*"}.size();
+      const auto end = source.find("*/", begin);
+      if (end == std::string_view::npos) {
+        // The existing parser retains its precise unterminated-comment diagnostic.
+        return;
+      }
+      auto block = source.substr(begin, end - begin);
+      const auto first = block.find_first_not_of(" \t\r\n");
+      if (first != std::string_view::npos) {
+        const auto last = block.find_last_not_of(" \t\r\n");
+        contents = block.substr(first, last - first + 1);
+      }
+      offset = end + std::string_view{"*/"}.size();
+    } else {
+      break;
+    }
+    auto lowercase = contents;
+    to_lower_in_place(lowercase);
+    if (lowercase.find("copyright") != std::string::npos ||
+        contents.find("SPDX-FileCopyrightText:") != std::string::npos ||
+        contents.find("SPDX-License-Identifier:") != std::string::npos) {
+      if (std::find(notices.begin(), notices.end(), contents) == notices.end()) {
+        notices.push_back(std::move(contents));
+      }
+    }
+  }
+}
+
+// Share owned notice text across generated declarations after all schema transformations finish.
+std::shared_ptr<const std::vector<std::string>>
+retain_source_notices(std::vector<std::unique_ptr<syntax_node>>& statements,
+                      const std::vector<std::string>& notices) {
+  if (notices.empty()) { return {}; }
+  const auto owned = std::make_shared<const std::vector<std::string>>(notices);
+  const auto retain = [&](const auto& self, auto& nodes) -> void {
+    for (auto& node : nodes) {
+      node->source_notices = owned;
+      if (node->type == object_type::namespace_type) {
+        self(self, static_cast<namespace_node&>(*node).statements);
+      }
+    }
+  };
+  retain(retain, statements);
+  return owned;
+}
+
 // Recognize an include keyword without accepting identifiers beginning with that spelling.
 bool starts_include(const rohit::type_check::schema_input_buffer auto& input) {
   constexpr std::string_view keyword{"include"};
@@ -2417,6 +2495,7 @@ class file_loader {
   enum class file_state { loading, loaded };
   static constexpr std::size_t maximum_include_depth = 32;
   parsed_schema result{};
+  std::vector<std::string> source_notices{};
   std::unordered_map<std::string, file_state> files{};
   // Creation checks all names immediately; resolution exposes only preceding declarations.
   std::unordered_map<std::string, syntax_node*> declarations{};
@@ -2446,6 +2525,7 @@ class file_loader {
       files.emplace(identity, file_state::loading);
       result.dependencies.push_back(canonical);
       const auto input = rohit::make_stream_from_file(canonical);
+      append_source_notices(input, source_notices);
       const language_version_scope contract{parse_version_header(input, true)};
       skip_whitespace_and_comment(input);
       while (starts_include(input)) {
@@ -2484,6 +2564,7 @@ public:
       schema_policy::resolve(result.statements, options);
       lower_generics(input, result.statements);
       resolve_member(input, result.statements, types);
+      result.source_notices = retain_source_notices(result.statements, source_notices);
     } catch (const std::exception& error) {
       throw std::invalid_argument{path.generic_string() + ": " + error.what()};
     }
@@ -2502,6 +2583,8 @@ parsed_schema parse_file(const std::filesystem::path& path, const parse_options&
 std::vector<std::unique_ptr<syntax_node>>
 parse_schema(const rohit::type_check::schema_input_buffer auto& in_stream, bool require_version,
              const parse_options& options) {
+  std::vector<std::string> source_notices;
+  append_source_notices(in_stream, source_notices);
   const language_version_scope contract{parse_version_header(in_stream, require_version)};
   std::unordered_map<std::string, syntax_node*> declarations{};
   auto statements = parse_statement_list(in_stream, nullptr, declarations);
@@ -2512,6 +2595,7 @@ parse_schema(const rohit::type_check::schema_input_buffer auto& in_stream, bool 
   schema_policy::resolve(statements, options);
   lower_generics(in_stream, statements);
   resolve_member(in_stream, statements, variable_type_map);
+  retain_source_notices(statements, source_notices);
   return statements;
 }
 

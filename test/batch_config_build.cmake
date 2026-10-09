@@ -15,7 +15,7 @@ endforeach()
 set(source [=[
 cmake_minimum_required(VERSION 3.28)
 project(batch_config_dependencies LANGUAGES NONE)
-add_library(Serializer::serializer_lib INTERFACE IMPORTED)
+add_library(Serializer::runtime INTERFACE IMPORTED)
 include("@REPOSITORY@/cmake/serializer_generate.cmake")
 foreach(profile IN ITEMS managed32 managed64 separate64)
   add_library(${profile} INTERFACE)
@@ -31,11 +31,13 @@ foreach(profile IN ITEMS managed32 managed64 separate64)
   get_target_property(headers ${profile} SERIALIZER_GENERATED_HEADERS)
   get_target_property(headers_target ${profile} SERIALIZER_HEADERS_TARGET)
   get_target_property(include_directories ${profile} INTERFACE_INCLUDE_DIRECTORIES)
+  get_target_property(runtime_libraries ${profile} INTERFACE_LINK_LIBRARIES)
   set(expected_directory "${CMAKE_CURRENT_BINARY_DIR}/generated/${profile}")
   if(NOT headers STREQUAL "${expected_directory}/root.hpp" OR
       NOT headers_target STREQUAL "${profile}_serializer_headers" OR
       NOT TARGET "${headers_target}" OR
-      NOT include_directories STREQUAL "$<BUILD_INTERFACE:${expected_directory}>")
+      NOT include_directories STREQUAL "$<BUILD_INTERFACE:${expected_directory}>" OR
+      NOT runtime_libraries STREQUAL "Serializer::runtime")
     message(FATAL_ERROR "Missing variant target properties for ${profile}")
   endif()
 endforeach()
@@ -135,7 +137,7 @@ function(reject_configuration name expected statement)
   set(rejection [=[
 cmake_minimum_required(VERSION 3.28)
 project(batch_config_rejection LANGUAGES NONE)
-add_library(Serializer::serializer_lib INTERFACE IMPORTED)
+add_library(Serializer::runtime INTERFACE IMPORTED)
 include("@REPOSITORY@/cmake/serializer_generate.cmake")
 add_library(first INTERFACE)
 add_library(second INTERFACE)

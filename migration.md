@@ -1,5 +1,48 @@
 # Migrating to the snake_case Serializer API
 
+## Proprietary application runtime and generated output (9 October 2026)
+
+Compiler/runtime **1.7.0** separates the application runtime from the GPL compiler
+API library. The schema language remains **1.2.0**; generated APIs and wire formats
+are unchanged. Application runtime headers, compiled helpers, and managed support
+now use [`LICENSE-RUNTIME`](LICENSE-RUNTIME) (0BSD). Serializer-authored generated
+code has explicit any-license distribution permission in
+[`LICENSE-GENERATED`](LICENSE-GENERATED), including proprietary applications.
+
+Replace application linkage to `Serializer::serializer_lib` with
+`Serializer::runtime`, including applications using pre-generated headers.
+`serializer_generate` and `serializer_generate_variants` select the runtime
+automatically; `Serializer::managed` also links it. Rebuild from this release or
+use an installed package containing the new targets and licensing files. The
+existing `Serializer::serializer_lib` compiler/parser/generator API remains
+available under GPL-3.0-or-later for compatibility.
+
+Regenerate models to propagate source-schema copyright and license comments,
+including notices from included schemas. Preserve the schema owners' terms;
+generation does not transfer copyright or remove restrictions in a third-party
+schema. These permissions concern Serializer-authored code, and dependencies
+retain their independent licenses. See [licensing](docs/licensing.md) for scope
+and schema notice examples. Earlier package revisions need their own license
+review; updating current source documentation does not update a published port.
+
+## GoogleTest packages and Windows test launches (9 October 2026)
+
+Repository tests require GoogleTest **1.18.0** or newer. The vcpkg manifest sets
+that minimum for `gtest`, and CMake uses
+`find_package(GTest 1.18.0 CONFIG REQUIRED)`. The default registry baseline for
+unrelated dependencies is unchanged. GoogleTest remains a test-only dependency;
+generated applications use the application runtime independently.
+
+Upgrade an older dependency installation, clear a cached `GTest_DIR` override
+with `cmake -S . -B <build-directory> -U GTest_DIR`, and reconfigure with the build's
+existing toolchain/options. Rebuild the tests after package selection changes.
+Windows test-directory executables now stage their transitive imported shared
+DLLs beside the executable using configuration-specific target metadata, so
+CTest and direct launches can find shared GoogleTest dependencies there. Empty
+and static-only dependency lists need no copies. See
+[test build and DLL setup](docs/cmake_integration.md#windows-test-runtime-dlls)
+for commands and the recorded verification scope.
+
 ## Portable fixed arrays (8 October 2026)
 
 Compiler/runtime **1.6.0** adds JavaScript/TypeScript and Python generation for
@@ -647,7 +690,7 @@ See [CMake wrapper options](docs/cmake_integration.md#build-this-repository).
 
 ## SIMD JSON whitespace scanning
 
-Rebuild `Serializer::serializer_lib` and consumers with matching updated runtime
+Rebuild `Serializer::runtime` and consumers with matching updated runtime
 headers to accelerate long whitespace runs in native JSON and ProtoJSON input.
 Existing generated headers work without regeneration. The existing
 `SERIALIZER_ENABLE_SIMD` option controls the backends; disabled or unsupported
@@ -830,14 +873,15 @@ view tests, independent wire fixtures, and bounded fuzz runs.
 | Test target `CoreSerializerTest` | `core_serializer_test` |
 
 The `serializer` executable name and its `input` / `output` arguments are
-unchanged. Generated test headers now use `.hpp`. Link to `serializer_lib` to
-inherit the include directory and C++20 requirement. Tests are enabled by default
+unchanged. Generated test headers now use `.hpp`. Link applications to
+`Serializer::runtime` to inherit the include directory and C++20 requirement;
+`serializer_lib` remains the compiler API target. Tests are enabled by default
 for a standalone build and disabled by default when included as a subdirectory;
 set `SERIALIZER_BUILD_TESTS` explicitly to override this.
 
 Runtime JSON scanning and binary array conversion now call compiled helpers.
 Applications that previously included runtime headers without linking Serializer
-must link `Serializer::serializer_lib`, even when using pre-generated headers or
+must link `Serializer::runtime`, even when using pre-generated headers or
 building with `SERIALIZER_ENABLE_SIMD=OFF`. The shipped `serializer_generate`
 helper already supplies this dependency. SIMD preserves wire bytes and requires
 no schema or output-profile changes; see [runtime SIMD](docs/runtime_simd.md).
@@ -1123,7 +1167,7 @@ still runs its five-runtime subset; the full suite uses
 
 `rohit::file_stream` in `<rohit/file_stream.hpp>` implements the existing byte-stream
 concepts, so generated serialization calls require no schema regeneration. Link
-`Serializer::serializer_lib` and rebuild the runtime/consumers together. Native
+`Serializer::runtime` and rebuild the runtime/consumers together. Native
 journal I/O moved into this reusable stream implementation; the managed store owns
 an internal storage-independent journal sink. Existing path-based journal calls,
 version-two records, memory-stream APIs, and full-Save history behavior are unchanged.

@@ -152,7 +152,7 @@ export function activate(context: vscode.ExtensionContext): void {
         : 'File is missing. Run Serializer: Generate Headers. CMake configuration alone does not create it.');
     }
     if (/^rohit[\\/]serializer\.hpp$/.test(include.name)) {
-      output.appendLine('\nRuntime header: add_subdirectory(...) or find_package(Serializer CONFIG REQUIRED), then link Serializer::serializer_lib. serializer_generate supplies that linkage automatically.');
+      output.appendLine('\nRuntime header: add_subdirectory(...) or find_package(Serializer CONFIG REQUIRED), then link Serializer::runtime. This runtime permits proprietary applications; serializer_generate supplies that linkage automatically.');
     } else if (!registered.length) {
       output.appendLine('\nNo matching generated header is registered. For a Serializer schema, use serializer_generate(TARGET my_app SCHEMAS schemas/name.serializer), then reconfigure.');
     }

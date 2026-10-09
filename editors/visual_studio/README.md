@@ -6,7 +6,7 @@ Rohit Serializer helps you edit `.serializer` schemas and navigate between schem
 and existing generated code in Visual Studio. It provides syntax highlighting,
 editing assistance, and native navigation for projects using Serializer — State Framework.
 
-Version **1.1.26** provides `.serializer` highlighting and native navigation in
+Version **1.1.27** provides `.serializer` highlighting and native navigation in
 **Visual Studio 2022 and Visual Studio 2026 on Windows x64**. It shares the VS Code
 extension's grammar and schema/generated-output resolver. Custom type references
 such as `demo::order`, `demo::snapshot` and `demo::customer` use the active theme's
@@ -73,6 +73,11 @@ The editor extension is separate from the Serializer compiler and runtime:
   to add Serializer to your project and generate code from schemas.
 
 Installing this extension does not install the compiler or runtime.
+For compiler/runtime 1.7.0 and newer, generated applications link the 0BSD
+`Serializer::runtime` target; the generation helper supplies this automatically.
+The GPL `Serializer::serializer_lib` target is reserved for compiler API use.
+See the [licensing guide](../../docs/licensing.md) for proprietary applications
+and source-schema notices. The editor extension retains its own repository license.
 
 ## Build and install
 
@@ -102,7 +107,7 @@ installation. It uses full-framework MSBuild with locked dependencies, bundles
 the current shared resolver, rebuilds and validates:
 
 ```text
-out/extensions/serializer-visual-studio-1.1.26.vsix
+out/extensions/serializer-visual-studio-1.1.27.vsix
 ```
 
 Close Visual Studio, double-click the VSIX, select the installation and restart

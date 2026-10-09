@@ -1,3 +1,6 @@
+// Copyright (C) 2024, 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: 0BSD
+// Serializer runtime template source; emitted support may also be used under 0BSD.
 R"serializer(
 /** Native protocols. Binary scalars are little-endian. */
 export const Protocol = Object.freeze({JSON: 0, BINARY_NONE: 1, BINARY_INTEGER: 2, BINARY_STRING: 3});

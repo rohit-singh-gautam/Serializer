@@ -1,3 +1,10 @@
+# 1.1.27
+
+- Direct generated applications to the proprietary-compatible `Serializer::runtime` target.
+- Document the 0BSD application runtime and separate GPL compiler API scope.
+- Preserve schema notices through compiler generation without changing editor navigation.
+- Keep both extension versions synchronized and update local package names.
+
 # 1.1.26
 
 - Clarify Serializer's State Framework positioning, product links, and editor/runtime boundaries.

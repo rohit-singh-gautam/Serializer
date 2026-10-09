@@ -17,6 +17,7 @@
 
 #include "cpp_managed_writer.hpp"
 #include "cpp_naming.hpp"
+#include "generated_notices.hpp"
 #include "protobuf_schema.hpp"
 #include "schema_version.hpp"
 
@@ -2140,9 +2141,17 @@ std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements
   static_cast<void>(coding_standard_name(options.standard));
   static_cast<void>(cpp_protocols_name(options.protocols));
   full_stream_auto_alloc raw{};
+  raw.write(generated_license_notice(statements));
   emitter generator{options};
   generator.emit(raw, statements);
   const std::string_view source{reinterpret_cast<const char*>(raw.begin()), raw.current_offset()};
   return format_cpp(source, options);
+}
+
+// Preserve file-level metadata that cannot be carried by an empty declaration vector.
+std::string generate_schema(const parser::parsed_schema& schema, const cpp_options& options) {
+  const auto source = generate(schema.statements, options);
+  return schema.statements.empty()
+      ? generated_source_notices(schema.source_notices) + source : source;
 }
 } // namespace rohit::serializer::writer::cpp

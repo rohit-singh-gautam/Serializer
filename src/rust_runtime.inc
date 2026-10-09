@@ -1,3 +1,6 @@
+// Copyright (C) 2024, 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: 0BSD
+// Serializer runtime template source; emitted support may also be used under 0BSD.
 R"serializer(
 use std::collections::BTreeMap;
 use std::fmt::Write as _;

@@ -1,3 +1,10 @@
+# 1.1.27
+
+- Document generated output and application runtime support for proprietary applications.
+- Distinguish the 0BSD `Serializer::runtime` target from the GPL compiler API library.
+- Synchronize with the VS Code runtime-linkage guidance update.
+- Keep both extension versions synchronized and update local package names.
+
 # 1.1.26
 
 - Clarify Serializer's State Framework positioning, product links, and editor/runtime boundaries.

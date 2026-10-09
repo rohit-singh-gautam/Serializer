@@ -1,3 +1,5 @@
+// SPDX-FileCopyrightText: 2024-2026 Rohit Jairaj Singh <rohit@singh.org.in>
+// SPDX-License-Identifier: 0BSD
 serializer version 1;
 
 // Serialized runtime envelope records, not user model entities; no managed annotations belong here.

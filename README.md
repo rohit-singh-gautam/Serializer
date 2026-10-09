@@ -32,7 +32,7 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **1.6.0**. Bug fixes and minor updates
+The current compiler and runtime release is **1.7.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.2.0**;
@@ -83,6 +83,23 @@ The independent `--cpp.protocols binary_none` profile restricts C++ output to
 positional codecs; the default remains `all`. Add `--cpp.emission_only true` with
 those settings for borrowed string/span DTOs exposing only one concrete positional
 `serialize_out(binary_none_output&)` method.
+
+## Proprietary applications and licensing
+
+Generated output may be used, modified, and distributed under your application's
+license, including a proprietary license. Serializer-authored generated code is
+covered by [LICENSE-GENERATED](LICENSE-GENERATED); copyright and license notices
+from the input schemas remain applicable and are preserved in generated output.
+Generation does not transfer ownership of your schema to Serializer or transfer
+ownership of Serializer-authored support code to you.
+
+Application runtime headers, compiled helpers, and managed support use the
+[Zero-Clause BSD license](LICENSE-RUNTIME). Link `Serializer::runtime` for generated
+C++ models or `Serializer::managed` for managed applications. Generation helpers
+choose the runtime target automatically. The compiler and its
+`Serializer::serializer_lib` parser/generator API remain
+[GPL-3.0-or-later](LICENSE). Third-party dependencies retain their own licenses.
+See [licensing and schema notices](docs/licensing.md) before redistributing a package.
 
 ## How it works
 
@@ -235,9 +252,13 @@ settings; use `-U SERIALIZER_BUILD_MANAGED -U SERIALIZER_WITH_*` to adopt the ne
 defaults, or set each option explicitly.
 
 The default development build needs CMake 3.28+, a C++20 compiler and standard
-library, clang-format 19+, and GoogleTest. See the
+library, clang-format 19+, and GoogleTest 1.18.0 or newer. See the
 [requirements and setup guide](docs/cmake_integration.md#build-this-repository)
 for dependency installation and optional tools.
+GoogleTest is a repository-test dependency supplied by the vcpkg `gtest` package
+or an installed GTest CMake package; it is separate from the application runtime.
+Windows test builds automatically copy imported shared runtime DLLs beside each
+test executable so CTest and direct launches can load them.
 
 On Linux with GNU Make:
 
@@ -284,8 +305,8 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editor_extension.md) |
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
-Both extensions use source release version **1.1.26**, independent of compiler version
-**1.6.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
+Both extensions use source release version **1.1.27**, independent of compiler version
+**1.7.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
 for supported destinations and language-service prerequisites.
 VS Code also supports navigation from read-only Git index/history tabs, using
 the displayed snapshot and current workspace destinations.
@@ -379,7 +400,7 @@ for reporting barriers to using the project.
 - [Release-policy verification](docs/verification-release-policies-2026-10-06.md): compiler folding, calendar boundaries, nested policies, and generation options.
 - [Qualification](qualification/README.md): interoperability, fuzzing, and performance workflows.
 - [Coding standard](CodingStandard.md) and [agent instructions](AGENTS.md): repository contribution rules.
-- [License](LICENSE).
+- [Licensing](docs/licensing.md): proprietary generated output, permissive application runtime, and GPL compiler scope.
 
 When updating an existing application, check the migration guide and regenerate
 affected output before rebuilding. Verification records describe specific tested

@@ -1,3 +1,6 @@
+// Copyright (C) 2024, 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: 0BSD
+// Serializer runtime template source; emitted support may also be used under 0BSD.
 R"java(
 /** Wire protocols; fixed-width binary values use little-endian byte order. */
 public enum ReadPolicy { STRICT, COMPATIBLE, FLEXIBLE }

@@ -1,6 +1,6 @@
 # Serializer compiler and schema versions
 
-The compiler and runtime release is **1.6.0**, defined by `project(... VERSION ...)` in the
+The compiler and runtime release is **1.7.0**, defined by `project(... VERSION ...)` in the
 root CMake file. `serializer --version` (or `-v`) prints that release and the
 supported schema language version. CMake generates `<rohit/version.hpp>` with
 `rohit::serializer::compiler_version`, `schema_language_version_text`, and
@@ -60,13 +60,18 @@ for path restrictions, namespace handling, duplicate detection, and output limit
 Library callers use `parser::parse_file(path)` for includes; its result owns the
 combined `statements` and records canonical `dependencies` (including the entry).
 Existing stream-only parsing does not read files.
+The parsed result also retains leading source copyright/license comments in
+`source_notices`. Pass the complete result to the C++, Java, or portable
+`writer::generate_schema` function to preserve file-level notices even without model
+declarations; statement-vector overloads remain available. All CLI outputs use
+the complete parsed result. See [licensing and notice rules](licensing.md).
 
 ### Schema language version policy
 
 The repository's [schema language versioning policy](../AGENTS.md#schema-language-versioning)
 uses `major.minor.patch` for language releases, independently of the compiler
 release. `serializer_schema_language_version` in the root CMake file defines the
-language release separately from `project(... VERSION ...)`. Compiler **1.6.0**
+language release separately from `project(... VERSION ...)`. Compiler **1.7.0**
 currently supports language **1.2.0**; `serializer --version` reports both.
 
 Language `1.2.0` adds `compact_prefix` and `compact_varint` unsigned scalar

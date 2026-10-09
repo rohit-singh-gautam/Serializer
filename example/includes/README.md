@@ -55,7 +55,7 @@ java -cp out/include-classes Main
 ```
 
 Compile `main.cpp` using the generated header directory and
-`Serializer::serializer_lib`, as shown by this folder's [CMake configuration](CMakeLists.txt).
+`Serializer::runtime`, as shown by this folder's [CMake configuration](CMakeLists.txt).
 The CMake helpers automatically track changes in included schemas for both languages.
 
 ## Conflicts are caught during parsing

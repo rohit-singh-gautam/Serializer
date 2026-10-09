@@ -22,6 +22,12 @@ file(MAKE_DIRECTORY "${source}")
 run_checked("${CMAKE_COMMAND}" --install "${BUILD_DIRECTORY}"
   --config "${CONFIGURATION}" --prefix "${prefix}")
 
+foreach(license IN ITEMS LICENSE LICENSE-RUNTIME LICENSE-GENERATED)
+  if(NOT EXISTS "${prefix}/share/licenses/Serializer/${license}")
+    message(FATAL_ERROR "Missing installed licensing terms: ${license}")
+  endif()
+endforeach()
+
 set(managed_headers managed.hpp collaboration_history.hpp collaboration_sessions.hpp
   managed_collaboration.hpp managed_local_collaboration.hpp
   managed_records.hpp collaboration_records.hpp)
@@ -37,6 +43,15 @@ file(WRITE "${source}/CMakeLists.txt" "cmake_minimum_required(VERSION 3.28)\n"
   "project(installed_serializer_headers LANGUAGES CXX)\n"
   "set(CMAKE_PREFIX_PATH [=[${prefix};${DEPENDENCY_PREFIXES}]=])\n"
   "find_package(Serializer CONFIG REQUIRED)\n")
+file(APPEND "${source}/CMakeLists.txt" [=[
+if(NOT TARGET Serializer::runtime OR NOT TARGET Serializer::serializer_lib)
+  message(FATAL_ERROR "Missing runtime or compatibility compiler-library target")
+endif()
+get_target_property(runtime_dependencies Serializer::runtime INTERFACE_LINK_LIBRARIES)
+if(runtime_dependencies MATCHES "serializer_lib")
+  message(FATAL_ERROR "The permissive runtime links the GPL compiler library")
+endif()
+]=])
 if(BUILD_MANAGED)
   file(APPEND "${source}/CMakeLists.txt"
     "if(NOT TARGET Serializer::managed)\n  message(FATAL_ERROR \"Missing managed target\")\nendif()\n")
@@ -44,7 +59,7 @@ if(BUILD_MANAGED)
 else()
   file(APPEND "${source}/CMakeLists.txt"
     "if(TARGET Serializer::managed)\n  message(FATAL_ERROR \"Unexpected managed target\")\nendif()\n")
-  set(runtime_target Serializer::serializer_lib)
+  set(runtime_target Serializer::runtime)
 endif()
 
 # Each translation unit must compile without another header hiding its dependencies.
@@ -72,7 +87,7 @@ endforeach()
 file(APPEND "${source}/capabilities_test.cpp" "  return 0;\n}\n")
 file(APPEND "${source}/CMakeLists.txt"
   "add_executable(capabilities_test capabilities_test.cpp)\n"
-  "target_link_libraries(capabilities_test PRIVATE Serializer::serializer_lib)\n"
+  "target_link_libraries(capabilities_test PRIVATE Serializer::runtime)\n"
   "enable_testing()\nadd_test(NAME capabilities COMMAND capabilities_test)\n"
   [=[foreach(dependency_prefix IN LISTS CMAKE_PREFIX_PATH)
   set_property(TEST capabilities APPEND PROPERTY ENVIRONMENT_MODIFICATION

@@ -3,7 +3,7 @@
 `SERIALIZER_ENABLE_SIMD=ON` enables explicit SIMD in the schema compiler and
 shared runtime library. Generated owning classes call the normal protocol API;
 no schema keyword, class attribute, output profile, or generated intrinsics are
-needed. Consumers link `Serializer::serializer_lib`, including when headers were
+needed. Consumers link `Serializer::runtime`, including when headers were
 generated elsewhere.
 
 ## Protocol coverage
@@ -78,7 +78,7 @@ byte retains the existing resource-limit failure and consumed cursor position.
 No temporary allocation or input mutation is needed. Calls at object, array,
 and field boundaries, plus trailing whitespace in `finish()`, use this path.
 
-Rebuild `Serializer::serializer_lib` and consumers with matching updated runtime
+Rebuild `Serializer::runtime` and consumers with matching updated runtime
 headers. Existing generated headers use the scanner automatically; no schema
 regeneration, keyword, or new option is required. `SERIALIZER_ENABLE_SIMD=OFF`
 and unsupported architectures use the same bounded scalar grammar. JSON output,

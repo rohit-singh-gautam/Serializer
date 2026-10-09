@@ -537,18 +537,18 @@ int main(const int argc, const char* argv[]) {
       const auto& options = configurations[request.configuration_index].options;
       auto output = std::make_unique<rohit::full_stream_auto_alloc>();
       if (request.language == "java") {
-        writer::java::write(*output, schema.statements, request.destination.stem().string(),
-                            options.java);
+        output->write(writer::java::generate_schema(schema, request.destination.stem().string(),
+                                                    options.java));
       } else if (request.language == "cpp") {
-        writer::cpp::write(*output, schema.statements, options.cpp);
+        output->write(writer::cpp::generate_schema(schema, options.cpp));
       } else {
         const auto& language = request.language;
         const auto& settings = language == "go"       ? options.go
                                : language == "csharp" ? options.csharp
                                : language == "kotlin" ? options.kotlin
                                                       : options.js;
-        output->write(writer::portable::generate(schema.statements, language,
-                                                 request.destination.stem().string(), settings));
+        output->write(writer::portable::generate_schema(schema, language,
+            request.destination.stem().string(), settings));
       }
       outputs.push_back(std::move(output));
     }

@@ -151,6 +151,7 @@ class generic_lowering {
     while (scope) {
       auto block = std::make_unique<namespace_node>(
           object_type::namespace_type, std::string{scope->name}, scope->parent_namespace);
+      block->source_notices = node->source_notices;
       block->statements.push_back(std::move(node));
       node = std::move(block);
       scope = scope->parent_namespace;
@@ -315,6 +316,7 @@ class generic_lowering {
     }
     concrete->generic_name = definition->get_full_name();
     concrete->source_path = definition->source_path;
+    concrete->source_notices = definition->source_notices;
     concrete->generic_arguments = type.arguments;
     concrete->generic_parameters = definition->generic_parameters;
     concrete->member_list = definition->member_list;

@@ -8,7 +8,7 @@ For the shortest introduction, start with the [README](../README.md#get-started)
 ## Build and test
 
 With CMake, a C++20-or-newer compiler and standard library, clang-format 19+, and
-GoogleTest available:
+GoogleTest 1.18.0 or newer available:
 
 ```sh
 # Linux (GNU Make)
@@ -28,6 +28,17 @@ including tests and C++ style examples on a fresh cache. `test` builds first and
 CTest; `configure` only configures. Set `VCPKG_ROOT` to use its toolchain for
 GoogleTest, or provide an installed GoogleTest package through CMake. The wrappers do
 not install a compiler or clang-format. Java, benchmarks, and fuzzers remain opt-in.
+The repository manifest requires the vcpkg `gtest` package at version 1.18.0 or
+newer; CMake loads its installed configuration with
+`find_package(GTest 1.18.0 CONFIG REQUIRED)` when tests are enabled.
+GoogleTest is a test dependency rather than part of `Serializer::runtime` or
+`Serializer::managed`.
+Windows builds stage imported shared runtime DLLs, including shared GoogleTest
+libraries, beside each repository test executable. Reconfigure and rebuild an
+older test target to enable staging before running it directly or through CTest.
+See [test DLL setup](cmake_integration.md#windows-test-runtime-dlls) for scope.
+If a cached `GTest_DIR` still selects an older package, update that installation,
+reconfigure with `-U GTest_DIR`, and rebuild the tests with the existing toolchain.
 
 See [build wrapper options](cmake_integration.md#build-this-repository) for build
 directories, configurations, and additional CMake settings.
@@ -81,10 +92,13 @@ in Visual Studio to clear any cached platform setting. See
 for setup and the Ninja/platform error explanation.
 
 When embedding the library, add this repository with `add_subdirectory` and link
-to `Serializer::serializer_lib`. It supplies the public include path and C++20
+to `Serializer::runtime`. It supplies the public include path and C++20
 requirement. The `serializer_generate` helper below handles that linkage for
 schema consumers. Installed packages expose the same targets and helper through
 `find_package(Serializer CONFIG REQUIRED)`.
+The runtime target uses 0BSD and permits proprietary application use. The
+separate `Serializer::serializer_lib` compiler API target remains GPL; see
+[licensing](licensing.md) for generated output, schema notices, and package scope.
 Use `-DSERIALIZER_BUILD_TESTS=OFF` for a standalone build without GoogleTest.
 
 C++20 is the minimum language mode and the build default. A newer mode selected

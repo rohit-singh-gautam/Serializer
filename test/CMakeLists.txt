@@ -38,6 +38,7 @@ add_executable(core_serializer_test
   fixed_field_batch_test.cpp
   constant_field_name_test.cpp
   generated_test.cpp
+  generated_notice_test.cpp
   wire_format_test.cpp
   binary_text_test.cpp
   wire_compatibility_test.cpp
@@ -51,7 +52,7 @@ add_executable(core_serializer_test
 serializer_generate(TARGET core_serializer_test
   SCHEMAS ${schemas}
   OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
-target_link_libraries(core_serializer_test PRIVATE GTest::gtest_main)
+target_link_libraries(core_serializer_test PRIVATE Serializer::serializer_lib GTest::gtest_main)
 target_compile_definitions(core_serializer_test PRIVATE ROHIT_SERIALIZER_ENABLE_GTEST)
 if(MSVC)
   target_compile_options(core_serializer_test PRIVATE /W4 /WX)
@@ -280,13 +281,13 @@ if(MSVC)
   # the normal runtime and core tests keep the caller's existing iterator/ABI configuration.
   target_sources(compression_allocation_failure_test PRIVATE ../src/compression.cpp)
   target_include_directories(compression_allocation_failure_test PRIVATE
-    "$<TARGET_PROPERTY:serializer_lib,INTERFACE_INCLUDE_DIRECTORIES>")
+    "$<TARGET_PROPERTY:serializer_runtime,INTERFACE_INCLUDE_DIRECTORIES>")
   target_compile_features(compression_allocation_failure_test PRIVATE cxx_std_20)
   target_compile_definitions(compression_allocation_failure_test PRIVATE _ITERATOR_DEBUG_LEVEL=0
-    "$<TARGET_PROPERTY:serializer_lib,COMPILE_DEFINITIONS>")
+    "$<TARGET_PROPERTY:serializer_runtime,COMPILE_DEFINITIONS>")
   target_link_libraries(compression_allocation_failure_test PRIVATE ${serializer_compression_libraries})
 else()
-  target_link_libraries(compression_allocation_failure_test PRIVATE Serializer::serializer_lib)
+  target_link_libraries(compression_allocation_failure_test PRIVATE Serializer::runtime)
 endif()
 add_test(NAME compression_allocation_failure_test COMMAND compression_allocation_failure_test)
 set_tests_properties(compression_allocation_failure_test PROPERTIES TIMEOUT 60)
@@ -294,7 +295,7 @@ set_tests_properties(compression_allocation_failure_test PROPERTIES TIMEOUT 60)
 # Standalone interoperability is optional; frozen independent fixtures need no external tools.
 if(SERIALIZER_WITH_ZSTD OR SERIALIZER_WITH_LZ4 OR SERIALIZER_WITH_ZLIB)
   add_executable(compression_interop compression_interop.cpp)
-  target_link_libraries(compression_interop PRIVATE Serializer::serializer_lib)
+  target_link_libraries(compression_interop PRIVATE Serializer::runtime)
   find_package(Python3 3.9 COMPONENTS Interpreter QUIET)
   if(Python3_Interpreter_FOUND)
     foreach(format IN ITEMS zstd lz4 gzip zlib deflate)
@@ -325,7 +326,7 @@ endif()
 # ELF linker wrapping injects allocator failures without modifying the production runtime.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux" AND CMAKE_CXX_COMPILER_ID MATCHES "^(GNU|Clang)$")
   add_executable(stream_allocation_failure_test stream_allocation_failure_test.cpp)
-  target_link_libraries(stream_allocation_failure_test PRIVATE Serializer::serializer_lib)
+  target_link_libraries(stream_allocation_failure_test PRIVATE Serializer::runtime)
   target_compile_options(stream_allocation_failure_test PRIVATE
     -Wall -Wextra -Wpedantic -Werror -fno-builtin-malloc -fno-builtin-realloc -fno-builtin-free)
   target_link_options(stream_allocation_failure_test PRIVATE
@@ -339,7 +340,7 @@ serializer_generate(TARGET protobuf_codec_test SCHEMAS resources/protobuf.serial
 target_link_libraries(protobuf_codec_test PRIVATE GTest::gtest_main)
 add_test(NAME protobuf_codec_test COMMAND protobuf_codec_test)
 add_executable(protobuf_allocation_test protobuf_allocation_test.cpp)
-target_link_libraries(protobuf_allocation_test PRIVATE Serializer::serializer_lib)
+target_link_libraries(protobuf_allocation_test PRIVATE Serializer::runtime)
 add_test(NAME protobuf_allocation_test COMMAND protobuf_allocation_test)
 if(MSVC)
   target_compile_options(protobuf_codec_test PRIVATE /W4 /WX)
@@ -464,3 +465,20 @@ add_test(NAME serializer_constant_evaluation_runtime_equivalence
     "-DDISABLED=$<TARGET_FILE:runtime_equivalence_disabled_test>"
     "-DENABLED=$<TARGET_FILE:runtime_equivalence_enabled_test>"
     -P "${CMAKE_CURRENT_SOURCE_DIR}/runtime_equivalence.cmake")
+
+# Imported vcpkg DLLs must be available when tests run from CTest or directly from the build tree.
+# Derive every transitive runtime dependency from the target instead of assuming a package path.
+if(WIN32)
+  get_property(serializer_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+  foreach(target IN LISTS serializer_test_targets)
+    get_target_property(target_type "${target}" TYPE)
+    if(target_type STREQUAL "EXECUTABLE")
+      # Keep the DLL list in one argument; expanding it would split the -D assignment.
+      add_custom_command(TARGET "${target}" POST_BUILD
+        COMMAND "${CMAKE_COMMAND}" "-DDLL_FILES=$<TARGET_RUNTIME_DLLS:${target}>"
+          "-DOUTPUT_DIRECTORY=$<TARGET_FILE_DIR:${target}>"
+          -P "${CMAKE_CURRENT_SOURCE_DIR}/copy_runtime_dlls.cmake"
+        VERBATIM)
+    endif()
+  endforeach()
+endif()

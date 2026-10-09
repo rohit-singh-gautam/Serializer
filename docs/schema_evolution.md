@@ -113,6 +113,9 @@ and conservatively applies the unknown-field rejection rules above.
 ## Library API
 
 Include `<rohit/schema_compatibility.hpp>` and link `Serializer::serializer_lib`.
+This parser/compatibility API belongs to the GPL compiler library rather than the
+0BSD application runtime; generated-code applications use `Serializer::runtime`.
+See [licensing scope](licensing.md).
 Use `parser::parse_file` for both revisions, optionally load
 `read_compatibility_policy`, and call `check_schema_compatibility` with the explicit
 `compatibility_protocol`. The returned diagnostics contain `path`, `message`,

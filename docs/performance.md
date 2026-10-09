@@ -54,7 +54,7 @@ All C++ protocols use the shared runtime paths automatically:
   scalar conversion. Binary views already copy their encoded bytes in bulk;
   individual view setters retain scalar updates.
 
-Link consumers to `Serializer::serializer_lib`, including users of pre-generated
+Link consumers to `Serializer::runtime`, including users of pre-generated
 headers. CPU dispatch and vector instructions live in compiled helpers, keeping ISA
 flags out of consumer code. `SERIALIZER_ENABLE_SIMD=OFF` disables the explicit schema
 and runtime SIMD backends; bulk array reads/writes and direct JSON output remain. Short

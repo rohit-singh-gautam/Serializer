@@ -102,6 +102,8 @@ class managed_lowering {
         }
         copy = std::move(object);
       }
+      copy->source_path = node->source_path;
+      copy->source_notices = node->source_notices;
       copies_.emplace(node.get(), copy.get());
       result.push_back(std::move(copy));
     }

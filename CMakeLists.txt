@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.28)
 
-project(serializer VERSION 1.6.0 LANGUAGES CXX)
+project(serializer VERSION 1.7.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
 set(serializer_schema_language_version 1.2.0)
@@ -40,7 +40,8 @@ option(SERIALIZER_WITH_LZ4 "Enable standard LZ4 frame compression" ON)
 option(SERIALIZER_WITH_ZLIB "Enable gzip, zlib, and raw DEFLATE compression" ON)
 include(cmake/serializer_compression.cmake)
 
-add_library(serializer_lib
+# Application support is permissively licensed and contains no schema compiler code.
+add_library(serializer_runtime
   src/file_stream.cpp
   include/rohit/file_stream.hpp
   src/managed_file_journal.cpp
@@ -50,14 +51,34 @@ add_library(serializer_lib
   include/rohit/managed_journal.hpp
   src/compression.cpp
   include/rohit/compression.hpp
+  src/simd_dispatch.cpp
+  src/simd_dispatch.hpp
+  src/runtime_simd.cpp
+  include/rohit/serializer.hpp
+  include/rohit/constant_binary.hpp
+  include/rohit/constant_binary_output.hpp
+  include/rohit/binary_output_support.hpp
+  include/rohit/binary_scalar.hpp
+  include/rohit/utf8.hpp
+  include/rohit/protobuf.hpp
+  include/rohit/decode.hpp
+  include/rohit/binary_view.hpp
+  include/rohit/json_text.hpp
+  include/rohit/runtime_simd.hpp
+  include/rohit/stream.hpp
+  include/rohit/stream_concepts.hpp
+  include/rohit/stream_io.hpp
+)
+set_target_properties(serializer_runtime PROPERTIES EXPORT_NAME runtime)
+add_library(Serializer::runtime ALIAS serializer_runtime)
+
+# Retain the original compiler-library API and target for existing compiler clients.
+add_library(serializer_lib
   src/parser.cpp
   src/schema_policy.cpp
   src/schema_policy.hpp
   src/schema_scan.cpp
   src/schema_scan.hpp
-  src/simd_dispatch.cpp
-  src/simd_dispatch.hpp
-  src/runtime_simd.cpp
   src/cpp_writer.cpp
   src/managed_schema.hpp
   src/managed_lowering.hpp
@@ -87,33 +108,22 @@ add_library(serializer_lib
   include/rohit/schema_compatibility.hpp
   include/rohit/output_options.hpp
   include/rohit/serializer_creator.hpp
-  include/rohit/serializer.hpp
-  include/rohit/constant_binary.hpp
-  include/rohit/constant_binary_output.hpp
-  include/rohit/binary_output_support.hpp
-  include/rohit/binary_scalar.hpp
-  include/rohit/utf8.hpp
-  include/rohit/protobuf.hpp
-  include/rohit/decode.hpp
-  include/rohit/binary_view.hpp
-  include/rohit/json_text.hpp
-  include/rohit/runtime_simd.hpp
-  include/rohit/stream.hpp
-  include/rohit/stream_concepts.hpp
-  include/rohit/stream_io.hpp
 )
-target_include_directories(serializer_lib PUBLIC
+target_include_directories(serializer_runtime PUBLIC
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
   "$<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}/generated/include>"
   "$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
 )
-target_compile_features(serializer_lib PUBLIC cxx_std_20)
-target_compile_definitions(serializer_lib PRIVATE
+target_compile_features(serializer_runtime PUBLIC cxx_std_20)
+target_compile_definitions(serializer_runtime PRIVATE
   SERIALIZER_ENABLE_SIMD=$<BOOL:${SERIALIZER_ENABLE_SIMD}>
   SERIALIZER_WITH_ZSTD=$<BOOL:${SERIALIZER_WITH_ZSTD}>
   SERIALIZER_WITH_LZ4=$<BOOL:${SERIALIZER_WITH_LZ4}>
   SERIALIZER_WITH_ZLIB=$<BOOL:${SERIALIZER_WITH_ZLIB}>)
-target_link_libraries(serializer_lib PRIVATE ${serializer_compression_libraries})
+target_compile_definitions(serializer_lib PRIVATE
+  SERIALIZER_ENABLE_SIMD=$<BOOL:${SERIALIZER_ENABLE_SIMD}>)
+target_link_libraries(serializer_runtime PRIVATE ${serializer_compression_libraries})
+target_link_libraries(serializer_lib PUBLIC Serializer::runtime)
 
 # Keep AVX2 flags off the dispatcher and consumers, including in unity builds.
 set(serializer_x64 FALSE)
@@ -134,8 +144,10 @@ endif()
 if(SERIALIZER_ENABLE_SIMD AND serializer_x64 AND
     CMAKE_CXX_COMPILER_ID MATCHES "^(MSVC|GNU|Clang|AppleClang)$")
   set(serializer_avx2_sources src/schema_scan_avx2.cpp src/runtime_simd_avx2.cpp)
-  target_sources(serializer_lib PRIVATE ${serializer_avx2_sources})
+  target_sources(serializer_lib PRIVATE src/schema_scan_avx2.cpp)
+  target_sources(serializer_runtime PRIVATE src/runtime_simd_avx2.cpp)
   target_compile_definitions(serializer_lib PRIVATE SERIALIZER_HAS_AVX2_SCANNER=1)
+  target_compile_definitions(serializer_runtime PRIVATE SERIALIZER_HAS_AVX2_SCANNER=1)
   if(MSVC)
     set_source_files_properties(${serializer_avx2_sources} PROPERTIES COMPILE_OPTIONS /arch:AVX2)
   else()
@@ -182,7 +194,7 @@ if(SERIALIZER_INSTALL)
   )
   write_basic_package_version_file("${CMAKE_CURRENT_BINARY_DIR}/SerializerConfigVersion.cmake"
     VERSION "${PROJECT_VERSION}" COMPATIBILITY SameMajorVersion)
-  install(TARGETS serializer_lib serializer EXPORT SerializerTargets
+  install(TARGETS serializer_runtime serializer_lib serializer EXPORT SerializerTargets
     RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
     LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
     ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
@@ -215,11 +227,12 @@ if(SERIALIZER_INSTALL)
     cmake/serializer_generate_source.cmake
     cmake/serializer_compression.cmake
     DESTINATION "${serializer_package_directory}")
-  install(FILES LICENSE DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/Serializer")
+  install(FILES LICENSE LICENSE-RUNTIME LICENSE-GENERATED
+    DESTINATION "${CMAKE_INSTALL_DATADIR}/licenses/Serializer")
 endif()
 
 # Keep this project's warnings local when consumed through add_subdirectory.
-foreach(target IN ITEMS serializer_lib serializer)
+foreach(target IN ITEMS serializer_runtime serializer_lib serializer)
   if(MSVC)
     target_compile_options(${target} PRIVATE /W4 /WX)
   elseif(UNIX)
@@ -246,7 +259,7 @@ if(SERIALIZER_BUILD_TESTS OR SERIALIZER_BUILD_FUZZERS OR SERIALIZER_BUILD_IOSTRE
   enable_testing()
 endif()
 if(SERIALIZER_BUILD_TESTS)
-  find_package(GTest CONFIG REQUIRED)
+  find_package(GTest 1.18.0 CONFIG REQUIRED)
   add_subdirectory(test)
 endif()
 if(SERIALIZER_BUILD_MANAGED AND (SERIALIZER_BUILD_TESTS OR SERIALIZER_BUILD_MANAGED_EXAMPLES))
@@ -297,7 +310,7 @@ if(SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
   endif()
   add_test(NAME serializer_language_examples
     COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/example/run.py"
-      --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_lib>"
+      --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_runtime>"
       --build "${PROJECT_BINARY_DIR}/language_examples" ${native_example_options}
       ${big_endian_example_options})
   add_test(NAME serializer_native_codecs
@@ -306,17 +319,17 @@ if(SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
       ${native_example_options})
   add_test(NAME serializer_magic_languages
     COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/test/magic_languages.py"
-      --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_lib>"
+      --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_runtime>"
       --build "${PROJECT_BINARY_DIR}/magic_languages"
       "--wsl-languages=${SERIALIZER_EXAMPLE_WSL_LANGUAGES}")
   add_test(NAME serializer_typed_magic_languages
     COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/test/typed_magic_languages.py"
-      --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_lib>"
+      --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_runtime>"
       --build "${PROJECT_BINARY_DIR}/typed_magic_languages"
       "--wsl-languages=${SERIALIZER_EXAMPLE_WSL_LANGUAGES}")
   add_test(NAME serializer_generic_languages
     COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/example/generics/run.py"
-      --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_lib>"
+      --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_runtime>"
       --build "${PROJECT_BINARY_DIR}/generic_languages" --language all
       "--wsl-languages=${SERIALIZER_EXAMPLE_WSL_LANGUAGES}")
   set_tests_properties(serializer_generic_languages PROPERTIES TIMEOUT 1800 LABELS serializer_native)
@@ -325,7 +338,7 @@ if(SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
   foreach(feature IN ITEMS history journal collaboration authentication)
     add_test(NAME "serializer_managed_wire_${feature}"
       COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/example/managed/multilanguage/run.py"
-        --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_lib>"
+        --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_runtime>"
         --build "${PROJECT_BINARY_DIR}/managed_wire" --feature "${feature}"
         ${native_example_options})
     set_tests_properties("serializer_managed_wire_${feature}" PROPERTIES

@@ -1,3 +1,6 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: 0BSD
+// See LICENSE-RUNTIME for permission to use this runtime in proprietary applications.
 #pragma once
 
 #include <rohit/serializer.hpp>

@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin, or C applications from a provided repository or existing dependency. Use for opt-in C++20 constant binary sizing and exact-array emission, positional-only generation and borrowed emission-only models, compact unsigned prefix/varint scalars, .serializer schemas, native C++ generic templates, optional cross-language contracts, dimension parameters, inferred fixed arrays, typed scalar/enum magic, CMake generation, several INI variants from one schema parse, language-specific coding profiles, owning classes or C++ binary views, stable_ids, payload revisions, compiler-only release policies, lifecycle annotations, schema compatibility checks and reservations, stream concepts, durable file streams and iostream adapters, exact fresh-value decoding, managed journal/crash recovery and C++ local collaboration with store-owned sessions, timed synchronization and undo, optional message compression, JSON or binary codecs, database persistence guidance, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
+description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin, or C applications from a provided repository or existing dependency. Use for proprietary-compatible generated output and application runtime, opt-in C++20 constant binary sizing and exact-array emission, positional-only generation and borrowed emission-only models, compact unsigned prefix/varint scalars, .serializer schemas, native C++ generic templates, optional cross-language contracts, dimension parameters, inferred fixed arrays, typed scalar/enum magic, CMake generation, several INI variants from one schema parse, language-specific coding profiles, owning classes or C++ binary views, stable_ids, payload revisions, compiler-only release policies, lifecycle annotations, schema compatibility checks and reservations, stream concepts, durable file streams and iostream adapters, exact fresh-value decoding, managed journal/crash recovery and C++ local collaboration with store-owned sessions, timed synchronization and undo, optional message compression, JSON or binary codecs, database persistence guidance, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
 ---
 
 # Serializer Integration
@@ -44,6 +44,20 @@ there instead of relying on the relative links.
   [distribution guidance](../../../docs/distribution.md) when package availability
   differs; prefer a source build of the needed revision rather than assuming a
   published port contains current managed APIs or generation helpers.
+- For compiler/runtime 1.7.0 and newer, follow the
+  [licensing contract](../../../docs/licensing.md): generated output permits
+  proprietary licensing through `LICENSE-GENERATED`, and application runtime
+  headers/compiled helpers and managed support use `LICENSE-RUNTIME` (0BSD).
+  Preserve schema copyright/license notices, including those from included files;
+  generation does not change their ownership or license. Use `Serializer::runtime`
+  for application linkage or `Serializer::managed` when needed. The compiler and
+  `Serializer::serializer_lib` parser/generator API remain GPL-3.0-or-later. Check
+  third-party dependency licenses separately, and do not apply these permissions
+  retroactively to an older installed package.
+  Put notices in leading schema comments, before the version header. Compiler
+  library integrations should pass the full `parser::parsed_schema` to the
+  C++, Java, or portable `generate_schema` function to retain file-level notices even
+  when a schema declares no models; the CLI does this automatically.
 - Use the [C++ managed interface](../../../docs/managed/cpp_runtime.md) for
   schema-driven identity and local snapshot history. `SERIALIZER_BUILD_MANAGED` defaults ON;
   link `Serializer::managed`, and declare bare `managed` on eligible leaf classes
@@ -443,7 +457,7 @@ feature as a prerequisite without the user's request.
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
   remains available through `parser::parse(input)`. Schema language version 1.2.0 is
-  independent of compiler release 1.6.0 and wire protocols. Bug fixes and minor
+  independent of compiler release 1.7.0 and wire protocols. Bug fixes and minor
   updates increment the patch number; new features increment the minor number.
   Minor and patch releases preserve full compatibility. Developers change the
   major number manually, with best-effort compatibility across major releases.
@@ -559,13 +573,17 @@ an unused ID. Existing explicit IDs work even without `stable_ids`.
 
 Use the consuming project's existing dependency mechanism. When using CMake,
 `add_subdirectory` and installed `find_package(Serializer CONFIG REQUIRED)` expose
-`Serializer::serializer_lib`, `Serializer::serializer`, and `serializer_generate`.
+`Serializer::runtime`, `Serializer::serializer`, and `serializer_generate`.
 Use `serializer_generate(TARGET app SCHEMAS schemas/person.serializer)` after creating the
 consumer. It supplies generation dependencies, the generated include directory,
 runtime linkage, and the C++20 minimum. CMake 3.28+ is required; keep a newer C++
 mode if the application already uses one. Source dependencies build the generator
 as needed; installed packages use their installed executable. `SERIALIZER_INSTALL`
 controls installation and defaults off when Serializer is embedded.
+The generation helpers link the permissively licensed runtime rather than the
+GPL compiler API library. Keep `Serializer::serializer_lib` only for deliberate
+compiler/parser API use; building or running the GPL generator as a build tool
+does not impose its license on application output.
 
 With compiler/runtime 1.5.0 or newer, group several C++ targets needing different
 INI configurations of the same schemas with `serializer_generate_variants`:
@@ -592,9 +610,25 @@ For this repository's own build, run `make all` / `make test` on Linux or
 `./make.ps1 all` / `./make.ps1 test` on Windows. Both wrappers default to Release,
 build all enabled CMake targets, and use the `VCPKG_ROOT` toolchain when set.
 The test target builds before running CTest. They require the same compiler,
-GoogleTest, compression libraries, and clang-format dependencies as direct CMake; Java, benchmarks, and
+GoogleTest 1.18.0+, compression libraries, and clang-format dependencies as direct CMake; Java, benchmarks, and
 fuzzers remain opt-in. See [wrapper options](../../../docs/cmake_integration.md#build-this-repository)
 for configurations, separate build directories, and CMake overrides.
+GoogleTest is test-only: the repository manifest requires vcpkg `gtest` 1.18.0 or
+newer, and enabled tests use `find_package(GTest 1.18.0 CONFIG REQUIRED)`.
+Keep it out of application
+runtime dependency requirements; applications link `Serializer::runtime` or
+`Serializer::managed` with their enabled compression dependencies.
+On Windows, reconfigure and rebuild existing test targets after updating this
+checkout. Post-build staging copies their transitive imported shared DLLs,
+including shared GoogleTest dependencies, beside the test executable. It derives
+paths from CMake targets and selects the current Debug/Release configuration;
+static-only dependency lists need no copies. This applies to repository test
+executables, with verification status recorded separately in the build guide.
+If a cached `GTest_DIR` selects an older package, update the dependency installation
+and reconfigure with `cmake -S . -B <build-directory> -U GTest_DIR`, preserving the
+build's toolchain and other options, then rebuild the tests. Follow
+[test package migration](../../../docs/cmake_integration.md#windows-test-runtime-dlls)
+for DLL staging and targeted test commands.
 If a cached Visual Studio instance no longer exists, use
 `./make.ps1 configure -CMakeArgs '--fresh', '<required -D overrides>'` and reapply
 the build's nondefault settings before building again. Inspect/back up the cache
@@ -663,7 +697,7 @@ retains allocation, input, nesting, collection, and work limits. Work exhaustion
 uses the scalar path to preserve partial results and failure positions. Boolean
 and enum arrays retain per-element validation. Input must not overlap decoded storage.
 Keep scalar handling for single values, variable-length values, and view setters.
-Link `Serializer::serializer_lib` for pre-generated headers too. Disabling SIMD
+Link `Serializer::runtime` for pre-generated headers too. Disabling SIMD
 retains bulk array reads/writes and direct JSON escaping. See
 [runtime SIMD](../../../docs/runtime_simd.md) for scope, aliasing, and limitations.
 Wire bytes and schema syntax stay unchanged; do not add a `simd` keyword or promise

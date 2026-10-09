@@ -134,7 +134,7 @@ Namespace scopes are reused during parsing; duplicate types and namespace/type c
 are rejected. See [schema includes](usage.md#share-declarations-with-includes) and the
 [paired C++/Java examples](../example/includes/README.md). Quoted defaults preserve
 literal spaces, for example `public string label { "schema default" };`; escaping the
-space is unnecessary. Run `serializer --version` for compiler version **1.6.0** and
+space is unnecessary. Run `serializer --version` for compiler version **1.7.0** and
 supported schema versions. See [command-line options](command_line.md) for
 multi-language generation and overrides.
 
@@ -151,6 +151,13 @@ JavaScript/TypeScript and Python. Native sequence counts remain unchanged;
 generated codecs enforce exact extent in all four protocols. Other portable
 backends and initialized collection defaults remain unsupported. See the
 [backend matrix](generics.md#backend-support).
+
+Compiler/runtime **1.7.0** separates the 0BSD application runtime target
+`Serializer::runtime` from the GPL compiler API target
+`Serializer::serializer_lib`. Serializer-authored generated code can be
+distributed under proprietary terms, with input-schema copyright/license
+notices preserved. See [licensing](licensing.md) and the
+[migration guide](../migration.md).
 
 See [Java output](java.md) for dependency-free Java 17+ codecs and [all
 examples](../example/README.md) for self-contained example folders.
