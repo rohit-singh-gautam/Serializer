@@ -57,8 +57,12 @@ limits, and supported format profiles. Missing enabled dependencies are errors.
 
 The root wrappers forward to CMake and preserve its incremental build and schema
 generation rules. On a fresh build, tests and all C++ style examples are enabled;
-GoogleTest 1.18.0+ and clang-format 19+ must be available. `all` configures and builds,
-`test` also runs CTest, and `configure` stops after configuration.
+GoogleTest 1.18.0+ and clang-format 19+ must be available. Both platforms provide
+`configure`, `all`, `test`, `clean`, and `rebuild` with synchronized defaults and
+corresponding options. `all` configures and builds, `test` also runs CTest, and
+`configure` stops after configuration. `clean` uses the selected configured tree's
+CMake clean target; `rebuild` configures normally and uses CMake's `--clean-first`
+to complete native cleanup before building.
 
 | Requirement | When it is needed |
 | --- | --- |
@@ -67,7 +71,7 @@ GoogleTest 1.18.0+ and clang-format 19+ must be available. `all` configures and 
 | C++20 compiler and standard library | Library, schema compiler, and C++ consumers; the selected compiler must support the target architecture. |
 | Native build tool | GNU Make for `make all`; Ninja for the Linux and Windows presets; MSBuild/Visual Studio C++ tools or another configured generator for the Windows wrapper. |
 | PowerShell | Windows `make.ps1` wrapper. |
-| Node.js 22+, npm and Visual Studio 2022/2026 MSBuild | Both editor extension packages, included in Windows `make.ps1 all`; the `configure` and `test` targets remain CMake-only. |
+| Node.js 22+, npm and Visual Studio 2022/2026 MSBuild | Both editor extension packages, included in Windows `make.ps1 all` and `rebuild`; `configure`, `test`, and `clean` remain CMake-only. |
 | Git, HTTPS certificates, curl, zip, unzip, tar | Obtaining sources and bootstrapping/downloading vcpkg dependencies; the Linux setup installs these tools. |
 | GoogleTest 1.18.0+ CMake config package | `SERIALIZER_BUILD_TESTS=ON`; supplied by this checkout's vcpkg `gtest` dependency or an existing installation, discovered with `find_package(GTest 1.18.0 CONFIG REQUIRED)`. |
 | clang-format 19+ | Generated C++ tests, style/iostream/compression examples, benchmarks, fuzzers, and consumer generation with formatting enabled. |
@@ -129,6 +133,8 @@ Distribution package names alone do not guarantee the required versions: check
 ```sh
 make all
 make test CONFIG=Debug JOBS=8
+make clean CONFIG=Debug
+make rebuild CONFIG=Debug JOBS=8
 make all BUILD_DIR=out/build/minimal CMAKE_ARGS='-DSERIALIZER_BUILD_TESTS=OFF'
 ```
 
@@ -137,23 +143,51 @@ On Windows, use PowerShell without installing GNU Make:
 ```powershell
 ./make.ps1 all
 ./make.ps1 test -Configuration Debug -Jobs 8
+./make.ps1 clean -Configuration Debug
+./make.ps1 rebuild -Configuration Debug -Jobs 8
 ./make.ps1 all -BuildDirectory out/build/minimal -CMakeArgs '-DSERIALIZER_BUILD_TESTS=OFF'
 ```
 
-After the CMake build succeeds, `./make.ps1 all` restores locked npm dependencies
-and packages both the Visual Studio Code and Visual Studio extensions. The two
-manifests must have the same release version; a mismatch or any packaging failure
+After the CMake build succeeds, `./make.ps1 all` and `./make.ps1 rebuild` restore
+locked npm dependencies and package both the Visual Studio Code and Visual Studio
+extensions. The two manifests must have the same release version; a mismatch or
+any packaging failure
 fails the command. Packages are written to `out/extensions` and are not installed.
 Visual Studio's full-framework MSBuild is required for the VSIX even if CMake
 uses Ninja or another generator. First builds need npm/NuGet access for dependencies.
 Run `./editors/build.ps1` to package only the extensions, optionally with
 `-MSBuildPath '<path to MSBuild.exe>'`. Use direct CMake commands for a CMake-only
-build; the `configure` and `test` wrapper targets do not package extensions.
+build; Windows `configure`, `test`, and `clean` do not package extensions. Linux
+wrapper commands build native CMake targets only.
 
 Both default to Release, four build jobs, and `out/build/make-Release`; changing
 configuration changes the default directory. Relative PowerShell build paths are
 resolved against the repository root, and the script can be invoked from another
 directory. Run GNU Make from the repository root (or use `make -C`).
+
+`clean` runs `cmake --build <directory> --config <configuration> --target clean`
+only when that build tree has `CMakeCache.txt`. Without a configured tree it is a
+successful no-op: it does not configure, acquire dependencies, or validate a vcpkg
+toolchain. It preserves the cache, installed dependencies, and extension packages
+and never recursively deletes directories. Select the intended build directory
+and configuration explicitly when using nondefault values. `rebuild` configures
+normally, then runs `cmake --build` with `--clean-first`. CMake completes native
+cleanup before building, so `make -j rebuild` cannot race the two steps. Windows
+then packages the editor extensions as with `all`. To refresh a stale
+configuration instead, follow
+[cache recovery](#recover-a-stale-visual-studio-instance).
+
+The common options map between wrappers as follows:
+
+| Linux Make variable | Windows PowerShell parameter | Default |
+| --- | --- | --- |
+| `CONFIG` | `-Configuration` | `Release` |
+| `BUILD_DIR` | `-BuildDirectory` | `out/build/make-<configuration>` |
+| `JOBS` | `-Jobs` | `4` |
+| `VCPKG_ROOT` | `-VcpkgRoot` | `VCPKG_ROOT` environment value, if set |
+| `CMAKE_ARGS` | `-CMakeArgs` | No additional CMake arguments |
+| `CMAKE` | `-CMakeCommand` | `cmake` |
+| `CTEST` | `-CTestCommand` | `ctest` |
 
 Set `VCPKG_ROOT` to enable its CMake toolchain. Without it, CMake searches for
 installed dependencies normally. PowerShell also accepts `-VcpkgRoot` (pass an
@@ -162,7 +196,9 @@ Use `CMAKE_ARGS` on Linux or the `-CMakeArgs` string array on Windows for packag
 paths, compiler/generator selection, or optional Java/benchmark/fuzzer settings.
 Use separate build directories when changing compilers, architectures, or
 toolchains. Existing cache options are retained unless explicitly overridden.
-Every wrapper stops on a failed configure, build, or test command.
+Override `CMAKE`/`CTEST` or `-CMakeCommand`/`-CTestCommand` when executables are
+outside `PATH`. Every wrapper stops on a failed configure, build, clean, test, or
+packaging command.
 
 The [iostream examples](../example/iostream/README.md) are included with tests.
 To build them without GoogleTest, configure with `SERIALIZER_BUILD_TESTS=OFF`

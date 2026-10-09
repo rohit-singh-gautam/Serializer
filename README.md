@@ -32,7 +32,7 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **1.8.0**. Bug fixes and minor updates
+The current compiler and runtime release is **1.8.1**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.3.0**;
@@ -274,6 +274,8 @@ On Linux with GNU Make:
 ```sh
 make all
 make test
+make clean
+make rebuild
 ```
 
 On Windows with PowerShell:
@@ -281,11 +283,20 @@ On Windows with PowerShell:
 ```powershell
 ./make.ps1 all
 ./make.ps1 test
+./make.ps1 clean
+./make.ps1 rebuild
 ```
 
-Windows `all` also packages both editor extensions. It requires Node.js 22+, npm,
-and Visual Studio MSBuild; it does not install the packages. The `test` and
-`configure` targets remain CMake-only.
+Both wrappers provide synchronized `configure`, `all`, `test`, `clean`, and
+`rebuild` commands. `clean` uses CMake's clean target for an existing configured
+tree, preserving its cache and installed dependencies; an unconfigured tree is a
+successful no-op. `rebuild` configures normally and uses CMake's `--clean-first`
+to finish native cleanup before rebuilding.
+
+Windows `all` and `rebuild` also package both editor extensions. They require
+Node.js 22+, npm, and Visual Studio MSBuild; they do not install the packages.
+Linux builds native CMake targets. Windows `test`, `configure`, and `clean` remain
+CMake-only.
 
 For direct CMake commands, presets, builds without GoogleTest, and troubleshooting,
 see [build and generation](docs/build_and_generation.md#build-and-test).
@@ -315,7 +326,7 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
 Both extensions use source release version **1.1.28**, independent of compiler version
-**1.8.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
+**1.8.1**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
 for supported destinations and language-service prerequisites.
 VS Code also supports navigation from read-only Git index/history tabs, using
 the displayed snapshot and current workspace destinations.

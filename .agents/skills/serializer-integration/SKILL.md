@@ -457,7 +457,7 @@ feature as a prerequisite without the user's request.
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
   remains available through `parser::parse(input)`. Schema language version 1.3.0 is
-  independent of compiler release 1.8.0 and wire protocols. Bug fixes and minor
+  independent of compiler release 1.8.1 and wire protocols. Bug fixes and minor
   updates increment the patch number; new features increment the minor number.
   Minor and patch releases preserve full compatibility. Developers change the
   major number manually, with best-effort compatibility across major releases.
@@ -626,12 +626,22 @@ width, separate-values representation, or naming profiles. See the
 [variants helper contract](../../../docs/cmake_integration.md#generate-several-configurations-from-one-parse)
 and [usage examples](../../../docs/usage.md#generate-several-configurations-from-one-parse).
 
-For this repository's own build, run `make all` / `make test` on Linux or
-`./make.ps1 all` / `./make.ps1 test` on Windows. Both wrappers default to Release,
+For this repository's own build, use GNU `make` on Linux and `./make.ps1` on
+Windows. Keep their common `configure`, `all`, `test`, `clean`, and `rebuild`
+commands, defaults, corresponding options, and CMake behavior synchronized, and
+verify both when changing either. Both default to Release and four build jobs,
 build all enabled CMake targets, and use the `VCPKG_ROOT` toolchain when set.
-The test target builds before running CTest. They require the same compiler,
-GoogleTest 1.18.0+, compression libraries, and clang-format dependencies as direct CMake; Java, benchmarks, and
-fuzzers remain opt-in. See [wrapper options](../../../docs/cmake_integration.md#build-this-repository)
+The test target builds before running CTest; configure stops before building.
+Clean only invokes CMake's clean target for an existing configured tree and is a
+successful no-op otherwise, without configuring or validating vcpkg. It preserves
+the cache and installed dependencies and never recursively deletes the build tree.
+Rebuild configures normally, then uses CMake's `--clean-first` to complete native
+cleanup before building, including `make -j rebuild`. Select the same build
+directory and configuration when cleaning or rebuilding an existing build.
+Normal builds require the same compiler, GoogleTest 1.18.0+, compression libraries,
+and clang-format dependencies as direct CMake; Java, benchmarks, and fuzzers remain
+opt-in. Use Make's `CMAKE`/`CTEST` or PowerShell's `-CMakeCommand`/`-CTestCommand`
+to select executables outside `PATH`. See [wrapper options](../../../docs/cmake_integration.md#build-this-repository)
 for configurations, separate build directories, and CMake overrides.
 GoogleTest is test-only: the repository manifest requires vcpkg `gtest` 1.18.0 or
 newer, and enabled tests use `find_package(GTest 1.18.0 CONFIG REQUIRED)`.
@@ -654,11 +664,13 @@ If a cached Visual Studio instance no longer exists, use
 the build's nondefault settings before building again. Inspect/back up the cache
 first; do not preserve stale compiler paths or overwrite only the instance entry.
 See [cache recovery](../../../docs/cmake_integration.md#recover-a-stale-visual-studio-instance).
-On Windows, `./make.ps1 all` additionally packages both editor extensions after a
-successful CMake build. It requires Node.js 22+, npm and Visual Studio MSBuild,
-restores locked npm dependencies, and rejects unequal extension versions. Packages
-go to `out/extensions`; it does not install them. Use `./editors/build.ps1` for
-extension packaging alone. The `configure` and `test` targets remain CMake-only.
+On Windows, `./make.ps1 all` and `./make.ps1 rebuild` additionally package both
+editor extensions after a successful CMake build. They require Node.js 22+, npm
+and Visual Studio MSBuild, restore locked npm dependencies, and reject unequal
+extension versions. Packages go to `out/extensions`; the commands do not install
+them. Use `./editors/build.ps1` for
+extension packaging alone. Linux builds native CMake targets; Windows `configure`,
+`test`, and `clean` remain CMake-only. Cleaning does not remove extension packages.
 
 The repository's Windows presets explicitly use Ninja and x64 architecture with
 `strategy: external`. Visual Studio supplies the compiler environment; command-line

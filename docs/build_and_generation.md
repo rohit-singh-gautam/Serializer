@@ -14,19 +14,39 @@ GoogleTest 1.18.0 or newer available:
 # Linux (GNU Make)
 make all
 make test
+make clean
+make rebuild
 ```
 
 ```powershell
 # Windows (PowerShell; GNU Make is not required)
-# all also packages both editor extensions; requires Node.js 22+, npm and Visual Studio MSBuild
+# all/rebuild also package both extensions; require Node.js 22+, npm and Visual Studio MSBuild
 ./make.ps1 all
 ./make.ps1 test
+./make.ps1 clean
+./make.ps1 rebuild
 ```
 
-Both wrappers default to Release and configure/build all enabled CMake targets,
-including tests and C++ style examples on a fresh cache. `test` builds first and runs
-CTest; `configure` only configures. Set `VCPKG_ROOT` to use its toolchain for
-GoogleTest, or provide an installed GoogleTest package through CMake. The wrappers do
+The Linux `Makefile` and Windows `make.ps1` keep their common commands, defaults,
+and corresponding options synchronized. Both default to Release and configure/build
+all enabled CMake targets, including tests and C++ style examples on a fresh cache.
+
+| Command | Common CMake behavior |
+| --- | --- |
+| `configure` | Configure the selected build tree without building. |
+| `all` (default) | Configure and build all enabled targets. |
+| `test` | Configure and build all enabled targets, then run CTest. |
+| `clean` | Run CMake's clean target for an existing configured tree; otherwise succeed without configuring. |
+| `rebuild` | Configure, then use CMake's `--clean-first` to finish native cleanup before building, including with parallel GNU Make. |
+
+`clean` preserves `CMakeCache.txt`, installed dependencies, and extension packages;
+it never recursively deletes the build tree. It needs no vcpkg toolchain validation
+or compiler configuration for an unconfigured tree. Use the same build-directory
+and configuration options for `all`, `clean`, and `rebuild` to select the intended
+outputs. This clean is separate from CMake's `--fresh` cache recovery.
+
+Set `VCPKG_ROOT` to use its toolchain for GoogleTest, or provide an installed
+GoogleTest package through CMake. The wrappers do
 not install a compiler or clang-format. Java, benchmarks, and fuzzers remain opt-in.
 The repository manifest requires the vcpkg `gtest` package at version 1.18.0 or
 newer; CMake loads its installed configuration with
@@ -47,13 +67,15 @@ If CMake still selects a removed Visual Studio installation, follow
 [stale Visual Studio cache recovery](cmake_integration.md#recover-a-stale-visual-studio-instance)
 to refresh the build configuration and reapply your nondefault options.
 
-On Windows, `./make.ps1 all` also restores locked npm dependencies and builds both
-editor extension packages in `out/extensions`, after the CMake build succeeds. This
-requires Node.js 22+, npm, and Visual Studio 2022/2026 or Build Tools with MSBuild. It
-checks that extension versions match and stops on packaging failures; neither package is
+On Windows, `./make.ps1 all` and `./make.ps1 rebuild` also restore locked npm
+dependencies and build both editor extension packages in `out/extensions`, after
+the CMake build succeeds. This requires Node.js 22+, npm, and Visual Studio
+2022/2026 or Build Tools with MSBuild. The wrapper checks that extension versions
+match and stops on packaging failures; neither package is
 installed. Run `./editors/build.ps1` to build only the two extension packages.
 
-The `configure` and `test` targets remain CMake-only.
+Linux wrapper commands build native CMake targets. Windows `configure`, `test`,
+and `clean` remain CMake-only.
 
 If configuration reports a missing clang-format, install version 19 or newer and
 rerun `make all`. On Ubuntu/Debian with that package available, use

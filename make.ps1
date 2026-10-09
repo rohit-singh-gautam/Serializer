@@ -1,21 +1,28 @@
 <#
 .SYNOPSIS
-Configure and build Serializer and both editor extensions, or run CMake tests.
+Configure, build, clean or rebuild Serializer, or run CMake tests.
 .DESCRIPTION
-The all target builds enabled CMake targets and both editor VSIX packages without
+Keep native target behavior and options synchronized with the Linux Makefile.
+The all and rebuild targets build enabled CMake targets and both editor VSIX packages without
 installing them. Extension packaging requires Windows, Node.js 22+, npm and Visual
 Studio MSBuild. The configure and test targets operate on CMake targets only.
+Clean removes native build outputs through CMake while retaining configuration,
+dependencies and editor packages. An unconfigured build needs no cleanup.
 .EXAMPLE
 ./make.ps1 all
 .EXAMPLE
 ./make.ps1 test -Configuration Debug
+.EXAMPLE
+./make.ps1 clean
+.EXAMPLE
+./make.ps1 rebuild -Jobs 8
 .EXAMPLE
 ./make.ps1 all -CMakeArgs '-DSERIALIZER_BUILD_TESTS=OFF'
 #>
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [ValidateSet('all', 'configure', 'test')]
+    [ValidateSet('all', 'configure', 'test', 'clean', 'rebuild')]
     [string]$Target = 'all',
     [ValidateSet('Debug', 'Release', 'RelWithDebInfo', 'MinSizeRel')]
     [string]$Configuration = 'Release',
@@ -24,7 +31,11 @@ param(
     [int]$Jobs = 4,
     [AllowEmptyString()]
     [string]$VcpkgRoot = $env:VCPKG_ROOT,
-    [string[]]$CMakeArgs = @()
+    [string[]]$CMakeArgs = @(),
+    [ValidateNotNullOrEmpty()]
+    [string]$CMakeCommand = 'cmake',
+    [ValidateNotNullOrEmpty()]
+    [string]$CTestCommand = 'ctest'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -44,6 +55,16 @@ if (-not $BuildDirectory) {
     $BuildDirectory = Join-Path $PSScriptRoot $BuildDirectory
 }
 
+if ($Target -eq 'clean') {
+    if (Test-Path -LiteralPath (Join-Path $BuildDirectory 'CMakeCache.txt') -PathType Leaf) {
+        Invoke-BuildCommand $CMakeCommand @('--build', $BuildDirectory,
+            '--config', $Configuration, '--target', 'clean')
+    } else {
+        Write-Host "No configured build to clean: $BuildDirectory"
+    }
+    return
+}
+
 $configureArguments = @('-S', $PSScriptRoot, '-B', $BuildDirectory,
     "-DCMAKE_BUILD_TYPE=$Configuration")
 if ($VcpkgRoot) {
@@ -53,16 +74,20 @@ if ($VcpkgRoot) {
     }
     $configureArguments += "-DCMAKE_TOOLCHAIN_FILE=$toolchain"
 }
-Invoke-BuildCommand 'cmake' ($configureArguments + $CMakeArgs)
+Invoke-BuildCommand $CMakeCommand ($configureArguments + $CMakeArgs)
 if ($Target -eq 'configure') {
     return
 }
-Invoke-BuildCommand 'cmake' @('--build', $BuildDirectory, '--config', $Configuration,
-    '--parallel', "$Jobs")
-if ($Target -eq 'all') {
+$buildArguments = @('--build', $BuildDirectory, '--config', $Configuration)
+if ($Target -eq 'rebuild') {
+    # CMake completes cleanup before starting compilation, even with parallel jobs.
+    $buildArguments += '--clean-first'
+}
+Invoke-BuildCommand $CMakeCommand ($buildArguments + @('--parallel', "$Jobs"))
+if ($Target -in @('all', 'rebuild')) {
     & (Join-Path $PSScriptRoot 'editors/build.ps1')
 }
 if ($Target -eq 'test') {
-    Invoke-BuildCommand 'ctest' @('--test-dir', $BuildDirectory,
+    Invoke-BuildCommand $CTestCommand @('--test-dir', $BuildDirectory,
         '--build-config', $Configuration, '--output-on-failure')
 }

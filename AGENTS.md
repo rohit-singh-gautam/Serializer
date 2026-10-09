@@ -107,6 +107,21 @@
   `SKILL.md` frontmatter. Its hyphenated folder/name follows the skill format;
   C++ identifiers and file names continue to follow this repository's conventions.
 
+## Synchronized Linux and Windows build commands
+
+- Use `make` with the root `Makefile` on Linux and `./make.ps1` on Windows.
+  Keep their common `configure`, `all`, `test`, `clean`, and `rebuild` targets,
+  defaults, corresponding options, and CMake behavior synchronized. Update and
+  verify both wrappers whenever either changes.
+- `clean` must run CMake's clean target only for an existing configured build
+  tree; an unconfigured tree is a successful no-op. Preserve the CMake cache and
+  installed dependencies, and never recursively delete the build directory.
+  `rebuild` must configure normally and complete native cleanup before building
+  through CMake's `--clean-first`, including under parallel GNU Make invocation.
+- Document platform-specific steps and prerequisites explicitly. Windows `all`
+  and `rebuild` also package both editor extensions; Linux builds native CMake
+  targets. Windows `configure`, `test`, and `clean` remain CMake-only.
+
 ## Serializer release versioning
 
 - Use `major.minor.patch` for the compiler and runtime release. Keep
@@ -138,7 +153,7 @@
   the language contract changes; compiler-only fixes or new output backends do
   not automatically change the schema language version.
 - Use `serializer version major.minor.patch;` for schema language releases. The
-  current schema language is `1.3.0`, independent of compiler release `1.8.0`.
+  current schema language is `1.3.0`, independent of compiler release `1.8.1`.
   Keep its source of truth in `serializer_schema_language_version` in
   `CMakeLists.txt`, separate from `project(serializer VERSION ...)`.
 - Recognize `serializer version 1;` as exactly `serializer version 1.0.0;`.
