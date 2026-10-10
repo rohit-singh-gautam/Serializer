@@ -1,0 +1,2 @@
+serializer version 1.4.0;
+include ../../schemas/union_variant/model;

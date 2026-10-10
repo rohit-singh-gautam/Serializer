@@ -453,7 +453,13 @@ void naming::validate_names(const std::vector<std::unique_ptr<syntax_node>>& sta
             if (object.has_mode(storage_mode::owning)) {
               insert_name(owning, type_name("e_" + field.name));
               insert_name(owning, type_name("u_" + field.name));
-              insert_name(owning, field_name(field.name + "_type"));
+              if (field.owning_variant) {
+                insert_name(owning, function_name("get_" + field.name + "_type"));
+                insert_name(owning, function_name("emplace_" + field.name));
+                insert_name(owning, function_name("visit_" + field.name));
+              } else {
+                insert_name(owning, field_name(field.name + "_type"));
+              }
               insert_name(owning, function_name("to_e_" + field.name));
             }
             insert_name(views, type_name("e_" + field.name));

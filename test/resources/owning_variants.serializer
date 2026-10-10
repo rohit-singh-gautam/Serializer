@@ -1,0 +1,23 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.4.0;
+
+namespace owning_variants {
+  class text_payload {
+    public string text;
+    public array uint32 numbers;
+    public map (string) string labels;
+  }
+
+  class record {
+    public variant (uint32 = code, string = text, text_payload = event, string = alias) payload;
+  }
+
+  class raw_record {
+    public union (uint32 = code, double = measure) payload;
+  }
+
+  class primitive_record {
+    public variant (uint32 = code, double = measure) payload;
+  }
+}

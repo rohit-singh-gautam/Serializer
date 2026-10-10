@@ -1,6 +1,6 @@
 set(schemas)
 foreach(fixture IN ITEMS enum person test1 array map variable assessment views storage_reuse
-    fixed_fields constant_names includes wire_compatibility generics dimensions versioning magic typed_magic inferred_arrays compact_fields digests)
+    fixed_fields constant_names includes wire_compatibility generics dimensions versioning magic typed_magic inferred_arrays compact_fields digests owning_variants owning_variant_cpp)
   list(APPEND schemas "${CMAKE_CURRENT_SOURCE_DIR}/resources/${fixture}.serializer")
 endforeach()
 
@@ -41,6 +41,7 @@ add_executable(core_serializer_test
   fixed_field_batch_test.cpp
   constant_field_name_test.cpp
   generated_test.cpp
+  owning_variants_test.cpp
   generated_notice_test.cpp
   wire_format_test.cpp
   binary_text_test.cpp
@@ -64,6 +65,36 @@ elseif(UNIX)
 endif()
 
 add_test(NAME core_serializer_test COMMAND core_serializer_test)
+
+# Compare native owning variants with independently generated JavaScript and TypeScript models.
+find_program(serializer_variant_node NAMES node)
+if(serializer_variant_node)
+  add_executable(owning_variants_portable_fixture owning_variants_portable_fixture.cpp)
+  serializer_generate(TARGET owning_variants_portable_fixture
+    SCHEMAS resources/owning_variants.serializer
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/owning_variants_native")
+  target_link_libraries(owning_variants_portable_fixture PRIVATE Serializer::serializer_lib)
+  if(MSVC)
+    target_compile_options(owning_variants_portable_fixture PRIVATE /W4 /WX)
+  elseif(UNIX)
+    target_compile_options(owning_variants_portable_fixture PRIVATE -Wall -Werror -Wpedantic -Wextra -Weffc++)
+  endif()
+  set(serializer_variant_portable_directory "${CMAKE_CURRENT_BINARY_DIR}/owning_variants_portable")
+  add_test(NAME serializer_owning_variants_portable
+    COMMAND "${serializer_variant_node}" "${CMAKE_CURRENT_SOURCE_DIR}/owning_variant_portable_test.mjs"
+      "$<TARGET_FILE:serializer>" "$<TARGET_FILE:owning_variants_portable_fixture>"
+      "${CMAKE_CURRENT_SOURCE_DIR}/resources/owning_variants.serializer"
+      "${serializer_variant_portable_directory}")
+  find_program(serializer_variant_tsc NAMES tsc tsc.cmd)
+  if(serializer_variant_tsc)
+    add_test(NAME serializer_owning_variants_typescript
+      COMMAND "${serializer_variant_tsc}" --strict --noEmit --target ES2020
+        --module NodeNext --moduleResolution NodeNext
+        "${serializer_variant_portable_directory}/consumer.mts")
+    set_tests_properties(serializer_owning_variants_typescript PROPERTIES
+      DEPENDS serializer_owning_variants_portable)
+  endif()
+endif()
 
 # Qualify constexpr calls through a real opt-in generated model and the existing runtime consumer.
 add_executable(constant_binary_test constant_binary_test.cpp)
@@ -344,7 +375,8 @@ endif()
 add_executable(protobuf_codec_test protobuf_codec_test.cpp protobuf_stream_test.cpp typed_magic_protobuf_test.cpp)
 serializer_generate(TARGET protobuf_codec_test SCHEMAS resources/protobuf.serializer resources/typed_magic.serializer
   CONFIG protobuf.ini OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/protobuf")
-target_link_libraries(protobuf_codec_test PRIVATE GTest::gtest_main)
+# Schema-validation tests call the compiler parser and writer in addition to generated runtime codecs.
+target_link_libraries(protobuf_codec_test PRIVATE Serializer::serializer_lib GTest::gtest_main)
 add_test(NAME protobuf_codec_test COMMAND protobuf_codec_test)
 add_executable(protobuf_allocation_test protobuf_allocation_test.cpp)
 target_link_libraries(protobuf_allocation_test PRIVATE Serializer::runtime)

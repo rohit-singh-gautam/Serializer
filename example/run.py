@@ -9,18 +9,31 @@ import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 LANGUAGES = ('cpp', 'java', 'javascript', 'typescript', 'go', 'csharp', 'rust', 'python', 'swift', 'kotlin', 'c')
-EXAMPLES = ('basic', 'collections', 'complex', 'interoperability', 'versioning')
+EXAMPLES = ('basic', 'collections', 'complex', 'interoperability', 'versioning', 'union_variant')
 OUTPUTS = {'cpp': 'message.hpp', 'java': 'Schema.java', 'javascript': 'schema.mjs',
            'typescript': 'schema.d.mts', 'go': 'schema.go', 'csharp': 'Schema.cs',
            'rust': 'schema.rs', 'python': 'schema.py', 'swift': 'Schema.swift',
            'kotlin': 'Schema.kt', 'c': 'schema.h'}
+PROCESS_CREATION_FLAGS = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
 
 
 def run(command, *, cwd=None, capture=False):
     """Execute an argument vector without a shell and fail on any SDK or example error."""
     return subprocess.run([str(x) for x in command], cwd=cwd, check=True,
-                          stdout=subprocess.PIPE if capture else None,
-                          text=capture, encoding='utf-8' if capture else None, timeout=600)
+                          stdout=subprocess.PIPE if capture else sys.stdout, stderr=sys.stderr,
+                          text=capture, encoding='utf-8' if capture else None, timeout=600,
+                          creationflags=PROCESS_CREATION_FLAGS)
+
+
+def require_rejection(command, output):
+    """Require a generated reader to reject invalid input without publishing an output file."""
+    output.unlink(missing_ok=True)
+    result = subprocess.run([str(x) for x in command], check=False,
+                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                            text=True, encoding='utf-8', timeout=30,
+                            creationflags=PROCESS_CREATION_FLAGS)
+    if result.returncode == 0 or output.exists():
+        raise AssertionError(f'Unsupported version was accepted: {command}\n{result.stdout}\n{result.stderr}')
 
 
 def verify_positional_bytes(directory, producers):
@@ -190,7 +203,7 @@ class Runner:
             expected = json.loads(input_file.read_text(encoding='utf-8'))
             if example == 'versioning':
                 expected = {'version': 10, 'id': 42, 'enabled': True, 'name': 'Ada'}
-            else:
+            elif example != 'union_variant':
                 expected['revision'] += 1
             for language, command in commands.items():
                 output = fixtures / f'{language}.json'
@@ -198,6 +211,14 @@ class Runner:
                 actual = json.loads(output.read_text(encoding='utf-8'))
                 if actual != expected:
                     raise AssertionError(f'{language}/{example}: decoded fields differ from the independent fixture')
+            if example == 'union_variant':
+                # This negative JSON fixture changes only the generated payload-version discriminator.
+                unsupported = {**expected, 'version': 2}
+                future_input = fixtures / 'unsupported_version.json'
+                future_input.write_text(json.dumps(unsupported), encoding='utf-8')
+                for language, command in commands.items():
+                    output = fixtures / f'{language}_unsupported.json'
+                    require_rejection([*command, self.path(language, future_input), self.path(language, output)], output)
             print(f'PASS: {example}, {len(selected)} languages, all 4 protocols', flush=True)
 
 
@@ -216,6 +237,8 @@ def main():
                         help='Add s390x C/C++ producers and consumers through QEMU (WSL on Windows)')
     args = parser.parse_args()
     args.compiler = args.compiler.resolve(); args.build = args.build.resolve()
+    if args.cpp_library:
+        args.cpp_library = args.cpp_library.resolve()
     languages = LANGUAGES if args.language == 'all' else tuple(args.language.split(','))
     if not languages or len(set(languages)) != len(languages) or any(x not in LANGUAGES for x in languages):
         parser.error('Choose distinct supported language folder names')

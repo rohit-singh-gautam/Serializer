@@ -323,13 +323,14 @@ struct member {
   bool magic{false}; // Typed immutable schema identity, distinct from ordinary object fields.
   compact_encoding compact{compact_encoding::none};
   bool compact_strict{true}; // Prefix overflow is checked unless truncation is explicit.
+  bool owning_variant{false}; // The variant keyword selects owning storage without changing union wire data.
 
   // Compare the relevant values without modifying either operand.
   bool operator==(const member& rhs) const {
     return access == rhs.access && modifier == rhs.modifier &&
            type_name_list == rhs.type_name_list && name == rhs.name && managed == rhs.managed &&
            extent_expression == rhs.extent_expression && fixed_extent == rhs.fixed_extent &&
-           inferred_extent == rhs.inferred_extent &&
+           inferred_extent == rhs.inferred_extent && owning_variant == rhs.owning_variant &&
            version == rhs.version && magic == rhs.magic &&
            compact == rhs.compact && compact_strict == rhs.compact_strict &&
            obsolete == rhs.obsolete &&

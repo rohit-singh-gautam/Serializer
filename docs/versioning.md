@@ -1,7 +1,7 @@
 # Schema revisions and compatibility
 
 Every schema begins with a supported schema-language header. Use
-`serializer version 1.3.0;` for new schemas; older `1.0.0`, `1.1.0`, and `1.2.0`
+`serializer version 1.4.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, and `1.3.0`
 headers remain supported. The original `serializer version 1;` is an exact alias
 for `1.0.0`, not the latest language version. See the
 [schema-language policy](command_line.md#schema-language-version-policy).

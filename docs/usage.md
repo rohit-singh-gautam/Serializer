@@ -22,6 +22,13 @@ the standard algorithm's length. C++ creates values explicitly with
 application's hash provider. See [digest storage and creation](digest.md) for the
 algorithm table, a complete example, wire behavior, and unsupported contexts.
 
+Language `1.4.0` adds owning `variant(...)` fields. Use them for alternatives
+containing strings, collections, or generated classes that own these values.
+C++ emits `std::variant` and typed emplace/visit helpers; JavaScript/TypeScript
+emit one discriminated `{kind, value}` object. Raw `union(...)` remains available
+with its existing API and wire contract. See [unions and variants](unions_and_variants.md)
+and the [paired all-language examples](../example/README.md#union-and-variant).
+
 See [payload versioning](versioning.md) for revision types, historical positional
 layouts, field lifetimes, replacements, reservations, common read policies, and
 compiler-only release-date/count policies. These resolve to ordinary version bounds
@@ -322,7 +329,7 @@ class person stable_ids {
 ```
 
 - Use `class`, `enum`, and `namespace`; schema declarations are not C++ source.
-- Start every new `.serializer` file with `serializer version 1.3.0;` before declarations.
+- Start every new `.serializer` file with `serializer version 1.4.0;` before declarations.
   Older `1.0.0` files remain supported.
   The original `serializer version 1;` is an exact alias for `1.0.0`, exclusive to
   version 1. Future versions require three components. The language version is
@@ -381,10 +388,10 @@ namespace demo {
   spaces, backslashes, absolute paths, and other extensions are rejected.
   `./` and `../` are supported. Paths resolve from the including file, independently
   of the compiler's working directory. Comments may separate directive tokens.
-- Every file requires its own supported version header. `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, and the
+- Every file requires its own supported version header. `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, and the
   original `1` alias may coexist in an include graph. Typed magic and inferred
   arrays require `1.1.0`, compact scalars require `1.2.0`, and built-in digests
-  require `1.3.0` in the file that declares them. Includes follow that
+  require `1.3.0`; owning variants require `1.4.0` in the file that declares them. Includes follow that
   header and precede all declarations, at file scope only.
 - Nested dependencies load before their includers. Repeated paths, normalized path
   aliases, mixed shorthand/explicit spellings, and diamond dependencies contribute

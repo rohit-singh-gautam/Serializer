@@ -79,6 +79,22 @@ internal static class NavigationTest {
       Require(NavigationRunner.Resolve(model, compactOwner, true, generated, live, CancellationToken.None).Length == 11,
         "adjacent compact output navigation in every language");
       ++checks;
+      var variantText = "serializer version 1.4.0; include sales/order; class model { " +
+        "public variant(demo::order = order, uint32 = empty) payload; }";
+      live[model] = variantText;
+      var variantStart = variantText.IndexOf("demo::order", StringComparison.Ordinal);
+      for (var cursor = variantStart; cursor <= variantStart + "demo::order".Length; ++cursor) {
+        var variantResult = NavigationRunner.Resolve(model, cursor, false, generated, live, CancellationToken.None);
+        Require(variantResult.Length == 1 && File.ReadAllText(variantResult[0].file)
+          .Substring(variantResult[0].start, variantResult[0].end - variantResult[0].start) == "order",
+          "owning variant alternative navigation");
+        ++checks;
+      }
+      foreach (var alias in new[] { "order,", "empty)", "payload" }) {
+        Require(NavigationRunner.Resolve(model, variantText.IndexOf(alias, StringComparison.Ordinal),
+          false, generated, live, CancellationToken.None).Length == 0, "variant alias is not a type operand");
+        ++checks;
+      }
       live[model] = text;
       // Digest selectors are metadata, while adjacent schema types and legacy names remain navigable.
       var digestText = "serializer version 1.3.0; include sales/order; class sha256 {} " +

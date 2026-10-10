@@ -1,3 +1,8 @@
+# 1.1.30
+
+- Highlight schema language 1.4.0 owning variants and navigate their alternative types.
+- Preserve existing union support and synchronize both editor extension versions.
+
 # 1.1.29
 
 - Add the synchronized root `extension` command to package both editors without CMake configuration, native builds, or repository cleanup.

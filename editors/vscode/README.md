@@ -7,16 +7,18 @@ and existing generated code in Visual Studio Code. It provides syntax highlighti
 snippets, and CMake assistance for projects using Serializer — State Framework.
 
 Edit `.serializer` schemas with syntax highlighting, bracket matching, comments,
-folding, and snippets. Version **1.1.29** includes navigation from includes and type
+folding, and snippets. Version **1.1.30** includes navigation from includes and type
 references to source schemas and existing generated code in all 11 output languages. Use the project's
 CMake configuration for the separate build and missing-header assistance commands.
+
+Version **1.1.30** highlights language 1.4.0 owning `variant` declarations and navigates their alternative types. Existing `union` declarations remain supported. New schema snippets select language 1.4.0.
 
 Version **1.1.28** recognizes language `1.3.0` digest fields: `digest`,
 `digest[32]`, and `digest(sha256)`, including all twelve supported algorithm
 names. Algorithm selectors and byte extents are metadata rather than navigation
 destinations; adjacent types and older declared types named `digest` retain their
 normal navigation. Use `digest`, `digest-opaque`, or `digest-fixed` snippets and
-see the [digest contract](../../docs/digest.md). New schema snippets use `1.3.0`.
+see the [digest contract](../../docs/digest.md). New schema snippets use `1.4.0`.
 
 ```text
 serializer version 1.0.0;
@@ -313,7 +315,7 @@ Empty extents and element types receive fixed-array highlighting. Enum type
 operands and qualified enum defaults in typed magic retain declaration, definition,
 and type-definition navigation, including unsaved and transitive included schemas.
 VS Code includes `array_inferred` and `magic_typed` snippets; its schema snippet
-selects `serializer version 1.3.0;`. The original `1` header remains exactly
+selects `serializer version 1.4.0;`. The original `1` header remains exactly
 `1.0.0` and does not enable these features. See the
 [magic contract](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/magic_and_omission.md) and [fixed arrays](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/generics.md).
 

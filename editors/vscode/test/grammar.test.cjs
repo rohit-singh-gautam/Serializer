@@ -52,6 +52,15 @@ test('compact keyword spellings remain type operands in older ordinary fields', 
   }
 });
 
+test('legacy declared variant types keep their type scope', async () => {
+  const grammar = await loadGrammar();
+  const line = 'serializer version 1; class variant {} class model { public variant value; }';
+  const offset = line.indexOf('variant value');
+  const tokens = grammar.tokenizeLine(line, INITIAL).tokens;
+  assert.equal(tokens.find(token => token.startIndex <= offset && token.endIndex > offset).scopes.at(-1),
+    'entity.name.type.serializer');
+});
+
 test('compact modifiers highlight unsigned and generic operands without claiming field names', async () => {
   const grammar = await loadGrammar();
   const line = 'serializer version 1.2.0; class box<T> { public compact_prefix strict uint32 value (3) {32}; public compact_varint lenient T other; }';
@@ -214,6 +223,7 @@ test('custom field, container, base and default types use theme type colors, not
     ['public account owner;', ['account'], ['owner']],
     ['class derived : public demo::base (1) {', ['base'], []],
     ['public union(demo::order = sale, account = owner) value;', ['order', 'account'], ['sale', 'owner', 'value']],
+    ['public variant(demo::order = sale, account = owner) value;', ['order', 'account'], ['sale', 'owner', 'value']],
     ['public state status { demo::state::ready };', ['state status', 'demo::state'], ['status']]
   ]) {
     const tokens = grammar.tokenizeLine(line, INITIAL).tokens;

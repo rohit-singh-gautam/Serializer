@@ -1,0 +1,26 @@
+serializer version 1.4.0;
+
+// Numeric fields make this class suitable for unmanaged raw union storage.
+class point_payload stable_ids {
+  public double x (1);
+  public double y (2);
+}
+
+// These alternatives require owning storage for strings and collections.
+class text_payload stable_ids {
+  public string message (1);
+  public array string tags (2);
+}
+class collection_payload stable_ids {
+  public array uint32 numbers (1);
+  public map(string) string labels (2);
+}
+
+class sample stable_ids {
+  public union(int32 = code, point_payload = point) raw (1);
+  public variant(text_payload = text, collection_payload = collection) payload (2);
+}
+class example_model stable_ids {
+  public version uint32 version (1) { 1 };
+  public array sample samples (2);
+}

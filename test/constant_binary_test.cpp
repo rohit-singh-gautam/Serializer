@@ -41,6 +41,16 @@ static_assert(payload_bytes[86] == 3 && payload_bytes[87] == 0 && payload_bytes[
 constexpr auto empty_bytes = codec::make_binary_none_bytes<[] { return models::empty{}; }>();
 static_assert(empty_bytes.empty());
 
+// Owning variant traversal remains constexpr with real nested allocated string/vector values.
+constexpr auto owning_variant_bytes = codec::make_binary_none_bytes<[] {
+  models::owning_choice value{};
+  value.emplace_data<models::owning_choice::e_data::event>(make_payload());
+  return value;
+}>();
+static_assert(owning_variant_bytes.size() == payload_bytes.size() + 1U);
+static_assert(owning_variant_bytes.front() == 1U);
+static_assert(std::equal(payload_bytes.begin(), payload_bytes.end(), owning_variant_bytes.begin() + 1U));
+
 constexpr auto signed_bytes = codec::make_binary_none_bytes<[] { return std::int64_t{-2}; }>();
 static_assert(signed_bytes ==
               std::array<std::uint8_t, 8>{0xfe, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff});

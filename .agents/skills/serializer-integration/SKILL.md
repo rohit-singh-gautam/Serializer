@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin, or C applications from a provided repository or existing dependency. Use for proprietary-compatible generated output and application runtime, digest byte fields and C++ digest creation, opt-in C++20 constant binary sizing and exact-array emission, positional-only generation and borrowed emission-only models, compact unsigned prefix/varint scalars, .serializer schemas, native C++ generic templates, optional cross-language contracts, dimension parameters, inferred fixed arrays, typed scalar/enum magic, CMake generation, several INI variants from one schema parse, language-specific coding profiles, owning classes or C++ binary views, stable_ids, payload revisions, compiler-only release policies, lifecycle annotations, schema compatibility checks and reservations, stream concepts, durable file streams and iostream adapters, exact fresh-value decoding, managed journal/crash recovery and C++ local collaboration with store-owned sessions, timed synchronization and undo, optional message compression, JSON or binary codecs, database persistence guidance, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
+description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin, or C applications from a provided repository or existing dependency. Use for proprietary-compatible generated output and application runtime, owning variants and raw unions, digest byte fields and C++ digest creation, opt-in C++20 constant binary sizing and exact-array emission, positional-only generation and borrowed emission-only models, compact unsigned prefix/varint scalars, .serializer schemas, native C++ generic templates, optional cross-language contracts, dimension parameters, inferred fixed arrays, typed scalar/enum magic, CMake generation, several INI variants from one schema parse, language-specific coding profiles, owning classes or C++ binary views, stable_ids, payload revisions, compiler-only release policies, lifecycle annotations, schema compatibility checks and reservations, stream concepts, durable file streams and iostream adapters, exact fresh-value decoding, managed journal/crash recovery and C++ local collaboration with store-owned sessions, timed synchronization and undo, optional message compression, JSON or binary codecs, database persistence guidance, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
 ---
 
 # Serializer Integration
@@ -448,16 +448,16 @@ feature as a prerequisite without the user's request.
   Other backends and Protobuf reject fixed arrays explicitly; do not claim mappings.
   Preserve existing runtime decode limits and exact cardinality. Missing keyed
   fields retain defaults; explicitly empty fixed arrays fail. Generic managed/view
-  declarations, inheritance, unions, recursive ownership, and user specialization
+  declarations, inheritance, raw unions, recursive ownership, and user specialization
   are unsupported. Ordinary generic values may occur inside managed roots; use
   generated replacement setters and the existing history/journal APIs.
   Consult [usage](../../../docs/usage.md), [migration](../../../migration.md), and
   [qualification](../../../docs/verification-dimensions-2026-10-04.md).
-- Use `.serializer` files beginning with `serializer version 1.3.0;`, before declarations
+- Use `.serializer` files beginning with `serializer version 1.4.0;`, before declarations
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
-  remains available through `parser::parse(input)`. Schema language version 1.3.0 is
-  independent of compiler release 1.8.2 and wire protocols. Bug fixes and minor
+  remains available through `parser::parse(input)`. Schema language version 1.4.0 is
+  independent of compiler release 1.9.0 and wire protocols. Bug fixes and minor
   updates increment the patch number; new features increment the minor number.
   Minor and patch releases preserve full compatibility. Developers change the
   major number manually, with best-effort compatibility across major releases.
@@ -550,6 +550,21 @@ feature as a prerequisite without the user's request.
 - Check supported types before choosing raw unions: generated alternatives must
   be trivially destructible. Ordinary generated enums use names in JSON/string-key
   fields; binary collection enum elements use numeric values.
+- Use language `1.4.0` `variant(T = alternative, ...) field;` for owning alternatives.
+  C++ generates `std::variant`, an enum derived from its active index,
+  `emplace_field<Record::e_field::alternative>(...)`, and const/nonconst
+  `visit_field(visitor)`; assign generated class members directly. No second mutable
+  discriminator or generic JSON field builder is needed. JavaScript/TypeScript expose
+  `field: {kind: 'alternative', value: typedValue}` and construct only the active value.
+  The other language backends retain their existing tagged union mappings for both
+  keywords. Keep `union(...)` for existing raw C++ contracts; its APIs are unchanged.
+  Both keywords use the same four native wire contracts. Declaring files, including
+  dependencies, require `1.4.0` only for selector syntax; existing bare user types
+  named `variant` retain their meaning. C++ Protobuf and emission-only generation
+  explicitly reject owning variants; managed C++ class modes reject both union and variant.
+  C++ binary views retain existing union access over the same positional bytes.
+  See [unions and variants](../../../docs/unions_and_variants.md) and the
+  [paired all-language examples](../../../example/README.md#union-and-variant).
 - Select only the requested representations: no keywords or `owning` means an
   owning class; `view` means both views; `view readonly` or `view mutable` restricts
   the views. Adding `owning` retains owning storage too. Attributes are unordered;
@@ -770,7 +785,7 @@ versioned snippets, and invokes the same targets through CMake Tools. Run the ro
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 1.1.29 is shared with the Visual Studio extension and is independent of
+version 1.1.30 is shared with the Visual Studio extension and is independent of
 compiler and schema versions. Keep both editor extension versions equal.
 Both package descriptions and READMEs identify the
 [Serializer repository](https://github.com/rohit-singh-gautam/Serializer). Configure
@@ -1419,7 +1434,14 @@ Regenerate all relevant language and editor outputs when changing these contract
 
 Consult the [versioning verification record](../../../docs/verification-versioning-2026-10-06.md) and [release-policy verification record](../../../docs/verification-release-policies-2026-10-06.md) for completed language, compiler, codec, and editor checks. Release catalogs and nested allow policies are evaluated entirely during schema compilation; generated readers and writers contain only resolved version bounds.
 
-Use [payload versioning](../../../docs/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the supported schema language header (`1.3.0`, older `1.2.0`/`1.1.0`/`1.0.0`, or the original `1` alias for `1.0.0`) from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.
+Use [payload versioning](../../../docs/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the supported schema language header (`1.4.0`, older `1.3.0`/`1.2.0`/`1.1.0`/`1.0.0`, or the original `1` alias for `1.0.0`) from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.
+
+Declare payload revisions with Serializer's `version` member instead of an ordinary
+counter field. The paired `union_variant` examples declare
+`public version uint32 version (1) { 1 };`, preserve the fixture revision across
+all native protocols, and require every
+generated language's JSON reader to reject unsupported version 2. Their C++ and
+JavaScript/TypeScript examples also exercise version rejection during encoding.
 
 Keep retained historical definitions and relative positional order intact. Set the object's revision to write an older supported layout. Use `read_policy::compatible` for declared history, `strict` for the current revision, and `flexible` to skip safe JSON extensions within the declared interval. The former `json_read_policy::compatible` spelling is removed; its unknown-field behavior is `read_policy::flexible`. Native generated languages select `ReadPolicy` through `Limits`; C uses `srl_read_policy`.
 

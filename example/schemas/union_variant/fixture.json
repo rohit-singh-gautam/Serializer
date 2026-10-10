@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "samples": [
+    {
+      "raw:code": -42,
+      "payload:text": {
+        "message": "owned text",
+        "tags": [
+          "alpha",
+          "line\nbreak",
+          "embedded\u0000nul"
+        ]
+      }
+    },
+    {
+      "raw:point": {
+        "x": 3.5,
+        "y": -1.25
+      },
+      "payload:collection": {
+        "numbers": [
+          0,
+          42,
+          4294967295
+        ],
+        "labels": [
+          {
+            "key": "region",
+            "value": "south"
+          },
+          {
+            "key": "request",
+            "value": "42"
+          }
+        ]
+      }
+    },
+    {
+      "raw:point": {
+        "x": 0,
+        "y": 8
+      },
+      "payload:text": {
+        "message": "second string arm",
+        "tags": []
+      }
+    },
+    {
+      "raw:code": 2147483647,
+      "payload:collection": {
+        "numbers": [],
+        "labels": []
+      }
+    }
+  ]
+}

@@ -438,7 +438,7 @@ class emitter {
             throw std::invalid_argument{"Direct self-containing owning default"};
           }
         }
-        if (item.modifier == member::modifier_type::variant) {
+        if (item.modifier == member::modifier_type::variant && !tagged_variant(item)) {
           add(identifier + "Index");
           for (const auto& alternative : item.type_name_list) {
             add(identifier + name(alternative.enum_name, true, true));
@@ -628,6 +628,11 @@ class emitter {
                 field_type + " " + identifier + " = " + initial_value);
     }
   }
+  // Owning JS variants retain only the selected payload and its schema-defined name.
+  bool tagged_variant(const member& value) const {
+    return value.owning_variant &&
+           (language == target::js || language == target::typescript);
+  }
   // Emit parent composition, fields, and explicit union selectors.
   void declarations(const class_node& value, bool go_defaults = false) {
     const auto declare = [&](const std::string& identifier, const std::string& field_type,
@@ -647,7 +652,20 @@ class emitter {
     }
     for (const auto& item : value.member_list) {
       const auto identifier = field(item.name, item.access);
-      if (item.modifier == member::modifier_type::variant) {
+      if (item.modifier == member::modifier_type::variant && tagged_variant(item)) {
+        std::string alternatives{};
+        for (const auto& alternative : item.type_name_list) {
+          if (!alternatives.empty()) {
+            alternatives += " | ";
+          }
+          alternatives += "{ kind: " + quote(alternative.enum_name) + "; value: " +
+                          type(alternative) + " }";
+        }
+        const auto& first = item.type_name_list.front();
+        declare(identifier, alternatives,
+                "{ kind: " + quote(first.enum_name) + ", value: " + initial(first) + " }",
+                item.access);
+      } else if (item.modifier == member::modifier_type::variant) {
         declare(identifier + "Index", choose("number", "int", "int"), "0", item.access);
         for (const auto& alternative : item.type_name_list) {
           declare(identifier + name(alternative.enum_name, true, true), type(alternative),
@@ -858,8 +876,13 @@ class emitter {
     const auto destination = "result." + field(value.name, value.access);
     if (selected >= 0) {
       const auto& item = value.type_name_list.at(static_cast<std::size_t>(selected));
-      statement(destination + "Index = " + std::to_string(selected));
-      statement(destination + name(item.enum_name, true, true) + " = " + read_value(item, true));
+      if (tagged_variant(value)) {
+        statement(destination + " = { kind: " + quote(item.enum_name) +
+                  ", value: " + read_value(item, true) + " }");
+      } else {
+        statement(destination + "Index = " + std::to_string(selected));
+        statement(destination + name(item.enum_name, true, true) + " = " + read_value(item, true));
+      }
       return;
     }
     open(choose("switch (input.compact())", "switch input.compact()", "switch (input.compact())"));
@@ -1135,11 +1158,13 @@ class emitter {
       open("");
       if (item.modifier == member::modifier_type::variant) {
         const auto expression = choose("this.", "value.", "this.") + field(item.name, item.access);
-        open(choose("switch (" + expression + "Index)", "switch " + expression + "Index",
-                    "switch (" + expression + "Index)"));
+        const auto tagged = tagged_variant(item);
+        open(tagged ? "switch (" + expression + ".kind)"
+                    : choose("switch (" + expression + "Index)", "switch " + expression + "Index",
+                             "switch (" + expression + "Index)"));
         for (std::size_t i = 0; i < item.type_name_list.size(); ++i) {
           const auto& alternative = item.type_name_list[i];
-          line("case " + std::to_string(i) + ":");
+          line("case " + (tagged ? quote(alternative.enum_name) : std::to_string(i)) + ":");
           ++level;
           statement("output.field(" + std::to_string(item.id) + ", " +
                     wire_key(item.display_name + ":" + alternative.enum_name) + ", " +
@@ -1148,7 +1173,9 @@ class emitter {
                     " || output.protocol == " + protocol("BINARY_INTEGER"));
           statement("output.compact(" + std::to_string(i) + ")");
           close();
-          write_value(alternative, expression + name(alternative.enum_name, true, true), true);
+          write_value(alternative,
+                      expression + (tagged ? ".value" : name(alternative.enum_name, true, true)),
+                      true);
           if (language != target::go) {
             statement("break");
           }
@@ -1461,7 +1488,7 @@ class emitter {
           continue;
         }
         const auto member_identifier = field(item.name, item.access);
-        if (item.modifier == member::modifier_type::variant) {
+        if (item.modifier == member::modifier_type::variant && !tagged_variant(item)) {
           statement(member_identifier + "Index");
           for (const auto& alternative : item.type_name_list) {
             statement(member_identifier + name(alternative.enum_name, true, true));

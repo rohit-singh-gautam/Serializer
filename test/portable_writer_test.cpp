@@ -138,3 +138,55 @@ TEST(portable_writer, rejects_runtime_name_shadowing) {
     EXPECT_THROW(emit_portable(schema, "go", options), std::invalid_argument);
   }
 }
+
+// A managed variant exposes one active JS object and a narrowing TypeScript union.
+TEST(portable_writer, owning_variant_uses_tagged_javascript_storage) {
+  constexpr std::string_view schema =
+      "serializer version 1.4.0; class note { public string text; } "
+      "class count { public uint32 total; } class message { "
+      "public variant(note = note, count = count) payload (1); }";
+  const auto javascript = emit_portable(schema, "js");
+  EXPECT_NE(javascript.find("this.payload = { kind: \"note\", value: new Note() }"),
+            std::string::npos);
+  EXPECT_NE(javascript.find("switch (this.payload.kind)"), std::string::npos);
+  EXPECT_NE(javascript.find("case \"count\":"), std::string::npos);
+  EXPECT_NE(javascript.find("this.payload.value.write(output)"), std::string::npos);
+  EXPECT_NE(javascript.find("result.payload = { kind: \"count\", value: Count.read(input, new Count()) }"),
+            std::string::npos);
+  EXPECT_NE(javascript.find("output.compact(1)"), std::string::npos);
+  EXPECT_NE(javascript.find("\"payload:count\""), std::string::npos);
+  EXPECT_EQ(javascript.find("payloadIndex"), std::string::npos);
+  EXPECT_EQ(javascript.find("payloadNote"), std::string::npos);
+  EXPECT_EQ(javascript.find("payloadCount"), std::string::npos);
+  const auto typescript = emit_portable(schema, "typescript");
+  EXPECT_NE(typescript.find("payload: { kind: \"note\"; value: Note } | "
+                           "{ kind: \"count\"; value: Count };"), std::string::npos);
+  EXPECT_EQ(typescript.find("payloadIndex"), std::string::npos);
+}
+
+// Private owning members still declare their single JS private field before use.
+TEST(portable_writer, owning_variant_preserves_private_member_visibility) {
+  const auto javascript = emit_portable(
+      "serializer version 1.4.0; class message { "
+      "private variant(uint32 = count, string = text) payload; }", "js");
+  EXPECT_NE(javascript.find("#payload;"), std::string::npos);
+  EXPECT_NE(javascript.find("this.#payload = { kind: \"count\", value: 0 }"),
+            std::string::npos);
+  EXPECT_EQ(javascript.find("#payloadIndex"), std::string::npos);
+}
+
+// Existing union schemas keep their selector and all previously generated field names.
+TEST(portable_writer, raw_union_retains_javascript_api) {
+  constexpr std::string_view schema =
+      "class message { public union(uint32 = count, string = text) payload (1); }";
+  const auto javascript = emit_portable(schema, "js");
+  EXPECT_NE(javascript.find("this.payloadIndex = 0"), std::string::npos);
+  EXPECT_NE(javascript.find("this.payloadCount = 0"), std::string::npos);
+  EXPECT_NE(javascript.find("this.payloadText = \"\""), std::string::npos);
+  EXPECT_NE(javascript.find("switch (this.payloadIndex)"), std::string::npos);
+  EXPECT_EQ(javascript.find("this.payload.kind"), std::string::npos);
+  const auto typescript = emit_portable(schema, "typescript");
+  EXPECT_NE(typescript.find("payloadIndex: number;"), std::string::npos);
+  EXPECT_NE(typescript.find("payloadCount: number;"), std::string::npos);
+  EXPECT_NE(typescript.find("payloadText: string;"), std::string::npos);
+}

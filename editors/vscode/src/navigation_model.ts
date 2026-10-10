@@ -107,7 +107,7 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
       const next = typeReference(start + 2, depth + 1);
       return tokens[next]?.text === ')' ? typeReference(next + 1, depth + 1) : next;
     }
-    if (token === 'union' && tokens[start + 1]?.text === '(') {
+    if ((token === 'union' || token === 'variant') && tokens[start + 1]?.text === '(') {
       let next = start + 2;
       while (next < tokens.length && tokens[next].text !== ')') {
         next = typeReference(next, depth + 1);

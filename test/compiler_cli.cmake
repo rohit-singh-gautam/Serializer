@@ -34,7 +34,7 @@ endfunction()
 
 succeed(--version)
 if(NOT last_output MATCHES "Serializer compiler ${VERSION}" OR
-    NOT last_output MATCHES "Supported schema language version: 1[.]3[.]0[\r\n]")
+    NOT last_output MATCHES "Supported schema language version: 1[.]4[.]0[\r\n]")
   message(FATAL_ERROR "Incorrect compiler version: ${last_output}")
 endif()
 succeed(-v)
@@ -180,7 +180,7 @@ foreach(header IN ITEMS "" "serializer version 0;" "serializer version 2;"
     "serializer version 999999999999999999999;" "serializer version -1;"
     "serializer version 1" "serializer version 1.0;" "serializer version1;"
     "serializer version 1..0;" "serializer version 1.0.0.0;"
-    "serializer version 1.3.1;" "serializer version 1.4.0;" "serializer version 2.0.0;"
+    "serializer version 1.4.1;" "serializer version 1.5.0;" "serializer version 2.0.0;"
     "serializer version 1.999999999999999999999.0;"
     "serializer version 1.0.999999999999999999999;"
     "serializer version 1; serializer version 1;")
@@ -233,7 +233,7 @@ file(WRITE "${schema}" "serializer version 1; include shared/common;\n"
   "namespace models { class request { public account owner; } }\n")
 succeed(-i "${schema}" -l cpp,java --cpp.output "${cpp}" --java.output "${java}"
   --cpp.format false --depfile "${depfile}")
-file(WRITE "${DIRECTORY}/shared/common.serializer" "serializer version 1.3.1; class account {}")
+file(WRITE "${DIRECTORY}/shared/common.serializer" "serializer version 1.4.1; class account {}")
 reject("Unsupported schema language version" -i "${schema}" -o "${cpp}" --cpp.format false)
 file(WRITE "${DIRECTORY}/shared/common.serializer"
   "serializer version 1.0.0; namespace models { class account { public uint32 id (7); } }\n")

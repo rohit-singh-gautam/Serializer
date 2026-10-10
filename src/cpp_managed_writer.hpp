@@ -114,7 +114,7 @@ class managed_writer {
     for (const auto& field : source->member_list) {
       if (field.access != access_type::public_access ||
           field.modifier == member::modifier_type::variant) {
-        throw std::invalid_argument{"Managed C++ editors require public non-union fields: " +
+        throw std::invalid_argument{"Managed C++ editors require public fields without union or variant: " +
                                     source->get_full_name()};
       }
       const auto* node = field.type_name_list.front().resolved_node;

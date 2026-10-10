@@ -508,7 +508,7 @@ class generic_lowering {
                   throw exception::bad_member_type{input, "Invalid or excessive fixed array extent (1..65536)"};
                 }
               }
-              if (field.modifier == member::modifier_type::variant) {
+              if (field.modifier == member::modifier_type::variant && !field.owning_variant) {
                 throw exception::bad_class{input, "Generic unions are not supported"};
               }
               for (auto& type : field.type_name_list) {

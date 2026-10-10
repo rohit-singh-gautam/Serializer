@@ -23,6 +23,7 @@
 
 #include <rohit/serializer_creator.hpp>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <map>
@@ -157,8 +158,100 @@ public:
     return field_name(field.name + "_type");
   }
 
+  // Derive an owning variant's discriminator from its sole active value.
+  std::string union_tag_expression(const member& field) {
+    return "this->" + (field.owning_variant ?
+        function_name("get_" + field.name + "_type") + "()" : union_tag_name(field));
+  }
+
+  // Select by index so repeated alternative C++ types remain unambiguous.
+  std::string union_payload_expression(const member& field, std::size_t index) {
+    return field.owning_variant ? "::std::get<" + std::to_string(index) + ">(this->" +
+        member_name(field) + ")" : "this->" + member_name(field) + "." +
+        field_name(field.type_name_list[index].enum_name);
+  }
+
+  // Keep generated helper identifiers from shadowing user-selected class template parameters.
+  std::string variant_helper_name(const class_node& object, const std::string& base,
+                                  bool template_parameter = false) {
+    auto name = base;
+    std::size_t suffix{};
+    while (name == type_name(object.name) ||
+           std::any_of(object.generic_parameters.begin(), object.generic_parameters.end(),
+                       [&](const auto& parameter) { return parameter.name == name; })) {
+      name = base + (template_parameter ? "" : "_") + std::to_string(++suffix);
+    }
+    return name;
+  }
+
+  // Emit owning storage and typed operations without a second mutable discriminator.
+  std::string get_cpp_type_support_variant(const member& field, const class_node& object) {
+    const auto tag = union_enum_name(field);
+    const auto storage = union_storage_name(field);
+    const auto payload = member_name(field);
+    const auto alternative_parameter = variant_helper_name(object, "Alternative", true);
+    const auto arguments_parameter = variant_helper_name(object, "Args", true);
+    const auto visitor_parameter = variant_helper_name(object, "Visitor", true);
+    const auto arguments = variant_helper_name(object, local_name("args"));
+    const auto visitor = variant_helper_name(object, local_name("visitor"));
+    const auto index_name = variant_helper_name(object, local_name("index"));
+    const auto value_name = variant_helper_name(object, local_name("value"));
+    const auto wire_name = variant_helper_name(object, local_name("name"));
+    std::string result{"  enum class " + tag + " {\n"};
+    for (const auto& alternative : field.type_name_list) {
+      result += "    " + enum_name(alternative.enum_name) + ",\n";
+    }
+    result += "  };\n  using " + storage + " = ::std::variant<";
+    for (std::size_t index{}; index < field.type_name_list.size(); ++index) {
+      if (index != 0U) { result += ", "; }
+      result += generic_default(field.type_name_list[index]);
+    }
+    result += ">;\n"
+        "  // Derive the wire alternative from the owned active value.\n"
+        "  constexpr " + tag + " " + function_name("get_" + field.name + "_type") +
+        "() const {\n    if (this->" + payload + ".valueless_by_exception()) {\n"
+        "      throw ::std::invalid_argument{\"Valueless variant payload\"};\n    }\n"
+        "    return static_cast<" + tag + ">(this->" + payload + ".index());\n  }\n"
+        "  // Construct the selected schema alternative with normal RAII ownership.\n"
+        "  template <" + tag + " " + alternative_parameter + ", class... " + arguments_parameter + ">\n"
+        "  constexpr decltype(auto) " + function_name("emplace_" + field.name) +
+        "(" + arguments_parameter + "&&... " + arguments + ") {\n    constexpr auto " + index_name +
+        " = static_cast<::std::size_t>(" + alternative_parameter + ");\n"
+        "    static_assert(" + index_name + " < ::std::variant_size_v<" + storage +
+        ">, \"Invalid variant alternative\");\n"
+        "    return this->" + payload + ".template emplace<" + index_name + ">(::std::forward<" +
+        arguments_parameter + ">(" + arguments + ")...);\n  }\n";
+    for (const auto qualifier : {"", " const"}) {
+      result += "  // Visit only the selected typed payload.\n"
+          "  template <class " + visitor_parameter + ">\n  constexpr decltype(auto) " +
+          function_name("visit_" + field.name) + "(" + visitor_parameter + "&& " + visitor + ")" + qualifier +
+          " {\n    return ::std::visit(::std::forward<" + visitor_parameter + ">(" + visitor + "), this->" + payload +
+          ");\n  }\n";
+    }
+    result += "  // Return the unchanged wire name of a generated alternative.\n"
+        "  static ::std::string to_string(" + tag + " " + value_name +
+        ") {\n    switch (" + value_name + ") {\n";
+    for (const auto& alternative : field.type_name_list) {
+      result += "    case " + tag + "::" + enum_name(alternative.enum_name) +
+          ": return \"" + alternative.enum_name + "\";\n";
+    }
+    result += "    default: throw ::std::invalid_argument{\"Invalid variant discriminator\"};\n"
+        "    }\n  }\n"
+        "  // Match complete schema names without relying on a hash alone.\n"
+        "  static " + tag + " " + function_name("to_e_" + field.name) +
+        "(const auto& " + value_name + ") {\n    const ::std::string_view " +
+        wire_name + "{" + value_name + "};\n";
+    for (const auto& alternative : field.type_name_list) {
+      result += "    if (" + wire_name + " == \"" + alternative.enum_name +
+          "\") { return " + tag + "::" + enum_name(alternative.enum_name) + "; }\n";
+    }
+    result += "    throw ::std::invalid_argument{\"Unknown variant alternative\"};\n  }";
+    return result;
+  }
+
   // Emit union storage and conversion functions while keeping wire alternative names unchanged.
-  std::string get_cpp_type_support_union(const member& field) {
+  std::string get_cpp_type_support_union(const member& field, const class_node& object) {
+    if (field.owning_variant) { return get_cpp_type_support_variant(field, object); }
     const auto tag = union_enum_name(field);
     const auto storage = union_storage_name(field);
     std::string result{"  enum class " + tag + " {\n"};
@@ -206,7 +299,7 @@ public:
   }
 
   // Emit C++ support for the parsed schema.
-  std::string get_cpp_type_support(const member& member) {
+  std::string get_cpp_type_support(const member& member, const class_node& object) {
     switch (member.modifier) {
     default:
     case member::modifier_type::none:
@@ -216,7 +309,7 @@ public:
     case member::modifier_type::map:
       return {};
     case member::modifier_type::variant:
-      return get_cpp_type_support_union(member);
+      return get_cpp_type_support_union(member, object);
     }
   }
 
@@ -242,6 +335,7 @@ public:
              generic_default(member.type_name_list[0]) +
              ">";
     case member::modifier_type::variant:
+      if (member.owning_variant) { return union_storage_name(member); }
       return union_enum_name(member) + " " + union_tag_name(member) + "{};\n  " +
              union_storage_name(member);
     }
@@ -283,7 +377,7 @@ public:
 
   // Emit C++ member list for the parsed schema.
   void write_member_list(rohit::type_check::output_buffer auto& out_stream,
-                         const std::vector<member>& members) {
+                         const std::vector<member>& members, const class_node& object) {
     access_type last_access{access_type::private_access};
 
     for (const auto& member : members) {
@@ -293,7 +387,7 @@ public:
         out_stream.write(":\n");
         last_access = member.access;
       }
-      auto support = get_cpp_type_support(member);
+      auto support = get_cpp_type_support(member, object);
       if (!support.empty()) {
         out_stream.write(support, '\n');
       }
@@ -410,11 +504,10 @@ public:
   void write_serializer_out_body_union(rohit::type_check::output_buffer auto& output,
                                        const member& field, serialize_key_type key_type,
                                        bool& first) {
-    output.write("\n      switch (this->", union_tag_name(field), ") {\n");
+    output.write("\n      switch (", union_tag_expression(field), ") {\n");
     for (std::size_t index = 0; index < field.type_name_list.size(); ++index) {
       const auto& alternative = field.type_name_list[index];
-      const auto payload =
-          "this->" + member_name(field) + "." + field_name(alternative.enum_name);
+      const auto payload = union_payload_expression(field, index);
       output.write("      case ", union_enum_name(field), "::", enum_name(alternative.enum_name),
                    ":\n",
                    first ? (std::string{"        "} + local_name("serializer_protocol") +
@@ -834,6 +927,23 @@ public:
       output.write("      if constexpr (", omission_condition(field.omitted_formats, "SerializeInProtocol"),
                    ") { throw ::std::invalid_argument{\"Field omitted from selected format\"}; } else {\n");
     }
+    if (field.owning_variant) {
+      // Validate the index before replacing the old value; decoding the selected value
+      // then follows the same partial-on-payload-failure contract as ordinary fields.
+      output.write("      {\n        const auto ", local_name("union_index"), " = ",
+                   local_name("serializer_protocol"), ".serialize_in_variable();\n        switch (",
+                   local_name("union_index"), ") {\n");
+      for (std::size_t index{}; index < field.type_name_list.size(); ++index) {
+        output.write("        case ", index, ":\n          ", local_name("serializer_protocol"),
+                     ".serialize_in(this->", member_name(field), ".template emplace<", index,
+                     ">());\n          break;\n");
+      }
+      output.write("        default:\n          throw ::rohit::serializer::exception::bad_input_data{",
+                   local_name("serializer_protocol"),
+                   ".get_stream(), \"Invalid variant discriminator\"};\n        }\n      }\n");
+      if (!field.omitted_formats.empty()) { output.write("      }\n"); }
+      return;
+    }
     output.write("      this->", union_tag_name(field), " = static_cast<", union_enum_name(field),
                  (std::string{">("} + local_name("serializer_protocol") +
                   ".serialize_in_variable());\n      switch (this->"),
@@ -1162,7 +1272,12 @@ public:
             out_stream.write("          if constexpr (", omission_condition(item.field->omitted_formats, "SerializeInProtocol"),
                              ") { throw ::std::invalid_argument{\"Field omitted from selected format\"}; } else {\n");
           }
-          out_stream.write(
+          if (item.field->owning_variant) {
+            const auto index = static_cast<std::size_t>(item.alternative - item.field->type_name_list.data());
+            out_stream.write("          ", local_name("serializer_protocol"), ".serialize_in(this->",
+                             member_name(*item.field), ".template emplace<", index, ">());\n");
+          } else {
+            out_stream.write(
               "          this->", union_tag_name(*item.field), " = ", union_enum_name(*item.field),
               "::", enum_name(item.alternative->enum_name),
               ";\n"
@@ -1171,6 +1286,7 @@ public:
               (std::string{");\n          "} + local_name("serializer_protocol") +
                ".serialize_in(this->"),
               member_name(*item.field), ".", field_name(item.alternative->enum_name), ");\n");
+          }
           if (!item.field->omitted_formats.empty()) { out_stream.write("          }\n"); }
         } else if (item.field->modifier == member::modifier_type::none &&
                    item.field->type_name_list[0].type == object_type::enum_type) {
@@ -1847,7 +1963,7 @@ public:
         }
       }
     }
-    write_member_list(out_stream, obj->member_list);
+    write_member_list(out_stream, obj->member_list, *obj);
 
     out_stream.write("\npublic:\n"
                      "  static constexpr bool serializer_reuses_storage = ",
@@ -1881,6 +1997,22 @@ public:
         write_view_class(output, obj, mode);
       }
     }
+  }
+
+  // Find owning variants in concrete and generic declarations before selecting header support.
+  bool contains_owning_variants(const std::vector<std::unique_ptr<syntax_node>>& statements) {
+    for (const auto& statement : statements) {
+      if (statement->type == object_type::class_type || statement->type == object_type::generic_definition) {
+        const auto& object = *static_cast<const class_node*>(statement.get());
+        for (const auto& field : object.member_list) {
+          if (field.owning_variant) { return true; }
+        }
+      } else if (statement->type == object_type::namespace_type &&
+                 contains_owning_variants(static_cast<const namespace_node*>(statement.get())->statements)) {
+        return true;
+      }
+    }
+    return false;
   }
 
   // Keep view helpers out of generated headers whose schemas request only owning objects.
@@ -2105,6 +2237,10 @@ public:
   // Generate a complete C++ header while retaining the parsed schema and original wire names.
   void emit(rohit::type_check::output_buffer auto& out_stream,
             const std::vector<std::unique_ptr<syntax_node>>& statements) {
+    const bool has_variants = contains_owning_variants(statements);
+    if (has_variants && (protobuf_enabled || emission_only)) {
+      throw std::invalid_argument{"C++ variant fields do not support cpp.protobuf or cpp.emission_only"};
+    }
     if (positional_only) { validate_positional_profile(statements); }
     if (protobuf_enabled) { validate_protobuf_schema(statements); }
     validate_names(statements);
@@ -2132,6 +2268,7 @@ public:
     if (has_views) {
       out_stream.write("#include <rohit/binary_view.hpp>\n");
     }
+    if (has_variants) { out_stream.write("#include <variant>\n"); }
     out_stream.write("\n#include <array>\n#include <cstddef>\n");
     if (has_views) {
       out_stream.write("#include <span>\n");

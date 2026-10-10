@@ -82,6 +82,12 @@ original slots. Version 1 of this feature reserves class field/parent IDs and
 wire names; it does not add explicit enum numbers, union tags, or reserved holes
 to schema syntax.
 
+Ownership selection alone is not a native wire change: replacing `union(...)`
+with language `1.4.0` `variant(...)` while preserving field identities,
+alternative names, order, and types produces the same native contract.
+The checker deliberately ignores that storage distinction. See
+[unions and variants](unions_and_variants.md) for generated APIs and limitations.
+
 Digest contracts compare both the algorithm selector and fixed byte extent.
 Changing `digest` to `digest[N]`, changing the extent, or changing a named
 algorithm is reported even when two choices happen to produce equal-width bytes.

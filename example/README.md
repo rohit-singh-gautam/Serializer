@@ -5,6 +5,28 @@ parameters, nested applications, arrays/maps, named roots, and C++ template alia
 They include a CMake C++ executable, dedicated `generics` consumers in every
 language folder, and a runner for all eleven language backends.
 
+## Union and variant
+
+The [union and owning variant schema](schemas/union_variant/model.serializer)
+contrasts raw numeric/class alternatives with owning string, array, and map
+alternatives. Every language has a `union_variant` example that exercises all
+alternatives and all four protocols. Its root declares
+`public version uint32 version (1) { 1 };`, so generated codecs validate the
+payload revision and reject future version 2. The fixture's version stays unchanged.
+All eleven JSON readers verify rejection; C++ and JavaScript/TypeScript additionally
+check every native encoder rejects an unsupported revision. The C++ example also
+constructs, copies, and replaces generated `std::variant` alternatives directly.
+Run them with:
+
+```sh
+python example/run.py --compiler build/serializer --example union_variant --language all
+```
+
+The schema requires Serializer 1.9.0 and language version 1.4.0. C++ `union`
+retains its trivial-lifetime requirement; `variant` owns its active alternative
+and derives the generated discriminator from its active storage. Both use the
+same positional alternative indices and generated JSON alternative keys.
+
 Start with the [eight C++ point examples](managed/README.md) for schema-generated
 managed points, transaction callbacks, generated editors, and history.
 Each has a separate folder and a short walkthrough with expected output.
@@ -14,7 +36,7 @@ The optional [C++ managed draft ledger](managed/ledger/README.md) demonstrates s
 snapshot save/load. Enable `SERIALIZER_BUILD_MANAGED` to build it. Hollow-cylinder
 and wordpad schemas in their own subfolders are exercised by the integration tests.
 
-Each language has at least four runnable examples in its own folder:
+Each language has runnable examples in its own folder:
 
 - [C++](cpp/README.md)
 - [Java](java/README.md)
@@ -28,7 +50,7 @@ Each language has at least four runnable examples in its own folder:
 - [Kotlin](kotlin/README.md)
 - [C](c/README.md)
 
-`basic`, `collections`, `complex`, `interoperability`, and `versioning` exercise all four native
+`basic`, `collections`, `complex`, `interoperability`, `versioning`, and `union_variant` exercise all four native
 protocols. The [complex contract](schemas/complex/model.serializer) spans 13
 schema files with nested and diamond includes, reopened namespaces, inheritance,
 arrays, maps, enums, and audit unions. The [shared fixtures](schemas/) are the
@@ -76,7 +98,7 @@ cmake --build build --config Release
 ctest --test-dir build -C Release -L serializer_native --output-on-failure
 ```
 
-These opt-in tests compile SDK consumers during CTest and run all 44 examples,
+These opt-in tests compile SDK consumers during CTest and run all per-language examples,
 the 1,452-exchange matrix, and the five new runtime boundary suites. All SDKs
 must be available. Set `SERIALIZER_EXAMPLE_WSL_LANGUAGES` and
 `SERIALIZER_EXAMPLE_SANITIZERS` for the corresponding runner options.

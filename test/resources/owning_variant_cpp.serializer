@@ -1,0 +1,18 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.4.0;
+
+namespace owning_variant_cpp {
+  class holder<T> {
+    public variant (T = value, uint32 = code) payload;
+  }
+
+  class parameter_names<Visitor, Args, Alternative, Visitor1, Args1, Alternative1> {
+    public variant (Visitor = first, Args = second, Alternative = third,
+                    Visitor1 = fourth, Args1 = fifth, Alternative1 = sixth) payload;
+  }
+
+  class view_record view owning {
+    public variant (uint32 = code, double = measure) payload;
+  }
+}

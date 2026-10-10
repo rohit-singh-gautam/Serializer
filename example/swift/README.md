@@ -37,3 +37,6 @@ python example/generics/run.py --compiler build/serializer --language swift
 ```
 
 [Versioning example](versioning/README.md): compatible historical reads, explicit replacement migration, and all revision types.
+
+The [union and owning variant example](union_variant/) contrasts trivial raw storage
+with owning string/collection alternatives and verifies all four protocols.

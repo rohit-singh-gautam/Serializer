@@ -123,7 +123,11 @@ including inferred extents, remain unsupported in those backends. Other language
 outputs and direct Protobuf generation continue to reject fixed arrays.
 
 All generic definitions require unpacked, unmanaged owning storage, without
-inheritance, unions, recursive ownership, variadics, or user specializations.
+inheritance, raw unions, recursive ownership, variadics, or user specializations.
+Language `1.4.0` owning `variant(...)` alternatives may reference generic type
+parameters; C++ retains `std::variant<T, ...>` storage in the generated template.
+Concrete schema uses retain the same native tagged-choice contract in other
+backends. See [unions and variants](unions_and_variants.md).
 Schema arguments cannot be managed/view classes. Definition names resolve in
 declaration scope; explicit arguments resolve in use-site scope. Definitions and
 nondependent types must precede their uses, including through transitive includes.

@@ -58,6 +58,16 @@ protected:
   }
 };
 
+// A dependency's own language header controls variant syntax independently of its includer.
+TEST_F(schema_include_test, variant_language_contract_is_per_file) {
+  write("common.serializer", "serializer version 1.3.0; class item { public variant(uint32 = code, string = text) payload; }");
+  write("root.serializer", "serializer version 1.4.0; include common; class root { public item value; }");
+  reject("Variant fields require serializer version 1.4.0");
+  write("common.serializer", "serializer version 1.4.0; class item { public variant(uint32 = code, string = text) payload; }");
+  write("root.serializer", "serializer version 1; include common; class root { public item value; }");
+  EXPECT_NO_THROW(schema::parser::parse_file(directory / "root.serializer"));
+}
+
 // Mixed include spellings share declaration identities across diamonds and retain wire IDs.
 TEST_F(schema_include_test, relative_diamond_and_repeated_includes) {
   write("shared/common.serializer",

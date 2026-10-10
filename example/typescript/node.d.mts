@@ -11,7 +11,10 @@ declare module 'node:path' {
   export function join(...parts: string[]): string;
 }
 declare module 'node:assert/strict' {
-  const assert: { deepEqual(actual: unknown, expected: unknown, message?: string): void };
+  const assert: {
+    deepEqual(actual: unknown, expected: unknown, message?: string): void;
+    throws(block: () => unknown, expected?: RegExp, message?: string): void;
+  };
   export default assert;
 }
 declare module 'node:perf_hooks' {

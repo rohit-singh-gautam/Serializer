@@ -13,7 +13,7 @@ Start with [small schema examples](schema_examples.md) if you are new to the syn
 ## Schema structure
 
 Every `.serializer` file starts with a supported language header before declarations.
-Use `serializer version 1.3.0;` for new schemas; older `1.0.0`, `1.1.0`, and `1.2.0` remain supported.
+Use `serializer version 1.4.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, and `1.3.0` remain supported.
 The original `serializer version 1;` is exactly the `1.0.0` language contract;
 only version 1 has an integer shorthand. Future versions require all three
 components. Schema-language and compiler release versions are independent.
@@ -268,6 +268,17 @@ Views use positional binary, so field order and types must still match.
 
 Use `array Type` for a sequence and `map(KeyType) ValueType` for a keyed collection.
 See the [schema examples](schema_examples.md) for complete declarations.
+
+## Union and variant choices
+
+`union(uint32 = code, point = position) payload;` preserves existing tagged-choice
+APIs and uses raw C++ union storage. C++ alternatives must be trivially destructible.
+Language `1.4.0` adds `variant(string = text, event = event) payload;` for safe
+owning C++ `std::variant` storage and a JavaScript/TypeScript `{kind, value}`
+payload. The other backends retain their existing tagged-choice mapping for both
+keywords. Both choices encode only the active alternative through the same native
+indices and names. See [unions and variants](unions_and_variants.md) for typed
+construction, visitors, default alternatives, binary views, and unsupported profiles.
 
 ## Comments
 

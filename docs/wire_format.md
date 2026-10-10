@@ -382,6 +382,11 @@ validate both the compressed frame and the complete decoded message.
   destination values, so fresh construction supplies schema defaults. Duplicate
   fields apply again in order. A selected union alternative is default-constructed
   before decoding it; raw union alternatives must be trivially destructible.
+  Language `1.4.0` `variant(...)` fields use identical indices, field IDs, and
+  colon-qualified alternative names in all four native protocols. Owning C++
+  variants destroy the old value when constructing the selected alternative;
+  invalid numeric indices are rejected before replacing it. See
+  [unions and variants](unions_and_variants.md) for language mappings and APIs.
 - Objects inside replacement collections start from fresh schema defaults even
   when old storage is reused. Regenerated owning headers propagate typed donors
   through nested fields and parents without changing field selection or budgets.

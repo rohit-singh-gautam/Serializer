@@ -1,5 +1,11 @@
 # Serializer Agent Instructions
 
+## Repository updates
+
+- Before modifying this repository, run `git pull` first. Preserve existing local
+  changes while integrating upstream updates; never overwrite them to make the
+  pull succeed.
+
 ## Integrating Serializer into an application
 
 - When asked to integrate this repository into another C++ or Java project or update that
@@ -167,7 +173,7 @@
   the language contract changes; compiler-only fixes or new output backends do
   not automatically change the schema language version.
 - Use `serializer version major.minor.patch;` for schema language releases. The
-  current schema language is `1.3.0`, independent of compiler release `1.8.2`.
+  current schema language is `1.4.0`, independent of compiler release `1.9.0`.
   Keep its source of truth in `serializer_schema_language_version` in
   `CMakeLists.txt`, separate from `project(serializer VERSION ...)`.
 - Recognize `serializer version 1;` as exactly `serializer version 1.0.0;`.

@@ -70,6 +70,13 @@ and C uses `<stdint.h>`. `char` is a byte (JSON accepts ASCII only). Native enum
 preserve schema ordinals. A union uses an index and typed alternative fields;
 only its active alternative appears on the wire.
 
+Language `1.4.0` also accepts `variant(...)`. C++ generates owning `std::variant`
+storage and JavaScript/TypeScript generate a discriminated `{kind, value}`
+payload; other backends use their existing tagged-choice representation for both
+keywords. Raw union APIs remain unchanged. Native indices and wire names are
+identical for both keywords. See [unions and variants](unions_and_variants.md)
+and the [paired examples](../example/README.md#union-and-variant).
+
 Swift string **map keys** use `WireString`, whose equality, hashing, and ordering
 use exact UTF-8 bytes. Swift's ordinary `String` equality can equate differently
 encoded Unicode sequences; preserving these separate wire keys requires the

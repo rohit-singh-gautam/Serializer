@@ -1253,7 +1253,14 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   }
   std::vector<std::string> enum_name_list{};
   std::vector<type_name> type_name_list{};
-  auto member_modifier = parse_member_modifier(next_type.name);
+  skip_whitespace_and_comment(in_stream);
+  // Only the selector syntax claims this keyword; existing user types and generic
+  // parameters called variant retain their meaning in every supported language version.
+  const bool owning_variant = next_type.name == "variant" && !in_stream.full() && *in_stream == '(';
+  auto member_modifier = owning_variant ? member::modifier_type::variant : parse_member_modifier(next_type.name);
+  if (owning_variant && active_language_version < language_version{1u, 4u, 0u}) {
+    throw exception::bad_member_type{in_stream, "Variant fields require serializer version 1.4.0 or newer"};
+  }
   if (member_modifier != member::modifier_type::none && !next_type.arguments.empty()) {
     throw exception::bad_member_type{in_stream, "Collection modifiers do not accept type arguments"};
   }
@@ -1373,6 +1380,7 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
     }
   }
   result.inferred_extent = infer_extent;
+  result.owning_variant = owning_variant;
   result.compact = compact;
   result.compact_strict = compact_strict;
   if (compact != compact_encoding::none &&
