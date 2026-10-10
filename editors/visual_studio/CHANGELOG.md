@@ -1,3 +1,11 @@
+# 1.1.31
+
+- Share schema language 1.5.0 warning suppression highlighting with VS Code.
+- Preserve qualified type navigation beside unnamed revisions and suppression rules,
+  including ordinary fields named `ignore` or `warning`.
+- Verify adjacent generated-output navigation in all eleven supported languages.
+- Synchronize both extension versions and current local package names.
+
 # 1.1.30
 
 - Highlight schema language 1.4.0 owning variants and navigate their alternative types.

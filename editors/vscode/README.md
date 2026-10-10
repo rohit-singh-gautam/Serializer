@@ -7,18 +7,22 @@ and existing generated code in Visual Studio Code. It provides syntax highlighti
 snippets, and CMake assistance for projects using Serializer — State Framework.
 
 Edit `.serializer` schemas with syntax highlighting, bracket matching, comments,
-folding, and snippets. Version **1.1.30** includes navigation from includes and type
+folding, and snippets. Version **1.1.31** includes navigation from includes and type
 references to source schemas and existing generated code in all 11 output languages. Use the project's
 CMake configuration for the separate build and missing-header assistance commands.
 
-Version **1.1.30** highlights language 1.4.0 owning `variant` declarations and navigates their alternative types. Existing `union` declarations remain supported. New schema snippets select language 1.4.0.
+Version **1.1.31** highlights language 1.5.0 field warning suppression, including
+`ignore(warning magic, version)`. Warning names are metadata; adjacent types,
+unnamed payload revisions, and fields named `ignore` or `warning` retain normal
+navigation. New schema snippets select language 1.5.0. Owning `variant` and existing
+`union` declarations remain supported.
 
 Version **1.1.28** recognizes language `1.3.0` digest fields: `digest`,
 `digest[32]`, and `digest(sha256)`, including all twelve supported algorithm
 names. Algorithm selectors and byte extents are metadata rather than navigation
 destinations; adjacent types and older declared types named `digest` retain their
 normal navigation. Use `digest`, `digest-opaque`, or `digest-fixed` snippets and
-see the [digest contract](../../docs/digest.md). New schema snippets use `1.4.0`.
+see the [digest contract](../../docs/digest.md). New schema snippets use `1.5.0`.
 
 ```text
 serializer version 1.0.0;
@@ -315,9 +319,30 @@ Empty extents and element types receive fixed-array highlighting. Enum type
 operands and qualified enum defaults in typed magic retain declaration, definition,
 and type-definition navigation, including unsaved and transitive included schemas.
 VS Code includes `array_inferred` and `magic_typed` snippets; its schema snippet
-selects `serializer version 1.4.0;`. The original `1` header remains exactly
+selects `serializer version 1.5.0;`. The original `1` header remains exactly
 `1.0.0` and does not enable these features. See the
 [magic contract](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/magic_and_omission.md) and [fixed arrays](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/generics.md).
+
+## Simplicity warnings (1.1.31)
+
+The compiler suggests `magic` for manually modeled signatures and `version` for
+ordinary payload version/revision fields. If an ordinary field is intentional,
+append `ignore(warning version)` or `ignore(warning magic, version)` before its
+semicolon. Suppression requires schema language `1.5.0`; it affects compiler
+warnings and preserves the field's generated API and wire representation. Use
+the `ignore-warning` snippet to add a suffix. Both editors highlight suppression
+rules and preserve navigation beside them; compiler warnings appear in build
+output, as these extensions do not provide semantic diagnostics.
+
+Omit the redundant name in a metadata declaration:
+
+```serializer
+public version uint32 (1) { 1 };
+```
+
+Its implicit generated member remains `version`, preserving the API and wire
+identities. Retain a custom revision name when existing consumers depend on it. See the
+[revision contract](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/versioning.md).
 
 ## Compact integer fields (1.1.25)
 

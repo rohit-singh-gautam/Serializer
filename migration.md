@@ -1,5 +1,27 @@
 # Migrating to the snake_case Serializer API
 
+## Simplicity warnings and local suppression (10 October 2026)
+
+Compiler/runtime **1.10.0** adds advisory parser warnings for initialized ordinary
+fields named `magic`, supported revision scalar fields named `version` or `revision`,
+and `version` declarations that repeat the default member name. Existing schemas,
+including older language headers, remain accepted. The warnings suggest intent
+from source or wire names; they do not rewrite declarations or alter generated
+APIs, runtime behavior or serialized bytes.
+
+Prefer `public version uint32 (1) { 1 };` over
+`public version uint32 version (1) { 1 };`. This omission retains the default
+member name, wire name, ID and payload bytes. Keep intentional custom names.
+Do not automatically replace ordinary fields with `magic` or `version`: immutable
+header validation and revision layouts can change an existing contract.
+
+Language **1.5.0** adds `ignore(warning magic, version)` before a member's semicolon.
+Use one or both rule names to keep intentional fields or explicit names without
+the corresponding warning. Upgrade the header in each file using this new clause,
+including dependencies. Suppressions have no wire effect, do not silence schema
+errors or release-policy warnings, and need no payload-revision increase.
+See [simplicity warning rules and examples](docs/schema_reference.md#simplicity-warnings).
+
 ## Digest fields and creation (9 October 2026)
 
 Compiler/runtime **1.8.0** and language **1.3.0** add digest byte fields. Use

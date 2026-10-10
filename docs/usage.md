@@ -38,6 +38,14 @@ Use [magic and format omissions](magic_and_omission.md) for schema-owned fixed
 headers, verified JSON identities, exact binary prefixes, and compile-time C++
 output exclusions. Language `1.1.0` also supports scalar/enum magic values.
 
+The parser provides [simplicity warnings](schema_reference.md#simplicity-warnings)
+for initialized ordinary fields named `magic`, supported scalar fields named
+`version` or `revision`, and redundant explicit `version` member names. Prefer
+`public version uint32 (1) { 1 };` for the default payload discriminator name.
+Use language `1.5.0` and trailing `ignore(warning magic, version)` when the named
+fields intentionally remain ordinary data. Warnings are advisory; changing a
+field into metadata requires a review of the existing wire contract.
+
 Language `1.2.0` supports [compact unsigned scalar fields](compact_integers.md)
 in every output language. Keep existing generation and codec calls:
 
@@ -329,7 +337,7 @@ class person stable_ids {
 ```
 
 - Use `class`, `enum`, and `namespace`; schema declarations are not C++ source.
-- Start every new `.serializer` file with `serializer version 1.4.0;` before declarations.
+- Start every new `.serializer` file with `serializer version 1.5.0;` before declarations.
   Older `1.0.0` files remain supported.
   The original `serializer version 1;` is an exact alias for `1.0.0`, exclusive to
   version 1. Future versions require three components. The language version is
@@ -351,6 +359,11 @@ class person stable_ids {
   Quoted defaults may contain literal spaces: `public string label { "schema default" };`.
   Spaces, escaped quotes, and braces within quotes are preserved exactly; a quoted
   `}` does not end the initializer. Unclosed quotes or braces are schema errors.
+- To suppress an intentional simplicity warning for one member, add
+  `ignore(warning version)` or `ignore(warning magic, version)` after its metadata,
+  initializer and other suffixes, before `;`. This requires language `1.5.0` in
+  that member's file. The comma-separated rules must be nonempty, known and unique.
+  See [warning rules and limitations](schema_reference.md#simplicity-warnings).
 
 ### Share declarations with includes
 
@@ -388,10 +401,11 @@ namespace demo {
   spaces, backslashes, absolute paths, and other extensions are rejected.
   `./` and `../` are supported. Paths resolve from the including file, independently
   of the compiler's working directory. Comments may separate directive tokens.
-- Every file requires its own supported version header. `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, and the
+- Every file requires its own supported version header. `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, and the
   original `1` alias may coexist in an include graph. Typed magic and inferred
   arrays require `1.1.0`, compact scalars require `1.2.0`, and built-in digests
-  require `1.3.0`; owning variants require `1.4.0` in the file that declares them. Includes follow that
+  require `1.3.0`; owning variants require `1.4.0` and warning suppression requires
+  `1.5.0` in the file that declares them. Includes follow that
   header and precede all declarations, at file scope only.
 - Nested dependencies load before their includers. Repeated paths, normalized path
   aliases, mixed shorthand/explicit spellings, and diamond dependencies contribute

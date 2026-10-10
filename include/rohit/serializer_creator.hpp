@@ -489,6 +489,7 @@ const std::string& get_cpp_type(const std::string& type);
 
 namespace parser {
 // Evaluate release policies once per parse; an empty reference date selects today's UTC date.
+// The warning callback also receives located simplicity advisories after schema validation.
 // Callbacks are synchronous, borrow their text only during the call, and may throw to abort parsing.
 struct parse_options {
   std::string version_policy_as_of{};

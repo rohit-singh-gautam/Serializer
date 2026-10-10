@@ -4,6 +4,14 @@ Magic identifies an artifact independently of its payload revision. Declare it
 once in the schema; generated writers emit the constant and generated readers
 verify and discard it. It consumes no mutable per-object storage.
 
+The parser suggests this keyword when an ordinary initialized field's source or
+wire name is `magic`, compared case-insensitively. This `[simplicity-magic]`
+warning identifies likely intent from the name; it cannot reliably recognize
+arbitrary signature values or prove that conversion preserves an existing layout.
+To keep an intentional ordinary field, use language `1.5.0` and trailing
+`ignore(warning magic)`. See [simplicity warning rules](schema_reference.md#simplicity-warnings)
+and review existing bytes before migrating a field into a fixed header.
+
 ```text
 serializer version 1;
 class document stable_ids {

@@ -11,7 +11,7 @@ The [union and owning variant schema](schemas/union_variant/model.serializer)
 contrasts raw numeric/class alternatives with owning string, array, and map
 alternatives. Every language has a `union_variant` example that exercises all
 alternatives and all four protocols. Its root declares
-`public version uint32 version (1) { 1 };`, so generated codecs validate the
+`public version uint32 (1) { 1 };`, so generated codecs validate the
 payload revision and reject future version 2. The fixture's version stays unchanged.
 All eleven JSON readers verify rejection; C++ and JavaScript/TypeScript additionally
 check every native encoder rejects an unsupported revision. The C++ example also

@@ -13,7 +13,7 @@ const outputs = { cpp: 'model.hpp', java: 'Schema.java', js: 'schema.mjs', types
   kotlin: 'Schema.kt', c: 'schema.h' };
 
 /** Check both directions against freshly generated types, rather than handwritten output approximations. */
-async function verify(entry, directory, options = [], selectedOutputs = outputs, enumReferences = false) {
+async function verify(entry, directory, options = [], selectedOutputs = outputs, typeReferences = false) {
   const args = ['--input', entry, '--language', Object.keys(selectedOutputs).join(','), '--cpp.format', 'false',
     '--depfile', path.join(directory, 'all.d'), ...options];
   fs.mkdirSync(directory, { recursive: true });
@@ -67,19 +67,19 @@ async function verify(entry, directory, options = [], selectedOutputs = outputs,
         }
       }
     }
-    if (enumReferences) {
+    if (typeReferences) {
       const symbols = schemas.flatMap(source => source.index.symbols);
       for (const reference of schema.index.references) {
-        const target = resolveType(reference, symbols).find(symbol => symbol.kind === 'enum');
+        const target = resolveType(reference, symbols).find(symbol => !symbol.typeParameter);
         if (!target) { continue; }
         const origin = schemas.find(source => source.index.symbols.includes(target));
         for (let cursor = reference.start; cursor <= reference.end; ++cursor) {
           const declarations = await resolver.schema(schema.file, cursor, false);
           assert.deepEqual(declarations.map(item => [fileKey(item.file), item.start, item.end]),
-            [[fileKey(origin.file), target.start, target.end]], 'typed magic/array enum boundary');
+            [[fileKey(origin.file), target.start, target.end]], 'schema type reference boundary');
           const definitions = await resolver.schema(schema.file, cursor, true);
           assert.equal(new Set(definitions.map(item => item.file)).size, files.length,
-            'typed magic/array enum definitions in each generated language');
+            'schema type reference definitions in each generated language');
           ++checks;
         }
       }
@@ -107,6 +107,21 @@ async function main() {
     path.join(directory, 'digests'));
   checks += await verify(path.join(repository, 'test/resources/inferred_arrays.serializer'),
     path.join(directory, 'inferred-arrays'), [], { cpp: outputs.cpp }, true);
+  const suppressionInput = path.join(directory, 'warning-suppression.serializer');
+  fs.writeFileSync(suppressionInput, `serializer version 1.5.0;
+namespace warning_models {
+  class sample stable_ids { public uint32 ignore (1); public uint32 warning (2); }
+  class exposed_revision stable_ids {
+    public uint32 version (1) { 1 } ignore(warning version);
+  }
+  class model stable_ids {
+    public version uint32 (1) { 1 };
+    public uint32 revision (2) { 1 } ignore(warning version);
+    public array warning_models::sample samples (3) ignore(warning magic, version);
+  }
+}
+`);
+  checks += await verify(suppressionInput, path.join(directory, 'warning-suppression'), [], outputs, true);
   const input = path.join(directory, 'acronyms.serializer');
   const schema = `serializer version 1.0.0;
 namespace HTTPModels { enum HTTPState { Ready } class HTTPRecord { public HTTPState StateValue; } }
@@ -146,7 +161,7 @@ namespace Names_ { class Value_Type {} }
     checks += await verify(input, path.join(directory, `java-${profile}`),
       ['--java.coding_standard', profile, '--java.package', 'example.models'], { java: outputs.java });
   }
-  console.log(`Fresh compiler navigation passed: ${checks} bidirectional type checks across all 11 output languages, unions and variants, digest fields, compact fields, typed magic and inferred arrays, identical codecs for legacy/dotted headers, transitive includes, acronyms, preserved names, and direct/separated managed classes across all C++ profiles.`);
+  console.log(`Fresh compiler navigation passed: ${checks} bidirectional type checks across all 11 output languages, unnamed revisions and warning suppression, unions and variants, digest fields, compact fields, typed magic and inferred arrays, identical codecs for legacy/dotted headers, transitive includes, acronyms, preserved names, and direct/separated managed classes across all C++ profiles.`);
 }
 
 main().catch(error => { console.error(error.stderr?.toString() || error); process.exitCode = 1; });

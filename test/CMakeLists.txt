@@ -18,6 +18,7 @@ add_executable(core_serializer_test
   file_stream_test.cpp
   serializer_parser_test.cpp
   schema_version_test.cpp
+  simplicity_warning_test.cpp
   versioning_test.cpp
   magic_test.cpp
   typed_magic_test.cpp
@@ -411,6 +412,7 @@ endif()
 add_test(NAME serializer_compiler_cli
   COMMAND "${CMAKE_COMMAND}" "-DGENERATOR=$<TARGET_FILE:serializer>"
     "-DVERSION=${PROJECT_VERSION}" "-DDIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/compiler_cli"
+    "-DSCHEMA_LANGUAGE_VERSION=${serializer_schema_language_version}"
     -P "${CMAKE_CURRENT_SOURCE_DIR}/compiler_cli.cmake")
 
 add_test(NAME serializer_batch_config_cli

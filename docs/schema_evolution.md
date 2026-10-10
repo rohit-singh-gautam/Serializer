@@ -5,6 +5,15 @@ two resolved revisions and applies a persistent retirement policy. It is a
 separate, read-only compiler mode; it does not generate code, change schema
 syntax, renumber declarations, or introduce a new wire format.
 
+Parser [simplicity warnings](schema_reference.md#simplicity-warnings) are advisory
+and can appear during compatibility checking. Adding a field-local
+`ignore(warning magic, version)` clause in language `1.5.0` does not change the
+resolved contract. Omitting a repeated default `version` member name also preserves
+its generated API and wire identities. Converting an ordinary field to `magic`
+or a payload `version` is a separate migration: static header validation and
+revision-dependent layouts can change the wire contract, so compare both schemas
+for every protocol used by the application.
+
 ## Compare revisions
 
 ```sh

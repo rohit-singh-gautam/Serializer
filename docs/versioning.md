@@ -1,7 +1,7 @@
 # Schema revisions and compatibility
 
 Every schema begins with a supported schema-language header. Use
-`serializer version 1.4.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, and `1.3.0`
+`serializer version 1.5.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, and `1.4.0`
 headers remain supported. The original `serializer version 1;` is an exact alias
 for `1.0.0`, not the latest language version. See the
 [schema-language policy](command_line.md#schema-language-version-policy).
@@ -23,12 +23,19 @@ One class may declare one version member, with `public`, `protected`, or `privat
 
 ```text
 public version { 1 };
-public version version { 1 };
-public version uint32 version { 70000 };
+public version uint32 { 70000 };
 public version uint16 ver { 300 };
-public version version (5) { 1 };
+public version (5) { 1 };
 public version version3 ver ("schema_version", 6) { "1.10.0" } compatibility { "1.2.0" };
 ```
+
+The default member name remains `version` when omitted; access, generated APIs,
+wire name and ID remain the same. Custom names such as `ver` and `revision` are
+intentional. Explicitly repeating `version` is still accepted, but produces a
+`[simplicity-version]` warning. To demonstrate or retain that spelling deliberately,
+use language `1.5.0` and `public version version { 1 } ignore(warning version);`.
+Ordinary supported scalar fields named `version` or `revision` also receive the
+advisory suggestion to use `version`; see [simplicity warnings](schema_reference.md#simplicity-warnings).
 
 | Schema type | Binary discriminator | JSON discriminator |
 | --- | --- | --- |

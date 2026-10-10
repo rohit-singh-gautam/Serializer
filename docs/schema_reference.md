@@ -13,7 +13,7 @@ Start with [small schema examples](schema_examples.md) if you are new to the syn
 ## Schema structure
 
 Every `.serializer` file starts with a supported language header before declarations.
-Use `serializer version 1.4.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, and `1.3.0` remain supported.
+Use `serializer version 1.5.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, and `1.4.0` remain supported.
 The original `serializer version 1;` is exactly the `1.0.0` language contract;
 only version 1 has an integer shorthand. Future versions require all three
 components. Schema-language and compiler release versions are independent.
@@ -73,6 +73,53 @@ exclude it from named output formats in owning classes. C++ view modes reject
 omissions explicitly. The generated reader expects the selected
 layout and retains defaults for absent excluded payload fields. See
 [magic and omission](magic_and_omission.md) for aliases, limits, and codec contracts.
+
+### Simplicity warnings
+
+Compiler/runtime `1.10.0` emits advisory parser warnings for declarations that
+may be simpler using schema metadata. They also apply to older supported language
+headers; previously valid declarations remain valid.
+
+| Warning | Detection | Suggestion |
+| --- | --- | --- |
+| `[simplicity-magic]` | An ordinary field has an initializer and its source or wire name is `magic` | Use `magic` if the field identifies a fixed artifact header |
+| `[simplicity-version]` | An ordinary supported revision scalar has source or wire name `version` or `revision` | Use the existing `version` keyword if the field is a payload revision |
+| `[simplicity-version]` | A `version` declaration explicitly repeats the default member name `version` | Omit the redundant name, as in `public version uint32 (1) { 1 };` |
+
+Ordinary source and wire name comparisons are case-insensitive; the redundant
+member name must be exactly `version`, so omitting it preserves the generated API.
+Revision scalar candidates are
+`uint8/16/32/64`, `float`, `double`, and `version2/3/4`, with or without an
+initializer. An initialized `magic` field is a name-based candidate regardless
+of its shape; the suggestion does not establish that its type is supported by
+the `magic` keyword. Arbitrary numeric constants, byte signatures with other
+names, counters, and application-specific revision semantics cannot reliably
+be distinguished from ordinary data. Warnings never rewrite a schema.
+
+Language `1.5.0` adds a suppression clause at the end of a member, before `;`:
+
+```text
+serializer version 1.5.0;
+class counters stable_ids {
+  public uint32 revision (1) { 1 } ignore(warning version);
+  public uint32 magic ("version", 2) { 42 } ignore(warning magic, version);
+}
+```
+
+The required `warning` keyword is followed by one or more comma-separated rule
+names: `magic` or `version`. Suppression applies only to that member and only to
+the named simplicity rules. Empty lists, duplicate or unknown rules, and repeated
+clauses are schema errors. Each declaring file, including an included dependency,
+requires language `1.5.0` for this syntax. It does not suppress schema errors or
+release-policy diagnostics, change access, remove fields, or alter generated code
+and serialized formats.
+
+The CLI reports warnings while continuing generation or compatibility checking.
+Library callers receive them through the synchronous `parser::parse_options::warning`
+callback. `--version-policy-warnings-as-errors` applies only to release-policy
+warnings. Before converting an established ordinary field into `magic` or a
+payload revision, review its type, identity, storage and wire layout against
+[schema evolution](schema_evolution.md); this conversion can change the contract.
 
 ### Generic owning classes
 

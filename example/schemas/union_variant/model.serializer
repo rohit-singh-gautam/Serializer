@@ -21,6 +21,6 @@ class sample stable_ids {
   public variant(text_payload = text, collection_payload = collection) payload (2);
 }
 class example_model stable_ids {
-  public version uint32 version (1) { 1 };
+  public version uint32 (1) { 1 };
   public array sample samples (2);
 }

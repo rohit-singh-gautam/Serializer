@@ -17,17 +17,27 @@ Serializer provides separate packages for VS Code and Visual Studio. Both use
 to the VS Code extension. For the Visual Studio VSIX, see
 [Visual Studio](#visual-studio-extension) below.
 
-Both extensions use release version **1.1.29**. Keep their versions equal and
+Both extensions use release version **1.1.31**. Keep their versions equal and
 increment them together for future changes, including changes to only one package.
 Their release number is independent of the compiler/runtime release and the schema
 language version; only the two editor packages are synchronized.
+
+Version **1.1.31** highlights schema language `1.5.0` field suffixes such as
+`ignore(warning magic, version)`. Warning rules are metadata; qualified types
+beside the suffix, unnamed payload revisions, and ordinary fields or declared
+types named `ignore` or `warning` retain navigation. VS Code adds `ignore-warning`
+and selects `1.5.0` in new schema snippets. Compiler warnings appear in build
+output; neither extension supplies semantic diagnostics.
+
+Version **1.1.30** recognizes language `1.4.0` owning variants and navigates their
+alternative types. Existing raw unions remain supported.
 
 Version **1.1.28** recognizes language `1.3.0` digest fields: bare `digest`,
 `digest[N]`, and `digest(algorithm)`. The shared grammar highlights all twelve
 algorithm names and decimal extents. The shared resolver skips those operands
 while retaining neighboring qualified/generic references and legacy declared
 types named `digest`. VS Code adds `digest`, `digest-opaque`, and `digest-fixed`
-snippets; its new schema snippet selects `1.3.0`. See [digest usage](digest.md).
+snippets; the current schema snippet selects `1.5.0`. See [digest usage](digest.md).
 
 Version 1.1.27 directs generated applications to `Serializer::runtime`, the 0BSD
 application target introduced by compiler/runtime 1.7.0. `serializer_generate`
@@ -58,7 +68,7 @@ Both resolve either spelling for navigation; VS Code also supplies a shorthand
 
 The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.29**, provides `.serializer`
 syntax highlighting, snippets, declaration/definition navigation, and CMake generated-header commands. Schemas use
-the current `serializer version 1.3.0;` header, older compatible headers, and the original
+the current `serializer version 1.5.0;` header, older compatible headers, and the original
 `1` alias for language `1.0.0`. Schema
 language versions are independent of compiler releases, and future versions
 require all three components. Legacy `.def` and `.struct` names are
@@ -293,6 +303,8 @@ its real definition provider; otherwise the test supplies a controlled C++ provi
 `SERIALIZER_COMPILER` and checks every complex-model type in all 11 outputs in
 both directions. It also covers acronym/digit naming and preserve profiles using
 fresh output and a shared depfile. It does not require the target-language SDKs.
+Coverage includes unnamed payload revisions and intentional ordinary fields using
+single and comma-separated warning suppression rules in all eleven outputs.
 
 `npm run test:navigation:project` additionally uses the installed CMake Tools and
 Microsoft C/C++ extensions, specified by `SERIALIZER_CMAKE_TOOLS_PATH` and
@@ -317,6 +329,19 @@ consumer compilation, and a malformed schema leaving the prior header intact.
 The fixture disables generated-output formatting so it does not need clang-format.
 
 ### Verification performed
+
+Version **1.1.31** passed all 93 editor unit/grammar/provider tests and 19,260
+fresh-compiler navigation checks using compiler/runtime `1.10.0` and schema
+language `1.5.0`. Coverage includes unnamed payload revisions, single and
+comma-separated suppression rules, qualified cursor boundaries, transitive and
+unsaved includes, and bidirectional navigation in all eleven output languages.
+The rebuilt Visual Studio .NET/Jint resolver passed 336 checks against fresh
+complex/generic outputs. Both packages rebuilt through `./make.ps1 extension`;
+Visual Studio VSIX validation and VS Code package identity/canonical grammar/snippet
+hash checks passed. Native editor-host checks, installation, and publication
+were not run for this change. Locked package restore required access outside
+the sandbox; npm warning output was suppressed for the packaging invocation
+because PowerShell treated npm 11.18 warning stderr as a terminating error.
 
 Version **1.1.29** rebuilt both editor packages through `./make.ps1 extension`,
 and Visual Studio VSIX package validation passed. All 89 editor unit tests passed
@@ -635,7 +660,7 @@ The shared grammar recognizes language `1.2.0` fields such as
 `public compact_varint uint64 count (4);`. Encoding and overflow-policy keywords
 use modifier colors, unsigned builtins use type colors, and generic operands
 retain declaration/type-definition navigation. VS Code supplies `compact-prefix`
-and `compact-varint` snippets and selects language `1.3.0` in new schemas.
+and `compact-varint` snippets and selects language `1.5.0` in new schemas.
 
 The compiler restricts compact modifiers to unsigned scalar fields in unpacked
 owning classes. A prefix holds at most 30 payload bits; unsigned LEB128 varints
@@ -651,6 +676,21 @@ Empty extents and element types receive fixed-array highlighting. Enum type
 operands and qualified enum defaults in typed magic retain declaration, definition,
 and type-definition navigation, including unsaved and transitive included schemas.
 VS Code includes `array_inferred` and `magic_typed` snippets; its schema snippet
-selects `serializer version 1.1.0;`. The original `1` header remains exactly
+selects `serializer version 1.5.0;`. The original `1` header remains exactly
 `1.0.0` and does not enable these features. See the
 [magic contract](magic_and_omission.md) and [fixed arrays](generics.md).
+
+## Simplicity warnings (1.1.31)
+
+Compiler suggestions identify ordinary manual signature fields and payload
+version/revision fields that can use `magic` or `version` metadata. Keep an
+intentional ordinary field by appending `ignore(warning version)` or
+`ignore(warning magic, version)` before its semicolon. The field's API and wire
+representation remain unchanged; suppression requires schema language `1.5.0`.
+
+Prefer `public version uint32 (1) { 1 };` over a redundant explicit `version`
+name. Its implicit generated member remains `version`, preserving the API and
+wire identities. Keep custom names when existing consumers depend on them.
+Both editor packages highlight suppression keywords/rules and preserve type
+navigation beside them. The compiler emits warnings during generation; these
+extensions do not supply semantic diagnostics. See [payload revisions](versioning.md).

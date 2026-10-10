@@ -7,6 +7,21 @@ Version 1.1.4 synchronized both editor extension release versions. Subsequent
 build-tooling releases keep them equal. Version 1.1.11 additionally registers schema
 type-definition navigation and accepts declaration keywords/whole declarations.
 
+## Simplicity warning metadata (1.1.31)
+
+Both editor packages recognize schema language `1.5.0` field suffixes such as
+`ignore(warning version)` and `ignore(warning magic, version)`. Suppression rules
+remain metadata and do not become type-navigation destinations. Qualified type
+operands retain navigation beside these suffixes and unnamed revision declarations
+such as `public version uint32 (1) { 1 };`. Its implicit generated member remains
+`version`, preserving existing APIs and wire identities.
+
+Ordinary fields and declared types named `ignore` or `warning` retain their
+existing behavior. Shared tests cover qualified cursor boundaries, transitive
+includes and unsaved schemas; fresh compiler fixtures exercise both navigation
+directions across all eleven output languages. See the
+[current verification record](editor_extension.md#verification-performed).
+
 ## Git index and history views (1.1.14)
 
 VS Code previously registered navigation only for `file:` documents, so its

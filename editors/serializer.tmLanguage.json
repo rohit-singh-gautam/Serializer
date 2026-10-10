@@ -41,6 +41,24 @@
       "include": "#strings"
     },
     {
+      "name": "meta.ignore-warning.serializer",
+      "begin": "\\b(ignore)(?:\\s|/\\*.*?\\*/)*(\\()(?=(?:\\s|/\\*.*?\\*/)*(?:warning\\b|$))",
+      "beginCaptures": {
+        "1": { "name": "keyword.control.serializer" },
+        "2": { "name": "punctuation.section.group.serializer" }
+      },
+      "end": "\\)|(?=[;{}])",
+      "endCaptures": {
+        "0": { "name": "punctuation.section.group.serializer" }
+      },
+      "patterns": [
+        { "include": "#comments" },
+        { "name": "keyword.control.serializer", "match": "\\bwarning\\b" },
+        { "name": "constant.other.warning.serializer", "match": "\\b(?:magic|version)\\b" },
+        { "name": "punctuation.separator.serializer", "match": "," }
+      ]
+    },
+    {
       "match": "\\b(namespace|class|enum|instantiate)\\s+([A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
       "captures": {
         "1": {

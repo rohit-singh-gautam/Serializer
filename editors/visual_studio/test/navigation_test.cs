@@ -54,6 +54,30 @@ internal static class NavigationTest {
         ++checks;
       }
       live[model] = text;
+      // Warning rules are field metadata; unnamed revisions preserve adjacent type navigation.
+      var warningText = "serializer version 1.5.0; include sales/order; class model { " +
+        "public version uint32 (1) { 1 }; public uint32 revision (2) { 1 } ignore(warning version); " +
+        "public array demo::order orders (3) ignore(warning magic, version); " +
+        "public demo::order ignore (4); public demo::order warning (5); }";
+      live[model] = warningText;
+      for (var occurrence = warningText.IndexOf("demo::order", StringComparison.Ordinal); occurrence >= 0;
+           occurrence = warningText.IndexOf("demo::order", occurrence + "demo::order".Length, StringComparison.Ordinal)) {
+        for (var cursor = occurrence; cursor <= occurrence + "demo::order".Length; ++cursor) {
+          var declarations = NavigationRunner.Resolve(model, cursor, false, generated, live, CancellationToken.None);
+          Require(declarations.Length == 1 && Path.GetFileName(declarations[0].file) == "order.serializer",
+            "qualified type navigation beside warning suffix and unnamed revision");
+          ++checks;
+        }
+        Require(NavigationRunner.Resolve(model, occurrence, true, generated, live, CancellationToken.None).Length == 11,
+          "warning adjacent output navigation in every language");
+        ++checks;
+      }
+      foreach (var metadata in new[] { "ignore(warning", "warning version", "magic, version", "orders", "ignore (4)", "warning (5)" }) {
+        Require(NavigationRunner.Resolve(model, warningText.IndexOf(metadata, StringComparison.Ordinal),
+          false, generated, live, CancellationToken.None).Length == 0, "warning metadata is not a type operand");
+        ++checks;
+      }
+      live[model] = text;
       // Generic compact operands remain navigable and modifiers never become destinations.
       var compactText = "serializer version 1.2.0; include sales/order; class compact_box<T> { " +
         "public compact_prefix strict T first; public compact_varint lenient T second; " +

@@ -25,6 +25,14 @@ name adds no wire tag and is not verified against a message's content. Bare
 `digest` has no implied algorithm or size. Existing schema types named `digest`
 retain their prior meaning. Views and optional Protobuf digest mappings reject.
 
+Language `1.5.0` adds `ignore(warning magic, version)` for parser simplicity
+diagnostics. These suppressions are compiler input metadata, are never serialized,
+and leave generated APIs, field identities, storage and bytes unchanged. Omitting
+the explicit default name from `public version uint32 version (1) { 1 };` likewise
+preserves the member and wire name `version`. Replacing an ordinary field with
+`magic` or `version` can change the layout and must be reviewed separately; warnings
+do not perform that migration. See [simplicity warnings](schema_reference.md#simplicity-warnings).
+
 See [payload versioning](versioning.md) for revision types, historical positional
 layouts, field lifetimes, replacements, reservations, common read policies, and
 compiler-only release-date/count policies. These resolve to ordinary version bounds

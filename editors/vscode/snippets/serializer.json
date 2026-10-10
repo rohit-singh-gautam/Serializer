@@ -17,7 +17,7 @@
   "Schema": {
     "prefix": "schema",
     "body": [
-      "serializer version 1.4.0;",
+      "serializer version 1.5.0;",
       "",
       "namespace ${1:models} {",
       "class ${2:account} stable_ids {",
@@ -42,6 +42,11 @@
     "prefix": "field",
     "body": "public ${1:string} ${2:name} (${3:1});$0",
     "description": "Declare a field; select an unused ID in this class"
+  },
+  "Ignore simplicity warning": {
+    "prefix": "ignore-warning",
+    "body": "ignore(warning ${1|magic,version|})$0",
+    "description": "Append before a field's semicolon to suppress a simplicity warning; comma-separated rules require schema language 1.5.0"
   },
   "Enum": {
     "prefix": "enum",

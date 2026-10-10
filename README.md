@@ -32,13 +32,13 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **1.9.0**. Bug fixes and minor updates
+The current compiler and runtime release is **1.10.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
-compatibility across major releases. The schema language version is **1.4.0**;
+compatibility across major releases. The schema language version is **1.5.0**;
 see [release and schema versions](docs/command_line.md).
 
-Use `serializer version 1.4.0;` for new schemas. Older `1.0.0`, `1.1.0`, `1.2.0`, and `1.3.0` schemas remain supported. The original
+Use `serializer version 1.5.0;` for new schemas. Older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, and `1.4.0` schemas remain supported. The original
 `serializer version 1;` is an exact compatibility alias for `1.0.0`, exclusive to
 version 1. Future versions require all three components; see the
 [schema language policy](docs/command_line.md#schema-language-version-policy).
@@ -87,6 +87,14 @@ declarations retain their generated APIs. Both keywords use the same native wire
 indices and names, and [paired examples](example/README.md#union-and-variant)
 cover every output language.
 
+Compiler [simplicity warnings](docs/schema_reference.md#simplicity-warnings) suggest
+schema-owned `magic` for initialized fields named `magic`, and the `version`
+keyword for supported scalar fields named `version` or `revision`. A `version`
+declaration can omit its default member name: `public version uint32 (1) { 1 };`.
+Language `1.5.0` adds field-local `ignore(warning magic, version)` before the
+semicolon for intentional uses. Warnings do not change generated APIs or bytes;
+review an existing wire contract before replacing an ordinary field.
+
 C++20 [constant-evaluation binary output](docs/constant_evaluation.md) can count a
 value's exact positional size, write caller-owned memory, or return an exact-size
 byte array from a deterministic factory. Enable generated models with
@@ -134,7 +142,7 @@ their target language without a native Serializer runtime dependency.
 Save this as `person.serializer`:
 
 ```text
-serializer version 1.4.0;
+serializer version 1.5.0;
 
 namespace demo {
   class person {
@@ -350,8 +358,8 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editor_extension.md) |
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
-Both extensions use source release version **1.1.30**, independent of compiler version
-**1.9.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
+Both extensions use source release version **1.1.31**, independent of compiler version
+**1.10.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
 for supported destinations and language-service prerequisites.
 VS Code also supports navigation from read-only Git index/history tabs, using
 the displayed snapshot and current workspace destinations.

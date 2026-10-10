@@ -1,3 +1,11 @@
+# 1.1.31
+
+- Highlight schema language 1.5.0 field suffixes such as `ignore(warning magic, version)`.
+- Add a warning suppression snippet and update new schema snippets to language 1.5.0.
+- Preserve qualified type navigation beside unnamed revisions and suppression rules,
+  including ordinary fields and declared types named `ignore` or `warning`.
+- Synchronize both extension versions and current local package names.
+
 # 1.1.30
 
 - Highlight schema language 1.4.0 owning variants and navigate their alternative types.

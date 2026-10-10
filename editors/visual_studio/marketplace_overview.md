@@ -11,6 +11,8 @@ navigation for projects using Serializer — State Framework.
 
 - Syntax highlighting for schema declarations, custom type references, namespaces,
   includes, and supported schema annotations, using the active editor theme.
+- Schema language 1.5.0 warning suppression such as `ignore(warning magic, version)`,
+  with type navigation preserved beside field metadata and unnamed payload revisions.
 - Comment toggling, bracket and quote pairs, and indentation.
 - **Go to Declaration** from a schema include or type to its source declaration,
   and from a generated type declaration to its originating schema.

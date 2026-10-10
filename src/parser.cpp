@@ -98,6 +98,60 @@ struct language_version_scope {
   }
 };
 
+// Keep source locations and pending diagnostics local to one file, including nested parses.
+struct simplicity_warning_context {
+  std::string_view source;
+  std::string_view path;
+  std::vector<std::string>& messages;
+};
+thread_local simplicity_warning_context* active_simplicity_warnings{};
+
+// Restore the surrounding source when an include or reentrant parser invocation finishes.
+struct simplicity_warning_scope {
+  simplicity_warning_context context;
+  simplicity_warning_context* previous{active_simplicity_warnings};
+  // Borrow source bytes only while declarations in this file are being parsed.
+  simplicity_warning_scope(const rohit::type_check::schema_input_buffer auto& input,
+                           std::string_view path, std::vector<std::string>& messages, bool enabled)
+      : context{{reinterpret_cast<const char*>(input.curr()), input.remaining_buffer()},
+                path, messages} {
+    active_simplicity_warnings = enabled ? &context : nullptr;
+  }
+  // Return source ownership to the caller on both success and failure.
+  ~simplicity_warning_scope() {
+    active_simplicity_warnings = previous;
+  }
+};
+
+// Store a located advisory until the complete compilation unit has passed validation.
+void record_simplicity_warning(const std::uint8_t* position, std::string_view rule,
+                               std::string message) {
+  if (!active_simplicity_warnings) {
+    return;
+  }
+  auto& context = *active_simplicity_warnings;
+  const auto offset = static_cast<std::size_t>(
+      reinterpret_cast<const char*>(position) - context.source.data());
+  const auto preceding = context.source.substr(0, offset);
+  const auto line = 1 + static_cast<std::size_t>(std::count(preceding.begin(), preceding.end(), '\n'));
+  const auto newline = preceding.rfind('\n');
+  const auto column = newline == std::string_view::npos ? offset + 1 : offset - newline;
+  context.messages.push_back(
+      std::string{context.path.empty() ? "<schema>" : context.path} + ":" +
+      std::to_string(line) + ":" + std::to_string(column) + " [simplicity-" +
+      std::string{rule} + "] " + std::move(message));
+}
+
+// Deliver each original-source warning once; library callers opt in through the callback.
+void report_simplicity_warnings(const std::vector<std::string>& messages,
+                                const parse_options& options) {
+  if (options.warning) {
+    for (const auto& message : messages) {
+      options.warning(message);
+    }
+  }
+}
+
 // Reject new syntax in an older declared contract instead of silently changing its meaning.
 void require_language_1_1(const rohit::type_check::schema_input_buffer auto& input,
                           std::string_view feature) {
@@ -1028,6 +1082,96 @@ std::vector<std::string> normalize_array_initializer(
   return values;
 }
 
+// Suppression affects only advisories on the current declaration, never its wire metadata.
+struct ignored_simplicity_warnings {
+  bool magic{};
+  bool version{};
+};
+
+// Read a final field suffix and reject misspelled or repeated rule names rather than hiding them.
+ignored_simplicity_warnings parse_ignored_warnings(
+    const rohit::type_check::schema_input_buffer auto& input) {
+  constexpr language_version introduced{1u, 5u, 0u};
+  if (active_language_version < introduced) {
+    throw exception::bad_member_spec{
+        input, "Warning suppression requires serializer version 1.5.0 or newer"};
+  }
+  parse_identifier_impl(input);
+  skip_whitespace_and_comment(input);
+  check_and_increase(input, '(');
+  skip_whitespace_and_comment(input);
+  if (!next_keyword(input, "warning")) {
+    throw exception::bad_member_spec{input, "Expected warning in ignore(warning magic, version)"};
+  }
+  parse_identifier_impl(input);
+  ignored_simplicity_warnings result{};
+  while (true) {
+    skip_whitespace_and_comment(input);
+    const auto rule = parse_identifier_impl(input);
+    bool* ignored{};
+    if (rule == "magic") {
+      ignored = &result.magic;
+    } else if (rule == "version") {
+      ignored = &result.version;
+    } else {
+      throw exception::bad_member_spec{input, "Unknown simplicity warning: " + rule};
+    }
+    if (*ignored) {
+      throw exception::bad_member_spec{input, "Repeated simplicity warning: " + rule};
+    }
+    *ignored = true;
+    skip_whitespace_and_comment(input);
+    if (!input.full() && *input == ',') {
+      ++input;
+    } else {
+      check_and_increase(input, ')');
+      skip_whitespace_and_comment(input);
+      return result;
+    }
+  }
+}
+
+// Match exact source or wire names without treating substrings as evidence of schema intent.
+bool simplicity_name_is(const member& field, std::string_view expected) {
+  auto name = field.name;
+  auto display_name = field.display_name;
+  to_lower_in_place(name);
+  to_lower_in_place(display_name);
+  return name == expected || display_name == expected;
+}
+
+// Suggest schema metadata conservatively; never convert application fields automatically.
+void check_member_simplicity(const member& field, bool explicit_version_name,
+                             ignored_simplicity_warnings ignored,
+                             const std::uint8_t* position) {
+  if (!active_simplicity_warnings) {
+    return;
+  }
+  if (!field.version && !ignored.magic && simplicity_name_is(field, "magic") &&
+      !field.default_value.empty()) {
+    record_simplicity_warning(position, "magic", "Field '" + field.name +
+        "' looks like a manual magic header; consider the magic keyword if it identifies the "
+        "payload. Conversion changes storage and wire behavior; use ignore(warning magic) "
+        "to retain an intentional application field.");
+  }
+  if (ignored.version) {
+    return;
+  }
+  if (field.version && explicit_version_name && field.name == "version") {
+    record_simplicity_warning(position, "version",
+        "The version field name is redundant; omit it (for example, public version uint32 "
+        "(1) { 1 };), or use ignore(warning version) to show the explicit name.");
+  } else if (!field.version && field.modifier == member::modifier_type::none &&
+             !field.managed && field.extent_expression.empty() &&
+             (simplicity_name_is(field, "version") || simplicity_name_is(field, "revision")) &&
+             schema_version::supported_type(field.type_name_list.front().name)) {
+    record_simplicity_warning(position, "version", "Field '" + field.name +
+        "' looks like a manual payload revision; consider the version keyword with a current "
+        "revision initializer. Conversion enables revision-aware codecs; use "
+        "ignore(warning version) for an ordinary application field.");
+  }
+}
+
 // Parse a typed identity using ordinary scalar type and field identity metadata.
 member parse_typed_magic(const rohit::type_check::schema_input_buffer auto& input,
                          access_type access, namespace_node* declared_namespace) {
@@ -1057,6 +1201,9 @@ member parse_typed_magic(const rohit::type_check::schema_input_buffer auto& inpu
   if (next_keyword(input, "omit")) {
     omitted = parse_omitted_formats(input);
     skip_whitespace_and_comment(input);
+  }
+  if (next_keyword(input, "ignore")) {
+    static_cast<void>(parse_ignored_warnings(input));
   }
   check_and_increase(input, ';');
   validate_field_key(input, id, name);
@@ -1103,6 +1250,7 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
                          const std::uint32_t id, namespace_node* declared_namespace) {
   member lifecycle{};
   skip_whitespace_and_comment(in_stream);
+  const auto declaration_start = in_stream.curr();
   while (next_keyword(in_stream, "obsolete") || next_keyword(in_stream, "created") ||
          next_keyword(in_stream, "replaced")) {
     const auto keyword = parse_identifier_impl(in_stream);
@@ -1216,6 +1364,9 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
       omitted = parse_omitted_formats(in_stream);
       skip_whitespace_and_comment(in_stream);
     }
+    if (next_keyword(in_stream, "ignore")) {
+      static_cast<void>(parse_ignored_warnings(in_stream));
+    }
     try {
       ::rohit::serializer::detail::validate_utf8({reinterpret_cast<const std::uint8_t*>(bytes.data()), bytes.size()});
     } catch (const std::invalid_argument&) {
@@ -1290,8 +1441,9 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
     parse_member_type_union(in_stream, declared_namespace, type_name_list);
   }
   skip_whitespace_and_comment(in_stream);
-  auto name = version && !is_first_identifier(in_stream) ? std::string{"version"}
-                                                         : parse_identifier_impl(in_stream);
+  const bool explicit_version_name = version && is_first_identifier(in_stream);
+  auto name = version && !explicit_version_name ? std::string{"version"}
+                                                : parse_identifier_impl(in_stream);
   auto display_name = name;
   std::uint32_t new_id{version ? 1 : id};
   bool parsed_member_spec{false};
@@ -1303,6 +1455,7 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   std::vector<version_release> releases{};
   std::optional<version_policy> policy{};
   std::vector<std::string> omitted{};
+  ignored_simplicity_warnings ignored{};
   while (true) {
     skip_whitespace_and_comment(in_stream);
     if (*in_stream == '(') {
@@ -1354,6 +1507,9 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
       std::size_t nodes{};
       policy = parse_policy_node(in_stream, 0, nodes);
       policy_character(in_stream, '}');
+    } else if (next_keyword(in_stream, "ignore")) {
+      ignored = parse_ignored_warnings(in_stream);
+      break; // Suppression is a suffix; no additional member metadata follows it.
     } else {
       break;
     }
@@ -1401,6 +1557,7 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   result.created_version = std::move(lifecycle.created_version);
   result.obsolete_version = std::move(lifecycle.obsolete_version);
   result.replaced_member = std::move(lifecycle.replaced_member);
+  check_member_simplicity(result, explicit_version_name, ignored, declaration_start);
   return result;
 } // parse_member_impl
 
@@ -2594,6 +2751,8 @@ class file_loader {
   static constexpr std::size_t maximum_include_depth = 32;
   parsed_schema result{};
   std::vector<std::string> source_notices{};
+  std::vector<std::string> simplicity_warnings{};
+  bool collect_simplicity_warnings{};
   std::unordered_map<std::string, file_state> files{};
   // Creation checks all names immediately; resolution exposes only preceding declarations.
   std::unordered_map<std::string, syntax_node*> declarations{};
@@ -2623,6 +2782,8 @@ class file_loader {
       files.emplace(identity, file_state::loading);
       result.dependencies.push_back(canonical);
       const auto input = rohit::make_stream_from_file(canonical);
+      const auto source_path = canonical.generic_string();
+      const auto source = make_constant_full_stream(input.curr(), input.remaining_buffer());
       append_source_notices(input, source_notices);
       const language_version_scope contract{parse_version_header(input, true)};
       skip_whitespace_and_comment(input);
@@ -2631,7 +2792,12 @@ class file_loader {
         load(canonical.parent_path() / included, depth + 1);
         skip_whitespace_and_comment(input);
       }
-      auto statements = parse_statement_list(input, nullptr, declarations);
+      // Source context exists only during lexical parsing, never during user callbacks.
+      auto statements = [&] {
+        const simplicity_warning_scope warning_source{
+            source, source_path, simplicity_warnings, collect_simplicity_warnings};
+        return parse_statement_list(input, nullptr, declarations);
+      }();
       if (!input.full()) {
         throw exception::bad_input_data{input, "Unexpected trailing schema input"};
       }
@@ -2656,6 +2822,7 @@ class file_loader {
 public:
   // Return the complete compilation unit only after every dependency has been validated.
   parsed_schema run(const std::filesystem::path& path, const parse_options& options) {
+    collect_simplicity_warnings = static_cast<bool>(options.warning);
     load(path, 0);
     try {
       const auto input = rohit::make_stream_from_file(path);
@@ -2663,6 +2830,7 @@ public:
       lower_generics(input, result.statements);
       resolve_member(input, result.statements, types);
       result.source_notices = retain_source_notices(result.statements, source_notices);
+      report_simplicity_warnings(simplicity_warnings, options);
     } catch (const std::exception& error) {
       throw std::invalid_argument{path.generic_string() + ": " + error.what()};
     }
@@ -2682,10 +2850,17 @@ std::vector<std::unique_ptr<syntax_node>>
 parse_schema(const rohit::type_check::schema_input_buffer auto& in_stream, bool require_version,
              const parse_options& options) {
   std::vector<std::string> source_notices;
+  std::vector<std::string> simplicity_warnings;
+  const auto source = make_constant_full_stream(in_stream.curr(), in_stream.remaining_buffer());
   append_source_notices(in_stream, source_notices);
   const language_version_scope contract{parse_version_header(in_stream, require_version)};
   std::unordered_map<std::string, syntax_node*> declarations{};
-  auto statements = parse_statement_list(in_stream, nullptr, declarations);
+  // Resolve policies and deliver callbacks only after the borrowed lexical context is restored.
+  auto statements = [&] {
+    const simplicity_warning_scope warning_source{
+        source, {}, simplicity_warnings, static_cast<bool>(options.warning)};
+    return parse_statement_list(in_stream, nullptr, declarations);
+  }();
   if (!in_stream.full()) {
     throw exception::bad_input_data{in_stream, "Unexpected trailing schema input"};
   }
@@ -2694,6 +2869,7 @@ parse_schema(const rohit::type_check::schema_input_buffer auto& in_stream, bool 
   lower_generics(in_stream, statements);
   resolve_member(in_stream, statements, variable_type_map);
   retain_source_notices(statements, source_notices);
+  report_simplicity_warnings(simplicity_warnings, options);
   return statements;
 }
 

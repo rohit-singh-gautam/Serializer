@@ -5,6 +5,37 @@ const { test } = require('node:test');
 const { Registry, INITIAL } = require('vscode-textmate');
 const onig = require('vscode-oniguruma');
 
+test('warning suppression highlights scoped rules and preserves ordinary keyword spellings', async () => {
+  const grammar = await loadGrammar();
+  for (const suffix of ['ignore(warning version)', 'ignore(warning magic, version)',
+    'ignore /* intent */ ( /* rule */ warning magic, version)']) {
+    const line = `public uint32 version (1) { 1 } ${suffix}; public uint32 ignore (2); public uint32 warning (3);`;
+    const tokens = grammar.tokenizeLine(line, INITIAL).tokens;
+    /** Read the innermost scope at a source offset. */
+    const scope = offset => tokens.find(token => token.startIndex <= offset && token.endIndex > offset).scopes.at(-1);
+    const start = line.indexOf(suffix);
+    assert.equal(scope(start), 'keyword.control.serializer');
+    assert.equal(scope(line.indexOf('warning', start)), 'keyword.control.serializer');
+    for (const match of suffix.matchAll(/magic|version/g)) {
+      assert.equal(scope(start + match.index), 'constant.other.warning.serializer');
+    }
+    for (const name of ['ignore (2)', 'warning (3)']) {
+      assert.equal(scope(line.indexOf(name)), 'source.serializer', name);
+    }
+    assert.equal(grammar.tokenizeLine(line, INITIAL).ruleStack.depth, 1);
+  }
+  const start = grammar.tokenizeLine('public uint32 version (1) { 1 } ignore(', INITIAL);
+  const end = grammar.tokenizeLine('  warning magic, version); public uint32 warning (2);', start.ruleStack);
+  assert.ok(end.tokens.some(token => token.scopes.includes('constant.other.warning.serializer')));
+  assert.equal(end.ruleStack.depth, 1);
+  for (const line of ['public ignore value;', 'public warning value;']) {
+    const tokens = grammar.tokenizeLine(line, INITIAL).tokens;
+    const offset = line.indexOf(' ', 'public'.length) + 1;
+    assert.equal(tokens.find(token => token.startIndex <= offset && token.endIndex > offset).scopes.at(-1),
+      'entity.name.type.serializer');
+  }
+});
+
 test('digest algorithms and byte extents highlight without claiming field names', async () => {
   const grammar = await loadGrammar();
   for (const algorithm of ['md5', 'sha1', 'sha224', 'sha256', 'sha384', 'sha512',

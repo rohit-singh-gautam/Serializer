@@ -20,6 +20,12 @@ Language `1.4.0` and compiler/runtime `1.9.0` add
 discriminated `{kind, value}` object. The four native protocols retain the
 existing union wire contract, with paired examples in every output language.
 
+Compiler/runtime `1.10.0` adds advisory [simplicity warnings](schema_reference.md#simplicity-warnings)
+for ordinary magic/revision candidates and repeated default version member names.
+Language `1.5.0` adds field-local `ignore(warning magic, version)` suppression.
+The checks use names and supported scalar types rather than inferring application
+intent; warnings do not change generation, runtime behavior or wire bytes.
+
 For an introduction to application editing features, begin with
 [history, journals, collaboration, and authorization](managed/getting_started.md).
 
@@ -136,7 +142,7 @@ behavior remain unchanged.
 
 Language-specific output profiles select layouts and naming conventions. Schemas use
 `.serializer` and begin with a supported language header; new schemas use
-`serializer version 1.4.0;`. Older `1.3.0`, `1.2.0`, `1.1.0`, `1.0.0` and the original `1` alias remain supported.
+`serializer version 1.5.0;`. Older `1.4.0`, `1.3.0`, `1.2.0`, `1.1.0`, `1.0.0` and the original `1` alias remain supported.
 Schema language and compiler versions are independent.
 Future versions require all three components. Share declarations with `include
 common;` before any declarations. Paths are unquoted and relative to the including file;
@@ -148,7 +154,7 @@ Namespace scopes are reused during parsing; duplicate types and namespace/type c
 are rejected. See [schema includes](usage.md#share-declarations-with-includes) and the
 [paired C++/Java examples](../example/includes/README.md). Quoted defaults preserve
 literal spaces, for example `public string label { "schema default" };`; escaping the
-space is unnecessary. Run `serializer --version` for compiler version **1.9.0** and
+space is unnecessary. Run `serializer --version` for compiler version **1.10.0** and
 supported schema versions. See [command-line options](command_line.md) for
 multi-language generation and overrides.
 

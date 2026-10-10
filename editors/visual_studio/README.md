@@ -6,13 +6,17 @@ Rohit Serializer helps you edit `.serializer` schemas and navigate between schem
 and existing generated code in Visual Studio. It provides syntax highlighting,
 editing assistance, and native navigation for projects using Serializer — State Framework.
 
-Version **1.1.30** provides `.serializer` highlighting and native navigation in
+Version **1.1.31** provides `.serializer` highlighting and native navigation in
 **Visual Studio 2022 and Visual Studio 2026 on Windows x64**. It shares the VS Code
 extension's grammar and schema/generated-output resolver. Custom type references
 such as `demo::order`, `demo::snapshot` and `demo::customer` use the active theme's
 type and namespace colors.
 
-Version **1.1.30** highlights language 1.4.0 owning `variant` declarations and navigates their alternative types. Existing `union` declarations remain supported. New schema snippets select language 1.4.0.
+Version **1.1.31** highlights language 1.5.0 field warning suppression, including
+`ignore(warning magic, version)`. Warning names are metadata; adjacent types,
+unnamed payload revisions, and fields named `ignore` or `warning` retain normal
+navigation. The companion VS Code schema snippet selects language 1.5.0. Owning
+`variant` and existing `union` declarations remain supported.
 
 Version **1.1.28** shares language `1.3.0` digest highlighting and navigation:
 `digest`, `digest[32]`, and `digest(sha256)`. Named algorithms and byte extents
@@ -119,7 +123,7 @@ installation. It uses full-framework MSBuild with locked dependencies, bundles
 the current shared resolver, rebuilds and validates:
 
 ```text
-out/extensions/serializer-visual-studio-1.1.30.vsix
+out/extensions/serializer-visual-studio-1.1.31.vsix
 ```
 
 Close Visual Studio, double-click the VSIX, select the installation and restart
@@ -235,9 +239,24 @@ Empty extents and element types receive fixed-array highlighting. Enum type
 operands and qualified enum defaults in typed magic retain declaration, definition,
 and type-definition navigation, including unsaved and transitive included schemas.
 VS Code includes `array_inferred` and `magic_typed` snippets; its schema snippet
-selects `serializer version 1.4.0;`. The original `1` header remains exactly
+selects `serializer version 1.5.0;`. The original `1` header remains exactly
 `1.0.0` and does not enable these features. See the
 [magic contract](../../docs/magic_and_omission.md) and [fixed arrays](../../docs/generics.md).
+
+## Simplicity warnings (1.1.31)
+
+The compiler suggests `magic` for manually modeled signatures and `version` for
+ordinary payload version/revision fields. If an ordinary field is intentional,
+append `ignore(warning version)` or `ignore(warning magic, version)` before its
+semicolon. Suppression requires schema language `1.5.0`; it affects compiler
+warnings and preserves the field's generated API and wire representation. Both
+editors highlight suppression rules and preserve navigation beside them. Compiler
+warnings appear in build output; this extension does not provide semantic diagnostics.
+
+Omit the redundant name with `public version uint32 (1) { 1 };`. Its implicit
+generated member remains `version`, preserving the API and wire identities.
+Retain a custom revision name when existing consumers depend on it. See the
+[revision contract](../../docs/versioning.md).
 
 ## Compact integer fields (1.1.25)
 
