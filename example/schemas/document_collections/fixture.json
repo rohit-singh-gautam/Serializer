@@ -1,0 +1,20 @@
+{
+  "revision": 7,
+  "pages": [
+    {
+      "title": "Notes"
+    },
+    {
+      "title": "Appendix"
+    }
+  ],
+  "columns": [
+    1,
+    2,
+    3
+  ],
+  "headings": [
+    "Draft",
+    "Review"
+  ]
+}

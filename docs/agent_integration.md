@@ -16,6 +16,12 @@ digest storage and C++ creation, proprietary-compatible output/runtime licensing
 history, journals, and collaboration. Other languages have generated codecs and
 managed record exchange; native managed engines currently run in C++.
 
+The skill requires reviewing the installed revision's complete feature set and
+using every feature applicable to the requested contract. Record each capability
+as used, not applicable with a concrete reason, or unavailable at the dependency
+revision. Owning/view/packed profiles remain alternatives; this requirement does
+not enable features outside the application's scope or silently update a pin.
+
 Select the [serialization quick start](../README.md#get-started) or
 [managed-state quick start](managed/getting_started.md) for the application, and
 check [package availability](distribution.md) against the dependency in use.

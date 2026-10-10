@@ -1,6 +1,8 @@
+#include "schema_projection.hpp"
 #include "native_schema.hpp"
 #include "generated_notices.hpp"
 #include "version_writer.hpp"
+#include "behavior_writer.hpp"
 #include <rohit/serializer_creator.hpp>
 
 #include <algorithm>
@@ -354,7 +356,7 @@ class emitter {
   void register_nodes(const std::vector<std::unique_ptr<syntax_node>>& values,
                       const std::string& prefix = {}) {
     for (const auto& value : values) {
-      if (value->type == object_type::generic_definition) { continue; }
+      if (value->type == object_type::generic_definition || value->type == object_type::native_code) { continue; }
       const auto generated = prefix + name(value->name, true, options.rename_identifiers);
       if (value->type == object_type::namespace_type) {
         register_nodes(static_cast<const namespace_node&>(*value).statements, generated);
@@ -419,7 +421,7 @@ class emitter {
         }
       };
       for (std::size_t i = 0; i < value.parents.size(); ++i) {
-        add(field("base" + std::to_string(i), value.parents[i].access));
+        add(field(std::string(language == target::go ? "Base" : "base") + std::to_string(i), value.parents[i].access));
       }
       for (const auto& item : value.member_list) {
         const auto identifier = field(item.name, item.access);
@@ -476,7 +478,7 @@ class emitter {
       for (const auto& base : value.parents) {
         add(base.display_name);
       }
-      for (const auto& item : value.member_list) {
+      for (const auto& item : wire_members(value)) {
         if (item.modifier == member::modifier_type::variant) {
           for (const auto& alternative : item.type_name_list) {
             add(item.display_name + ":" + alternative.enum_name);
@@ -608,8 +610,20 @@ class emitter {
   // Construct independent fixed elements while leaving variable collections empty.
   std::string initial_collection(const member& value) const {
     if (value.fixed_extent != 0) {
-      return "Array.from({ length: " + std::to_string(value.fixed_extent) + " }, () => " +
-             initial(value.type_name_list.front()) + ")";
+      const auto count = std::to_string(value.fixed_extent);
+      const auto element = initial(value.type_name_list.front());
+      if (language == target::go) {
+        return "func() " + collection_type(value) + " { values := make(" + collection_type(value) +
+               ", " + count + "); for index := range values { values[index] = " + element +
+               " }; return values }()";
+      }
+      if (language == target::csharp) {
+        return "new " + collection_type(value) +
+               "(System.Linq.Enumerable.Select<int, " + type(value.type_name_list.front()) +
+               ">(System.Linq.Enumerable.Range(0, " + count +
+               "), _ => " + element + "))";
+      }
+      return "Array.from({ length: " + count + " }, () => " + element + ")";
     }
     return empty_collection(value);
   }
@@ -646,7 +660,7 @@ class emitter {
     for (std::size_t i = 0; i < value.parents.size(); ++i) {
       const auto& base = value.parents[i];
       const auto base_type = names.at(base.parent_class);
-      declare(field("base" + std::to_string(i), base.access),
+      declare(field(std::string(language == target::go ? "Base" : "base") + std::to_string(i), base.access),
               (language == target::go ? "*" : "") + base_type,
               choose("new ", "New", "new ") + base_type + "()", base.access);
     }
@@ -699,7 +713,7 @@ class emitter {
     }
     local("count", "input.beginArray()");
     if (value.fixed_extent != 0) {
-      condition("count !== -1 && count !== " + std::to_string(value.fixed_extent));
+      condition(choose("count !== -1 && count !== ", "count != -1 && count != ", "count != -1 && count != ") + std::to_string(value.fixed_extent));
       statement("input.fail(\"Fixed array extent mismatch\")");
       close();
     }
@@ -791,7 +805,7 @@ class emitter {
     }
     close();
     if (value.fixed_extent != 0) {
-      condition("values.length !== " + std::to_string(value.fixed_extent));
+      condition(choose("values.length !== ", "len(values) != ", "values.Count != ") + std::to_string(value.fixed_extent));
       statement("input.fail(\"Fixed array extent mismatch\")");
       close();
     }
@@ -819,7 +833,7 @@ class emitter {
       const auto count =
           choose(expression + ".length", "len(" + expression + ")", expression + ".Count");
       if (value.fixed_extent != 0) {
-        condition(count + " !== " + std::to_string(value.fixed_extent));
+        condition(count + choose(" !== ", " != ", " != ") + std::to_string(value.fixed_extent));
         statement("output.fail(\"Fixed array extent mismatch\")");
         close();
       }
@@ -1132,14 +1146,14 @@ class emitter {
       statement("output.field(" + std::to_string(base.id) + ", " + wire_key(base.display_name) +
                 ", " + first_flag(first) + ")");
       statement(choose("this.", "value.", "this.") +
-                field("base" + std::to_string(i), base.access) +
+                field(std::string(language == target::go ? "Base" : "base") + std::to_string(i), base.access) +
                 choose(".write(output)", ".write(output)", ".Write(output)"));
       if (variable_first) {
         statement("firstField = false");
       }
       first = false;
     }
-    for (const auto& item : value.member_list) {
+    for (const auto& item : wire_members(value)) {
       if (item.version) {
         continue;
       }
@@ -1210,7 +1224,7 @@ class emitter {
   }
   // Merge a composed parent's fields in input order.
   void read_parent(const parent& base, std::size_t index) {
-    const auto destination = "result." + field("base" + std::to_string(index), base.access);
+    const auto destination = "result." + field(std::string(language == target::go ? "Base" : "base") + std::to_string(index), base.access);
     const auto identifier = names.at(base.parent_class);
     statement(destination + " = " +
               choose(identifier + ".read", "read" + identifier, identifier + ".Read") + "(input, " +
@@ -1256,7 +1270,7 @@ class emitter {
     for (std::size_t i = 0; i < value.parents.size(); ++i) {
       read_parent(value.parents[i], i);
     }
-    for (const auto& item : value.member_list) {
+    for (const auto& item : wire_members(value)) {
       if (item.version) {
         continue;
       }
@@ -1331,7 +1345,7 @@ class emitter {
         }
         close();
       }
-      for (const auto& item : value.member_list) {
+      for (const auto& item : wire_members(value)) {
         if (!numeric && item.modifier == member::modifier_type::variant) {
           for (std::size_t i = 0; i < item.type_name_list.size(); ++i) {
             read_case(value, quote(item.display_name + ":" + item.type_name_list[i].enum_name),
@@ -1363,7 +1377,7 @@ class emitter {
       statement("input.fail(\"Missing schema version\")");
       close();
       check_version(value, true);
-      for (const auto& item : value.member_list) {
+      for (const auto& item : wire_members(value)) {
         const auto active = version_active(revision_language(), item, *version,
                                            "result." + field(version->name, version->access));
         if (!active.empty()) {
@@ -1426,13 +1440,262 @@ class emitter {
                 "var " + identifier + "Names = []string{" + values + "}",
                 "private static readonly string[] " + identifier + "Names = {" + values + "};"));
   }
+  // Emit schema behavior without entering the codec field traversal.
+  void behaviors(const class_node& value) {
+    const auto selected = language == target::go ? "go" : language == target::csharp ? "csharp" :
+        language == target::typescript ? "typescript" : "js";
+    behavior::require_native_names(value, selected, options.rename_identifiers);
+    const auto model_name = names.at(&value);
+    const auto contracts = behavior::contracts(value);
+    behavior::require_unique_callable_names(value, selected,
+        [&](auto n) { return field(n, access_type::public_access); },
+        language == target::csharp ? std::function<std::string(const type_name&)>{[&](const auto& t) { return type(t); }} :
+                                    std::function<std::string(const type_name&)>{});
+    std::vector<const function_declaration*> external;
+    if (language == target::js || language == target::typescript) {
+      for (const auto& method : value.functions) {
+        if (!method.expression && !behavior::native_body(method, "js")) { external.push_back(&method); }
+      }
+      for (const auto* method : contracts) {
+        if (std::find(external.begin(), external.end(), method) == external.end()) { external.push_back(method); }
+      }
+      if (!external.empty() && language == target::js) {
+        line("#srlBehavior = null;");
+        open("attachBehavior(behavior)");
+        for (const auto* method : external) {
+          const auto method_name = field(method->name, access_type::public_access);
+          condition("behavior == null || typeof behavior[" + quote(method_name) + "] !== 'function'");
+          statement("throw new TypeError('Missing required behavior callable')"); close();
+        }
+        std::string bindings;
+        for (const auto* method : external) {
+          const auto key = quote(field(method->name, access_type::public_access));
+          bindings += (bindings.empty() ? "" : ", ") + key + ": behavior[" + key + "].bind(behavior)";
+        }
+        statement("this.#srlBehavior = Object.freeze({" + bindings + "})"); close();
+      } else if (!external.empty()) {
+        std::string signature = "attachBehavior(behavior: { ";
+        for (const auto* method : external) {
+          signature += field(method->name, access_type::public_access) + ": (receiver: " + model_name;
+          for (const auto& argument : method->parameters) {
+            signature += ", " + name(argument.name, false, options.rename_identifiers) + ": " + type(argument.type);
+          }
+          signature += ") => " + (method->return_type.name == "void" ? "void" : type(method->return_type)) + "; ";
+        }
+        line(signature + "}): void;");
+      }
+    }
+    if (language == target::csharp && !contracts.empty()) {
+      open("public interface Behavior");
+      for (const auto* method : contracts) {
+        std::string parameters = model_name + " receiver";
+        for (const auto& argument : method->parameters) {
+          parameters += ", " + type(argument.type) + " " + name(argument.name, false, options.rename_identifiers);
+        }
+        line((method->return_type.name == "void" ? "void" : type(method->return_type)) + " " +
+            field(method->name, access_type::public_access) + "(" + parameters + ");");
+      }
+      close();
+      line("private Behavior? srlBehavior;");
+      line("public void AttachBehavior(Behavior behavior) { srlBehavior = behavior ?? throw new System.ArgumentNullException(nameof(behavior)); }");
+      open("public sealed class BehaviorAdapter");
+      line("private readonly " + model_name + " receiver;"); line("private readonly Behavior implementation;");
+      line("public BehaviorAdapter(" + model_name + " receiver, Behavior implementation) { this.receiver = receiver ?? throw new System.ArgumentNullException(nameof(receiver)); this.implementation = implementation ?? throw new System.ArgumentNullException(nameof(implementation)); }");
+      for (const auto* method : contracts) {
+        std::string parameters, calls = "receiver";
+        for (const auto& argument : method->parameters) {
+          parameters += (parameters.empty() ? "" : ", ") + type(argument.type) + " " + name(argument.name, false, options.rename_identifiers);
+          calls += ", " + name(argument.name, false, options.rename_identifiers);
+        }
+        const auto result = method->return_type.name == "void" ? "void" : type(method->return_type);
+        line("public " + result + " " + field(method->name, access_type::public_access) + "(" + parameters + ") { " +
+            (result == "void" ? "" : "return ") + "implementation." + field(method->name, access_type::public_access) + "(" + calls + "); }");
+      }
+      close();
+    }
+    for (const auto& item : behavior::ordered_body(value)) {
+      if (item.kind == class_body_item::kind_type::native_code) {
+        const auto& code = value.native_blocks.at(item.index);
+        if (code.language == selected || (language == target::js && code.language == "javascript")) {
+          if (language == target::go) {
+            throw std::invalid_argument{"go: class native blocks are not Go struct fields; use preamble/external files"};
+          }
+          source += behavior::source_marker(code, selected) + behavior::line_directive(code, selected) +
+              code.text + behavior::reset_line(selected) + "\n";
+        }
+        continue;
+      }
+      if (item.kind != class_body_item::kind_type::function) { continue; }
+      const auto& method = value.functions.at(item.index);
+      line(behavior::source_marker(method, selected));
+      if (language == target::go && method.dispatch == function_declaration::dispatch_type::abstract_method) { continue; }
+      const auto identifier = field(method.name, method.access);
+      const auto return_type = method.return_type.name == "void" ? choose("void", "", "void") : type(method.return_type);
+      std::string arguments;
+      for (const auto& parameter : method.parameters) {
+        if (!arguments.empty()) { arguments += ", "; }
+        const auto n = name(parameter.name, false, options.rename_identifiers);
+        arguments += language == target::go ? n + " " + type(parameter.type) :
+            language == target::csharp ? type(parameter.type) + " " + n :
+            language == target::typescript ? n + ": " + type(parameter.type) : n;
+      }
+      if (language == target::typescript) {
+        line(identifier + "(" + arguments + "): " + return_type + ";");
+        continue;
+      }
+      const auto* native = behavior::native_body(method, selected);
+      if (language == target::csharp && method.dispatch != function_declaration::dispatch_type::ordinary && !native && !method.expression) {
+        open(std::string(method.access == access_type::public_access ? "public " : "private ") + return_type + " " + identifier + "(" + arguments + ")");
+        condition("srlBehavior == null"); statement("throw new System.InvalidOperationException(\"Attach required behavior before invocation\")"); close();
+        std::string calls = "this";
+        for (const auto& argument : method.parameters) { calls += ", " + name(argument.name, false, options.rename_identifiers); }
+        statement(std::string(return_type == "void" ? "" : "return ") + "srlBehavior." + field(method.name, access_type::public_access) + "(" + calls + ")");
+        close(); continue;
+      }
+      if (!native && !method.expression) {
+        if (language == target::go) {
+          std::string signature = "var _ func(*" + model_name;
+          for (const auto& parameter : method.parameters) { signature += ", " + type(parameter.type); }
+          line(signature + ") " + return_type + " = (*" + model_name + ")." + identifier);
+          continue;
+        }
+        if (language == target::csharp) {
+          line(std::string(method.access == access_type::public_access ? "public " : "private ") +
+              "partial " + return_type + " " + identifier + "(" + arguments + ");");
+          continue;
+        }
+        open(identifier + "(" + arguments + ")");
+        condition("this.#srlBehavior === null");
+        statement("throw new Error('Attach the required behavior before invocation')"); close();
+        std::string calls = "this";
+        for (const auto& argument : method.parameters) {
+          calls += ", " + name(argument.name, false, options.rename_identifiers);
+        }
+        statement("return this.#srlBehavior[" + quote(field(method.name, access_type::public_access)) + "](" + calls + ")");
+        close(); continue;
+      }
+      open(language == target::go ? "func (value *" + model_name + ") " + identifier + "(" + arguments + ") " + return_type :
+          language == target::csharp ? std::string(method.access == access_type::public_access ? "public " : "private ") +
+              return_type + " " + identifier + "(" + arguments + ")" : identifier + "(" + arguments + ")");
+      if (method.dispatch != function_declaration::dispatch_type::ordinary &&
+          (language == target::js || language == target::csharp)) {
+        condition(language == target::js ? "this.#srlBehavior !== null" : "srlBehavior != null");
+        std::string calls = "this";
+        for (const auto& argument : method.parameters) { calls += ", " + name(argument.name, false, options.rename_identifiers); }
+        const auto callback = language == target::js ? "this.#srlBehavior[" + quote(field(method.name, access_type::public_access)) + "]" :
+                                                    "srlBehavior." + field(method.name, access_type::public_access);
+        statement(std::string(return_type == "void" ? "" : "return ") + callback + "(" + calls + ")");
+        if (return_type == "void") { statement("return"); } close();
+      }
+      if (native) {
+        source += behavior::source_marker(*native, selected) + behavior::line_directive(*native, selected) +
+            native->text + behavior::reset_line(selected) + "\n";
+      } else {
+        const auto symbol = [&](std::string_view name_value) {
+          const auto parameter = std::find_if(method.parameters.begin(), method.parameters.end(),
+              [&](const auto& item) { return item.name == name_value; });
+          if (parameter != method.parameters.end()) {
+            return name(parameter->name, false, options.rename_identifiers);
+          }
+          const auto member = std::find_if(value.member_list.begin(), value.member_list.end(),
+              [&](const auto& item) { return item.name == name_value; });
+          return std::string(language == target::go ? "value." : "this.") + field(member->name, member->access);
+        };
+        std::set<std::string> symbols;
+        behavior::expression_symbols(*method.expression, symbols);
+        const auto error = language == target::go ? "panic(\"Non-finite portable expression\")" :
+            language == target::csharp ? "throw new System.ArithmeticException(\"Non-finite portable expression\")" :
+                                        "throw new RangeError(\"Non-finite portable expression\")";
+        for (const auto& input : symbols) {
+          const auto expression = language == target::go ? "float64(" + symbol(input) + ")" : symbol(input);
+          condition((language == target::js ? "typeof " + expression + " !== 'number' || " : "") +
+              "!" + (language == target::csharp ? "double.IsFinite(" + expression + ")" : behavior::finite(expression)));
+          statement(error);
+          close();
+          const auto input_type = behavior::symbol_type(value, method, input);
+          if (language == target::js && (input_type == "int32" || input_type == "uint32")) {
+            condition("!Number.isInteger(" + expression + ") || " + expression +
+                (input_type == "int32" ? " < -2147483648 || " : " < 0 || ") + expression +
+                (input_type == "int32" ? " > 2147483647" : " > 4294967295"));
+            statement("throw new RangeError('Portable integer conversion is outside the declared type')");
+            close();
+          }
+        }
+        statement(choose("const ", "", "double ") + std::string{"srlBehaviorResult"} +
+            choose(" = ", " := ", " = ") + behavior::expression(*method.expression, selected, symbol));
+        condition("!" + (language == target::csharp ? std::string{"double.IsFinite(srlBehaviorResult)"} : behavior::finite("srlBehaviorResult")));
+        statement(error);
+        close();
+        statement("return srlBehaviorResult");
+      }
+      close();
+    }
+  }
+
+  // Dispatch adapters expose interfaces without imposing abstract construction on codec data.
+  void dispatch_adapter(const class_node& value) {
+    const auto contracts = behavior::contracts(value);
+    if (contracts.empty() || language == target::csharp) { return; }
+    const auto model_name = names.at(&value);
+    const auto interface_name = name(value.name + "_behavior", true, options.rename_identifiers);
+    const auto adapter_name = name(value.name + "_behavior_adapter", true, options.rename_identifiers);
+    if (language == target::go) {
+      open("type " + interface_name + " interface");
+      for (const auto* method : contracts) {
+        std::string parameters = "receiver *" + model_name;
+        for (const auto& argument : method->parameters) { parameters += ", " + name(argument.name, false, options.rename_identifiers) + " " + type(argument.type); }
+        line(field(method->name, access_type::public_access) + "(" + parameters + ") " + (method->return_type.name == "void" ? "" : type(method->return_type)));
+      }
+      close(); open("type " + adapter_name + " struct");
+      line("Receiver *" + model_name); line("Implementation " + interface_name); close();
+    } else if (language == target::typescript) {
+      open("export interface " + interface_name);
+      for (const auto* method : contracts) {
+        std::string parameters = "receiver: " + model_name;
+        for (const auto& argument : method->parameters) { parameters += ", " + name(argument.name, false, options.rename_identifiers) + ": " + type(argument.type); }
+        line(field(method->name, access_type::public_access) + "(" + parameters + "): " + (method->return_type.name == "void" ? "void" : type(method->return_type)) + ";");
+      }
+      close(); open("export class " + adapter_name);
+      line("constructor(receiver: " + model_name + ", implementation: " + interface_name + ");");
+    } else {
+      open("export class " + adapter_name); open("constructor(receiver, implementation)");
+      condition("receiver == null || implementation == null"); statement("throw new TypeError('Behavior adapter requires data and implementation')"); close();
+      for (const auto* method : contracts) {
+        condition("typeof implementation[" + quote(field(method->name, access_type::public_access)) + "] !== 'function'");
+        statement("throw new TypeError('Missing required behavior callable')"); close();
+      }
+      std::string bindings;
+      for (const auto* method : contracts) {
+        const auto key = quote(field(method->name, access_type::public_access));
+        bindings += (bindings.empty() ? "" : ", ") + key + ": implementation[" + key + "].bind(implementation)";
+      }
+      statement("this.receiver = receiver"); statement("this.implementation = Object.freeze({" + bindings + "})"); close();
+    }
+    for (const auto* method : contracts) {
+      const auto result_type = method->return_type.name == "void" ? (language == target::go ? "" : "void") : type(method->return_type);
+      std::string parameters, calls = language == target::go ? "value.Receiver" : "this.receiver";
+      for (const auto& argument : method->parameters) {
+        const auto id = name(argument.name, false, options.rename_identifiers);
+        parameters += (parameters.empty() ? "" : ", ") + id + (language == target::go ? " " + type(argument.type) :
+            language == target::typescript ? ": " + type(argument.type) : ""); calls += ", " + id;
+      }
+      const auto id = field(method->name, access_type::public_access);
+      if (language == target::typescript) { line(id + "(" + parameters + "): " + result_type + ";"); continue; }
+      open(language == target::go ? "func (value *" + adapter_name + ") " + id + "(" + parameters + ") " + result_type : id + "(" + parameters + ")");
+      if (language == target::go) { condition("value == nil || value.Receiver == nil || value.Implementation == nil"); statement("panic(\"Missing required behavior adapter implementation\")"); close(); }
+      statement(std::string(result_type.empty() || result_type == "void" ? "" : "return ") +
+          (language == target::go ? "value.Implementation." : "this.implementation.") + id + "(" + calls + ")"); close();
+    }
+    if (language != target::go) { close(); }
+  }
+
   // Emit an owning class with exact-message public APIs.
   void object(const class_node& value) {
     const auto identifier = names.at(&value);
     line("// " + identifier +
          " owns its fields; concurrent mutation during encoding is unsupported.");
     open(choose("export class " + identifier, "type " + identifier + " struct",
-                "public sealed class " + identifier));
+                "public sealed " + std::string(value.functions.empty() ? "" : "partial ") + "class " + identifier));
     if (value.magic_field && language != target::go) {
       const auto& magic = *value.magic_field;
       const bool visible = value.magic_access == access_type::public_access;
@@ -1480,7 +1743,7 @@ class emitter {
       for (std::size_t i = 0; i < value.parents.size(); ++i) {
         const auto& base = value.parents[i];
         if (base.access != access_type::public_access) {
-          statement(field("base" + std::to_string(i), base.access));
+          statement(field(std::string(language == target::go ? "Base" : "base") + std::to_string(i), base.access));
         }
       }
       for (const auto& item : value.member_list) {
@@ -1504,12 +1767,14 @@ class emitter {
     } else {
       declarations(value);
     }
+    if (language != target::go) { behaviors(value); }
     if (language == target::typescript) {
       line("constructor();");
       line("encode(protocol: Protocol): Uint8Array;");
       line("static decode(bytes: Uint8Array, protocol: Protocol, limits?: Limits): " + identifier +
            ";");
       close();
+      dispatch_adapter(value);
       return;
     }
     if (language == target::go) {
@@ -1544,6 +1809,7 @@ class emitter {
       close();
       close();
     }
+    if (language == target::go) { behaviors(value); }
     line("// Encode one complete message into independent storage.");
     open(choose("encode(protocol)",
                 "func (value *" + identifier + ") Encode(protocol Protocol) ([]byte, error)",
@@ -1619,6 +1885,7 @@ class emitter {
     if (language != target::go) {
       close();
     }
+    dispatch_adapter(value);
   }
 
 public:
@@ -1660,9 +1927,11 @@ public:
     if (language == target::go) {
       validate_name(options.package_name, language);
       line("package " + options.package_name);
+      source += behavior::preambles(values, "go");
       source += go_runtime;
     } else if (language == target::csharp) {
       line("#nullable enable");
+      source += behavior::preambles(values, "csharp");
       if (!options.namespace_name.empty()) {
         std::size_t start{};
         do {
@@ -1677,11 +1946,13 @@ public:
         } while (true);
         open("namespace " + options.namespace_name);
       }
-      open("public static class " + unit);
+      open("public static partial class " + unit);
       source += csharp_runtime;
     } else if (language == target::js) {
+      source += behavior::preambles(values, "js");
       source += js_runtime;
     } else {
+      source += behavior::preambles(values, "typescript");
       line("export declare const Protocol: Readonly<{JSON: 0; BINARY_NONE: 1; BINARY_INTEGER: 2; "
            "BINARY_STRING: 3}>;");
       line("export type Protocol = typeof Protocol[keyof typeof Protocol];");
@@ -1719,25 +1990,22 @@ public:
 std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,
                      std::string_view language, std::string_view unit_name,
                      const portable_options& options) {
-  if (language != "js" && language != "typescript" && language != "python") {
-    require_variable_arrays(statements, language);
-  }
   require_unmanaged_backend(statements);
   if (language == "c") {
-    return generated_license_notice(statements) + native::c(native::schema{statements});
+    return behavior::finalize_mappings(generated_license_notice(statements) + native::c(native::schema{statements}));
   }
   if (language == "swift") {
-    return generated_license_notice(statements) + native::swift(native::schema{statements});
+    return behavior::finalize_mappings(generated_license_notice(statements) + native::swift(native::schema{statements}));
   }
   if (language == "kotlin") {
-    return generated_license_notice(statements) +
-           native::kotlin(native::schema{statements}, options.package_name);
+    return behavior::finalize_mappings(generated_license_notice(statements) +
+           native::kotlin(native::schema{statements}, options.package_name));
   }
   if (language == "rust") {
-    return generated_license_notice(statements) + native::rust(native::schema{statements});
+    return behavior::finalize_mappings(generated_license_notice(statements) + native::rust(native::schema{statements}));
   }
   if (language == "python") {
-    return generated_license_notice(statements, "#") + native::python(native::schema{statements});
+    return behavior::finalize_mappings(generated_license_notice(statements, "#") + native::python(native::schema{statements}));
   }
   const auto selected = language == "js"       ? target::js
                         : language == "go"     ? target::go
@@ -1745,7 +2013,7 @@ std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements
                         : language == "typescript"
                             ? target::typescript
                             : throw std::invalid_argument{"Unknown portable language"};
-  return emitter{selected, options, unit_name}.generate(statements);
+  return behavior::finalize_mappings(emitter{selected, options, unit_name}.generate(statements));
 }
 
 // Preserve declaration-free source notices without changing the established vector API.

@@ -1,0 +1,112 @@
+serializer version 1.6.0;
+
+namespace managed_document_features {
+  class author_data stable_ids managed {
+    private string name (1);
+    public transient uint64 lookup_cache {0};
+  }
+  class review_data stable_ids managed {
+    public string status (1) {"draft"};
+  }
+  class text_data stable_ids managed {
+    public string text (1);
+    public array string comments (2);
+    public transient uint64 word_cache {0};
+  }
+  class attachment_data stable_ids managed {
+    public string filename (1);
+    public array uint8 bytes (2);
+  }
+  class document_data stable_ids
+      : public managed author_data ("author", 1),
+        public managed review_data ("review", 2) {
+    public string title (3);
+    public managed variant(text_data = text, attachment_data = attachment) content (4);
+    public transient uint64 preview_cache {0};
+  }
+
+  namespace attribution {
+    class contributor_data stable_ids managed { public string label (1); }
+  }
+  class qualified_bases_document stable_ids
+      : public managed attribution::contributor_data (1),
+        public managed review_data ("default", 2),
+        public managed author_data ("class", 3) {
+    public string title (4);
+  }
+
+  class title_data stable_ids {
+    private string title (1);
+  }
+  class language_data stable_ids {
+    public string language (1) {"en"};
+  }
+  class ordinary_bases_document stable_ids managed
+      : public title_data ("title_part", 1), public language_data ("language_part", 2) {
+    public uint32 pages (3) {1};
+  }
+
+  class annotation<T = string> stable_ids managed {
+    public T note (1);
+    public transient uint64 cached_length {0};
+  }
+  instantiate string_annotation = annotation<string>;
+  instantiate text_annotation = annotation<text_data>;
+
+  class versioned_document stable_ids managed {
+    public version {2} compatibility {1};
+    obsolete(2) public string old_title (2);
+    created(2) replaced(old_title) public string title (3) {"untitled"};
+    public transient uint64 layout_cache {0};
+  }
+  class versioned_entity_document stable_ids managed {
+    public version {2} compatibility {1};
+    obsolete(2) public managed text_data retired_text (2);
+    created(2) public managed text_data current_text (3);
+  }
+  class fixed_review_document stable_ids managed {
+    public managed array[2] text_data paragraphs (1);
+  }
+
+  class versioned_variant_document stable_ids managed {
+    public version {2} compatibility {1};
+    obsolete(2) public managed variant(text_data = text, attachment_data = attachment) retired_content (2);
+    created(2) public managed variant(text_data = text, attachment_data = attachment) current_content (3);
+  }
+
+}
+
+namespace managed_document_features {
+  class document_metrics stable_ids managed {
+    public double words_per_page (1) {10.0};
+    public uint32 page_count (2) {1};
+    public transient uint64 lookup_cache {0};
+    public function double estimated_words() readonly
+      expression(words_per_page * to_double(page_count));
+    public function void set_metrics(double words, uint32 pages) edit cpp {
+      set_words_per_page(words);
+      if (pages == 0) { throw ::std::invalid_argument{"A document needs at least one page"}; }
+      set_page_count(pages);
+    };
+    public function void add_pages(uint32 amount) edit;
+  }
+}
+
+namespace managed_document_features {
+  class legacy_omitted_document stable_ids managed { public uint32 count (1) {0} omit(json); }
+  class legacy_revision_data stable_ids {
+    public version uint8 revision (1) {2} compatibility {1};
+    obsolete(2) public string old_title (2);
+    created(2) public string title (3);
+  }
+  class legacy_versioned_child_document stable_ids managed { public legacy_revision_data data (1); }
+}
+
+namespace managed_document_features {
+  class dotted_version_document stable_ids managed {
+    public transient array uint8 lookup_cache;
+    public version version3 schema_version (1) {"2.0.0"} compatibility {"1.0.0"};
+    obsolete("2.0.0") public string old_title (2);
+    created("2.0.0") public string title (3) {"untitled"};
+  }
+}

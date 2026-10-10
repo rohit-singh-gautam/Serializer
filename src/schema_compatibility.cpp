@@ -134,7 +134,7 @@ void validate_policy(const compatibility_policy& policy) {
 // Flatten namespace blocks using resolved identities, including reopened and included scopes.
 void collect(const std::vector<std::unique_ptr<syntax_node>>& statements, declarations& result) {
   for (const auto& statement : statements) {
-    if (statement->type == object_type::generic_definition) { continue; }
+    if (statement->type == object_type::generic_definition || statement->type == object_type::native_code) { continue; }
     if (statement->type == object_type::namespace_type) {
       collect(static_cast<const namespace_node&>(*statement).statements, result);
     } else {
@@ -337,7 +337,7 @@ std::vector<field_contract> fields(const class_node& type, std::string_view form
         {base.id, base.display_name, "parent:" + base.parent_class->get_full_name(), {}, {}});
   }
   for (const auto& field : type.member_list) {
-    if (!format.empty() && field.omits(format)) { continue; }
+    if (field.transient || (!format.empty() && field.omits(format))) { continue; }
     field_contract contract{field.id, field.display_name, {}, fixed_array_default(field), {}};
     contract.fixed_extent = field.fixed_extent;
     contract.compact = field.compact;

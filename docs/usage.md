@@ -87,9 +87,9 @@ Use `class matrix<uint64 Rows, uint64 Cols = Rows, T = double>` with
 `matrix<3>` and `matrix<3,3,double>` are the same native specialization.
 Fill `value.elements` as a `std::array` and serialize with the existing APIs;
 exact input enforces cardinality and ordinary decode budgets. JavaScript/TypeScript
-and Python support fixed arrays without explicit initializers from compiler 1.6.0;
-their codecs enforce the same cardinality and retain ordinary sequence counts.
-Other backends reject fixed arrays. For a managed root containing ordinary
+and Python supported fixed arrays from compiler 1.6.0; compiler 1.11.0 extends
+fixed arrays without explicit initializers to all eleven ordinary outputs. Codecs
+enforce exact cardinality and retain ordinary sequence counts. For a managed root containing ordinary
 point/frame/matrix values, use generated whole-value setters within transactions;
 the fixed arrays have no resize/insert/erase editor operations.
 
@@ -337,7 +337,7 @@ class person stable_ids {
 ```
 
 - Use `class`, `enum`, and `namespace`; schema declarations are not C++ source.
-- Start every new `.serializer` file with `serializer version 1.5.0;` before declarations.
+- Start every new `.serializer` file with `serializer version 1.6.0;` before declarations.
   Older `1.0.0` files remain supported.
   The original `serializer version 1;` is an exact alias for `1.0.0`, exclusive to
   version 1. Future versions require three components. The language version is
@@ -401,7 +401,7 @@ namespace demo {
   spaces, backslashes, absolute paths, and other extensions are rejected.
   `./` and `../` are supported. Paths resolve from the including file, independently
   of the compiler's working directory. Comments may separate directive tokens.
-- Every file requires its own supported version header. `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, and the
+- Every file requires its own supported version header. `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, and the
   original `1` alias may coexist in an include graph. Typed magic and inferred
   arrays require `1.1.0`, compact scalars require `1.2.0`, and built-in digests
   require `1.3.0`; owning variants require `1.4.0` and warning suppression requires

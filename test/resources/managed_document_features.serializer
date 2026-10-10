@@ -1,0 +1,2 @@
+serializer version 1.6.0;
+include ../../example/managed/document_features/document;

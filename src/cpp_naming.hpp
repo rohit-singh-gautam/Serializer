@@ -14,6 +14,10 @@ namespace rohit::serializer::writer::cpp {
 class naming {
   const cpp_options& options;
 
+public:
+  // Check a candidate generated identifier using the same keyword and reserved-name rules.
+  static bool valid_identifier(std::string_view name);
+
 protected:
   // Bind one generation's naming policy; no global state is shared between writers.
   explicit naming(const cpp_options& options) : options{options} {}

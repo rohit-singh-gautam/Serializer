@@ -1,4 +1,4 @@
-# Proposed managed classes and language bindings
+# Managed C++ and proposed language bindings
 
 Current C++ representation: managed schema classes carry `persistent_id` directly
 by default. Separate ID-free values/storage wrappers in the illustrations below
@@ -7,13 +7,28 @@ New documents get a namespace automatically. Root and managed descendants alloca
 IDs `1, 2, 3...` within that document only; saved IDs/counters survive reload,
 and undo/deletion never renumber survivors. Explicit member boundaries still apply.
 
-Status: broader design sketches. The [C++ interface](cpp_runtime.md) implements
-schema-driven identity, typed editors, transactions, snapshot history, and
-[synchronous native-file journals](journal.md), plus a separate
-[collaboration authority/replica wrapper](collaboration_runtime.md). These
-broader sketches are not its exact API or generated output. Other-language managed
-runtimes remain proposals; their generators currently reject managed annotations.
-See the [design index](README.md) and [data structures](data_structures.md).
+Compiler/runtime 1.11.0 and schema language 1.6.0 implement the
+[C++ interface](cpp_runtime.md): identity, typed editors, transactions, snapshot
+history, [native-file journals](journal.md), [collaboration](collaboration_runtime.md),
+private fields, distinct public bases, owning alternatives, concrete managed
+generics, payload lifetimes and checked transient updates. Both direct and separated
+storage policies are supported. Other-language managed engines remain proposals;
+generators reject managed annotations rather than emitting incomplete engines.
+The broader sketches below are not the exact C++ API or output. See
+[state enhancements](../state_enhancements.md), the [design index](README.md) and
+[data structures](data_structures.md).
+
+| Generated capability | C++ | Other codec backends |
+| --- | --- | --- |
+| Ordinary models/codecs and payload revision metadata | Implemented | Implemented within each backend's documented type support |
+| Schema method declarations/native blocks/portable expressions | Implemented | Selected language code and the supported portable subset; see [state enhancements](../state_enhancements.md) |
+| Managed editors/history/journal/collaboration/runtime updates | Implemented | Not implemented |
+| Managed public nonvirtual multiple inheritance | Generated checked base editors and identities | Managed generation rejected |
+
+Functions and codecs alone do not supply transaction ownership, immutable pins,
+identity allocation, journal recovery or collaboration conflict semantics. Each
+future language engine must implement and qualify those services under its native
+error, lifetime, concurrency and resource contracts.
 
 The [multilanguage wire matrix](../../example/managed/multilanguage/README.md)
 qualifies existing record schemas in every selected producer/consumer direction.
@@ -36,7 +51,7 @@ from history cursor and requires platform storage adapters.
 `Labels` defaults to `history_labels::disabled`; enable it explicitly for action
 names. It is independent of the linear/tree choice.
 
-The implemented API is `model_store<Root, Mode, Labels, Traits>`, with `Mode` fixed at
+The implemented API is `model_store<Root, Mode, Labels, Traits, Features>`, with `Mode` fixed at
 compile time to disabled, linear, or tree. Only that history representation is
 stored. Linear history has ordered snapshots and a cursor, with `undo()`/`redo()`
 and no revision IDs. Only tree history provides revision-based navigation.
@@ -44,10 +59,10 @@ Journaling need not depend on either representation or its revision IDs.
 The broader capability sketches below are proposals, not the current
 public signature.
 
-The future compile-time collaboration, journal, and authorization capability selectors should compose
-independently of this one history policy. Each enabled capability contributes its
-own storage and transaction hooks; disabled capabilities contribute no component
-state. A journal's durable sequence and recovery retention are independent of
+C++ already selects journal and collaboration independently with `store_features`.
+Authorization capability selectors and the portable component designs below remain
+proposals. Each enabled capability contributes its own storage and transaction
+hooks; disabled capabilities contribute no component state. A journal's durable sequence and recovery retention are independent of
 undo revisions and deque eviction. Collaboration tracks accepted shared changes
 and requires its own conflict/undo semantics; choosing tree history does not itself
 implement collaboration. Authorization checks permission before publication.
@@ -60,7 +75,7 @@ The suggested `template <typename Root, supported_mechanism support>` shape work
 for an owning managed store. Keep `model_store` as the descriptive implementation
 name used throughout the proposal, and allow `managed` as a short alias for that
 same type. This does not introduce a second owner or replace generated
-`tracked_cylinder`/`tracked_task` editors.
+`document_editor`/`task_editor` adapters.
 
 ```cpp
 #include <cstdint>

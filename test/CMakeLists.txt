@@ -6,6 +6,7 @@ endforeach()
 
 add_executable(core_serializer_test
   core_serializer_test.cpp
+  behavior_test.cpp
   digest_test.cpp
   digest_schema_test.cpp
   digest_codec_test.cpp
@@ -200,6 +201,12 @@ if(Python3_Interpreter_FOUND)
   add_test(NAME serializer_generic_python
     COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/example/generics/run.py"
       --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/generic_python")
+  foreach(behavior_suite IN ITEMS behavior_languages native_behavior_languages)
+    add_test(NAME "serializer_${behavior_suite}_python"
+      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/${behavior_suite}.py"
+        --compiler "$<TARGET_FILE:serializer>" --language python
+        --build "${CMAKE_CURRENT_BINARY_DIR}/${behavior_suite}_python")
+  endforeach()
   add_test(NAME serializer_compact_python
     COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/compact_languages.py"
       --compiler "$<TARGET_FILE:serializer>" --language python
@@ -245,8 +252,8 @@ if(SERIALIZER_BUILD_MANAGED)
     target_compile_options(managed_collaboration_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
   endif()
   add_test(NAME managed_collaboration_test COMMAND managed_collaboration_test)
-  add_executable(managed_store_test managed_store_test.cpp managed_generated_test.cpp)
-  serializer_generate(TARGET managed_store_test SCHEMAS resources/managed_model.serializer resources/managed_generated.serializer
+  add_executable(managed_store_test managed_store_test.cpp managed_generated_test.cpp runtime_features_test.cpp)
+  serializer_generate(TARGET managed_store_test SCHEMAS resources/managed_model.serializer resources/managed_generated.serializer resources/runtime_features.serializer
     CONFIG resources/managed_separate.ini
     OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed")
   target_link_libraries(managed_store_test PRIVATE Serializer::managed GTest::gtest_main)
@@ -256,6 +263,50 @@ if(SERIALIZER_BUILD_MANAGED)
     target_compile_options(managed_store_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
   endif()
   add_test(NAME managed_store_test COMMAND managed_store_test)
+  add_executable(managed_document_features_test managed_document_features_test.cpp)
+  serializer_generate(TARGET managed_document_features_test
+    SCHEMAS resources/managed_document_features.serializer
+    CONFIG ../example/managed/document_features/codegen.ini
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed_document_features")
+  target_link_libraries(managed_document_features_test PRIVATE Serializer::managed GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(managed_document_features_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(managed_document_features_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME managed_document_features_test COMMAND managed_document_features_test)
+  add_executable(managed_runtime_state_example ../example/managed/runtime_state/main.cpp)
+  serializer_generate(TARGET managed_runtime_state_example
+    SCHEMAS ../example/managed/runtime_state/document.serializer
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/runtime_state_example")
+  target_link_libraries(managed_runtime_state_example PRIVATE Serializer::managed)
+  add_test(NAME managed_runtime_state_example COMMAND managed_runtime_state_example)
+  add_executable(serializer_managed_document_features ../example/managed/document_features/main.cpp)
+  serializer_generate(TARGET serializer_managed_document_features
+    SCHEMAS ../example/managed/document_features/document.serializer
+    CONFIG ../example/managed/document_features/codegen.ini
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/document_features_example")
+  target_link_libraries(serializer_managed_document_features PRIVATE Serializer::managed)
+  add_test(NAME serializer_managed_document_features COMMAND serializer_managed_document_features)
+  foreach(example_target IN ITEMS managed_runtime_state_example serializer_managed_document_features)
+    if(MSVC)
+      target_compile_options(${example_target} PRIVATE /W4 /WX)
+    else()
+      target_compile_options(${example_target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+  endforeach()
+  add_executable(managed_document_separate_test managed_document_separate_test.cpp)
+  serializer_generate(TARGET managed_document_separate_test
+    SCHEMAS resources/managed_document_features.serializer
+    CONFIG resources/managed_document_separate.ini
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/document_features_separate")
+  target_link_libraries(managed_document_separate_test PRIVATE Serializer::managed GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(managed_document_separate_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(managed_document_separate_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME managed_document_separate_test COMMAND managed_document_separate_test)
   add_executable(managed_profile_test managed_profile_test.cpp)
   serializer_generate(TARGET managed_profile_test SCHEMAS resources/managed_generated.serializer
     CONFIG resources/managed_google64.ini CODING_STANDARD google
@@ -506,6 +557,21 @@ add_test(NAME serializer_constant_evaluation_runtime_equivalence
     "-DDISABLED=$<TARGET_FILE:runtime_equivalence_disabled_test>"
     "-DENABLED=$<TARGET_FILE:runtime_equivalence_enabled_test>"
     -P "${CMAKE_CURRENT_SOURCE_DIR}/runtime_equivalence.cmake")
+
+# Keep the public fixed-array document consumer in the ordinary C++ build.
+add_executable(serializer_document_collections_cpp ../example/cpp/document_collections/main.cpp)
+serializer_generate(TARGET serializer_document_collections_cpp
+  SCHEMAS resources/document_collections/message.serializer
+  OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/document_collections_cpp")
+target_link_libraries(serializer_document_collections_cpp PRIVATE Serializer::runtime)
+if(MSVC)
+  target_compile_options(serializer_document_collections_cpp PRIVATE /W4 /WX)
+else()
+  target_compile_options(serializer_document_collections_cpp PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME serializer_document_collections_cpp COMMAND serializer_document_collections_cpp
+  "${PROJECT_SOURCE_DIR}/example/schemas/document_collections/fixture.json"
+  "${CMAKE_CURRENT_BINARY_DIR}/document_collections_output.json")
 
 # Imported vcpkg DLLs must be available when tests run from CTest or directly from the build tree.
 # Derive every transitive runtime dependency from the target instead of assuming a package path.

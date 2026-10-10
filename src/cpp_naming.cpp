@@ -1,5 +1,6 @@
 #include "cpp_naming.hpp"
 #include "schema_version.hpp"
+#include "behavior_writer.hpp"
 
 #include <algorithm>
 #include <array>
@@ -126,6 +127,12 @@ void insert_name(std::set<std::string>& names, const std::string& name) {
 } // namespace
 
 // Apply the type convention chosen by a concrete guide or the repository fallback.
+// Share identifier validity with generators that derive accessor names from wire metadata.
+bool naming::valid_identifier(std::string_view name) {
+  try { validate_identifier(name); return true; }
+  catch (const std::invalid_argument&) { return false; }
+}
+
 std::string naming::type_name(std::string_view name) const {
   if (!options.rename_identifiers) {
     return std::string{name};
@@ -350,6 +357,7 @@ void naming::validate_names(const std::vector<std::unique_ptr<syntax_node>>& sta
   const auto visit = [&](const auto& self, const auto& nodes, const std::string& scope) -> void {
     for (const auto& pointer : nodes) {
       const auto& node = *pointer;
+      if (node.type == object_type::native_code) { continue; }
       const bool is_namespace = node.type == object_type::namespace_type;
       const auto name = is_namespace ? namespace_name(node.name) : type_name(node.name);
       validate_identifier(name);
@@ -381,13 +389,22 @@ void naming::validate_names(const std::vector<std::unique_ptr<syntax_node>>& sta
         }
       } else if (node.type == object_type::class_type || node.type == object_type::generic_definition) {
         const auto& object = static_cast<const class_node&>(node);
+        if (!behavior::contracts(object).empty()) {
+          for (const auto suffix : {"_behavior", "_behavior_adapter"}) {
+            const auto helper = type_name(object.name + suffix);
+            validate_identifier(helper);
+            if (!namespace_symbols[scope].emplace(helper, "<generated behavior type>").second) {
+              throw std::invalid_argument{"Generated C++ behavior type collision: " + helper};
+            }
+          }
+        }
         std::set<std::string> owning{"serialize_in",
                                      "serialize_out",
                                      "serialize",
                                      "deserialize",
                                      "serialize_in_member_by_identifier",
                                      "serialize_in_member_by_name",
-                                     "serializer_reuses_storage",
+                                     "serializer_require_behavior_definitions", "serializer_reuses_storage",
                                      "StorageSource",
                                      "SerializeInProtocol",
                                      "SerializeOutProtocol",
@@ -470,6 +487,21 @@ void naming::validate_names(const std::vector<std::unique_ptr<syntax_node>>& sta
               insert_name(values, enum_name(alternative.enum_name));
               insert_name(fields, field_name(alternative.enum_name));
             }
+          }
+        }
+        // Method overloads may share one spelling, while generated helpers and fields may not.
+        std::map<std::string, std::string> method_names;
+        for (const auto& method : object.functions) {
+          const auto method_name = function_name(method.name);
+          validate_identifier(method_name);
+          const auto [method_position, method_inserted] = method_names.emplace(method_name, method.name);
+          if (!method_inserted && method_position->second != method.name) {
+            throw std::invalid_argument{"Generated C++ behavior name collision: " + method_name};
+          }
+          if (method_inserted) { insert_name(owning, method_name); }
+          std::set<std::string> parameter_names;
+          for (const auto& parameter : method.parameters) {
+            insert_name(parameter_names, field_name(parameter.name));
           }
         }
         if (object.has_mode(storage_mode::owning) && owning.contains("to_string")) {

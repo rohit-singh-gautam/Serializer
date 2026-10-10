@@ -108,7 +108,7 @@ enum class access_type { error, private_access, protected_access, public_access 
 enum class compact_encoding { none, prefix, varint };
 
 enum class object_type { unresolved, namespace_type, class_type, enum_type, primitive, instantiation,
-                         generic_definition };
+                         generic_definition, native_code };
 
 enum class class_attributes : std::uint8_t {
   none = 0x00, packed = 0x01, stable_ids = 0x02, managed = 0x04
@@ -309,7 +309,7 @@ struct member {
   std::vector<std::string> omitted_formats{};
   // Resolve output exclusion during generation rather than storing runtime format state.
   bool omits(std::string_view format) const {
-    return std::find(omitted_formats.begin(), omitted_formats.end(), format) != omitted_formats.end();
+    return transient || std::find(omitted_formats.begin(), omitted_formats.end(), format) != omitted_formats.end();
   }
   bool obsolete{false}; // Bare obsolete deprecates the API without changing its wire lifetime.
   std::string created_version{};
@@ -324,6 +324,7 @@ struct member {
   compact_encoding compact{compact_encoding::none};
   bool compact_strict{true}; // Prefix overflow is checked unless truncation is explicit.
   bool owning_variant{false}; // The variant keyword selects owning storage without changing union wire data.
+  bool transient{false}; // Memory-only schema field; excluded from all durable traversal.
 
   // Compare the relevant values without modifying either operand.
   bool operator==(const member& rhs) const {
@@ -331,6 +332,7 @@ struct member {
            type_name_list == rhs.type_name_list && name == rhs.name && managed == rhs.managed &&
            extent_expression == rhs.extent_expression && fixed_extent == rhs.fixed_extent &&
            inferred_extent == rhs.inferred_extent && owning_variant == rhs.owning_variant &&
+           transient == rhs.transient &&
            version == rhs.version && magic == rhs.magic &&
            compact == rhs.compact && compact_strict == rhs.compact_strict &&
            obsolete == rhs.obsolete &&
@@ -343,6 +345,71 @@ struct member {
   }
 };
 
+// One opaque target-language payload; source offsets identify its original schema span.
+struct native_code_block {
+  std::string language{};
+  std::string text{};
+  access_type access{access_type::private_access};
+  std::size_t source_offset{};
+  std::size_t source_end{};
+  std::size_t source_line{1};
+  std::size_t source_column{1};
+  std::string source_path{};
+};
+
+// A typed, expression-only computation; durable field identities are not involved.
+struct behavior_expression {
+  enum class operation { literal, symbol, pi, to_double, positive, negative, add, subtract, multiply };
+  operation kind{operation::literal};
+  std::string value{};
+  std::vector<behavior_expression> operands{};
+  std::size_t source_offset{};
+  std::size_t source_end{};
+  std::size_t source_line{1};
+  std::size_t source_column{1};
+  std::string source_path{};
+};
+
+// A named argument with the schema's owned value type.
+struct function_parameter {
+  type_name type{std::string{"double"}, nullptr};
+  std::string name{};
+};
+
+// Schema-declared behavior is an API contract, not serialized executable state.
+struct function_declaration {
+  enum class effect_type { readonly, edit };
+  enum class dispatch_type { ordinary, virtual_method, abstract_method, override_method };
+  access_type access{access_type::public_access};
+  type_name return_type{std::string{"void"}, nullptr};
+  std::string name{};
+  std::vector<function_parameter> parameters{};
+  effect_type effect{effect_type::readonly};
+  dispatch_type dispatch{dispatch_type::ordinary};
+  std::vector<native_code_block> bodies{};
+  std::optional<behavior_expression> expression{};
+  std::size_t source_offset{};
+  std::size_t source_end{};
+  std::size_t source_line{1};
+  std::size_t source_column{1};
+  std::string source_path{};
+};
+
+// Keep declaration order separate from the field-only persistence traversal.
+struct class_body_item {
+  enum class kind_type { field, function, native_code, magic };
+  kind_type kind{kind_type::field};
+  std::size_t index{};
+};
+
+// File-level target hooks are emitted before generated namespaces and declarations.
+struct native_code_node : syntax_node {
+  native_code_block code{};
+  // Keep opaque code outside schema type lookup and wire binding.
+  native_code_node(native_code_block block, namespace_node* space)
+      : syntax_node{object_type::native_code, std::string{}, space}, code{std::move(block)} {}
+};
+
 struct class_node;
 
 struct parent {
@@ -353,6 +420,7 @@ struct parent {
   namespace_node* current_namespace{};
   class_node* parent_class{nullptr}; // This will be filled in later
   bool explicit_id{false};
+  bool managed{false}; // Activate identity on this base occurrence, not on every use of its type.
 };
 
 // A resolved class schema with the requested C++ storage representations.
@@ -361,6 +429,9 @@ struct class_node : public syntax_node {
   std::uint8_t storage_modes{static_cast<std::uint8_t>(storage_mode::owning)};
   std::vector<parent> parents;
   std::vector<member> member_list{};
+  std::vector<function_declaration> functions{};
+  std::vector<native_code_block> native_blocks{};
+  std::vector<class_body_item> body_order{};
   std::string magic_bytes{}; // Exact raw binary prefix; no terminator, length, or field identity.
   std::optional<member> magic_field{}; // Typed scalar or enum identity; no per-object storage.
   access_type magic_access{access_type::private_access};
@@ -393,6 +464,8 @@ struct class_node : public syntax_node {
   class_node(class_node&& rhs)
       : syntax_node{std::move(rhs)}, attributes{rhs.attributes}, storage_modes{rhs.storage_modes},
         parents{std::move(rhs.parents)}, member_list{std::move(rhs.member_list)},
+        functions{std::move(rhs.functions)}, native_blocks{std::move(rhs.native_blocks)},
+        body_order{std::move(rhs.body_order)},
         magic_bytes{std::move(rhs.magic_bytes)}, magic_field{std::move(rhs.magic_field)},
         magic_access{rhs.magic_access},
         magic_id{rhs.magic_id}, magic_explicit_id{rhs.magic_explicit_id},
@@ -426,6 +499,9 @@ struct class_node : public syntax_node {
     const auto managed_flag = static_cast<std::uint8_t>(class_attributes::managed);
     if ((static_cast<std::uint8_t>(attributes) & managed_flag) != 0) {
       return true;
+    }
+    for (const auto& base : parents) {
+      if (base.managed) { return true; }
     }
     for (const auto& field : member_list) {
       if (field.managed) { return true; }

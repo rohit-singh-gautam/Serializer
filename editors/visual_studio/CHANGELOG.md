@@ -1,3 +1,9 @@
+# 1.1.32
+
+- Highlight language 1.6 method contracts, native blocks and transient members.
+- Navigate method signature types; skip opaque native declarations.
+- Use language 1.6 in new schema snippets.
+
 # 1.1.31
 
 - Share schema language 1.5.0 warning suppression highlighting with VS Code.

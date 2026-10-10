@@ -1,0 +1,14 @@
+serializer version 1.6.0;
+go preamble { // Native Go identifiers are exported explicitly in preserved naming mode.
+}
+class DocumentBase stable_ids {
+  public double BaseMeasure (1);
+  public function abstract double Adjustment(double extra) readonly;
+}
+class DocumentData stable_ids : public DocumentBase ("base", 1) {
+  public double Measure (2);
+  public function override double Adjustment(double extra) readonly go { return value.Measure + extra };
+  public function virtual double Weight() readonly expression(Measure * 2.0);
+  public function void Update(double next) edit go { value.Measure = next };
+  public function double Score() readonly;
+}

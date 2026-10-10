@@ -2,9 +2,13 @@
 // SPDX-License-Identifier: 0BSD
 // See LICENSE-RUNTIME for permission to use this runtime in proprietary applications.
 #pragma once
+#include <rohit/managed_memory.hpp>
+#include <rohit/managed_changes.hpp>
+#include <rohit/managed_resident.hpp>
 
 #include <rohit/managed_collaboration_hooks.hpp>
 #include <rohit/managed_editor.hpp>
+#include <rohit/managed_delta.hpp>
 #include <rohit/managed_file_journal.hpp>
 #include <rohit/managed_journal.hpp>
 #include <rohit/managed_records.hpp>
@@ -40,6 +44,31 @@ enum class history_mode : std::uint32_t { disabled = 0, linear = 1, tree = 2 };
 enum class history_labels { disabled, enabled };
 // Runtime attachments can be compiled out independently; defaults preserve existing callers.
 enum class store_features { none, journal, collaboration, all };
+// Detached copies preserve memory-only values unless the caller explicitly requests defaults.
+enum class runtime_copy_policy { preserve, reset_to_defaults };
+struct clone_options {
+  runtime_copy_policy runtime_fields{runtime_copy_policy::preserve};
+};
+// A view stamp advances on every publication; durable generation excludes runtime-only updates.
+struct state_stamp {
+  std::uint64_t view_generation{};
+  std::uint64_t durable_generation{};
+  bool operator==(const state_stamp&) const = default;
+};
+enum class publication_kind { durable_edit, history_navigation, load, runtime_update };
+// Callbacks receive pinned accepted values and conservatively invalidated entity identities.
+template <typename Storage, typename Id>
+struct publication_event {
+  publication_kind kind{};
+  state_stamp stamp{};
+  std::shared_ptr<const Storage> before{};
+  std::shared_ptr<const Storage> after{};
+  std::vector<Id> invalidated_ids{};
+  // Durable field/membership changes and entity births/deletions, independently of cache resets.
+  std::vector<Id> changed_ids{};
+  // Handwritten legacy traits lacking generated field traversal expose a conservative fallback.
+  bool changed_ids_precise{true};
+};
 
 #if defined(_MSC_VER)
 #define SERIALIZER_MANAGED_EMPTY_MEMBER [[msvc::no_unique_address]]
@@ -103,6 +132,14 @@ struct store_options {
   std::size_t max_snapshot_bytes{default_snapshot_bytes};
   std::size_t max_history_bytes{default_history_bytes};
   serializer::decode_limits decode{};
+  // Admission estimates include owning models, retained snapshots/history and outstanding pins.
+  // This is not a hard limit on temporary decoder/container allocations inside an edit callback.
+  std::size_t max_resident_bytes{std::numeric_limits<std::size_t>::max()};
+  // Scoped root/control-block allocation hook; generated standard containers keep their allocators.
+  std::shared_ptr<std::pmr::memory_resource> allocation_resource{};
+  // Opt-in deltas preserve default full-state frames; full states bound replay depth.
+  bool delta_journal{};
+  std::size_t max_delta_chain{32};
 };
 
 // Specialize for an ordinary generated payload and its explicit generated ID-bearing storage.
@@ -110,6 +147,20 @@ template <typename Root>
 struct model_traits;
 
 namespace detail {
+// Generated hooks reset memory-only members without changing persistent values or identities.
+template <typename Traits, typename Storage>
+void reset_runtime_fields(Storage& value) {
+  if constexpr (requires { Traits::reset_runtime_fields(value); }) {
+    Traits::reset_runtime_fields(value);
+  }
+}
+// Reattach memory-only values to an isolated candidate; older traits need no additional hooks.
+template <typename Traits, typename Storage>
+void copy_runtime_fields(Storage& value, const Storage& source) {
+  if constexpr (requires { Traits::copy_runtime_fields(value, source); }) {
+    Traits::copy_runtime_fields(value, source);
+  }
+}
 
 // History-free stores retain only limits used by their model and decoder.
 template <bool History>
@@ -123,9 +174,15 @@ struct store_configuration<false> {
   static constexpr std::size_t max_history_bytes = 0;
   std::size_t max_snapshot_bytes;
   serializer::decode_limits decode;
+  std::size_t max_resident_bytes;
+  std::shared_ptr<std::pmr::memory_resource> allocation_resource;
+  bool delta_journal{};
+  std::size_t max_delta_chain{32};
   // History limits have no storage or runtime role in a history-free specialization.
   explicit store_configuration(store_options options)
-      : max_snapshot_bytes{options.max_snapshot_bytes}, decode{options.decode} {}
+      : max_snapshot_bytes{options.max_snapshot_bytes}, decode{options.decode},
+        max_resident_bytes{options.max_resident_bytes},
+        allocation_resource{std::move(options.allocation_resource)}, delta_journal{options.delta_journal}, max_delta_chain{options.max_delta_chain} {}
   // Reconstruct options only when building an isolated recovery or synchronization receiver.
   operator store_options() const {
     store_options result;
@@ -133,6 +190,10 @@ struct store_configuration<false> {
     result.max_history_bytes = max_history_bytes;
     result.max_snapshot_bytes = max_snapshot_bytes;
     result.decode = decode;
+    result.max_resident_bytes = max_resident_bytes;
+    result.allocation_resource = allocation_resource;
+    result.delta_journal = delta_journal;
+    result.max_delta_chain = max_delta_chain;
     return result;
   }
 };
@@ -148,6 +209,7 @@ struct store_journal_storage<true> {
   std::unique_ptr<journal_sink> sink{};
   bool indeterminate{};
   std::vector<std::uint8_t> saved_snapshot{};
+  std::size_t delta_count{};
 };
 
 template <bool History, typename IdentityTable>
@@ -328,6 +390,8 @@ template <typename Root, history_mode Mode = history_mode::linear,
           history_labels Labels = history_labels::disabled, typename Traits = model_traits<Root>,
           store_features Features = store_features::all>
 class model_store {
+  template <typename, history_mode, history_labels, typename, store_features>
+  friend class model_store;
   template <typename, typename, typename>
   friend class store_collaboration;
   template <typename, history_mode, history_labels, typename, typename, typename, store_features>
@@ -374,6 +438,9 @@ private:
 
   document_id document_{};
   detail::store_configuration<has_history> options_{store_options{}};
+  std::shared_ptr<detail::resident_ledger> resident_ledger_{
+      std::make_shared<detail::resident_ledger>(options_.max_resident_bytes)};
+  detail::resident_charge resident_auxiliary_{resident_ledger_};
   std::shared_ptr<const storage_type> current_{};
   std::vector<std::uint8_t> snapshot_{};
   identity_table identities_{};
@@ -383,6 +450,10 @@ private:
   std::uint64_t allocated_id_{};
   bool writer_active_{};
   bool callback_active_{};
+  state_stamp stamp_{};
+  using event_type = publication_event<storage_type, id_type>;
+  std::function<void(const event_type&)> publication_callback_{};
+  std::exception_ptr notification_error_{};
   const std::thread::id thread_{std::this_thread::get_id()};
   std::function<void(const storage_type&)> validate_{};
   SERIALIZER_MANAGED_EMPTY_MEMBER detail::history_storage<Mode, Labels> history_{};
@@ -392,8 +463,156 @@ private:
 
   // Build a private empty receiver so recovery can validate everything before live publication.
   model_store(recovery_tag, store_options options,
-              std::function<void(const storage_type&)> validate)
-      : options_{options}, validate_{std::move(validate)} {}
+              std::function<void(const storage_type&)> validate,
+               std::shared_ptr<detail::resident_ledger> ledger = {})
+      : options_{options},
+        resident_ledger_{ledger ? std::move(ledger)
+                                : std::make_shared<detail::resident_ledger>(options.max_resident_bytes)},
+        resident_auxiliary_{resident_ledger_}, validate_{std::move(validate)} {}
+
+  // Require a complete generated estimate when opting into a finite resident admission budget.
+  std::size_t estimate_storage(const storage_type& value) const {
+    std::size_t result = sizeof(storage_type);
+    if constexpr (requires { Traits::estimate_memory(value); }) {
+      result = Traits::estimate_memory(value);
+      if (result < sizeof(storage_type)) {
+        throw std::invalid_argument{"Managed estimate omits inline storage"};
+      }
+    } else if (options_.max_resident_bytes != std::numeric_limits<std::size_t>::max()) {
+      throw std::logic_error{"Finite resident budgets require model memory traits"};
+    }
+    // Qualified libraries use a small shared-control block; conservatively include its overhead.
+    detail::add_memory_estimate(result, sizeof(detail::resident_storage<storage_type>) -
+                                           sizeof(storage_type) + 8 * sizeof(void*));
+    return result;
+  }
+
+  // Shared holders keep the conservative charge alive as long as any immutable reader pin.
+  auto make_storage_candidate(storage_type value) const {
+    const auto estimate = estimate_storage(value);
+    return detail::make_resident_storage(std::move(value), resident_ledger_,
+                                         options_.allocation_resource, estimate);
+  }
+  // Read-only roots use the same resource/lifetime accounting as mutable private candidates.
+  std::shared_ptr<const storage_type> make_published_storage(storage_type value) const {
+    return make_storage_candidate(std::move(value)).first;
+  }
+
+  // Account retained capacities and metadata conservatively, independently of wire-size limits.
+  std::size_t estimate_auxiliary(const std::vector<std::uint8_t>& snapshot,
+                                const identity_table& identities, const history_type& history,
+                                const std::vector<std::uint8_t>* saved = nullptr) const {
+    std::size_t result = snapshot.capacity();
+    detail::add_memory_estimate(result, detail::estimate_dynamic_memory(identities));
+    if constexpr (Mode == history_mode::linear) {
+      // A conservative block/map allowance accompanies every retained deque entry.
+      detail::add_memory_estimate(result, detail::multiply_memory_estimate(
+          history.entries.size(), sizeof(entry_type) + 512 + 2 * sizeof(void*)));
+      for (const auto& entry : history.entries) {
+        detail::add_memory_estimate(result, entry.snapshot.capacity());
+        if constexpr (has_labels) {
+          detail::add_memory_estimate(result, detail::estimate_dynamic_memory(entry.label));
+        }
+      }
+    } else if constexpr (Mode == history_mode::tree) {
+      detail::add_memory_estimate(result, detail::multiply_memory_estimate(
+          history.revisions.size(), sizeof(typename decltype(history.revisions)::value_type) +
+                                        sizeof(revision_type) + 14 * sizeof(void*)));
+      for (const auto& [number, entry] : history.revisions) {
+        detail::add_memory_estimate(result, entry->snapshot.capacity());
+        if constexpr (has_labels) {
+          detail::add_memory_estimate(result, detail::estimate_dynamic_memory(entry->label));
+        }
+      }
+    }
+    if constexpr (has_journal) {
+      detail::add_memory_estimate(result, saved ? saved->capacity()
+                                                : journal_state_.saved_snapshot.capacity());
+    }
+    return result;
+  }
+
+  // Stage a superset of the next history before journal I/O; eviction can only reduce this estimate.
+  std::size_t estimate_edit_auxiliary(const std::vector<std::uint8_t>& snapshot,
+                                     const identity_table& identities, const label_type& action) const {
+    auto result = estimate_auxiliary(snapshot, identities, history_);
+    if constexpr (Mode == history_mode::linear) {
+      detail::add_memory_estimate(result, sizeof(entry_type) + 512 + 2 * sizeof(void*));
+      detail::add_memory_estimate(result, snapshot.size());
+    } else if constexpr (Mode == history_mode::tree) {
+      detail::add_memory_estimate(result, sizeof(typename decltype(history_.revisions)::value_type) +
+                                             sizeof(revision_type) + 14 * sizeof(void*));
+      detail::add_memory_estimate(result, snapshot.size());
+    }
+    if constexpr (has_labels) {
+      // Copies may retain capacity; admit the caller's capacity rather than only serialized length.
+      detail::add_memory_estimate(result, detail::estimate_dynamic_memory(action.label));
+    }
+    return result;
+  }
+
+  // Prepare every notification allocation and generation overflow check before durable publication.
+  event_type prepare_publication(publication_kind kind, const identity_table& identities,
+                                 const storage_type* next = nullptr,
+                                 bool replaced_namespace = false) const {
+    if (stamp_.view_generation == std::numeric_limits<std::uint64_t>::max() ||
+        (kind != publication_kind::runtime_update &&
+         stamp_.durable_generation == std::numeric_limits<std::uint64_t>::max())) {
+      throw std::overflow_error{"Managed publication generation exhausted"};
+    }
+    event_type event;
+    event.kind = kind;
+    event.before = current_;
+    if (kind != publication_kind::runtime_update && publication_callback_) {
+      event.invalidated_ids.reserve(identities_.size() + identities.size());
+      for (const auto& [id, type] : identities_) {
+        static_cast<void>(type);
+        event.invalidated_ids.push_back(id);
+      }
+      for (const auto& [id, type] : identities) {
+        static_cast<void>(type);
+        if (!identities_.contains(id)) {
+          event.invalidated_ids.push_back(id);
+        }
+      }
+      std::sort(event.invalidated_ids.begin(), event.invalidated_ids.end());
+      if constexpr (requires(const storage_type& value, detail::publication_field_collector& visitor) {
+                      Traits::visit_collaboration_fields(value, visitor);
+                    }) {
+        if (next) {
+          event.changed_ids = detail::changed_entity_ids<Traits>(
+              current_.get(), *next, identities_, identities, options_.max_snapshot_bytes,
+              replaced_namespace);
+        } else {
+          event.changed_ids = event.invalidated_ids;
+          event.changed_ids_precise = false;
+        }
+      } else {
+        event.changed_ids = event.invalidated_ids;
+        event.changed_ids_precise = false;
+      }
+    }
+    return event;
+  }
+
+  // Notify only accepted state; observer failures never turn an acknowledged commit into a failure.
+  void publish_notification(event_type event) noexcept {
+    ++stamp_.view_generation;
+    if (event.kind != publication_kind::runtime_update) {
+      ++stamp_.durable_generation;
+    }
+    event.stamp = stamp_;
+    event.after = current_;
+    if (publication_callback_) {
+      callback_active_ = true;
+      try {
+        publication_callback_(event);
+      } catch (...) {
+        notification_error_ = std::current_exception();
+      }
+      callback_active_ = false;
+    }
+  }
 
   // Preserve the uncertainty of issued durable writes in all transaction completion forms.
   transaction_status failure_status() const noexcept {
@@ -503,9 +722,26 @@ private:
           1 +
           journal_word_bytes * (1 + (Mode == history_mode::linear ? 1 : 0) + (has_labels ? 1 : 0));
       std::array<std::uint8_t, prefix_bytes> prefix{};
-      prefix.front() = static_cast<std::uint8_t>(collaboration_state_.restoration
-                                                     ? detail::journal_record_kind::restore_edit
-                                                     : detail::journal_record_kind::edit);
+      const bool restoring = collaboration_state_.restoration != nullptr;
+      std::vector<std::uint8_t> delta;
+      if (options_.delta_journal && options_.max_delta_chain != 0 &&
+          journal_state_.delta_count < options_.max_delta_chain && !collaboration_state_.attachment) {
+        auto patch = make_snapshot_patch(snapshot_, snapshot, options_.max_snapshot_bytes);
+        try {
+          delta = detail::encode(patch, options_.max_snapshot_bytes);
+        } catch (const std::length_error&) {
+          // A full snapshot remains valid even when an unhelpful patch exceeds its encoding budget.
+          delta.clear();
+        }
+        if (delta.size() >= snapshot.size()) {
+          delta.clear();
+        }
+      }
+      prefix.front() = static_cast<std::uint8_t>(
+          delta.empty() ? (restoring ? detail::journal_record_kind::restore_edit
+                                    : detail::journal_record_kind::edit)
+                        : (restoring ? detail::journal_record_kind::delta_restore_edit
+                                     : detail::journal_record_kind::delta_edit));
       std::size_t offset = 1;
       if constexpr (Mode == history_mode::linear) {
         detail::journal_put_word(prefix, offset, evicted);
@@ -522,7 +758,10 @@ private:
       } else {
         static_cast<void>(action);
       }
-      journal_operation([&] { journal_state_.sink->append(prefix, label, snapshot); });
+      journal_operation([&] {
+        journal_state_.sink->append(prefix, label, delta.empty() ? std::span{snapshot} : std::span{delta});
+      });
+      journal_state_.delta_count = delta.empty() ? 0 : journal_state_.delta_count + 1;
     }
   }
 
@@ -568,8 +807,11 @@ private:
       }
       return;
     }
-    if (kind != detail::journal_record_kind::edit &&
-        kind != detail::journal_record_kind::restore_edit) {
+    const bool delta = kind == detail::journal_record_kind::delta_edit ||
+                       kind == detail::journal_record_kind::delta_restore_edit;
+    const bool restoring = kind == detail::journal_record_kind::restore_edit ||
+                           kind == detail::journal_record_kind::delta_restore_edit;
+    if (kind != detail::journal_record_kind::edit && !restoring && !delta) {
       throw std::invalid_argument{"Unsupported managed journal operation"};
     }
     std::uint64_t evicted = 0;
@@ -596,7 +838,17 @@ private:
     }
     std::vector<std::uint8_t> snapshot{record.begin() + static_cast<std::ptrdiff_t>(offset),
                                        record.end()};
+    if (delta) {
+      if constexpr (has_journal) {
+        if (journal_state_.delta_count >= options_.max_delta_chain) {
+          throw std::length_error{"Managed journal delta chain budget exceeded"};
+        }
+      }
+      auto patch = detail::decode<records::snapshot_patch>(snapshot, options_.decode);
+      snapshot = apply_snapshot_patch(snapshot_, patch, options_.max_snapshot_bytes);
+    }
     auto value = detail::decode<storage_type>(snapshot, options_.decode);
+    detail::reset_runtime_fields<Traits>(value);
     auto identities = inspect(value, allocated_id_);
     if (value.persistent_id != current_->persistent_id || snapshot == snapshot_) {
       throw std::invalid_argument{"Journal edit changes root identity or records no change"};
@@ -605,12 +857,12 @@ private:
       const auto old = identities_.find(id);
       if ((old != identities_.end() && old->second != type) ||
           (old == identities_.end() && id <= allocation_base &&
-           kind != detail::journal_record_kind::restore_edit)) {
+           !restoring)) {
         throw std::invalid_argument{"Journal edit reuses or retypes an identity"};
       }
     }
     validate(value, false);
-    auto published = std::make_shared<const storage_type>(std::move(value));
+    auto published = make_published_storage(std::move(value));
     if constexpr (Mode == history_mode::linear) {
       const auto keep_count = history_.cursor + 1;
       if (evicted > keep_count) {
@@ -656,9 +908,13 @@ private:
         history_.revision_high_water = node->number;
       }
     }
+    resident_auxiliary_.resize(estimate_auxiliary(snapshot, identities, history_));
     current_.swap(published);
     snapshot_.swap(snapshot);
     identities_.swap(identities);
+    if constexpr (has_journal) {
+      journal_state_.delta_count = delta ? journal_state_.delta_count + 1 : 0;
+    }
   }
 
   // Reject cross-thread use before touching store state; external serialization is still required.
@@ -781,16 +1037,22 @@ private:
   }
 
   // Decode and validate a retained state before publishing; failure leaves the cursor unchanged.
-  void restore_snapshot(const std::vector<std::uint8_t>& bytes, std::uint64_t selection) {
+  event_type restore_snapshot(const std::vector<std::uint8_t>& bytes, std::uint64_t selection) {
     auto value = detail::decode<storage_type>(bytes, options_.decode);
     auto identities = inspect(value, allocated_id_);
+    detail::reset_runtime_fields<Traits>(value);
     validate(value);
-    auto published = std::make_shared<const storage_type>(std::move(value));
+    auto published = make_published_storage(std::move(value));
     auto snapshot = bytes;
+    auto event = prepare_publication(publication_kind::history_navigation, identities, published.get());
+    detail::resident_admission admission{
+        resident_auxiliary_, estimate_auxiliary(snapshot, identities, history_)};
     journal_control(detail::journal_record_kind::select, selection);
     current_.swap(published);
     snapshot_.swap(snapshot);
     identities_.swap(identities);
+    admission.commit();
+    return event;
   }
 
   // Navigate by deque position; the caller has checked that the index is retained.
@@ -798,8 +1060,9 @@ private:
     requires(Mode == history_mode::linear)
   {
     const auto& node = history_.entries[index];
-    restore_snapshot(node.snapshot, index);
+    auto event = restore_snapshot(node.snapshot, index);
     history_.cursor = index;
+    publish_notification(std::move(event));
   }
 
 public:
@@ -844,7 +1107,8 @@ public:
   class transaction : private label_type {
     model_store* store_{};
     outcome_type* outcome_{};
-    std::unique_ptr<storage_type> candidate_{};
+    std::shared_ptr<storage_type> candidate_{};
+    std::shared_ptr<detail::resident_charge> candidate_charge_{};
     std::uint64_t allocation_base_{};
     int exceptions_{};
     bool editing_{};
@@ -859,8 +1123,11 @@ public:
       if (exceptions_ != 0) {
         throw std::logic_error{"Cannot begin a transaction during stack unwinding"};
       }
-      candidate_ = std::make_unique<storage_type>(
+      auto candidate = store.make_storage_candidate(
           detail::decode<storage_type>(store.snapshot_, store.options_.decode));
+      candidate_ = std::move(candidate.first);
+      candidate_charge_ = std::move(candidate.second);
+      detail::reset_runtime_fields<Traits>(*candidate_);
       outcome = {};
       store.writer_active_ = true;
     }
@@ -885,6 +1152,7 @@ public:
         channel_->owner = nullptr;
       }
       candidate_.reset();
+      candidate_charge_.reset();
       store_->writer_active_ = false;
       store_ = nullptr;
     }
@@ -925,6 +1193,7 @@ public:
       store_ = std::exchange(other.store_, nullptr);
       outcome_ = other.outcome_;
       candidate_ = std::move(other.candidate_);
+      candidate_charge_ = std::move(other.candidate_charge_);
       static_cast<label_type&>(*this) = std::move(static_cast<label_type&>(other));
       allocation_base_ = other.allocation_base_;
       exceptions_ = other.exceptions_;
@@ -988,6 +1257,7 @@ public:
       try {
         std::invoke(std::forward<Callable>(callback), *candidate_);
         editing_ = false;
+        candidate_charge_->resize(store_->estimate_storage(*candidate_));
         outcome_->throw_if_failed();
       } catch (...) {
         editing_ = false;
@@ -1071,7 +1341,13 @@ public:
           close(transaction_status::no_change);
           return;
         }
+        detail::reset_runtime_fields<Traits>(*candidate_);
+        auto event = store.prepare_publication(publication_kind::durable_edit, identities, candidate_.get());
+        candidate_charge_->resize(store.estimate_storage(*candidate_));
         auto published = std::shared_ptr<const storage_type>{std::move(candidate_)};
+        detail::resident_admission admission{
+            store.resident_auxiliary_, store.estimate_edit_auxiliary(
+                                          snapshot, identities, static_cast<const label_type&>(*this))};
         if constexpr (has_history) {
           if constexpr (Mode == history_mode::linear) {
             entry_type entry;
@@ -1120,10 +1396,12 @@ public:
         store.current_.swap(published);
         store.snapshot_.swap(snapshot);
         store.identities_.swap(identities);
+        admission.commit();
         if (store.collaboration_state_.attachment) {
           store.collaboration_state_.attachment->publish();
         }
         close(transaction_status::committed);
+        store.publish_notification(std::move(event));
       } catch (...) {
         if (store_->collaboration_state_.attachment) {
           store_->collaboration_state_.attachment->abort();
@@ -1133,6 +1411,142 @@ public:
       }
     }
   };
+
+  // A synchronous memory-only candidate. Generated runtime editors cannot set durable members.
+  class runtime_edit {
+    model_store* store_{};
+    std::shared_ptr<storage_type> candidate_{};
+    std::shared_ptr<detail::resident_charge> candidate_charge_{};
+    std::shared_ptr<detail::edit_channel<storage_type, id_type>> channel_{};
+    std::exception_ptr error_{};
+    state_stamp expected_{};
+    bool editing_{};
+    friend class model_store;
+
+    // Copy runtime values onto a fresh durable decode so no published pin is mutated.
+    explicit runtime_edit(model_store& store) : store_{&store}, expected_{store.stamp_} {
+      store.require_idle();
+      auto candidate = store.make_storage_candidate(
+          detail::decode<storage_type>(store.snapshot_, store.options_.decode));
+      candidate_ = std::move(candidate.first);
+      candidate_charge_ = std::move(candidate.second);
+      detail::copy_runtime_fields<Traits>(*candidate_, *store.current_);
+      candidate_charge_->resize(store.estimate_storage(*candidate_));
+      store.writer_active_ = true;
+    }
+
+    // Reject stale, closed, cross-thread and poisoned access before borrowing candidate storage.
+    void require_active() const {
+      if (!store_) {
+        throw std::logic_error{"Managed runtime editor is closed"};
+      }
+      store_->check_thread();
+      if (store_->stamp_ != expected_ || store_->callback_active_) {
+        throw std::logic_error{"Managed runtime editor has a stale or reentrant state"};
+      }
+      if (error_) {
+        std::rethrow_exception(error_);
+      }
+    }
+
+    // Release the writer and invalidate escaped editors without publishing a partial value.
+    void close() noexcept {
+      if (channel_) {
+        channel_->owner = nullptr;
+      }
+      if (store_) {
+        store_->writer_active_ = false;
+        store_ = nullptr;
+      }
+    }
+
+  public:
+    runtime_edit(const runtime_edit&) = delete;
+    runtime_edit& operator=(const runtime_edit&) = delete;
+    // Unwinding discards the private candidate and leaves accepted state and history unchanged.
+    ~runtime_edit() { close(); }
+
+    // Mutate an isolated candidate; durable changes are independently checked before publication.
+    template <typename Callable>
+      requires std::same_as<std::invoke_result_t<Callable, storage_type&>, void>
+    void update(Callable&& callback) {
+      require_active();
+      if (editing_) {
+        error_ = std::make_exception_ptr(std::logic_error{"Nested managed runtime update"});
+        std::rethrow_exception(error_);
+      }
+      editing_ = true;
+      try {
+        std::invoke(std::forward<Callable>(callback), *candidate_);
+        editing_ = false;
+        candidate_charge_->resize(store_->estimate_storage(*candidate_));
+        if (error_) {
+          std::rethrow_exception(error_);
+        }
+      } catch (...) {
+        editing_ = false;
+        error_ = std::current_exception();
+        throw;
+      }
+    }
+
+    // Bind a checked generated root editor; runtime access never allocates persistent identities.
+    auto root() {
+      require_active();
+      if (!channel_) {
+        channel_ = std::make_shared<detail::edit_channel<storage_type, id_type>>();
+        channel_->owner = this;
+        channel_->mutate = [](void* owner, void* callable, void (*invoke)(void*, storage_type&)) {
+          static_cast<runtime_edit*>(owner)->update(
+              [&](storage_type& value) { invoke(callable, value); });
+        };
+        channel_->allocate = [](void*) -> id_type {
+          throw std::logic_error{"Runtime updates cannot allocate persistent identities"};
+        };
+        channel_->fail = [](void* owner, std::exception_ptr error) noexcept {
+          static_cast<runtime_edit*>(owner)->error_ = std::move(error);
+        };
+      }
+      auto resolve = [](storage_type& value) -> storage_type& { return value; };
+      return Traits::make_editor(
+          detail::editor_access<storage_type, storage_type, true, decltype(resolve), true>{
+              channel_, resolve});
+    }
+  };
+
+  // Publish a guarded runtime update without journal writes, dirty changes or history entries.
+  template <typename Callable>
+    requires std::same_as<std::invoke_result_t<Callable, runtime_edit&>, void>
+  [[nodiscard]] transaction_outcome update_runtime(Callable&& callback) {
+    transaction_outcome outcome;
+    try {
+      runtime_edit edit{*this};
+      std::invoke(std::forward<Callable>(callback), edit);
+      edit.require_active();
+      const auto snapshot = detail::encode(*edit.candidate_, options_.max_snapshot_bytes);
+      if (snapshot != snapshot_ || inspect(*edit.candidate_, allocated_id_) != identities_) {
+        throw std::invalid_argument{"Runtime update changes durable data or identity"};
+      }
+      validate(*edit.candidate_);
+      if constexpr (requires { Traits::runtime_fields_equal(*edit.candidate_, *current_); }) {
+        if (Traits::runtime_fields_equal(*edit.candidate_, *current_)) {
+          outcome.status = transaction_status::no_change;
+          return outcome;
+        }
+      }
+      auto event = prepare_publication(publication_kind::runtime_update, identities_);
+      edit.candidate_charge_->resize(estimate_storage(*edit.candidate_));
+      auto published = std::shared_ptr<const storage_type>{std::move(edit.candidate_)};
+      current_.swap(published);
+      edit.close();
+      outcome.status = transaction_status::committed;
+      publish_notification(std::move(event));
+    } catch (...) {
+      outcome.status = failure_status();
+      outcome.error = std::current_exception();
+    }
+    return outcome;
+  }
 
   // Create a fresh document. All generated managed IDs must initially be zero and are assigned here.
   explicit model_store(Root value, document_id document = make_document_id(),
@@ -1153,11 +1567,12 @@ public:
     identities_ = inspect(storage, allocated_id_);
     snapshot_ = detail::encode(storage, options_.max_snapshot_bytes);
     check_snapshot(snapshot_);
-    current_ = std::make_shared<const storage_type>(std::move(storage));
+    current_ = make_published_storage(std::move(storage));
     if constexpr (has_history) {
       auto history = make_history();
       history_.swap(history);
     }
+    resident_auxiliary_.resize(estimate_auxiliary(snapshot_, identities_, history_));
   }
 
   model_store(const model_store&) = delete;
@@ -1228,10 +1643,52 @@ public:
     return current_;
   }
 
+  // Report conservative admitted model/metadata storage; this is not a process peak-memory meter.
+  std::size_t resident_bytes() const noexcept { return resident_ledger_->bytes(); }
+
   // Materialize an independent value; only the opt-in separate-values representation removes IDs.
-  Root clone_value() const {
+  Root clone_value(clone_options options = {}) const {
     check_thread();
-    return Traits::clone_value(*current_);
+    if (options.runtime_fields == runtime_copy_policy::preserve) {
+      return Traits::clone_value(*current_);
+    }
+    auto value = *current_;
+    detail::reset_runtime_fields<Traits>(value);
+    return Traits::clone_value(value);
+  }
+
+  // Inspect the accepted state generation without changing history or a journal sequence.
+  state_stamp state() const {
+    check_thread();
+    return stamp_;
+  }
+
+  // Read the selected tree revision; linear histories deliberately do not expose revision IDs.
+  std::uint64_t current_revision() const
+    requires(Mode == history_mode::tree)
+  {
+    check_thread();
+    return history_.current_revision;
+  }
+
+  // Read the retained linear cursor; eviction may change its index without recycling entity IDs.
+  std::size_t history_cursor() const
+    requires(Mode == history_mode::linear)
+  {
+    check_thread();
+    return history_.cursor;
+  }
+
+  // Install one owner-thread observer; callbacks may read pins but must not reenter mutation.
+  void set_publication_callback(std::function<void(const event_type&)> callback) {
+    require_idle();
+    publication_callback_ = std::move(callback);
+  }
+
+  // Consume an observer error separately from the successfully accepted store operation.
+  std::exception_ptr take_notification_error() {
+    require_idle();
+    return std::exchange(notification_error_, {});
   }
 
   // Return this document's namespace; undo preserves it and load restores the saved namespace.
@@ -1391,8 +1848,9 @@ public:
     if (found == history_.revisions.end()) {
       throw std::out_of_range{"Managed revision is unavailable"};
     }
-    restore_snapshot(found->second->snapshot, revision);
+    auto event = restore_snapshot(found->second->snapshot, revision);
     history_.current_revision = revision;
+    publish_notification(std::move(event));
   }
 
   // Undo follows the sole parent; the baseline has no predecessor.
@@ -1456,8 +1914,11 @@ public:
       throw std::logic_error{"Collaboration history is retained with pending synchronization"};
     }
     auto history = make_history();
+    detail::resident_admission admission{
+        resident_auxiliary_, estimate_auxiliary(snapshot_, identities_, history)};
     journal_control(detail::journal_record_kind::reset);
     history_.swap(history);
+    admission.commit();
   }
 
   // Export a coherent memory envelope; this does not mark the journaled document saved.
@@ -1467,6 +1928,17 @@ public:
       return collaboration_state_.attachment->save();
     }
     return encode_state(snapshot_, history_, allocated_id_);
+  }
+
+  // Export a generated patch record for transfer/storage against a caller-retained full envelope.
+  records::snapshot_patch save_delta(std::span<const std::uint8_t> base) const {
+    return make_snapshot_patch(base, save(), options_.decode.max_input_bytes);
+  }
+
+  // Apply a checked envelope patch and reuse full model/history validation before publication.
+  void load_delta(std::span<const std::uint8_t> base, const records::snapshot_patch& patch) {
+    require_idle();
+    load(apply_snapshot_patch(base, patch, options_.decode.max_input_bytes));
   }
 
   // Create a durable saved baseline at a new path and journal all subsequent persistent operations.
@@ -1486,11 +1958,14 @@ public:
     auto saved = snapshot_;
     auto bytes = save();
     check_journal_envelope(bytes);
+    detail::resident_admission admission{
+        resident_auxiliary_, estimate_auxiliary(snapshot_, identities_, history_, &saved)};
     journal_operation([&] {
       journal_state_.sink = detail::create_file_journal(path, mode, bytes, std::move(options),
                                                         journal_state_.indeterminate);
     });
     journal_state_.saved_snapshot.swap(saved);
+    admission.commit();
   }
 
   // Recover into an unattached store atomically, then acquire responsibility for future durable writes.
@@ -1507,8 +1982,9 @@ public:
       throw std::logic_error{"Recover into a store without an attached journal"};
     }
     // Intermediate replay validates schema invariants; application validation runs once on the result.
-    model_store recovered{recovery_tag{}, options_, {}};
+    model_store recovered{recovery_tag{}, options_, {}, resident_ledger_};
     std::vector<std::uint8_t> saved;
+    event_type event;
     journal_operation([&] {
       auto journal = detail::recover_file_journal(
           path, std::move(options), [&](bool base, std::span<const std::uint8_t> bytes) {
@@ -1533,6 +2009,11 @@ public:
           }
         }
       }
+      recovered.resident_auxiliary_.resize(recovered.estimate_auxiliary(
+          recovered.snapshot_, recovered.identities_, recovered.history_, &saved));
+      event = prepare_publication(publication_kind::load, recovered.identities_,
+                                  recovered.current_.get(), document_.high != recovered.document_.high ||
+                                                                document_.low != recovered.document_.low);
       try {
         journal->finish_recovery();
       } catch (...) {
@@ -1543,6 +2024,7 @@ public:
       if constexpr (has_history) {
         history_.swap(recovered.history_);
       }
+      resident_auxiliary_.swap(recovered.resident_auxiliary_);
       current_.swap(recovered.current_);
       snapshot_.swap(recovered.snapshot_);
       identities_.swap(recovered.identities_);
@@ -1550,7 +2032,9 @@ public:
       document_ = recovered.document_;
       allocated_id_ = recovered.allocated_id_;
       journal_state_.sink.swap(journal);
+      journal_state_.delta_count = recovered.journal_state_.delta_count;
     });
+    publish_notification(std::move(event));
   }
 
   // Flush and atomically replace the base with all current history and allocator dependencies.
@@ -1567,8 +2051,12 @@ public:
     if (!collaboration_state_.attachment) {
       check_journal_envelope(bytes);
     }
+    detail::resident_admission admission{
+        resident_auxiliary_, estimate_auxiliary(snapshot_, identities_, history_, &saved)};
     journal_operation([&] { journal_state_.sink->save(bytes); });
     journal_state_.saved_snapshot.swap(saved);
+    journal_state_.delta_count = 0;
+    admission.commit();
   }
 
   // Compare current persistent values/identities with the last full Save, independently of history.
@@ -1600,6 +2088,118 @@ public:
     check_thread();
     return journal_state_.indeterminate ||
            (journal_state_.sink && journal_state_.sink->needs_recovery());
+  }
+
+  // Convert every retained source payload, preserving graph, labels, namespace and identities.
+  // The converter receives old storage and returns new storage; executable commands are never replayed.
+  template <typename SourceRoot, typename SourceTraits = model_traits<SourceRoot>, typename Callable>
+    requires std::same_as<std::invoke_result_t<Callable, const typename SourceTraits::storage_type&>,
+                          storage_type>
+  void load_migrated(const std::vector<std::uint8_t>& bytes, Callable&& converter) {
+    require_idle();
+    if (journal_state_.sink || collaboration_state_.attachment) {
+      throw std::logic_error{"Migrate an unattached managed document before attaching services"};
+    }
+    using source_store = model_store<SourceRoot, Mode, Labels, SourceTraits, Features>;
+    static_assert(std::same_as<typename SourceTraits::id_type, id_type>,
+                  "Managed migration preserves identity width");
+    source_store source{typename source_store::recovery_tag{}, options_, {}, resident_ledger_};
+    source.load(bytes); // Validate the original graph and all payloads before invoking conversion.
+    auto envelope = detail::decode<envelope_type>(bytes, options_.decode);
+    std::map<std::vector<std::uint8_t>, std::vector<std::uint8_t>> converted;
+    callback_active_ = true;
+    try {
+      const auto convert = [&](std::vector<std::uint8_t>& snapshot) {
+        const auto found = converted.find(snapshot);
+        if (found != converted.end()) {
+          snapshot = found->second;
+          return;
+        }
+        auto old_value = detail::decode<typename SourceTraits::storage_type>(snapshot, options_.decode);
+        auto value = std::invoke(converter, std::as_const(old_value));
+        detail::reset_runtime_fields<Traits>(value);
+        if (source.inspect(old_value, envelope.allocated_id) != inspect(value, envelope.allocated_id)) {
+          throw std::invalid_argument{"Managed migration changes entity identities or type keys"};
+        }
+        auto replacement = detail::encode(value, options_.max_snapshot_bytes);
+        check_snapshot(replacement);
+        converted.emplace(snapshot, replacement);
+        snapshot = std::move(replacement);
+      };
+      convert(envelope.current_snapshot);
+      if constexpr (Mode == history_mode::tree) {
+        for (auto& revision : envelope.revisions) {
+          convert(revision.snapshot);
+        }
+      } else {
+        for (auto& entry : envelope.entries) {
+          convert(entry.snapshot);
+        }
+      }
+      envelope.schema_id = std::string{Traits::schema_id};
+      callback_active_ = false;
+    } catch (...) {
+      callback_active_ = false;
+      throw;
+    }
+    // Existing load validates all new states and publishes only after every fallible step succeeds.
+    load(detail::encode(envelope, options_.decode.max_input_bytes));
+  }
+
+  // Recover an old journal and create a migrated journal at a distinct new path before publication.
+  // The old journal remains the recovery source; no mixed-schema records are appended to it.
+  template <typename SourceRoot, typename SourceTraits = model_traits<SourceRoot>, typename Callable>
+    requires(has_journal &&
+             std::same_as<std::invoke_result_t<Callable, const typename SourceTraits::storage_type&>,
+                          storage_type>)
+  void recover_migrated_journal(const std::filesystem::path& source_path,
+                                const std::filesystem::path& destination_path,
+                                Callable&& converter,
+                                journal_storage_mode mode = journal_storage_mode::appended,
+                                journal_options options = {}) {
+    require_idle();
+    if (journal_state_.sink || collaboration_state_.attachment) {
+      throw std::logic_error{"Recover migration into an unattached managed document"};
+    }
+    if (std::filesystem::absolute(source_path).lexically_normal() ==
+        std::filesystem::absolute(destination_path).lexically_normal()) {
+      throw std::invalid_argument{"Managed migration requires a distinct journal destination"};
+    }
+    event_type event;
+    journal_operation([&] {
+      using source_store = model_store<SourceRoot, Mode, Labels, SourceTraits, Features>;
+      source_store source{typename source_store::recovery_tag{}, options_, {}, resident_ledger_};
+      source.recover_journal(source_path, options);
+      model_store migrated{recovery_tag{}, options_, validate_, resident_ledger_};
+      migrated.template load_migrated<SourceRoot, SourceTraits>(source.save(),
+                                                               std::forward<Callable>(converter));
+      const bool same_document = document_.high == migrated.document_.high &&
+                                 document_.low == migrated.document_.low;
+      if (same_document && (allocated_id_ > migrated.allocated_id_ ||
+                            current_->persistent_id != migrated.current_->persistent_id)) {
+        throw std::invalid_argument{"Migration discards an existing document identity watermark"};
+      }
+      if constexpr (Mode == history_mode::tree) {
+        if (same_document && history_.revision_high_water > migrated.history_.revision_high_water) {
+          throw std::invalid_argument{"Migration discards an existing revision watermark"};
+        }
+      }
+      event = prepare_publication(publication_kind::load, migrated.identities_,
+                                  migrated.current_.get(), !same_document);
+      migrated.create_journal(destination_path, mode, std::move(options));
+      if constexpr (has_history) {
+        history_.swap(migrated.history_);
+      }
+      resident_auxiliary_.swap(migrated.resident_auxiliary_);
+      current_.swap(migrated.current_);
+      snapshot_.swap(migrated.snapshot_);
+      identities_.swap(migrated.identities_);
+      document_ = migrated.document_;
+      allocated_id_ = migrated.allocated_id_;
+      journal_state_.sink.swap(migrated.journal_state_.sink);
+      journal_state_.saved_snapshot.swap(migrated.journal_state_.saved_snapshot);
+    });
+    publish_notification(std::move(event));
   }
 
   // Validate the entire history before replacing this document; reject malformed or incompatible data.
@@ -1670,8 +2270,11 @@ public:
         }
       }
     }
+    detail::reset_runtime_fields<Traits>(value);
     validate(value);
-    auto published = std::make_shared<const storage_type>(std::move(value));
+    auto event = prepare_publication(publication_kind::load, identities, &value, !same_document);
+    auto published = make_published_storage(std::move(value));
+    std::size_t auxiliary_estimate{};
     if constexpr (has_history) {
       detail::history_storage<Mode, Labels> history;
       auto historical_identities = identities;
@@ -1734,7 +2337,13 @@ public:
             same_document ? std::max(history_.revision_high_water, envelope.revision_high_water)
                           : envelope.revision_high_water;
       }
+      auxiliary_estimate = estimate_auxiliary(envelope.current_snapshot, identities, history);
+      detail::resident_admission admission{resident_auxiliary_, auxiliary_estimate};
       history_.swap(history);
+      admission.commit();
+    } else {
+      auxiliary_estimate = estimate_auxiliary(envelope.current_snapshot, identities, history_);
+      resident_auxiliary_.resize(auxiliary_estimate);
     }
     current_.swap(published);
     identities_.swap(identities);
@@ -1742,6 +2351,7 @@ public:
     document_ = {envelope.document_high, envelope.document_low};
     allocated_id_ =
         same_document ? std::max(allocated_id_, envelope.allocated_id) : envelope.allocated_id;
+    publish_notification(std::move(event));
   }
 };
 

@@ -9,8 +9,9 @@ and undo/deletion never renumber survivors. Explicit member boundaries still app
 
 Status: implemented synchronous C++ journaling and crash recovery for
 `model_store<Root, Mode, Labels, Traits, Features>`, with appended and sidecar native-file
-adapters. Each edit appends its already serialized root snapshot once; compact
-control records persist navigation, reservations, and reset. Schema capability
+adapters. By default each edit appends its serialized root snapshot once; opt-in bounded
+byte deltas can reduce frames from compiler/runtime 1.11.0. Compact control records
+persist navigation, reservations, and reset. Schema capability
 selectors, field/entity deltas, background checkpoints, asynchronous flushes,
 and other-language journal readers remain proposals. See the
 [implemented C++ runtime](cpp_runtime.md) and [broader capability design](capabilities.md).
@@ -22,6 +23,21 @@ Journal support requires `store_features::journal` or the default `all`. A histo
 journal-only store also selects `history_mode::disabled`. Other feature policies have
 no journal attachment, saved baseline or journal store API. See
 [feature selection](cpp_runtime.md#independent-store-features).
+
+## Opt-in verified byte deltas
+
+Set `store_options.delta_journal = true` and `max_delta_chain` before construction.
+A changed edit uses a SHA-256 baseline/target verified prefix/suffix patch only
+when its record is smaller than a full snapshot. A full frame bounds each chain;
+`save_journal()` resets that chain through a full checkpoint. Recovery applies
+input/depth/work bounds before publishing the reconstructed snapshot. New delta
+record tags 6/7 require runtime 1.11; default tags/bytes remain unchanged and older
+readers reject unknown tags. Collaboration-attached journals keep full frames.
+
+[Runtime document example](../../example/managed/runtime_state/README.md) and
+[runtime regressions](../../test/runtime_features_test.cpp) qualify exact retained
+history, smaller journal bytes, checkpoint replay and strict chain rejection.
+These byte patches do not introduce field/entity delta history storage.
 
 ## Using the implemented journal
 
@@ -237,6 +253,8 @@ payloads start with one operation byte:
 | Reserve `3` | uint64 next allocated object ID, required to advance by one. |
 | Reset `4` | No additional bytes. |
 | Restore edit `5` | Same layout as Edit; a collaboration-authorized inverse may restore previously allocated, absent entity IDs. |
+| Delta edit `6` | Edit metadata followed by a generated integer-key `snapshot_patch` record instead of root bytes. |
+| Delta restore edit `7` | Restore metadata followed by the same verified patch record. |
 
 Restore edits are emitted only through the authority's private history restoration
 path after checking the retained source transaction, current contribution versions,

@@ -1,5 +1,7 @@
+#include "schema_projection.hpp"
 #include "native_schema.hpp"
 #include "version_writer.hpp"
+#include "behavior_writer.hpp"
 #include "format_writer.hpp"
 
 #include <algorithm>
@@ -269,6 +271,13 @@ class mobile_emitter {
   }
   // Construct empty containers without sharing mutable state.
   std::string empty(const member& value) const {
+    if (value.fixed_extent != 0) {
+      const auto count = std::to_string(value.fixed_extent);
+      const auto& t = value.type_name_list.front();
+      return swift ? "(0..<" + count + ").map { _ in " + initial(t) + " }"
+          : primitive_array(t) ? type(t) + "Array(" + count + ") { " + initial(t) + " }"
+          : "MutableList(" + count + ") { " + initial(t) + " }";
+    }
     if (swift) {
       return value.modifier == member::modifier_type::map ? "[:]" : "[]";
     }
@@ -415,6 +424,14 @@ class mobile_emitter {
       write(t, src, false);
       return;
     }
+    if (value.fixed_extent != 0) {
+      const auto count = src + select(".count", ".size");
+      const auto error = "Fixed array extent mismatch";
+      line(select("if " + count + " != " + std::to_string(value.fixed_extent) +
+          " { throw SerializerError.invalid(\"" + error + "\") }",
+          "if (" + count + " != " + std::to_string(value.fixed_extent) +
+          ") { throw SerializerException(\"" + error + "\") }"));
+    }
     line(attempt() + "out.beginArray(" + src + select(".count)", ".size)"));
     const auto sequence = value.modifier == member::modifier_type::map ? sorted(value, src) : src;
     open(swift ? "for (index, item) in (" + sequence + ").enumerated()"
@@ -466,6 +483,13 @@ class mobile_emitter {
       return;
     }
     line(select("let ", "val ") + "count = " + attempt() + "input.beginArray()");
+    if (value.fixed_extent != 0) {
+      const auto n = std::to_string(value.fixed_extent);
+      line(select("if count != -1 && count != " + n +
+          " { throw SerializerError.invalid(\"Fixed array extent mismatch\") }",
+          "if (count != -1 && count != " + n +
+          ") { throw SerializerException(\"Fixed array extent mismatch\") }"));
+    }
     line("var index = 0");
     if (value.modifier == member::modifier_type::array) {
       if (swift) {
@@ -479,6 +503,13 @@ class mobile_emitter {
       }
       open(select("while try input.nextElement(index, count)",
                   "while (input.nextElement(index, count))"));
+      if (value.fixed_extent != 0) {
+        const auto n = std::to_string(value.fixed_extent);
+        line(select("if index >= " + n +
+            " { throw SerializerError.invalid(\"Fixed array extent mismatch\") }",
+            "if (index >= " + n +
+            ") { throw SerializerException(\"Fixed array extent mismatch\") }"));
+      }
       if (swift) {
         line("values.append(" + read(t, true) + ")");
       } else if (primitive_array(t)) {
@@ -490,6 +521,13 @@ class mobile_emitter {
       }
       line("index += 1");
       close();
+      if (value.fixed_extent != 0) {
+        const auto n = std::to_string(value.fixed_extent);
+        line(select("if index != " + n +
+            " { throw SerializerError.invalid(\"Fixed array extent mismatch\") }",
+            "if (index != " + n +
+            ") { throw SerializerException(\"Fixed array extent mismatch\") }"));
+      }
       line(dst + " = " +
            (!swift && primitive_array(t)
                 ? "if (index == values.size) values else values.copyOf(index)"
@@ -540,11 +578,144 @@ class mobile_emitter {
     close();
     line(dst + " = values");
   }
+  // Lower behavior methods into native value/class receivers with explicit numeric failure.
+  void behaviors(const class_node& value) {
+    const auto language = swift ? "swift" : "kotlin";
+    std::vector<const function_declaration*> external;
+    for (const auto& method : value.functions) {
+      if (!method.expression && !behavior::native_body(method, language) &&
+          (!swift || method.dispatch == function_declaration::dispatch_type::ordinary)) { external.push_back(&method); }
+    }
+    if (!swift) {
+      for (const auto* method : behavior::contracts(value)) {
+        if (std::find(external.begin(), external.end(), method) == external.end()) { external.push_back(method); }
+      }
+    }
+    behavior::require_unique_callable_names(value, language, [&](auto n) { return field(n); },
+        [&](const auto& t) { return type(t); });
+    if (!swift && !external.empty()) {
+      open("interface Behavior");
+      for (const auto* method : external) {
+        std::string arguments = "receiver: " + model.names.at(&value);
+        for (const auto& argument : method->parameters) { arguments += ", " + field(argument.name) + ": " + type(argument.type); }
+        line("fun " + field(method->name) + "(" + arguments + "): " + (method->return_type.name == "void" ? "Unit" : type(method->return_type)));
+      }
+      close();
+      line("private var srlBehavior: Behavior? = null");
+      open("fun attachBehavior(behavior: Behavior)"); line("srlBehavior = behavior"); close();
+      open("class BehaviorAdapter(val receiver: " + model.names.at(&value) + ", val implementation: Behavior)");
+      for (const auto* method : external) {
+        std::string parameters, calls = "receiver";
+        for (const auto& argument : method->parameters) { parameters += (parameters.empty() ? "" : ", ") + field(argument.name) + ": " + type(argument.type); calls += ", " + field(argument.name); }
+        line("fun " + field(method->name) + "(" + parameters + "): " + (method->return_type.name == "void" ? "Unit" : type(method->return_type)) + " = implementation." + field(method->name) + "(" + calls + ")");
+      }
+      close();
+    }
+    for (const auto& item : behavior::ordered_body(value)) {
+      if (item.kind == class_body_item::kind_type::native_code) {
+        const auto& block = value.native_blocks.at(item.index);
+        if (block.language == language) { output += behavior::source_marker(block, language) + block.text + "\n"; }
+        continue;
+      }
+      if (item.kind != class_body_item::kind_type::function) { continue; }
+      const auto& method = value.functions.at(item.index);
+      line(behavior::source_marker(method, language));
+      if (swift && method.dispatch == function_declaration::dispatch_type::abstract_method) { continue; }
+      const auto result_type = method.return_type.name == "void" ? select("Void", "Unit") : type(method.return_type);
+      std::string arguments, calls;
+      for (const auto& argument : method.parameters) {
+        if (!arguments.empty()) { arguments += ", "; calls += ", "; }
+        arguments += (swift ? "_ " : "") + field(argument.name) + ": " + type(argument.type);
+        calls += field(argument.name);
+      }
+      const auto* native = behavior::native_body(method, language);
+      if (!native && !method.expression && swift) { continue; }
+      if (!native && !method.expression) {
+        open(std::string(method.access == access_type::public_access ? "public " : "private ") +
+            "fun " + field(method.name) + "(" + arguments + "): " + result_type);
+        line("return checkNotNull(srlBehavior) { \"Attach required behavior before invocation\" }." +
+            field(method.name) + "(this" + (calls.empty() ? "" : ", " + calls) + ")");
+        close(); continue;
+      }
+      const auto modifier = swift && method.effect == function_declaration::effect_type::edit ? "mutating " : "";
+      open(std::string(method.access == access_type::public_access ? "public " : "private ") + modifier +
+          select("func ", "fun ") + field(method.name) + "(" + arguments + ")" +
+          (swift && method.expression ? " throws" : "") + select(" -> ", ": ") + result_type);
+      if (!swift && method.dispatch != function_declaration::dispatch_type::ordinary) {
+        line("srlBehavior?.let { return it." + field(method.name) + "(this" + (calls.empty() ? "" : ", " + calls) + ") }");
+      }
+      if (native) { output += behavior::source_marker(*native, language) + native->text + "\n"; }
+      else {
+        const auto symbol = [&](std::string_view name) {
+          const auto argument = std::find_if(method.parameters.begin(), method.parameters.end(),
+              [&](const auto& item) { return item.name == name; });
+          return argument == method.parameters.end() ? select("self.", "this.") + field(name) : field(name);
+        };
+        std::set<std::string> symbols; behavior::expression_symbols(*method.expression, symbols);
+        for (const auto& name : symbols) {
+          const auto kotlin_value = behavior::symbol_type(value, method, name) == "double" ?
+              "(" + symbol(name) + ")" : "(" + symbol(name) + ").toDouble()";
+          line(select("if !Double(" + symbol(name) + ").isFinite { throw SerializerError.invalid(\"Non-finite portable input\") }",
+              "if (!" + kotlin_value + ".isFinite()) { throw SerializerException(\"Non-finite portable input\") }"));
+        }
+        line(select("let ", "val ") + "srlBehaviorResult = " + behavior::expression(*method.expression, language, symbol));
+        line(select("if !srlBehaviorResult.isFinite { throw SerializerError.invalid(\"Non-finite portable result\") }",
+            "if (!srlBehaviorResult.isFinite()) { throw SerializerException(\"Non-finite portable result\") }"));
+        line("return srlBehaviorResult");
+      }
+      close();
+    }
+  }
+
+  // Swift protocols and value adapters separate dispatch requirements from data construction.
+  void dispatch_adapter(const class_node& value) {
+    const auto contracts = behavior::contracts(value);
+    if (!swift || contracts.empty()) { return; }
+    const auto model_name = model.names.at(&value);
+    const auto interface_name = model_name + "Behavior";
+    const auto adapter_name = model_name + "BehaviorAdapter";
+    open("public protocol " + interface_name);
+    for (const auto* method : contracts) {
+      std::string parameters = "_ receiver: " + std::string(method->effect == function_declaration::effect_type::edit ? "inout " : "") + model_name;
+      for (const auto& argument : method->parameters) { parameters += ", _ " + field(argument.name) + ": " + type(argument.type); }
+      line("func " + field(method->name) + "(" + parameters + ") -> " + (method->return_type.name == "void" ? "Void" : type(method->return_type)));
+    }
+    close(); open("public struct " + adapter_name + "<Implementation: " + interface_name + ">");
+    line("public var receiver: " + model_name); line("public let implementation: Implementation");
+    line("public init(_ receiver: " + model_name + ", _ implementation: Implementation) { self.receiver = receiver; self.implementation = implementation }");
+    for (const auto* method : contracts) {
+      std::string parameters, calls = method->effect == function_declaration::effect_type::edit ? "&receiver" : "receiver";
+      for (const auto& argument : method->parameters) { parameters += (parameters.empty() ? "" : ", ") + std::string{"_ "} + field(argument.name) + ": " + type(argument.type); calls += ", " + field(argument.name); }
+      open("public " + std::string(method->effect == function_declaration::effect_type::edit ? "mutating " : "") +
+          "func " + field(method->name) + "(" + parameters + ") -> " + (method->return_type.name == "void" ? "Void" : type(method->return_type)));
+      line("return implementation." + field(method->name) + "(" + calls + ")"); close();
+    }
+    close();
+  }
+
   // Emit native owning models with public exact-message decoding.
   void object(const class_node& value) {
     const auto name = model.names.at(&value);
     line("// Owning schema model; avoid concurrent mutation during encoding.");
-    open(select("public struct ", "class ") + name);
+    const bool external = std::any_of(value.functions.begin(), value.functions.end(), [&](const auto& method) {
+      return !method.expression && !behavior::native_body(method, swift ? "swift" : "kotlin") &&
+          (!swift || method.dispatch == function_declaration::dispatch_type::ordinary);
+    });
+    if (swift && external) {
+      open("public protocol " + name + "ExternalBehavior");
+      for (const auto& method : value.functions) {
+        if (method.expression || behavior::native_body(method, "swift") || method.dispatch != function_declaration::dispatch_type::ordinary) { continue; }
+        std::string arguments;
+        for (const auto& argument : method.parameters) {
+          arguments += (arguments.empty() ? "" : ", ") + std::string{"_ "} + field(argument.name) + ": " + type(argument.type);
+        }
+        line(std::string(method.effect == function_declaration::effect_type::edit ? "mutating " : "") +
+            "func " + field(method.name) + "(" + arguments + ") -> " +
+            (method.return_type.name == "void" ? "Void" : type(method.return_type)));
+      }
+      close();
+    }
+    open(select("public struct ", "class ") + name + (swift && external ? ": " + name + "ExternalBehavior" : ""));
     if (swift) { magic_declaration(value); }
     const auto declare = [&](const std::string& id, const std::string& type_name,
                              const std::string& initial_value, access_type access) {
@@ -571,6 +742,7 @@ class mobile_emitter {
         declare(id, collection_type(item), empty(item), item.access);
       }
     }
+    behaviors(value);
     if (swift) {
       line("/// Construct independent schema defaults.");
       line("public init() {}");
@@ -601,7 +773,7 @@ class mobile_emitter {
     for (const auto& base : value.parents) {
       add_id(base.id);
     }
-    for (const auto& item : value.member_list) {
+    for (const auto& item : wire_members(value)) {
       if (!item.version && !item.omits("binary_none")) {
         add_id(item.id);
       }
@@ -681,7 +853,7 @@ class mobile_emitter {
       if (variable_first) { line("firstField = false"); }
       first = false;
     }
-    for (const auto& item : value.member_list) {
+    for (const auto& item : wire_members(value)) {
       if (item.version) {
         continue;
       }
@@ -763,7 +935,7 @@ class mobile_emitter {
     for (const auto& base : value.parents) {
       branch(base.display_name, base.id, -1);
     }
-    for (const auto& item : value.member_list) {
+    for (const auto& item : wire_members(value)) {
       if (item.modifier == member::modifier_type::variant) {
         for (std::size_t i = 0; i < item.type_name_list.size(); ++i) {
           branch(item.display_name + ":" + item.type_name_list[i].enum_name, item.id,
@@ -810,7 +982,7 @@ class mobile_emitter {
       line(select("case ", "") + std::to_string(value.parents[i].id) + select(": try ", " -> ") +
            "base" + std::to_string(i) + ".srlRead(input)");
     }
-    for (const auto& item : value.member_list) {
+    for (const auto& item : wire_members(value)) {
       if (swift) {
         line("case " + std::to_string(item.id) + ":");
         ++indent;
@@ -840,7 +1012,7 @@ class mobile_emitter {
                   "throw SerializerException(\"Missing schema version\")"));
       close();
       check_version(value, true);
-      for (const auto& item : value.member_list) {
+      for (const auto& item : wire_members(value)) {
         const auto active = version_active(revision_language(), item, *version,
                                            select("self.", "this.") + field(version->name));
         if (!active.empty()) {
@@ -880,6 +1052,9 @@ public:
         output += "package " + std::string{package} + "\n";
       }
     }
+    for (const auto& code : model.preambles) {
+      if (code.language == (swift ? "swift" : "kotlin")) { output += behavior::source_marker(code, swift ? "swift" : "kotlin") + code.text + "\n"; }
+    }
     output += swift ? swift_runtime : kotlin_runtime;
   }
   // Emit the runtime, immutable schema key table, enums, and owning models.
@@ -901,6 +1076,7 @@ public:
           "BooleanArray UIntArray ULongArray UByteArray UShortArray ShortArray ");
       if (node->type == object_type::class_type) {
         object(static_cast<const class_node&>(*node));
+        dispatch_adapter(static_cast<const class_node&>(*node));
         continue;
       }
       const auto& value = static_cast<const enum_node&>(*node);

@@ -1,0 +1,15 @@
+serializer version 1.6.0;
+
+// Methods use schema-bound symbols without becoming durable fields.
+class document_metrics stable_ids {
+  public double page_width (1);
+  public double page_height (2);
+  public int32 page_count (3);
+  public uint32 annotation_count (4);
+  public function double page_area() readonly
+    expression(+page_width * -(-page_height));
+  public function double total_area(double copies) readonly
+    expression(page_width * page_height * to_double(page_count) * copies);
+  public function double annotation_weight() readonly
+    expression(to_double(annotation_count) * 0.5 + (math.pi - 3.141592653589793));
+}

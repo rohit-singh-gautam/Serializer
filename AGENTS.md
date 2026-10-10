@@ -8,7 +8,7 @@
 
 ## Integrating Serializer into an application
 
-- When asked to integrate this repository into another C++ or Java project or update that
+- When asked to integrate this repository into another project or update that
   project's Serializer usage, read and apply the
   [Serializer integration skill](.agents/skills/serializer-integration/SKILL.md).
   This path is relative to this `AGENTS.md`, including when the checkout is a
@@ -173,7 +173,7 @@
   the language contract changes; compiler-only fixes or new output backends do
   not automatically change the schema language version.
 - Use `serializer version major.minor.patch;` for schema language releases. The
-  current schema language is `1.5.0`, independent of compiler release `1.10.0`.
+  current schema language is `1.6.0`, independent of compiler release `1.11.0`.
   Keep its source of truth in `serializer_schema_language_version` in
   `CMakeLists.txt`, separate from `project(serializer VERSION ...)`.
 - Recognize `serializer version 1;` as exactly `serializer version 1.0.0;`.

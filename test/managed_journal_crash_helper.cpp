@@ -41,7 +41,7 @@ managed::journal_io_event parse_event(std::string_view name) {
 
 // Terminate at a precise storage boundary without running store or file destructors.
 int main(int argc, char** argv) {
-  if (argc != 5) {
+  if (argc != 5 && (argc != 6 || std::string_view{argv[5]} != "--delta")) {
     return 2;
   }
   try {
@@ -58,7 +58,13 @@ int main(int argc, char** argv) {
         std::_Exit(interruption_exit_code);
       }
     };
-    managed::model_store<ledger_example::ledger> store{ledger_example::ledger{"Base"}};
+    const bool delta = argc == 6;
+    const std::string initial = delta ? std::string(100000, 'a') : std::string{"Base"};
+    managed::store_options storage;
+    storage.delta_journal = delta;
+    storage.max_delta_chain = 2;
+    managed::model_store<ledger_example::ledger> store{ledger_example::ledger{initial},
+                                                     managed::make_document_id(), storage};
     if (operation == "create") {
       store.create_journal(path, mode, options);
       return 0;
@@ -66,7 +72,9 @@ int main(int argc, char** argv) {
     store.recover_journal(path, options);
     armed = operation != "inspect" && operation != "edit";
     if (operation == "append" || operation == "edit") {
-      store.execute_transaction([](auto& tx) { tx.root().set_name("Changed"); }).throw_if_failed();
+      auto changed = delta ? initial : std::string{"Changed"};
+      if (delta) { changed[50000] = 'b'; }
+      store.execute_transaction([&](auto& tx) { tx.root().set_name(changed); }).throw_if_failed();
     } else if (operation == "reserve") {
       store.execute_transaction([](auto& tx) { tx.root().entries().insert(10, {"New", 10}); })
           .throw_if_failed();
@@ -77,7 +85,9 @@ int main(int argc, char** argv) {
     } else if (operation == "inspect") {
       const auto envelope =
           managed::detail::decode<managed::records::unlabeled_state_envelope>(store.save(), {});
-      std::cout << store.read()->name << ' ' << store.journal_sequence() << ' '
+      const auto name = delta ? (store.read()->name[50000] == 'b' ? "Changed" : "Base")
+                              : store.read()->name.c_str();
+      std::cout << name << ' ' << store.journal_sequence() << ' '
                 << store.journal_dirty() << ' ' << envelope.allocated_id << '\n';
     } else if (operation != "recover") {
       throw std::invalid_argument{"Unknown crash operation"};

@@ -9,7 +9,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 LANGUAGES = ('cpp', 'java', 'javascript', 'typescript', 'go', 'csharp', 'rust', 'python', 'swift', 'kotlin', 'c')
-EXAMPLES = ('basic', 'collections', 'complex', 'interoperability', 'versioning', 'union_variant')
+EXAMPLES = ('basic', 'collections', 'complex', 'interoperability', 'versioning', 'union_variant', 'document_collections')
 OUTPUTS = {'cpp': 'message.hpp', 'java': 'Schema.java', 'javascript': 'schema.mjs',
            'typescript': 'schema.d.mts', 'go': 'schema.go', 'csharp': 'Schema.cs',
            'rust': 'schema.rs', 'python': 'schema.py', 'swift': 'Schema.swift',
@@ -211,6 +211,18 @@ class Runner:
                 actual = json.loads(output.read_text(encoding='utf-8'))
                 if actual != expected:
                     raise AssertionError(f'{language}/{example}: decoded fields differ from the independent fixture')
+            if example == 'document_collections':
+                for key in ('pages', 'columns', 'headings'):
+                    for size_change in (-1, 1):
+                        invalid = dict(expected)
+                        values = expected[key]
+                        invalid[key] = values[:-1] if size_change == -1 else [*values, values[-1]]
+                        input_path = fixtures / f'invalid_{key}_{size_change}.json'
+                        input_path.write_text(json.dumps(invalid), encoding='utf-8')
+                        for language, command in commands.items():
+                            output = fixtures / f'{language}_invalid.json'
+                            require_rejection([*command, self.path(language, input_path),
+                                               self.path(language, output)], output)
             if example == 'union_variant':
                 # This negative JSON fixture changes only the generated payload-version discriminator.
                 unsupported = {**expected, 'version': 2}

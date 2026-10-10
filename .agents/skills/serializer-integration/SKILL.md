@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Integrate Serializer into C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python, Swift, Kotlin, or C applications from a provided repository or existing dependency. Use for simplicity warnings and field-local suppression, proprietary-compatible generated output and application runtime, owning variants and raw unions, digest byte fields and C++ digest creation, opt-in C++20 constant binary sizing and exact-array emission, positional-only generation and borrowed emission-only models, compact unsigned prefix/varint scalars, .serializer schemas, native C++ generic templates, optional cross-language contracts, dimension parameters, inferred fixed arrays, typed scalar/enum magic, CMake generation, several INI variants from one schema parse, language-specific coding profiles, owning classes or C++ binary views, stable_ids, payload revisions, compiler-only release policies, lifecycle annotations, schema compatibility checks and reservations, stream concepts, durable file streams and iostream adapters, exact fresh-value decoding, managed journal/crash recovery and C++ local collaboration with store-owned sessions, timed synchronization and undo, optional message compression, JSON or binary codecs, database persistence guidance, C++ Protobuf binary/ProtoJSON/TextProto protocols, and schema migration."
+description: "Use Serializer as a state framework when creating or changing schemas, generated behavior, multi-language codecs, bounded decoding, revisions, C++ managed transactions, history, journals, collaboration, or persistence. Review the installed version's entire feature set and apply every feature relevant to the user's contract; preserve wire compatibility and qualify unsupported combinations."
 ---
 
 # Serializer Integration
@@ -19,6 +19,47 @@ application ownership requirements.
 This is the canonical integration entry point linked from the repository's README
 and AGENTS.md. Apply it when loaded as a skill or read directly from a supplied
 checkout; direct use does not require copying the skill into the consuming project.
+
+## Use the full framework
+
+For every Serializer task, review the installed revision's
+[feature status](../../../docs/feature_status.md) and
+[schema reference](../../../docs/schema_reference.md). **Use every implemented
+feature that applies to the requested contract.** Do not assume Serializer is
+only a codec generator or manually duplicate capabilities it already supplies.
+
+- Define all durable model, operation and journal fields in schemas. Use stable
+  IDs/names, reservations, payload versions and compatibility checks for released
+  formats. Keep runtime-only members explicit with `transient` when supported.
+- Declare behavior in schemas. Use typed portable expressions for supported pure
+  arithmetic, backend bodies for language-specific implementations, and external
+  declaration hooks for application-owned code. Preserve access/order and check
+  generated definitions with each selected language's compiler.
+- Use generics, dimensioned/fixed arrays, owning variants, digests, compact fields,
+  magic/omit and lifecycle metadata whenever the model requires their semantics.
+  Select owning/view/packed representations and naming/output profiles deliberately.
+- For editable state, use managed occurrences, generated checked editors,
+  transactions, identity, undo/redo/navigation, notifications and runtime update
+  scopes. Select the history mode and storage budget for the product contract.
+- For durability and shared editing, use the implemented Save/load, journal
+  recovery, migration, collaboration authority/replica, local sessions and
+  synchronization facilities. Apply bounded exact-message decoding to untrusted
+  input; test recovery and rejection before claiming support.
+- Use the CMake/runtime targets, compiler diagnostics, formatting and editor
+  integration appropriate to the build; run the maintained examples for every
+  selected backend. Consult [state feature examples](../../../docs/state_enhancements.md)
+  when using language 1.6 or the new managed APIs.
+
+Before implementation, record a concise capability selection in the existing
+design or task notes: **used**, **not applicable** (with a concrete reason), or
+**unavailable in the pinned revision** (with the exact required enhancement).
+Update this selection and validation evidence when implementation changes.
+Every relevant implemented feature must be used; exclusions must be explicit.
+Mutually exclusive representations are alternatives, and an unavailable feature
+must never be claimed as supported or silently replaced with a second framework.
+This requirement does not authorize dependency updates, unrelated product
+features, external publication, or mandatory enablement of features outside the
+user's scope.
 
 ## Locate the library and the requested work
 
@@ -108,17 +149,22 @@ there instead of relying on the relative links.
   Handle `transaction_status::indeterminate` / `journal_indeterminate_error` by
   destroying the fenced store and recovering into a fresh one before further writes;
   never blindly retry editing callbacks. `load()` cannot bypass an attached journal.
-  Each edit writes its already serialized snapshot once with compact length/CRC
+  By default each edit writes its already serialized snapshot once with compact length/CRC
   framing (snapshot bytes + 41 bytes for unlabeled linear history, + 33 for
   unlabeled tree/disabled). Navigation/reservations use 33-byte control records.
   Only base creation/full Save encodes the complete envelope and retained history.
-  There is no per-edit envelope encoding, byte-diff pass, snapshot output-buffer
-  copy, or history deque copy. A retained native handle avoids reopening/seeking
+  The default path has no per-edit envelope encoding, byte-diff pass, snapshot
+  output-buffer copy, or history deque copy. A retained native handle avoids reopening/seeking
   for each append. Use journal record/file budgets with store decoding limits. See the [journal guide](../../../docs/managed/journal.md)
   for versioned framing, single-writer locking, platform flush assumptions, and
-  limitations. Selectors, exclusions, custom allocation, background checkpoints,
-  delta journals, built-in authorization policies, and other-language runtimes remain
-  future work. Do not present the complete proposals below as shipped behavior.
+  limitations. Compiler/runtime 1.11 adds opt-in verified `delta_journal` frames
+  with `max_delta_chain`, resident admission via `max_resident_bytes`,
+  `resident_bytes()`, and a shared `allocation_resource` hook for roots/control
+  blocks. Account pinned roots and callback growth; do not describe admission
+  accounting as a hard process peak limit. Generated containers/decode scratch
+  still use their own allocators. Selectors, exclusions, allocator-wide limits,
+  background checkpoints, built-in authorization policies and other-language
+  managed runtimes remain future work. Do not present the complete proposals below as shipped behavior.
   Omit the store constructor's document argument for automatic namespace creation;
   explicit namespaces remain supported. Root/managed child IDs are allocated 1, 2,
   3... within each document, not globally. Undo/deletion never renumber or recycle
@@ -179,8 +225,11 @@ there instead of relying on the relative links.
   runtime uses its own generated versioned envelope, described in the runtime guide.
 - Treat [transactional history](../../../docs/managed/history.md) as the broader
   design contract. Bare `managed` and typed C++ setters are implemented;
-  `exclude(...)`, `transient`, and selectors remain unimplemented. Generation supports
-  public, unpacked owning classes without inheritance, unions, or recursive ownership;
+  `transient` and guarded runtime updates are implemented from 1.11;
+  `exclude(...)` and schema capability selectors remain unimplemented. Generation supports
+  unpacked owning classes with public unrelated bases, nonpublic durable fields,
+  owning variants and named concrete generic specializations; raw unions, virtual/
+  repeated bases and recursive managed ownership remain restricted;
   unsupported shapes and non-C++ managed backends are rejected explicitly.
   Existing `stable_ids` identifies schema fields, not objects.
   Proposed change addresses combine a namespaced entity ID with a relative field-ID
@@ -445,19 +494,20 @@ feature as a prerequisite without the user's request.
   in JavaScript/TypeScript and Python. Their owning arrays/lists start with exactly
   the schema extent and reject short/extra elements during encoding and decoding.
   TypeScript retains ordinary array annotations; the JS codec enforces cardinality.
-  Other backends and Protobuf reject fixed arrays explicitly; do not claim mappings.
+  All eleven ordinary backends enforce fixed arrays in compiler 1.11; direct
+  Protobuf output still rejects them. Qualify the selected SDK and count boundaries.
   Preserve existing runtime decode limits and exact cardinality. Missing keyed
-  fields retain defaults; explicitly empty fixed arrays fail. Generic managed/view
-  declarations, inheritance, raw unions, recursive ownership, and user specialization
+  fields retain defaults; explicitly empty fixed arrays fail. Generic view
+  declarations, raw managed unions, recursive managed ownership, and user specialization
   are unsupported. Ordinary generic values may occur inside managed roots; use
   generated replacement setters and the existing history/journal APIs.
   Consult [usage](../../../docs/usage.md), [migration](../../../migration.md), and
   [qualification](../../../docs/verification-dimensions-2026-10-04.md).
-- Use `.serializer` files beginning with `serializer version 1.5.0;`, before declarations
+- Use `.serializer` files beginning with `serializer version 1.6.0;`, before declarations
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
-  remains available through `parser::parse(input)`. Schema language version 1.5.0 is
-  independent of compiler release 1.10.0 and wire protocols. Bug fixes and minor
+  remains available through `parser::parse(input)`. Schema language version 1.6.0 is
+  independent of compiler release 1.11.0 and wire protocols. Bug fixes and minor
   updates increment the patch number; new features increment the minor number.
   Minor and patch releases preserve full compatibility. Developers change the
   major number manually, with best-effort compatibility across major releases.
@@ -561,7 +611,8 @@ feature as a prerequisite without the user's request.
   Both keywords use the same four native wire contracts. Declaring files, including
   dependencies, require `1.4.0` only for selector syntax; existing bare user types
   named `variant` retain their meaning. C++ Protobuf and emission-only generation
-  explicitly reject owning variants; managed C++ class modes reject both union and variant.
+  explicitly reject owning variants; managed C++ supports owning variants, while
+  raw managed unions still reject.
   C++ binary views retain existing union access over the same positional bytes.
   See [unions and variants](../../../docs/unions_and_variants.md) and the
   [paired all-language examples](../../../example/README.md#union-and-variant).
@@ -780,12 +831,12 @@ not create headers. No custom VS Code task or Serializer editor extension is
 required, and `.vscode/*` remains ignored. Editor provider settings may be user-level.
 The optional Rohit Serializer extension (`rohitjairajsingh.serializer-language`)
 in `editors/vscode` highlights `.serializer`, offers
-32Ã—32 language icons for Explorer/editor tabs where the file icon theme permits them,
+32×32 language icons for Explorer/editor tabs where the file icon theme permits them,
 versioned snippets, and invokes the same targets through CMake Tools. Run the root
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 1.1.31 is shared with the Visual Studio extension and is independent of
+version 1.1.32 is shared with the Visual Studio extension and is independent of
 compiler and schema versions. Keep both editor extension versions equal.
 Both package descriptions and READMEs identify the
 [Serializer repository](https://github.com/rohit-singh-gautam/Serializer). Configure
@@ -1434,7 +1485,7 @@ Regenerate all relevant language and editor outputs when changing these contract
 
 Consult the [versioning verification record](../../../docs/verification-versioning-2026-10-06.md) and [release-policy verification record](../../../docs/verification-release-policies-2026-10-06.md) for completed language, compiler, codec, and editor checks. Release catalogs and nested allow policies are evaluated entirely during schema compilation; generated readers and writers contain only resolved version bounds.
 
-Use [payload versioning](../../../docs/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the supported schema language header (`1.5.0`, older `1.4.0`/`1.3.0`/`1.2.0`/`1.1.0`/`1.0.0`, or the original `1` alias for `1.0.0`) from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.
+Use [payload versioning](../../../docs/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the supported schema language header (`1.6.0`, older `1.5.0`/`1.4.0`/`1.3.0`/`1.2.0`/`1.1.0`/`1.0.0`, or the original `1` alias for `1.0.0`) from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.
 
 Declare payload revisions with Serializer's `version` member instead of an ordinary
 counter field. The paired `union_variant` examples declare
@@ -1461,7 +1512,9 @@ receive them through the synchronous `parser::parse_options::warning` callback.
 
 Keep retained historical definitions and relative positional order intact. Set the object's revision to write an older supported layout. Use `read_policy::compatible` for declared history, `strict` for the current revision, and `flexible` to skip safe JSON extensions within the declared interval. The former `json_read_policy::compatible` spelling is removed; its unknown-field behavior is `read_policy::flexible`. Native generated languages select `ReadPolicy` through `Limits`; C uses `srl_read_policy`.
 
-Choose uint8/16/32/64, finite nonnegative float/double, or version2/3/4 with canonical bounded uint16 components. Dotted revisions are C++ value types and strings in other native APIs. Conversion for `replaced` is explicit application code. Do not infer forward support for unknown revisions or automatic decoding of previously unversioned bytes. Versioned unmanaged owning models support all eleven languages and all four native codecs; managed models, views, and Protobuf mappings currently reject this feature. Verify the consuming application's historical bytes and the relevant language examples.
+Choose uint8/16/32/64, finite nonnegative float/double, or version2/3/4 with canonical bounded uint16 components. Dotted revisions are C++ value types and strings in other native APIs. Conversion for `replaced` is explicit application code. Do not infer forward support for unknown revisions or automatic decoding of previously unversioned bytes. Versioned unmanaged owning models support all eleven languages and all four native codecs; managed owning C++ models also support lifecycle metadata in compiler 1.11;
+views and Protobuf mappings still reject this feature. Explicit whole-history
+conversion and collaboration fencing are required for released-schema upgrades. Verify the consuming application's historical bytes and the relevant language examples.
 
 ### Release-date and count policies
 

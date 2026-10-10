@@ -356,3 +356,17 @@ test('inferred arrays and typed magic preserve element and enum scopes', async (
   }
   assert.equal(grammar.tokenizeLine(line, INITIAL).ruleStack.depth, 1);
 });
+
+// New behavior grammar must not classify declarations inside a native body as schema types.
+test('language 1.6 methods and opaque native braces retain the outer schema state', async () => {
+  const grammar = await loadGrammar();
+  const line = 'class document { public function double estimate(double rate) readonly expression(rate * 2); public transient uint64 cache {0}; public cpp { if (true) { class NativeOnly {}; } } public uint32 pages (1); }';
+  const result = grammar.tokenizeLine(line, INITIAL);
+  const scope = word => result.tokens.find(token => token.startIndex <= line.indexOf(word) &&
+    token.endIndex > line.indexOf(word)).scopes.at(-1);
+  assert.equal(scope('estimate'), 'entity.name.function.serializer');
+  assert.equal(scope('transient'), 'storage.modifier.serializer');
+  assert.equal(scope('cpp'), 'storage.modifier.language.serializer');
+  assert.notEqual(scope('NativeOnly'), 'entity.name.type.serializer');
+  assert.equal(result.ruleStack.depth, 1);
+});

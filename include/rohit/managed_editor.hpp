@@ -5,16 +5,22 @@
 
 #include <algorithm>
 #include <exception>
+#include <cstdint>
+#include <limits>
 #include <functional>
 #include <memory>
 #include <optional>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
+#include <variant>
 
 namespace rohit::managed {
 template <typename Root>
 struct model_traits;
+// Generated memory-only projection; normal value copies retain runtime fields.
+template <typename Value>
+struct runtime_traits;
 
 namespace detail {
 // Defer trait lookup until generated specializations and the concrete access type are complete.
@@ -30,6 +36,7 @@ struct edit_channel {
   void (*mutate)(void*, void*, void (*)(void*, Root&)){};
   Id (*allocate)(void*){};
   void (*fail)(void*, std::exception_ptr) noexcept {};
+  std::uint64_t variant_generation{}; // Candidate-local replacement epoch; never serialized.
 
   // Check lifetime before dereferencing the erased transaction owner.
   void require_active() const {
@@ -73,7 +80,7 @@ struct editor_value<Node, true> {
 };
 
 // Resolve an owning path afresh on every call, avoiding dangling pointers after vector/map edits.
-template <typename Root, typename Node, bool Managed, typename Resolve>
+template <typename Root, typename Node, bool Managed, typename Resolve, bool Runtime = false>
 class editor_access {
   using channel_type = edit_channel<Root, decltype(Root::persistent_id)>;
   std::shared_ptr<channel_type> channel_;
@@ -92,6 +99,7 @@ public:
   using value_type = typename editor_value<Node, Managed>::type;
   using id_type = decltype(Root::persistent_id);
   static constexpr bool is_managed = Managed;
+  static constexpr bool is_runtime_access = Runtime;
 
   // Keep only the channel and an owning resolver; no mutable candidate references escape.
   editor_access(std::shared_ptr<channel_type> channel, Resolve resolve)
@@ -133,7 +141,7 @@ public:
     auto resolve = [parent = resolve_, select = std::move(select)](Root& root) -> child_type& {
       return select(payload(parent(root)));
     };
-    return editor_access<Root, child_type, ChildManaged, decltype(resolve)>{channel_,
+    return editor_access<Root, child_type, ChildManaged, decltype(resolve), Runtime>{channel_,
                                                                             std::move(resolve)};
   }
 
@@ -145,10 +153,65 @@ public:
     return select<ChildManaged>([pointer](value_type& value) -> Field& { return value.*pointer; });
   }
 
+  // Bind a public base occurrence while retaining dormant identity boundaries on ordinary values.
+  template <typename Base, bool BaseManaged>
+  auto base() const {
+    static_assert(std::is_base_of_v<Base, value_type>, "Invalid inherited editor base");
+    return select<BaseManaged && Managed>([](value_type& value) -> Base& {
+      return static_cast<Base&>(value);
+    });
+  }
+
+  // Invalidate every prior alternative handle before publishing a candidate replacement.
+  template <typename Callable>
+  void replace_variant(Callable&& callback) const {
+    guard([&] {
+      if (channel_->variant_generation == std::numeric_limits<std::uint64_t>::max()) {
+        throw std::overflow_error{"Managed variant generation exhausted"};
+      }
+      ++channel_->variant_generation;
+      update(std::forward<Callable>(callback));
+    });
+  }
+
+  // Select by both active index and replacement generation to prevent alternative ABA reuse.
+  template <std::size_t Index, bool ChildManaged>
+  auto alternative() const {
+    return guard([&] {
+      const auto generation = channel_->variant_generation;
+      auto child = select<ChildManaged>(
+          [channel = channel_, generation](value_type& value) -> auto& {
+            if (channel->variant_generation != generation || value.index() != Index ||
+                value.valueless_by_exception()) {
+              throw std::out_of_range{"Managed variant alternative was replaced"};
+            }
+            return std::get<Index>(value);
+          });
+      static_cast<void>(child.copy());
+      return child;
+    });
+  }
+
   // Include conversion/allocation errors in the transaction failure boundary.
   template <typename Callable>
   decltype(auto) guard(Callable&& callback) const {
     return channel_->guard(std::forward<Callable>(callback));
+  }
+};
+
+// Scalar alternatives expose copies and checked assignments, never candidate references.
+template <typename Access>
+class scalar_editor {
+  Access access_;
+
+public:
+  // Bind one already checked variant alternative path.
+  explicit scalar_editor(Access access) : access_{std::move(access)} {}
+  // Read the currently active value without exposing its mutable storage.
+  auto get() const { return access_.copy(); }
+  // Change only this active payload under the transaction failure boundary.
+  void set(typename Access::value_type value) const requires (!Access::is_runtime_access) {
+    access_.update([&](auto& target) { target = std::move(value); });
   }
 };
 
@@ -197,7 +260,7 @@ public:
   }
 
   // Deep-convert an ordinary value and assign identities to precisely its managed occurrences.
-  id_type insert(key_type key, Plain value) const {
+  id_type insert(key_type key, Plain value) const requires (!Access::is_runtime_access) {
     return access_.guard([&] {
       auto storage = traits::make_storage(std::move(value));
       traits::visit_entities(storage, [&](auto& id, auto) { id = access_.create_id(); });
@@ -212,7 +275,7 @@ public:
   }
 
   // Delete the live occurrence; retained snapshots preserve its ID and value for undo.
-  void erase(id_type id) const {
+  void erase(id_type id) const requires (!Access::is_runtime_access) {
     access_.guard([&] {
       const auto key = key_for(id);
       access_.update([&](auto& values) { values.erase(key); });
@@ -226,6 +289,7 @@ class array_editor {
   Access access_;
   using traits = model_traits<Plain>;
   using id_type = typename Access::id_type;
+  using container_type = typename Access::value_type;
 
 public:
   // Bind the sequence to its owning transaction and member path.
@@ -246,7 +310,10 @@ public:
   }
 
   // Append an ordinary value with newly allocated identities for its managed descendants.
-  id_type append(Plain value) const {
+  id_type append(Plain value) const requires (!Access::is_runtime_access &&
+      requires (container_type& values, typename traits::storage_type child) {
+        values.push_back(std::move(child));
+      }) {
     return access_.guard([&] {
       auto storage = traits::make_storage(std::move(value));
       traits::visit_entities(storage, [&](auto& id, auto) { id = access_.create_id(); });
@@ -257,7 +324,8 @@ public:
   }
 
   // Remove exactly one occurrence, retaining undo storage independently from the live array.
-  void erase(id_type id) const {
+  void erase(id_type id) const requires (!Access::is_runtime_access &&
+      requires (container_type& values) { values.erase(values.begin()); }) {
     access_.update([&](auto& values) {
       const auto found = std::find_if(values.begin(), values.end(), [id](const auto& value) {
         return value.persistent_id == id;

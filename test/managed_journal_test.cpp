@@ -1,5 +1,6 @@
 #include <ledger.hpp>
 #include <rohit/managed.hpp>
+#include <rohit/managed_collaboration.hpp>
 
 #include <gtest/gtest.h>
 
@@ -686,6 +687,211 @@ TEST_P(managed_journal_test, append_size_is_snapshot_plus_constant_metadata) {
       .throw_if_failed();
   EXPECT_EQ(std::filesystem::file_size(physical) - before,
             control_bytes + frame_header_bytes + frame_footer_bytes);
+}
+
+// Append inside managed_journal_test.cpp's anonymous namespace before suite instantiation.
+// Physical framing is validated by the file reader while models remain outside this capture helper.
+struct captured_delta_journal {
+  bytes baseline;
+  std::vector<bytes> records;
+};
+// Copy only bounded validated fixture records so forged semantic tests preserve real outer checksums.
+captured_delta_journal capture_delta_journal(const std::filesystem::path& path) {
+  captured_delta_journal result;
+  auto journal = managed::detail::recover_file_journal(path, {}, [&](bool base, auto record) {
+    if (base) { result.baseline.assign(record.begin(), record.end()); }
+    else { result.records.emplace_back(record.begin(), record.end()); }
+  });
+  journal->finish_recovery();
+  return result;
+}
+
+// Sparse text changes use delta frames at each existing uncertain disk-write interruption boundary.
+TEST_P(managed_journal_test, opt_in_delta_faults_preserve_live_state_and_recover_decision) {
+  for (const auto point : {event::before_append, event::after_header, event::after_payload,
+                          event::after_commit, event::after_flush}) {
+    const auto path = directory_ / ("delta-fault-" + std::to_string(static_cast<int>(point)));
+    const std::string initial(100000, 'a');
+    auto changed = initial;
+    changed[50000] = 'b';
+    bool armed{};
+    managed::journal_options fault;
+    fault.fault_injector = [&](auto actual) {
+      if (armed && actual == point) {
+        throw std::system_error{std::make_error_code(std::errc::no_space_on_device)};
+      }
+    };
+    managed::store_options options;
+    options.delta_journal = true;
+    options.max_delta_chain = 2;
+    {
+      store_type store{ledger{initial}, {171, 172}, options};
+      store.create_journal(path, GetParam(), fault);
+      const auto pinned = store.read();
+      const auto before = store.save();
+      armed = true;
+      const auto failure = store.execute_transaction([&](auto& edit) {
+        edit.root().set_name(changed);
+      });
+      const bool uncertain = point != event::before_append;
+      EXPECT_EQ(failure.status, uncertain ? status::indeterminate : status::failed);
+      EXPECT_EQ(store.journal_needs_recovery(), uncertain);
+      EXPECT_EQ(store.read(), pinned);
+      EXPECT_EQ(store.journal_sequence(), 0u);
+      if (uncertain) {
+        EXPECT_THROW(failure.throw_if_failed(), managed::journal_indeterminate_error);
+        expect_retained_journal_cause(failure.error);
+        EXPECT_EQ(rename(store, "Blocked").status, status::indeterminate);
+      } else {
+        EXPECT_THROW(failure.throw_if_failed(), std::system_error);
+        EXPECT_EQ(store.save(), before);
+      }
+    }
+    const bool committed = point == event::after_commit || point == event::after_flush;
+    {
+      store_type recovered{ledger{}, {173, 174}, options};
+      recovered.recover_journal(path);
+      EXPECT_EQ(recovered.read()->name, committed ? changed : initial);
+      EXPECT_EQ(recovered.journal_sequence(), committed ? 1u : 0u);
+      auto next = recovered.read()->name;
+      next[50001] = 'c';
+      recovered.execute_transaction([&](auto& edit) { edit.root().set_name(next); }).throw_if_failed();
+    }
+    const auto captured = capture_delta_journal(path);
+    ASSERT_FALSE(captured.records.empty());
+    for (const auto& record : captured.records) {
+      EXPECT_EQ(record.front(), static_cast<std::uint8_t>(managed::detail::journal_record_kind::delta_edit));
+    }
+  }
+}
+
+// Semantic patch forgery gets valid physical checksums, so model/hash checks must reject it atomically.
+TEST_P(managed_journal_test, delta_patch_hash_extent_and_identity_forgery_are_rejected) {
+  const std::string initial(100000, 'a');
+  auto changed = initial;
+  changed[50000] = 'b';
+  managed::store_options options;
+  options.delta_journal = true;
+  {
+    store_type writer{ledger{initial}, {181, 182}, options};
+    writer.create_journal(path_, GetParam());
+    writer.execute_transaction([&](auto& edit) { edit.root().set_name(changed); }).throw_if_failed();
+  }
+  const auto source = capture_delta_journal(path_);
+  ASSERT_EQ(source.records.size(), 1u);
+  const auto& record = source.records.front();
+  ASSERT_EQ(record.front(), static_cast<std::uint8_t>(managed::detail::journal_record_kind::delta_edit));
+  // Linear unlabeled operation metadata is tag, eviction count, and allocation boundary (17 bytes).
+  constexpr std::size_t prefix_bytes = 1 + 8 + 8;
+  const auto original = managed::detail::decode<managed::records::snapshot_patch>(
+      std::span<const std::uint8_t>{record}.subspan(prefix_bytes), rohit::serializer::decode_limits{});
+  for (int attack = 0; attack != 6; ++attack) {
+    auto patch = original;
+    if (attack == 0) { patch.base_digest.front() ^= 1; }
+    if (attack == 1) { patch.target_digest.front() ^= 1; }
+    if (attack == 2) { patch.prefix_bytes = patch.base_bytes + 1; }
+    if (attack == 3) { patch.replacement.front() ^= 1; }
+    if (attack == 4) { patch.target_bytes = options.max_snapshot_bytes + 1; }
+    if (attack == 5) {
+      auto envelope = managed::detail::decode<managed::records::unlabeled_state_envelope>(
+          source.baseline, rohit::serializer::decode_limits{});
+      using storage = managed::model_traits<ledger>::storage_type;
+      auto invalid = managed::detail::decode<storage>(envelope.current_snapshot,
+                                                     rohit::serializer::decode_limits{});
+      invalid.persistent_id = 2; // A correctly hashed target still cannot replace its stable root identity.
+      patch = managed::make_snapshot_patch(envelope.current_snapshot, managed::detail::encode(invalid),
+                                           options.max_snapshot_bytes);
+    }
+    bytes forged{record.begin(), record.begin() + prefix_bytes};
+    const auto encoded = managed::detail::encode(patch);
+    forged.insert(forged.end(), encoded.begin(), encoded.end());
+    const auto path = directory_ / ("delta-forged-" + std::to_string(attack));
+    bool uncertain{};
+    {
+      auto journal = managed::detail::create_file_journal(path, GetParam(), source.baseline, {}, uncertain);
+      journal->append(forged); // The real backend supplies sequence/checksum/commit markers.
+    }
+    const auto captured = capture_delta_journal(path);
+    ASSERT_EQ(captured.records.size(), 1u); // Prove outer checksums accept the forged semantic payload.
+    EXPECT_EQ(captured.records.front(), forged);
+    store_type receiver{ledger{"Accepted"}};
+    const auto pinned = receiver.read();
+    const auto before = receiver.save();
+    EXPECT_ANY_THROW(receiver.recover_journal(path));
+    EXPECT_EQ(receiver.read(), pinned);
+    EXPECT_EQ(receiver.save(), before);
+    EXPECT_FALSE(receiver.journal_needs_recovery());
+    rename(receiver, "Still writable").throw_if_failed();
+  }
+}
+
+// Full snapshots bound delta replay depth; default/explicit-off writers keep original operation bytes.
+TEST_P(managed_journal_test, delta_checkpoints_bound_chain_and_flat_frames_stay_compatible) {
+  const std::string initial(100000, 'a');
+  const auto write = [&](const auto& path, managed::store_options options) {
+    store_type writer{ledger{initial}, {191, 192}, options};
+    writer.create_journal(path, GetParam());
+    auto text = initial;
+    for (std::size_t index = 0; index != 5; ++index) {
+      text[50000 + index] = 'b';
+      writer.execute_transaction([&](auto& edit) { edit.root().set_name(text); }).throw_if_failed();
+    }
+  };
+  managed::store_options delta;
+  delta.delta_journal = true;
+  delta.max_delta_chain = 2;
+  const auto delta_path = directory_ / "delta-chain";
+  write(delta_path, delta);
+  const auto captured = capture_delta_journal(delta_path);
+  ASSERT_EQ(captured.records.size(), 5u);
+  const std::vector<std::uint8_t> expected{6, 6, 1, 6, 6};
+  for (std::size_t index = 0; index != expected.size(); ++index) {
+    EXPECT_EQ(captured.records[index].front(), expected[index]);
+  }
+  const auto default_path = directory_ / "legacy-default";
+  const auto off_path = directory_ / "legacy-off";
+  write(default_path, {});
+  managed::store_options off;
+  off.delta_journal = false;
+  write(off_path, off);
+  const auto legacy = capture_delta_journal(default_path);
+  const auto explicit_off = capture_delta_journal(off_path);
+  EXPECT_EQ(legacy.baseline, explicit_off.baseline);
+  EXPECT_EQ(legacy.records, explicit_off.records);
+  for (const auto& record : legacy.records) { EXPECT_EQ(record.front(), 1u); }
+}
+
+// Verify restore deltas preserve previously allocated child identities during recovery.
+TEST_P(managed_journal_test, restore_delta_recovers_preexisting_child_identity) {
+  using authority_type = managed::collaboration_authority<ledger>;
+  using replica_type = managed::collaboration_replica<ledger>;
+  const std::string initial(100000, 'a');
+  managed::store_options options;
+  options.delta_journal = true;
+  options.max_delta_chain = 4;
+  {
+    authority_type authority{ledger{initial, {{100, {"Entry", 5}}}}, 1, {201, 202}, {}, options};
+    authority.create_journal(path_, GetParam());
+    authority.open_session(1);
+    replica_type replica;
+    replica.synchronize(authority.snapshot(), authority.context());
+    const auto deletion = replica.propose(1, 1, [](auto& edit) { edit.root().entries().erase(2); });
+    const auto removed = authority.submit_change(deletion, 1, 0);
+    ASSERT_EQ(removed->status, managed::collaboration_status::accepted);
+    replica.apply_accepted_change(*removed->accepted, authority.context());
+    const auto restored = authority.submit_change(replica.undo(1, 2), 1, 0);
+    ASSERT_EQ(restored->status, managed::collaboration_status::accepted);
+    EXPECT_EQ(authority.read()->entries.at(100).persistent_id, 2u);
+  }
+  const auto captured = capture_delta_journal(path_);
+  ASSERT_EQ(captured.records.size(), 2u);
+  EXPECT_EQ(captured.records[0].front(), 6u);
+  EXPECT_EQ(captured.records[1].front(), 7u);
+  authority_type recovered{ledger{}, 2, {203, 204}, {}, options};
+  recovered.recover_journal(path_);
+  EXPECT_EQ(recovered.read()->name, initial);
+  EXPECT_EQ(recovered.read()->entries.at(100).persistent_id, 2u);
+  EXPECT_EQ(recovered.read()->entries.at(100).memo, "Entry");
 }
 
 INSTANTIATE_TEST_SUITE_P(storage_modes, managed_journal_test,

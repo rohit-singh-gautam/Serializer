@@ -30,16 +30,25 @@ class managed_lowering {
     if (!visiting_.insert(node).second) {
       throw std::invalid_argument{"Recursive managed ownership schemas are not supported"};
     }
-    if (!node->parents.empty() ||
-        node->storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
+    if (node->storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
         (node->attributes & class_attributes::packed) != class_attributes::none) {
       throw std::invalid_argument{
-          "Managed models require unpacked owning classes without inheritance"};
+          "Managed models require unpacked owning classes"};
     }
+    std::set<const class_node*> ancestors;
+    const auto check_ancestors = [&](auto&& recurse, const class_node* current) -> void {
+      for (const auto& base : current->parents) {
+        if (base.access != access_type::public_access || !ancestors.insert(base.parent_class).second) {
+          throw std::invalid_argument{"Managed inheritance requires distinct public nonvirtual bases"};
+        }
+        recurse(recurse, base.parent_class);
+      }
+    };
+    check_ancestors(check_ancestors, node);
+    for (const auto& base : node->parents) { validate(base.parent_class); }
     for (const auto& field : node->member_list) {
-      if (field.access != access_type::public_access ||
-          field.modifier == member::modifier_type::variant) {
-        throw std::invalid_argument{"Managed models require public fields without unions"};
+      if (field.modifier == member::modifier_type::variant && !field.owning_variant) {
+        throw std::invalid_argument{"Managed models require owning variants instead of raw unions"};
       }
       if (node->supports_managed() && (field.id == constants::variable_four_byte_max ||
                                        field.display_name == "persistent_id")) {
@@ -71,6 +80,9 @@ class managed_lowering {
         copy = std::make_unique<enum_node>(
             node->type, std::string{node->name}, node->parent_namespace,
             std::vector<std::string>{static_cast<const enum_node&>(*node).enum_name_list});
+      } else if (node->type == object_type::native_code) {
+        copy = std::make_unique<native_code_node>(static_cast<const native_code_node&>(*node).code,
+                                                  node->parent_namespace);
       } else {
         const auto& original = static_cast<const class_node&>(*node);
         auto object = std::make_unique<class_node>(node->type, std::string{node->name},
@@ -78,10 +90,24 @@ class managed_lowering {
                                                    std::vector<parent>{original.parents});
         object->storage_modes = original.storage_modes;
         object->member_list = original.member_list;
+        object->functions = original.functions;
+        object->native_blocks = original.native_blocks;
+        object->body_order = original.body_order;
+        object->magic_bytes = original.magic_bytes;
+        object->magic_field = original.magic_field;
+        object->magic_access = original.magic_access;
+        object->magic_id = original.magic_id;
+        object->magic_explicit_id = original.magic_explicit_id;
+        object->magic_omitted_formats = original.magic_omitted_formats;
+        object->generic_name = original.generic_name;
+        object->generic_arguments = original.generic_arguments;
+        object->generic_parameters = original.generic_parameters;
+        object->type_parameters = original.type_parameters;
+        object->instance_of = original.instance_of;
         object->reserved_ids = original.reserved_ids;
         object->reserved_variables = original.reserved_variables;
         object->reserved_names = original.reserved_names;
-        if (original.supports_managed()) {
+        if (original.supports_managed() && node->type != object_type::generic_definition) {
           validate(&original);
           bindings.emplace(object.get(),
                            "managed.direct.v1:" + original.get_full_name() + ":" +
@@ -99,6 +125,10 @@ class managed_lowering {
           identity.type_name_list.front().type = object_type::primitive;
           identity.fixed_name = true;
           object->member_list.push_back(std::move(identity));
+          if (!object->body_order.empty()) {
+            object->body_order.push_back({class_body_item::kind_type::field,
+                                          object->member_list.size() - 1});
+          }
         }
         copy = std::move(object);
       }
@@ -120,7 +150,8 @@ class managed_lowering {
   void rebind() {
     for (const auto& [source, target] : copies_) {
       target->parent_namespace = remap(source->parent_namespace);
-      if (target->type != object_type::class_type) {
+      if (target->type != object_type::class_type &&
+          target->type != object_type::generic_definition) {
         continue;
       }
       auto& object = static_cast<class_node&>(*target);

@@ -103,23 +103,35 @@ struct simplicity_warning_context {
   std::string_view source;
   std::string_view path;
   std::vector<std::string>& messages;
+  std::vector<std::size_t> line_starts{0};
 };
 thread_local simplicity_warning_context* active_simplicity_warnings{};
+thread_local simplicity_warning_context* active_behavior_source{};
 
 // Restore the surrounding source when an include or reentrant parser invocation finishes.
 struct simplicity_warning_scope {
   simplicity_warning_context context;
   simplicity_warning_context* previous{active_simplicity_warnings};
+  simplicity_warning_context* previous_source{active_behavior_source};
   // Borrow source bytes only while declarations in this file are being parsed.
   simplicity_warning_scope(const rohit::type_check::schema_input_buffer auto& input,
                            std::string_view path, std::vector<std::string>& messages, bool enabled)
       : context{{reinterpret_cast<const char*>(input.curr()), input.remaining_buffer()},
                 path, messages} {
+    for (std::size_t index{}; index < context.source.size(); ++index) {
+      if (context.source[index] == '\n') { context.line_starts.push_back(index + 1); }
+    }
+    active_behavior_source = &context;
     active_simplicity_warnings = enabled ? &context : nullptr;
   }
+  // Source-context ownership cannot be duplicated by copying the restoration guard.
+  simplicity_warning_scope(const simplicity_warning_scope&) = delete;
+  // Each guard restores exactly its own surrounding parser invocation.
+  simplicity_warning_scope& operator=(const simplicity_warning_scope&) = delete;
   // Return source ownership to the caller on both success and failure.
   ~simplicity_warning_scope() {
     active_simplicity_warnings = previous;
+    active_behavior_source = previous_source;
   }
 };
 
@@ -1246,6 +1258,31 @@ bool next_compact_modifier(const rohit::type_check::schema_input_buffer auto& in
 }
 
 // Parse field visibility, storage, wire identity, and optional version lifecycle metadata.
+// New modifier words remain legal ordinary type names when followed by a field-shaped suffix.
+bool behavior_modifier_head(const rohit::type_check::schema_input_buffer auto& input,
+                            std::string_view keyword) {
+  if (!next_keyword(input, keyword)) { return false; }
+  const auto lookahead = make_constant_full_stream(input.curr(), input.remaining_buffer());
+  parse_identifier_impl(lookahead); skip_whitespace_and_comment(lookahead);
+  if (lookahead.full() || !is_first_identifier(lookahead)) { return false; }
+  const auto candidate = parse_identifier_impl(lookahead); skip_whitespace_and_comment(lookahead);
+  if (lookahead.full()) { return false; }
+  if (is_first_identifier(lookahead) || *lookahead == ':' || *lookahead == '<' || *lookahead == '[') { return true; }
+  if (keyword == "transient" && (candidate == "variant" || candidate == "union") && *lookahead == '(') {
+    ++lookahead; skip_whitespace_and_comment(lookahead);
+    return !lookahead.full() && is_first_identifier(lookahead);
+  }
+  return false;
+}
+
+// A managed parent modifier introduces another type; managed followed by metadata is a base type name.
+bool managed_parent_head(const rohit::type_check::schema_input_buffer auto& input) {
+  if (!next_keyword(input, "managed")) { return false; }
+  const auto lookahead = make_constant_full_stream(input.curr(), input.remaining_buffer());
+  parse_identifier_impl(lookahead); skip_whitespace_and_comment(lookahead);
+  return !lookahead.full() && is_first_identifier(lookahead);
+}
+
 member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_stream,
                          const std::uint32_t id, namespace_node* declared_namespace) {
   member lifecycle{};
@@ -1274,6 +1311,15 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   }
   auto access = parse_access_type_impl(in_stream);
   skip_whitespace_and_comment(in_stream);
+  bool transient{};
+  if (behavior_modifier_head(in_stream, "transient")) {
+    if (active_language_version < language_version{1u, 6u, 0u}) {
+      throw exception::bad_member_spec{in_stream, "Transient fields require serializer version 1.6.0"};
+    }
+    parse_identifier_impl(in_stream);
+    skip_whitespace_and_comment(in_stream);
+    transient = true;
+  }
   compact_encoding compact{compact_encoding::none};
   bool compact_strict{true};
   if (next_compact_modifier(in_stream)) {
@@ -1516,7 +1562,16 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   }
   skip_whitespace_and_comment(in_stream);
   check_and_increase(in_stream, ';');
-  validate_field_key(in_stream, new_id, display_name);
+  if (transient) {
+    if (parsed_member_spec || version || managed || compact != compact_encoding::none ||
+        !omitted.empty() || lifecycle.obsolete || !lifecycle.created_version.empty() ||
+        !lifecycle.obsolete_version.empty() || !lifecycle.replaced_member.empty()) {
+      throw exception::bad_member_spec{in_stream, "Transient fields have no wire identity or durable metadata"};
+    }
+    new_id = 0;
+  } else {
+    validate_field_key(in_stream, new_id, display_name);
+  }
   member result{access, member_modifier, type_name_list, name, display_name, new_id, key, default_value,
                 explicit_id, nullptr, managed};
   if (infer_extent) {
@@ -1535,6 +1590,7 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
       default_value += value;
     }
   }
+  result.transient = transient;
   result.inferred_extent = infer_extent;
   result.owning_variant = owning_variant;
   result.compact = compact;
@@ -1557,7 +1613,9 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   result.created_version = std::move(lifecycle.created_version);
   result.obsolete_version = std::move(lifecycle.obsolete_version);
   result.replaced_member = std::move(lifecycle.replaced_member);
-  check_member_simplicity(result, explicit_version_name, ignored, declaration_start);
+  if (!transient) {
+    check_member_simplicity(result, explicit_version_name, ignored, declaration_start);
+  }
   return result;
 } // parse_member_impl
 
@@ -1639,6 +1697,8 @@ object_type parse_object_type(const rohit::type_check::schema_input_buffer auto&
   throw exception::bad_object_type{in_stream, error_text};
 } // parse_object_type
 
+#include "behavior_parser.hpp"
+
 // Parse class body from the schema input; malformed input throws.
 void parse_class_body_impl(const rohit::type_check::schema_input_buffer auto& in_stream,
                            class_node* obj, std::uint32_t& id) {
@@ -1655,7 +1715,35 @@ void parse_class_body_impl(const rohit::type_check::schema_input_buffer auto& in
       skip_whitespace_and_comment(in_stream);
       continue;
     }
+    const auto lookahead = make_constant_full_stream(in_stream.curr(), in_stream.remaining_buffer());
+    const auto access = next_keyword(lookahead, "public") || next_keyword(lookahead, "private") ||
+        next_keyword(lookahead, "protected") ? parse_access_type_impl(lookahead) : access_type::error;
+    skip_whitespace_and_comment(lookahead);
+    if (behavior_modifier_head(lookahead, "function")) {
+      parse_access_type_impl(in_stream);
+      skip_whitespace_and_comment(in_stream);
+      obj->body_order.push_back({class_body_item::kind_type::function, obj->functions.size()});
+      obj->functions.push_back(parse_function(in_stream, access, obj->parent_namespace));
+      skip_whitespace_and_comment(in_stream);
+      continue;
+    }
+    const auto target = make_constant_full_stream(lookahead.curr(), lookahead.remaining_buffer());
+    if (is_first_identifier(target)) {
+      const auto name = parse_identifier_impl(target);
+      skip_whitespace_and_comment(target);
+      if (is_behavior_language(name) && !target.full() && *target == '{') {
+        require_behavior_language(in_stream);
+        parse_access_type_impl(in_stream);
+        skip_whitespace_and_comment(in_stream);
+        parse_identifier_impl(in_stream);
+        obj->body_order.push_back({class_body_item::kind_type::native_code, obj->native_blocks.size()});
+        obj->native_blocks.push_back(parse_native_block(in_stream, name, access));
+        skip_whitespace_and_comment(in_stream);
+        continue;
+      }
+    }
     auto member = parse_member_impl(in_stream, id++, obj->parent_namespace);
+    if (member.transient) { --id; }
     if (!member.magic_bytes.empty() || member.magic) {
       if (obj->has_magic()) {
         throw exception::bad_member_spec{in_stream, "Only one magic declaration is allowed per class"};
@@ -1668,10 +1756,12 @@ void parse_class_body_impl(const rohit::type_check::schema_input_buffer auto& in
       if (member.magic) {
         obj->magic_field = std::move(member);
       }
+      obj->body_order.push_back({class_body_item::kind_type::magic, 0});
       --id; // Header metadata does not consume an ordinary schema field identity.
       skip_whitespace_and_comment(in_stream);
       continue;
     }
+    obj->body_order.push_back({class_body_item::kind_type::field, obj->member_list.size()});
     obj->member_list.push_back(std::move(member));
     skip_whitespace_and_comment(in_stream);
   }
@@ -1685,6 +1775,15 @@ parent parse_parent(const rohit::type_check::schema_input_buffer auto& in_stream
                     namespace_node* current_namespace, const std::uint32_t id) {
   auto access = parse_access_type_impl(in_stream);
   skip_whitespace_and_comment(in_stream);
+  bool managed{};
+  if (managed_parent_head(in_stream)) {
+    if (active_language_version < language_version{1u, 6u, 0u}) {
+      throw exception::bad_member_spec{in_stream, "Managed bases require serializer version 1.6.0"};
+    }
+    parse_identifier_impl(in_stream);
+    skip_whitespace_and_comment(in_stream);
+    managed = true;
+  }
   auto full_name = parse_hierarchical_identifier_impl(in_stream);
   std::string display_name = full_name;
   std::uint32_t new_id = id;
@@ -1695,7 +1794,7 @@ parent parse_parent(const rohit::type_check::schema_input_buffer auto& in_stream
     skip_whitespace_and_comment(in_stream);
   }
   validate_field_key(in_stream, new_id, display_name);
-  return {access, full_name, display_name, new_id, current_namespace, nullptr, explicit_id};
+  return {access, full_name, display_name, new_id, current_namespace, nullptr, explicit_id, managed};
 }
 
 // Parse parent list from the schema input; malformed input throws.
@@ -1830,7 +1929,7 @@ void validate_class_keys(const rohit::type_check::schema_input_buffer auto& inpu
     occupied.insert(obj.magic_id);
   }
   for (const auto& field : obj.member_list) {
-    if (!field.version || field.explicit_id) {
+    if (!field.transient && (!field.version || field.explicit_id)) {
       occupied.insert(field.id);
     }
   }
@@ -1891,6 +1990,7 @@ void validate_class_keys(const rohit::type_check::schema_input_buffer auto& inpu
     if (!variables.insert(field.name).second) {
       throw exception::bad_member_spec{input, "Duplicate or reserved variable name"};
     }
+    if (field.transient) { continue; }
     add_id(field.id, field.explicit_id || field.version);
     if (field.modifier == member::modifier_type::variant) {
       if (std::find(obj.reserved_names.begin(), obj.reserved_names.end(), field.display_name) !=
@@ -1964,9 +2064,8 @@ void validate_class_keys(const rohit::type_check::schema_input_buffer auto& inpu
     if (count != 1) {
       throw std::invalid_argument{"A class must have exactly one version declaration"};
     }
-    if (obj.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
-        obj.supports_managed()) {
-      throw std::invalid_argument{"Version lifecycle currently requires unmanaged owning classes"};
+    if (obj.storage_modes != static_cast<std::uint8_t>(storage_mode::owning)) {
+      throw std::invalid_argument{"Version lifecycle requires owning classes"};
     }
   } catch (const std::invalid_argument& error) {
     throw exception::bad_member_spec{input, error.what()};
@@ -2079,6 +2178,23 @@ parse_statement_list(const rohit::type_check::schema_input_buffer auto& in_strea
     skip_whitespace_and_comment(in_stream);
     if (in_stream.full() || *in_stream == '}') {
       break;
+    }
+    const auto lookahead = make_constant_full_stream(in_stream.curr(), in_stream.remaining_buffer());
+    if (is_first_identifier(lookahead)) {
+      const auto target = parse_identifier_impl(lookahead);
+      skip_whitespace_and_comment(lookahead);
+      if (is_behavior_language(target) && next_keyword(lookahead, "preamble")) {
+        require_behavior_language(in_stream);
+        if (parent_namespace) {
+          throw exception::bad_class{in_stream, "Native preamble must be at file scope"};
+        }
+        parse_identifier_impl(in_stream);
+        skip_whitespace_and_comment(in_stream);
+        parse_identifier_impl(in_stream);
+        statements.push_back(std::make_unique<native_code_node>(
+            parse_native_block(in_stream, target, access_type::public_access), parent_namespace));
+        continue;
+      }
     }
     auto object_type = parse_object_type(in_stream);
     if (object_type == object_type::class_type) {
@@ -2500,6 +2616,10 @@ void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream
             throw exception::bad_class{in_stream, "Parent must name a previously declared class"};
           }
           base.parent_class = static_cast<class_node*>(node);
+          if (base.managed && (base.access != access_type::public_access ||
+                               !base.parent_class->supports_managed())) {
+            throw exception::bad_class{in_stream, "managed bases require public managed-capable parents"};
+          }
           validate_nested_modes(in_stream, *class_ptr, node);
         }
         if (class_ptr->magic_field) {
@@ -2511,7 +2631,7 @@ void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream
             resolve_type(in_stream, type, variable_type_map);
             validate_nested_modes(in_stream, *class_ptr, type.resolved_node);
             if (member.managed &&
-                (member.modifier == member::modifier_type::variant || !type.resolved_node ||
+                ((member.modifier == member::modifier_type::variant && !member.owning_variant) || !type.resolved_node ||
                  type.resolved_node->type != object_type::class_type ||
                  !static_cast<const class_node*>(type.resolved_node)->supports_managed())) {
               throw exception::bad_member_type{in_stream,
@@ -2529,6 +2649,27 @@ void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream
             }
             member.key_node = key.resolved_node;
             validate_nested_modes(in_stream, *class_ptr, member.key_node, true);
+          }
+        }
+        std::unordered_set<std::string> signatures;
+        for (auto& method : class_ptr->functions) {
+          if (method.return_type.name != "void") {
+            resolve_type(in_stream, method.return_type, variable_type_map);
+          }
+          std::string signature = method.name + "(";
+          for (auto& parameter : method.parameters) {
+            resolve_type(in_stream, parameter.type, variable_type_map);
+            signature += parameter.type.get_full_name() + ",";
+          }
+          signature += ")";
+          if (!signatures.insert(signature).second ||
+              std::any_of(class_ptr->member_list.begin(), class_ptr->member_list.end(),
+                  [&](const auto& field) { return field.name == method.name; })) {
+            throw exception::bad_member_spec{in_stream, "Duplicate function signature or field collision"};
+          }
+          if (method.expression && (method.return_type.name != "double" ||
+              validate_behavior_expression(*method.expression, *class_ptr, method) != "double")) {
+            throw exception::bad_member_spec{in_stream, "Portable expressions require a double result"};
           }
         }
         validate_view_names(in_stream, *class_ptr);
@@ -2829,6 +2970,7 @@ public:
       schema_policy::resolve(result.statements, options);
       lower_generics(input, result.statements);
       resolve_member(input, result.statements, types);
+      validate_behavior_contracts(input, result.statements);
       result.source_notices = retain_source_notices(result.statements, source_notices);
       report_simplicity_warnings(simplicity_warnings, options);
     } catch (const std::exception& error) {
@@ -2868,6 +3010,7 @@ parse_schema(const rohit::type_check::schema_input_buffer auto& in_stream, bool 
   schema_policy::resolve(statements, options);
   lower_generics(in_stream, statements);
   resolve_member(in_stream, statements, variable_type_map);
+  validate_behavior_contracts(in_stream, statements);
   retain_source_notices(statements, source_notices);
   report_simplicity_warnings(simplicity_warnings, options);
   return statements;

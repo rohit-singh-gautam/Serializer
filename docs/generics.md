@@ -1,7 +1,8 @@
 # Generic owning classes and dimensions
 
-Serializer emits native C++ templates from generic declarations, including declarations
-with no concrete schema uses. Other languages receive concrete models for applications
+Serializer emits native C++ templates from ordinary generic declarations, including
+declarations with no concrete schema uses. Managed declarations use concrete schema
+specializations and generated editors instead; see [managed specializations](#managed-specializations). Other languages receive concrete models for applications
 in schema fields or optional `instantiate` declarations. Both routes preserve the
 existing native wire protocols.
 
@@ -117,31 +118,66 @@ The legacy `1` header remains `1.0.0` and rejects empty extent syntax.
 
 The inferred extent is fixed at generation time. Its native C++ storage,
 wire count, cardinality checks, compatibility analysis, and backend limitations
-are the same as `array[N] T`. JavaScript/TypeScript and Python support explicit
-extents without initializers from compiler 1.6.0; collection initializers,
-including inferred extents, remain unsupported in those backends. Other language
-outputs and direct Protobuf generation continue to reject fixed arrays.
+are the same as `array[N] T`. Compiler 1.11.0 supports explicit fixed extents
+without nonempty initializers in all eleven native codec backends. Collection
+initializers, including inferred extents, remain C++ only; direct Protobuf fixed
+arrays remain unsupported.
 
-All generic definitions require unpacked, unmanaged owning storage, without
-inheritance, raw unions, recursive ownership, variadics, or user specializations.
+Generic definitions require unpacked owning storage without inheritance, raw
+unions, recursive ownership, variadics, or user specializations. Managed definitions
+are supported through concrete C++ specializations, as described below.
 Language `1.4.0` owning `variant(...)` alternatives may reference generic type
 parameters; C++ retains `std::variant<T, ...>` storage in the generated template.
 Concrete schema uses retain the same native tagged-choice contract in other
 backends. See [unions and variants](unions_and_variants.md).
-Schema arguments cannot be managed/view classes. Definition names resolve in
+Schema arguments require owning types; managed-capable classes are accepted, while
+view classes remain unsupported. Activation still follows explicit managed occurrence
+boundaries. Definition names resolve in
 declaration scope; explicit arguments resolve in use-site scope. Definitions and
 nondependent types must precede their uses, including through transitive includes.
 Collections are field modifiers, not type arguments; wrap a collection in a class.
+
+## Managed specializations
+
+```text
+serializer version 1.6.0;
+class annotation<T = string> stable_ids managed {
+  public T note (1);
+  public transient uint64 cached_length {0};
+}
+instantiate string_annotation = annotation<string>;
+```
+
+```cpp
+rohit::managed::model_store<string_annotation> notes{string_annotation{}};
+notes.execute_transaction([](auto& tx) {
+  tx.root().set_note("Review the introduction");
+}).throw_if_failed();
+notes.undo();
+```
+
+A named managed specialization is a concrete generated class with its own editor,
+identity traversal and schema binding, rather than a C++ alias. An unused managed
+generic definition does not emit an unconstrained application-side managed template.
+Managed engines in other languages remain unsupported. Ordinary generic children
+can remain values under an enclosing managed owner. Their replacement participates
+in the owner's history without activating independent child identities.
+
+Fixed managed child arrays keep their schema extent and allow ID-based `edit(id)`;
+append/erase are unavailable. Direct and separate-values storage both perform the
+required child traversal/conversion. The [document feature example](../example/managed/document_features/README.md)
+and generated tests exercise these contracts.
 
 ## Backend support
 
 | Feature | C++ | JavaScript/TypeScript and Python | Other languages |
 | --- | --- | --- | --- |
-| Native generic declaration without concrete contracts | Native template and codecs | No model emitted | No model emitted |
+| Ordinary native generic declaration without concrete contracts | Native template and codecs | No model emitted | No model emitted |
 | Concrete type/dimension applications without fixed arrays | Supported | Existing concrete records/codecs | Existing concrete records/codecs |
-| Fixed arrays without initializers, including point/frame/matrix above | std::array, four native protocols | Array/list, four native protocols with exact extent checks | Explicit generation-time unsupported diagnostic |
+| Fixed arrays without nonempty initializers | std::array, four native protocols | Array/list, four native protocols with exact extent checks | Native arrays/collections with exact extent checks |
 | Fixed arrays with initializers or direct Protobuf output | Initializers supported; Protobuf rejected | Explicit generation-time unsupported diagnostic | Explicit generation-time unsupported diagnostic |
 | Ordinary generic values in managed roots | Generated replacement setters/history/journals | Managed runtime remains unsupported | Managed runtime remains unsupported |
+| Named managed generic specialization | Concrete class, identity traversal and typed editor | Managed runtime remains unsupported | Managed runtime remains unsupported |
 
 Portable fixed arrays initialize each element independently, preserving nested
 class defaults without shared mutable values. Binary readers reject a count

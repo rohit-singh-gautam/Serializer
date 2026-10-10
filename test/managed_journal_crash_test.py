@@ -7,16 +7,28 @@ import subprocess
 import tempfile
 
 
-def crc64(data, crc=0):
-    """Independent bitwise CRC-64/ECMA reader, checked against the standard check vector."""
-    for byte in data:
-        crc ^= byte << 56
+def crc64_table():
+    """Build the independent ECMA lookup table from the documented polynomial."""
+    values = []
+    for byte in range(256):
+        crc = byte << 56
         for _ in range(8):
             crc = ((crc << 1) ^ (0x42F0E1EBA9EA3693 if crc >> 63 else 0)) & ((1 << 64) - 1)
+        values.append(crc)
+    return tuple(values)
+
+
+CRC64_TABLE = crc64_table()
+
+
+def crc64(data, crc=0):
+    """Independent CRC-64/ECMA reader; table form keeps large delta fixtures practical."""
+    for byte in data:
+        crc = CRC64_TABLE[(crc >> 56) ^ byte] ^ ((crc << 8) & ((1 << 64) - 1))
     return crc
 
 
-def verify_container(path, mode):
+def verify_container(path, mode, return_tags=False):
     """Read the documented wire layout independently of the production C++ framing implementation."""
     base = path.read_bytes()
     header = struct.unpack_from("<9Q", base)
@@ -43,11 +55,13 @@ def verify_container(path, mode):
         assert other[:3] == header[:3] and other[3] == 2 and other[4:8] == header[4:8]
         assert other[8] == crc64(companion[:64])
         base, offset = companion, 72
+    tags = []
     while offset < len(base):
+        tags.append(base[offset + 16])
         sequence += 1
         offset, digest = frame(base, offset, sequence, digest)
     assert offset == len(base)
-    return sequence
+    return (sequence, tags) if return_tags else sequence
 
 
 def main():
@@ -61,11 +75,12 @@ def main():
     assert crc64(b"123456789") == 0x6C40DF5F0B497347
     checks = 0
     with tempfile.TemporaryDirectory(prefix="crash-", dir=root) as temporary:
-        for mode in ("appended", "sidecar"):
+        for mode, delta in (("appended", False), ("sidecar", False),
+                            ("appended", True), ("sidecar", True)):
             def run(path, operation, point="before_append", expected=0):
                 """Run without a shell; an injected crash must exit with its distinctive status."""
                 result = subprocess.run(
-                    [args.helper, str(path), mode, operation, point],
+                    [args.helper, str(path), mode, operation, point] + (["--delta"] if delta else []),
                     capture_output=True, text=True, timeout=30, check=False)
                 assert result.returncode == expected, (operation, point, result.returncode,
                                                        result.stdout, result.stderr)
@@ -79,11 +94,12 @@ def main():
                     assert verify_container(path, mode) == int(expected.split()[1])
                     checks += 1
 
+            fixture_prefix = f"{mode}-{'delta' if delta else 'full'}"
             append_points = ("before_append", "after_header", "after_payload",
                              "after_commit", "after_flush")
             for operation in ("append", "reserve", "undo"):
                 for point in append_points:
-                    path = Path(temporary) / f"{mode}-{operation}-{point}"
+                    path = Path(temporary) / f"{fixture_prefix}-{operation}-{point}"
                     run(path, "create")
                     if operation == "undo":
                         run(path, "edit")
@@ -96,13 +112,15 @@ def main():
                     else:
                         expected = "Base 2 0 1" if committed else "Changed 1 1 1"
                     inspect(path, expected)
+                    if delta and operation == "append" and committed:
+                        assert 6 in verify_container(path, mode, return_tags=True)[1]
 
             save_points = ["after_base_flush", "before_replace", "after_replace",
                            "after_publish", "before_cleanup"]
             if mode == "sidecar":
                 save_points.insert(0, "after_sidecar_flush")
             for point in save_points:
-                path = Path(temporary) / f"{mode}-save-{point}"
+                path = Path(temporary) / f"{fixture_prefix}-save-{point}"
                 run(path, "create")
                 run(path, "edit")
                 run(path, "save", point, expected=86)
@@ -113,7 +131,7 @@ def main():
                 inspect(path, "Changed 1 0 1" if published else "Changed 1 1 1")
 
             for point in ("before_tail_repair", "after_tail_repair"):
-                path = Path(temporary) / f"{mode}-repair-{point}"
+                path = Path(temporary) / f"{fixture_prefix}-repair-{point}"
                 run(path, "create")
                 run(path, "append", "after_payload", expected=86)
                 run(path, "recover", point, expected=86)

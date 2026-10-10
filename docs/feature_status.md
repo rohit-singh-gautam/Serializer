@@ -29,6 +29,19 @@ intent; warnings do not change generation, runtime behavior or wire bytes.
 For an introduction to application editing features, begin with
 [history, journals, collaboration, and authorization](managed/getting_started.md).
 
+## Schema behavior and managed enhancements
+
+Language 1.6 adds function contracts, explicit target bodies/preambles and
+`transient` fields. Compiler/runtime 1.11 adds C++ managed public multiple bases,
+nonpublic durable fields, owning variants, named concrete managed generics,
+payload lifecycle metadata, immutable runtime updates, clone reset policies,
+precise changed-ID notifications, navigation, migration, verified snapshot patches,
+opt-in bounded delta journal frames and conservative resident admission accounting. General
+fixed arrays now have exact-length codecs and independent defaults in all eleven
+ordinary outputs. See [runnable document examples and remaining work](state_enhancements.md)
+and [behavior generation](behavior.md). Native managed engines outside C++ remain
+unimplemented; codecs and behavior declarations do not supply those engines.
+
 ## Serialization and streams
 
 A C++20 schema compiler with C++, Java, JavaScript/TypeScript, Go, C#, Rust, Python,
@@ -132,9 +145,10 @@ uses, nested applications, trailing defaults, and positive uint64 dimensions.
 Optional named roots and concrete fields produce contracts for all eleven outputs.
 Fixed arrays use std::array and native C++ codecs; JavaScript/TypeScript and
 Python also support explicit extents without initializers in compiler 1.6.0.
-Other backends and Protobuf explicitly reject them. Ordinary generic values can be contained by managed C++
-roots. Generic managed/view declarations, inheritance, raw unions, recursive ownership,
-user specialization, and non-C++ native generic APIs remain unsupported. See the
+All eleven ordinary backends now validate fixed extents; direct Protobuf still
+rejects them. Named concrete managed generic specializations and public unrelated
+managed bases are supported. Generic views, raw managed unions, recursive managed
+ownership, user specialization and non-C++ native generic APIs remain unsupported. See the
 [qualification record](verification-dimensions-2026-10-04.md).
 Language `1.1.0` adds `array[] T` extent inference from nonempty defaults, including
 decoded byte counts for a single char text literal. Fixed extent limits and wire
@@ -142,7 +156,7 @@ behavior remain unchanged.
 
 Language-specific output profiles select layouts and naming conventions. Schemas use
 `.serializer` and begin with a supported language header; new schemas use
-`serializer version 1.5.0;`. Older `1.4.0`, `1.3.0`, `1.2.0`, `1.1.0`, `1.0.0` and the original `1` alias remain supported.
+`serializer version 1.6.0;`. Older `1.5.0`, `1.4.0`, `1.3.0`, `1.2.0`, `1.1.0`, `1.0.0` and the original `1` alias remain supported.
 Schema language and compiler versions are independent.
 Future versions require all three components. Share declarations with `include
 common;` before any declarations. Paths are unquoted and relative to the including file;
@@ -154,7 +168,7 @@ Namespace scopes are reused during parsing; duplicate types and namespace/type c
 are rejected. See [schema includes](usage.md#share-declarations-with-includes) and the
 [paired C++/Java examples](../example/includes/README.md). Quoted defaults preserve
 literal spaces, for example `public string label { "schema default" };`; escaping the
-space is unnecessary. Run `serializer --version` for compiler version **1.10.0** and
+space is unnecessary. Run `serializer --version` for compiler version **1.11.0** and
 supported schema versions. See [command-line options](command_line.md) for
 multi-language generation and overrides.
 
@@ -168,8 +182,9 @@ for output ordering and failure behavior.
 
 Compiler **1.6.0** adds fixed-array generation without explicit initializers to
 JavaScript/TypeScript and Python. Native sequence counts remain unchanged;
-generated codecs enforce exact extent in all four protocols. Other portable
-backends and initialized collection defaults remain unsupported. See the
+generated codecs enforce exact extent in all four protocols. Compiler 1.11
+extends the same contract to Java, Go, C#, Rust, Swift, Kotlin and C. Initialized
+collection defaults outside previously supported C++ cases remain restricted. See the
 [backend matrix](generics.md#backend-support).
 
 Compiler/runtime **1.7.0** separates the 0BSD application runtime target
@@ -400,8 +415,10 @@ relative field-ID path, independently of snapshot/delta storage.
 
 The language-independent contract distinguishes saved `exclude(history)` fields from
 runtime-only `transient` caches and covers application restoration, including Android.
-The broader projection and notification APIs remain proposals; bare `managed` and the
-typed C++ editor subset are documented in the runtime guide above. The [domain
+Broader projection and dependency policies remain proposals. Guarded transient
+updates and publication callbacks with precise changed IDs are implemented in C++.
+Bare `managed` and the typed editor subset are documented in the runtime guide
+above. The [domain
 examples](managed/managed_examples.md) cover a cylinder with a hole, accounting,
 wordpad, and other applications.
 

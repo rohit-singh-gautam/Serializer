@@ -8,11 +8,13 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <compare>
 #include <map>
 #include <stdexcept>
 #include <type_traits>
 #include <utility>
 #include <vector>
+#include <variant>
 
 namespace rohit::managed {
 
@@ -20,7 +22,18 @@ enum class collaboration_history_action : std::uint32_t { edit = 1, undo = 2, re
 
 namespace detail {
 
-using collaboration_field_address = std::pair<std::uint64_t, std::uint32_t>;
+// Retain flat address members while distinguishing arbitrarily nested stable base scopes.
+struct collaboration_field_address {
+  std::uint64_t first{};
+  std::uint32_t second{};
+  std::vector<std::uint32_t> path{};
+  // An empty path preserves the existing entity/local-field address contract.
+  collaboration_field_address(std::uint64_t entity, std::uint32_t field,
+                               std::vector<std::uint32_t> scopes = {})
+      : first{entity}, second{field}, path{std::move(scopes)} {}
+  // Compare complete paths; hashing/truncation must never alias different base fields.
+  auto operator<=>(const collaboration_field_address&) const = default;
+};
 using collaboration_fields = std::map<collaboration_field_address, std::vector<std::uint8_t>>;
 using collaboration_field_versions = std::map<collaboration_field_address, std::uint64_t>;
 using collaboration_entity_versions = std::map<std::uint64_t, std::uint64_t>;
@@ -35,7 +48,15 @@ inline std::vector<std::uint8_t> encode_collaboration_value(const auto& value,
   full_stream_auto_alloc_limits stream{&limits};
   serializer::binary_integer<serializer::serialize_type::out, full_stream_auto_alloc_limits>
       encoder{stream};
-  encoder.struct_serialize_out(value);
+  if constexpr (requires { value.valueless_by_exception(); value.index(); }) {
+    if (value.valueless_by_exception()) {
+      throw std::invalid_argument{"Valueless managed variant"};
+    }
+    encoder.serialize_out_variable(value.index());
+    std::visit([&](const auto& child) { encoder.serialize_out(child); }, value);
+  } else {
+    encoder.struct_serialize_out(value);
+  }
   return {stream.begin(), stream.begin() + stream.current_offset()};
 }
 
@@ -48,7 +69,12 @@ inline std::uint64_t collaboration_version(const auto& versions, const auto& key
 // Encode ownership independently of child payload so edits to different children remain independent.
 template <typename Value>
 auto collaboration_membership(const Value& value) {
-  if constexpr (requires { value.persistent_id; }) {
+  if constexpr (requires { value.valueless_by_exception(); value.index(); }) {
+    if (value.valueless_by_exception()) { throw std::invalid_argument{"Valueless managed variant"}; }
+    std::vector<std::uint64_t> result{static_cast<std::uint64_t>(value.index())};
+    std::visit([&](const auto& child) { result.push_back(child.persistent_id); }, value);
+    return result;
+  } else if constexpr (requires { value.persistent_id; }) {
     return value.persistent_id;
   } else if constexpr (requires { typename Value::mapped_type; }) {
     std::map<typename Value::key_type, std::uint64_t> members;
@@ -87,6 +113,7 @@ void collaboration_children(Value& value, Visitor&& visitor) {
 class collaboration_field_collector {
   std::size_t remaining_;
   std::size_t max_fields_;
+  std::vector<std::uint32_t> path_{};
 
 public:
   collaboration_fields fields{};
@@ -102,17 +129,45 @@ public:
     }
     auto bytes = encode_collaboration_value(input, remaining_);
     remaining_ -= bytes.size();
-    if (!fields.emplace(collaboration_field_address{entity, field}, std::move(bytes)).second) {
+    if (!fields.emplace(collaboration_field_address{entity, field, path_}, std::move(bytes)).second) {
       throw std::invalid_argument{"Duplicate collaboration field address"};
     }
+  }
+
+  // Traverse an ordinary inherited value under its owner and stable nested base key.
+  template <typename Callable>
+  void with_path(std::uint32_t base, Callable&& callback) {
+    path_.push_back(base);
+    try { std::forward<Callable>(callback)(*this); }
+    catch (...) { path_.pop_back(); throw; }
+    path_.pop_back();
+  }
+
+  // Store the active tag/identity edge separately from the independently identified payload.
+  void owned_variant(std::uint64_t entity, std::uint32_t field, const auto& input) {
+    value(entity, field, collaboration_membership(input));
+    auto parent_path = std::move(path_);
+    path_.clear();
+    try {
+      std::visit([&](const auto& child) {
+        using child_type = std::remove_cvref_t<decltype(child)>;
+        model_traits<child_type>::visit_collaboration_fields(child, *this);
+      }, input);
+    } catch (...) { path_ = std::move(parent_path); throw; }
+    path_ = std::move(parent_path);
   }
 
   // Record membership once and recursively collect each independently identified child's fields.
   template <typename ChildTraits>
   void owned(std::uint64_t entity, std::uint32_t field, const auto& input) {
     value(entity, field, collaboration_membership(input));
-    collaboration_children(
-        input, [&](const auto& child) { ChildTraits::visit_collaboration_fields(child, *this); });
+    auto parent_path = std::move(path_);
+    path_.clear();
+    try {
+      collaboration_children(
+          input, [&](const auto& child) { ChildTraits::visit_collaboration_fields(child, *this); });
+    } catch (...) { path_ = std::move(parent_path); throw; }
+    path_ = std::move(parent_path);
   }
 };
 
@@ -149,6 +204,19 @@ public:
       throw collaboration_history_conflict{};
     }
     current = desired;
+  }
+
+  // Match the collector's nested scope API; conflict checks use the complete external address.
+  template <typename Callable>
+  void with_path(std::uint32_t base, Callable&& callback) {
+    static_cast<void>(base);
+    std::forward<Callable>(callback)(*this);
+  }
+
+  // Treat switching and payload reversal as one guarded value; never edit a displaced alternative.
+  void owned_variant(std::uint64_t entity, std::uint32_t field, auto& current,
+                     const auto& expected, const auto& desired) {
+    value(entity, field, current, expected, desired);
   }
 
   // Preserve current payloads of retained children while reversing membership and nested fields.

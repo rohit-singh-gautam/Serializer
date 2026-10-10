@@ -32,13 +32,13 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **1.10.0**. Bug fixes and minor updates
+The current compiler and runtime release is **1.11.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
-compatibility across major releases. The schema language version is **1.5.0**;
+compatibility across major releases. The schema language version is **1.6.0**;
 see [release and schema versions](docs/command_line.md).
 
-Use `serializer version 1.5.0;` for new schemas. Older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, and `1.4.0` schemas remain supported. The original
+Use `serializer version 1.6.0;` for new schemas. Older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, and `1.5.0` schemas remain supported. The original
 `serializer version 1;` is an exact compatibility alias for `1.0.0`, exclusive to
 version 1. Future versions require all three components; see the
 [schema language policy](docs/command_line.md#schema-language-version-policy).
@@ -220,9 +220,9 @@ Language `1.1.0` adds `array[] T` with an extent inferred from nonempty defaults
 `public array[] char signature {'SRLFILE'};` uses seven decoded bytes with no NUL terminator.
 Optional `instantiate person_result = result<person>;` declarations and concrete
 schema fields define contracts for all eleven generators. Other languages keep
-concrete APIs. JavaScript/TypeScript and Python also support fixed arrays without
-explicit initializers, enforcing the extent during encoding and decoding. Other
-backends reject fixed arrays explicitly. See the [generic examples](example/generics/README.md)
+concrete APIs. All eleven ordinary outputs support fixed arrays without explicit
+initializers, enforcing the extent during encoding and decoding. Direct Protobuf
+fixed-array output remains unsupported. See the [generic examples](example/generics/README.md)
 and [qualification record](docs/verification-dimensions-2026-10-04.md).
 
 All languages use the same schema compiler. Their generated APIs and runtime
@@ -238,6 +238,22 @@ requirements are documented separately.
 
 The [build and generation guide](docs/build_and_generation.md) includes compiler
 commands for each language group and explains naming profiles.
+
+## Schema behavior and managed state
+
+Language 1.6 and compiler/runtime 1.11 add schema-declared methods, ordered native
+blocks, typed portable arithmetic and transient memory fields. C++ managed models
+support private data, unrelated public bases, owned variants, concrete generic
+specializations and payload lifecycle metadata. Runtime APIs add guarded cache
+updates, explicit reset clones, notifications, navigation, complete-history
+migration and bounded snapshot patches.
+
+Read [concrete state framework examples](docs/state_enhancements.md) and
+[method generation](docs/behavior.md) before choosing a combination. The
+[integration skill](.agents/skills/serializer-integration/SKILL.md#use-the-full-framework)
+requires reviewing the full feature set and using every applicable implemented
+feature. Runnable document-tool examples cover generated APIs and failure paths;
+remaining engine/storage combinations are listed explicitly.
 
 ## Choose a format
 
@@ -358,8 +374,8 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editor_extension.md) |
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
-Both extensions use source release version **1.1.31**, independent of compiler version
-**1.10.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
+Both extensions use source release version **1.1.32**, independent of compiler version
+**1.11.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
 for supported destinations and language-service prerequisites.
 VS Code also supports navigation from read-only Git index/history tabs, using
 the displayed snapshot and current workspace destinations.

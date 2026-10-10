@@ -10,6 +10,33 @@
       "include": "#comments"
     },
     {
+      "include": "#native_code"
+    },
+    {
+      "match": "\\b(function)\\s+(?:(virtual|abstract|override)\\s+)?([A-Za-z_][A-Za-z_0-9:]*)\\s+([A-Za-z_][A-Za-z_0-9]*)\\s*(\\()",
+      "captures": {
+        "1": {
+          "name": "storage.type.serializer"
+        },
+        "2": {
+          "name": "storage.modifier.serializer"
+        },
+        "3": {
+          "patterns": [
+            {
+              "include": "#type_name"
+            }
+          ]
+        },
+        "4": {
+          "name": "entity.name.function.serializer"
+        },
+        "5": {
+          "name": "punctuation.section.group.serializer"
+        }
+      }
+    },
+    {
       "name": "meta.include.serializer",
       "begin": "\\binclude\\b",
       "beginCaptures": {
@@ -44,18 +71,35 @@
       "name": "meta.ignore-warning.serializer",
       "begin": "\\b(ignore)(?:\\s|/\\*.*?\\*/)*(\\()(?=(?:\\s|/\\*.*?\\*/)*(?:warning\\b|$))",
       "beginCaptures": {
-        "1": { "name": "keyword.control.serializer" },
-        "2": { "name": "punctuation.section.group.serializer" }
+        "1": {
+          "name": "keyword.control.serializer"
+        },
+        "2": {
+          "name": "punctuation.section.group.serializer"
+        }
       },
       "end": "\\)|(?=[;{}])",
       "endCaptures": {
-        "0": { "name": "punctuation.section.group.serializer" }
+        "0": {
+          "name": "punctuation.section.group.serializer"
+        }
       },
       "patterns": [
-        { "include": "#comments" },
-        { "name": "keyword.control.serializer", "match": "\\bwarning\\b" },
-        { "name": "constant.other.warning.serializer", "match": "\\b(?:magic|version)\\b" },
-        { "name": "punctuation.separator.serializer", "match": "," }
+        {
+          "include": "#comments"
+        },
+        {
+          "name": "keyword.control.serializer",
+          "match": "\\bwarning\\b"
+        },
+        {
+          "name": "constant.other.warning.serializer",
+          "match": "\\b(?:magic|version)\\b"
+        },
+        {
+          "name": "punctuation.separator.serializer",
+          "match": ","
+        }
       ]
     },
     {
@@ -244,7 +288,7 @@
       }
     },
     {
-      "match": "\\b(public|protected|private|managed)\\s+((?!(?:(?:array|map|union|managed|version|magic)\\b|variant\\s*\\())(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
+      "match": "\\b(public|protected|private|managed)\\s+((?!(?:(?:array|map|union|managed|transient|function|version|magic)\\b|variant\\s*\\())(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
       "captures": {
         "1": {
           "name": "storage.modifier.serializer"
@@ -331,7 +375,7 @@
     },
     {
       "name": "keyword.control.serializer",
-      "match": "\\b(serializer|version|magic|omit|compatibility|created|obsolete|replaced|reserve|releases|policy|any|all|max_age|keep_last|released_since|expires_on)\\b"
+      "match": "\\b(serializer|expression|preamble|version|magic|omit|compatibility|created|obsolete|replaced|reserve|releases|policy|any|all|max_age|keep_last|released_since|expires_on)\\b"
     },
     {
       "name": "storage.type.serializer",
@@ -339,7 +383,7 @@
     },
     {
       "name": "storage.modifier.serializer",
-      "match": "\\b(public|protected|private|stable_ids|managed|owning|view|readonly|mutable|packed|compact_prefix|compact_varint|strict|lenient)\\b"
+      "match": "\\b(public|protected|private|transient|edit|virtual|abstract|override|stable_ids|managed|owning|view|readonly|mutable|packed|compact_prefix|compact_varint|strict|lenient)\\b"
     },
     {
       "name": "support.type.serializer",
@@ -418,13 +462,27 @@
     "digest_spec": {
       "match": "\\b(digest)\\s*(?:(\\()\\s*(md5|sha1|sha224|sha256|sha384|sha512(?:_224|_256)?|sha3_(?:224|256|384|512))\\s*(\\))|(\\[)\\s*([0-9]+)\\s*(\\]))",
       "captures": {
-        "1": { "name": "support.type.serializer" },
-        "2": { "name": "punctuation.section.group.serializer" },
-        "3": { "name": "constant.other.algorithm.serializer" },
-        "4": { "name": "punctuation.section.group.serializer" },
-        "5": { "name": "punctuation.section.group.serializer" },
-        "6": { "name": "constant.numeric.serializer" },
-        "7": { "name": "punctuation.section.group.serializer" }
+        "1": {
+          "name": "support.type.serializer"
+        },
+        "2": {
+          "name": "punctuation.section.group.serializer"
+        },
+        "3": {
+          "name": "constant.other.algorithm.serializer"
+        },
+        "4": {
+          "name": "punctuation.section.group.serializer"
+        },
+        "5": {
+          "name": "punctuation.section.group.serializer"
+        },
+        "6": {
+          "name": "constant.numeric.serializer"
+        },
+        "7": {
+          "name": "punctuation.section.group.serializer"
+        }
       }
     },
     "type_name": {
@@ -484,6 +542,56 @@
         {
           "name": "punctuation.separator.serializer",
           "match": ","
+        }
+      ]
+    },
+    "native_code": {
+      "name": "meta.embedded.block.serializer",
+      "begin": "\\b(?:(public|protected|private)\\s+)?(cpp|csharp|java|javascript|typescript|go|rust|python|swift|kotlin|c)\\s+(?:(preamble)\\s*)?(\\{)",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.serializer"
+        },
+        "2": {
+          "name": "storage.modifier.language.serializer"
+        },
+        "3": {
+          "name": "keyword.control.serializer"
+        },
+        "4": {
+          "name": "punctuation.section.block.serializer"
+        }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.block.serializer"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#strings"
+        },
+        {
+          "include": "#native_braces"
+        }
+      ]
+    },
+    "native_braces": {
+      "begin": "\\{",
+      "end": "\\}",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#strings"
+        },
+        {
+          "include": "#native_braces"
         }
       ]
     }

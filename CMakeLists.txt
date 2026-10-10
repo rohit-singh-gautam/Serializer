@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.28)
 
-project(serializer VERSION 1.10.0 LANGUAGES CXX)
+project(serializer VERSION 1.11.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
-set(serializer_schema_language_version 1.5.0)
+set(serializer_schema_language_version 1.6.0)
 string(REPLACE "." ";" serializer_schema_language_version_components
   "${serializer_schema_language_version}")
 list(GET serializer_schema_language_version_components 0 serializer_schema_language_version_major)
@@ -71,7 +71,8 @@ add_library(serializer_runtime
   include/rohit/stream_concepts.hpp
   include/rohit/stream_io.hpp
 )
-set_target_properties(serializer_runtime PROPERTIES EXPORT_NAME runtime)
+# Keep installed headers ahead of older copies supplied by dependency include paths.
+set_target_properties(serializer_runtime PROPERTIES EXPORT_NAME runtime EXPORT_NO_SYSTEM TRUE)
 add_library(Serializer::runtime ALIAS serializer_runtime)
 
 # Retain the original compiler-library API and target for existing compiler clients.
@@ -158,6 +159,7 @@ if(SERIALIZER_ENABLE_SIMD AND serializer_x64 AND
   set_source_files_properties(${serializer_avx2_sources} PROPERTIES SKIP_UNITY_BUILD_INCLUSION TRUE)
 endif()
 
+set_target_properties(serializer_lib PROPERTIES EXPORT_NO_SYSTEM TRUE)
 add_library(Serializer::serializer_lib ALIAS serializer_lib)
 
 add_executable(serializer src/serializer.cpp src/command_line.hpp)
@@ -172,7 +174,7 @@ include(cmake/serializer_generate_source.cmake)
 # Generate runtime records after the compiler, avoiding a compiler/library dependency cycle.
 if(SERIALIZER_BUILD_MANAGED)
   add_library(serializer_managed INTERFACE)
-  set_target_properties(serializer_managed PROPERTIES EXPORT_NAME managed)
+  set_target_properties(serializer_managed PROPERTIES EXPORT_NAME managed EXPORT_NO_SYSTEM TRUE)
   add_library(Serializer::managed ALIAS serializer_managed)
   serializer_generate(TARGET serializer_managed SCHEMAS schemas/managed_records.serializer
     schemas/collaboration_records.serializer
@@ -212,7 +214,7 @@ if(SERIALIZER_INSTALL)
   # Install record-dependent APIs only when their generated dependencies are available.
   set(serializer_disabled_header_patterns)
   if(NOT SERIALIZER_BUILD_MANAGED)
-    foreach(header IN ITEMS managed.hpp collaboration_history.hpp collaboration_sessions.hpp
+    foreach(header IN ITEMS managed.hpp managed_delta.hpp collaboration_history.hpp collaboration_sessions.hpp
         managed_collaboration.hpp managed_local_collaboration.hpp)
       list(APPEND serializer_disabled_header_patterns PATTERN "${header}" EXCLUDE)
     endforeach()
@@ -334,6 +336,14 @@ if(SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
       --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_runtime>"
       --build "${PROJECT_BINARY_DIR}/generic_languages" --language all
       "--wsl-languages=${SERIALIZER_EXAMPLE_WSL_LANGUAGES}")
+  foreach(behavior_suite IN ITEMS behavior_languages native_behavior_languages)
+    add_test(NAME "serializer_${behavior_suite}"
+      COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/test/${behavior_suite}.py"
+        --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_runtime>"
+        --build "${PROJECT_BINARY_DIR}/${behavior_suite}"
+        "--wsl-languages=${SERIALIZER_EXAMPLE_WSL_LANGUAGES}")
+    set_tests_properties("serializer_${behavior_suite}" PROPERTIES TIMEOUT 1800 LABELS serializer_native)
+  endforeach()
   set_tests_properties(serializer_generic_languages PROPERTIES TIMEOUT 1800 LABELS serializer_native)
   set_tests_properties(serializer_language_examples serializer_native_codecs PROPERTIES
     TIMEOUT 1800 LABELS serializer_native)

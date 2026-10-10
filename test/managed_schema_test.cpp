@@ -55,7 +55,7 @@ TEST(managed_schema, generates_companions_for_every_cpp_profile) {
     EXPECT_EQ(generated.find("persistent_id_{}"), std::string::npos);
     EXPECT_NE(generated.find("model_traits<"), std::string::npos);
     EXPECT_NE(generated.find("::visit_entities(storage.value."), std::string::npos);
-    EXPECT_NE(generated.find("requires (!Access::is_managed)"), std::string::npos);
+    EXPECT_NE(generated.find("requires (!Access::is_managed && !Access::is_runtime_access)"), std::string::npos);
   }
 }
 
@@ -99,9 +99,8 @@ TEST(managed_schema, rejects_unsupported_backends_and_shapes) {
   options.format = false;
   options.managed_separate_values = true;
   for (const auto source :
-       {"class item managed { private uint32 value; }",
-        "class item managed view owning { public uint32 value; }",
-        "class base {} class item managed : public base { public uint32 value; }",
+       {"class item managed view owning { public uint32 value; }",
+        "class base {} class item managed : private base { public uint32 value; }",
         "class item managed {} class managed_item_storage {}",
         "class item managed {} class item_editor {}",
         "class item managed {} enum managed_item_storage { value }",
@@ -110,4 +109,52 @@ TEST(managed_schema, rejects_unsupported_backends_and_shapes) {
     auto invalid = parse_managed(source);
     EXPECT_THROW(writer::cpp::generate(invalid, options), std::invalid_argument) << source;
   }
+}
+
+// Public inherited field scopes and private schema data have generated checked editor access.
+TEST(managed_schema, generates_private_access_and_multiple_base_editors) {
+  const auto parsed = parse_managed(
+      "class author stable_ids { private string name (1); } "
+      "class review stable_ids { public string status (1); } "
+      "class document managed stable_ids : public author (\"author_part\", 1), "
+      "public review (\"review_part\", 2) { private uint32 pages (3); }");
+  writer::cpp_options options;
+  options.format = false;
+  const auto generated = writer::cpp::generate(parsed, options);
+  EXPECT_NE(generated.find("friend class author_editor"), std::string::npos);
+  EXPECT_NE(generated.find("auto author_part() const"), std::string::npos);
+  EXPECT_NE(generated.find("auto review_part() const"), std::string::npos);
+  EXPECT_NE(generated.find("with_path(1u"), std::string::npos);
+  EXPECT_NE(generated.find("with_path(2u"), std::string::npos);
+}
+
+// Runtime-only declarations cannot perturb durable schema bindings or allocate field IDs.
+TEST(managed_schema, transient_fields_are_excluded_from_schema_identity) {
+  writer::cpp_options options;
+  options.format = false;
+  const auto first = writer::cpp::generate(parse_managed(
+      "serializer version 1.6.0; class document managed stable_ids { public string text (1); "
+      "public transient uint64 cache {0}; }"), options);
+  const auto second = writer::cpp::generate(parse_managed(
+      "serializer version 1.6.0; class document managed stable_ids { public string text (1); "
+      "public transient uint64 cache {17}; public transient uint64 preview {0}; }"), options);
+  const auto binding = [](const std::string& text) {
+    const auto start = text.find("managed.direct.v1:");
+    return text.substr(start, text.find('"', start) - start);
+  };
+  EXPECT_EQ(binding(first), binding(second));
+  EXPECT_NE(first.find("static void reset_runtime_fields"), std::string::npos);
+  EXPECT_NE(first.find("requires Access::is_runtime_access"), std::string::npos);
+}
+
+// Base paths and behavior declarations cannot silently overwrite checked alternative accessors.
+TEST(managed_schema, rejects_alternative_editor_accessor_collisions) {
+  writer::cpp_options options;
+  options.format = false;
+  const auto source = parse_managed(
+      "serializer version 1.6.0; class author managed stable_ids { public string name (1); } "
+      "class paragraph managed stable_ids { public string text (1); } "
+      "class document stable_ids : public managed author (\"edit_content\", 1) { "
+      "public managed variant(paragraph = text, author = attribution) content (2); }");
+  EXPECT_THROW(writer::cpp::generate(source, options), std::invalid_argument);
 }

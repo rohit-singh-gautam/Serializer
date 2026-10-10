@@ -1,6 +1,8 @@
+#include "schema_projection.hpp"
 #include "native_schema.hpp"
 #include "version_writer.hpp"
 #include "format_writer.hpp"
+#include "behavior_writer.hpp"
 
 #include <algorithm>
 #include <set>
@@ -382,6 +384,10 @@ class c_emitter {
     const bool map = value.modifier == member::modifier_type::map;
     line(n + "_clear(&" + dst + ");");
     line("const size_t count = srl_read_array(in);");
+    if (value.fixed_extent != 0) {
+      line("if (in->protocol != srl_json && count != " + std::to_string(value.fixed_extent) +
+           ") { in->status = srl_invalid; return; }");
+    }
     line("const size_t capacity = srl_array_capacity(in, count, " +
          std::to_string(map ? 0 : width(t)) + ");");
     open("if (capacity && in->status == srl_ok)");
@@ -390,6 +396,10 @@ class c_emitter {
     line("if (" + dst + ".data) { " + dst + ".capacity = capacity; }");
     close();
     open("for (size_t index = 0; srl_read_element(in, index, count); ++index)");
+    if (value.fixed_extent != 0) {
+      line("if (index >= " + std::to_string(value.fixed_extent) +
+           ") { in->status = srl_invalid; break; }");
+    }
     open("if (" + dst + ".size == " + dst + ".capacity)");
     line("const size_t next_capacity = " + dst + ".capacity ? " + dst + ".capacity + " + dst +
          ".capacity/2 + 1 : 16;");
@@ -438,6 +448,10 @@ class c_emitter {
       close();
     }
     close();
+    if (value.fixed_extent != 0) {
+      line("if (in->status == srl_ok && " + dst + ".size != " + std::to_string(value.fixed_extent) +
+           ") { in->status = srl_invalid; }");
+    }
     if (map) {
       line("if (in->status == srl_ok) { " + n + "_normalize(&" + dst + "); }");
     }
@@ -477,6 +491,10 @@ class c_emitter {
     }
     line("if (" + src + ".size && !" + src + ".data) { out->status = srl_invalid; return; }");
     if (value.modifier == member::modifier_type::array) {
+      if (value.fixed_extent != 0) {
+        line("if (" + src + ".size != " + std::to_string(value.fixed_extent) +
+             ") { out->status = srl_invalid; return; }");
+      }
       line("srl_write_array(out, " + src + ".size);");
       open("for (size_t i = 0; out->status == srl_ok && i < " + src + ".size; ++i)");
       line("srl_write_element(out, i);");
@@ -588,9 +606,113 @@ class c_emitter {
            type(f.type_name_list.front()) + " value; size_t srl_order; };");
     }
   }
+  // A copied function table provides checked dispatch independently of a model's codec storage.
+  void dispatch_adapter(const class_node& value) {
+    const auto contracts = behavior::contracts(value);
+    if (contracts.empty()) { return; }
+    const auto model_name = name(&value);
+    const auto table = model_name + "_behavior";
+    const auto adapter = model_name + "_behavior_adapter";
+    open("typedef struct " + table);
+    for (const auto* method : contracts) {
+      std::string parameters = std::string(method->effect == function_declaration::effect_type::readonly ? "const " : "") + model_name + "* receiver";
+      for (const auto& argument : method->parameters) { parameters += ", " + type(argument.type) + " " + field(argument.name); }
+      line((method->return_type.name == "void" ? "void" : type(method->return_type)) + " (*" + field(method->name) + ")(" + parameters + ");");
+    }
+    close(" " + table + ";");
+    line("typedef struct " + adapter + " { " + model_name + "* receiver; " + table + " implementation; } " + adapter + ";");
+    open("static inline srl_status " + adapter + "_init(" + adapter + "* adapter, " + model_name + "* receiver, const " + table + "* implementation)");
+    std::string invalid = "!adapter || !receiver || !implementation";
+    for (const auto* method : contracts) { invalid += " || !implementation->" + field(method->name); }
+    line("if (" + invalid + ") return srl_invalid;");
+    line("adapter->receiver=receiver; adapter->implementation=*implementation; return srl_ok;"); close();
+    for (const auto* method : contracts) {
+      const auto result_type = method->return_type.name == "void" ? "void" : type(method->return_type);
+      const auto function = adapter + "_" + field(method->name);
+      std::string parameters = "const " + adapter + "* adapter", calls = "adapter->receiver";
+      for (const auto& argument : method->parameters) { parameters += ", " + type(argument.type) + " " + field(argument.name); calls += ", " + field(argument.name); }
+      const auto result_parameter = result_type == "void" ? "" : ", " + result_type + "* result";
+      open("static inline srl_status " + function + "_checked(" + parameters + result_parameter + ")");
+      line("if (!adapter || !adapter->receiver || !adapter->implementation." + field(method->name) + (result_type == "void" ? "" : " || !result") + ") return srl_invalid;");
+      line(std::string(result_type == "void" ? "" : "*result = ") + "adapter->implementation." + field(method->name) + "(" + calls + ");");
+      line("return srl_ok;"); close();
+    }
+  }
+
+  // Emit receiver functions and status-returning checked portable computations.
+  void behaviors(const class_node& value) {
+    const auto model_name = name(&value);
+    if (std::any_of(value.native_blocks.begin(), value.native_blocks.end(),
+        [](const auto& block) { return block.language == "c"; })) {
+      throw std::invalid_argument{"c: native behavior declarations belong in preamble/free functions, not struct fields"};
+    }
+    behavior::require_unique_callable_names(value, "c", [&](auto n) { return field(n); });
+    dispatch_adapter(value);
+    for (const auto& method : value.functions) {
+      line(behavior::source_marker(method, "c"));
+      if (method.dispatch == function_declaration::dispatch_type::abstract_method) { continue; }
+      const auto result_type = method.return_type.name == "void" ? "void" : type(method.return_type);
+      const auto identifier = model_name + "_" + field(method.name);
+      const auto receiver = std::string(method.effect == function_declaration::effect_type::readonly ? "const " : "") + model_name + "* value";
+      std::string parameters = receiver, arguments = "value";
+      for (const auto& argument : method.parameters) {
+        parameters += ", " + type(argument.type) + " " + field(argument.name);
+        arguments += ", " + field(argument.name);
+      }
+      const auto* native = behavior::native_body(method, "c");
+      if (!native && !method.expression) {
+        line(result_type + " " + identifier + "(" + parameters + ");");
+        continue;
+      }
+      if (method.expression) {
+        const auto symbol = [&](std::string_view name_value) {
+          const auto argument = std::find_if(method.parameters.begin(), method.parameters.end(),
+              [&](const auto& item) { return item.name == name_value; });
+          return argument == method.parameters.end() ? "value->" + field(name_value) : field(name_value);
+        };
+        open("static inline srl_status " + identifier + "_checked(" + parameters + ", double* result)");
+        line("if (!value || !result) { return srl_invalid; }");
+        std::set<std::string> symbols; behavior::expression_symbols(*method.expression, symbols);
+        for (const auto& name_value : symbols) {
+          line("if (!isfinite((double)(" + symbol(name_value) + "))) { return srl_range; }");
+        }
+        line("double candidate = " + behavior::expression(*method.expression, "c", symbol) + ";");
+        line("if (!isfinite(candidate)) { return srl_range; }");
+        line("*result = candidate;"); line("return srl_ok;"); close();
+        open("static inline double " + identifier + "(" + parameters + ")");
+        line("double result;");
+        line("srl_status status = " + identifier + "_checked(" + arguments + ", &result);");
+        line("if (status != srl_ok) { errno = status == srl_invalid ? EINVAL : ERANGE; return NAN; }");
+        line("return result;"); close();
+      } else {
+        open("static inline " + result_type + " " + identifier + "(" + parameters + ")");
+        output += behavior::source_marker(*native, "c") + native->text + "\n"; close();
+      }
+    }
+    std::vector<const function_declaration*> required;
+    for (const auto& method : value.functions) {
+      if (!method.expression && !behavior::native_body(method, "c") &&
+          method.dispatch != function_declaration::dispatch_type::abstract_method) { required.push_back(&method); }
+    }
+    if (!required.empty()) {
+      open("static inline void " + model_name + "_require_behavior_definitions(void)");
+      for (std::size_t index{}; index < required.size(); ++index) {
+        const auto& method = *required[index];
+        std::string arguments = std::string(method.effect == function_declaration::effect_type::readonly ? "const " : "") + model_name + "*";
+        for (const auto& argument : method.parameters) { arguments += ", " + type(argument.type); }
+        line((method.return_type.name == "void" ? "void" : type(method.return_type)) +
+            " (*volatile required" + std::to_string(index) + ")(" + arguments + ") = " +
+            model_name + "_" + field(method.name) + ";");
+        line("(void)required" + std::to_string(index) + ";");
+      }
+      close();
+    }
+  }
+
   // Emit lifecycle APIs and direct per-field codecs for one C model.
   void object(const class_node& value) {
     const auto n = name(&value);
+    behaviors(value);
     for (const auto& f : value.member_list) {
       if (f.modifier == member::modifier_type::array || f.modifier == member::modifier_type::map) {
         collection_helpers(value, f);
@@ -633,6 +755,16 @@ class c_emitter {
         }
       } else if (f.modifier == member::modifier_type::none) {
         init_value(f.type_name_list.front(), dst, literal(f), "status");
+      } else if (f.fixed_extent != 0) {
+        const auto count = std::to_string(f.fixed_extent);
+        line("if (status == srl_ok) { " + dst + ".data = (" + type(f.type_name_list.front()) +
+             "*)calloc(" + count + ", sizeof(" + dst + ".data[0])); if (!" + dst +
+             ".data) { status = srl_allocation; } else { " + dst + ".capacity = " + count +
+             "; } }");
+        open("for (size_t i = 0; status == srl_ok && i < " + count + "; ++i)");
+        line("++" + dst + ".size;");
+        init_value(f.type_name_list.front(), dst + ".data[i]", {}, "status");
+        close();
       }
     }
     line("if (status != srl_ok) { " + n + "_free(value); } return status;");
@@ -691,7 +823,7 @@ class c_emitter {
       if (variable_first) { line("first_field = false;"); }
       first = false;
     }
-    for (const auto& f : value.member_list) {
+    for (const auto& f : wire_members(value)) {
       if (f.version) {
         continue;
       }
@@ -755,7 +887,7 @@ class c_emitter {
     for (const auto& base : value.parents) {
       ids += std::to_string(base.id) + ",";
     }
-    for (const auto& f : value.member_list) {
+    for (const auto& f : wire_members(value)) {
       if (!f.version && !f.omits("binary_none")) {
         ids += std::to_string(f.id) + ",";
       }
@@ -777,7 +909,7 @@ class c_emitter {
     for (const auto& base : value.parents) {
       branch(base.display_name, base.id, -1);
     }
-    for (const auto& f : value.member_list) {
+    for (const auto& f : wire_members(value)) {
       if (f.modifier == member::modifier_type::variant) {
         for (std::size_t i = 0; i < f.type_name_list.size(); ++i) {
           branch(f.display_name + ":" + f.type_name_list[i].enum_name, f.id, static_cast<int>(i));
@@ -818,7 +950,7 @@ class c_emitter {
            name(value.parents[i].parent_class) + "_srl_read(in, &value->base" + std::to_string(i) +
            "); break;");
     }
-    for (const auto& f : value.member_list) {
+    for (const auto& f : wire_members(value)) {
       open("case " + std::to_string(f.id) + ":");
       read_versioned_member(value, f);
       line("break;");
@@ -837,7 +969,7 @@ class c_emitter {
       line("if (!seen[" + std::to_string(version_slot(value, *version)) +
            "]) { in->status = srl_invalid; return; }");
       check_version(value, true);
-      for (const auto& item : value.member_list) {
+      for (const auto& item : wire_members(value)) {
         const auto active =
             version_active(version_language::c, item, *version, "value->" + field(version->name));
         if (!active.empty()) {
@@ -888,6 +1020,9 @@ public:
   }
   // Emit immutable key tables, public owning layouts, and checked direct codecs.
   std::string generate() {
+    for (const auto& code : model.preambles) {
+      if (code.language == "c") { output += behavior::source_marker(code, "c") + code.text + "\n"; }
+    }
     validate_symbols();
     for (std::size_t i = 0; i < model.ordered_keys.size(); ++i) {
       const auto& key = model.ordered_keys[i];

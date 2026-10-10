@@ -1,0 +1,4 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.6.0;
+include ../../example/managed/runtime_state/document;

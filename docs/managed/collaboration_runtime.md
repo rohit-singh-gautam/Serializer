@@ -15,6 +15,21 @@ The authority and acknowledged-state replica primitives below remain available.
 The [broader design](collaboration.md) separately describes future optimization,
 delta protocols, distributed deployment, and other-language engines.
 
+## Inherited field paths
+
+Public unrelated bases are supported from compiler/runtime 1.11. Independently
+managed bases use their own entity IDs. Ordinary bases use the enclosing entity
+and a full stable base-ID path, preventing equal local field IDs from aliasing.
+Generated `Traits::has_inherited_field_paths` selects numeric protocols 9/10 or
+typed-session protocols 11/12. Flat 5/6 and 7/8 record bytes stay unchanged.
+
+Use `Authority::records_type`/`accepted_change_type` and the replica's matching
+aliases when decoding records; do not force a nested model into legacy flat
+aliases. An explicit typed session lock cache can select the nested family with
+`collaboration_session<Session, SessionTraits, true>::lock_cache`. Mismatched
+contexts reject. The [document regressions](../../test/managed_document_features_test.cpp)
+exercise encoded nested paths and conditional undo with numeric/typed sessions.
+
 ## Authority, commands, and replicas
 
 `collaboration_authority<Root, Mode, Labels, Traits, Session, SessionTraits>` privately owns a managed

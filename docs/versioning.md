@@ -1,7 +1,7 @@
 # Schema revisions and compatibility
 
 Every schema begins with a supported schema-language header. Use
-`serializer version 1.5.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, and `1.4.0`
+`serializer version 1.6.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, and `1.5.0`
 headers remain supported. The original `serializer version 1;` is an exact alias
 for `1.0.0`, not the latest language version. See the
 [schema-language policy](command_line.md#schema-language-version-policy).
@@ -89,7 +89,7 @@ A payload written before any version member existed has no discriminator. Decode
 
 ## Support and runnable examples
 
-Unmanaged owning models support this feature in C++, Java, JavaScript, TypeScript, Go, C#, Rust, Python, Swift, Kotlin, and C with JSON, positional binary, integer-key binary, and string-key binary. Versioned buffer views, managed models, and C++ Protobuf/ProtoJSON/TextProto mapping currently produce an unsupported diagnostic. Generic concrete instances retain revision metadata.
+Unmanaged owning models support this feature in C++, Java, JavaScript, TypeScript, Go, C#, Rust, Python, Swift, Kotlin, and C with JSON, positional binary, integer-key binary, and string-key binary. C++ managed owning models also support payload revisions from compiler/runtime 1.11.0. Versioned buffer views and C++ Protobuf/ProtoJSON/TextProto mapping remain unsupported. Generic concrete instances retain revision metadata.
 
 Run the [shared versioning schema](../example/schemas/versioning/model.serializer) and handwritten consumers:
 
@@ -102,6 +102,46 @@ The examples read revision 8, preserve its positional layout, explicitly migrate
 See the [payload-versioning record](verification-versioning-2026-10-06.md) and
 [release-policy record](verification-release-policies-2026-10-06.md) for completed
 checks and remaining coverage.
+
+## Managed payload revisions
+
+```text
+serializer version 1.6.0;
+class document stable_ids managed {
+  public version {2} compatibility {1};
+  obsolete(2) public string old_title (2);
+  created(2) replaced(old_title) public string title (3) {"untitled"};
+}
+```
+
+The generated owning codecs retain the ordinary revision contract. Editors reject
+inactive fields and expose no version setter: changing the discriminator is a
+schema conversion, not an ordinary durable field edit. Inactive managed children
+and alternatives do not participate in live identity, collaboration or history
+field traversal. Active children retain their identities through undo and Save/load.
+
+A payload revision describes one object. A managed Save also contains a schema
+binding and every retained snapshot. Adding a field or changing lifecycle metadata
+can change that binding; accepting an ordinary old payload does not automatically
+upgrade a whole document. `load_migrated<SourceRoot>(bytes, converter)` converts the
+current payload and all retained history, preserving document namespace, identities,
+logical type keys, labels and history structure. Conversion must preserve identity
+width and validate every resulting snapshot before publication.
+`recover_migrated_journal` writes a separate destination journal after recovery;
+old and new schema records are not appended to one journal. Attached collaboration
+requires coordinated upgrade/resynchronization, not live per-message conversion.
+See [state enhancements](state_enhancements.md) and the
+[managed document example](../example/managed/document_features/README.md).
+
+Compiler 1.11 includes omission and lifecycle metadata in managed fingerprints.
+Some unchanged older schemas therefore receive a new binding: omitted durable
+fields and ordinary versioned children are affected. Strict `load` rejects the
+old binding. Supply the exact historical traits/schema ID to `load_migrated` and
+an explicit converter for every retained value; even an identity converter is an
+application decision. IDs and history are preserved, while the new Save binds
+the current fingerprint. The [legacy binding regressions](../test/managed_document_features_test.cpp)
+cover JSON-only omission and an ordinary versioned child. Automatic compatibility
+with every old managed Save is not implied.
 
 ## Release dates and compile-time policies
 

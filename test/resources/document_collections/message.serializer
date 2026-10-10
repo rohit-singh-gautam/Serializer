@@ -1,0 +1,2 @@
+serializer version 1.6.0;
+include ../../../example/schemas/document_collections/model.serializer;

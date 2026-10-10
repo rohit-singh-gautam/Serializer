@@ -1,6 +1,6 @@
 // SPDX-FileCopyrightText: 2024-2026 Rohit Jairaj Singh <rohit@singh.org.in>
 // SPDX-License-Identifier: 0BSD
-serializer version 1;
+serializer version 1.6.0;
 
 // History-bearing envelopes: protocol 5 uses custom commands, protocol 6 uses model_change.
 // Protocols 7/8 carry application-defined sessions in session_envelope around these records.
@@ -58,6 +58,8 @@ namespace rohit {
         public array uint8 after (6);
         public uint64 before_version (7);
         public uint64 after_version (8);
+        // Nested field IDs within one entity; empty preserves flat-field addressing.
+        public transient array uint32 path;
       }
       class entity_dependency stable_ids {
         public uint64 entity (1);
@@ -79,6 +81,34 @@ namespace rohit {
         public uint64 allocated_id (5);
         public array uint8 snapshot (6);
         public transaction_record history (7);
+      }
+      // Protocols 9/10 (numeric sessions) and 11/12 (typed sessions) opt into
+      // hierarchical addresses. Flat protocols 5..8 retain their original bytes.
+      class nested_field_change stable_ids {
+        public uint64 entity (1);
+        public uint32 field (2);
+        public bool before_present (3);
+        public bool after_present (4);
+        public array uint8 before (5);
+        public array uint8 after (6);
+        public uint64 before_version (7);
+        public uint64 after_version (8);
+        public array uint32 path (9);
+      }
+      class nested_transaction_record stable_ids {
+        public uint32 action (1);
+        public uint64 target_operation (2);
+        public array nested_field_change fields (3);
+        public array entity_dependency dependencies (4);
+      }
+      class nested_accepted_change stable_ids {
+        public domain context (1);
+        public uint64 sequence (2);
+        public uint64 session (3);
+        public uint64 operation (4);
+        public uint64 allocated_id (5);
+        public array uint8 snapshot (6);
+        public nested_transaction_record history (7);
       }
       // Client-local IDs stay stable while remote IDs are assigned by the authority.
       class client_identity stable_ids {

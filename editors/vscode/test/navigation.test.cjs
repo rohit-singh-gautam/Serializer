@@ -632,3 +632,15 @@ test('generated numeric separators preserve namespace scopes and prefixed charac
   assert.deepEqual(indexSource(source, false).symbols.map(symbol => symbol.qualified),
     ['values::first', 'values::second']);
 });
+
+// Native implementation declarations are opaque, while method and transient types navigate.
+test('method signatures and transient fields navigate without native declaration leakage', () => {
+  const source = 'cpp preamble { class Fake {}; } class page {} class report { ' +
+    'public function page lookup(page input) readonly cpp { class Hidden {}; return input; }; ' +
+    'public transient page cached; public uint32 count (1); }';
+  const index = indexSource(source, true);
+  assert.deepEqual(index.symbols.map(symbol => symbol.name), ['page', 'report']);
+  assert.equal(index.references.filter(reference => reference.name === 'page' &&
+    reference.start >= source.indexOf('public function')).length, 3);
+  assert.ok(!index.references.some(reference => ['function', 'transient', 'cpp', 'Fake', 'Hidden'].includes(reference.name)));
+});

@@ -146,8 +146,23 @@ struct collaboration_operation_less {
 
 // Typed facades project into generated records plus a generated session envelope.
 // Numeric session fields in the inner record are always zero; no wire field IDs are duplicated here.
-template <typename Session, typename Policy>
+// Only models with inherited field scopes opt into the new nested wire family.
+template <typename Traits>
+inline constexpr bool collaboration_nested_paths = [] {
+  if constexpr (requires { Traits::has_inherited_field_paths; }) {
+    return Traits::has_inherited_field_paths;
+  } else {
+    return false;
+  }
+}();
+
+template <typename Session, typename Policy, bool NestedPaths = false>
 struct typed_collaboration_records {
+  using field_change = std::conditional_t<NestedPaths, collaboration_records::nested_field_change,
+                                         collaboration_records::field_change>;
+  using transaction_record =
+      std::conditional_t<NestedPaths, collaboration_records::nested_transaction_record,
+                         collaboration_records::transaction_record>;
   struct change_proposal {
     using session_traits = Policy;
     using wire_type = collaboration_records::change_proposal;
@@ -177,14 +192,15 @@ struct typed_collaboration_records {
   };
   struct accepted_change {
     using session_traits = Policy;
-    using wire_type = collaboration_records::accepted_change;
+    using wire_type = std::conditional_t<NestedPaths, collaboration_records::nested_accepted_change,
+                                         collaboration_records::accepted_change>;
     collaboration_records::domain context{};
     std::uint64_t sequence{};
     Session session{};
     std::uint64_t operation{};
     std::uint64_t allocated_id{};
     std::vector<std::uint8_t> snapshot{};
-    collaboration_records::transaction_record history{};
+    transaction_record history{};
     // Project ordinary fields through their canonical generated wire record.
     wire_type wire() const {
       return {context, sequence, 0, operation, allocated_id, snapshot, history};
@@ -348,24 +364,33 @@ struct typed_collaboration_records {
 };
 } // namespace detail
 
-// History-bearing protocols fence older peers whose keyed readers reject added record fields.
-template <typename Session = std::uint64_t, typename Policy = collaboration_session_traits<Session>>
+// Distinct protocols fence peers before nested fields can reach flat keyed record readers.
+template <typename Session = std::uint64_t, typename Policy = collaboration_session_traits<Session>,
+          bool NestedPaths = false>
   requires detail::collaboration_session_policy<Session, Policy>
-struct collaboration_record_types : detail::typed_collaboration_records<Session, Policy> {
-  static constexpr std::uint32_t command_protocol = 7;
-  static constexpr std::uint32_t model_protocol = 8;
+struct collaboration_record_types : detail::typed_collaboration_records<Session, Policy, NestedPaths> {
+  static constexpr std::uint32_t command_protocol = NestedPaths ? 11 : 7;
+  static constexpr std::uint32_t model_protocol = NestedPaths ? 12 : 8;
 };
-template <>
-struct collaboration_record_types<std::uint64_t, collaboration_session_traits<std::uint64_t>> {
+template <bool NestedPaths>
+struct collaboration_record_types<std::uint64_t, collaboration_session_traits<std::uint64_t>,
+                                  NestedPaths> {
+  using field_change = std::conditional_t<NestedPaths, collaboration_records::nested_field_change,
+                                         collaboration_records::field_change>;
+  using transaction_record =
+      std::conditional_t<NestedPaths, collaboration_records::nested_transaction_record,
+                         collaboration_records::transaction_record>;
   using change_proposal = collaboration_records::change_proposal;
-  using accepted_change = collaboration_records::accepted_change;
+  using accepted_change =
+      std::conditional_t<NestedPaths, collaboration_records::nested_accepted_change,
+                         collaboration_records::accepted_change>;
   using lock_request = collaboration_records::lock_request;
   using lock_grant = collaboration_records::lock_grant;
   using lock_update = collaboration_records::lock_update;
   using lock_snapshot = collaboration_records::lock_snapshot;
   using editing_presence = collaboration_records::editing_presence;
-  static constexpr std::uint32_t command_protocol = 5;
-  static constexpr std::uint32_t model_protocol = 6;
+  static constexpr std::uint32_t command_protocol = NestedPaths ? 9 : 5;
+  static constexpr std::uint32_t model_protocol = NestedPaths ? 10 : 6;
 };
 
 } // namespace rohit::managed

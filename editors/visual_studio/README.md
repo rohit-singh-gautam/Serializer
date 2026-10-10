@@ -1,5 +1,10 @@
 # Rohit Serializer for Visual Studio
 
+Version **1.1.32** adds language 1.6 function/transient highlighting, opaque
+native-block handling, method signature type navigation and snippets. Shared
+grammar/navigation changes apply to both editor packages.
+
+
 **Editor support for Serializer — State Framework**
 
 Rohit Serializer helps you edit `.serializer` schemas and navigate between schemas
@@ -123,7 +128,7 @@ installation. It uses full-framework MSBuild with locked dependencies, bundles
 the current shared resolver, rebuilds and validates:
 
 ```text
-out/extensions/serializer-visual-studio-1.1.31.vsix
+out/extensions/serializer-visual-studio-1.1.32.vsix
 ```
 
 Close Visual Studio, double-click the VSIX, select the installation and restart
@@ -239,7 +244,7 @@ Empty extents and element types receive fixed-array highlighting. Enum type
 operands and qualified enum defaults in typed magic retain declaration, definition,
 and type-definition navigation, including unsaved and transitive included schemas.
 VS Code includes `array_inferred` and `magic_typed` snippets; its schema snippet
-selects `serializer version 1.5.0;`. The original `1` header remains exactly
+selects `serializer version 1.6.0;`. The original `1` header remains exactly
 `1.0.0` and does not enable these features. See the
 [magic contract](../../docs/magic_and_omission.md) and [fixed arrays](../../docs/generics.md).
 

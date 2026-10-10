@@ -20,6 +20,7 @@
 #include "generated_notices.hpp"
 #include "protobuf_schema.hpp"
 #include "schema_version.hpp"
+#include "behavior_writer.hpp"
 
 #include <rohit/serializer_creator.hpp>
 
@@ -76,6 +77,7 @@ class emitter : private naming {
   bool constant_evaluation_enabled{false};
   bool positional_only{false};
   bool emission_only{false};
+  bool rename_behavior_identifiers{true};
   friend class managed_writer<emitter>;
   managed_writer<emitter> managed_;
   // Keep compiler metadata names independent of presentation profiles.
@@ -89,6 +91,7 @@ public:
         constant_evaluation_enabled{options.constant_evaluation},
         positional_only{options.protocols == cpp_protocols::binary_none},
         emission_only{options.emission_only},
+        rename_behavior_identifiers{options.rename_identifiers},
         managed_{*this, options.managed_id_type, options.managed_separate_values} {
     if (emission_only && (!constant_evaluation_enabled || !positional_only)) {
       throw std::invalid_argument{
@@ -372,6 +375,141 @@ public:
       }
       write_access_type(out_stream, parent.access);
       out_stream.write(' ', storage_type_name(parent.name, parent.parent_class));
+    }
+  }
+
+  // Emit one method on the owning value or a transaction-bound editor receiver.
+  void write_behavior_method(rohit::type_check::output_buffer auto& output, const class_node* owner,
+                             const function_declaration& method, bool editor_receiver = false) {
+    if (method.dispatch == function_declaration::dispatch_type::abstract_method) { return; }
+    const auto* body = behavior::native_body(method, "cpp");
+    if (body && rename_behavior_identifiers) {
+      throw std::invalid_argument{"cpp: opaque native bodies require naming = preserve"};
+    }
+    if (!editor_receiver && owner->supports_managed() && method.effect == function_declaration::effect_type::edit) {
+      return; // The corresponding generated editor owns this mutation contract.
+    }
+    output.write(behavior::source_marker(method, "cpp"));
+    write_access_type(output, method.access);
+    output.write(":\n  ");
+    using dispatch = function_declaration::dispatch_type;
+    if (method.dispatch == dispatch::virtual_method || method.dispatch == dispatch::override_method) {
+      output.write("virtual ");
+    }
+    output.write(method.return_type.name == "void" ? "void" : generic_default(method.return_type), " ",
+                 function_name(method.name), "(");
+    for (std::size_t index = 0; index < method.parameters.size(); ++index) {
+      const auto& argument = method.parameters[index];
+      if (index) { output.write(", "); }
+      output.write(generic_default(argument.type), " ", local_name(argument.name));
+    }
+    output.write(")");
+    if (!editor_receiver && method.effect == function_declaration::effect_type::readonly) { output.write(" const"); }
+    if (method.dispatch == dispatch::override_method && behavior::concrete_virtual_base(*owner, method)) { output.write(" override"); }
+    if (editor_receiver) { output.write(" requires (!Access::is_runtime_access)"); }
+    if (method.dispatch == dispatch::abstract_method) { output.write(" = 0;\n"); return; }
+    if (body) {
+      if (editor_receiver) {
+        output.write(" { return access_.guard([&]() -> ",
+            method.return_type.name == "void" ? "void" : generic_default(method.return_type),
+            " {\n// clang-format off\n", behavior::line_directive(*body, "cpp"), body->text,
+            behavior::reset_line("cpp"), "// clang-format on\n}); }\n");
+      } else {
+        output.write(" {\n// clang-format off\n", behavior::line_directive(*body, "cpp"), body->text,
+            behavior::reset_line("cpp"), "// clang-format on\n}\n");
+      }
+      return;
+    }
+    if (!method.expression) { output.write(";\n"); return; }
+    const auto symbol = [&](std::string_view name) {
+      const auto argument = std::find_if(method.parameters.begin(), method.parameters.end(),
+          [&](const auto& value) { return value.name == name; });
+      if (argument != method.parameters.end()) { return local_name(argument->name); }
+      const auto field = std::find_if(owner->member_list.begin(), owner->member_list.end(),
+          [&](const auto& value) { return value.name == name; });
+      return std::string{"this->"} + member_name(*field);
+    };
+    output.write(" {\n");
+    std::set<std::string> symbols;
+    behavior::expression_symbols(*method.expression, symbols);
+    for (const auto& name : symbols) {
+      output.write("    if (!::std::isfinite(static_cast<double>(", symbol(name),
+                   "))) { throw ::std::domain_error{\"Portable expression requires finite inputs\"}; }\n");
+    }
+    output.write("    const double serializer_behavior_result = ",
+        behavior::expression(*method.expression, "cpp", symbol), ";\n",
+        "    if (!::std::isfinite(serializer_behavior_result)) { throw ::std::domain_error{\"Non-finite portable result\"}; }\n",
+        "    return serializer_behavior_result;\n  }\n");
+  }
+
+  // Explicit qualification retains references to every required external definition, even when unused.
+  void write_behavior_contract(rohit::type_check::output_buffer auto& output, const class_node* owner,
+                               bool editor_receiver = false) {
+    std::vector<const function_declaration*> required;
+    for (const auto& method : owner->functions) {
+      if (method.expression || behavior::native_body(method, "cpp") ||
+          method.dispatch == function_declaration::dispatch_type::abstract_method) { continue; }
+      const bool edit = method.effect == function_declaration::effect_type::edit;
+      if (editor_receiver != (owner->supports_managed() && edit)) { continue; }
+      required.push_back(&method);
+    }
+    if (required.empty()) { return; }
+    output.write("public:\n  ", ::std::string_view{editor_receiver ? "" : "static "},
+        "void serializer_require_behavior_definitions()",
+        ::std::string_view{editor_receiver ? " const requires (!Access::is_runtime_access)" : ""}, " {\n");
+    if (editor_receiver) {
+      output.write("    using SerializerReceiver = ::std::remove_cvref_t<decltype(*this)>;\n");
+    } else {
+      output.write("    using SerializerReceiver = ", type_name(owner->name), ";\n");
+    }
+    for (std::size_t index{}; index < required.size(); ++index) {
+      const auto& method = *required[index];
+      output.write("    using SerializerMethod", std::to_string(index), " = ",
+          method.return_type.name == "void" ? "void" : generic_default(method.return_type),
+          " (SerializerReceiver::*)(");
+      for (std::size_t argument{}; argument < method.parameters.size(); ++argument) {
+        if (argument) { output.write(", "); }
+        output.write(generic_default(method.parameters[argument].type));
+      }
+      output.write(")", ::std::string_view{!editor_receiver && method.effect == function_declaration::effect_type::readonly ? " const" : ""},
+          ";\n    SerializerMethod", std::to_string(index), " volatile required", std::to_string(index),
+          " = static_cast<SerializerMethod", std::to_string(index), ">(&SerializerReceiver::", function_name(method.name),
+          ");\n    (void)required", std::to_string(index), ";\n");
+    }
+    output.write("  }\n");
+  }
+
+  // Preserve authored field, method and native declaration order without changing wire order.
+  void write_ordered_body(rohit::type_check::output_buffer auto& output, const class_node* object) {
+    behavior::require_native_names(*object, "cpp", rename_behavior_identifiers);
+    if (object->body_order.empty()) {
+      write_member_list(output, object->member_list, *object);
+      for (const auto& method : object->functions) { write_behavior_method(output, object, method); }
+      return;
+    }
+    for (const auto& item : object->body_order) {
+      switch (item.kind) {
+      case class_body_item::kind_type::field: {
+        const auto& value = object->member_list.at(item.index);
+        write_access_type(output, value.access);
+        output.write(":\n");
+        write_member_list(output, std::vector<member>{value}, *object);
+        break;
+      }
+      case class_body_item::kind_type::function:
+        write_behavior_method(output, object, object->functions.at(item.index));
+        break;
+      case class_body_item::kind_type::native_code: {
+        const auto& code = object->native_blocks.at(item.index);
+        if (code.language == "cpp") {
+          write_access_type(output, code.access);
+          output.write(":\n", behavior::source_marker(code, "cpp"), "// clang-format off\n",
+              behavior::line_directive(code, "cpp"), code.text, behavior::reset_line("cpp"), "// clang-format on\nprivate:\n");
+        }
+        break;
+      }
+      case class_body_item::kind_type::magic: break; // Immutable metadata is emitted once above.
+      }
     }
   }
 
@@ -1931,6 +2069,7 @@ public:
     }
 
     out_stream.write(" {\n");
+    managed_.write_access_friends(out_stream, obj);
     if (obj->has_magic()) {
       out_stream.write(::std::string_view{obj->magic_access == access_type::public_access ? "public:\n" :
                        obj->magic_access == access_type::protected_access ? "protected:\n" :
@@ -1963,7 +2102,8 @@ public:
         }
       }
     }
-    write_member_list(out_stream, obj->member_list, *obj);
+    write_ordered_body(out_stream, obj);
+    write_behavior_contract(out_stream, obj);
 
     out_stream.write("\npublic:\n"
                      "  static constexpr bool serializer_reuses_storage = ",
@@ -1978,9 +2118,61 @@ public:
                        "  using serializer_constant_evaluation_type = ", type_name(obj->name),
                        ";\n\n");
     }
-    write_serializer(out_stream, obj);
+    auto durable = native_layout(*obj, std::string_view{});
+    write_serializer(out_stream, &durable);
 
     out_stream.write("}; // class ", type_name(obj->name), "\n\n");
+    write_behavior_interface(out_stream, obj);
+  }
+
+  // Abstract dispatch operates on a concrete data receiver without making its codec type abstract.
+  void write_behavior_interface(rohit::type_check::output_buffer auto& output, const class_node* owner) {
+    const auto contracts = behavior::contracts(*owner);
+    if (contracts.empty()) { return; }
+    std::string template_header, template_arguments;
+    if (owner->type == object_type::generic_definition) {
+      template_header = "template <"; template_arguments = "<";
+      for (std::size_t index{}; index < owner->generic_parameters.size(); ++index) {
+        const auto& parameter = owner->generic_parameters[index];
+        if (index) { template_header += ", "; template_arguments += ", "; }
+        template_header += std::string(parameter.kind == generic_argument_kind::dimension ? "::std::uint64_t " : "typename ") + parameter.name;
+        template_arguments += parameter.name;
+        if (!parameter.default_argument.empty()) { template_header += " = " + generic_default(parameter.default_argument.front()); }
+      }
+      template_header += ">\n"; template_arguments += ">";
+    }
+    const auto model = type_name(owner->name) + template_arguments +
+        (owner->multiple_modes() ? "<::rohit::serializer::storage_mode::owning>" : "");
+    const auto interface_name = type_name(owner->name + "_behavior");
+    const auto interface_type = interface_name + template_arguments;
+    const auto adapter_name = type_name(owner->name + "_behavior_adapter");
+    output.write(template_header, "class ", interface_name, " {\npublic:\n  virtual ~", interface_name, "() = default;\n");
+    for (const auto* method : contracts) {
+      output.write("  virtual ", method->return_type.name == "void" ? "void" : generic_default(method->return_type),
+          " ", function_name(method->name), "(",
+          std::string_view{method->effect == function_declaration::effect_type::readonly ? "const " : ""}, model, "& receiver");
+      for (const auto& argument : method->parameters) {
+        output.write(", ", generic_default(argument.type), " ", local_name(argument.name));
+      }
+      output.write(") const = 0;\n");
+    }
+    output.write("};\n", template_header, "class ", adapter_name, " {\n  ", model, "* receiver_;\n  const ", interface_type,
+        "* implementation_;\npublic:\n  ", adapter_name, "(", model, "& receiver, const ", interface_type,
+        "& implementation) : receiver_(&receiver), implementation_(&implementation) {}\n");
+    for (const auto* method : contracts) {
+      output.write("  ", method->return_type.name == "void" ? "void" : generic_default(method->return_type),
+          " ", function_name(method->name), "(");
+      for (std::size_t index{}; index < method->parameters.size(); ++index) {
+        const auto& argument = method->parameters[index];
+        if (index) { output.write(", "); }
+        output.write(generic_default(argument.type), " ", local_name(argument.name));
+      }
+      output.write(")", std::string_view{method->effect == function_declaration::effect_type::readonly ? " const" : ""},
+          " { return implementation_->", function_name(method->name), "(*receiver_");
+      for (const auto& argument : method->parameters) { output.write(", ", local_name(argument.name)); }
+      output.write("); }\n");
+    }
+    output.write("};\n\n");
   }
 
   // Emit only requested modes; a single mode has no class template declaration.
@@ -2139,7 +2331,8 @@ public:
         break;
 
       case object_type::class_type:
-        if (!static_cast<const class_node*>(statement.get())->generic_name.empty()) {
+        if (!static_cast<const class_node*>(statement.get())->generic_name.empty() &&
+            !static_cast<const class_node*>(statement.get())->supports_managed()) {
           const auto& object = static_cast<const class_node&>(*statement);
           const auto* definition = generic_definitions.at(object.generic_name);
           out_stream.write("using ", type_name(object.name), " = ", full_type_name(definition), "<");
@@ -2150,6 +2343,21 @@ public:
                 std::to_string(argument.dimension) + "ULL" : storage_type_name(argument));
           }
           out_stream.write(">;\n\n");
+          if (!behavior::contracts(object).empty()) {
+            const auto qualified = full_type_name(definition);
+            const auto separator = qualified.rfind("::");
+            const auto scope = separator == std::string::npos ? std::string{} : qualified.substr(0, separator + 2);
+            for (const auto suffix : {"_behavior", "_behavior_adapter"}) {
+              out_stream.write("using ", type_name(object.name + suffix), " = ", scope, type_name(definition->name + suffix), "<");
+              for (std::size_t index{}; index < object.generic_arguments.size(); ++index) {
+                if (index) { out_stream.write(", "); }
+                const auto& argument = object.generic_arguments[index];
+                out_stream.write(argument.kind == generic_argument_kind::dimension ?
+                    std::to_string(argument.dimension) + "ULL" : storage_type_name(argument));
+              }
+              out_stream.write(">;\n");
+            }
+          }
           break;
         }
         if (!managed_.write_primary(out_stream, static_cast<const class_node*>(statement.get()))) {
@@ -2159,7 +2367,9 @@ public:
 
       case object_type::generic_definition:
         generic_definitions.emplace(statement->get_full_name(), static_cast<const class_node*>(statement.get()));
-        write_class(out_stream, static_cast<const class_node*>(statement.get()));
+        if (!static_cast<const class_node*>(statement.get())->supports_managed()) {
+          write_class(out_stream, static_cast<const class_node*>(statement.get()));
+        }
         break;
 
       case object_type::enum_type:
@@ -2273,7 +2483,7 @@ public:
     if (has_views) {
       out_stream.write("#include <span>\n");
     }
-    out_stream.write("#include <cstdint>\n"
+    out_stream.write("#include <cstdint>\n#include <cmath>\n"
                      "#include <functional>\n"
                      "#include <map>\n"
                      "#include <memory>\n"
@@ -2284,6 +2494,10 @@ public:
                      "#include <type_traits>\n"
                      "#include <utility>\n"
                      "#include <vector>\n\n");
+    const auto native_hooks = behavior::preambles(statements, "cpp");
+    if (!native_hooks.empty()) {
+      out_stream.write("// clang-format off\n", native_hooks, "// clang-format on\n");
+    }
     write_statement_list(out_stream, statements);
     managed_.write(out_stream);
   }
@@ -2300,7 +2514,7 @@ std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements
   emitter generator{options};
   generator.emit(raw, statements);
   const std::string_view source{reinterpret_cast<const char*>(raw.begin()), raw.current_offset()};
-  return format_cpp(source, options);
+  return behavior::finalize_mappings(format_cpp(source, options));
 }
 
 // Preserve file-level metadata that cannot be carried by an empty declaration vector.

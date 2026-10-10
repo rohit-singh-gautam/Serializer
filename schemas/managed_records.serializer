@@ -8,6 +8,18 @@ serializer version 1;
 namespace rohit {
   namespace managed {
     namespace records {
+      // Optional transfer/storage patch; exact SHA-256 base binding forbids applying to a stale state.
+      class snapshot_patch stable_ids {
+        public uint32 format_version (1);
+        public uint64 base_bytes (2);
+        public uint64 target_bytes (3);
+        public uint64 prefix_bytes (4);
+        public uint64 suffix_bytes (5);
+        public array uint8 base_digest (6);
+        public array uint8 target_digest (7);
+        public array uint8 replacement (8);
+      }
+
       class revision stable_ids {
         public uint64 number (1);
         public uint64 parent (2);

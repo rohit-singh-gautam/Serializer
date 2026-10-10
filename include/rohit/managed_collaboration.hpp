@@ -26,6 +26,7 @@
 #include <thread>
 #include <type_traits>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace rohit::managed {
@@ -73,9 +74,9 @@ struct collaboration_options {
 };
 
 template <typename Session = std::uint64_t,
-          typename SessionTraits = collaboration_session_traits<Session>>
+          typename SessionTraits = collaboration_session_traits<Session>, bool NestedPaths = false>
 struct basic_collaboration_result {
-  using records = collaboration_record_types<Session, SessionTraits>;
+  using records = collaboration_record_types<Session, SessionTraits, NestedPaths>;
   collaboration_status status{collaboration_status::failed};
   std::shared_ptr<const typename records::accepted_change> accepted{};
   typename records::lock_grant grant{};
@@ -234,7 +235,15 @@ public:
   void value(const auto& input) {
     serializer::binary_none<serializer::serialize_type::out, full_stream_auto_alloc_limits> encoder{
         stream_};
-    encoder.struct_serialize_out(input);
+    if constexpr (requires { input.valueless_by_exception(); input.index(); }) {
+      if (input.valueless_by_exception()) {
+        throw std::invalid_argument{"Cannot collect a valueless managed variant"};
+      }
+      encoder.serialize_out_variable(input.index());
+      std::visit([&](const auto& active) { encoder.serialize_out(active); }, input);
+    } else {
+      encoder.struct_serialize_out(input);
+    }
   }
 
   // Retain only entity-local bytes; no descendant payload is copied into its ancestors.
@@ -291,7 +300,8 @@ template <typename Root, history_mode Mode = history_mode::linear,
 class collaboration_authority {
 public:
   using session_type = Session;
-  using records_type = collaboration_record_types<Session, SessionTraits>;
+  using records_type = collaboration_record_types<Session, SessionTraits,
+                                                  detail::collaboration_nested_paths<Traits>>;
   using change_proposal_type = typename records_type::change_proposal;
   using accepted_change_type = typename records_type::accepted_change;
   using lock_request_type = typename records_type::lock_request;
@@ -299,7 +309,8 @@ public:
   using lock_update_type = typename records_type::lock_update;
   using lock_snapshot_type = typename records_type::lock_snapshot;
   using editing_presence_type = typename records_type::editing_presence;
-  using result_type = basic_collaboration_result<Session, SessionTraits>;
+  using result_type = basic_collaboration_result<Session, SessionTraits,
+                                                 detail::collaboration_nested_paths<Traits>>;
   using store_type = model_store<Root, Mode, Labels, Traits, Features>;
   static_assert(store_type::has_collaboration, "An authority requires collaboration");
   using storage_type = typename store_type::storage_type;
@@ -545,18 +556,20 @@ private:
       for (const auto& [address, bytes] : before) {
         const auto found = after.find(address);
         if (found == after.end() || found->second != bytes) {
-          collaboration::field_change field;
+          typename records_type::field_change field;
           field.entity = address.first;
           field.field = address.second;
+          field.path = address.path;
           batch.history.fields.push_back(std::move(field));
         }
       }
       for (const auto& [address, bytes] : after) {
         static_cast<void>(bytes);
         if (!before.contains(address)) {
-          collaboration::field_change field;
+          typename records_type::field_change field;
           field.entity = address.first;
           field.field = address.second;
+          field.path = address.path;
           batch.history.fields.push_back(std::move(field));
         }
       }
@@ -603,7 +616,7 @@ private:
       if (inverse_.reversing) {
         const auto& previous = inverse_.reversing->result->accepted->history;
         for (const auto& field : previous.fields) {
-          restored_fields.emplace(detail::collaboration_field_address{field.entity, field.field},
+          restored_fields.emplace(detail::collaboration_field_address{field.entity, field.field, field.path},
                                   field.before_version);
         }
         for (const auto& dependency : previous.dependencies) {
@@ -623,9 +636,10 @@ private:
         if (!changed && !relocated.contains(address.first)) {
           continue;
         }
-        collaboration::field_change field;
+        typename records_type::field_change field;
         field.entity = address.first;
         field.field = address.second;
+        field.path = address.path;
         field.before_present = old != before.end();
         field.after_present = current != after.end();
         if (field.before_present) {
@@ -709,7 +723,7 @@ private:
     }
     const auto fields = collect_fields(*store_->read());
     for (const auto& field : accepted.history.fields) {
-      const detail::collaboration_field_address address{field.entity, field.field};
+      const detail::collaboration_field_address address{field.entity, field.field, field.path};
       const auto current = fields.find(address);
       if (detail::collaboration_version(inverse_.field_versions, address) != field.after_version ||
           (current != fields.end()) != field.after_present ||
@@ -982,7 +996,9 @@ public:
     if (!fresh) {
       return result;
     }
-    if (!sessions_.at(proposal.session).writable) {
+    // Reuse this stable map node after commit rather than calling a user comparator after durability.
+    auto& session = sessions_.at(proposal.session);
+    if (!session.writable) {
       result->status = collaboration_status::denied;
       return result;
     }
@@ -1028,7 +1044,6 @@ public:
       if constexpr (has_history) {
         inverse_.field_versions.swap(inverse_.prepared_field_versions);
         inverse_.entity_versions.swap(inverse_.prepared_entity_versions);
-        auto& session = sessions_.at(proposal.session);
         session.undo.swap(inverse_.undo);
         session.redo.swap(inverse_.redo);
         retained.before.swap(inverse_.before);
@@ -1359,7 +1374,8 @@ template <typename Root, typename Traits = model_traits<Root>, typename Session 
 class collaboration_replica {
 public:
   using session_type = Session;
-  using records_type = collaboration_record_types<Session, SessionTraits>;
+  using records_type = collaboration_record_types<Session, SessionTraits,
+                                                  detail::collaboration_nested_paths<Traits>>;
   using change_proposal_type = typename records_type::change_proposal;
   using accepted_change_type = typename records_type::accepted_change;
   using lock_request_type = typename records_type::lock_request;
@@ -1556,11 +1572,11 @@ public:
 
 // Replica lock state is advisory; a missing grant in an incomplete cache conveys no edit right.
 template <typename Session = std::uint64_t,
-          typename SessionTraits = collaboration_session_traits<Session>>
+          typename SessionTraits = collaboration_session_traits<Session>, bool NestedPaths = false>
 class basic_collaboration_lock_cache {
 public:
   using session_type = Session;
-  using records_type = collaboration_record_types<Session, SessionTraits>;
+  using records_type = collaboration_record_types<Session, SessionTraits, NestedPaths>;
   using change_proposal_type = typename records_type::change_proposal;
   using accepted_change_type = typename records_type::accepted_change;
   using lock_request_type = typename records_type::lock_request;
@@ -1662,12 +1678,12 @@ using collaboration_lock_cache = basic_collaboration_lock_cache<>;
 // Group session-specific APIs without changing existing model/history template argument positions.
 // Applications own ID creation, connection binding and lifetime; this facade adds no session registry.
 template <typename Session = std::uint64_t,
-          typename SessionTraits = collaboration_session_traits<Session>>
+          typename SessionTraits = collaboration_session_traits<Session>, bool NestedPaths = false>
 struct collaboration_session {
   using session_type = Session;
-  using records = collaboration_record_types<Session, SessionTraits>;
-  using result = basic_collaboration_result<Session, SessionTraits>;
-  using lock_cache = basic_collaboration_lock_cache<Session, SessionTraits>;
+  using records = collaboration_record_types<Session, SessionTraits, NestedPaths>;
+  using result = basic_collaboration_result<Session, SessionTraits, NestedPaths>;
+  using lock_cache = basic_collaboration_lock_cache<Session, SessionTraits, NestedPaths>;
   template <typename Root, history_mode Mode = history_mode::linear,
             history_labels Labels = history_labels::disabled, typename Traits = model_traits<Root>,
             store_features Features = store_features::all>

@@ -104,8 +104,9 @@ backend, including C++; use `array uint8` for arbitrary binary data.
 Python supports `array[N] T` without explicit initializers from compiler 1.6.0.
 It constructs exactly `N` independent defaults and validates the extent during
 encoding and decoding, including binary counts before reading elements and JSON
-iteration bounds. The sequence count remains encoded. Other backends in this
-guide reject fixed arrays. See [the support matrix](generics.md#backend-support).
+iteration bounds. Compiler 1.11.0 extends fixed arrays without explicit initializers
+to Rust, Swift, Kotlin and C with independent owning defaults and the same exact
+cardinality checks. The ordinary sequence count remains encoded. See [the support matrix](generics.md#backend-support).
 Swift's strict UTF-8 decoder preserves a leading U+FEFF as string data on every
 platform, including Windows. Regenerate Swift output to obtain that correction;
 it continues to reject malformed UTF-8 and invalid token/field-name prefixes.

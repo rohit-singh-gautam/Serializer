@@ -17,7 +17,7 @@
   "Schema": {
     "prefix": "schema",
     "body": [
-      "serializer version 1.5.0;",
+      "serializer version 1.6.0;",
       "",
       "namespace ${1:models} {",
       "class ${2:account} stable_ids {",
@@ -169,5 +169,28 @@
     "prefix": "magic_typed",
     "body": "${1:private} magic ${2:uint32} (${3:99}) { ${4:42} };$0",
     "description": "Declare an immutable scalar or enum magic value (schema language 1.1.0)"
+  },
+  "Portable method": {
+    "prefix": "function",
+    "body": [
+      "public function double ${1:estimate}() readonly",
+      "  expression(${2:amount} * ${3:rate});"
+    ],
+    "description": "Declare binary64 behavior in schema language 1.6"
+  },
+  "Transient member": {
+    "prefix": "transient",
+    "body": "public transient uint64 ${1:token_cache_key} {0};",
+    "description": "Keep normal in-memory state outside wire formats and managed history"
+  },
+  "Native method": {
+    "prefix": "functioncpp",
+    "body": [
+      "public function ${1:double} ${2:estimate}() readonly",
+      "  cpp {",
+      "    ${3:return amount * rate;}",
+      "  };"
+    ],
+    "description": "Inline C++ implementation; declare other backend bodies where needed"
   }
 }

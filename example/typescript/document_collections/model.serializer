@@ -1,0 +1,13 @@
+serializer version 1.6.0;
+
+// A document has exactly two page records, three columns and two headings.
+class page_data stable_ids {
+  public string title (1);
+}
+class example_model stable_ids {
+  public uint32 revision (1) {0} ignore(warning version);
+  public array[2] page_data pages (2);
+  public array[3] uint32 columns (3);
+  public array[2] string headings (4);
+  public transient uint64 lookup_cache {0};
+}

@@ -1,6 +1,6 @@
 interface:
   display_name: "Serializer Integration"
-  short_description: "Integrate typed codecs, variants, digests, and state"
+  short_description: "Use the full Serializer schema and state framework"
 
 policy:
   allow_implicit_invocation: true

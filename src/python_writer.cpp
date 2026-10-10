@@ -1,5 +1,7 @@
+#include "schema_projection.hpp"
 #include "native_schema.hpp"
 #include "version_writer.hpp"
+#include "behavior_writer.hpp"
 
 #include <functional>
 #include <string>
@@ -297,6 +299,109 @@ class python_emitter {
       check_version(object, "result." + field(item.name, item.access), true);
     }
   }
+  // Emit native/pure methods and validate explicit external behavior attachments.
+  void behaviors(const class_node& value) {
+    std::vector<const function_declaration*> external;
+    for (const auto& method : value.functions) {
+
+      if (!method.expression && !behavior::native_body(method, "python")) { external.push_back(&method); }
+    }
+    for (const auto* method : behavior::contracts(value)) {
+      if (std::find(external.begin(), external.end(), method) == external.end()) { external.push_back(method); }
+    }
+    behavior::require_unique_callable_names(value, "python", [&](auto n) { return field(n); });
+    if (!external.empty()) {
+      open("def attach_behavior(self, behavior)");
+      for (const auto* method : external) {
+        open("if not callable(behavior.get(" + quote(method->name) + "))");
+        line("raise TypeError('Missing required behavior callable')"); --indent;
+      }
+      line("self._srl_behavior = dict(behavior)"); --indent;
+    }
+    for (const auto& item : behavior::ordered_body(value)) {
+      if (item.kind == class_body_item::kind_type::native_code) {
+        const auto& block = value.native_blocks.at(item.index);
+        if (block.language == "python") { output += std::string(indent * 4, ' ') + behavior::source_marker(block, "python") + behavior::python_block(block.text, indent * 4); }
+        continue;
+      }
+      if (item.kind != class_body_item::kind_type::function) { continue; }
+      const auto& method = value.functions.at(item.index);
+      line(behavior::source_marker(method, "python").substr(0, behavior::source_marker(method, "python").size() - 1));
+      std::string parameters = "self", arguments = "self";
+      for (const auto& argument : method.parameters) {
+        parameters += ", " + field(argument.name); arguments += ", " + field(argument.name);
+      }
+      open("def " + field(method.name, method.access) + "(" + parameters + ")");
+      if (method.dispatch != function_declaration::dispatch_type::ordinary &&
+          (method.expression || behavior::native_body(method, "python"))) {
+        open("if self._srl_behavior is not None");
+        line("return self._srl_behavior[" + quote(method.name) + "](" + arguments + ")"); --indent;
+      }
+      if (const auto* native = behavior::native_body(method, "python")) {
+        output += std::string(indent * 4, ' ') + behavior::source_marker(*native, "python") + behavior::python_block(native->text, indent * 4);
+      } else if (method.expression) {
+        const auto symbol = [&](std::string_view name) {
+          const auto argument = std::find_if(method.parameters.begin(), method.parameters.end(),
+              [&](const auto& item) { return item.name == name; });
+          if (argument != method.parameters.end()) { return field(name); }
+          const auto member = std::find_if(value.member_list.begin(), value.member_list.end(),
+              [&](const auto& item) { return item.name == name; });
+          return "self." + field(member->name, member->access);
+        };
+        std::set<std::string> symbols; behavior::expression_symbols(*method.expression, symbols);
+        for (const auto& name : symbols) {
+          const auto text = symbol(name);
+          open("if type(" + text + ") not in (float, int) or not " + behavior::finite(text, "python"));
+          line("raise ValueError('Portable expression requires finite numeric inputs')"); --indent;
+          const auto input_type = behavior::symbol_type(value, method, name);
+          if (input_type == "int32" || input_type == "uint32") {
+            open("if type(" + text + ") is not int or not (" +
+                (input_type == "int32" ? "-2147483648" : "0") + " <= " + text + " <= " +
+                (input_type == "int32" ? "2147483647" : "4294967295") + ")");
+            line("raise ValueError('Portable integer conversion is outside the declared type')"); --indent;
+          }
+        }
+        const auto binary64_symbol = [&](std::string_view name) { return "float(" + symbol(name) + ")"; };
+        line("_srl_result = " + behavior::expression(*method.expression, "python", binary64_symbol));
+        open("if not _math.isfinite(_srl_result)");
+        line("raise ValueError('Non-finite portable result')"); --indent;
+        line("return _srl_result");
+      } else {
+        open("if self._srl_behavior is None");
+        line("raise RuntimeError('Attach required behavior before invocation')"); --indent;
+        line("return self._srl_behavior[" + quote(method.name) + "](" + arguments + ")");
+      }
+      --indent;
+    }
+  }
+
+  // An ABC checks abstract completeness; adapters retain explicit data and implementation objects.
+  void dispatch_adapter(const class_node& value) {
+    const auto contracts = behavior::contracts(value);
+    if (contracts.empty()) { return; }
+    const auto model_name = model.names.at(&value);
+    open("class " + model_name + "Behavior(_ABC)");
+    for (const auto* method : contracts) {
+      line("@_abstractmethod");
+      std::string parameters = "self, receiver";
+      for (const auto& argument : method->parameters) { parameters += ", " + field(argument.name); }
+      open("def " + field(method->name) + "(" + parameters + ")");
+      line("raise NotImplementedError('Required behavior implementation')"); --indent;
+    }
+    --indent; open("class " + model_name + "BehaviorAdapter");
+    open("def __init__(self, receiver, implementation)");
+    open("if not isinstance(receiver, " + model_name + ") or not isinstance(implementation, " + model_name + "Behavior)");
+    line("raise TypeError('Behavior adapter requires matching data and complete behavior')"); --indent;
+    line("self.receiver = receiver"); line("self.implementation = implementation"); --indent;
+    for (const auto* method : contracts) {
+      std::string parameters = "self", calls = "self.receiver";
+      for (const auto& argument : method->parameters) { parameters += ", " + field(argument.name); calls += ", " + field(argument.name); }
+      open("def " + field(method->name) + "(" + parameters + ")");
+      line("return self.implementation." + field(method->name) + "(" + calls + ")"); --indent;
+    }
+    --indent;
+  }
+
   // Emit slot-based owning models with independent defaults and exact decode APIs.
   void object(const class_node& value) {
     dynamic_first = value.has_magic() && !value.magic_omits("json");
@@ -348,6 +453,9 @@ class python_emitter {
     for (const auto& f : fields) {
       slots += quote(f.first) + ", ";
     }
+    const bool external_behavior = !behavior::contracts(value).empty() || std::any_of(value.functions.begin(), value.functions.end(),
+        [](const auto& method) { return !method.expression && !behavior::native_body(method, "python"); });
+    if (external_behavior) { slots += "\"_srl_behavior\", "; }
     line(slots + ")");
     for (const auto& f : fields) {
       line(f.first + ": " + f.second.first);
@@ -357,7 +465,9 @@ class python_emitter {
     for (const auto& f : fields) {
       line("self." + f.first + " = " + f.second.second);
     }
+    if (external_behavior) { line("self._srl_behavior = None"); }
     --indent;
+    behaviors(value);
     open("def encode(self, protocol: Protocol) -> bytes");
     line("\"\"\"Encode one complete message into independent bytes.\"\"\"");
     line("out = _Writer(protocol)");
@@ -414,7 +524,7 @@ class python_emitter {
       line("self." + field("base" + std::to_string(i), base.access) + "._write(out)");
       first = false;
     }
-    for (const auto& item : value.member_list) {
+    for (const auto& item : wire_members(value)) {
       if (item.version) {
         continue;
       }
@@ -465,7 +575,7 @@ class python_emitter {
     for (const auto& base : value.parents) {
       ids += std::to_string(base.id) + ",";
     }
-    for (const auto& item : value.member_list) {
+    for (const auto& item : wire_members(value)) {
       if (!item.version) {
         if (!item.omits("binary_none")) { ids += std::to_string(item.id) + ","; }
       }
@@ -495,7 +605,7 @@ class python_emitter {
       line(dst + " = " + model.names.at(base.parent_class) + "._read(input, " + dst + ")");
       --indent;
     }
-    for (const auto& item : value.member_list) {
+    for (const auto& item : wire_members(value)) {
       open("case " + std::to_string(item.id) +
            (item.modifier == member::modifier_type::variant ? ""
                                                             : " | " + quote(item.display_name)));
@@ -518,7 +628,7 @@ class python_emitter {
       line("if " + std::to_string(version->id) +
            " not in seen: raise ValueError('Missing schema version')");
       check_version(value, "result." + field(version->name, version->access), true);
-      for (const auto& item : value.member_list) {
+      for (const auto& item : wire_members(value)) {
         const auto active = version_active(version_language::python, item, *version,
                                            "result." + field(version->name, version->access));
         if (!active.empty()) {
@@ -537,6 +647,10 @@ public:
   explicit python_emitter(const schema& value) : model{value} {}
   // Generate a complete module with pre-encoded field keys and typed models.
   std::string generate() {
+    line("from abc import ABC as _ABC, abstractmethod as _abstractmethod");
+    for (const auto& code : model.preambles) {
+      if (code.language == "python") { output += behavior::source_marker(code, "python") + code.text + "\n"; }
+    }
     line("_FIELDS = (");
     ++indent;
     for (const auto& key : model.ordered_keys) {
@@ -551,6 +665,7 @@ public:
           "UnicodeError UnicodeDecodeError UnicodeEncodeError Exception BaseException ");
       if (node->type == object_type::class_type) {
         object(static_cast<const class_node&>(*node));
+        dispatch_adapter(static_cast<const class_node&>(*node));
         continue;
       }
       const auto& value = static_cast<const enum_node&>(*node);

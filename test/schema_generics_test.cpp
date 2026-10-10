@@ -152,7 +152,6 @@ TEST(schema_generics, rejects_invalid_schemas) {
         "class box<T> { public box<T> value; } class root { public box<uint32> value; }",
         "class box<T> { public box<box<T>> value; } class root { public box<uint32> value; }",
         "class box<T> view {}",
-        "class box<T> managed {}",
         "class box<T> packed {}",
         "class base {} class box<T> : public base {}",
         "class box<T> { public union(T,uint32) value; }",

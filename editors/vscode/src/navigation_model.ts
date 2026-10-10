@@ -89,7 +89,7 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
         return typeReference(operand, depth + 1);
       }
     }
-    if (token === 'managed') { return typeReference(start + 1, depth + 1); }
+    if (token === 'managed' || token === 'transient') { return typeReference(start + 1, depth + 1); }
     if (token === 'array') {
       let next = start + 1;
       if (tokens[next]?.text === '[') {
@@ -157,7 +157,22 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
 
   for (let i = 0; i < tokens.length; ++i) {
     const token = tokens[i];
-    if (token.text === '{') {
+    if (schema && ['cpp', 'csharp', 'java', 'javascript', 'typescript', 'go', 'rust',
+      'python', 'swift', 'kotlin', 'c'].includes(token.text)
+      && (tokens[i + 1]?.text === '{' || tokens[i + 1]?.text === 'preamble')) {
+      // Native blocks are opaque; their declarations are owned by the language service.
+      let start = i + 1;
+      if (tokens[start]?.text === 'preamble') { ++start; }
+      if (tokens[start]?.text === '{') {
+        let depth = 1;
+        i = start;
+        while (++i < tokens.length && depth) {
+          if (tokens[i].text === '{') { ++depth; }
+          if (tokens[i].text === '}') { --depth; }
+        }
+        --i;
+      }
+    } else if (token.text === '{') {
       scopes.push(namespaceBodies.get(i) ?? currentScope());
     } else if (token.text === '}') {
       if (scopes.length > 1) { scopes.pop(); }
@@ -192,7 +207,21 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
       }
     } else if (schema && ['public', 'private', 'protected'].includes(token.text)) {
       // Typed magic can reference an enum; legacy magic and payload versions have no type operand.
-      if (tokens[i + 1]?.text === 'magic') {
+      if (tokens[i + 1]?.text === 'function') {
+        let next = i + 2;
+        if (['virtual', 'abstract', 'override'].includes(tokens[next]?.text)) { ++next; }
+        next = typeReference(next);
+        if (tokens[next + 1]?.text === '(') {
+          next += 2;
+          while (next < tokens.length && ![')', ';', '}'].includes(tokens[next].text)) {
+            next = typeReference(next) + 1;
+            if (tokens[next]?.text === ',') { ++next; }
+          }
+        }
+      } else if (['cpp', 'csharp', 'java', 'javascript', 'typescript', 'go', 'rust',
+        'python', 'swift', 'kotlin', 'c'].includes(tokens[i + 1]?.text)) {
+        // Native blocks are skipped by the next iteration.
+      } else if (tokens[i + 1]?.text === 'magic') {
         if (qualified(i + 2)) { defaultReference(typeReference(i + 2), true); }
       } else if (tokens[i + 1]?.text !== 'version') {
         defaultReference(typeReference(i + 1));

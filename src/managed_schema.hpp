@@ -26,7 +26,13 @@ inline std::uint64_t managed_schema_hash(const class_node* source,
     hash = (hash ^ 0xffu) * fnv_prime;
   };
   add(source->get_full_name());
+  for (const auto& base : source->parents) {
+    add("base"); add(std::to_string(base.id)); add(base.display_name);
+    add(base.managed ? "managed" : "value");
+    add(std::to_string(managed_schema_hash(base.parent_class, cache)));
+  }
   for (const auto& field : source->member_list) {
+    if (field.transient) { continue; }
     add(std::to_string(field.id));
     add(field.display_name);
     add(field.default_value);
@@ -37,6 +43,10 @@ inline std::uint64_t managed_schema_hash(const class_node* source,
     }
     add(field.managed ? "managed" : "value");
     add(field.key);
+    if (field.version) { add("version"); add(field.compatibility_version); }
+    if (!field.created_version.empty()) { add("created"); add(field.created_version); }
+    if (!field.obsolete_version.empty()) { add("obsolete"); add(field.obsolete_version); }
+    for (const auto& format : field.omitted_formats) { add("omit"); add(format); }
     if (field.key_node && field.key_node->type == object_type::enum_type) {
       for (const auto& name : static_cast<const enum_node*>(field.key_node)->enum_name_list) {
         add(name);

@@ -75,9 +75,10 @@ TEST(managed_lowering, rejects_invalid_managed_shapes) {
   for (const auto text :
        {"class item managed { public uint32 persistent_id (1); }",
         "class item managed { public uint32 data (1073741823); }",
-        "class item managed { private uint32 value; }",
         "class item managed { public array item children; }",
-        "class base {} class item managed : public base { public uint32 value; }"}) {
+        "class base {} class item managed : private base { public uint32 value; }",
+        "class metadata {} class section : public metadata {} class indexed : public metadata {} "
+        "class document managed : public section, public indexed { public uint32 count; }"}) {
     const auto source = parse(text);
     EXPECT_THROW((void)writer::managed_lowering{source}, std::invalid_argument) << text;
   }
@@ -93,4 +94,17 @@ TEST(managed_lowering, preserves_unmanaged_shapes) {
   writer::managed_lowering lowered{source};
   EXPECT_TRUE(lowered.bindings.empty());
   EXPECT_FALSE(writer::portable::generate(lowered.statements, "python", "Schema", {}).empty());
+}
+
+// Private fields and distinct public bases retain their durable metadata during language lowering.
+TEST(managed_lowering, preserves_private_fields_and_public_bases) {
+  const auto source = parse("class metadata stable_ids { private string author (1); } "
+                            "class document managed stable_ids : public metadata (\"metadata\", 1) { "
+                            "private uint32 pages (2); }");
+  writer::managed_lowering lowered{source};
+  ASSERT_EQ(lowered.bindings.size(), 1u);
+  const auto& document = static_cast<const serializer::class_node&>(*lowered.statements.back());
+  ASSERT_EQ(document.parents.size(), 1u);
+  EXPECT_EQ(document.parents.front().display_name, "metadata");
+  EXPECT_EQ(document.member_list.front().access, serializer::access_type::private_access);
 }

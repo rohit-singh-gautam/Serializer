@@ -1,5 +1,9 @@
 # Managed examples
 
+New document-tool examples: [inherited data, variants, versions and generics](document_features/README.md)
+and [runtime state, migration, notifications and snapshot deltas](runtime_state/README.md).
+See the [state enhancement guide](../../docs/state_enhancements.md) for concrete schemas and APIs.
+
 The separate [multilanguage wire matrix](multilanguage/README.md) exchanges runtime
 records across language codecs. It is preparation for native managed ports; the
 feature demonstrations below still use the C++ runtime.

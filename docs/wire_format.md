@@ -699,8 +699,25 @@ a missing field. Runtime budgets and endian selection are unchanged. Direct
 Protobuf generation of fixed arrays is explicitly rejected. From compiler 1.6.0,
 JavaScript/TypeScript and Python fixed arrays without initializers use the same
 counts and exact-cardinality checks as native C++; their owning arrays/lists are
-initialized to the extent. Other portable backends remain unsupported. See
+initialized to the extent. Compiler 1.11.0 extends this same contract to all eleven
+ordinary outputs without changing sequence counts. See
 [generic contracts](generics.md) and [qualification](verification-dimensions-2026-10-04.md).
+
+## Managed delta frames and nested field paths
+
+Compiler/runtime 1.11 keeps default journal and flat collaboration wire layouts
+unchanged. Opt-in journal tags 6/7 replace only the snapshot payload with the
+schema-defined `snapshot_patch`: SHA-256 base/target digests, exact target size,
+retained prefix/suffix counts and inserted bytes. Reconstruction checks every
+bound and both digests; full frames bound chains. See [journal framing](managed/journal.md#version-two-file-contract).
+
+Flat numeric collaboration protocols 5/6 and typed-session protocols 7/8 retain
+their existing field records. Models requiring scoped inherited field addresses
+select distinct numeric protocols 9/10 or typed-session protocols 11/12; their
+`nested_field_change` adds `path` at stable field ID 9. Flat `path` is transient,
+so copying an in-memory address does not change existing wire bytes. Authority,
+replica, local client and advisory lock caches validate the selected domain
+protocol before acceptance. See [collaboration](managed/collaboration_runtime.md).
 
 ## Compatible native JSON input
 

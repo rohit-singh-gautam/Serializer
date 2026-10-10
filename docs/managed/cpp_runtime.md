@@ -1,11 +1,12 @@
 # C++ managed interface
 
-Status: implemented C++ schema generation, local snapshot history, and synchronous
-file journaling/crash recovery. Bare
-`managed` class/member declarations generate storage, conversions, identity
-traversal, and typed transaction editors. Built-in authorization policies,
-schema feature selectors, exclusions, notifications, and other-language managed runtimes
-remain proposals. Unsupported selectors/backends are rejected rather than ignored.
+Compiler/runtime 1.11.0 implements C++ schema generation, snapshot history,
+native-file journaling/recovery, checked runtime fields and publication callbacks.
+Schema language 1.6.0 adds behavior and runtime-field declarations. `managed`
+class/member/base declarations generate storage, conversions, identity traversal
+and typed editors. Built-in authorization policies, schema feature selectors and
+other-language managed engines remain proposals. Unsupported selections are rejected.
+See [state enhancements](../state_enhancements.md) for the complete support boundary.
 
 The [collaboration runtime](collaboration_runtime.md) now wraps this store with
 authoritative snapshot acceptance, retry handling, client proposal drafts, read-only
@@ -79,11 +80,11 @@ namespace ledger_example {
 
 A leaf must declare `managed`. A class containing its own managed member is
 eligible without repeating the class marker. An incoming managed use cannot grant
-eligibility to an otherwise unmarked leaf: that schema is rejected. Managed fields
-can be direct class values, arrays, or map values. They cannot be primitive fields,
-map keys, or unions. The current editor generator supports public, unpacked owning
-classes without inheritance or recursive ownership; these restrictions also apply to reachable ordinary
-child classes. Other shapes produce generation errors.
+eligibility to an otherwise unmarked leaf: that schema is rejected. Managed fields can be direct class values, arrays, map values, or owning
+`variant(...)` alternatives. They cannot be primitives, map keys, or raw unions.
+Editors support private/protected fields through generated friends and distinct
+public nonvirtual bases. Packed/view storage, repeated-ancestor diamonds and
+recursive ownership remain rejected, including reachable ordinary children.
 
 By default the public generated class itself carries `persistent_id`, alongside
 its application fields. `model_traits<ledger>::storage_type` is `ledger`, and
@@ -95,7 +96,7 @@ The compiler also generates typed editors and `model_traits`; no handwritten
 adapter is required. Metadata spelling `persistent_id` remains fixed across
 C++ naming profiles, while application fields and editors follow the profile.
 
-A class qualifies through its marker or its own managed members. Participation
+A class qualifies through its marker, its own managed members, or managed bases. Participation
 still follows occurrence boundaries: the store identifies the root and explicitly
 `managed` descendants. An unmarked child remains an owned value under its parent.
 If that child's type is managed-capable, the default single class contains an ID
@@ -168,6 +169,73 @@ constructed placeholder replaces its temporary namespace. To reopen managed save
 state, load the managed envelope; constructing a new store from a payload containing
 already assigned root/entity IDs is rejected. Standalone class deserialization
 preserves its ID field but does not reconstruct document/history metadata.
+
+## Inheritance and owning alternatives
+
+```text
+serializer version 1.6.0;
+class author stable_ids managed { private string name (1); }
+class review stable_ids managed { public string status (1); }
+class document stable_ids
+    : public managed author ("author", 1), public managed review ("review", 2) {
+  public string title (3);
+  public transient uint64 preview_cache {0};
+}
+```
+
+`tx.root().author().set_name("Ada")` edits the author base with its own identity;
+`review()` edits another identity. All base/root edits share one store, ID counter,
+transaction and history. Omitting `managed` on a base places its fields under the
+nearest managed owner. Ordinary bases use scoped collaboration addresses: base
+keys form a path and the leaf keeps its own stable ID. Schemas needing these paths
+select negotiated nested-path record families; existing flat families keep their
+wire layout. Both direct and `separate_values = true` representations are supported.
+When a base wire name cannot form a valid C++ function identifier under the selected
+profile (for example, a qualified name or a C++ keyword), its editor accessor is
+the presentation-profile form of `base_<stable ID>()` (`base_1()` by default,
+`Base1()` in the Google profile). Wire names and IDs stay unchanged.
+
+An owning choice uses `std::variant`, safely owning strings, arrays and nested
+records. `edit_content<0>()` selects a checked active alternative;
+`emplace_content<1>(value)` replaces it and assigns newly activated child IDs.
+History restores the tag and previous identities. Switching any alternative
+conservatively invalidates every existing alternative editor in that transaction;
+switching back never revives an old handle. A valueless variant is rejected.
+Managed variant contributions currently merge atomically as one owned value.
+
+Fixed managed arrays expose `edit(id)` without append/erase; cardinality is part
+of the schema. Variable arrays retain their existing membership operations.
+Named managed generic instantiations have concrete editors and schema bindings;
+see [generics](../generics.md#managed-specializations).
+
+The runnable [document features](../../example/managed/document_features/README.md)
+cover private fields, independent bases, ordinary base scopes, alternatives,
+generics, payload lifetimes and both storage representations.
+
+## Runtime state and copying
+
+`transient` means memory-only state. It is excluded from codecs, history equality,
+collaboration, identity traversal and the durable schema fingerprint. Normal C++
+copying keeps its ordinary member-copy semantics. Generated runtime traits reset
+fields to schema defaults after changed durable publication, history navigation
+and loading; applications can rebuild caches from the resulting durable state.
+
+```cpp
+store.update_runtime([](auto& runtime) {
+  runtime.root().set_preview_cache(42);
+}).throw_if_failed();
+auto copied = store.clone_value(); // Preserve memory fields by default.
+auto fresh = store.clone_value({
+    rohit::managed::runtime_copy_policy::reset_to_defaults});
+```
+
+Runtime editors expose transient setters and checked ownership navigation, while
+durable setters and membership changes are unavailable. Updates run on isolated
+candidates and verify that durable bytes and identities stayed unchanged. They
+advance the view generation without adding history, journal or collaboration
+changes. Published read pins stay immutable. Publication callbacks observe accepted
+changes and pinned before/after values; callback failure cannot roll back an already
+published durable state. These are C++ runtime services, not codec-only behavior.
 
 ## All three transaction forms
 
@@ -428,16 +496,23 @@ after the flush, without copying the history container.
 
 Begin decodes a complete root; commit validates and encodes it. Revisions currently
 retain whole-root snapshots, even when only one independently managed child changes.
-Identity boundaries enable later changed-entity/delta storage but do not yet select
-that optimization. Work/storage scale with root size; no benchmarked speedup is
-claimed. Budgets bound snapshot bytes and retained encoded snapshots/labels, not
-all decoded objects, indexes, temporary buffers, or externally pinned roots.
+A checked byte-patch API and opt-in delta journal records reduce selected encoded
+transfers/writes; they do not change retained history or normal collaboration into
+entity-delta storage. Work still includes whole-root candidate decoding and validation.
+Generated resident estimates include owned containers and transient fields.
+`store_options::max_resident_bytes` admits model/candidate/history storage and
+outstanding immutable pins; `resident_bytes()` reports the estimate.
+`allocation_resource` supplies root/control-block allocations, while standard model
+containers keep their allocators. Admission accounting does not provide a hard
+allocator peak bound for decoder temporaries, allocator metadata or native resources.
+No benchmarked speedup is claimed.
+See [state enhancements](../state_enhancements.md) for delta and budget contracts.
 
-Feature selectors (`managed(...)`), `exclude(...)`, `transient`, notifications,
-custom allocators, history-preserving policy changes, delta/checkpoint optimization,
-merging, delta journals, background recovery checkpoints, built-in authorization policies,
-and other-language runtimes remain
-unimplemented. The compiler rejects unsupported managed syntax and backends.
+Feature selectors (`managed(...)`), arbitrary `exclude(...)` policies, custom allocator
+propagation, history-policy conversion, fine-grained owned-variant merging,
+background checkpoints, built-in authorization and other-language managed engines
+remain unimplemented. Packed/view and recursive editors, virtual/repeated-ancestor
+bases and direct managed Protobuf output remain unsupported.
 
 ## Verification
 
@@ -492,3 +567,13 @@ The same 120 process-crash recovery checks passed with GCC under WSL on the
 mounted workspace; the independent Python reader verifies version-two framing.
 Power-cut testing, physical disk exhaustion, and network-filesystem qualification
 were not performed.
+
+### Legacy managed binding qualification
+
+Compiler 1.11 hashes omission/lifecycle metadata. Existing omitted durable fields
+and ordinary versioned children can change a managed binding even without source
+changes. Strict load rejects these old bindings; an explicit `load_migrated` with
+historical traits and a converter preserves retained history and IDs. The
+[document regressions](../../test/managed_document_features_test.cpp) qualify both
+cases with independently reconstructed baseline hashes. There is no blanket old
+Save fingerprint compatibility promise.

@@ -1,6 +1,8 @@
+#include "schema_projection.hpp"
 #include "native_schema.hpp"
 #include "version_writer.hpp"
 #include "format_writer.hpp"
+#include "behavior_writer.hpp"
 
 #include <algorithm>
 #include <map>
@@ -247,12 +249,20 @@ class rust_emitter {
       return;
     }
     line("let count = input.begin_array()?;");
+    if (value.fixed_extent != 0) {
+      line("if count.is_some_and(|count| count != " + std::to_string(value.fixed_extent) +
+           ") { return Err(Error(\"Fixed array extent mismatch\")); }");
+    }
     line("let mut index = 0;");
     if (value.modifier == member::modifier_type::array) {
       line("let mut values = Vec::new();");
       line("values.try_reserve(input.capacity(count, " + std::to_string(width(t)) +
            ")?).map_err(|_| Error(\"Array allocation\"))?;");
       open("while input.next_element(index, count)?");
+      if (value.fixed_extent != 0) {
+        line("if index >= " + std::to_string(value.fixed_extent) +
+             " { return Err(Error(\"Fixed array extent mismatch\")); }");
+      }
       line("values.push(" + read(t, true) + ");");
       line("index += 1;");
       close();
@@ -285,6 +295,10 @@ class rust_emitter {
       line("values.insert(entry_key, entry_value);");
       line("index += 1;");
       close();
+    }
+    if (value.fixed_extent != 0) {
+      line("if index != " + std::to_string(value.fixed_extent) +
+           " { return Err(Error(\"Fixed array extent mismatch\")); }");
     }
     line(dst + " = values;");
   }
@@ -319,6 +333,10 @@ class rust_emitter {
       write(t, "(&" + src + ")", false);
       return;
     }
+    if (value.fixed_extent != 0) {
+      line("if " + src + ".len() != " + std::to_string(value.fixed_extent) +
+           " { return Err(Error(\"Fixed array extent mismatch\")); }");
+    }
     line("out.begin_array(" + src + ".len())?;");
     open("for (index, " +
          std::string{value.modifier == member::modifier_type::map ? "(key, value)" : "value"} +
@@ -336,6 +354,85 @@ class rust_emitter {
     close();
     line("out.end_array()?;");
   }
+  // Bind methods to this crate's owning type; external methods are compile-time checked.
+  void behaviors(const class_node& value) {
+    behavior::require_unique_callable_names(value, "rust", [&](auto n) { return field(n); });
+    for (const auto& item : behavior::ordered_body(value)) {
+      if (item.kind == class_body_item::kind_type::native_code) {
+        const auto& block = value.native_blocks.at(item.index);
+        if (block.language == "rust") { output += behavior::source_marker(block, "rust") + block.text + "\n"; }
+        continue;
+      }
+      if (item.kind != class_body_item::kind_type::function) { continue; }
+      const auto& method = value.functions.at(item.index);
+      line(behavior::source_marker(method, "rust").substr(0, behavior::source_marker(method, "rust").size() - 1));
+      if (method.dispatch == function_declaration::dispatch_type::abstract_method) { continue; }
+      const auto result_type = method.return_type.name == "void" ? "()" : type(method.return_type);
+      std::string parameters = method.effect == function_declaration::effect_type::edit ? "&mut self" : "&self";
+      for (const auto& parameter : method.parameters) {
+        parameters += ", " + field(parameter.name) + ": " + type(parameter.type);
+      }
+      const auto* native = behavior::native_body(method, "rust");
+      if (!native && !method.expression) {
+        std::string signature = "const SRL_REQUIRE_" + std::to_string(&method - value.functions.data()) + ": fn(" +
+            (method.effect == function_declaration::effect_type::edit ? "&mut Self" : "&Self");
+        for (const auto& parameter : method.parameters) { signature += ", " + type(parameter.type); }
+        line(signature + ") -> " + result_type + " = Self::" + field(method.name) + ";");
+        continue;
+      }
+      open(std::string(method.access == access_type::public_access ? "pub " : "") +
+          "fn " + field(method.name) + "(" + parameters + ") -> " + result_type);
+      if (native) { output += behavior::source_marker(*native, "rust") + native->text + "\n"; }
+      else {
+        const auto symbol = [&](std::string_view name) {
+          const auto argument = std::find_if(method.parameters.begin(), method.parameters.end(),
+              [&](const auto& item) { return item.name == name; });
+          return argument == method.parameters.end() ? "self." + field(name) : field(name);
+        };
+        std::set<std::string> symbols; behavior::expression_symbols(*method.expression, symbols);
+        for (const auto& name : symbols) {
+          line("assert!((" + symbol(name) + " as f64).is_finite(), \"Non-finite portable input\");");
+        }
+        auto arithmetic = behavior::expression(*method.expression, "rust", symbol);
+        if (arithmetic.starts_with('(') && arithmetic.ends_with(')')) { arithmetic = arithmetic.substr(1, arithmetic.size() - 2); }
+        line("let srl_behavior_result: f64 = " + arithmetic + ";");
+        line("assert!(srl_behavior_result.is_finite(), \"Non-finite portable result\");");
+        line("srl_behavior_result");
+      }
+      close();
+    }
+  }
+
+  // Traits and borrowed adapters attach dispatch without changing owning data's value traits.
+  void dispatch_adapter(const class_node& value) {
+    const auto contracts = behavior::contracts(value);
+    if (contracts.empty()) { return; }
+    const auto model_name = model.names.at(&value);
+    const auto trait_name = model_name + "Behavior";
+    const auto adapter_name = model_name + "BehaviorAdapter";
+    const bool mutable_receiver = std::any_of(contracts.begin(), contracts.end(), [](const auto* method) {
+      return method->effect == function_declaration::effect_type::edit;
+    });
+    open("pub trait " + trait_name);
+    for (const auto* method : contracts) {
+      std::string parameters = "&self, receiver: &" + std::string(method->effect == function_declaration::effect_type::edit ? "mut " : "") + model_name;
+      for (const auto& argument : method->parameters) { parameters += ", " + field(argument.name) + ": " + type(argument.type); }
+      line("fn " + field(method->name) + "(" + parameters + ") -> " + (method->return_type.name == "void" ? "()" : type(method->return_type)) + ";");
+    }
+    close(); open("pub struct " + adapter_name + "<'a, Implementation: " + trait_name + ">");
+    line("pub receiver: &'a " + std::string(mutable_receiver ? "mut " : "") + model_name + ",");
+    line("pub implementation: &'a Implementation,"); close();
+    open("impl<Implementation: " + trait_name + "> " + adapter_name + "<'_, Implementation>");
+    for (const auto* method : contracts) {
+      std::string parameters = method->effect == function_declaration::effect_type::edit ? "&mut self" : "&self";
+      std::string calls = method->effect == function_declaration::effect_type::edit ? "&mut *self.receiver" : "&*self.receiver";
+      for (const auto& argument : method->parameters) { parameters += ", " + field(argument.name) + ": " + type(argument.type); calls += ", " + field(argument.name); }
+      open("pub fn " + field(method->name) + "(" + parameters + ") -> " + (method->return_type.name == "void" ? "()" : type(method->return_type)));
+      line("self.implementation." + field(method->name) + "(" + calls + ")"); close();
+    }
+    close();
+  }
+
   // Define a class's owned fields, defaults, and transactional public decoding.
   void object(const class_node& value) {
     const auto name = model.names.at(&value);
@@ -360,7 +457,9 @@ class rust_emitter {
           fields.push_back({id + "_" + field(alt.enum_name), type(alt), initial(alt), visible});
         }
       } else if (f.modifier == member::modifier_type::array) {
-        fields.push_back({id, "Vec<" + type(t) + ">", "Vec::new()", visible});
+        fields.push_back({id, "Vec<" + type(t) + ">",
+          f.fixed_extent ? "std::iter::repeat_with(|| " + initial(t) + ").take(" +
+              std::to_string(f.fixed_extent) + ").collect()" : "Vec::new()", visible});
       } else if (f.modifier == member::modifier_type::map) {
         fields.push_back({id, "BTreeMap<" + type(map_key(f)) + ", " + type(t) + ">",
                           "BTreeMap::new()", visible});
@@ -386,6 +485,7 @@ class rust_emitter {
     close();
     close();
     open("impl " + name);
+    behaviors(value);
     if (value.magic_field) {
       const auto& magic = *value.magic_field;
       line("/// Immutable scalar schema identity without per-instance storage.");
@@ -471,7 +571,7 @@ class rust_emitter {
       if (variable_first) { line("first_field = false;"); }
       first = false;
     }
-    for (const auto& f : value.member_list) {
+    for (const auto& f : wire_members(value)) {
       if (f.version) {
         continue;
       }
@@ -533,7 +633,7 @@ class rust_emitter {
     for (const auto& base : value.parents) {
       ids += std::to_string(base.id) + ",";
     }
-    for (const auto& f : value.member_list) {
+    for (const auto& f : wire_members(value)) {
       if (!f.version && !f.omits("binary_none")) {
         ids += std::to_string(f.id) + ",";
       }
@@ -550,7 +650,7 @@ class rust_emitter {
     for (const auto& base : value.parents) {
       line(quote(base.display_name) + " => (" + std::to_string(base.id) + ", None),");
     }
-    for (const auto& f : value.member_list) {
+    for (const auto& f : wire_members(value)) {
       if (f.modifier == member::modifier_type::variant) {
         for (std::size_t i = 0; i < f.type_name_list.size(); ++i) {
           line(quote(f.display_name + ":" + f.type_name_list[i].enum_name) + " => (" +
@@ -584,7 +684,7 @@ class rust_emitter {
       line(std::to_string(value.parents[i].id) + " => self.base" + std::to_string(i) +
            ".srl_read(input)?,");
     }
-    for (const auto& f : value.member_list) {
+    for (const auto& f : wire_members(value)) {
       open(std::to_string(f.id) + " =>");
       read_versioned_member(value, f);
       close();
@@ -600,7 +700,7 @@ class rust_emitter {
       line("if !seen[" + std::to_string(version_slot(value, *version)) +
            "] { return Err(Error(\"Missing schema version\")); }");
       check_version(value, true);
-      for (const auto& item : value.member_list) {
+      for (const auto& item : wire_members(value)) {
         const auto active =
             version_active(version_language::rust, item, *version, "self." + field(version->name));
         if (!active.empty()) {
@@ -630,6 +730,9 @@ public:
   }
   // Emit reusable runtime declarations and direct typed model codecs.
   std::string generate() {
+    for (const auto& code : model.preambles) {
+      if (code.language == "rust") { output += behavior::source_marker(code, "rust") + code.text + "\n"; }
+    }
     line("const SRL_FIELDS: &[(&[u8], &[u8])] = &[");
     ++indent;
     for (const auto& key : model.ordered_keys) {
@@ -649,6 +752,7 @@ public:
       validate_identifier(model.names.at(node), std::string{keywords} + " BTreeMap ");
       if (node->type == object_type::class_type) {
         object(static_cast<const class_node&>(*node));
+        dispatch_adapter(static_cast<const class_node&>(*node));
         continue;
       }
       const auto& value = static_cast<const enum_node&>(*node);

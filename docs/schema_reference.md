@@ -13,7 +13,7 @@ Start with [small schema examples](schema_examples.md) if you are new to the syn
 ## Schema structure
 
 Every `.serializer` file starts with a supported language header before declarations.
-Use `serializer version 1.5.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, and `1.4.0` remain supported.
+Use `serializer version 1.6.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, and `1.5.0` remain supported.
 The original `serializer version 1;` is exactly the `1.0.0` language contract;
 only version 1 has an integer shorthand. Future versions require all three
 components. Schema-language and compiler release versions are independent.
@@ -121,6 +121,16 @@ warnings. Before converting an established ordinary field into `magic` or a
 payload revision, review its type, identity, storage and wire layout against
 [schema evolution](schema_evolution.md); this conversion can change the contract.
 
+### Behavior and runtime members
+
+Language `1.6.0` adds `public function double score() readonly;`, backend bodies,
+ordered native declarations/preambles, typed portable expressions, and
+`public transient uint64 lookup_cache {0};`. Functions and transient members
+consume no durable wire IDs. Transient values follow normal copying and are
+excluded from persistence, managed history and collaboration. See
+[behavior contracts](behavior.md) and [state examples](state_enhancements.md) for
+attachment rules, checked runtime edits, inheritance and migration APIs.
+
 ### Generic owning classes
 
 Declare type parameters with `class result<T>`. C++ emits a native template even
@@ -135,10 +145,10 @@ earlier parameters. Empty `<>` is valid when every parameter has a default.
 `array[Rows * Cols] T` has an exact owning extent; `array T` is unchanged.
 Expressions permit decimal literals, dimension names, parentheses, `+`, and `*`;
 checked uint64 arithmetic rejects negative/zero dimensions and overflow.
-Fixed arrays require 1..65,536 elements. C++ uses `std::array`;
-JavaScript/TypeScript and Python support arrays/lists without explicit initializers
-from compiler 1.6.0 and enforce exact cardinality in their codecs. Other backends
-and Protobuf generation explicitly reject fixed arrays. See [generics](generics.md)
+Fixed arrays require 1..65,536 elements. C++ uses `std::array`.
+All eleven ordinary backends support fixed arrays without explicit initializers
+from compiler 1.11.0, with independent owning defaults and exact cardinality in
+their codecs. Direct Protobuf generation still rejects fixed arrays. See [generics](generics.md)
 for scope resolution, resource limits, native C++ use, and support boundaries.
 
 Language `1.1.0` supports `public array[] uint32 values {1, 2, 3};`, inferring

@@ -28,7 +28,7 @@ foreach(license IN ITEMS LICENSE LICENSE-RUNTIME LICENSE-GENERATED)
   endif()
 endforeach()
 
-set(managed_headers managed.hpp collaboration_history.hpp collaboration_sessions.hpp
+set(managed_headers managed.hpp managed_delta.hpp collaboration_history.hpp collaboration_sessions.hpp
   managed_collaboration.hpp managed_local_collaboration.hpp
   managed_records.hpp collaboration_records.hpp)
 foreach(header IN LISTS managed_headers)
@@ -46,6 +46,11 @@ file(WRITE "${source}/CMakeLists.txt" "cmake_minimum_required(VERSION 3.28)\n"
 file(APPEND "${source}/CMakeLists.txt" [=[
 if(NOT TARGET Serializer::runtime OR NOT TARGET Serializer::serializer_lib)
   message(FATAL_ERROR "Missing runtime or compatibility compiler-library target")
+endif()
+# The selected package must precede older same-name headers from dependencies.
+get_target_property(runtime_is_system Serializer::runtime SYSTEM)
+if(runtime_is_system)
+  message(FATAL_ERROR "Installed runtime headers must use ordinary include precedence")
 endif()
 get_target_property(runtime_dependencies Serializer::runtime INTERFACE_LINK_LIBRARIES)
 if(runtime_dependencies MATCHES "serializer_lib")

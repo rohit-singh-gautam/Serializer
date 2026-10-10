@@ -3,6 +3,7 @@
 #include <rohit/managed_collaboration.hpp>
 
 #include <filesystem>
+#include <fstream>
 #include <functional>
 #include <string>
 #include <thread>
@@ -674,4 +675,289 @@ TEST(local_collaboration, checkpoint_decoder_budget_is_checked_before_publicatio
   EXPECT_EQ(outcome.status, managed::transaction_status::failed);
   EXPECT_EQ(store.read()->name, "Original");
   EXPECT_EQ(store.collaboration().pending_count(), 0u);
+}
+
+// A saved baseline is retained storage, so failure must precede journal creation and every I/O hook.
+TEST(local_collaboration, saved_baseline_admission_precedes_journal_creation) {
+  for (const auto mode : {managed::journal_storage_mode::appended,
+                          managed::journal_storage_mode::sidecar}) {
+    authority_type authority{ledger{std::string(8000, 'a')}, 1};
+    authority.open_session(10);
+    managed::collaboration_transport transport{authority, std::uint64_t{10}};
+    store_type probe{ledger{}};
+    probe.collaborate(std::uint64_t{10}).bind(transport);
+    probe.synchronize();
+    const auto saved_bytes = managed::detail::encode(*probe.read(), 100000).size();
+    managed::store_options options;
+    options.max_resident_bytes = probe.resident_bytes() + saved_bytes - 1;
+    store_type store{ledger{}, managed::make_document_id(), options};
+    store.collaborate(std::uint64_t{10}).bind(transport);
+    store.synchronize();
+    const auto pin = store.read();
+    const auto stamp = store.state();
+    const auto resident = store.resident_bytes();
+    const auto directory = std::filesystem::current_path() /
+        ("local-admission-create-" + std::to_string(managed::make_document_id().high));
+    ASSERT_TRUE(std::filesystem::create_directory(directory));
+    std::size_t io_events{};
+    managed::journal_options journal_options;
+    journal_options.fault_injector = [&](auto) { ++io_events; };
+    EXPECT_THROW(store.create_journal(directory / "client", mode, journal_options), std::length_error);
+    EXPECT_EQ(io_events, 0u);
+    EXPECT_FALSE(std::filesystem::exists(directory / "client"));
+    EXPECT_EQ(store.read(), pin);
+    EXPECT_EQ(store.state(), stamp);
+    EXPECT_EQ(store.resident_bytes(), resident);
+    EXPECT_THROW(store.journal_sequence(), std::logic_error);
+    std::filesystem::remove_all(directory);
+  }
+}
+
+// Recovered model/session/journal state is visible before its one notification; observers cannot undo it.
+TEST(local_collaboration, recovered_notification_follows_complete_durable_publication) {
+  for (const auto mode : {managed::journal_storage_mode::appended,
+                          managed::journal_storage_mode::sidecar}) {
+    authority_type authority{ledger{"Original"}, 1};
+    authority.open_session(10);
+    managed::collaboration_transport transport{authority, std::uint64_t{10}};
+    const auto directory = std::filesystem::current_path() /
+        ("local-notification-recover-" + std::to_string(managed::make_document_id().high));
+    ASSERT_TRUE(std::filesystem::create_directory(directory));
+    {
+      store_type source{ledger{}};
+      source.collaborate(std::uint64_t{10}).bind(transport);
+      source.synchronize();
+      source.create_journal(directory / "client", mode);
+      source.execute_transaction([](auto& edit) { edit.root().set_name("Draft"); }).throw_if_failed();
+    }
+    {
+      store_type recovered{ledger{}};
+      recovered.collaborate(std::uint64_t{10}).bind(transport);
+      const auto previous = recovered.read();
+      const auto stamp = recovered.state();
+      std::size_t notifications{};
+      recovered.set_publication_callback([&](const auto& event) {
+        ++notifications;
+        EXPECT_EQ(event.kind, managed::publication_kind::load);
+        EXPECT_EQ(event.before, previous);
+        EXPECT_EQ(event.after, recovered.read());
+        EXPECT_EQ(event.after->name, "Draft");
+        EXPECT_EQ(recovered.collaboration().pending_count(), 1u);
+        EXPECT_EQ(recovered.collaboration().state()->context.epoch, 1u);
+        EXPECT_EQ(recovered.journal_sequence(), 1u);
+        EXPECT_EQ(event.stamp.view_generation, stamp.view_generation + 1);
+        EXPECT_EQ(event.stamp.durable_generation, stamp.durable_generation + 1);
+        EXPECT_TRUE(event.changed_ids_precise);
+        EXPECT_EQ(event.changed_ids, (std::vector<store_type::id_type>{1}));
+        throw std::runtime_error{"observer failure after acknowledged recovery"};
+      });
+      EXPECT_NO_THROW(recovered.recover_journal(directory / "client"));
+      EXPECT_EQ(notifications, 1u);
+      EXPECT_EQ(previous->name, "");
+      EXPECT_EQ(recovered.read()->name, "Draft");
+      EXPECT_NE(recovered.take_notification_error(), nullptr);
+      EXPECT_FALSE(recovered.journal_needs_recovery());
+    }
+    std::filesystem::remove_all(directory);
+  }
+}
+
+// Growing the retained saved snapshot during Save must fail before disk replacement is attempted.
+TEST(local_collaboration, saved_baseline_growth_is_admitted_before_full_save) {
+  using disabled_store = managed::model_store<ledger, managed::history_mode::disabled>;
+  for (const auto mode : {managed::journal_storage_mode::appended,
+                          managed::journal_storage_mode::sidecar}) {
+    authority_type authority{ledger{std::string(1000, 'a')}, 1};
+    authority.open_session(10);
+    managed::collaboration_transport transport{authority, std::uint64_t{10}};
+    const auto directory = std::filesystem::current_path() /
+        ("local-admission-save-growth-" + std::to_string(managed::make_document_id().high));
+    ASSERT_TRUE(std::filesystem::create_directory(directory));
+    std::size_t required{};
+    {
+      disabled_store probe{ledger{}};
+      probe.collaborate(std::uint64_t{10}).bind(transport);
+      probe.synchronize();
+      const auto old_saved = managed::detail::encode(*probe.read(), 100000).size();
+      probe.create_journal(directory / "probe", mode);
+      probe.execute_transaction([](auto& edit) { edit.root().set_name(std::string(10000, 'b')); })
+          .throw_if_failed();
+      const auto new_saved = managed::detail::encode(*probe.read(), 100000).size();
+      required = probe.resident_bytes() + new_saved - old_saved;
+    }
+    {
+      managed::store_options options;
+      options.max_resident_bytes = required - 1;
+      disabled_store store{ledger{}, managed::make_document_id(), options};
+      store.collaborate(std::uint64_t{10}).bind(transport);
+      store.synchronize();
+      bool track_io = false;
+      std::size_t io_events{};
+      managed::journal_options journal_options;
+      journal_options.fault_injector = [&](auto) { if (track_io) { ++io_events; } };
+      store.create_journal(directory / "client", mode, journal_options);
+      store.execute_transaction([](auto& edit) { edit.root().set_name(std::string(10000, 'b')); })
+          .throw_if_failed();
+      const auto resident = store.resident_bytes();
+      const auto sequence = store.journal_sequence();
+      const auto pin = store.read();
+      track_io = true;
+      EXPECT_THROW(store.save_journal(), std::length_error);
+      EXPECT_EQ(io_events, 0u);
+      EXPECT_EQ(store.journal_sequence(), sequence);
+      EXPECT_EQ(store.resident_bytes(), resident);
+      EXPECT_EQ(store.read(), pin);
+      EXPECT_TRUE(store.journal_dirty());
+      EXPECT_FALSE(store.journal_needs_recovery());
+    }
+    std::filesystem::remove_all(directory);
+  }
+}
+
+namespace {
+// Arm a valid application comparator only after the journal has durably flushed its first edit.
+struct post_ack_session_policy : managed::collaboration_session_traits<std::string> {
+  static inline bool fail_comparison{};
+  // The policy contract allows throwing comparisons; none may occur after accepted publication.
+  static bool less(const std::string& left, const std::string& right) {
+    if (fail_comparison) { throw std::runtime_error{"comparison after durable acceptance"}; }
+    return left < right;
+  }
+};
+} // namespace
+
+// Retaining a checked session node prevents a user comparator failure after an acknowledged commit.
+TEST(local_collaboration, authority_does_not_compare_sessions_after_acknowledged_commit) {
+  using sessions = managed::collaboration_session<std::string, post_ack_session_policy>;
+  for (const auto mode : {managed::journal_storage_mode::appended,
+                          managed::journal_storage_mode::sidecar}) {
+    const auto directory = std::filesystem::current_path() /
+        ("local-authority-ack-" + std::to_string(managed::make_document_id().high));
+    ASSERT_TRUE(std::filesystem::create_directory(directory));
+    {
+      post_ack_session_policy::fail_comparison = false;
+      sessions::authority<ledger> authority{ledger{"Original"}, 1};
+      authority.open_session("writer");
+      sessions::replica<ledger> replica;
+      replica.synchronize(authority.snapshot(), authority.context());
+      const auto proposal = replica.propose("writer", 1, [](auto& edit) { edit.root().set_name("Accepted"); });
+      managed::journal_options options;
+      options.fault_injector = [&](auto event) {
+        if (event == managed::journal_io_event::after_flush) {
+          post_ack_session_policy::fail_comparison = true;
+        }
+      };
+      authority.create_journal(directory / "authority", mode, options);
+      std::shared_ptr<const sessions::authority<ledger>::result_type> result;
+      EXPECT_NO_THROW(result = authority.submit_change(proposal, "writer", 0));
+      EXPECT_TRUE(post_ack_session_policy::fail_comparison);
+      EXPECT_THROW(post_ack_session_policy::less("writer", "writer"), std::runtime_error);
+      ASSERT_NE(result, nullptr);
+      EXPECT_EQ(result->status, managed::collaboration_status::accepted);
+      EXPECT_EQ(authority.read()->name, "Accepted");
+      EXPECT_EQ(authority.sequence(), 1u);
+      post_ack_session_policy::fail_comparison = false;
+      EXPECT_EQ(authority.submit_change(proposal, "writer", 0), result);
+    }
+    std::filesystem::remove_all(directory);
+  }
+}
+
+// A saved-baseline admission failure leaves the old pin/state and the interrupted tail untouched.
+TEST(local_collaboration, recovery_admission_precedes_tail_repair_and_notification) {
+  for (const auto mode : {managed::journal_storage_mode::appended,
+                          managed::journal_storage_mode::sidecar}) {
+    authority_type authority{ledger{std::string(8000, 'a')}, 1};
+    authority.open_session(10);
+    managed::collaboration_transport transport{authority, std::uint64_t{10}};
+    const auto directory = std::filesystem::current_path() /
+        ("local-admission-recover-" + std::to_string(managed::make_document_id().high));
+    ASSERT_TRUE(std::filesystem::create_directory(directory));
+    std::vector<std::uint8_t> checkpoint;
+    std::size_t saved_bytes{};
+    {
+      store_type source{ledger{}};
+      source.collaborate(std::uint64_t{10}).bind(transport);
+      source.synchronize();
+      saved_bytes = managed::detail::encode(*source.read(), 100000).size();
+      checkpoint = source.save();
+      source.create_journal(directory / "client", mode);
+    }
+    auto append_path = directory / "client";
+    if (mode == managed::journal_storage_mode::sidecar) {
+      for (const auto& item : std::filesystem::directory_iterator(directory)) {
+        if (item.path().filename().string().starts_with("client.journal-")) { append_path = item.path(); }
+      }
+    }
+    {
+      std::ofstream interrupted{append_path, std::ios::binary | std::ios::app};
+      interrupted.put('x');
+    }
+    const auto interrupted_size = std::filesystem::file_size(append_path);
+    store_type probe{ledger{}};
+    probe.collaborate(std::uint64_t{10});
+    probe.load(checkpoint);
+    store_type empty{ledger{}};
+    managed::store_options options;
+    options.max_resident_bytes = probe.resident_bytes() + empty.resident_bytes() + saved_bytes - 1;
+    store_type recovered{ledger{}, managed::make_document_id(), options};
+    recovered.collaborate(std::uint64_t{10});
+    const auto previous = recovered.read();
+    const auto stamp = recovered.state();
+    const auto resident = recovered.resident_bytes();
+    std::size_t notifications{}, repair_events{};
+    recovered.set_publication_callback([&](const auto&) { ++notifications; });
+    managed::journal_options journal_options;
+    journal_options.fault_injector = [&](auto event) {
+      if (event == managed::journal_io_event::before_tail_repair) { ++repair_events; }
+    };
+    EXPECT_THROW(recovered.recover_journal(directory / "client", journal_options), std::length_error);
+    EXPECT_EQ(repair_events, 0u);
+    EXPECT_EQ(notifications, 0u);
+    EXPECT_EQ(std::filesystem::file_size(append_path), interrupted_size);
+    EXPECT_EQ(recovered.read(), previous);
+    EXPECT_EQ(recovered.state(), stamp);
+    EXPECT_EQ(recovered.resident_bytes(), resident);
+    EXPECT_EQ(recovered.collaboration().state()->context.epoch, 0u);
+    EXPECT_FALSE(recovered.journal_needs_recovery());
+    std::filesystem::remove_all(directory);
+  }
+}
+
+// Every replacement preserves the saved charge; Save shrinks it to the newly acknowledged baseline.
+TEST(local_collaboration, saved_baseline_charge_survives_rebase_and_save) {
+  for (const auto mode : {managed::journal_storage_mode::appended,
+                          managed::journal_storage_mode::sidecar}) {
+    authority_type authority{ledger{std::string(8000, 'a')}, 1};
+    authority.open_session(10);
+    authority.open_session(20);
+    managed::collaboration_transport journal_transport{authority, std::uint64_t{10}};
+    managed::collaboration_transport plain_transport{authority, std::uint64_t{20}};
+    const auto directory = std::filesystem::current_path() /
+        ("local-admission-save-" + std::to_string(managed::make_document_id().high));
+    ASSERT_TRUE(std::filesystem::create_directory(directory));
+    {
+      store_type journaled{ledger{}}, plain{ledger{}};
+      journaled.collaborate(std::uint64_t{10}).bind(journal_transport);
+      plain.collaborate(std::uint64_t{20}).bind(plain_transport);
+      journaled.synchronize(); plain.synchronize();
+      const auto saved_bytes = managed::detail::encode(*journaled.read(), 100000).size();
+      journaled.create_journal(directory / "client", mode);
+      EXPECT_EQ(journaled.resident_bytes() - plain.resident_bytes(), saved_bytes);
+      managed::collaboration_replica<ledger> writer;
+      writer.synchronize(authority.snapshot(), authority.context());
+      const auto proposal = writer.propose(10, 1, [](auto& edit) { edit.root().set_name("Updated"); });
+      EXPECT_EQ(authority.submit_change(proposal, 10, 0)->status, managed::collaboration_status::accepted);
+      journaled.synchronize(); plain.synchronize();
+      EXPECT_EQ(journaled.read()->name, "Updated");
+      EXPECT_EQ(journaled.resident_bytes() - plain.resident_bytes(), saved_bytes);
+      const auto sequence = journaled.journal_sequence();
+      journaled.save_journal();
+      EXPECT_EQ(journaled.journal_sequence(), sequence);
+      EXPECT_FALSE(journaled.journal_dirty());
+      EXPECT_EQ(journaled.resident_bytes() - plain.resident_bytes(),
+                managed::detail::encode(*journaled.read(), 100000).size());
+    }
+    std::filesystem::remove_all(directory);
+  }
 }

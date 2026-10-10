@@ -1,0 +1,49 @@
+serializer version 1.6.0;
+
+cpp preamble {
+  #include <string_view>
+}
+java preamble {
+  // Target-native declarations precede generated schema classes.
+}
+kotlin preamble {
+  import kotlin.math.abs
+}
+
+class DocumentBase stable_ids {
+  public double base_measure (1);
+  public function abstract double adjustment(double extra) readonly;
+}
+class DocumentData stable_ids : public DocumentBase ("base",1) {
+  public double measure (2);
+  public function override double adjustment(double extra) readonly
+    cpp { return measure + extra; }
+    java { return measure + extra; }
+    javascript { return this.measure + extra; }
+    go { return value.measure + extra }
+    csharp { return measure + extra; }
+    rust { self.measure + extra }
+    python { return self.measure + extra }
+    swift { return self.measure + extra }
+    kotlin { return this.measure + extra }
+    c { return value->measure + extra; };
+  public function virtual double weight() readonly expression(measure * 2.0);
+  public function void update(double next) edit
+    cpp { measure = next; }
+    java { measure = next; }
+    javascript { this.measure = next; }
+    go { value.measure = next }
+    csharp { measure = next; }
+    rust { self.measure = next; }
+    python { self.measure = next }
+    swift { self.measure = next }
+    kotlin { this.measure = next }
+    c { value->measure = next; };
+  public function double score() readonly;
+  private cpp {
+    friend class document_reader;
+  }
+  public cpp {
+    using number_type = double;
+  }
+}

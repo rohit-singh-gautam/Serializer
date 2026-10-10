@@ -1,4 +1,6 @@
+#include "schema_projection.hpp"
 #include "version_writer.hpp"
+#include "behavior_writer.hpp"
 #include "format_writer.hpp"
 #include "generated_notices.hpp"
 #include <rohit/serializer_creator.hpp>
@@ -205,7 +207,7 @@ class emitter {
   void register_nodes(const std::vector<std::unique_ptr<syntax_node>>& nodes,
                       const std::string& prefix, std::set<std::string> enclosing) {
     for (const auto& node : nodes) {
-      if (node->type == object_type::generic_definition) { continue; }
+      if (node->type == object_type::generic_definition || node->type == object_type::native_code) { continue; }
       const auto name = type_name(node->name);
       const auto qualified = prefix + "." + name;
       const auto [previous, inserted] = declarations.emplace(qualified, node.get());
@@ -521,7 +523,12 @@ class emitter {
                                   value.name};
     }
     if (value.modifier == member::modifier_type::array) {
-      line(access + type(item) + "[] " + name + " = " + array_initial(item, "0") + ";");
+      line(access + type(item) + "[] " + name + " = " + (value.fixed_extent == 0 ? array_initial(item, "0") :
+          item.type == object_type::primitive && item.name != "string" && !item.is_digest()
+              ? array_initial(item, std::to_string(value.fixed_extent))
+              : "java.util.stream.IntStream.range(0, " + std::to_string(value.fixed_extent) +
+                    ").mapToObj(index -> " + initial(item) + ").toArray(size -> " +
+                    array_initial(item, "size") + ")") + ";");
     } else if (value.modifier == member::modifier_type::map) {
       line(access + "java.util.NavigableMap<" + type(key_type(value), true) + ", " +
            type(item, true) + "> " + name + " = " + map_initializer(value) + ";");
@@ -551,6 +558,10 @@ class emitter {
       return;
     }
     if (value.modifier == member::modifier_type::array) {
+      if (value.fixed_extent != 0) {
+        line("if (" + name + ".length != " + std::to_string(value.fixed_extent) +
+             ") { throw new IllegalArgumentException(\"Fixed array extent mismatch\"); }");
+      }
       line("out.beginArray(" + name + ".length);");
       line("for (int index = 0; index < " + name + ".length; ++index) {");
       ++level;
@@ -593,6 +604,10 @@ class emitter {
       return;
     }
     line("int count = in.beginArray();");
+    if (value.fixed_extent != 0) {
+      line("if (count != -1 && count != " + std::to_string(value.fixed_extent) +
+           ") { throw new IllegalArgumentException(\"Fixed array extent mismatch\"); }");
+    }
     if (value.modifier == member::modifier_type::array) {
       std::string element_width{"0"};
       if (item.type == object_type::primitive && item.name != "string" && !item.is_digest()) {
@@ -616,9 +631,17 @@ class emitter {
       line("java.util.ArrayList<" + type(item, true) + "> values = new java.util.ArrayList<>();");
       line("for (int index = 0; in.nextElement(index, count); ++index) {");
       ++level;
+      if (value.fixed_extent != 0) {
+        line("if (index >= " + std::to_string(value.fixed_extent) +
+             ") { throw new IllegalArgumentException(\"Fixed array extent mismatch\"); }");
+      }
       line("values.add(" + read_value(item, "in", true) + ");");
       --level;
       line("}");
+      if (value.fixed_extent != 0) {
+        line("if (values.size() != " + std::to_string(value.fixed_extent) +
+             ") { throw new IllegalArgumentException(\"Fixed array extent mismatch\"); }");
+      }
       line(name + " = " + array_initial(item, "values.size()") + ";");
       line("for (int index = 0; index < values.size(); ++index) { " + name +
            "[index] = values.get(index); }");
@@ -744,6 +767,92 @@ class emitter {
     line("}");
   }
 
+  // Generate pure/native methods or a checked external behavior interface.
+  void behaviors(const class_node& value) {
+    behavior::require_native_names(value, "java", options.rename_identifiers);
+    std::vector<const function_declaration*> external;
+    for (const auto& method : value.functions) {
+      if (!method.expression && !behavior::native_body(method, "java")) { external.push_back(&method); }
+    }
+    for (const auto* method : behavior::contracts(value)) {
+      if (std::find(external.begin(), external.end(), method) == external.end()) { external.push_back(method); }
+    }
+    behavior::require_unique_callable_names(value, "java", [&](auto n) { return field(n); }, [&](const auto& t) { return type(t); });
+    if (!external.empty()) {
+      line("public interface Behavior {"); ++level;
+      for (const auto* method : external) {
+        std::string parameters = type_name(value.name) + " receiver";
+        for (const auto& argument : method->parameters) {
+          parameters += ", " + type(argument.type) + " " + field(argument.name);
+        }
+        line((method->return_type.name == "void" ? "void" : type(method->return_type)) + " " +
+            field(method->name) + "(" + parameters + ");");
+      }
+      --level; line("}");
+      line("private transient Behavior srlBehavior;");
+      line("public void attachBehavior(Behavior behavior) { srlBehavior = java.util.Objects.requireNonNull(behavior); }");
+      line("public static final class BehaviorAdapter {"); ++level;
+      line("private final " + type_name(value.name) + " receiver;");
+      line("private final Behavior implementation;");
+      line("public BehaviorAdapter(" + type_name(value.name) + " receiver, Behavior implementation) { this.receiver = java.util.Objects.requireNonNull(receiver); this.implementation = java.util.Objects.requireNonNull(implementation); }");
+      for (const auto* method : external) {
+        std::string parameters, calls = "receiver";
+        for (const auto& argument : method->parameters) {
+          parameters += (parameters.empty() ? "" : ", ") + type(argument.type) + " " + field(argument.name);
+          calls += ", " + field(argument.name);
+        }
+        const auto result_type = method->return_type.name == "void" ? "void" : type(method->return_type);
+        line("public " + result_type + " " + field(method->name) + "(" + parameters + ") { " +
+            (result_type == "void" ? "" : "return ") + "implementation." + field(method->name) + "(" + calls + "); }");
+      }
+      --level; line("}");
+    }
+    for (const auto& item : behavior::ordered_body(value)) {
+      if (item.kind == class_body_item::kind_type::native_code) {
+        const auto& block = value.native_blocks.at(item.index);
+        if (block.language == "java") { source += behavior::source_marker(block, "java") + block.text + "\n"; }
+        continue;
+      }
+      if (item.kind != class_body_item::kind_type::function) { continue; }
+      const auto& method = value.functions.at(item.index);
+      line(behavior::source_marker(method, "java").substr(0, behavior::source_marker(method, "java").size() - 1));
+      const auto return_type = method.return_type.name == "void" ? "void" : type(method.return_type);
+      std::string parameters, arguments = "this";
+      for (const auto& argument : method.parameters) {
+        if (!parameters.empty()) { parameters += ", "; }
+        parameters += type(argument.type) + " " + field(argument.name);
+        arguments += ", " + field(argument.name);
+      }
+      line(std::string(method.access == access_type::public_access ? "public " : "private ") +
+          return_type + " " + field(method.name) + "(" + parameters + ") {"); ++level;
+      if (method.dispatch != function_declaration::dispatch_type::ordinary &&
+          (method.expression || behavior::native_body(method, "java"))) {
+        line("if (srlBehavior != null) { " + std::string(return_type == "void" ? "" : "return ") +
+            "srlBehavior." + field(method.name) + "(" + arguments + "); " + (return_type == "void" ? "return;" : "") + " }");
+      }
+      if (const auto* body = behavior::native_body(method, "java")) {
+        source += behavior::source_marker(*body, "java") + body->text + "\n";
+      } else if (method.expression) {
+        const auto symbol = [&](std::string_view name) {
+          const auto argument = std::find_if(method.parameters.begin(), method.parameters.end(),
+              [&](const auto& item) { return item.name == name; });
+          return argument == method.parameters.end() ? "this." + field(name) : field(name);
+        };
+        std::set<std::string> symbols; behavior::expression_symbols(*method.expression, symbols);
+        for (const auto& input : symbols) {
+          line("if (!Double.isFinite(" + symbol(input) + ")) { throw new ArithmeticException(\"Non-finite input\"); }");
+        }
+        line("double srlBehaviorResult = " + behavior::expression(*method.expression, "java", symbol) + ";");
+        line("if (!Double.isFinite(srlBehaviorResult)) { throw new ArithmeticException(\"Non-finite result\"); }");
+        line("return srlBehaviorResult;");
+      } else {
+        line("if (srlBehavior == null) { throw new IllegalStateException(\"Attach the required behavior before invocation\"); }");
+        line(std::string(return_type == "void" ? "" : "return ") + "srlBehavior." + field(method.name) + "(" + arguments + ");");
+      }
+      --level; line("}");
+    }
+  }
+
   // Emit a directly encoded owning class; schema parents are explicit composed fields.
   void object(const class_node& value) {
     if (value.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
@@ -814,6 +923,7 @@ class emitter {
     for (const auto& item : value.member_list) {
       declaration(item);
     }
+    behaviors(value);
     line("/** Encode this value into an independent exact-size message. */");
     line("public byte[] encode(Protocol protocol) {");
     ++level;
@@ -899,7 +1009,7 @@ class emitter {
       if (variable_first) { line("firstField = false;"); }
       first = false;
     }
-    for (const auto& item : value.member_list) {
+    for (const auto& item : wire_members(value)) {
       if (item.version) {
         continue;
       }
@@ -1006,7 +1116,7 @@ class emitter {
            names.at(value.parents[index].parent_class) + ".read(in, result.base" +
            std::to_string(index) + ");");
     }
-    for (const auto& item : value.member_list) {
+    for (const auto& item : wire_members(value)) {
       if (item.version) {
         continue;
       }
@@ -1030,7 +1140,7 @@ class emitter {
            std::to_string(index) + " = " + names.at(value.parents[index].parent_class) +
            ".read(in, result.base" + std::to_string(index) + "); break;");
     }
-    for (const auto& item : value.member_list) {
+    for (const auto& item : wire_members(value)) {
       line("case " + std::to_string(item.id) + ": {");
       ++level;
       read_versioned_member(value, item);
@@ -1074,7 +1184,7 @@ class emitter {
            std::to_string(index) + " = " + names.at(value.parents[index].parent_class) +
            ".read(in, result.base" + std::to_string(index) + "); break;");
     }
-    for (const auto& item : value.member_list) {
+    for (const auto& item : wire_members(value)) {
       if (item.modifier == member::modifier_type::variant) {
         for (std::size_t index = 0; index < item.type_name_list.size(); ++index) {
           line("case " + quote(item.display_name + ":" + item.type_name_list[index].enum_name) +
@@ -1109,7 +1219,7 @@ class emitter {
       line("if (!seen[" + std::to_string(version_slot(value, *version)) +
            "]) { throw in.error(\"Missing schema version\"); }");
       check_version(value, true);
-      for (const auto& item : value.member_list) {
+      for (const auto& item : wire_members(value)) {
         const auto active = version_active(version_language::java, item, *version,
                                            "result." + field(version->name));
         if (!active.empty()) {
@@ -1187,6 +1297,7 @@ public:
       }
       source += "package " + options.package_name + ";\n\n";
     }
+    source += behavior::preambles(values, "java");
     source +=
         "/** Schema types and dependency-free codecs. */\npublic final class " + outer + " {\n";
     line("/** Static schema container. */");
@@ -1223,10 +1334,9 @@ public:
 // Publish only a completely validated source file.
 std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,
                      std::string_view outer_class, const java_options& options) {
-  require_variable_arrays(statements, "java");
   require_unmanaged_backend(statements);
   emitter generator{options, outer_class};
-  return generator.generate(statements);
+  return behavior::finalize_mappings(generator.generate(statements));
 }
 
 // Retain source-file notices when no generated declaration can carry their metadata.

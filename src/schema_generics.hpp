@@ -205,9 +205,8 @@ class generic_lowering {
                              ? static_cast<const class_node*>(node)
                              : nullptr;
     const auto arity = object ? object->type_parameters.size() : 0;
-    if (object && (object->supports_managed() ||
-        object->storage_modes != static_cast<std::uint8_t>(storage_mode::owning))) {
-      throw exception::bad_member_type{input, "Generic fields and arguments require unmanaged owning types"};
+    if (object && (object->storage_modes != static_cast<std::uint8_t>(storage_mode::owning))) {
+      throw exception::bad_member_type{input, "Generic fields and arguments require owning types"};
     }
     if (object && object->get_full_name() == owner.get_full_name()) {
       throw exception::bad_member_type{input, "Recursive generic ownership: " + object->get_full_name()};
@@ -304,10 +303,10 @@ class generic_lowering {
       }
       if (argument.resolved_node && argument.type == object_type::class_type) {
         const auto& value = static_cast<const class_node&>(*argument.resolved_node);
-        if (incomplete.contains(value.get_full_name()) || value.supports_managed() ||
+        if (incomplete.contains(value.get_full_name()) ||
             value.storage_modes != static_cast<std::uint8_t>(storage_mode::owning)) {
           throw exception::bad_member_type{input,
-                                           "Generic arguments require unmanaged owning types"};
+                                           "Generic arguments require owning types"};
         }
       }
       key += identity(argument) + ",";
@@ -337,6 +336,9 @@ class generic_lowering {
     concrete->generic_arguments = type.arguments;
     concrete->generic_parameters = definition->generic_parameters;
     concrete->member_list = definition->member_list;
+    concrete->functions = definition->functions;
+    concrete->native_blocks = definition->native_blocks;
+    concrete->body_order = definition->body_order;
     concrete->magic_bytes = definition->magic_bytes;
     concrete->magic_field = definition->magic_field;
     concrete->magic_access = definition->magic_access;
@@ -410,8 +412,8 @@ class generic_lowering {
               std::to_string(field.extent_expression.front().source_offset)};
         }
         if (object.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
-            (object.attributes & class_attributes::packed) == class_attributes::packed || field.managed) {
-          throw exception::bad_member_type{input, "Fixed arrays require unpacked ordinary owning fields"};
+            (object.attributes & class_attributes::packed) == class_attributes::packed) {
+          throw exception::bad_member_type{input, "Fixed arrays require unpacked owning fields"};
         }
         field.fixed_extent = *extent;
       }
@@ -420,10 +422,9 @@ class generic_lowering {
         if (!object.generic_name.empty() && type.resolved_node &&
             type.type == object_type::class_type) {
           const auto& nested = static_cast<const class_node&>(*type.resolved_node);
-          if (nested.supports_managed() ||
-              nested.storage_modes != static_cast<std::uint8_t>(storage_mode::owning)) {
+          if (nested.storage_modes != static_cast<std::uint8_t>(storage_mode::owning)) {
             throw exception::bad_member_type{input,
-                                             "Generic fields require unmanaged owning types"};
+                                             "Generic fields require owning types"};
           }
         }
       }
@@ -441,6 +442,10 @@ class generic_lowering {
         field.key = key.get_full_name();
         field.key_node = key.resolved_node;
       }
+    }
+    for (auto& method : object.functions) {
+      if (method.return_type.name != "void") { resolve(method.return_type, bindings, depth); }
+      for (auto& parameter : method.parameters) { resolve(parameter.type, bindings, depth); }
     }
     static_cast<void>(minimum_storage(object));
   }
@@ -469,12 +474,12 @@ class generic_lowering {
         } else if (raw->type == object_type::class_type) {
           auto& object = static_cast<class_node&>(*raw);
           if (!object.type_parameters.empty()) {
-            if (object.supports_managed() || !object.parents.empty() ||
+            if (!object.parents.empty() ||
                 object.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
                 (object.attributes & class_attributes::packed) == class_attributes::packed) {
               throw exception::bad_class{
                   input,
-                  "Generic classes require unpacked unmanaged owning fields without inheritance"};
+                  "Generic classes require unpacked owning fields without inheritance"};
             }
             class_node earlier{object_type::class_type, std::string{object.name},
                                object.parent_namespace, class_attributes::none, {}};
@@ -526,6 +531,10 @@ class generic_lowering {
                 field.key_node = key.resolved_node;
               }
             }
+            for (auto& method : object.functions) {
+              if (method.return_type.name != "void") { validate_expression(method.return_type, object); }
+              for (auto& parameter : method.parameters) { validate_expression(parameter.type, object); }
+            }
             retained_templates.push_back(&object);
             emit(std::move(node));
             continue;
@@ -539,6 +548,9 @@ class generic_lowering {
             const auto& source = static_cast<const class_node&>(*target.resolved_node);
             object.attributes = source.attributes;
             object.member_list = source.member_list;
+            object.functions = source.functions;
+            object.native_blocks = source.native_blocks;
+            object.body_order = source.body_order;
             object.magic_bytes = source.magic_bytes;
             object.magic_field = source.magic_field;
             object.magic_access = source.magic_access;

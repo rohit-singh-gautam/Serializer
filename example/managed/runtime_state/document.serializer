@@ -1,0 +1,10 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.6.0;
+namespace runtime_features {
+  class document_data stable_ids managed {
+    public string text (1);
+    public transient uint64 lookup_cache {0};
+    public transient array uint8 lookup_buffer;
+  }
+}

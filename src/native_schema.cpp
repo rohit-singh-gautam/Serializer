@@ -192,6 +192,10 @@ void schema::add_key(const std::string& value) {
 void schema::collect(const std::vector<std::unique_ptr<syntax_node>>& values,
                      const std::string& prefix) {
   for (const auto& value : values) {
+    if (value->type == object_type::native_code) {
+      preambles.push_back(static_cast<const native_code_node&>(*value).code);
+      continue;
+    }
     if (value->type == object_type::generic_definition) { continue; }
     const auto name = prefix + pascal(value->name);
     if (value->type == object_type::namespace_type) {
@@ -265,11 +269,11 @@ schema::schema(const std::vector<std::unique_ptr<syntax_node>>& statements) {
         add(field.name + "_index");
         for (const auto& alternative : field.type_name_list) {
           add(field.name + "_" + alternative.enum_name);
-          add_key(field.display_name + ":" + alternative.enum_name);
+          if (!field.transient) { add_key(field.display_name + ":" + alternative.enum_name); }
         }
       } else {
         add(field.name);
-        add_key(field.display_name);
+        if (!field.transient) { add_key(field.display_name); }
         if (field.modifier == member::modifier_type::none) {
           (void)literal(field);
         }

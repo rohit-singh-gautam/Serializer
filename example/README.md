@@ -153,3 +153,10 @@ python example/run.py --compiler build/serializer --example versioning --languag
 ```
 
 See the [revision contract](../docs/versioning.md) for policy semantics and support limits.
+
+## Document collections
+
+Every language has a `document_collections` example. Run
+`python example/run.py --compiler <serializer> --language all --example document_collections`.
+The shared document schema exercises exact arrays of nested records, strings and
+integers, transient wire exclusion and rejection of short/oversized arrays.

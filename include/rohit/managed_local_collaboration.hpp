@@ -36,10 +36,12 @@ public:
   using traits = typename Store::traits_type;
   using storage_type = typename Store::storage_type;
   using id_type = typename Store::id_type;
-  using record_types = collaboration_record_types<Session, Policy>;
+  using record_types = collaboration_record_types<Session, Policy,
+                                                  detail::collaboration_nested_paths<traits>>;
   using accepted_type = typename record_types::accepted_change;
   using proposal_type = typename record_types::change_proposal;
-  using result_type = basic_collaboration_result<Session, Policy>;
+  using result_type = basic_collaboration_result<Session, Policy,
+                                                 detail::collaboration_nested_paths<traits>>;
   using state_type = std::conditional_t<Store::has_history, collaboration::client_state,
                                         collaboration::pending_client_state>;
   using transaction_type = typename decltype(state_type::transactions)::value_type;
@@ -214,7 +216,7 @@ private:
                                      const std::vector<std::uint8_t>& bytes,
                                      std::uint64_t allocated) const {
     auto result =
-        std::unique_ptr<Store>{new Store{typename Store::recovery_tag{}, store_.options_, {}}};
+        std::unique_ptr<Store>{new Store{typename Store::recovery_tag{}, store_.options_, {}, store_.resident_ledger_}};
     result->document_ = {state.context.document_high, state.context.document_low};
     result->allocated_id_ = allocated;
     auto value = decode(bytes);
@@ -228,8 +230,9 @@ private:
         throw std::invalid_argument{"Synchronization retypes a local identity"};
       }
     }
+    detail::reset_runtime_fields<traits>(value);
     store_.validate(value);
-    result->current_ = std::make_shared<const storage_type>(std::move(value));
+    result->current_ = result->make_published_storage(std::move(value));
     result->snapshot_ = bytes;
     if constexpr (Store::has_history) {
       if constexpr (requires { result->history_.revision_high_water; }) {
@@ -239,10 +242,13 @@ private:
       }
       result->history_ = result->make_history();
     }
+    result->resident_auxiliary_.resize(result->estimate_auxiliary(
+        result->snapshot_, result->identities_, result->history_));
     return result;
   }
   // Publish only preallocated model/session state after its single durable decision.
   void swap_model(Store& replacement) noexcept {
+    store_.resident_auxiliary_.swap(replacement.resident_auxiliary_);
     store_.current_.swap(replacement.current_);
     store_.snapshot_.swap(replacement.snapshot_);
     store_.identities_.swap(replacement.identities_);
@@ -263,6 +269,18 @@ private:
     }
     auto prepared = std::make_shared<state_type>(std::move(next));
     check_state_budget(*prepared);
+    std::optional<typename Store::event_type> event;
+    if (model) {
+      // A replacement retains this store's saved baseline even though its private receiver has no journal.
+      if constexpr (Store::has_journal) {
+        model->resident_auxiliary_.resize(model->estimate_auxiliary(
+            model->snapshot_, model->identities_, model->history_, &store_.journal_state_.saved_snapshot));
+      }
+      event.emplace(store_.prepare_publication(publication_kind::load, model->identities_,
+                                                model->current_.get(),
+                                                store_.document_.high != model->document_.high ||
+                                                    store_.document_.low != model->document_.low));
+    }
     if constexpr (Store::has_journal) {
       if (store_.journal_state_.sink) {
         // Metadata-only decisions reuse the current durable model instead of encoding it again.
@@ -276,6 +294,9 @@ private:
       swap_model(*model);
     }
     state_.swap(prepared);
+    if (event) {
+      store_.publish_notification(std::move(*event));
+    }
   }
   // Reject cross-document, wrong-schema or incompatible transport baselines before translating IDs.
   void check_context(const collaboration::domain& context, bool joining = false) const {
@@ -387,7 +408,7 @@ private:
       bool conflict = false;
       for (const auto& field : batch.history.fields) {
         const auto id = local.find(field.entity);
-        if (id != local.end() && addresses.contains({id->second, field.field})) {
+        if (id != local.end() && addresses.contains({id->second, field.field, field.path})) {
           conflict = true;
         }
       }
@@ -647,7 +668,7 @@ public:
   // Inspect remote state separately when a conflict preserves the user's local working copy.
   std::shared_ptr<const storage_type> acknowledged_read() const {
     store_.check_thread();
-    return std::make_shared<const storage_type>(decode(state_->acknowledged));
+    return store_.make_published_storage(decode(state_->acknowledged));
   }
   // Translate stable local entity handles for server lease APIs; unsent objects have no remote ID.
   std::uint64_t remote_id(std::uint64_t local) const {
@@ -1222,7 +1243,7 @@ public:
       throw std::invalid_argument{"Expected a full client checkpoint"};
     }
     auto model = std::unique_ptr<Store>{
-        new Store{typename Store::recovery_tag{}, store_.options_, store_.validate_}};
+        new Store{typename Store::recovery_tag{}, store_.options_, store_.validate_, store_.resident_ledger_}};
     model->load(checkpoint.model);
     validate_state(checkpoint.state, *model);
     commit(std::move(checkpoint.state), std::move(model));
@@ -1240,12 +1261,16 @@ public:
       auto journal = std::make_unique<client_journal>(*this);
       auto saved = store_.snapshot_;
       const auto bytes = save();
+      detail::resident_admission admission{
+          store_.resident_auxiliary_, store_.estimate_auxiliary(
+                                         store_.snapshot_, store_.identities_, store_.history_, &saved)};
       store_.journal_operation([&] {
         journal->sink = detail::create_file_journal(path, mode, bytes, std::move(options),
                                                     store_.journal_state_.indeterminate);
       });
       store_.journal_state_.saved_snapshot.swap(saved);
       store_.journal_state_.sink = std::move(journal);
+      admission.commit();
     }
   }
   // Replay the same native model operations and their paired session state before repairing a torn tail.
@@ -1258,10 +1283,11 @@ public:
         throw std::logic_error{"Recover collaboration into a fresh attached store"};
       }
       auto model =
-          std::unique_ptr<Store>{new Store{typename Store::recovery_tag{}, store_.options_, {}}};
+          std::unique_ptr<Store>{new Store{typename Store::recovery_tag{}, store_.options_, {}, store_.resident_ledger_}};
       auto next = std::make_shared<state_type>();
       auto journal = std::make_unique<client_journal>(*this);
       std::vector<std::uint8_t> saved;
+      typename Store::event_type event;
       store_.journal_operation([&] {
         journal->sink = detail::recover_file_journal(
             path, std::move(options), [&](bool base, std::span<const std::uint8_t> bytes) {
@@ -1302,12 +1328,20 @@ public:
         if (store_.validate_) {
           store_.validate_(*model->current_);
         }
+        // Admission and observer preparation precede irreversible tail repair and live publication.
+        model->resident_auxiliary_.resize(model->estimate_auxiliary(
+            model->snapshot_, model->identities_, model->history_, &saved));
+        event = store_.prepare_publication(publication_kind::load, model->identities_,
+                                           model->current_.get(),
+                                           store_.document_.high != model->document_.high ||
+                                               store_.document_.low != model->document_.low);
         journal->sink->finish_recovery();
       });
       swap_model(*model);
       state_.swap(next);
       store_.journal_state_.saved_snapshot.swap(saved);
       store_.journal_state_.sink = std::move(journal);
+      store_.publish_notification(std::move(event));
     }
   }
 };
