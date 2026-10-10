@@ -1,0 +1,18 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.7.0;
+
+namespace optional_managed {
+  class leaf stable_ids managed {
+    public string text (1);
+    public transient uint32 cache {7};
+  }
+  class document stable_ids managed {
+    public optional<uint32> scalar (1);
+    public managed optional<leaf> child (2);
+    public managed optional<array<leaf>> children (3);
+    public managed optional<map<string, optional<leaf>>> named (4);
+    public managed array optional<leaf> entries (5);
+    public optional<leaf> value_child (6);
+  }
+}

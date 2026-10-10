@@ -725,4 +725,25 @@ The opt-in `read_policy::flexible` reader ignores additional keyed
 fields, rejects duplicate object keys, and validates skipped values under the
 same resource limits as typed fields. Default native JSON still rejects unknown
 fields. C++ optional host values encode as JSON `null` or their contained value;
-native binary formats are unchanged. See [usage](usage.md#json-compatibility).
+existing schema binary formats are unchanged. Runtime 1.12.0 also supports binary
+optional presence tags. See [usage](usage.md#json-compatibility).
+
+## Optional presence
+
+Schema language `1.7.0` optional values use an unsigned one-byte tag in each
+native binary protocol: `00` is absent, `01` is present followed immediately
+by the normal contained-value encoding. Every other tag is invalid. There is
+no collection-length prefix for optional presence. Keyed object field framing
+remains unchanged, including field IDs/names and terminators. Each nested
+optional emits its own tag: absent, present-absent, and present-present
+`uint8(7)` encode `00`, `01 00`, and `01 01 07` respectively.
+
+JSON uses an array of exactly zero or one payload values: `[]` and `[value]`.
+Nested absent, present-absent, and present-present `uint8(7)` are `[]`, `[[]]`,
+and `[[7]]`. `null`, extra elements, invalid tags, truncation, and trailing
+message input fail. An empty contained array is `[[]]`, distinct from absence.
+
+Changing `T` to `optional<T>`, changing nesting, or changing the payload type
+is a wire contract change. Missing keyed fields retain the reader's initial
+value; freshly initialized optionals are absent. See [optionals](optional.md)
+for bounded decoding and managed integration.

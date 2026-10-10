@@ -41,6 +41,18 @@ class managed_writer {
   std::string full_type_name(const syntax_node* node) const {
     return writer_.full_type_name(node);
   }
+  // Locate the identified terminal declaration beneath built-in owning wrappers.
+  const syntax_node* child_node(const serializer::type_name& type) const {
+    if (type.is_optional() || type.is_sequence() || type.is_associative()) {
+      return child_node(type.arguments.back());
+    }
+    return type.resolved_node;
+  }
+  // Identify wrapper type expressions requiring recursive identity/projection traversal.
+  bool wrapped_type(const member& field) const {
+    const auto& type = field.type_name_list.front();
+    return type.is_optional() || type.is_sequence() || type.is_associative();
+  }
   // Generate synthetic data and metadata through the ordinary schema codec pipeline.
   void write_owning_class(auto& output, const class_node* node) {
     writer_.write_owning_class(output, node);
@@ -147,7 +159,7 @@ class managed_writer {
                                     source->get_full_name()};
       }
       for (const auto& type : field.type_name_list) {
-        const auto* node = type.resolved_node;
+        const auto* node = child_node(type);
         if (node && node->type == object_type::class_type) {
           collect_editor(static_cast<const class_node*>(node));
         }
@@ -231,8 +243,14 @@ class managed_writer {
         if (field.managed) {
           field.default_value.clear();
           for (auto& type : field.type_name_list) {
-            const auto& child = managed_for(type.resolved_node);
-            type.resolved_node = child.storage.get();
+            const auto bind = [&](auto&& recurse, serializer::type_name& value) -> void {
+              if (value.is_optional() || value.is_sequence() || value.is_associative()) {
+                recurse(recurse, value.arguments.back());
+              } else {
+                value.resolved_node = managed_for(value.resolved_node).storage.get();
+              }
+            };
+            bind(bind, type);
           }
         }
       }
@@ -307,7 +325,7 @@ class managed_writer {
           reserve_method("emplace_");
           reserve_method("edit_");
         } else if (!field.version) { reserve_method("set_"); }
-        const auto* node = field.type_name_list.front().resolved_node;
+        const auto* node = child_node(field.type_name_list.front());
         if (!field.owning_variant && (field.managed ||
             (node && node->type == object_type::class_type && field.modifier == member::modifier_type::none))) {
           if (!methods.insert(function_name(field.name)).second) {
@@ -345,8 +363,9 @@ class managed_writer {
     for (const auto& field : source->member_list) {
       if (field.transient) { continue; }
       for (const auto& type : field.type_name_list) {
-        if (type.resolved_node && type.resolved_node->type == object_type::class_type &&
-            has_inherited_field_paths(static_cast<const class_node*>(type.resolved_node), visited)) {
+        const auto* child = child_node(type);
+        if (child && child->type == object_type::class_type &&
+            has_inherited_field_paths(static_cast<const class_node*>(child), visited)) {
           return true;
         }
       }
@@ -411,7 +430,7 @@ class managed_writer {
     for (const auto& field : source->member_list) {
       if (field.owning_variant) { write_variant_editor(output, source, field); continue; }
       const auto member = field_name(field.name);
-      const auto* child = field.type_name_list.front().resolved_node;
+      const auto* child = child_node(field.type_name_list.front());
       const auto child_class = child && child->type == object_type::class_type
                                    ? static_cast<const class_node*>(child)
                                    : nullptr;
@@ -433,6 +452,17 @@ class managed_writer {
             "target.", member, " = ::std::move(value); }); }\n");
       }
       if (!child_class) {
+        continue;
+      }
+      if (wrapped_type(field)) {
+        if (field.managed) {
+          write_managed_text(output,
+              "  // Edit engaged managed descendants through their standard owning wrappers.\n  auto ",
+              function_name(field.name), "() const requires Access::is_managed { ",
+              "auto child = access_.template member<false>(&payload_type::", member,
+              "); return ::rohit::managed::detail::make_owned_editor<",
+              writer_.get_cpp_type(field), ">(::std::move(child)); }\n");
+        }
         continue;
       }
       if (field.managed) {
@@ -593,15 +623,22 @@ class managed_writer {
       }
       if (field.owning_variant) {
         for (std::size_t index{}; index < field.type_name_list.size(); ++index) {
-          const auto* type = field.type_name_list[index].resolved_node;
-          if (!type || type->type != object_type::class_type) { continue; }
           write_managed_text(output, "    if (value.", name, ".index() == ", index);
           if (copy) { write_managed_text(output, " && source.", name, ".index() == ", index); }
-          write_managed_text(output, ") { runtime_traits<", full_type_name(type), ">::",
-              copy ? "copy" : "reset", "(::std::get<", index, ">(value.", name, ")");
+          write_managed_text(output, ") { detail::",
+              copy ? "copy_owned_runtime" : "reset_owned_runtime", "(::std::get<", index, ">(value.", name, ")");
           if (copy) { write_managed_text(output, ", ::std::get<", index, ">(source.", name, ")"); }
           write_managed_text(output, "); }\n");
         }
+        continue;
+      }
+      if (wrapped_type(field)) {
+        const auto* child = child_node(field.type_name_list.front());
+        if (!child || child->type != object_type::class_type) { continue; }
+        write_managed_text(output, "    detail::", copy ? "copy_owned_runtime" : "reset_owned_runtime",
+            "(value.", name);
+        if (copy) { write_managed_text(output, ", source.", name); }
+        write_managed_text(output, ");\n");
         continue;
       }
       const auto* child = field.type_name_list.front().resolved_node;
@@ -705,8 +742,14 @@ class managed_writer {
                            to_storage ? "::std::move(" + from + ")" : from, ";\n");
         continue;
       }
+      if (wrapped_type(field)) {
+        write_managed_text(output, "    ", to,
+            " = detail::convert_owned_value<::std::remove_cvref_t<decltype(", to, ")>>(",
+            to_storage ? "::std::move(" + from + ")" : from, ");\n");
+        continue;
+      }
       const auto traits = "::rohit::managed::model_traits<" +
-                          full_type_name(field.type_name_list.front().resolved_node) + ">::";
+                          full_type_name(child_node(field.type_name_list.front())) + ">::";
       const auto function = traits + (to_storage ? "make_storage" : "clone_value");
       if (field.owning_variant) {
         write_managed_text(output, "    if (", from,
@@ -762,6 +805,9 @@ class managed_writer {
           separate_values_ ? "storage.value" : "storage"), ") {\n");
       if (!field.managed) {
         write_managed_text(output, "    visitor.value(", value, ");\n");
+      } else if (wrapped_type(field)) {
+        write_managed_text(output,
+            "    visitor.value(detail::owned_membership(", value, "));\n");
       } else if (field.owning_variant) {
         write_managed_text(output, "    visitor.value(static_cast<::std::uint64_t>(", value,
             ".index())); ::std::visit([&](const auto& child) { visitor.value(child.persistent_id); }, ",
@@ -794,12 +840,17 @@ class managed_writer {
         continue;
       }
       const auto traits = "model_traits<" +
-                          full_type_name(field.type_name_list.front().resolved_node) + ">";
+                          full_type_name(child_node(field.type_name_list.front())) + ">";
       const auto value = std::string{separate_values_ ? "storage.value." : "storage."} +
                          field_name(field.name);
       write_managed_text(output, "    if (", active_field(item.source, field,
           separate_values_ ? "storage.value" : "storage"), ") {\n");
-      if (field.owning_variant) {
+      if (wrapped_type(field)) {
+        write_managed_text(output,
+            "    { ::std::uint64_t index = 0; detail::visit_owned_children(", value,
+            ", [&](const auto& child) { visitor.edge(", field.id, "u, index++); ", traits,
+            "::visit_collaboration(child, storage.persistent_id, visitor); }); }\n");
+      } else if (field.owning_variant) {
         write_managed_text(output, "    visitor.edge(", field.id, "u, ", value, ".index());\n"
             "    ::std::visit([&](const auto& child) { using child_type = ::std::remove_cvref_t<decltype(child)>; "
             "model_traits<child_type>::visit_collaboration(child, storage.persistent_id, visitor); }, ",
@@ -891,7 +942,7 @@ class managed_writer {
       const auto method =
           field.managed && field.owning_variant ? "owned_variant" :
           field.managed ? "template owned<model_traits<" +
-                              full_type_name(field.type_name_list.front().resolved_node) + ">>"
+                              full_type_name(child_node(field.type_name_list.front())) + ">>"
                         : "value";
       write_managed_text(output, "    if (", active_field(item.source, field,
           separate_values_ ? "storage.value" : "storage"), ") { visitor.", method,
@@ -916,7 +967,7 @@ class managed_writer {
       const auto method =
           field.managed && field.owning_variant ? "owned_variant" :
           field.managed ? "template owned<model_traits<" +
-                              full_type_name(field.type_name_list.front().resolved_node) + ">>"
+                              full_type_name(child_node(field.type_name_list.front())) + ">>"
                         : "value";
       write_managed_text(output, "    if (", active_field(item.source, field,
           separate_values_ ? "current.value" : "current"), ") { merger.", method,
@@ -1008,10 +1059,13 @@ class managed_writer {
         write_managed_text(output, "    if (", active_field(item.source, field,
             separate_values_ ? "storage.value" : "storage"), ") {\n");
         const auto traits =
-            "model_traits<" + full_type_name(field.type_name_list.front().resolved_node) + ">";
+            "model_traits<" + full_type_name(child_node(field.type_name_list.front())) + ">";
         const auto value =
             std::string{separate_values_ ? "storage.value." : "storage."} + field_name(field.name);
-        if (field.owning_variant) {
+        if (wrapped_type(field)) {
+          write_managed_text(output, "    detail::visit_owned_children(", value,
+              ", [&](auto& child) { ", traits, "::visit_entities(child, visitor); });\n");
+        } else if (field.owning_variant) {
           write_managed_text(output,
               "    ::std::visit([&](auto& child) { using child_type = ::std::remove_cvref_t<decltype(child)>; "
               "model_traits<child_type>::visit_entities(child, visitor); }, ", value, ");\n");

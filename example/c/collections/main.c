@@ -21,14 +21,13 @@ static srl_buffer read_file(const char* name) {
   return result;
 }
 
-/* Read JSON, edit a typed field, and free every temporary owning value. */
+/* Read a supported payload version and free every temporary owning value. */
 int main(int argc, char** argv) {
   require(argc == 3, "Usage: main <input.json> <output.json>");
   srl_buffer input = read_file(argv[1]), canonical = {0}, json = {0};
   example_model value = {0};
   require(example_model_decode(&value, input.data, input.size, srl_json, NULL) == srl_ok,
           "Decode failed");
-  ++value.revision;
   require(example_model_encode(&value, srl_binary_none, &canonical) == srl_ok, "Encode failed");
   for (int protocol = srl_json; protocol <= srl_binary_string; ++protocol) {
     srl_buffer encoded = {0}, decoded = {0};

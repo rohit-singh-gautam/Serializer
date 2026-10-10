@@ -15,6 +15,35 @@ internal static class NavigationTest {
       var text = File.ReadAllText(model).Replace("serializer version 1;", "serializer version 1.0.0;");
       var live = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [model] = text };
       var checks = 0;
+      var optionalText = "serializer version 1.7.0; include sales/order; " +
+        "class box<T = optional<demo::order>> { public optional<T> value; } class model { " +
+        "public optional<optional<demo::order>> nested; public optional<array<demo::order>> rows; " +
+        "public optional<map<string, demo::order>> lookup; public array optional<demo::order> values; " +
+        "public map(string) optional<demo::order> entries; public array<optional<demo::order>> generic_rows; " +
+        "public function optional<demo::order> find(optional<demo::order> input) cpp { return input; }; }";
+      live[model] = optionalText;
+      for (var occurrence = optionalText.IndexOf("demo::order", StringComparison.Ordinal); occurrence >= 0;
+           occurrence = optionalText.IndexOf("demo::order", occurrence + "demo::order".Length, StringComparison.Ordinal)) {
+        for (var cursor = occurrence; cursor <= occurrence + "demo::order".Length; ++cursor) {
+          var destination = NavigationRunner.Resolve(model, cursor, false, generated, live, CancellationToken.None);
+          Require(destination.Length == 1 && File.ReadAllText(destination[0].file)
+            .Substring(destination[0].start, destination[0].end - destination[0].start) == "order",
+            "optional nested operand cursor boundaries and transitive includes");
+          ++checks;
+        }
+        Require(NavigationRunner.Resolve(model, occurrence, true, generated, live, CancellationToken.None).Length == 11,
+          "optional operand definitions in every output language");
+        ++checks;
+      }
+      var genericOptional = optionalText.IndexOf("T> value", StringComparison.Ordinal);
+      Require(NavigationRunner.Resolve(model, genericOptional, false, generated, live, CancellationToken.None)
+        .Single().start == optionalText.IndexOf("T = optional", StringComparison.Ordinal), "optional generic parameter");
+      foreach (var spelling in new[] { "optional<", "array<", "map<", "nested;", "find(", "input)" }) {
+        Require(NavigationRunner.Resolve(model, optionalText.IndexOf(spelling, StringComparison.Ordinal), false,
+          generated, live, CancellationToken.None).Length == 0, "optional constructors and fields have no type destination");
+        ++checks;
+      }
+      live[model] = text;
       foreach (var name in new[] { "demo::order", "demo::snapshot", "demo::customer" }) {
         var start = text.IndexOf(name, StringComparison.Ordinal);
         foreach (var offset in new[] { start, start + name.Length - 1, start + name.Length }) {
@@ -203,7 +232,7 @@ internal static class NavigationTest {
           }
         }
       }
-      Console.WriteLine("Visual Studio shared resolver passed: " + checks + " source/output checks, real .NET interpreter, all 11 languages, digest metadata/legacy names, dimension defaults/extents, typed magic/inferred arrays, selection endpoints, unsaved includes and cancellation.");
+      Console.WriteLine("Visual Studio shared resolver passed: " + checks + " source/output checks, real .NET interpreter, all 11 languages, digest metadata/legacy names, optional operands/signatures, dimension defaults/extents, typed magic/inferred arrays, selection endpoints, unsaved includes and cancellation.");
       return 0;
     } catch (Exception error) { Console.Error.WriteLine(error); return 1; }
   }

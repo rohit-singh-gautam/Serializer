@@ -67,6 +67,14 @@ class mobile_emitter {
   }
   // Map all fixed-width scalar types explicitly.
   std::string type(const type_name& value, bool key = false) const {
+    if (value.is_optional()) {
+      return select("Optional<", "java.util.Optional<") + type(value.arguments.front()) + ">";
+    }
+    if (value.is_sequence()) { return select("[" + type(value.arguments.front()) + "]", "MutableList<" + type(value.arguments.front()) + ">"); }
+    if (value.is_associative()) {
+      return select("[" + type(value.arguments[0], true) + ": " + type(value.arguments[1]) + "]",
+                    "MutableMap<" + type(value.arguments[0]) + ", " + type(value.arguments[1]) + ">");
+    }
     if (value.type != object_type::primitive) {
       return model.names.at(value.resolved_node);
     }
@@ -120,6 +128,9 @@ class mobile_emitter {
   }
   // Create fresh scalar defaults, with explicit full-width integer spelling.
   std::string initial(const type_name& value, std::string literal_value = {}) const {
+    if (value.is_optional()) { return select("nil", "java.util.Optional.empty()"); }
+    if (value.is_sequence()) { return select("[]", "mutableListOf()"); }
+    if (value.is_associative()) { return select("[:]", "linkedMapOf()"); }
     if (value.is_digest()) {
       const auto size = std::to_string(value.digest_extent);
       return select("[UInt8](repeating: 0, count: " + size + ")", "UByteArray(" + size + ")");
@@ -256,7 +267,8 @@ class mobile_emitter {
   }
   // Primitive Kotlin arrays avoid per-element boxing on numeric hot paths.
   bool primitive_array(const type_name& value) const {
-    return !swift && value.type == object_type::primitive && value.name != "string" && !value.is_digest();
+    return !swift && value.type == object_type::primitive && value.name != "string" &&
+           !value.is_digest() && !value.is_optional() && !value.is_sequence() && !value.is_associative();
   }
   // Map collections to owning native containers.
   std::string collection_type(const member& value) const {
@@ -293,6 +305,16 @@ class mobile_emitter {
   // Decode a fresh scalar or nested value.
   std::string read(const type_name& value, bool collection, bool key = false) const {
     const auto prefix = attempt();
+    if (value.is_optional()) {
+      return prefix + "srlReadOptional(input) { " + read(value.arguments.front(), collection) + " }";
+    }
+    if (value.is_sequence()) {
+      return prefix + "srlReadArray(input) { " + read(value.arguments.front(), true) + " }";
+    }
+    if (value.is_associative()) {
+      return prefix + "srlReadMap(input, { " + read(value.arguments[0], true, true) +
+             " }, { " + read(value.arguments[1], true) + " })";
+    }
     if (value.is_digest()) {
       return attempt() + "srlReadDigest(input, " + std::to_string(value.digest_extent) + ")";
     }
@@ -329,7 +351,42 @@ class mobile_emitter {
   // Write typed values directly; Swift map strings retain their exact byte identity.
   void write(const type_name& value, const std::string& expression, bool collection,
              bool key = false) {
-    if (value.is_digest()) {
+    if (value.is_optional()) {
+      line(attempt() + "out.beginOptional(" + expression + select(" != nil", ".isPresent") + ")");
+      const auto item = "optional" + std::to_string(indent);
+      open(select("if let " + item + " = " + expression, "if (" + expression + ".isPresent)"));
+      if (!swift) { line("val " + item + " = " + expression + ".get()"); }
+      write(value.arguments.front(), item, collection);
+      close();
+      line("out.endArray()");
+    } else if (value.is_sequence() || value.is_associative()) {
+      const auto suffix = std::to_string(indent);
+      const auto item = "item" + suffix;
+      const auto index = "index" + suffix;
+      line(attempt() + "out.beginArray(" + expression + select(".count", ".size") + ")");
+      std::string sequence = expression;
+      if (value.is_associative()) {
+        const auto& kt = value.arguments[0];
+        sequence += select(".keys.sorted { " + std::string{kt.name == "bool" ? "!$0 && $1" : kt.type == object_type::enum_type ? "$0.rawValue < $1.rawValue" : "$0 < $1"} + " }",
+                           ".keys.sortedWith(Comparator { a, b -> " + std::string{kt.name == "string" ? "srlCompareText(a, b)" : kt.type == object_type::enum_type ? "a.ordinal.compareTo(b.ordinal)" : "a.compareTo(b)"} + " })");
+      }
+      open(select("for (" + index + ", " + item + ") in (" + sequence + ").enumerated()",
+                  "for ((" + index + ", " + item + ") in " + sequence + ".withIndex())"));
+      line("out.element(" + index + ")");
+      if (value.is_associative()) {
+        line(select("if out.protocolValue == .JSON { try out.beginObject(); try out.field(0, 0, true) }",
+                    "if (out.protocol == Protocol.JSON) { out.beginObject(); out.field(0, 0, true) }"));
+        write(value.arguments[0], item, true, true);
+        line(select("if out.protocolValue == .JSON { try out.field(0, 1, false) }",
+                    "if (out.protocol == Protocol.JSON) { out.field(0, 1, false) }"));
+        write(value.arguments[1], expression + "[" + item + "]" + select("!", "!!"), true);
+        line(select("if out.protocolValue == .JSON { out.endObject() }", "if (out.protocol == Protocol.JSON) { out.endObject() }"));
+      } else {
+        write(value.arguments.front(), item, true);
+      }
+      close();
+      line("out.endArray()");
+    } else if (value.is_digest()) {
       line(attempt() + "srlWriteDigest(out, " + expression + ", " + std::to_string(value.digest_extent) + ")");
     } else if (value.type == object_type::class_type) {
       line(attempt() + expression + ".srlWrite(out)");
@@ -554,7 +611,8 @@ class mobile_emitter {
     open(select("switch entry.name", "when (entry.name)"));
     line(select("case \"key\": ", "\"key\" -> ") +
          "entryKey = " + read(map_key(value), true, true));
-    line(select("case \"value\": ", "\"value\" -> ") + "entryValue = " + read(t, true));
+    line(select("case \"value\": ", "\"value\" -> ") + "entryValue = " +
+         select(".some(" + read(t, true) + ")", read(t, true)));
     line(select("default: throw SerializerError.invalid(\"Unknown map entry field\")",
                 "else -> throw SerializerException(\"Unknown map entry field\")"));
     close();
@@ -564,12 +622,12 @@ class mobile_emitter {
     line("} else {");
     ++indent;
     line("entryKey = " + read(map_key(value), true, true));
-    line("entryValue = " + read(t, true));
+    line("entryValue = " + select(".some(" + read(t, true) + ")", read(t, true)));
     close();
     if (swift) {
       line("guard let entryKey, let entryValue else { throw SerializerError.invalid(\"Incomplete "
            "map entry\") }");
-      line("values[entryKey] = entryValue");
+      line(select("values.updateValue(entryValue, forKey: entryKey)", "values[entryKey] = entryValue"));
     } else {
       line("values[entryKey ?: throw SerializerException(\"Incomplete map entry\")] = entryValue "
            "?: throw SerializerException(\"Incomplete map entry\")");

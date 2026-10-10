@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.28)
 
-project(serializer VERSION 1.11.0 LANGUAGES CXX)
+project(serializer VERSION 1.12.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
-set(serializer_schema_language_version 1.6.0)
+set(serializer_schema_language_version 1.7.0)
 string(REPLACE "." ";" serializer_schema_language_version_components
   "${serializer_schema_language_version}")
 list(GET serializer_schema_language_version_components 0 serializer_schema_language_version_major)
@@ -336,7 +336,7 @@ if(SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
       --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_runtime>"
       --build "${PROJECT_BINARY_DIR}/generic_languages" --language all
       "--wsl-languages=${SERIALIZER_EXAMPLE_WSL_LANGUAGES}")
-  foreach(behavior_suite IN ITEMS behavior_languages native_behavior_languages)
+  foreach(behavior_suite IN ITEMS behavior_languages native_behavior_languages optional_languages)
     add_test(NAME "serializer_${behavior_suite}"
       COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/test/${behavior_suite}.py"
         --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_runtime>"
@@ -345,6 +345,12 @@ if(SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
     set_tests_properties("serializer_${behavior_suite}" PROPERTIES TIMEOUT 1800 LABELS serializer_native)
   endforeach()
   set_tests_properties(serializer_generic_languages PROPERTIES TIMEOUT 1800 LABELS serializer_native)
+  add_test(NAME serializer_optional_variant_languages
+    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/test/optional_languages.py"
+      --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_runtime>"
+      --build "${PROJECT_BINARY_DIR}/optional_variant_languages" --variant-only
+      "--wsl-languages=${SERIALIZER_EXAMPLE_WSL_LANGUAGES}")
+  set_tests_properties(serializer_optional_variant_languages PROPERTIES TIMEOUT 1800 LABELS serializer_native)
   set_tests_properties(serializer_language_examples serializer_native_codecs PROPERTIES
     TIMEOUT 1800 LABELS serializer_native)
   foreach(feature IN ITEMS history journal collaboration authentication)

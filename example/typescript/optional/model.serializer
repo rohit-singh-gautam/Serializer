@@ -1,0 +1,2 @@
+serializer version 1.7.0;
+include ../../schemas/optional/model;

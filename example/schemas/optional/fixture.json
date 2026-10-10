@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "absent": [],
+  "count": [7],
+  "nested": [[]],
+  "detail": [{"name": "owned record", "numbers": [1, 2, 3]}],
+  "numbers": [[1, 2, 3]],
+  "scores": [[{"key": "one", "value": 1}]],
+  "empty_numbers": [[]],
+  "labels": [[], ["present"], [""]],
+  "thresholds": [{"key": "missing", "value": []}, {"key": "present", "value": [0]}],
+  "result": {"value": ["generic payload"]}
+}

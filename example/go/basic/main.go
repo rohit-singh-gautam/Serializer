@@ -6,7 +6,7 @@ import (
 	"os"
 )
 
-// run edits one owning model and checks complete values using every wire protocol.
+// run reads one owning model and checks complete values using every wire protocol.
 func run() error {
 	input, err := os.ReadFile(os.Args[1])
 	if err != nil {
@@ -16,7 +16,6 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	value.Revision++
 	canonical, err := value.Encode(BINARY_NONE)
 	if err != nil {
 		return err

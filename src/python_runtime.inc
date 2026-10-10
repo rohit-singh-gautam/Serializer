@@ -150,6 +150,13 @@ class _Writer:
         if self.protocol == 0: self.data.append(125)
         elif self.protocol != 1: self.data.append(0)
         self.depth -= 1
+    def begin_optional(self, present):
+        """Write a zero/one JSON array or one explicit binary presence byte."""
+        if self.protocol == Protocol.JSON: self.data.append(91)
+        else: self.integer(int(present), 1, True)
+    def end_optional(self):
+        """Close the JSON optional after its sole payload, if present."""
+        if self.protocol == Protocol.JSON: self.data.append(93)
     def begin_array(self, count):
         """Write framing without copying the source collection."""
         if self.protocol == 0: self.data.append(91)
@@ -383,6 +390,42 @@ R"serializer(    def compact_value(self, width, prefix):
         if self.offset != len(self.data): raise ValueError('Trailing input')
 )serializer"
 R"serializer(
+def _read_optional(input, decode):
+    """Preserve each optional level and enforce depth, slot, and framing limits."""
+    input.depth += 1
+    if input.depth > input.limits.max_depth: raise ValueError('Depth limit')
+    if input.protocol == Protocol.JSON:
+        entries = input.entries()
+        if next(entries, None) is None: result = ()
+        else:
+            result = (decode(),)
+            if next(entries, None) is not None: raise ValueError('Invalid optional length')
+    else:
+        tag = input.integer(1, True)
+        if tag > 1: raise ValueError('Invalid optional tag')
+        if tag:
+            input.elements += 1
+            if input.elements > input.limits.max_elements: raise ValueError('Element limit')
+            result = (decode(),)
+        else: result = ()
+    input.depth -= 1
+    return result
+
+def _read_map(input, decode_key, decode_value):
+    """Decode generic maps using the native map-entry contract and replacement."""
+    result = {}
+    for _ in input.entries():
+        if input.protocol == Protocol.JSON:
+            has_key = has_value = False
+            for field in input.fields(()):
+                if field == 'key': key = decode_key(); has_key = True
+                elif field == 'value': value = decode_value(); has_value = True
+                else: raise ValueError('Unknown map entry field')
+            if not has_key or not has_value: raise ValueError('Incomplete map entry')
+        else: key = decode_key(); value = decode_value()
+        result[key] = value
+    return result
+
 def _write_digest(out, value, expected):
     """Store caller-provided bytes; reject a changed fixed digest extent."""
     if expected and len(value) != expected: raise ValueError('Digest length mismatch')

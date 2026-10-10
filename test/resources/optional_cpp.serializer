@@ -1,0 +1,46 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.7.0;
+
+namespace optional_cpp {
+  enum color { red, green, blue }
+  class value_record {
+    public string text;
+    public array uint32 numbers;
+  }
+  class box<T> {
+    public optional<T> value;
+  }
+  class passthrough<T> {
+    public T value;
+  }
+  class default_passthrough<T = optional<uint32>> {
+    public T value;
+  }
+  class scalar_record {
+    public optional<uint32> value;
+  }
+  class nested_record {
+    public optional<optional<uint32>> value;
+  }
+  class enum_record {
+    public optional<color> scalar;
+    public optional<optional<color>> nested;
+    public array optional<color> colors;
+    public box<color> generic;
+    public passthrough<optional<color>> plain_generic;
+    public variant (optional<color> = scalar, optional<optional<color>> = nested) choice;
+  }
+  class record {
+    public optional<uint32> scalar;
+    public optional<value_record> child;
+    public optional<array<uint32>> numbers;
+    public optional<map<string, optional<uint32>>> labels;
+    public array optional<uint32> entries;
+    public map (string) optional<value_record> lookup;
+    public box<optional<uint32>> generic;
+    public passthrough<optional<uint32>> plain_generic;
+    public passthrough<array<optional<uint32>>> collection_generic;
+    public variant (optional<uint32> = scalar, optional<value_record> = child) choice;
+  }
+}

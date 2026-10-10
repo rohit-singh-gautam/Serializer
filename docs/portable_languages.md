@@ -261,3 +261,11 @@ Rust, Python, Swift, Kotlin, and C now use the same C++ compiler and wire protoc
 See [native language APIs](native_languages.md) and [four examples per language](../example/README.md).
 The full opt-in suite expands the five-runtime subset above to all ten runtimes
 plus TypeScript, with 1,452 producer/consumer exchanges.
+
+## Optional values
+
+Language 1.7.0 and compiler/runtime 1.12.0 support `optional<T>`, including
+nested presence, record payloads, optional arrays/maps, and collections of
+optionals. See the [optional contract](optional.md) for the standard target
+representations, exact JSON/binary framing, defaults, and limits. Runnable
+[optional examples](../example/README.md#optional-values) exercise every output.

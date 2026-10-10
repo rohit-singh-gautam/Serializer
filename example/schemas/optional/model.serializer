@@ -1,0 +1,24 @@
+serializer version 1.7.0;
+
+class optional_detail {
+  public string name;
+  public array uint32 numbers;
+}
+
+class optional_result<T> {
+  public optional<T> value;
+}
+
+class example_model stable_ids {
+  public version uint32 (1) { 1 };
+  public optional<uint32> absent (2);
+  public optional<uint32> count (3);
+  public optional<optional<string>> nested (4);
+  public optional<optional_detail> detail (5);
+  public optional<array<uint32>> numbers (6);
+  public optional<map<string, uint32>> scores (7);
+  public optional<array<uint32>> empty_numbers (8);
+  public array optional<string> labels (9);
+  public map(string) optional<uint32> thresholds (10);
+  public optional_result<string> result (11);
+}

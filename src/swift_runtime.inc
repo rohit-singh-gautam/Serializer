@@ -144,6 +144,8 @@ fileprivate final class SrlWriter {
     // Finish protocol framing and leave the object.
     func endObject() { if json() { bytes.append(125) } else if protocolValue != .BINARY_NONE { bytes.append(0) }; depth -= 1 }
     // Start a collection with its actual element count.
+    // Encode optional presence with one binary byte and zero/one JSON entries.
+    func beginOptional(_ present: Bool) throws { if json() { bytes.append(91) } else { integer(present ? 1 : 0, 1, true) } }
     func beginArray(_ count: Int) throws { if json() { bytes.append(91) } else { try compact(count) } }
     // Separate JSON collection entries.
     func element(_ index: Int) { if json() && index != 0 { bytes.append(44) } }
@@ -167,8 +169,8 @@ fileprivate final class SrlReader {
     let protocolValue: Protocol
     let limits: Limits
     private var offset = 0
-    private var depth = 0
-    private var elements = 0
+    var depth = 0
+    var elements = 0
     // Share immutable array storage during a call; returned model values own their data.
     init(_ data: [UInt8], _ protocolValue: Protocol, _ limits: Limits) throws {
         guard min(limits.maxBytes, limits.maxStringBytes, limits.maxElements, limits.maxDepth) >= 0 else { throw SerializerError.invalid("Invalid limits") }
@@ -333,7 +335,38 @@ private func srlNumber(_ text: String, _ integer: Bool) -> Bool {
 }
 )serializer"
 R"serializer(
-// Store caller-provided digest bytes with the existing uint8 sequence framing.
+// Preserve each standard Optional level with depth and present-slot bounds.
+fileprivate func srlReadOptional<T>(_ input: SrlReader, _ decode: () throws -> T) throws -> Optional<T> {
+    input.depth += 1; guard input.depth <= input.limits.maxDepth else { throw SerializerError.invalid("Depth limit") }
+    let present: Bool
+    if input.json() { _ = try input.beginArray(); present = try input.nextElement(0, -1) }
+    else { let tag = try input.integer(1, true); guard tag <= 1 else { throw SerializerError.invalid("Invalid optional tag") }; present = tag != 0
+        if present { input.elements += 1; guard input.elements <= input.limits.maxElements else { throw SerializerError.invalid("Element limit") } } }
+    let result: Optional<T> = present ? .some(try decode()) : .none
+    if present && input.json() { guard try !input.nextElement(1, -1) else { throw SerializerError.invalid("Invalid optional length") } }
+    input.depth -= 1; return result
+}
+// Decode generic arrays incrementally with cumulative slot accounting.
+fileprivate func srlReadArray<T>(_ input: SrlReader, _ decode: () throws -> T) throws -> [T] {
+    let count = try input.beginArray(); var result: [T] = []
+    while try input.nextElement(result.count, count) { result.append(try decode()) }; return result
+}
+// Decode complete native map entries with exact string-key identity.
+fileprivate func srlReadMap<K: Hashable, V>(_ input: SrlReader, _ key: () throws -> K, _ value: () throws -> V) throws -> [K: V] {
+    let count = try input.beginArray(); var result: [K: V] = [:]; var index = 0
+    while try input.nextElement(index, count) {
+        let k: K; let v: V
+        if input.json() { try input.beginObject(); var cursor = 0; var entryKey: K?; var entryValue: V?
+            while let field = try input.key([], cursor) { cursor += 1
+                if field.name == "key" { entryKey = .some(try key()) }
+                else if field.name == "value" { entryValue = .some(try value()) }
+                else { throw SerializerError.invalid("Unknown map entry field") } }
+            input.endObject(); guard let decodedKey = entryKey, let decodedValue = entryValue else { throw SerializerError.invalid("Incomplete map entry") }; k = decodedKey; v = decodedValue
+        } else { k = try key(); v = try value() }
+        result.updateValue(v, forKey: k); index += 1
+    }; return result
+}
+// Store caller-provided digest bytes without calculating their value.
 fileprivate func srlWriteDigest(_ out: SrlWriter, _ value: [UInt8], _ expected: Int) throws {
     guard expected == 0 || value.count == expected else { throw SerializerError.invalid("Digest length mismatch") }
     try out.beginArray(value.count)

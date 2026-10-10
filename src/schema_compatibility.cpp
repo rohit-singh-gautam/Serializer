@@ -145,6 +145,13 @@ void collect(const std::vector<std::unique_ptr<syntax_node>>& statements, declar
 
 // Compare resolved type identities, avoiding false differences from relative type spellings.
 std::string type_identity(const type_name& type) {
+  if (type.is_optional() || type.is_sequence() || type.is_associative()) {
+    std::string result = type.name + "<";
+    for (const auto& argument : type.arguments) {
+      result += type_identity(argument) + ",";
+    }
+    return result + ">";
+  }
   if (type.is_digest()) {
     return "digest:" + std::to_string(static_cast<unsigned>(type.digest)) + ":" +
            std::to_string(type.digest_extent);

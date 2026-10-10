@@ -53,15 +53,21 @@ inline std::uint64_t managed_schema_hash(const class_node* source,
       }
     }
     for (const auto& type : field.type_name_list) {
-      add(type.get_full_name());
-      if (type.resolved_node && type.resolved_node->type == object_type::class_type) {
-        add(std::to_string(
-            managed_schema_hash(static_cast<const class_node*>(type.resolved_node), cache)));
-      } else if (type.resolved_node && type.resolved_node->type == object_type::enum_type) {
-        for (const auto& name : static_cast<const enum_node*>(type.resolved_node)->enum_name_list) {
-          add(name);
+      const auto add_type = [&](auto&& recurse, const type_name& value) -> void {
+        add(value.get_full_name());
+        if (value.resolved_node && value.resolved_node->type == object_type::class_type) {
+          add(std::to_string(
+              managed_schema_hash(static_cast<const class_node*>(value.resolved_node), cache)));
+        } else if (value.resolved_node && value.resolved_node->type == object_type::enum_type) {
+          for (const auto& name : static_cast<const enum_node*>(value.resolved_node)->enum_name_list) {
+            add(name);
+          }
         }
-      }
+        if (value.is_optional() || value.is_sequence() || value.is_associative()) {
+          for (const auto& argument : value.arguments) { recurse(recurse, argument); }
+        }
+      };
+      add_type(add_type, type);
     }
   }
   cache.emplace(source, hash);

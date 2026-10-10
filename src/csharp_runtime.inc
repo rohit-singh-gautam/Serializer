@@ -154,6 +154,8 @@ R"serializer(
     // Emit the protocol-specific object terminator.
     internal void endObject() { if (json()) raw("}"); else if (protocol != Protocol.BINARY_NONE) compact(0); --depth; }
     // Begin an array or map entry sequence.
+    // Write optional framing with one explicit binary presence byte.
+    internal void beginOptional(bool present) { if (json()) raw("["); else integer(present ? 1UL : 0UL, 1, true); }
     internal void beginArray(int count) { if (json()) raw("["); else compact(count); }
     // Separate JSON elements only.
     internal void element(int index) { if (json() && index != 0) raw(","); }
@@ -188,7 +190,8 @@ R"serializer(  /// <summary>Bounded cursor shared by nested readers; failures ex
     internal readonly Protocol protocol;
     private readonly System.ReadOnlyMemory<byte> data;
     internal readonly Limits limits;
-    private int offset, depth, elements;
+    private int offset;
+    internal int depth, elements;
     // Retain the input only for this synchronous decode call.
     internal SrlReader(System.ReadOnlyMemory<byte> data, Protocol protocol, Limits limits) {
       if (protocol < Protocol.JSON || protocol > Protocol.BINARY_STRING) throw new System.ArgumentOutOfRangeException(nameof(protocol));
@@ -346,6 +349,35 @@ R"serializer(      if (!json()) return single ? System.BitConverter.Int32BitsToS
 )serializer"
 R"serializer(
   // Store caller-provided bytes and validate the declared digest size.
+  // Preserve nested/reference optionals using the standard nullable one-value tuple.
+  private static System.ValueTuple<T>? SrlReadOptional<T>(SrlReader input, System.Func<T> decode) {
+    if (++input.depth > input.limits.MaxDepth) input.fail("Depth limit");
+    bool present;
+    if (input.json()) { input.beginArray(); present = input.nextElement(0, -1); }
+    else { ulong tag = input.integer(1, true); if (tag > 1) input.fail("Invalid optional tag"); present = tag != 0;
+      if (present && ++input.elements > input.limits.MaxElements) input.fail("Element limit"); }
+    System.ValueTuple<T>? result = present ? new System.ValueTuple<T>(decode()) : null;
+    if (present && input.json() && input.nextElement(1, -1)) input.fail("Invalid optional length");
+    --input.depth; return result;
+  }
+  // Decode generic arrays incrementally using the cumulative collection budget.
+  private static System.Collections.Generic.List<T> SrlReadArray<T>(SrlReader input, System.Func<T> decode) {
+    int count = input.beginArray(); var result = new System.Collections.Generic.List<T>();
+    for (int i = 0; input.nextElement(i, count); ++i) result.Add(decode()); return result;
+  }
+  // Decode complete native map entries and retain the last complete duplicate value.
+  private static System.Collections.Generic.Dictionary<K, V> SrlReadMap<K, V>(SrlReader input, System.Func<K> key, System.Func<V> value) where K : notnull {
+    int count = input.beginArray(); var result = new System.Collections.Generic.Dictionary<K, V>();
+    for (int i = 0; input.nextElement(i, count); ++i) {
+      K k = default!; V v = default!; bool hasKey = false, hasValue = false;
+      if (input.json()) { input.beginObject(); bool first = true;
+        while (input.nextObject(first)) { first = false; switch (input.key()) {
+          case "key": k = key(); hasKey = true; break; case "value": v = value(); hasValue = true; break; default: input.fail("Unknown map entry field"); break; } }
+        input.endObject(); if (!hasKey || !hasValue) input.fail("Incomplete map entry");
+      } else { k = key(); v = value(); } result[k] = v;
+    } return result;
+  }
+  // Store caller-provided bytes without calculating their digest.
   private static void SrlWriteDigest(SrlWriter output, byte[] value, int expected) {
     if (value == null || (expected != 0 && value.Length != expected)) { output.fail("Digest length mismatch"); return; }
     output.beginArray(value.Length);

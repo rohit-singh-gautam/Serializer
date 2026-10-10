@@ -5,7 +5,7 @@ Four standard examples and a generic example live directly under `example/kotlin
 | Folder | What it demonstrates |
 | --- | --- |
 | [generics](generics/) | Nested schema applications, typed payload edits, and all four protocols |
-| [basic](basic/) | Scalars, full-width IDs, a wire-name override, defaults, and a typed field edit |
+| [basic](basic/) | Scalars, full-width IDs, a wire-name override, defaults, and payload version validation |
 | [collections](collections/) | Typed arrays, maps, enums, Unicode, embedded NUL, and integer boundaries |
 | [complex](complex/) | An order archive spanning 13 shared schema files, nested/diamond includes, parent composition, orders, customers, inventory, payments, shipments, audit unions, and aggregate maps |
 | [interoperability](interoperability/) | Independent typed fixture construction and any-to-any exchange across all four protocols and three union alternatives |
@@ -24,7 +24,7 @@ compiles that shared contract once per example for all requested language output
 See [SDK setup and runner options](../README.md).
 
 The first three programs accept `<input.json> <output.json>`. They decode the
-independent fixture, increment `revision` through the typed model, exercise all
+independent fixture with payload version validation, exercise all
 four codecs, and write the result. The runner compares all resulting JSON data
 against the independent fixture, including exact 64-bit integers. The fourth
 program accepts `<fixtures-directory> emit|verify`; the runner supplies the
@@ -40,3 +40,9 @@ python example/generics/run.py --compiler build/serializer --language kotlin
 
 The [union and owning variant example](union_variant/) contrasts trivial raw storage
 with owning string/collection alternatives and verifies all four protocols.
+
+[Optional example](optional/README.md): standard optional values, nested
+presence, collection payloads, and all four native protocols. The basic,
+collections and complex examples
+use payload `version` metadata and preserve their supported version 1.
+Their runners verify rejection of unsupported future version 2.

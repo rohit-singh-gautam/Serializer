@@ -200,6 +200,8 @@ class SrlWriter {
   // Close the object with its native terminator.
   endObject() { if (this.json()) this.raw('}'); else if (this.protocol !== Protocol.BINARY_NONE) this.compact(0); --this.depth; }
   // Begin a collection without changing element representation.
+  // Encode optional presence without a collection count.
+  beginOptional(present) { if (this.json()) this.raw('['); else this.integer(present ? 1 : 0, 1, true); }
   beginArray(count) { if (this.json()) this.raw('['); else this.compact(count); }
   // Separate JSON entries.
   element(index) { if (this.json() && index !== 0) this.raw(','); }
@@ -380,7 +382,40 @@ function srlReadEnum(input, names, collection) {
 }
 )serializer"
 R"serializer(
-/** Store digest bytes as a uint8 sequence; hashing is caller-owned. */
+/** Preserve every optional level and account for its depth and present slot. */
+function srlReadOptional(input, decode) {
+  if (++input.depth > input.limits.maxDepth) input.fail('Depth limit');
+  let present;
+  if (input.json()) { input.beginArray(); present = input.nextElement(0, -1); }
+  else { const tag = input.integer(1, true); if (tag > 1) input.fail('Invalid optional tag'); present = tag === 1;
+    if (present && ++input.elements > input.limits.maxElements) input.fail('Element limit'); }
+  const result = present ? [decode()] : [];
+  if (present && input.json() && input.nextElement(1, -1)) input.fail('Invalid optional length');
+  --input.depth; return result;
+}
+/** Decode generic arrays incrementally using the shared slot budget. */
+function srlReadArray(input, decode) {
+  const count = input.beginArray(), result = [];
+  for (let i = 0; input.nextElement(i, count); ++i) result.push(decode());
+  return result;
+}
+/** Decode generic native maps and reject incomplete JSON entries. */
+function srlReadMap(input, key, value) {
+  const count = input.beginArray(), result = new Map();
+  for (let i = 0; input.nextElement(i, count); ++i) {
+    let k, v, hasKey = false, hasValue = false;
+    if (input.json()) { input.beginObject(); let first = true;
+      while (input.nextObject(first)) { first = false; const field = input.key();
+        if (field === 'key') { k = key(); hasKey = true; }
+        else if (field === 'value') { v = value(); hasValue = true; }
+        else input.fail('Unknown map entry field'); }
+      input.endObject(); if (!hasKey || !hasValue) input.fail('Incomplete map entry');
+    } else { k = key(); v = value(); }
+    result.set(k, v);
+  }
+  return result;
+}
+/** Store bytes without calculating their digest. */
 function srlWriteDigest(out, value, expected) {
   if (value == null || (expected !== 0 && value.length !== expected)) throw new RangeError('Digest length mismatch');
   out.beginArray(value.length);

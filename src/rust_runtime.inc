@@ -142,6 +142,8 @@ impl SrlWriter {
         self.depth -= 1; Ok(())
     }
     /// Write array length or JSON opening delimiter.
+    /// Write optional framing with a single binary presence byte.
+    fn begin_optional(&mut self, present: bool) -> SrlResult<()> { if self.json() { self.put(b"[") } else { self.integer(u64::from(present), 1, true) } }
     fn begin_array(&mut self, count: usize) -> SrlResult<()> { if self.json() { self.put(b"[") } else { self.compact(count) } }
     /// Separate JSON array entries.
     fn element(&mut self, index: usize) -> SrlResult<()> { if self.json() && index != 0 { self.put(b",")?; } Ok(()) }
@@ -349,6 +351,47 @@ fn srl_number(text: &str, integer: bool) -> bool {
 }
 )serializer"
 R"serializer(
+/// Preserve each standard Option level with bounded native framing.
+fn srl_read_optional<T>(input: &mut SrlReader, decode: impl FnOnce(&mut SrlReader) -> SrlResult<T>) -> SrlResult<Option<T>> {
+    input.depth += 1;
+    if input.depth > input.limits.max_depth { return Err(Error("Depth limit")); }
+    let present = if input.json() { input.begin_array()?; input.next_element(0, None)? }
+        else { let tag = input.integer(1, true)?; if tag > 1 { return Err(Error("Invalid optional tag")); }
+            if tag != 0 { if input.elements == input.limits.max_elements { return Err(Error("Element limit")); } input.elements += 1; } tag != 0 };
+    let result = if present { let value = decode(input)?;
+        if input.json() && input.next_element(1, None)? { return Err(Error("Invalid optional length")); }
+        Some(value) } else { None };
+    input.depth -= 1;
+    Ok(result)
+}
+/// Decode generic arrays with cumulative slot charges and fallible allocation.
+fn srl_read_array<T>(input: &mut SrlReader, mut decode: impl FnMut(&mut SrlReader) -> SrlResult<T>) -> SrlResult<Vec<T>> {
+    let count = input.begin_array()?;
+    let mut result = Vec::new();
+    while input.next_element(result.len(), count)? {
+        result.try_reserve(1).map_err(|_| Error("Array allocation"))?;
+        result.push(decode(input)?);
+    }
+    Ok(result)
+}
+/// Decode generic maps while retaining the last complete value for duplicate keys.
+fn srl_read_map<K: Ord, V>(input: &mut SrlReader, mut key: impl FnMut(&mut SrlReader) -> SrlResult<K>, mut value: impl FnMut(&mut SrlReader) -> SrlResult<V>) -> SrlResult<BTreeMap<K, V>> {
+    let count = input.begin_array()?;
+    let mut result = BTreeMap::new(); let mut index = 0;
+    while input.next_element(index, count)? {
+        let (k, v) = if input.json() {
+            input.begin_object()?; let mut cursor = 0; let mut k = None; let mut v = None;
+            while let Some(field) = input.key(&[], &mut cursor)? {
+                match field { SrlKey::Name(name) if name == "key" => k = Some(key(input)?),
+                    SrlKey::Name(name) if name == "value" => v = Some(value(input)?),
+                    _ => return Err(Error("Unknown map entry field")) }
+            }
+            input.end_object(); (k.ok_or(Error("Incomplete map entry"))?, v.ok_or(Error("Incomplete map entry"))?)
+        } else { (key(input)?, value(input)?) };
+        result.insert(k, v); index += 1;
+    }
+    Ok(result)
+}
 /// Store bytes as a uint8 sequence without computing their digest.
 fn srl_write_digest(out: &mut SrlWriter, value: &[u8], expected: usize) -> SrlResult<()> {
     if expected != 0 && value.len() != expected { return Err(Error("Digest length mismatch")); }

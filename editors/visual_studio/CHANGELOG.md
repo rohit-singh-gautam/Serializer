@@ -1,3 +1,10 @@
+# 1.1.33
+
+- Recognize schema language 1.7.0 optional<T> and nested generic array/map type operands.
+- Navigate optional element types and generic method signatures through included and unsaved schemas.
+- Add the companion VS Code optional field snippet and select language 1.7.0 in new schemas.
+- Keep both editor package versions synchronized.
+
 # 1.1.32
 
 - Highlight language 1.6 method contracts, native blocks and transient members.

@@ -1,9 +1,8 @@
 import Foundation
 
-// Read a fresh value, edit a typed field, and verify complete protocol round trips.
+// Read a fresh supported value and verify complete protocol round trips.
 let args = CommandLine.arguments
-var value = try ExampleModel.decode(Array(Data(contentsOf: URL(fileURLWithPath: args[1]))), .JSON)
-value.revision += 1
+let value = try ExampleModel.decode(Array(Data(contentsOf: URL(fileURLWithPath: args[1]))), .JSON)
 let canonical = try value.encode(.BINARY_NONE)
 for protocolValue in Protocol.allCases {
     let copy = try ExampleModel.decode(value.encode(protocolValue), protocolValue)

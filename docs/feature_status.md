@@ -119,6 +119,13 @@ and clang-cl 21.1.8 with MSVC headers. The tested cases and remaining performanc
 qualification are recorded in the [constant-evaluation guide](constant_evaluation.md#17-implemented-feature-qualification-2026-10-07).
 No universal zero-build-cost or exhaustive runtime benchmark claim is made.
 
+Language **1.7.0** and compiler/runtime **1.12.0** add
+[owning generic optionals](optional.md), with standard C++ `std::optional<T>`
+storage, nested presence, collection payloads, and native binary/JSON codecs.
+See the contract for defaults, managed behavior, and mappings, and the
+[optional qualification record](verification-optionals-2026-10-11.md) for
+executed native, all-language, managed, example, and editor checks.
+
 ## Message compression
 
 Optional C++ [message compression](compression.md) supports standard Zstandard, LZ4,
@@ -156,7 +163,7 @@ behavior remain unchanged.
 
 Language-specific output profiles select layouts and naming conventions. Schemas use
 `.serializer` and begin with a supported language header; new schemas use
-`serializer version 1.6.0;`. Older `1.5.0`, `1.4.0`, `1.3.0`, `1.2.0`, `1.1.0`, `1.0.0` and the original `1` alias remain supported.
+`serializer version 1.7.0;`. Older `1.6.0`, `1.5.0`, `1.4.0`, `1.3.0`, `1.2.0`, `1.1.0`, `1.0.0` and the original `1` alias remain supported.
 Schema language and compiler versions are independent.
 Future versions require all three components. Share declarations with `include
 common;` before any declarations. Paths are unquoted and relative to the including file;
@@ -168,7 +175,7 @@ Namespace scopes are reused during parsing; duplicate types and namespace/type c
 are rejected. See [schema includes](usage.md#share-declarations-with-includes) and the
 [paired C++/Java examples](../example/includes/README.md). Quoted defaults preserve
 literal spaces, for example `public string label { "schema default" };`; escaping the
-space is unnecessary. Run `serializer --version` for compiler version **1.11.0** and
+space is unnecessary. Run `serializer --version` for compiler version **1.12.0** and
 supported schema versions. See [command-line options](command_line.md) for
 multi-language generation and overrides.
 

@@ -641,6 +641,65 @@ template <typename T>
 inline constexpr bool json_optional = false;
 template <typename T>
 inline constexpr bool json_optional<std::optional<T>> = true;
+
+// Preserve a scalar enum's named wire representation through optional engagement levels.
+template <typename T>
+inline constexpr bool optional_enum = false;
+template <typename T>
+inline constexpr bool optional_enum<std::optional<T>> = std::is_enum_v<T> || optional_enum<T>;
+
+// Carry scalar field context without changing enum values nested inside collections.
+template <typename T>
+struct schema_named_value {
+  const T& value;
+  // Encode schema-native optional enums by name when the protocol supports that field context.
+  template <typename Protocol>
+  void serialize_out(Protocol& protocol) const {
+    if constexpr (requires { protocol.serialize_out_named_optional(value); }) {
+      protocol.serialize_out_named_optional(value);
+    } else {
+      protocol.serialize_out(value);
+    }
+  }
+};
+
+// Retain scalar field context for schema-native optional enums and custom protocol fallbacks.
+template <typename Protocol, typename T>
+void read_schema_named(Protocol& protocol, T& value) {
+  if constexpr (requires { protocol.serialize_in_named_optional(value); }) {
+    protocol.serialize_in_named_optional(value);
+  } else {
+    protocol.serialize_in(value);
+  }
+}
+
+// Concrete schema applications opt their retained generic C++ definitions into canonical values.
+template <typename Value>
+inline constexpr bool schema_optional_values = false;
+
+// Restore a protocol's optional projection when nested generated calls finish or fail.
+class schema_value_scope {
+  bool* enabled_;
+  bool previous_;
+public:
+  // Borrow the protocol flag for this synchronous encoding or decoding call.
+  explicit schema_value_scope(bool& enabled) noexcept
+      : enabled_{&enabled}, previous_{std::exchange(enabled, true)} {}
+  schema_value_scope(const schema_value_scope&) = delete;
+  // Reinstate the enclosing value contract without throwing during stack unwinding.
+  ~schema_value_scope() { *enabled_ = previous_; }
+};
+
+// Enable canonical schema values on supporting protocols; custom codecs keep their hooks.
+template <bool Enabled = true, typename Protocol>
+auto enter_schema_values(Protocol& protocol) {
+  if constexpr (Enabled && requires { protocol.schema_values(); }) {
+    return protocol.schema_values();
+  } else {
+    struct empty_scope {};
+    return empty_scope{};
+  }
+}
 } // namespace detail
 
 // Select the generated object's storage; values also form a generator mode mask.
@@ -652,6 +711,7 @@ class json;
 
 template <rohit::type_check::input_buffer Stream, read_policy ReadPolicy>
 class json<serialize_type::in, Stream, ReadPolicy> : public detail::decoder_input<Stream> {
+  bool schema_values_{};
 protected:
   using base = detail::decoder_input<Stream>;
   using base::available_input;
@@ -675,6 +735,8 @@ public:
   static constexpr read_policy policy = ReadPolicy;
   using base::base;
   using base::enter_object;
+  // Preserve every optional engagement level in schema-generated JSON.
+  auto schema_values() noexcept { return detail::schema_value_scope{schema_values_}; }
   using stream_type = Stream;
   template <rohit::type_check::input_buffer OtherStream>
   using rebind_stream = json<serialize_type::in, OtherStream, ReadPolicy>;
@@ -1012,7 +1074,21 @@ public:
     charge_work();
     skip_whitespace();
     if constexpr (detail::json_optional<T>) {
-      if (peek() == 'n') {
+      if (schema_values_) {
+        auto nesting = enter_object();
+        check_and_increase('[');
+        skip_whitespace();
+        T candidate{};
+        if (peek() != ']') {
+          check_collection(1, sizeof(typename T::value_type));
+          typename T::value_type replacement{};
+          serialize_in(replacement);
+          candidate.emplace(std::move(replacement));
+          skip_whitespace();
+        }
+        check_and_increase(']');
+        value = std::move(candidate);
+      } else if (peek() == 'n') {
         std::nullptr_t empty{};
         serialize_in(empty);
         value.reset();
@@ -1335,10 +1411,14 @@ public:
 
 template <bool beautify, rohit::type_check::output_buffer Stream = stream>
 class json_out : public json_formatter<beautify, Stream> {
+  bool schema_values_{};
 public:
   constexpr static serialize_key_type key_type = serialize_key_type::string;
   static constexpr bool is_json = true;
   static constexpr wire_format format = wire_format::json;
+
+  // Keep standalone runtime optional JSON compatible while schema values use [] and [value].
+  auto schema_values() noexcept { return detail::schema_value_scope{schema_values_}; }
 
 public:
   // Opt generated plain ASCII names into prequoted output; escaping stays on the dynamic path.
@@ -1442,7 +1522,11 @@ public:
   template <typename T>
   void serialize_out(const T& value) {
     if constexpr (detail::json_optional<T>) {
-      if (value) {
+      if (schema_values_) {
+        write_bracket_open();
+        if (value) { serialize_out(*value); }
+        write_bracket_close();
+      } else if (value) {
         serialize_out(*value);
       } else {
         serialize_out(nullptr);
@@ -1561,6 +1645,7 @@ template <serialize_key_type KeyType, std::endian WireEndian = std::endian::litt
           read_policy ReadPolicy = read_policy::strict>
 class binary_in_base : public detail::decoder_input<Stream> {
 protected:
+  bool schema_values_{};
   using base = detail::decoder_input<Stream>;
   using base::available_input;
   using base::can_read_batch;
@@ -1594,6 +1679,9 @@ public:
                 "Binary storage requires little-endian or big-endian byte order");
   using base::base;
   using base::enter_object;
+
+  // Inherit schema-native value context through nested generated objects.
+  auto schema_values() noexcept { return detail::schema_value_scope{schema_values_}; }
 
 protected:
   // Strict decoding validates before replacing or borrowing text; unchecked removes the scan.
@@ -1691,6 +1779,35 @@ public:
     }
   }
 
+  // Stage every optional level while retaining a scalar enum's string-key spelling.
+  template <typename T>
+  void serialize_in_named_optional(T& value) {
+    if constexpr (detail::optional_enum<T>) {
+      if (schema_values_) {
+        charge_work();
+        auto nesting = enter_object();
+        const auto tag = *read_bytes(sizeof(std::uint8_t));
+        if (tag > 1) {
+          throw exception::bad_input_data{in_stream, "Invalid binary optional tag", limits.diagnostics};
+        }
+        T candidate{};
+        if (tag == 1) {
+          check_collection(1, sizeof(typename T::value_type));
+          typename T::value_type replacement{};
+          if constexpr (std::is_enum_v<typename T::value_type>) {
+            serialize_in_named_enum(replacement);
+          } else {
+            serialize_in_named_optional(replacement);
+          }
+          candidate.emplace(std::move(replacement));
+        }
+        value = std::move(candidate);
+        return;
+      }
+    }
+    serialize_in(value);
+  }
+
   // Decode adjacent positional fields with one range/budget check and one cursor/accounting update.
   // Input must be independent of the destinations. Any failed preflight retains scalar failure behavior.
   template <detail::binary_fixed_scalar... Values>
@@ -1714,7 +1831,21 @@ public:
   template <typename T>
   void serialize_in(T& value) {
     charge_work();
-    if constexpr (std::same_as<T, char>) {
+    if constexpr (detail::json_optional<T>) {
+      auto nesting = enter_object();
+      const auto tag = *read_bytes(sizeof(std::uint8_t));
+      if (tag > 1) {
+        throw exception::bad_input_data{in_stream, "Invalid binary optional tag", limits.diagnostics};
+      }
+      T candidate{};
+      if (tag == 1) {
+        check_collection(1, sizeof(typename T::value_type));
+        typename T::value_type replacement{};
+        serialize_in(replacement);
+        candidate.emplace(std::move(replacement));
+      }
+      value = std::move(candidate);
+    } else if constexpr (std::same_as<T, char>) {
       value = static_cast<char>(*read_bytes(sizeof(char)));
     } else if constexpr (std::same_as<T, bool>) {
       require_input(1);
@@ -1920,10 +2051,33 @@ public:
 
 protected:
   Stream& out_stream;
+  bool schema_values_{};
 
 public:
   // Initialize this object from the supplied storage or value state.
   binary_out_base(Stream& out_stream) : out_stream{out_stream} {}
+
+  // Inherit schema-native value context through nested generated objects.
+  auto schema_values() noexcept { return detail::schema_value_scope{schema_values_}; }
+
+  // Preserve named scalar enum payloads through optionals; collection payloads remain ordinal.
+  template <typename T>
+  void serialize_out_named_optional(const T& value) {
+    if constexpr (detail::optional_enum<T>) {
+      if (schema_values_) {
+        out_stream.append(static_cast<std::uint8_t>(value.has_value()));
+        if (value) {
+          if constexpr (std::is_enum_v<typename T::value_type>) {
+            serialize_out(detail::enum_name(*value));
+          } else {
+            serialize_out_named_optional(*value);
+          }
+        }
+        return;
+      }
+    }
+    serialize_out(value);
+  }
 
   // Write the schema's exact fixed prefix without adding a string length or terminator.
   void serialize_magic(std::string_view bytes) {
@@ -2158,7 +2312,10 @@ public:
   // Byte writes follow the stream reservation policy; later failures can leave prior output.
   template <typename T>
   void serialize_out(const T& value) {
-    if constexpr (std::is_same_v<char, T> || std::is_same_v<bool, T>) {
+    if constexpr (detail::json_optional<T>) {
+      out_stream.append(static_cast<std::uint8_t>(value.has_value()));
+      if (value) { serialize_out(*value); }
+    } else if constexpr (std::is_same_v<char, T> || std::is_same_v<bool, T>) {
       out_stream.append(static_cast<std::uint8_t>(value));
     } else if constexpr (std::is_enum_v<T>) {
       if constexpr (requires { serializer_enum_valid(value); }) {

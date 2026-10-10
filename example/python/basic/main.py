@@ -7,7 +7,6 @@ from schema import ExampleModel, Protocol
 def main():
     """Check complete positional bytes after each protocol round trip."""
     value = ExampleModel.decode(Path(sys.argv[1]).read_bytes(), Protocol.JSON)
-    value.revision += 1
     canonical = value.encode(Protocol.BINARY_NONE)
     for protocol in Protocol:
         copy = ExampleModel.decode(value.encode(protocol), protocol)

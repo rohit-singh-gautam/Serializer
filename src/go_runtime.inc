@@ -185,6 +185,8 @@ func srlMakeField(name string) srlField {
 // endObject emits the required terminator.
 func (out *srlWriter) endObject() { if out.json() { out.raw("}") } else if out.protocol != BINARY_NONE { out.compact(0) }; out.depth-- }
 // beginArray writes collection framing.
+// beginOptional stores one binary presence byte or starts its canonical JSON array.
+func (out *srlWriter) beginOptional(present bool) { if out.json() { out.raw("[") } else { var tag uint64; if present { tag = 1 }; out.integer(tag, 1, true) } }
 func (out *srlWriter) beginArray(count int) { if out.json() { out.raw("[") } else { out.compact(count) } }
 // element separates JSON entries.
 func (out *srlWriter) element(index int) { if out.json() && index != 0 { out.raw(",") } }
@@ -369,7 +371,35 @@ func srlReadEnum(in *srlReader, names []string, collection bool) int {
 var _ = sort.Slice
 )serializer"
 R"serializer(
-// Store digest bytes without computing a hash during serialization.
+// srlReadOptional preserves pointer nesting and charges depth plus the present slot.
+func srlReadOptional[T any](in *srlReader, decode func() T) *T {
+  in.depth++; if in.depth > in.limits.MaxDepth { in.fail("Depth limit"); return nil }
+  var present bool
+  if in.json() { in.beginArray(); present = in.nextElement(0, -1) } else {
+    tag := in.integer(1, true); if tag > 1 { in.fail("Invalid optional tag"); return nil }; present = tag != 0
+    if present { in.elements++; if in.elements > in.limits.MaxElements { in.fail("Element limit"); return nil } }
+  }
+  var result *T
+  if present && in.err == nil { value := decode(); result = &value; if in.json() && in.nextElement(1, -1) { in.fail("Invalid optional length") } }
+  in.depth--; return result
+}
+// srlReadArray decodes generic collection entries without eager declared capacity.
+func srlReadArray[T any](in *srlReader, decode func() T) []T {
+  count := in.beginArray(); result := make([]T, 0)
+  for i := 0; in.nextElement(i, count); i++ { result = append(result, decode()) }; return result
+}
+// srlReadMap validates complete JSON entries and replaces duplicate map values.
+func srlReadMap[K comparable, V any](in *srlReader, key func() K, value func() V) map[K]V {
+  count := in.beginArray(); result := make(map[K]V)
+  for i := 0; in.nextElement(i, count); i++ {
+    var k K; var v V; hasKey, hasValue := false, false
+    if in.json() { in.beginObject(); first := true
+      for in.nextObject(first) { first = false; switch in.key() { case "key": k = key(); hasKey = true; case "value": v = value(); hasValue = true; default: in.fail("Unknown map entry field") } }
+      in.endObject(); if !hasKey || !hasValue { in.fail("Incomplete map entry") }
+    } else { k = key(); v = value() }; result[k] = v
+  }; return result
+}
+// srlWriteDigest writes caller-supplied digest bytes.
 func srlWriteDigest(out *srlWriter, value []byte, expected int) {
   if expected != 0 && len(value) != expected { out.fail("Digest length mismatch"); return }
   out.beginArray(len(value))

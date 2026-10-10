@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <cstring>
 #include <limits>
+#include <optional>
 #include <span>
 #include <stdexcept>
 #include <string>
@@ -417,7 +418,10 @@ public:
 
   // Encode the recursively eligible value without ever copying aggregate object layout.
   template <class Value> constexpr void serialize_out(const Value& value) {
-    if constexpr (std::same_as<Value, char> || std::same_as<Value, bool> ||
+    if constexpr (requires { typename Value::value_type; value.has_value(); value.value(); }) {
+      sink_.put_u8(static_cast<std::uint8_t>(value.has_value()));
+      if (value) { serialize_out(*value); }
+    } else if constexpr (std::same_as<Value, char> || std::same_as<Value, bool> ||
                   std::same_as<Value, std::uint8_t>) {
       sink_.put_u8(static_cast<std::uint8_t>(value));
     } else if constexpr (std::is_enum_v<Value>) {

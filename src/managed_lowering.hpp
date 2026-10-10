@@ -56,9 +56,13 @@ class managed_lowering {
             "Managed persistent_id name and field ID 1073741823 are reserved"};
       }
       for (const auto& type : field.type_name_list) {
-        if (type.resolved_node && type.resolved_node->type == object_type::class_type) {
-          validate(static_cast<const class_node*>(type.resolved_node));
-        }
+        const auto check = [&](auto&& recurse, const type_name& value) -> void {
+          if (value.resolved_node && value.resolved_node->type == object_type::class_type) {
+            validate(static_cast<const class_node*>(value.resolved_node));
+          }
+          for (const auto& argument : value.arguments) { recurse(recurse, argument); }
+        };
+        check(check, type);
       }
     }
     visiting_.erase(node);
@@ -162,9 +166,13 @@ class managed_lowering {
       for (auto& field : object.member_list) {
         field.key_node = remap(field.key_node);
         for (auto& type : field.type_name_list) {
-          type.declared_namespace = remap(type.declared_namespace);
-          type.defined_namespace = remap(type.defined_namespace);
-          type.resolved_node = remap(type.resolved_node);
+          const auto bind = [&](auto&& recurse, type_name& value) -> void {
+            value.declared_namespace = remap(value.declared_namespace);
+            value.defined_namespace = remap(value.defined_namespace);
+            value.resolved_node = remap(value.resolved_node);
+            for (auto& argument : value.arguments) { recurse(recurse, argument); }
+          };
+          bind(bind, type);
         }
       }
     }

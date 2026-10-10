@@ -1219,3 +1219,19 @@ version-two records, memory-stream APIs, and full-Save history behavior are unch
 `managed_journal_stream.hpp` adds bounded frame helpers for buffers and iostreams;
 see [usage](docs/usage.md#file-streams-and-journal-records) for explicit synchronization
 and borrowed-payload lifetimes. No database backend is introduced.
+
+## Generic optionals (10 October 2026)
+
+Compiler/runtime **1.12.0** supports language **1.7.0** `optional<T>` using
+C++ `std::optional<T>` directly, including nested and collection payloads.
+Existing schemas and their native formats remain supported. Existing user
+declarations named `optional` retain precedence over the built-in generic.
+Use a `1.7.0` header in every file that declares the new built-in syntax.
+
+Replacing a released scalar or a manually encoded presence/value pair with an
+optional changes its wire layout. Retain old layouts and use explicit payload
+revision conversion; the compatibility checker reports presence and inner-type
+changes. Schema optional JSON is `[]`/`[value]`, preserving nested absence.
+Legacy standalone C++ JSON optional generic arguments retain `null`/value
+semantics. Direct Protobuf mappings and view/packed profiles reject the new
+built-in type. See the [full contract](docs/optional.md).

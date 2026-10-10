@@ -39,6 +39,10 @@ void validate_compact_member(const rohit::type_check::schema_input_buffer auto& 
 void validate_digest_member(const rohit::type_check::schema_input_buffer auto& input,
                             const class_node& owner, const member& field);
 
+// Check the owning profile and defaults for recursive built-in generic value types.
+void validate_optional_member(const rohit::type_check::schema_input_buffer auto& input,
+                              const class_node& owner, const member& field);
+
 // Lower concrete contracts once while retaining validated native C++ template definitions.
 template <typename Input>
 class generic_lowering {
@@ -56,6 +60,13 @@ class generic_lowering {
 
   // Produce a canonical schema identity, independent of generated names and namespace spelling.
   std::string identity(const type_name& type) const {
+    if (type.is_optional() || type.is_sequence() || type.is_associative()) {
+      std::string result = type.name + "<";
+      for (const auto& argument : type.arguments) {
+        result += identity(argument) + ",";
+      }
+      return result + ">";
+    }
     if (type.is_digest()) {
       return "digest:" + std::to_string(static_cast<unsigned>(type.digest)) + ":" +
              std::to_string(type.digest_extent);
@@ -177,6 +188,37 @@ class generic_lowering {
     type.application = false;
   }
 
+  // Recognize only unshadowed generic syntax and keep each included file's language contract.
+  bool bind_builtin(type_name& type, const syntax_node* declaration) const {
+    if ((declaration && !type.is_optional() && !type.is_sequence() && !type.is_associative()) ||
+        !type.application ||
+        (type.name != "optional" && type.name != "array" && type.name != "map")) {
+      return false;
+    }
+    if (!type.optional_language_supported) {
+      throw exception::bad_member_type{input,
+          "Built-in optional and collection type arguments require serializer version 1.7.0 or newer"};
+    }
+    const std::size_t required_arguments = type.name == "map" ? 2 : 1;
+    if (type.arguments.size() != required_arguments) {
+      throw exception::bad_member_type{input, "Incorrect built-in generic argument count: " + type.name};
+    }
+    type.type = object_type::primitive;
+    type.declared_namespace = nullptr;
+    return true;
+  }
+
+  // Restrict map keys to the same portable scalar and enum contract as ordinary maps.
+  void validate_builtin_key(const type_name& type, bool dependent) const {
+    if (!type.is_associative()) { return; }
+    const auto& key = type.arguments.front();
+    if (dependent && key.type == object_type::unresolved) { return; }
+    if (key.is_optional() || key.is_sequence() || key.is_associative() || key.is_digest() ||
+        key.type == object_type::class_type || key.name == "float" || key.name == "double") {
+      throw exception::bad_member_type{input, "Generic map keys require a portable scalar or enum"};
+    }
+  }
+
   // Validate generic bodies even when unused; dependent constraints are checked after substitution.
   void validate_expression(type_name& type, const class_node& owner) const {
     if (type.kind == generic_argument_kind::dimension) {
@@ -201,6 +243,13 @@ class generic_lowering {
       return;
     }
     auto* node = find_declared_type(type.name, type.declared_namespace, visible);
+    if (bind_builtin(type, node)) {
+      for (auto& argument : type.arguments) {
+        validate_expression(argument, owner);
+      }
+      validate_builtin_key(type, true);
+      return;
+    }
     const auto* object = node && node->type == object_type::class_type
                              ? static_cast<const class_node*>(node)
                              : nullptr;
@@ -252,7 +301,8 @@ class generic_lowering {
     if (type.kind == generic_argument_kind::dimension) {
       throw exception::bad_member_type{input, "Type/value kind mismatch: expected type"};
     }
-    if (type.type == object_type::primitive) { return; }
+    if (type.type == object_type::primitive &&
+        !type.is_optional() && !type.is_sequence() && !type.is_associative()) { return; }
     if (const auto found = bindings.find(type.name); found != bindings.end()) {
       if (found->second.kind != generic_argument_kind::type) {
         throw exception::bad_member_type{input, "Type/value kind mismatch: expected type"};
@@ -266,6 +316,20 @@ class generic_lowering {
       return;
     }
     auto* node = find_declared_type(type.name, type.declared_namespace, visible);
+    if (bind_builtin(type, node)) {
+      for (auto& argument : type.arguments) {
+        resolve(argument, bindings, depth + 1);
+        if (argument.resolved_node && argument.type == object_type::class_type) {
+          const auto& object = static_cast<const class_node&>(*argument.resolved_node);
+          if (incomplete.contains(object.get_full_name()) ||
+              object.storage_modes != static_cast<std::uint8_t>(storage_mode::owning)) {
+            throw exception::bad_member_type{input, "Built-in generic arguments require finite owning types"};
+          }
+        }
+      }
+      validate_builtin_key(type, false);
+      return;
+    }
     const auto* definition = node && node->type == object_type::class_type
                                  ? static_cast<const class_node*>(node)
                                  : nullptr;
@@ -431,6 +495,7 @@ class generic_lowering {
       normalize_inferred_constants(input, field);
       validate_compact_member(input, field, false);
       validate_digest_member(input, object, field);
+      validate_optional_member(input, object, field);
       if (field.modifier == member::modifier_type::map) {
         type_name key{std::string{field.key}, field.type_name_list.front().declared_namespace};
         // Generic bodies were bound lexically at declaration, including qualified map keys.
@@ -521,6 +586,7 @@ class generic_lowering {
               }
               validate_compact_member(input, field, true);
               validate_digest_member(input, object, field);
+              validate_optional_member(input, object, field);
               if (field.modifier == member::modifier_type::map) {
                 type_name key{std::string{field.key}, object.parent_namespace};
                 validate_expression(key, object);
@@ -545,6 +611,9 @@ class generic_lowering {
               throw exception::bad_class{input, "instantiate requires a generic type application"};
             }
             resolve(target, {}, 0);
+            if (!target.resolved_node || target.type != object_type::class_type) {
+              throw exception::bad_class{input, "instantiate requires a generated generic class"};
+            }
             const auto& source = static_cast<const class_node&>(*target.resolved_node);
             object.attributes = source.attributes;
             object.member_list = source.member_list;
@@ -612,6 +681,12 @@ inline bool contains_generics(const std::vector<std::unique_ptr<syntax_node>>& n
           if (type.application) {
             return true;
           }
+        }
+      }
+      for (const auto& method : object.functions) {
+        if (method.return_type.application) { return true; }
+        for (const auto& parameter : method.parameters) {
+          if (parameter.type.application) { return true; }
         }
       }
     }

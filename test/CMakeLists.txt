@@ -1,6 +1,6 @@
 set(schemas)
 foreach(fixture IN ITEMS enum person test1 array map variable assessment views storage_reuse
-    fixed_fields constant_names includes wire_compatibility generics dimensions versioning magic typed_magic inferred_arrays compact_fields digests owning_variants owning_variant_cpp)
+    fixed_fields constant_names includes wire_compatibility generics dimensions versioning magic typed_magic inferred_arrays compact_fields digests owning_variants owning_variant_cpp optional_cpp)
   list(APPEND schemas "${CMAKE_CURRENT_SOURCE_DIR}/resources/${fixture}.serializer")
 endforeach()
 
@@ -10,6 +10,8 @@ add_executable(core_serializer_test
   digest_test.cpp
   digest_schema_test.cpp
   digest_codec_test.cpp
+  optional_schema_test.cpp
+  optional_codec_test.cpp
   command_line_test.cpp
   stream_boundary_test.cpp
   string_stream_test.cpp
@@ -215,8 +217,41 @@ if(Python3_Interpreter_FOUND)
     COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/digest_languages.py"
       --compiler "$<TARGET_FILE:serializer>" --language python
       --build "${CMAKE_CURRENT_BINARY_DIR}/digest_python")
+  add_test(NAME serializer_optional_python
+    COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/optional_languages.py"
+      --compiler "$<TARGET_FILE:serializer>" --language python
+      --build "${CMAKE_CURRENT_BINARY_DIR}/optional_python")
 endif()
 if(SERIALIZER_BUILD_MANAGED)
+  foreach(profile IN ITEMS direct separate)
+    add_executable(managed_optional_${profile}_test managed_optional_test.cpp)
+    set(optional_managed_config)
+    if(profile STREQUAL "separate")
+      set(optional_managed_config CONFIG resources/managed_separate.ini)
+    endif()
+    serializer_generate(TARGET managed_optional_${profile}_test
+      SCHEMAS resources/optional_managed.serializer ${optional_managed_config}
+      OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/optional_${profile}")
+    target_link_libraries(managed_optional_${profile}_test PRIVATE Serializer::managed GTest::gtest_main)
+    if(MSVC)
+      target_compile_options(managed_optional_${profile}_test PRIVATE /W4 /WX)
+    else()
+      target_compile_options(managed_optional_${profile}_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_test(NAME managed_optional_${profile}_test COMMAND managed_optional_${profile}_test)
+  endforeach()
+  add_executable(managed_optional_recovery_helper managed_optional_recovery_helper.cpp)
+  serializer_generate(TARGET managed_optional_recovery_helper SCHEMAS resources/optional_managed.serializer
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/optional_recovery")
+  target_link_libraries(managed_optional_recovery_helper PRIVATE Serializer::managed)
+  find_package(Python3 COMPONENTS Interpreter QUIET)
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME managed_optional_recovery_test
+      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/managed_optional_recovery_test.py"
+        --helper "$<TARGET_FILE:managed_optional_recovery_helper>"
+        --directory "${CMAKE_CURRENT_BINARY_DIR}/optional_recovery_journals")
+    set_tests_properties(managed_optional_recovery_test PROPERTIES TIMEOUT 120)
+  endif()
   set(dimension_history_targets)
   set(dimension_history_configs)
   set(dimension_history_directories)
@@ -360,6 +395,10 @@ if(SERIALIZER_BUILD_MANAGED)
   add_test(NAME managed_history_allocation_failure_test COMMAND managed_history_allocation_failure_test)
   set_tests_properties(managed_history_allocation_failure_test PROPERTIES TIMEOUT 60)
 endif()
+add_test(NAME serializer_optional_c
+  COMMAND "${CMAKE_COMMAND}" "-DGENERATOR=$<TARGET_FILE:serializer>"
+    "-DDIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/optional_c" "-DSOURCE=${CMAKE_CURRENT_SOURCE_DIR}"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/optional_c.cmake")
 add_test(NAME serializer_native_cli
   COMMAND "${CMAKE_COMMAND}" "-DGENERATOR=$<TARGET_FILE:serializer>"
     "-DDIRECTORY=${CMAKE_CURRENT_BINARY_DIR}/native_cli"

@@ -33,7 +33,7 @@ void verify(const example_model& value) {
     throw std::runtime_error{"Value mismatch"};
   }
 }
-// Read JSON, edit a typed field, and exercise all four native protocols.
+// Read a supported payload version and exercise all four native protocols.
 int main(int argc, char** argv) {
   try {
     if (argc != 3) {
@@ -45,7 +45,6 @@ int main(int argc, char** argv) {
     }
     const std::string bytes{std::istreambuf_iterator<char>{input}, {}};
     auto value = decode<rohit::serializer::json>(bytes);
-    ++value.revision;
     verify<rohit::serializer::json>(value);
     verify<rohit::serializer::binary_none>(value);
     verify<rohit::serializer::binary_integer>(value);

@@ -79,6 +79,8 @@ void validate_identifier(std::string_view value, std::string_view reserved) {
 }
 // Fixed-width values have an input lower bound usable before reserving collections.
 int width(const type_name& value) {
+  if (value.is_optional()) { return 1; }
+  if (value.is_sequence() || value.is_associative()) { return 0; }
   if (value.is_digest()) { return 0; }
   if (value.type != object_type::primitive || value.name == "string") {
     return 0;
@@ -213,6 +215,21 @@ void schema::collect(const std::vector<std::unique_ptr<syntax_node>>& values,
     nodes.push_back(value.get());
   }
 }
+// Validate generic containers using the same scalar-key contract as field-level maps.
+static void validate_generic_shape(const type_name& value) {
+  if (value.is_associative()) {
+    const auto& key = value.arguments[0];
+    if ((key.type != object_type::primitive && key.type != object_type::enum_type) ||
+        key.name == "float" || key.name == "double" || key.is_digest() ||
+        key.is_optional() || key.is_sequence() || key.is_associative() ||
+        key.name.starts_with("version")) {
+      throw std::invalid_argument{"Generic maps require integral, boolean, string, or enum keys"};
+    }
+  }
+  for (const auto& argument : value.arguments) {
+    validate_generic_shape(argument);
+  }
+}
 // Reject unsupported shapes before emitting code in any of the new languages.
 schema::schema(const std::vector<std::unique_ptr<syntax_node>>& statements) {
   keys.emplace("key", 0);
@@ -259,6 +276,7 @@ schema::schema(const std::vector<std::unique_ptr<syntax_node>>& statements) {
         }
       }
       for (const auto& alternative : field.type_name_list) {
+        validate_generic_shape(alternative);
         if (alternative.resolved_node == node &&
             (field.modifier == member::modifier_type::none ||
              field.modifier == member::modifier_type::variant || field.fixed_extent != 0)) {
