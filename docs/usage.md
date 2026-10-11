@@ -23,8 +23,10 @@ and their [qualification](verification-deferred-features-2026-10-11.md).
 For schema language 1.8 value construction, named generic factories, typed
 structured defaults, and passive transient layout hints, follow the runnable
 [construction guide](construction.md). These declarations retain ordinary
-default decoding and add no serialized executable state. See
-[the current qualification](verification-integration-enhancements-2026-10-11.md)
+default decoding and add no serialized executable state. A schema constructor
+automatically retains the public C++ default constructor; default arguments to
+the parameterized constructor remain separate and cannot use class type
+parameters. See [the current qualification](verification-integration-enhancements-2026-10-11.md)
 for executed checks and backend limits.
 
 Serializer — **State Framework** provides generated serialization codecs and a

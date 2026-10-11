@@ -41,6 +41,14 @@ profile. C++ and Rust use owner-qualified static functions, Go uses
 belong to the companion object. Private/protected construction is nonpublic
 where the backend can express it; C cannot enforce schema access.
 
+C++ schema constructors also generate a public defaulted zero-argument
+constructor, so no separate schema `constructor()` or native `owner() = default;`
+declaration is needed. Default construction initializes fresh schema field
+defaults; it does not supply default arguments to a parameterized constructor.
+Opaque constructors inside `cpp { ... }` remain verbatim and alone do not trigger
+that generated declaration. Retaining a native parameterized constructor may
+therefore still require an explicit native default constructor under C++ rules.
+
 Assignments accept a parameter, a checked scalar/string/enum literal, or
 `default(factory_name)` on an owning generated record. Record fields can select
 the same public zero-argument factory with `default(factory_name)` after their
@@ -49,8 +57,12 @@ the selected default; present fields still use their ordinary codecs. Choosing
 a different default can change the meaning of an omitted field, so review
 compatibility before changing defaults in a released schema.
 
-C++ takes parameters by value and moves them into their bound fields. Rust and
-Swift use native value semantics. Reference-based backends assign native
+C++ takes parameters by value, delegates to the default constructor, and then
+move-assigns them into their bound fields. The owner must be default-constructible
+using its field/base initializers, and bound fields must support assignment;
+verify those requirements when migrating native
+member-initializer construction. Rust and Swift use native value semantics.
+Reference-based backends assign native
 references; callers must transfer their ownership discipline or explicitly copy
 an argument if they intend independent mutation. This does not provide a new
 deep-copy API. C moves bound owned pointer arguments once after allocations
@@ -147,9 +159,11 @@ modifier-based variable arrays, maps, or variants to construction bindings.
 Parameter defaults use `= literal` or `= default(factory_name)` on a concrete
 owning record. All parameters after the first default must have defaults.
 Scalar/string/enum defaults use the existing checked literal rules; record
-defaults select an existing public zero-argument factory. Independent generic
-input parameters and fixed-array parameters cannot have defaults. Record
-defaults construct a fresh value on every invocation, including Python; no
+defaults select an existing public zero-argument factory. Class type parameters,
+independent generic input parameters and fixed-array parameters cannot have
+defaults. A generic `Value input = {}` or `Value input = default(factory)` rejects
+even when `Value` has a class template default. Record defaults construct a fresh
+value on every invocation, including Python; no
 shared mutable default is introduced.
 
 Every backend emits named default overloads

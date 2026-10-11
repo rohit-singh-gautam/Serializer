@@ -88,6 +88,23 @@ backend-dependent; qualify size/alignment on the selected compiler.
 C++ managed lowering retains ordinary-field construction in both storage
 profiles; construct managed child occurrences through transaction APIs.
 
+When replacing native C++ constructors on owning models with schema
+`constructor(...)` declarations, rely on the generated public default
+constructor. Do not add a zero-argument schema `constructor()` or duplicate
+native `owner() = default;`.
+Default construction initializes fresh schema field defaults; it does not make
+arguments to a parameterized constructor optional. Language `1.11.0` supports
+trailing checked literal or `default(factory)` parameter defaults for concrete
+types, but rejects defaults on class type parameters, independent generic input
+types and fixed arrays. A generic `Value input = {}` or
+`Value input = default(factory)` is unsupported even when `Value` has a class
+template default. Keep native construction when the exact unsupported call
+signature is required. Generated C++ constructors default-construct the owner
+and then move-assign bound parameters, so verify the owner's default construction
+and bound-field assignment when migrating native member-initializer construction. Opaque
+`cpp { ... }` constructors alone do not trigger a generated default-constructor
+declaration; preserve any native default constructor required by C++ there.
+
 Use [class-specific comparisons](../../../docs/record_comparisons.md) to generate
 memberwise equality and lexicographic ordering through
 `[language.class.source::qualified_name]` INI sections. Select durable/base values

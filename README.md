@@ -88,6 +88,9 @@ and empty transient layout hints](docs/construction.md), owning generic
 division and `math.sqrt/sin/cos` [expressions](docs/behavior.md). Typed readonly
 predicates add exact integer/enum checks, member/index access and bounded `all`/`any`
 reductions, returning false for reached invalid checks.
+Schema constructors retain a public C++ default constructor automatically;
+default arguments are separate and cannot use class type parameters.
+See the [construction guide](docs/construction.md).
 Compiler/runtime `1.13.0` adds allocation-free bounded keyed binary counting,
 borrowed span/reference output, an opt-in signed-zero output policy, reusable C++
 generated type guards, [class-specific record comparisons](docs/record_comparisons.md), and
