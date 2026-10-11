@@ -1,7 +1,7 @@
 # Codec validation tools
 
 These tools separate regression tests, performance measurements, and fuzzing.
-The dated [verification record](../docs/verification-2026-09-17.md) ties executed
+The dated [verification record](../docs/verification/verification-2026-09-17.md) ties executed
 checks to a source revision and configurations, and lists outstanding work.
 
 ## Regression tests
@@ -44,7 +44,7 @@ It exercises the baseline scanner, the CPU-selected scanner, and short-token dis
 Extend validation with `SERIALIZER_ENABLE_SIMD=ON` and `OFF`, on x64
 with and without AVX2 available, and on a platform using the scalar fallback.
 Include address-sanitized runs to catch reads beyond unpadded input. See the
-[verification record](../docs/verification-2026-09-17.md) for executed unit tests
+[verification record](../docs/verification/verification-2026-09-17.md) for executed unit tests
 and the limits of current sanitizer coverage. Measure parsing separately from C++ emission,
 formatter startup, and file I/O before reporting an end-to-end generator speedup;
 the existing codec benchmarks do not measure schema compilation.
@@ -70,7 +70,7 @@ JSON/ProtoJSON byte/work limits with exact failure cursors. The Protobuf test
 target adds nested ProtoJSON object/array/map gaps and transactional rejection
 of invalid whitespace. Include empty, compact, and heavily indented JSON when
 benchmarking. Unit tests and sanitizer/fuzz results are recorded separately in
-[verification](../docs/verification-2026-09-17.md).
+[verification](../docs/verification/verification-2026-09-17.md).
 
 For broader qualification, run these and the existing generated-object,
 wire-format, view, and decoder-limit cases with SIMD enabled and disabled, with
@@ -79,7 +79,7 @@ source-dependency and installed-library consumers, including pre-generated heade
 Benchmark long/short strings, escape density, all JSON layouts, each binary key
 mode, matching/opposite endian arrays, and small records. Keep schema-compiler
 timings separate. Benchmarks and unrecorded platform configurations remain outstanding; see
-[runtime SIMD](../docs/runtime_simd.md) for implemented scope.
+[runtime SIMD](../docs/serialization/runtime_simd.md) for implemented scope.
 
 ## Timing and allocations
 
@@ -89,7 +89,7 @@ boundaries, every Unicode scalar, unaligned exact-size buffers, truncation,
 invalid ranges, mutations, and deterministic random spans. `binary_text_test.cpp`
 covers strict and unchecked owning policies, nested/custom/standard streams,
 unchanged limits, and strict view mapping/mutation. See
-[UTF-8 verification](../docs/verification-utf8-2026-09-18.md) for executed tests,
+[UTF-8 verification](../docs/verification/verification-utf8-2026-09-18.md) for executed tests,
 sanitizer scope, and before/after timing; other unrecorded benchmarks remain open.
 The runtime SIMD fuzzer compares both UTF-8 backends with the existing scalar
 sequence checker; deterministic seeds include dense Unicode and incomplete tails.
@@ -210,7 +210,7 @@ toolchain/build; compiler, platform, or corpus changes can alter mutations. Save
 commands, tool versions, flags, exit status, and final libFuzzer statistics. These
 bounded runs do not establish exhaustive coverage or security qualification.
 
-The [2026-09-17 record](../docs/verification-2026-09-17.md) includes corpus counts
+The [2026-09-17 record](../docs/verification/verification-2026-09-17.md) includes corpus counts
 and hashes, the bounded campaigns performed, and compile-command checks proving
 that runtime/SIMD objects carry the instrumentation.
 
@@ -224,7 +224,7 @@ policies 5/6 retain the inner allocation/work restrictions. Successful frames ar
 also parsed with the generated positional codec. Seeds include strict prefixes,
 trailing data, concatenated frames, corrupted bytes, empty frames, and expansion
 limits. Add this target to the campaign loop above. See
-[compression verification](../docs/verification-compression-2026-09-17.md).
+[compression verification](../docs/verification/verification-compression-2026-09-17.md).
 
 The fuzz runtime recompiles Serializer's compression adapters with instrumentation
 and links the enabled dependencies. To instrument library internals too, build

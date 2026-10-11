@@ -1,13 +1,13 @@
 # Rohit Serializer for Visual Studio Code
 
-Version **1.1.40** supports schema language 1.12.0 overloaded constructors, nested constructor input types, factory-constrained owning parameter defaults, generic readonly method signatures and `common_type<T, Input>` result types. It highlights `cpp storage(none)`, `readonly constexpr(cpp)`, constructor `validate expression(...)` and `initialize cpp { ... };` contracts. Shared navigation retains independent input scopes and treats contract names as metadata. New VS Code schema snippets select language 1.12.0.
+Version **1.1.41** supports schema language 1.12.0 overloaded constructors, nested constructor input types, factory-constrained owning parameter defaults, generic readonly method signatures and `common_type<T, Input>` result types. It highlights `cpp storage(none)`, `readonly constexpr(cpp)`, constructor `validate expression(...)` and `initialize cpp { ... };` contracts. Shared navigation retains independent input scopes and treats contract names as metadata. New VS Code schema snippets select language 1.12.0.
 
 Version **1.1.38** highlights embedded target source using available language
 grammars. `cpp { ... }`, `java { ... }`, and the other native tags select their
 language's syntax inside method bodies, class declarations, and preambles. VS Code
 also receives the embedded language identity for basic editing operations.
 Install a grammar provider for languages the editor does not bundle. See
-[embedded source highlighting](../../docs/editor_extension.md#embedded-source-highlighting)
+[embedded source highlighting](../../docs/editors/editor_extension.md#embedded-source-highlighting)
 and the [custom C++ example](../../example/cpp/custom_code/README.md).
 This adds syntax coloring; IntelliSense and semantic diagnostics inside schema
 blocks remain unavailable.
@@ -44,7 +44,7 @@ Version **1.1.28** recognizes language `1.3.0` digest fields: `digest`,
 names. Algorithm selectors and byte extents are metadata rather than navigation
 destinations; adjacent types and older declared types named `digest` retain their
 normal navigation. Use `digest`, `digest-opaque`, or `digest-fixed` snippets and
-see the [digest contract](../../docs/digest.md). New schema snippets use `1.5.0`.
+see the [digest contract](../../docs/schema/digest.md). New schema snippets use `1.5.0`.
 
 ```text
 serializer version 1.0.0;
@@ -64,7 +64,7 @@ unquoted path, and semicolon scopes. Relative paths such as `../shared/common`
 resolve to `.serializer` files during navigation; explicit `.serializer` includes
 remain supported. The compiler must support shorthand to build these schemas.
 Place includes after the version header and before declarations;
-quoted paths and angle brackets are invalid. See [schema includes](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/usage.md#share-declarations-with-includes).
+quoted paths and angle brackets are invalid. See [schema includes](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/guides/usage.md#share-declarations-with-includes).
 
 ## About Serializer
 
@@ -78,7 +78,7 @@ native managed engines currently run in C++.
 
 [Project website](https://www.singh.org.in/serializer.html) ·
 [Serializer repository](https://github.com/rohit-singh-gautam/Serializer) ·
-[Serialization guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/usage.md) ·
+[Serialization guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/guides/usage.md) ·
 [C++ state-management guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/managed/getting_started.md)
 
 ## Download and install Serializer
@@ -87,16 +87,16 @@ The editor extension is separate from the Serializer compiler and runtime:
 
 - [Download Serializer source (ZIP)](https://github.com/rohit-singh-gautam/Serializer/archive/refs/heads/main.zip)
   or [clone the repository](https://github.com/rohit-singh-gautam/Serializer).
-- Follow the [build and installation instructions](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/cmake_integration.md#use-an-installed-package)
+- Follow the [build and installation instructions](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/guides/cmake_integration.md#use-an-installed-package)
   to install the compiler, runtime library, headers, and CMake package.
-- Use the [CMake integration guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/cmake_integration.md)
+- Use the [CMake integration guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/guides/cmake_integration.md)
   to add Serializer to your project and generate code from schemas.
 
 Installing this extension does not install the compiler or runtime.
 For compiler/runtime 1.7.0 and newer, generated applications link the 0BSD
 `Serializer::runtime` target; the generation helper supplies this automatically.
 The GPL `Serializer::serializer_lib` target is reserved for compiler API use.
-See the [licensing guide](../../docs/licensing.md) for proprietary applications
+See the [licensing guide](../../docs/project/licensing.md) for proprietary applications
 and source-schema notices. The editor extension retains its own repository license.
 
 ## Install and use
@@ -156,7 +156,7 @@ resolve the generated class. Selecting a later use of the left-hand alias normal
 opens the `using` declaration; **Go to Type Definition** follows its underlying class.
 **Serializer: Go to Schema Declaration** follows either to the original schema,
 including through alias chains and variables when a native type provider is available.
-The [coverage matrix](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/editor_navigation.md#navigation-coverage-matrix)
+The [coverage matrix](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/editors/editor_navigation.md#navigation-coverage-matrix)
 records required cases and remaining native-host verification limits.
 
 Right-click a `.serializer` file in **Explorer** or its **editor tab**, then choose
@@ -261,7 +261,7 @@ Generic declarations (`class box<T>`), nested type arguments, and named roots
 navigate to their local declaration. Generic definitions navigate to their C++
 native template or concrete generated models in the other languages. Without a
 concrete schema contract, only C++ has a generated destination. Generated concrete classes navigate back to the generic
-definition. See [schema generics](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/generics.md) for compiler limits.
+definition. See [schema generics](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/schema/generics.md) for compiler limits.
 
 - Build assistance requires an already configured CMake Tools project. It works
   through CMake with Makefile, Ninja, and Visual Studio generators; handwritten
@@ -289,7 +289,7 @@ definition. See [schema generics](https://github.com/rohit-singh-gautam/Serializ
   snippets above belong to VS Code. Visual Studio caller references first use
   their language service to reach the generated declaration.
 
-See the repository's [extension guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/editor_extension.md)
+See the repository's [extension guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/editors/editor_extension.md)
 for development, validation, and packaging instructions. A published extension is
 available on [Visual Studio Marketplace](https://marketplace.visualstudio.com/items?itemName=rohitjairajsingh.serializer-language).
 This source checkout may include changes not yet available in the published package;
@@ -319,11 +319,11 @@ contracts; fixed-array output is currently unsupported there. The shared grammar
 highlights dimension arithmetic and the `matrix` snippet inserts a fixed-array
 example. Both packages use the same navigation implementation.
 
-Version 1.1.25 recognizes payload `version`/`compatibility`, `version2`/`version3`/`version4`, `created`/`obsolete`/`replaced`, and `reserve` syntax. Qualified field-type navigation remains available beside lifecycle metadata. See the [revision contract](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/versioning.md).
+Version 1.1.25 recognizes payload `version`/`compatibility`, `version2`/`version3`/`version4`, `created`/`obsolete`/`replaced`, and `reserve` syntax. Qualified field-type navigation remains available beside lifecycle metadata. See the [revision contract](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/schema/versioning.md).
 
 ## Release policies (1.1.25)
 
-Both extensions highlight `releases`, nested `policy` / `any` / `all`, and the `max_age`, `keep_last`, `released_since`, `expires_on`, and compatibility leaves. The schema compiler folds these into ordinary version bounds; generated readers contain no dates or policy tree. See the [release policy contract](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/versioning.md#release-dates-and-compile-time-policies).
+Both extensions highlight `releases`, nested `policy` / `any` / `all`, and the `max_age`, `keep_last`, `released_since`, `expires_on`, and compatibility leaves. The schema compiler folds these into ordinary version bounds; generated readers contain no dates or policy tree. See the [release policy contract](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/schema/versioning.md#release-dates-and-compile-time-policies).
 
 ## Magic and format exclusions (1.1.25)
 
@@ -343,7 +343,7 @@ and type-definition navigation, including unsaved and transitive included schema
 VS Code includes `array_inferred` and `magic_typed` snippets; its schema snippet
 selects `serializer version 1.12.0;`. The original `1` header remains exactly
 `1.0.0` and does not enable these features. See the
-[magic contract](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/magic_and_omission.md) and [fixed arrays](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/generics.md).
+[magic contract](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/schema/magic_and_omission.md) and [fixed arrays](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/schema/generics.md).
 
 ## Simplicity warnings (1.1.31)
 
@@ -364,7 +364,7 @@ public version uint32 (1) { 1 };
 
 Its implicit generated member remains `version`, preserving the API and wire
 identities. Retain a custom revision name when existing consumers depend on it. See the
-[revision contract](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/versioning.md).
+[revision contract](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/schema/versioning.md).
 
 ## Compact integer fields (1.1.25)
 

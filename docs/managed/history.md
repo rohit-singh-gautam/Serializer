@@ -33,7 +33,7 @@ supported output languages. C++ examples illustrate one possible API; an initial
 C++ implementation would not establish support in other backends. Each backend
 needs its own generated accessors, transaction runtime, and verification. Tracked
 mutable binary views need a separate design. Current integration is documented in the
-[usage guide](../usage.md) and [integration skill](../../.agents/skills/serializer-integration/SKILL.md).
+[usage guide](../guides/usage.md) and [integration skill](../../.agents/skills/serializer-integration/SKILL.md).
 
 ## Revised managed identity and capabilities
 
@@ -1387,7 +1387,7 @@ through aliases, container mutation, nested mutable access, or replacement throu
 deserialization. A tracked facade must route all such writes through its edit
 boundary. Existing mutable binary view setters alter borrowed storage, which can
 also have other aliases; they cannot provide transaction isolation without private
-buffer ownership or copying. See [view lifetime requirements](../views.md).
+buffer ownership or copying. See [view lifetime requirements](../serialization/views.md).
 
 Do not modify all current setters or hand-edit generated output for the initial
 implementation. A future generator option would need its own compatibility and
@@ -1650,7 +1650,7 @@ Automatic grouping by elapsed time or merging already committed actions is a
 separate convenience policy, not the transaction's correctness mechanism.
 
 Undo, redo, and branch checkout also prepare and validate a candidate before
-publication. Existing [fresh exact decoding](../usage.md#decode-one-exact-message-into-a-fresh-value)
+publication. Existing [fresh exact decoding](../guides/usage.md#decode-one-exact-message-into-a-fresh-value)
 helps prevent partial decode results from escaping, but does not make a later
 assignment, history update, or disk write atomic. Those guarantees belong to the
 new module.
@@ -1711,7 +1711,7 @@ provide branch merging or conflict resolution.
 | Revision ID | Identifies one committed history node. |
 | Document ID | Namespaces a saved document's entities and revision history. |
 
-The existing [`stable_ids` contract](../schema_reference.md#explicit-field-ids-with-stable_ids)
+The existing [`stable_ids` contract](../schema/schema_reference.md#explicit-field-ids-with-stable_ids)
 does not allocate object IDs. For one coordinated writer, a persisted document UUID
 and a monotonic configured object number (`uint32` by default) provide a scoped
 identity. Independent writers need an authority or disjoint durably reserved
@@ -1917,7 +1917,7 @@ History migration must address all retained snapshots and changes, not only the
 current root. Retain a decoder/migration path for each supported application-schema
 version or explicitly decline to resume incompatible history. Schema language
 `version 1` and `stable_ids` do not identify the version of these saved messages.
-See [schema evolution](../schema_evolution.md) and the [wire contract](../wire_format.md#schema-evolution).
+See [schema evolution](../schema/schema_evolution.md) and the [wire contract](../serialization/wire_format.md#schema-evolution).
 
 ## Implementation stages and required verification
 

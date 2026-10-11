@@ -10,7 +10,7 @@ Schemas, generated source, command-line diagnostics, and most documentation are
 text-based. Documentation can be read on GitHub or locally in a Markdown reader;
 schemas can be edited in a text editor and compiled from the command line. See the
 [README](README.md) for entry points and the
-[build guide](docs/build_and_generation.md#build-and-test) for platform prerequisites
+[build guide](docs/guides/build_and_generation.md#build-and-test) for platform prerequisites
 and verification limits.
 
 These text-based workflows can help with alternative ways of accessing the

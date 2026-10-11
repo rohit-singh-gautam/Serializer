@@ -126,7 +126,7 @@ The smaller [result.serializer](result.serializer) shows `result<person>` and
 `result<uint32>`, named `person_result`/`count_result` roots, and a nested
 `batch<result<uint32>>`. The C++ regression suite compiles this exact example and
 checks wire equivalence in all four protocols. See the
-[schema guide](../../docs/generics.md) for syntax and limitations.
+[schema guide](../../docs/schema/generics.md) for syntax and limitations.
 
 Both editor extensions highlight these examples and navigate generic
 parameters, nested arguments, named roots, and generated implementations.
@@ -134,4 +134,4 @@ parameters, nested arguments, named roots, and generated implementations.
 C++ also permits application-only specializations with no `instantiate` declaration
 or concrete schema field. Keep either optional contract form when generating
 other languages or checking concrete schema compatibility. Fixed dimension arrays
-currently require the native C++ codecs; see [generics](../../docs/generics.md).
+currently require the native C++ codecs; see [generics](../../docs/schema/generics.md).

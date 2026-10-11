@@ -1,6 +1,6 @@
 # C++ managed interface
 
-Compiler/runtime `1.16.0` adds optional [typed state registries](../state_registry.md):
+Compiler/runtime `1.16.0` adds optional [typed state registries](state_registry.md):
 snapshot-pinned ID/type lookup, generated exact field/base descriptors, transactional
 application-key bindings and imports, uniqueness invariants, and ordered/hash
 secondary indexes. They preserve existing scalar identity and managed protocols.
@@ -13,7 +13,7 @@ Schema language 1.6.0 adds behavior and runtime-field declarations. `managed`
 class/member/base declarations generate storage, conversions, identity traversal
 and typed editors. Built-in authorization policies, schema feature selectors and
 other-language managed engines remain proposals. Unsupported selections are rejected.
-See [state enhancements](../state_enhancements.md) for the complete support boundary.
+See [state enhancements](state_enhancements.md) for the complete support boundary.
 
 The [collaboration runtime](collaboration_runtime.md) now wraps this store with
 authoritative snapshot acceptance, retry handling, client proposal drafts, read-only
@@ -213,7 +213,7 @@ Managed variant contributions currently merge atomically as one owned value.
 Fixed managed arrays expose `edit(id)` without append/erase; cardinality is part
 of the schema. Variable arrays retain their existing membership operations.
 Named managed generic instantiations have concrete editors and schema bindings;
-see [generics](../generics.md#managed-specializations).
+see [generics](../schema/generics.md#managed-specializations).
 
 The runnable [document features](../../example/managed/document_features/README.md)
 cover private fields, independent bases, ordinary base scopes, alternatives,
@@ -538,7 +538,7 @@ editing callback blindly. `load()` cannot bypass an attached journal.
 
 The store owns a storage-independent journal sink. Its current file adapter uses
 `rohit::file_stream`; shared framing accepts existing Serializer buffers and
-standard streams. See [stream integration](../usage.md#file-streams-and-journal-records).
+standard streams. See [stream integration](../guides/usage.md#file-streams-and-journal-records).
 Database sinks are not implemented.
 
 The adapter is a synchronous, single-writer snapshot journal implementation
@@ -565,7 +565,7 @@ outstanding immutable pins; `resident_bytes()` reports the estimate.
 containers keep their allocators. Admission accounting does not provide a hard
 allocator peak bound for decoder temporaries, allocator metadata or native resources.
 No benchmarked speedup is claimed.
-See [state enhancements](../state_enhancements.md) for delta and budget contracts.
+See [state enhancements](state_enhancements.md) for delta and budget contracts.
 
 Feature selectors (`managed(...)`), arbitrary `exclude(...)` policies, custom allocator
 propagation, history-policy conversion, fine-grained owned-variant merging,
@@ -575,7 +575,7 @@ bases and direct managed Protobuf output remain unsupported.
 
 ## Verification
 
-The [latest four-toolchain verification](../verification-toolchains-2026-10-07.md)
+The [latest four-toolchain verification](../verification/verification-toolchains-2026-10-07.md)
 includes managed history, journal/crash recovery, and collaboration in the full
 default CTest suites. It records Windows x64 (MSVC and clang-cl) and Ubuntu WSL2
 x64 (GCC and Clang) Release builds with a C++20 baseline, managed records, SIMD,

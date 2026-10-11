@@ -1,5 +1,7 @@
 # Serializer managed-state design
 
+[Documentation index](../README.md)
+
 New to these features? Start with the
 [history, journal, collaboration, and authorization overview](getting_started.md).
 It introduces the implemented features before the API contracts and proposals below.
@@ -23,8 +25,9 @@ remains a separate illustrative data model.
 | [Getting started](getting_started.md) | History, journal, collaboration, and authorization concepts, setup, and runnable examples. |
 | [Authorization](authorization.md) | Trusted sessions, writable gates, host policy hooks, and what the application must implement. |
 | [Implemented C++ runtime](cpp_runtime.md) | Optional build target, generated storage and typed editors, all three transaction forms, snapshot history, bounded save/load, and remaining work. |
-| [Typed state registries](../state_registry.md) | Pinned typed lookup, generated field/base paths, custom keys, transactional adoption and optional ordered/hash indexes. |
-| [Paged indexing](../paged_indexing.md) | Proposed mostly-disk indexes, safe customer delegation and existing database approaches. |
+| [Typed state registries](state_registry.md) | Pinned typed lookup, generated field/base paths, custom keys, transactional adoption and optional ordered/hash indexes. |
+| [State-framework examples](state_enhancements.md) | Implemented schema behavior and managed-state features, with concrete application examples and backend limits. |
+| [Paged indexing](../design/paged_indexing.md) | Proposed mostly-disk indexes, safe customer delegation and existing database approaches. |
 | [Local store collaboration](local_collaboration.md) | Normal store transactions, store-owned sessions/outbox, immediate local undo, separate send/receive, periodic synchronization and client recovery. |
 | [Implemented C++ collaboration](collaboration_runtime.md) | Authority/replica APIs, application-owned session types, generated change records, conditional undo/redo, retries, conflicts, presence, entity/subtree leases, host policy hooks, limits, and five runnable examples. |
 | [Transaction implementation walkthrough](../internals/managed_transactions.md) | Current C++ store and transaction ownership, callback flow, commit, and cleanup, illustrated with a point. |
@@ -35,6 +38,7 @@ remains a separate illustrative data model.
 | [Data structures](data_structures.md) | Logical records and C++ excerpts generated from a schema: store ownership, identity/version tables, transactions, revision graphs, snapshots/deltas, deleted entities, and persistence. |
 | [Walkthrough schema](walkthrough.serializer) | Source for every data class in the C++ walkthrough; ordinary supported syntax, without managed runtime behavior. |
 | [Language bindings](language_bindings.md) | C++ capability templates and conditional storage, plus proposed representations in every other supported language. |
+| [Native migration](native_migration.md) | Managed native-generator groundwork, historical qualification, and remaining backend boundaries. |
 | [History and lifetime contract](history.md) | Schema participation, plain/managed objects, RAII completion, allocation, undo/redo, exclusions, and failure rules. |
 | [Managed-state features](managed_state.md) | Feature profiles, authorization, merging, collaboration, distributed transactions, and external effects. |
 | [Application examples](managed_examples.md) | A cylinder with a hole, accounting, wordpad, and other domains. |
@@ -84,4 +88,4 @@ The detailed records are logical contracts, not native memory layouts or a final
 wire format. Feature-specific state may be omitted where the backend supports it;
 identity, ownership validation, transaction atomicity, and enforced permissions
 remain part of the managed foundation. See the
-[current usage guide](../usage.md) for implemented Serializer functionality.
+[current usage guide](../guides/usage.md) for implemented Serializer functionality.

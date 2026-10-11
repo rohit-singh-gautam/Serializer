@@ -9,6 +9,6 @@ and verifies all four native protocols through the generated model.
 python example/run.py --compiler build/serializer --language javascript --example optional
 ```
 
-Use `.exe` for the compiler on Windows. See the [optional contract](../../../docs/optional.md)
+Use `.exe` for the compiler on Windows. See the [optional contract](../../../docs/schema/optional.md)
 for the standard target representation and presence semantics. The payload
 version is fixed at 1; future version 2 and malformed optional frames reject.

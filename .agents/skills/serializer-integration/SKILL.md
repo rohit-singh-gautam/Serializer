@@ -5,12 +5,14 @@ description: "Use Serializer as a state framework when creating or changing sche
 
 # Serializer Integration
 
+[Documentation index](../../../docs/README.md)
+
 Serializer — **State Framework** combines multi-language generated codecs and
 schema evolution with C++ application-state management. Choose ordinary generated
 models for data exchange or the managed runtime for editable C++ models. Native
 managed engines outside C++ remain unimplemented; exchanging managed wire records
 does not provide those engines. See the
-[positioning and scope reference](../../../docs/product_positioning.md).
+[positioning and scope reference](../../../docs/project/product_positioning.md).
 
 Implement the user's requested Serializer integration using the version present
 in their project. Preserve established wire IDs, names, protocol choices, and
@@ -23,11 +25,11 @@ checkout; direct use does not require copying the skill into the consuming proje
 ## Use the full framework
 
 Compiler/runtime 1.17.0 supports schema language 1.12.0. For new integrations,
-review [derived wire sizes](../../../docs/derived_sizes.md),
-[explicit value conversions](../../../docs/conversions.md), and
-[stateless generic constraints](../../../docs/generics.md#stateless-type-constraints).
+review [derived wire sizes](../../../docs/schema/derived_sizes.md),
+[explicit value conversions](../../../docs/schema/conversions.md), and
+[stateless generic constraints](../../../docs/schema/generics.md#stateless-type-constraints).
 
-For language `1.12.0`, review [authoring construction](../../../docs/construction.md)
+For language `1.12.0`, review [authoring construction](../../../docs/schema/construction.md)
 before replacing native adapters. C++ supports overloaded checked constructors,
 record arguments containing independent input types, constrained readonly method
 inputs, and explicit `common_type<T, Input>` scalar result representations. Check
@@ -50,31 +52,31 @@ Use leased external registries only with an owning lifetime/synchronization guar
 immutable provider version, and one-way invalidation state; validate each access.
 Existing owning external registries retain their API. Leases do not make external
 state transactional, undoable, or journaled. See the
-[verification record](../../../docs/verification-authoring-2026-10-11.md).
+[verification record](../../../docs/verification/verification-authoring-2026-10-11.md).
 
 For language `1.11.0`, use `checked<T>(value)` for lossless numeric representation
 bindings and preserve exact integer arithmetic without promotion through double.
-Review [behavior](../../../docs/behavior.md) for projected readonly calls and
-lazy owning-record conditionals, [construction](../../../docs/construction.md)
+Review [behavior](../../../docs/schema/behavior.md) for projected readonly calls and
+lazy owning-record conditionals, [construction](../../../docs/schema/construction.md)
 for fixed-array/default/checked bindings and C++ constrained input parameters,
-and [generics](../../../docs/generics.md) for record map keys. Diagnose unsupported
+and [generics](../../../docs/schema/generics.md) for record map keys. Diagnose unsupported
 backend ownership or open generic-method combinations instead of approximating
 the contract. Existing schemas keep their language-selected expression behavior.
-Use the C++ [state registry](../../../docs/state_registry.md) for pinned typed
+Use the C++ [state registry](../../../docs/managed/state_registry.md) for pinned typed
 entity lookup, stable field/base paths and optional application-key indexes.
 Custom keys retain compact scalar persistent IDs; lookup never grants permission.
 Treat a paged or customer index as derived state with explicit snapshot/lifetime
-and commit boundaries; [paged indexing](../../../docs/paged_indexing.md) remains
+and commit boundaries; [paged indexing](../../../docs/design/paged_indexing.md) remains
 a proposal rather than an available storage backend.
 Use the [custom-ID examples](../../../example/custom_ids/README.md) for portable
 application-owned scoped/type-tag keys and the C++ managed companion. Portable
 host indexes do not supply Serializer's native history, journal or collaboration
 engines; keep those boundaries explicit when adapting the examples.
-Consult the [enhancement verification record](../../../docs/verification-registry-numeric-2026-10-11.md)
+Consult the [enhancement verification record](../../../docs/verification/verification-registry-numeric-2026-10-11.md)
 for executed native, SDK and editor checks and their platform limits.
 
 Language `1.10.0` also supports declared readonly calls and namespace functions.
-Use [Boolean type constraints](../../../docs/generics.md#boolean-type-constraints),
+Use [Boolean type constraints](../../../docs/schema/generics.md#boolean-type-constraints),
 such as `T: (integral || floating_point) && !bool`, for category restrictions or
 `T: int32 || double` for exact allowed types. The parser validates known/default
 arguments and concrete nested applications; dependent category arguments are
@@ -82,7 +84,7 @@ checked after substitution. C++ native templates carry equivalent `requires`
 clauses. Other outputs use the already checked concrete models. Do not replace a
 portable constraint with an arbitrary native C++ concept name. Select only the
 C++ output when the consuming application requires only C++.
-Consult the [verification record](../../../docs/verification-functions-constraints-2026-10-11.md)
+Consult the [verification record](../../../docs/verification/verification-functions-constraints-2026-10-11.md)
 for completed native, all-language and editor checks and their platform limits.
 Use fixed unsigned `auto_size` headers only for native binary; default record
 scope includes the header itself. Select `wire_only` when transport metadata
@@ -94,17 +96,17 @@ must keep structural header and normal decoder limits. Use
 Conversions copy exact public value projections into fresh target defaults;
 qualify documented unsupported shapes and native ownership. Stateless constraints
 prove generic defaults/arguments and forwarding eligibility without new wire data.
-Follow [usage](../../../docs/usage.md) and
-[qualification](../../../docs/verification-deferred-features-2026-10-11.md).
+Follow [usage](../../../docs/guides/usage.md) and
+[qualification](../../../docs/verification/verification-deferred-features-2026-10-11.md).
 Raw object memory is not `binary_none`; do not infer an ABI dump from encoded sizes.
 C++ constant-evaluation and emission-only profiles derive positional size headers
 with both scopes and nested wire-only metadata. Use the
-[compile-time byte-image workflow](../../../docs/constant_evaluation.md), qualify
+[compile-time byte-image workflow](../../../docs/serialization/constant_evaluation.md), qualify
 its existing shape restrictions, and verify runtime byte parity.
 For value creation,
-review [typed construction and layout](../../../docs/construction.md),
-[checked behavior](../../../docs/behavior.md), and
-[generic inheritance/reusable headers](../../../docs/generics.md).
+review [typed construction and layout](../../../docs/schema/construction.md),
+[checked behavior](../../../docs/schema/behavior.md), and
+[generic inheritance/reusable headers](../../../docs/schema/generics.md).
 Use schema constructors/factories to bind the actual generated owner of concrete
 generic instances; keep opaque native blocks verbatim. Use `default(factory)`
 for structured record defaults and `transient layout(empty)` only for stateless
@@ -131,7 +133,7 @@ and bound-field assignment when migrating native member-initializer construction
 `cpp { ... }` constructors alone do not trigger a generated default-constructor
 declaration; preserve any native default constructor required by C++ there.
 
-Use [class-specific comparisons](../../../docs/record_comparisons.md) to generate
+Use [class-specific comparisons](../../../docs/schema/record_comparisons.md) to generate
 memberwise equality and lexicographic ordering through
 `[language.class.source::qualified_name]` INI sections. Select durable/base values
 or an exact own-field list; do not manually duplicate that field traversal.
@@ -157,12 +159,12 @@ ownership or synchronization and does not provide borrowed decode destinations.
 Use generated `edit_<collection>()` callbacks and scoped borrowed lookups instead
 of copying complete ordinary collections or mutating a live read snapshot.
 Independently identified members continue to use identity-based typed editors.
-Follow [output usage](../../../docs/usage.md) and
+Follow [output usage](../../../docs/guides/usage.md) and
 [collection guarantees](../../../docs/managed/cpp_runtime.md).
 
 For every Serializer task, review the installed revision's
-[feature status](../../../docs/feature_status.md) and
-[schema reference](../../../docs/schema_reference.md). **Use every implemented
+[feature status](../../../docs/project/feature_status.md) and
+[schema reference](../../../docs/schema/schema_reference.md). **Use every implemented
 feature that applies to the requested contract.** Do not assume Serializer is
 only a codec generator or manually duplicate capabilities it already supplies.
 
@@ -189,7 +191,7 @@ only a codec generator or manually duplicate capabilities it already supplies.
   input; test recovery and rejection before claiming support.
 - Use the CMake/runtime targets, compiler diagnostics, formatting and editor
   integration appropriate to the build; run the maintained examples for every
-  selected backend. Consult [state feature examples](../../../docs/state_enhancements.md)
+  selected backend. Consult [state feature examples](../../../docs/managed/state_enhancements.md)
   when using language 1.6 or the new managed APIs.
 
 Before implementation, record a concise capability selection in the existing
@@ -213,22 +215,22 @@ the application's dependency/build configuration; resolve the following files
 there instead of relying on the relative links.
 
 - Start with [README.md](../../../README.md) for the project overview and first-use workflow.
-  Follow the [schema reference](../../../docs/schema_reference.md),
-  [build and generation guide](../../../docs/build_and_generation.md), and
-  [feature status](../../../docs/feature_status.md) for detailed contracts and limitations.
+  Follow the [schema reference](../../../docs/schema/schema_reference.md),
+  [build and generation guide](../../../docs/guides/build_and_generation.md), and
+  [feature status](../../../docs/project/feature_status.md) for detailed contracts and limitations.
   For a first introduction to history, journals, collaboration, and host authorization,
   read the [managed features overview](../../../docs/managed/getting_started.md) and
   [authorization guide](../../../docs/managed/authorization.md).
-  See [agent setup](../../../docs/agent_integration.md) for discovery and use from another project.
+  See [agent setup](../../../docs/guides/agent_integration.md) for discovery and use from another project.
 - Check the dependency's actual release, build options, installed targets, and
   headers before using source-documentation features. The root `vcpkg.json` is a
   development dependency manifest, separate from the upstream
   `rohit-singh-gautam-serializer` port. Follow
-  [distribution guidance](../../../docs/distribution.md) when package availability
+  [distribution guidance](../../../docs/project/distribution.md) when package availability
   differs; prefer a source build of the needed revision rather than assuming a
   published port contains current managed APIs or generation helpers.
 - For compiler/runtime 1.7.0 and newer, follow the
-  [licensing contract](../../../docs/licensing.md): generated output permits
+  [licensing contract](../../../docs/project/licensing.md): generated output permits
   proprietary licensing through `LICENSE-GENERATED`, and application runtime
   headers/compiled helpers and managed support use `LICENSE-RUNTIME` (0BSD).
   Preserve schema copyright/license notices, including those from included files;
@@ -325,7 +327,7 @@ there instead of relying on the relative links.
   and map/array identity checks. Editors avoid retaining element addresses;
   they resolve the target afresh and reject missing entities or closed transactions.
 - For database persistence, read the
-  [database integration guide](../../../docs/database_integration.md). Treat its
+  [database integration guide](../../../docs/guides/database_integration.md). Treat its
   backend matrix as candidate storage mappings, not tested Serializer adapters.
   Establish the database product, edition/version, SDK, and JSON/typed-document
   or opaque-byte representation. Preserve integer widths, map entry arrays,
@@ -335,7 +337,7 @@ there instead of relying on the relative links.
   dependencies optional and report actual provider verification separately from
   codec or mock tests.
 - For indexes larger than RAM, read the
-  [paged indexing study](../../../docs/paged_indexing.md). Disk-backed indexes and
+  [paged indexing study](../../../docs/design/paged_indexing.md). Disk-backed indexes and
   lazy model/history storage are proposed, not current runtime options. The eager
   store retains the complete model, identity table and history snapshots; existing
   resident admission accounting is not a hard process-memory limit. Distinguish
@@ -586,21 +588,21 @@ there instead of relying on the relative links.
   and peer-to-peer authority ordering remain unimplemented. See the
   [store undo example](../../../example/managed/collaboration/undo.cpp) and
   [history contract](../../../docs/managed/collaboration_runtime.md#conditional-collaborative-undo-and-redo).
-- Use [docs/usage.md](../../../docs/usage.md) for the schema, CMake, and codec examples.
-- Use [docs/portable_languages.md](../../../docs/portable_languages.md) for JS/TypeScript,
+- Use [docs/guides/usage.md](../../../docs/guides/usage.md) for the schema, CMake, and codec examples.
+- Use [docs/languages/portable_languages.md](../../../docs/languages/portable_languages.md) for JS/TypeScript,
   Go, C#, target SDKs, type mappings, limits, and interoperability.
-- Use [docs/native_languages.md](../../../docs/native_languages.md) for Rust, Python,
+- Use [docs/languages/native_languages.md](../../../docs/languages/native_languages.md) for Rust, Python,
   Swift, Kotlin/JVM, and C owning codecs, SDKs, limits, and ownership.
-- Use [docs/java.md](../../../docs/java.md) for pure Java 17+ generation, profiles,
+- Use [docs/languages/java.md](../../../docs/languages/java.md) for pure Java 17+ generation, profiles,
   type mappings, supported schema features, limits, and protocol compatibility.
-- Use [docs/cmake_integration.md](../../../docs/cmake_integration.md) for the shipped
+- Use [docs/guides/cmake_integration.md](../../../docs/guides/cmake_integration.md) for the shipped
   generation helper, source dependencies, installed packages, and shared schemas.
-- Use [docs/views.md](../../../docs/views.md) for view generation, mapping, and mutation.
-- Use [docs/output_configuration.md](../../../docs/output_configuration.md) for
+- Use [docs/serialization/views.md](../../../docs/serialization/views.md) for view generation, mapping, and mutation.
+- Use [docs/languages/output_configuration.md](../../../docs/languages/output_configuration.md) for
   language sections, coding profiles, naming, formatter configuration, and examples.
-- Use [docs/intellisense.md](../../../docs/intellisense.md) for generated include
+- Use [docs/editors/intellisense.md](../../../docs/editors/intellisense.md) for generated include
   errors, editor configuration, and generating headers without compiling consumers.
-- Use [docs/editor_extension.md](../../../docs/editor_extension.md) for the optional
+- Use [docs/editors/editor_extension.md](../../../docs/editors/editor_extension.md) for the optional
   VS Code extension, local VSIX installation, and CMake header assistance.
 - Both editor navigation actions open the included schema when invoked on an
   `include`; a schema include can contribute multiple generated declarations and
@@ -608,7 +610,7 @@ there instead of relying on the relative links.
   matching generated declaration when available.
 - Use [Visual Studio extension](../../../editors/visual_studio/README.md) for the
   separate Visual Studio 2022/2026 x64 navigation package and its build/install steps.
-- Read [docs/wire_format.md](../../../docs/wire_format.md) when choosing protocols,
+- Read [docs/serialization/wire_format.md](../../../docs/serialization/wire_format.md) when choosing protocols,
   limits, failure handling, or compatibility behavior.
 - Read [migration.md](../../../migration.md) when updating older headers or APIs.
 
@@ -619,7 +621,7 @@ feature as a prerequisite without the user's request.
 
 ## Author or evolve the schema
 
-- Use [schema generics](../../../docs/generics.md) for reusable owning models.
+- Use [schema generics](../../../docs/schema/generics.md) for reusable owning models.
   C++ emits native templates even without concrete schema uses: nested
   `result<T>`, `response<T>`, and `message<T>` can be used as
   `response<std::uint32_t>` with the ordinary generated codecs. Host type arguments
@@ -653,8 +655,8 @@ feature as a prerequisite without the user's request.
   declarations, raw managed unions, recursive managed ownership, and user specialization
   are unsupported. Ordinary generic values may occur inside managed roots; use
   generated replacement setters and the existing history/journal APIs.
-  Consult [usage](../../../docs/usage.md), [migration](../../../migration.md), and
-  [qualification](../../../docs/verification-dimensions-2026-10-04.md).
+  Consult [usage](../../../docs/guides/usage.md), [migration](../../../migration.md), and
+  [qualification](../../../docs/verification/verification-dimensions-2026-10-04.md).
 - Use `.serializer` files beginning with `serializer version 1.12.0;`, before declarations
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
@@ -665,11 +667,11 @@ feature as a prerequisite without the user's request.
   major number manually, with best-effort compatibility across major releases.
   Installed CMake packages accept earlier minor and patch versions in the same
   major release. Use `serializer --version` to inspect the compiler and schema
-  versions; see [CLI and versioning](../../../docs/command_line.md).
+  versions; see [CLI and versioning](../../../docs/guides/command_line.md).
   The original `serializer version 1;` is exactly the `1.0.0` language baseline,
   not an alias for the latest language release. Only version 1 has that integer
   shorthand; future versions require all three decimal components. See the
-  independent [language versioning policy](../../../docs/command_line.md#schema-language-version-policy).
+  independent [language versioning policy](../../../docs/guides/command_line.md#schema-language-version-policy).
 - Use `class`, `enum`, and `namespace`. Every member needs an explicit access
   modifier and a trailing semicolon. Classes/enums have no trailing semicolon.
 - Share schema declarations with `include common;` after the version
@@ -693,7 +695,7 @@ feature as a prerequisite without the user's request.
   an explicit preprocessor error; use matching naming/runtime profiles.
   All generation helpers track transitive inputs using depfiles. Library
   callers use `parser::parse_file(path)` and pass its `statements` to the writers.
-  See [include usage](../../../docs/usage.md#share-declarations-with-includes) and
+  See [include usage](../../../docs/guides/usage.md#share-declarations-with-includes) and
   [paired C++/Java examples](../../../example/includes/README.md).
 - In owning representations, map `array T` to `std::vector<T>` and `map(K) T` to `std::map<K, T>`.
 - With language `1.7.0` and compiler/runtime `1.12.0`, use built-in generic
@@ -717,9 +719,9 @@ feature as a prerequisite without the user's request.
   identity, history, journal recovery and collaboration for the selected shapes.
   View/packed and direct Protobuf optional mappings reject. Changing presence,
   nesting or payload type is a wire migration; use the compatibility checker
-  and retained payload revisions. Read [the optional contract](../../../docs/optional.md)
+  and retained payload revisions. Read [the optional contract](../../../docs/schema/optional.md)
   and run the [all-language optional examples](../../../example/README.md#optional-values).
-  Consult [optional qualification](../../../docs/verification-optionals-2026-10-11.md)
+  Consult [optional qualification](../../../docs/verification/verification-optionals-2026-10-11.md)
   for the executed all-SDK, native, managed recovery and editor checks.
 - With language `1.3.0` and compiler/runtime `1.8.0`, use `digest` for variable
   application-supplied bytes, `digest[N]` for a decimal fixed byte extent
@@ -742,8 +744,8 @@ feature as a prerequisite without the user's request.
   Use `digest_to_hex`/`digest_from_hex` for application text conversion only.
   Serializer's creation helpers are 0BSD and introduce no OpenSSL dependency.
   Treat MD5/SHA-1 as legacy algorithms, and preserve the agreed meaning when
-  migrating equal-width digest types. Follow [digest usage](../../../docs/digest.md),
-  [licensing rationale](../../../docs/licensing.md#why-the-license-was-separated),
+  migrating equal-width digest types. Follow [digest usage](../../../docs/schema/digest.md),
+  [licensing rationale](../../../docs/project/licensing.md#why-the-license-was-separated),
   and [migration](../../../migration.md#digest-fields-and-creation-9-october-2026).
 
 - Language `1.8.0` portable comparisons retain matching native signed/unsigned
@@ -771,19 +773,19 @@ feature as a prerequisite without the user's request.
   lazy branches. Declare a matching native body for each selected target; native
   effects remain the application's responsibility. Java emits namespace helpers
   as static methods and class functions as instance methods. Review the
-  [function call contract](../../../docs/behavior.md#declared-function-calls),
+  [function call contract](../../../docs/schema/behavior.md#declared-function-calls),
   including external-definition limitations by output language. Eligible C++ readonly typed methods preserve
   constexpr/noexcept. Checked arithmetic can constant-evaluate valid inputs while
   retaining runtime exceptions; C++20 square root/trigonometry stay runtime.
   Qualify native bodies separately. See [behavior domains and bounded
-  checks](../../../docs/behavior.md#portable-arithmetic) and run
+  checks](../../../docs/schema/behavior.md#portable-arithmetic) and run
   `test/typed_behavior_languages.py` against the required SDKs.
 - For new portable byte-keyed maps, prefer `map(uint8)`. Existing `map(char)`
   output retains signed Java `byte` ordering and compiler-dependent C++ `char`
   ordering; other backends use unsigned bytes. High-byte keys decode across
   backends but do not promise identical encoded ordering. Preserve existing
   contracts; changing key types is a schema migration, especially for JSON.
-  See [map ordering](../../../docs/wire_format.md#map-ordering).
+  See [map ordering](../../../docs/serialization/wire_format.md#map-ordering).
 - Keep literal spaces in quoted defaults, such as `public string label { "schema default" };`.
   The parser preserves quoted whitespace, escapes, and braces without rewriting the literal.
   Preserve wire names and defaults. Check the output naming policy before writing
@@ -806,7 +808,7 @@ feature as a prerequisite without the user's request.
   IDs and wire names. Exit 2 means a compatibility hazard, 1 invalid input, and 0
   no hazard detected for the selected direction. This is a conservative separate
   checker, not a new `reserved` keyword or proof of application semantics.
-  Read [schema evolution](../../../docs/schema_evolution.md) before choosing policy
+  Read [schema evolution](../../../docs/schema/schema_evolution.md) before choosing policy
   scope or interpreting ordinal and unknown-field diagnostics.
 - Native keyed readers reject unknown fields by default. For JSON, explicitly select
   `read_policy::flexible` and regenerate classes to skip additive fields.
@@ -830,7 +832,7 @@ feature as a prerequisite without the user's request.
   explicitly reject owning variants; managed C++ supports owning variants, while
   raw managed unions still reject.
   C++ binary views retain existing union access over the same positional bytes.
-  See [unions and variants](../../../docs/unions_and_variants.md) and the
+  See [unions and variants](../../../docs/schema/unions_and_variants.md) and the
   [paired all-language examples](../../../example/README.md#union-and-variant).
 - Select only the requested representations: no keywords or `owning` means an
   owning class; `view` means both views; `view readonly` or `view mutable` restricts
@@ -842,7 +844,7 @@ feature as a prerequisite without the user's request.
   combined with `view`. `stable_ids` is independent of mapping, which is positional.
 - `inplace` and `simd` are not implemented keywords. Views and little-endian
   defaults are implemented; use the dated
-  [verification record](../../../docs/verification-2026-09-17.md) for tested
+  [verification record](../../../docs/verification/verification-2026-09-17.md) for tested
   revisions and configurations rather than assuming all platforms are qualified.
 
 For a new schema, a minimal explicit-ID example is:
@@ -859,7 +861,7 @@ class person stable_ids {
 Adding `public string country;` is rejected; `public string country (3);` assigns
 an unused ID. Existing explicit IDs work even without `stable_ids`.
 
-- With language `1.2.0`, use [compact unsigned scalars](../../../docs/compact_integers.md):
+- With language `1.2.0`, use [compact unsigned scalars](../../../docs/schema/compact_integers.md):
   `public compact_prefix strict uint32 value (3) {32};` or `compact_varint uint64`.
   Both keep the host type and ordinary JSON/Protobuf mappings. Prefix has a 30-bit
   maximum; strict checks binary writes, lenient deliberately retains the low 30
@@ -905,8 +907,8 @@ the existing generated-header properties and per-target/aggregate generation
 targets. Shared helper overrides apply to every config. Keep one consistent model
 definition within each consuming binary, especially when changing managed ID
 width, separate-values representation, or naming profiles. See the
-[variants helper contract](../../../docs/cmake_integration.md#generate-several-configurations-from-one-parse)
-and [usage examples](../../../docs/usage.md#generate-several-configurations-from-one-parse).
+[variants helper contract](../../../docs/guides/cmake_integration.md#generate-several-configurations-from-one-parse)
+and [usage examples](../../../docs/guides/usage.md#generate-several-configurations-from-one-parse).
 
 For this repository's own build, use GNU `make` on Linux and `./make.ps1` on
 Windows. Keep their common `configure`, `all`, `test`, `clean`, `rebuild`, and
@@ -932,7 +934,7 @@ only in the deleted cache.
 Normal builds require the same compiler, GoogleTest 1.18.0+, compression libraries,
 and clang-format dependencies as direct CMake; Java, benchmarks, and fuzzers remain
 opt-in. Use Make's `CMAKE`/`CTEST` or PowerShell's `-CMakeCommand`/`-CTestCommand`
-to select executables outside `PATH`. See [wrapper options](../../../docs/cmake_integration.md#build-this-repository)
+to select executables outside `PATH`. See [wrapper options](../../../docs/guides/cmake_integration.md#build-this-repository)
 for configurations, separate build directories, and CMake overrides.
 GoogleTest is test-only: the repository manifest requires vcpkg `gtest` 1.18.0 or
 newer, and enabled tests use `find_package(GTest 1.18.0 CONFIG REQUIRED)`.
@@ -948,13 +950,13 @@ executables, with verification status recorded separately in the build guide.
 If a cached `GTest_DIR` selects an older package, update the dependency installation
 and reconfigure with `cmake -S . -B <build-directory> -U GTest_DIR`, preserving the
 build's toolchain and other options, then rebuild the tests. Follow
-[test package migration](../../../docs/cmake_integration.md#windows-test-runtime-dlls)
+[test package migration](../../../docs/guides/cmake_integration.md#windows-test-runtime-dlls)
 for DLL staging and targeted test commands.
 If a cached Visual Studio instance no longer exists, use
 `./make.ps1 configure -CMakeArgs '--fresh', '<required -D overrides>'` and reapply
 the build's nondefault settings before building again. Inspect/back up the cache
 first; do not preserve stale compiler paths or overwrite only the instance entry.
-See [cache recovery](../../../docs/cmake_integration.md#recover-a-stale-visual-studio-instance).
+See [cache recovery](../../../docs/guides/cmake_integration.md#recover-a-stale-visual-studio-instance).
 On Windows, `./make.ps1 all` and `./make.ps1 rebuild` additionally package both
 editor extensions after a successful CMake build. They require Node.js 22+, npm
 and Visual Studio MSBuild, restore locked npm dependencies, and reject unequal
@@ -973,7 +975,7 @@ The repository's Windows presets explicitly use Ninja and x64 architecture with
 preset builds require an x64 developer environment and Ninja on `PATH`, plus
 `VCPKG_ROOT`. Do not pass `-A x64` to Ninja or change the architecture strategy to
 `set`. Clear an older CMake cache before reconfiguring after a generator/platform
-change. See [Visual Studio folder builds](../../../docs/cmake_integration.md#visual-studio-folder-builds).
+change. See [Visual Studio folder builds](../../../docs/guides/cmake_integration.md#visual-studio-folder-builds).
 
 If the default build reports missing clang-format, install a host clang-format
 19+ and rerun configuration; vcpkg's GoogleTest dependency does not supply it.
@@ -981,15 +983,15 @@ On Ubuntu/Debian with the package available, use `sudo apt install clang-format-
 For other installation paths, pass `-DSERIALIZER_CLANG_FORMAT_EXECUTABLE=...`
 through `CMAKE_ARGS` or PowerShell's `-CMakeArgs`. Do not disable tests merely to
 hide a missing formatter when a full build is requested. See
-[formatter setup](../../../docs/cmake_integration.md#formatter-setup).
+[formatter setup](../../../docs/guides/cmake_integration.md#formatter-setup).
 
 For dependency or vcpkg CI checks, review the complete
-[build requirements](../../../docs/cmake_integration.md#build-this-repository)
+[build requirements](../../../docs/guides/cmake_integration.md#build-this-repository)
 and the actual port's options and host dependencies. Package builds should disable
 all development targets; they then need no GoogleTest, formatter, JDK, Protobuf
 runtime, or sanitizers. Consumer schema generation has separate host-tool needs,
 especially when cross-compiling. See
-[vcpkg package builds](../../../docs/cmake_integration.md#vcpkg-package-builds)
+[vcpkg package builds](../../../docs/guides/cmake_integration.md#vcpkg-package-builds)
 for configuration, installation checks, and Windows static linkage. Do not infer
 other platforms' verification from a successful local package build.
 
@@ -999,7 +1001,7 @@ builds. Regenerate LLVM-profile headers after the storage-donor naming fix; only
 generated local names change, with public APIs and wire data preserved.
 Updated runtime headers support `binary_none` encoder `serialize_out(view)`
 dispatch for mapped views; keyed/JSON protocols remain unsupported for views.
-The [latest four-toolchain verification](../../../docs/verification-toolchains-2026-10-07.md)
+The [latest four-toolchain verification](../../../docs/verification/verification-toolchains-2026-10-07.md)
 records full default C++ builds, CTest suites, and installed consumers on Windows
 x64 (MSVC and clang-cl) and Ubuntu WSL2 x64 (GCC and Clang), using Release with a
 C++20 baseline and managed records, SIMD, and all compression backends enabled.
@@ -1019,7 +1021,7 @@ helpers, retaining scalar short gaps/tails and exactly space, tab, LF, and CR.
 Input/work budgets and ProtoJSON message bounds constrain scanning; consumed bytes
 are charged once per run with existing failure positions. Rebuild the runtime
 library and consumers with matching headers; no schema regeneration is needed.
-See [JSON whitespace scanning](../../../docs/runtime_simd.md#simd-json-whitespace-scanning).
+See [JSON whitespace scanning](../../../docs/serialization/runtime_simd.md#simd-json-whitespace-scanning).
 Bulk array input validates the complete payload before destination changes and
 retains allocation, input, nesting, collection, and work limits. Work exhaustion
 uses the scalar path to preserve partial results and failure positions. Boolean
@@ -1027,9 +1029,9 @@ and enum arrays retain per-element validation. Input must not overlap decoded st
 Keep scalar handling for single values, variable-length values, and view setters.
 Link `Serializer::runtime` for pre-generated headers too. Disabling SIMD
 retains bulk array reads/writes and direct JSON escaping. See
-[runtime SIMD](../../../docs/runtime_simd.md) for scope, aliasing, and limitations.
+[runtime SIMD](../../../docs/serialization/runtime_simd.md) for scope, aliasing, and limitations.
 Wire bytes and schema syntax stay unchanged; do not add a `simd` keyword or promise
-a measured speedup. The [verification record](../../../docs/verification-2026-09-17.md)
+a measured speedup. The [verification record](../../../docs/verification/verification-2026-09-17.md)
 records boundary tests and bounded SIMD ON/OFF sanitizer/fuzz runs; benchmarks remain outstanding.
 
 Call the helper once per target with all its schemas. For a shared generated API,
@@ -1059,7 +1061,7 @@ compiler and schema versions. Keep both editor extension versions equal.
 Embedded target blocks reuse available editor language grammars for highlighting;
 install a grammar provider for targets the host does not bundle. This does not
 provide IntelliSense or semantic diagnostics inside native blocks. Follow
-[embedded source highlighting](../../../docs/editor_extension.md#embedded-source-highlighting).
+[embedded source highlighting](../../../docs/editors/editor_extension.md#embedded-source-highlighting).
 Both package descriptions and READMEs identify the
 [Serializer repository](https://github.com/rohit-singh-gautam/Serializer). Configure
 the consumer first, then use `Serializer: Generate Headers` or `Serializer:
@@ -1104,7 +1106,7 @@ VS Code's global commands or disable other language services.
 For file-level navigation, right-click a `.serializer` file in Explorer or its
 editor tab and choose `Serializer: Go to Implementation`. It uses the clicked
 file's URI and the same available-output lookup without building or prompting.
-See [navigation and limits](../../../docs/editor_extension.md#navigate-available-schemas-and-headers).
+See [navigation and limits](../../../docs/editors/editor_extension.md#navigate-available-schemas-and-headers).
 Semantic schema diagnostics remain unavailable.
 For Visual Studio 2022/2026 on Windows x64, use `editors/visual_studio` instead.
 Run its `build.ps1` with Visual Studio's MSBuild to package and validate the VSIX,
@@ -1121,7 +1123,7 @@ From caller code, use its language service to reach the generated declaration fi
 The VS package does not supply VS Code's CMake commands or snippets; Node.js is
 needed to build the shared bundle, but is not required at runtime.
 Continue to use the consumer's CMake targets for generation and include paths.
-See the [verification record](../../../docs/editor_extension.md#verification-performed)
+See the [verification record](../../../docs/editors/editor_extension.md#verification-performed)
 for tested editor hosts and remaining verification boundaries.
 These targets still build the generator when needed and perform real generation:
 honor any instruction to defer configuration, generation, or builds. Install/package
@@ -1193,7 +1195,7 @@ configuration/schema inputs. All backends finish generation/formatting before
 writes start; parse/validation/backend failures preserve existing outputs, while
 filesystem writes across files are not atomic. Batching preserves INI syntax and
 each selected schema contract; one INI with named configurations is unsupported. See
-[batch CLI details](../../../docs/command_line.md#generate-several-configurations-from-one-parse).
+[batch CLI details](../../../docs/guides/command_line.md#generate-several-configurations-from-one-parse).
 
 Use the actual built executable path when it is not on `PATH`. Regenerate through
 the real build pipeline when execution is part of the task; preserve an explicit
@@ -1237,7 +1239,7 @@ user instruction to defer generation/builds/tests and report what remains unveri
   to enable this protocol hook. Native JSON also supports C++ `std::optional<T>`
   generic arguments as null or typed values; this does not add a schema type or
   binary optional encoding in older releases. For schema-native optional values
-  use language 1.7.0 `optional<T>` and the contract below. See `docs/usage.md#json-compatibility`.
+  use language 1.7.0 `optional<T>` and the contract below. See `docs/guides/usage.md#json-compatibility`.
   Malformed values fail with
   `IllegalArgumentException`. Do not share mutable input/object storage across
   concurrent codec calls. No explicit SIMD or native acceleration is implemented.
@@ -1253,7 +1255,7 @@ user instruction to defer generation/builds/tests and report what remains unveri
 - Select `js`, `go`, or `csharp`; add `typescript` for JS declarations. Use
   language-specific output paths for multi-language generation. Pair `.mjs` with
   `.d.mts`, or ES-module `.js` with `.d.ts`, using identical JS naming settings.
-- Read [portable language usage](../../../docs/portable_languages.md) before
+- Read [portable language usage](../../../docs/languages/portable_languages.md) before
   choosing native types. JS 64-bit fields require `bigint`, Go constructors apply
   schema defaults, and C# uses an output-file outer class. Namespace flattening
   must remain collision-free. Preserve wire names and IDs across all targets.
@@ -1288,7 +1290,7 @@ and `serialize_in`, field dispatch and uncompressed stream entrypoints are
 `constexpr` without enabling `constant_evaluation`. Verify the actual protocol,
 stream and value operations: a declaration alone does not make runtime I/O,
 allocation paths or every decoder constant-evaluable. Follow the
-[direct-codec contract](../../../docs/constant_evaluation.md#34-direct-generated-codecs-and-value-qualifiers)
+[direct-codec contract](../../../docs/serialization/constant_evaluation.md#34-direct-generated-codecs-and-value-qualifiers)
 for the native scalar subset and its tests. Generated value factories, conversions,
 readonly typed methods and observers use `[[nodiscard]]`; intentionally discard
 results with `static_cast<void>`. Preserve throwing validation and allocation;
@@ -1297,8 +1299,8 @@ Keep ordinary constructors/methods `constexpr` so runtime inputs remain supporte
 retain `consteval` for compile-time-only dimensions and exact-array factories.
 
 For compile-time positional sizing or emission, use compiler/runtime 1.4.0 or
-newer and read the [constant-evaluation guide](../../../docs/constant_evaluation.md)
-and [usage example](../../../docs/usage.md#count-and-emit-constant-positional-bytes).
+newer and read the [constant-evaluation guide](../../../docs/serialization/constant_evaluation.md)
+and [usage example](../../../docs/guides/usage.md#count-and-emit-constant-positional-bytes).
 Include `<rohit/constant_binary.hpp>`. Enable generated owning models with
 `[cpp] constant_evaluation = true` or `--cpp.constant_evaluation true`;
 the default is false. Regenerate through the normal schema/CMake pipeline and keep
@@ -1344,8 +1346,8 @@ all-toolchain support, zero compilation cost or exhaustive performance qualifica
 from one probe. The guide distinguishes implemented behavior from remaining regression
 and measurement targets.
 
-- For optional compression, read [the compression contract](../../../docs/compression.md)
-  and [usage examples](../../../docs/usage.md#compress-complete-messages). All three
+- For optional compression, read [the compression contract](../../../docs/serialization/compression.md)
+  and [usage examples](../../../docs/guides/usage.md#compress-complete-messages). All three
   `SERIALIZER_WITH_ZSTD`, `SERIALIZER_WITH_LZ4`, and `SERIALIZER_WITH_ZLIB` backends
   default ON, and the repository manifest acquires their libraries by default.
   Disable unused backends explicitly for a reduced build. Select typed compression
@@ -1360,7 +1362,7 @@ and measurement targets.
   Java compression wrappers, dictionaries, concatenated streams, and unbundled
   algorithms are not provided. Custom `compression::backend` adapters can extend
   format support without generator changes. Refer to the separate
-  [compression verification record](../../../docs/verification-compression-2026-09-17.md).
+  [compression verification record](../../../docs/verification/verification-compression-2026-09-17.md).
   Start from the [runnable compression examples](../../../example/compression/README.md)
   for each built-in format, identity output, or the custom-backend interface.
   Set `SERIALIZER_BUILD_COMPRESSION_EXAMPLES=ON` and `SERIALIZER_BUILD_TESTS=OFF`
@@ -1369,7 +1371,7 @@ and measurement targets.
   test builds include the enabled examples; disabled backends have no example target.
 
 - For Protobuf binary, ProtoJSON, or TextProto, read
-  [the Protobuf guide](../../../docs/protobuf.md). Enable `[cpp] protobuf = true`
+  [the Protobuf guide](../../../docs/serialization/protobuf.md). Enable `[cpp] protobuf = true`
   or `--cpp.protobuf true`, regenerate, and select `protobuf_binary`, `protojson`,
   or `textproto` with the existing compile-time protocol-template calls. No
   external Protobuf runtime or `.proto` export is required. These codecs currently
@@ -1386,7 +1388,7 @@ and measurement targets.
   handling. TextProto checks decoded string storage before growth; temporary
   token/numeric scratch is outside `max_allocation_bytes`, so also bound input,
   string/token length, and work. See
-  [finalization verification](../../../docs/verification-finalization-2026-09-18.md).
+  [finalization verification](../../../docs/verification/verification-finalization-2026-09-18.md).
 
 - Select `json`, `binary_none`, `binary_integer`, or `binary_string` according to
   the agreed message contract. Do not silently change protocols to improve size
@@ -1418,12 +1420,12 @@ and measurement targets.
   Bounds, limits, Boolean/enum checks, and exact-message checks remain active.
   Invalid UTF-8 is still not interoperable; peers may remain strict when text is
   valid. JSON, generated view mapping/setters, and other runtimes have no new
-  opt-out. See [usage](../../../docs/usage.md#choose-c-binary-text-validation).
+  opt-out. See [usage](../../../docs/guides/usage.md#choose-c-binary-text-validation).
 - Rebuild the runtime and consumers for the dedicated binary UTF-8 SIMD backend;
   schema regeneration is not needed. AVX2 validates complete Unicode sequences,
   with bounded SSE2/word ASCII and scalar Unicode fallback. The existing
   `SERIALIZER_ENABLE_SIMD` setting controls explicit vector acceleration, not
-  whether validation is enabled. Consult [UTF-8 verification](../../../docs/verification-utf8-2026-09-18.md)
+  whether validation is enabled. Consult [UTF-8 verification](../../../docs/verification/verification-utf8-2026-09-18.md)
   for measurements and test scope; do not promise zero strict-validation overhead.
 - Regenerate C++ headers for structural stream concepts and implicit standard-stream
   adapters. No `rohit::stream` inheritance is required: use `input_buffer` or
@@ -1458,7 +1460,7 @@ and measurement targets.
   Low-level codec templates accept a concrete buffer type; existing buffer calls
   remain valid. Keep memory-stream
   storage stable while decoding. Never imply that concepts prove lifetime or
-  alias safety. See [stream contracts](../../../docs/usage.md#stream-concepts-and-implicit-adapters).
+  alias safety. See [stream contracts](../../../docs/guides/usage.md#stream-concepts-and-implicit-adapters).
 - Use `<rohit/file_stream.hpp>` for a reusable owning file stream supporting both
   generated serialization and journals. `file_stream` satisfies existing byte-stream
   concepts and adds `sync()`, absolute `seek()`, `truncate()`, and `size()`.
@@ -1478,7 +1480,7 @@ and measurement targets.
   The managed store owns a journal sink; its implemented file adapter uses these
   stream facilities. Database sinks require an implemented and tested Serializer
   database adapter. None currently exists; do not add speculative database support.
-  See [file streams](../../../docs/usage.md#file-streams-and-journal-records) and the
+  See [file streams](../../../docs/guides/usage.md#file-streams-and-journal-records) and the
   [runnable journal example](../../../example/managed/journal/README.md).
 - Open binary files in binary mode. Adapters borrow streams, retain exception masks,
   and leave explicit flushing/closing to the caller. I/O failures can consume input
@@ -1498,7 +1500,7 @@ and measurement targets.
   Construct from a byte count for an initial writable extent, or move a string
   to continue after its existing prefix. No schema regeneration is needed for
   already concept-enabled headers. See
-  [string streams](../../../docs/usage.md#string-backed-output-buffers).
+  [string streams](../../../docs/guides/usage.md#string-backed-output-buffers).
 - Construct input views with the actual message length, such as
   `make_constant_full_stream(output.begin(), output.current_offset())`, never the
   spare allocation capacity. Keep input storage alive and independent of output
@@ -1522,8 +1524,8 @@ and measurement targets.
   throwing-assignment types retain fresh decoding. Reused storage remains subject
   to logical resource accounting and may increase temporary retained memory.
   Java and Protobuf codecs keep their existing replacement paths. Consult
-  [destination reuse](../../../docs/usage.md#reuse-destination-storage) for scope
-  and limitations; see the [verification record](../../../docs/verification-2026-09-17.md)
+  [destination reuse](../../../docs/guides/usage.md#reuse-destination-storage) for scope
+  and limitations; see the [verification record](../../../docs/verification/verification-2026-09-17.md)
   for generation and focused test results. Performance measurements remain outstanding.
 - When the application requires atomic replacement, decode/finish a temporary
   object before committing it. Keep structured parse error handling at the message
@@ -1535,7 +1537,7 @@ and measurement targets.
   assignment can still throw, and fresh decoding does not reuse the previous
   destination. Bound input to one message: Protobuf binary can merge valid
   concatenated encodings. Keep existing buffer convenience APIs when one-value
-  decoding or destination reuse is intended. See [exact decoding](../../../docs/usage.md#decode-one-exact-message-into-a-fresh-value).
+  decoding or destination reuse is intended. See [exact decoding](../../../docs/guides/usage.md#decode-one-exact-message-into-a-fresh-value).
 - Regenerate owning headers for automatic fixed-width field batching: native
   binary output groups 2 through 16 consecutive scalar fields per reservation;
   positional binary input shares range/budget checks and falls back to scalar
@@ -1545,9 +1547,9 @@ and measurement targets.
   serializers group their own fields. JSON/custom protocols without batch hooks,
   Java, and Protobuf retain existing paths. No schema option or SIMD setting is
   required. Failed output reservations leave the current batch unwritten, with
-  previous output intact. See [field batching](../../../docs/usage.md#batch-generated-fixed-width-fields)
+  previous output intact. See [field batching](../../../docs/guides/usage.md#batch-generated-fixed-width-fields)
   for custom-stream policies and tests. See the
-  [verification record](../../../docs/verification-2026-09-17.md) for results;
+  [verification record](../../../docs/verification/verification-2026-09-17.md) for results;
   performance measurements remain outstanding.
 
 - Regenerate owning headers for pre-encoded constant field names in native C++
@@ -1559,8 +1561,8 @@ and measurement targets.
   measured speedup is claimed. Isolated binary names reserve their length and text
   together, leaving both unwritten on rejection; values may fail separately.
   Input, views, Java, and Protobuf keep their existing paths. See
-  [constant field names](../../../docs/usage.md#pre-encode-constant-field-names)
-  for details and tests, and the [verification record](../../../docs/verification-2026-09-17.md)
+  [constant field names](../../../docs/guides/usage.md#pre-encode-constant-field-names)
+  for details and tests, and the [verification record](../../../docs/verification/verification-2026-09-17.md)
   for results. Benchmarks remain outstanding.
 
 - Use the updated runtime headers for JSON string scan reuse; schema regeneration
@@ -1570,8 +1572,8 @@ and measurement targets.
   behavior remain unchanged. Input still must not overlap decoded storage. Shared
   ProtoJSON input and ProtoJSON/TextProto quoted output benefit; separate parsers
   and other codecs retain their existing algorithms. See
-  [JSON scan reuse](../../../docs/usage.md#reduce-repeated-json-scans) for remaining
-  passes and coverage. Consult the [verification record](../../../docs/verification-2026-09-17.md)
+  [JSON scan reuse](../../../docs/guides/usage.md#reduce-repeated-json-scans) for remaining
+  passes and coverage. Consult the [verification record](../../../docs/verification/verification-2026-09-17.md)
   for unit-test and bounded sanitizer/fuzz results; do not claim measured performance gains.
 
 ## Map generated views
@@ -1614,9 +1616,9 @@ and relevant malformed/limited input. For schema migration, include the relevant
 old/new schema behavior. Consult [qualification](../../../qualification/README.md)
 for library-wide tests, fuzzing, or benchmarks only when that work is in scope.
 
-Use the dated [four-toolchain verification](../../../docs/verification-toolchains-2026-10-07.md)
+Use the dated [four-toolchain verification](../../../docs/verification/verification-toolchains-2026-10-07.md)
 for current default C++ build and test results, and the
-[earlier verification record](../../../docs/verification-2026-09-17.md) for its
+[earlier verification record](../../../docs/verification/verification-2026-09-17.md) for its
 sanitizer, fuzzing, and interoperability checks. Keep each record's source revision,
 configuration, and outstanding-check boundaries when describing support; historical
 failures and earlier source-only notes do not describe the current tested revision.
@@ -1643,7 +1645,7 @@ Serializer and public sources.
   `kotlin`, or `c`; use corresponding `.rs`, `.py`, `.swift`, `.kt`, or `.h` outputs.
   Select all desired targets in one invocation. `.inc` files are tracked runtime
   source templates embedded by C++, never temporary output or separate compilers.
-- Apply [native API and SDK guidance](../../../docs/native_languages.md). These
+- Apply [native API and SDK guidance](../../../docs/languages/native_languages.md). These
   are owning codecs for the four original wire protocols, with portable literal
   defaults; C++ views, packing, compression, and Protobuf are separate features.
 - Use `Default` in Rust and constructors in Python/Swift/Kotlin. Preserve full
@@ -1662,7 +1664,7 @@ Serializer and public sources.
 - Enable `SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES` only when all selected SDKs are
   available. Missing SDKs must be reported, not silently skipped. CTest compiles
   those consumers and runs the shared boundary suites; the ordinary compiler
-  build requires no target SDK. Consult the [dated verification record](../../../docs/verification-native-2026-09-18.md).
+  build requires no target SDK. Consult the [dated verification record](../../../docs/verification/verification-native-2026-09-18.md).
 
 ## Typed command-line declarations
 
@@ -1679,14 +1681,14 @@ typed values without reparsing. Use `decl.common()` for common options and
 `was_provided` to distinguish defaults from explicit input. Check
 `help_requested()` and write help before calling `cli::dispatch_command(decl)`.
 The original compiler string-map API remains compatible. See the
-[declaration guide](../../../docs/command_line.md#typed-command-line-declarations) for complete examples, getter types, ownership,
+[declaration guide](../../../docs/guides/command_line.md#typed-command-line-declarations) for complete examples, getter types, ownership,
 error behavior, and positional/tail syntax. This source utility is not an
 installed runtime header.
 
 
 ## Payload revisions and schema evolution
 
-For file identification, use [magic and format omissions](../../../docs/magic_and_omission.md).
+For file identification, use [magic and format omissions](../../../docs/schema/magic_and_omission.md).
 `private magic (99) { 'SRLFILE' };` defines static immutable header bytes, not
 mutable payload storage. Native binary prefixes them before the version; JSON
 includes the fixed `magic` string. Every included format verifies and discards
@@ -1719,9 +1721,9 @@ enum name; Protobuf uses the corresponding scalar/enum field mapping. Retain
 legacy byte-magic declarations unchanged unless migration is explicitly requested.
 Regenerate all relevant language and editor outputs when changing these contracts.
 
-Consult the [versioning verification record](../../../docs/verification-versioning-2026-10-06.md) and [release-policy verification record](../../../docs/verification-release-policies-2026-10-06.md) for completed language, compiler, codec, and editor checks. Release catalogs and nested allow policies are evaluated entirely during schema compilation; generated readers and writers contain only resolved version bounds.
+Consult the [versioning verification record](../../../docs/verification/verification-versioning-2026-10-06.md) and [release-policy verification record](../../../docs/verification/verification-release-policies-2026-10-06.md) for completed language, compiler, codec, and editor checks. Release catalogs and nested allow policies are evaluated entirely during schema compilation; generated readers and writers contain only resolved version bounds.
 
-Use [payload versioning](../../../docs/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the supported schema language header (`1.12.0`, older `1.11.0`/`1.10.0`/`1.9.0`/`1.8.0`/`1.7.0`/`1.6.0`/`1.5.0`/`1.4.0`/`1.3.0`/`1.2.0`/`1.1.0`/`1.0.0`, or the original `1` alias for `1.0.0`) from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.
+Use [payload versioning](../../../docs/schema/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the supported schema language header (`1.12.0`, older `1.11.0`/`1.10.0`/`1.9.0`/`1.8.0`/`1.7.0`/`1.6.0`/`1.5.0`/`1.4.0`/`1.3.0`/`1.2.0`/`1.1.0`/`1.0.0`, or the original `1` alias for `1.0.0`) from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.
 
 Declare payload revisions with Serializer's `version` member instead of an ordinary
 counter field. The paired `union_variant` examples declare
@@ -1730,7 +1732,7 @@ all native protocols, and require every
 generated language's JSON reader to reject unsupported version 2. Their C++ and
 JavaScript/TypeScript examples also exercise version rejection during encoding.
 
-Review [simplicity warnings](../../../docs/schema_reference.md#simplicity-warnings)
+Review [simplicity warnings](../../../docs/schema/schema_reference.md#simplicity-warnings)
 when parsing schemas with compiler `1.10.0` or newer. Initialized ordinary fields
 whose source/wire name is `magic` suggest the `magic` keyword; supported revision
 scalar fields named `version` or `revision` suggest the `version` keyword. Names
@@ -1754,7 +1756,7 @@ conversion and collaboration fencing are required for released-schema upgrades. 
 
 ### Release-date and count policies
 
-Follow [release policies](../../../docs/versioning.md#release-dates-and-compile-time-policies)
+Follow [release policies](../../../docs/schema/versioning.md#release-dates-and-compile-time-policies)
 for `releases`, `policy`, nested `any` / `all`, `max_age`, `keep_last`, `released_since`,
 `expires_on`, and compatibility leaves. These are allow conditions, not deny lists.
 Require ordered release identities and dates with a dated current revision. Preserve

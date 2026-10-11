@@ -8,4 +8,4 @@ serializer --input example/config/config.serializer --output config.hpp
 ```
 
 The default C++ profile requires clang-format at generation time. See the
-[usage guide](../../docs/usage.md) for compiling and invoking generated codecs.
+[usage guide](../../docs/guides/usage.md) for compiling and invoking generated codecs.

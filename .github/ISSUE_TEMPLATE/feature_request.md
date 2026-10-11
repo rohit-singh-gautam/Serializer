@@ -6,7 +6,7 @@ labels: ''
 assignees: ''
 ---
 
-<!-- Search existing issues and docs/feature_status.md before proposing a feature. -->
+<!-- Search existing issues and docs/project/feature_status.md before proposing a feature. -->
 <!-- Keep examples specific to Serializer and remove private application details. -->
 
 ## Problem or use case

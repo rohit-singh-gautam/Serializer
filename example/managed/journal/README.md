@@ -62,7 +62,7 @@ object-ID reservations can still be durable independently of canceled edits.
 `stream.hpp` supplies memory streams. The file adapter uses the reusable
 [`file_stream`](../../../include/rohit/file_stream.hpp) for transport and explicit
 durability; the shared frame codec also accepts supported iostreams. See
-[file stream usage](../../../docs/usage.md#file-streams-and-journal-records) for
+[file stream usage](../../../docs/guides/usage.md#file-streams-and-journal-records) for
 ordinary generated serialization to a file, and the
 [journal guide](../../../docs/managed/journal.md) for limits, uncertainty handling,
 and crash-recovery guarantees. No database sink is implemented.

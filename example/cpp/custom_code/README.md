@@ -57,7 +57,7 @@ their corresponding available language grammars; install a grammar provider if
 the editor lacks one. This provides syntax coloring;
 IntelliSense and compiler diagnostics inside schema blocks require separate
 language-service integration. See [embedded source
-highlighting](../../../docs/editor_extension.md#embedded-source-highlighting).
+highlighting](../../../docs/editors/editor_extension.md#embedded-source-highlighting).
 
 Expected output:
 
@@ -69,6 +69,6 @@ four protocols: exact round trips passed
 truncated and trailing input: rejected
 ```
 
-See the [behavior guide](../../../docs/behavior.md) for external implementations,
+See the [behavior guide](../../../docs/schema/behavior.md) for external implementations,
 language tags and native source ordering, and the [C++ examples](../README.md) for
 portable expressions and other maintained consumers.

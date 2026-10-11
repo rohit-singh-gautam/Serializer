@@ -18,14 +18,14 @@ and layouts; the wire contract is identical.
 | AUTOSAR | [account.serializer](autosar/account.serializer) | [autosar.ini](autosar/autosar.ini) | [autosar.cpp](autosar/autosar.cpp) |
 | Qt | [account.serializer](qt/account.serializer) | [qt.ini](qt/qt.ini) | [qt.cpp](qt/qt.cpp) |
 
-See [output configuration](../../docs/output_configuration.md) for the precise
+See [output configuration](../../docs/languages/output_configuration.md) for the precise
 scope of these presentation profiles and their compliance limitations.
 
 ## IntelliSense without building the example programs
 
 Each `account.hpp` is generated into its profile's own build directory. If VS Code
-reports it as missing, follow the [IntelliSense guide](../../docs/intellisense.md).
-These examples use the shipped [CMake helper](../../docs/cmake_integration.md).
+reports it as missing, follow the [IntelliSense guide](../../docs/editors/intellisense.md).
+These examples use the shipped [CMake helper](../../docs/guides/cmake_integration.md).
 After configuring the selected preset, build `serializer_generated_headers` to
 refresh enabled headers without compiling the examples or running tests. For one
 profile, build `serializer_style_<profile>_serializer_headers`. The generator is

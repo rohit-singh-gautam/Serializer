@@ -155,7 +155,7 @@ adapter; database journaling is deferred until Serializer implements and tests t
 backend. The low-level frame helpers alone do not provide a complete managed document
 or claim persistent durability for memory/plain iostream sinks.
 
-See [file stream usage](../usage.md#file-streams-and-journal-records) for generated
+See [file stream usage](../guides/usage.md#file-streams-and-journal-records) for generated
 serialization, bounded reads, optional capability concepts, and explicit host-policy
 adaptation of an iostream. Frame emission does not flush; managed file commits call
 `file_stream::sync()` before publishing the live state. Full Save retains its existing
@@ -528,7 +528,7 @@ Candidate optimizations:
 - Maintain rebuildable entity/revision-to-offset indexes. File offsets are locations,
   not stable entity IDs; compaction can change every offset without changing identity.
 
-The [paged indexing study](../paged_indexing.md) develops the last proposal into
+The [paged indexing study](../design/paged_indexing.md) develops the last proposal into
 bounded page caching, streamed rebuilds and generation/sequence validation. It
 preserves this journal as the authority and requires separate lazy model/history
 storage before claiming larger-than-RAM managed state. No paged index is currently

@@ -1,7 +1,7 @@
 // Copyright (C) 2024, 2026 Rohit Jairaj Singh (rohit@singh.org.in)
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Adapted from Chaturanga's commandline option descriptors and short/long lookup.
-// See docs/command_line.md for upstream provenance and the adaptation scope.
+// See docs/guides/command_line.md for upstream provenance and the adaptation scope.
 #pragma once
 
 #include <algorithm>

@@ -44,8 +44,8 @@ An application can replace the linear scan with a host map whose key includes al
 three components, rebuild that derived map from durable bindings, or delegate
 lookup to a database/provider with an explicit ownership and snapshot contract.
 Record map keys currently require C++ output, so this portable schema uses a
-binding-record array. See [state registries](../../docs/state_registry.md) for the
-generated C++ runtime and [paged indexing](../../docs/paged_indexing.md) for the
+binding-record array. See [state registries](../../docs/managed/state_registry.md) for the
+generated C++ runtime and [paged indexing](../../docs/design/paged_indexing.md) for the
 separate disk-backed proposal.
 
 Build Serializer first, then generate, compile, and execute all installed SDKs:

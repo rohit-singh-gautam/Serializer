@@ -1,0 +1,206 @@
+# Rust, Python, Swift, Kotlin, and C
+
+Language `1.3.0` [digest fields](../schema/digest.md) support variable bytes, exact byte
+extents, and named-algorithm lengths in these owning outputs and all four native
+codecs. Digest computation uses the application's provider; only C++ supplies
+creation helpers in compiler/runtime `1.8.0`.
+
+The C++ compiler generates standalone owning codecs for these five targets. It
+parses the schema once and can produce every supported language in one command.
+There is no Python, Rust, JVM, or C# schema compiler, binding, or subprocess in
+generation. Target SDKs are needed only to compile or run consumers.
+
+The checked-in `src/*_runtime.inc` files are permanent C++ raw-string inputs to
+the generators. Generated source embeds the required runtime. Applications do
+not ship `.inc` files or require Serializer's C++ runtime for these targets.
+
+## Generate
+
+Create the output directory, then run the C++ `serializer` executable:
+
+```sh
+serializer --input example/interoperability/message.serializer \
+  --language rust,python,swift,kotlin,c \
+  --rust.output build/schema.rs --python.output build/schema.py \
+  --swift.output build/Schema.swift --kotlin.output build/Schema.kt \
+  --c.output build/schema.h --kotlin.package example.models
+```
+
+Append `cpp,java,js,typescript,go,csharp` and their destination options to produce
+all outputs in that same invocation. Repeating `--language` also works.
+`--output` accepts one target. Included declarations are emitted together; the
+same depfile and publication validation apply to every backend. With CMake,
+`serializer_generate_source(... LANGUAGE rust OUTPUT .../schema.rs)` and the
+equivalent language names use the existing generation helper.
+
+Kotlin defaults to the unnamed package; `--kotlin.package=` clears a configured
+package. INI configuration supports `[kotlin]` / `package = example.models`.
+The contextual property name `field` is supported, including in collaboration
+records; generated accesses use `this.field` and preserve the schema wire key.
+Rust, Python, Swift, and C need no backend-specific INI section. The new targets
+use their native naming conventions; configurable naming profiles are currently
+provided only by the earlier backends. Place one generated schema module in
+each consumer module/compilation unit: independently generated files embed
+runtime names, so combining overlapping schemas in one module is unsupported.
+
+## Models and SDKs
+
+| Target | Generated source and runtime | Model and field names | Collections |
+| --- | --- | --- | --- |
+| Rust | Rust 2021, standard library | `InteropMessage`, `big_unsigned` | `Vec<T>`, `BTreeMap<K,V>` |
+| Python | Python 3.10+, standard library | `InteropMessage`, `big_unsigned` | `list`, `dict`; models use `__slots__` |
+| Swift | Swift 6, Foundation | `InteropMessage`, `bigUnsigned` | Arrays and dictionaries |
+| Kotlin | Kotlin/JVM 2.0+, standard library and JDK | `InteropMessage`, `bigUnsigned` | Primitive numeric arrays, `MutableList`, `MutableMap` |
+| C | C11, standard library, IEEE binary32/binary64 | `interop_message`, `big_unsigned` | Typed owning arrays and map-entry arrays |
+
+The tested versions and platforms are in the [verification record](../verification/verification-native-2026-09-18.md).
+Minimum versions other than those tested need their own qualification. Kotlin/JS,
+Kotlin/Native, `no_std` Rust, Python extensions, and Apple device packaging are
+not separate qualified targets in this change.
+
+On Windows, Swift needs a Visual Studio developer environment, its toolchain and
+runtime `bin` directories on `PATH`, and `SDKROOT` pointing to the matching
+`Windows.sdk`. Windows Swift 6.4 setup and results are recorded in
+[finalization verification](../verification/verification-finalization-2026-09-18.md).
+
+Schema namespaces flatten into type names. Parents are composed as `base0`,
+`base1`, etc. Fixed-width integer types preserve all bits, including `uint64`;
+Python uses checked arbitrary-precision integers, Kotlin uses unsigned types,
+and C uses `<stdint.h>`. `char` is a byte (JSON accepts ASCII only). Native enums
+preserve schema ordinals. A union uses an index and typed alternative fields;
+only its active alternative appears on the wire.
+
+Language `1.4.0` also accepts `variant(...)`. C++ generates owning `std::variant`
+storage and JavaScript/TypeScript generate a discriminated `{kind, value}`
+payload; other backends use their existing tagged-choice representation for both
+keywords. Raw union APIs remain unchanged. Native indices and wire names are
+identical for both keywords. See [unions and variants](../schema/unions_and_variants.md)
+and the [paired examples](../../example/README.md#union-and-variant).
+
+Swift string **map keys** use `WireString`, whose equality, hashing, and ordering
+use exact UTF-8 bytes. Swift's ordinary `String` equality can equate differently
+encoded Unicode sequences; preserving these separate wire keys requires the
+wrapper. It accepts string literals; construct dynamic keys with
+`WireString(text)` and retrieve text with `.value`. Ordinary string fields use
+`String`.
+
+Rust, Swift, and Kotlin hide private/protected fields within generated models.
+Python uses a leading underscore by convention. C exposes fields in structs;
+schema access modifiers do not provide C access control.
+
+## Encode and decode
+
+All five support JSON, positional binary, integer-key binary, and string-key
+binary. These use the existing [wire contract](../serialization/wire_format.md), including
+little-endian scalars, compact lengths, stable IDs, enum contexts, and map order.
+High-byte `map(char)` keys are ordered as unsigned bytes in these backends;
+historical C++/Java ordering can differ while preserving decoded values. See
+[map ordering](../serialization/wire_format.md#map-ordering); use `map(uint8)` for new portable
+byte-keyed contracts requiring unsigned ordering.
+Little-endian refers to the wire bytes, independently of the host CPU. The shared
+interop runner can add big-endian C/C++ hosts using `--big-endian`; all participants
+check the same frozen positional bytes. Strings require valid UTF-8 in every
+backend, including C++; use `array uint8` for arbitrary binary data.
+Python supports `array[N] T` without explicit initializers from compiler 1.6.0.
+It constructs exactly `N` independent defaults and validates the extent during
+encoding and decoding, including binary counts before reading elements and JSON
+iteration bounds. Compiler 1.11.0 extends fixed arrays without explicit initializers
+to Rust, Swift, Kotlin and C with independent owning defaults and the same exact
+cardinality checks. The ordinary sequence count remains encoded. See [the support matrix](../schema/generics.md#backend-support).
+Swift's strict UTF-8 decoder preserves a leading U+FEFF as string data on every
+platform, including Windows. Regenerate Swift output to obtain that correction;
+it continues to reject malformed UTF-8 and invalid token/field-name prefixes.
+
+```rust
+let value = schema::InteropMessage::default();
+let bytes = value.encode(schema::Protocol::BinaryInteger)?;
+let copy = schema::InteropMessage::decode(&bytes, schema::Protocol::BinaryInteger)?;
+```
+
+```python
+from schema import InteropMessage, Protocol
+value = InteropMessage()
+bytes_ = value.encode(Protocol.BINARY_INTEGER)
+copy = InteropMessage.decode(bytes_, Protocol.BINARY_INTEGER)
+```
+
+```swift
+var value = InteropMessage()
+let bytes = try value.encode(.BINARY_INTEGER)
+let copy = try InteropMessage.decode(bytes, .BINARY_INTEGER)
+```
+
+```kotlin
+val value = InteropMessage()
+val bytes = value.encode(Protocol.BINARY_INTEGER)
+val copy = InteropMessage.decode(bytes, Protocol.BINARY_INTEGER)
+```
+
+```c
+interop_message value = {0}, copy = {0};
+srl_buffer bytes = {0};
+srl_status status = interop_message_init(&value);
+if (status == srl_ok) status = interop_message_encode(&value, srl_binary_integer, &bytes);
+if (status == srl_ok) status = interop_message_decode(&copy, bytes.data, bytes.size,
+                                                   srl_binary_integer, NULL);
+interop_message_free(&copy);
+interop_message_free(&value);
+srl_buffer_free(&bytes);
+/* Check status before using decoded data. */
+```
+
+Decoding requires exact input consumption, apart from trailing JSON whitespace,
+and returns a fresh model. C instead replaces an initialized or zeroed destination
+only after complete success. C encoding similarly replaces an initialized/zeroed
+`srl_buffer` only on success. Call `*_init` only on fresh storage; release a live
+model with `*_free` first. Strings and collection elements own their allocations;
+do not shallow-copy owning C models. Use `srl_string_set` for length-bearing
+strings (including embedded NUL), and `srl_string_set_cstr` for ordinary C text.
+See the [C example](../../example/c/interoperability/main.c) for collection construction.
+
+Default decoding limits are 64 MiB per message, 16 MiB per string, one million
+cumulative collection elements, and 64 object levels. Pass `Limits` as the third
+decode argument in Python/Swift/Kotlin, use Rust `decode_with_limits`, or pass
+`srl_limits` to C. Encoder nesting is also capped at 64 levels. Kotlin throws
+`SerializerException`; Swift throws `SerializerError`; Rust returns `Result`;
+Python raises validation exceptions; C returns `srl_status`. Native allocation
+failure is not uniformly recoverable across managed runtimes or Rust containers.
+
+Unknown keyed fields, malformed UTF-8, invalid enums/unions, truncated input,
+invalid JSON numeric ranges, and trailing non-whitespace input are errors.
+Repeated nested objects merge; a complete collection replaces its predecessor;
+duplicate map keys keep the last complete value. JSON floating values must be
+finite. Binary floating payloads allow nonfinite values. A schema shared with
+every backend must use the common supported subset: owning classes, supported
+map keys, and portable literal defaults. Views, packed output, compression, and
+Protobuf remain C++ features. C float text conversion follows the active C
+locale while emitting a period; callers must not concurrently change the global
+locale during codec calls.
+
+## Performance and qualification
+
+Codecs access typed fields directly and parse JSON tokens without constructing
+generic object trees. Field keys and positional metadata are cached; numeric
+Kotlin arrays avoid per-element boxing and unnecessary final copies. Rust
+decoding borrows its input; Python accepts a `memoryview`. Collection reservation
+checks input lengths and limits first. C uses geometric growth, stack scratch
+space for ordinary numeric tokens, and sorts map entry pointers without copying
+owned values. C duplicate-map normalization is O(n log n).
+
+These are implementation choices, not claims of equal throughput across runtimes.
+The [examples](../../example/README.md) include warmed local benchmarks where
+provided. Compare optimized builds on the same machine and realistic payloads;
+keep canonical-byte and malformed-input checks enabled when optimizing codecs.
+
+The shared test corpus exercises every truncated prefix, exact decode, limits,
+integer extrema, Unicode, duplicate maps, repeated fields, and C failure
+transactionality. The full matrix covers ten runtimes plus a typed TypeScript
+consumer: **11 × 11 × 4 protocols × 3 variants = 1,452 exchanges**.
+
+## Optional values
+
+Language 1.7.0 and compiler/runtime 1.12.0 support `optional<T>`, including
+nested presence, record payloads, optional arrays/maps, and collections of
+optionals. See the [optional contract](../schema/optional.md) for the standard target
+representations, exact JSON/binary framing, defaults, and limits. Runnable
+[optional examples](../../example/README.md#optional-values) exercise every output.

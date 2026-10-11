@@ -45,7 +45,7 @@ invalid expressions: rejected
 invalid predicates: false
 ```
 
-See the [behavior guide](../../../docs/behavior.md) for expression syntax,
+See the [behavior guide](../../../docs/schema/behavior.md) for expression syntax,
 validation rules, evaluation limits and runtime-only C++20 math functions, and
 the [C++ examples](../README.md) for other maintained consumers.
 

@@ -62,7 +62,7 @@ skip. With CTest, enable both `SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES=ON` and
 
 This qualifies the exercised s390x C/C++ consumers under emulation; it does not
 claim execution of every managed-language runtime on big-endian hardware.
-See the [verification record](../../docs/verification-cross-endian-2026-09-18.md)
+See the [verification record](../../docs/verification/verification-cross-endian-2026-09-18.md)
 for the exercised configurations, results, and limits.
 
 ## Existing five-runtime CMake subset
@@ -128,5 +128,5 @@ For Go allocation measurements, enable normal tests, build them, then run in
 go test -run '^$' -bench BenchmarkNativeCodec -benchmem
 ```
 
-See [portable language support](../../docs/portable_languages.md) for APIs,
+See [portable language support](../../docs/languages/portable_languages.md) for APIs,
 limitations, resource policy, build integration, and the verification record.

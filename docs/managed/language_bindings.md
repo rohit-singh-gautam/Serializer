@@ -15,13 +15,13 @@ generics, payload lifetimes and checked transient updates. Both direct and separ
 storage policies are supported. Other-language managed engines remain proposals;
 generators reject managed annotations rather than emitting incomplete engines.
 The broader sketches below are not the exact C++ API or output. See
-[state enhancements](../state_enhancements.md), the [design index](README.md) and
+[state enhancements](state_enhancements.md), the [design index](README.md) and
 [data structures](data_structures.md).
 
 | Generated capability | C++ | Other codec backends |
 | --- | --- | --- |
 | Ordinary models/codecs and payload revision metadata | Implemented | Implemented within each backend's documented type support |
-| Schema method declarations/native blocks/portable expressions | Implemented | Selected language code and the supported portable subset; see [state enhancements](../state_enhancements.md) |
+| Schema method declarations/native blocks/portable expressions | Implemented | Selected language code and the supported portable subset; see [state enhancements](state_enhancements.md) |
 | Managed editors/history/journal/collaboration/runtime updates | Implemented | Not implemented |
 | Managed public nonvirtual multiple inheritance | Generated checked base editors and identities | Managed generation rejected |
 

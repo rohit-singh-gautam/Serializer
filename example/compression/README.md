@@ -21,7 +21,7 @@ uncompressed output, and the custom-backend interface. Each folder has a
 Run from the repository root with CMake 3.28+, a C++20 compiler/standard library,
 and clang-format 19+. Make the selected dependencies available through
 `CMAKE_PREFIX_PATH` or the matching vcpkg features described in the
-[compression dependency guide](../../docs/compression.md#build-and-dependency-options).
+[compression dependency guide](../../docs/serialization/compression.md#build-and-dependency-options).
 For Ninja on Windows, use an initialized MSVC developer shell.
 
 All three backend dependencies are enabled by default. Build all seven examples:
@@ -76,7 +76,7 @@ schema, inner protocol, and byte order separately. These examples use bounded
 whole-message staging, including for standard streams. Member decoding can
 partially update fields on an inner parse failure; `deserialize_exact` returns a
 fresh value only after complete validation. See the
-[compression contract](../../docs/compression.md) for memory accounting, input
+[compression contract](../../docs/serialization/compression.md) for memory accounting, input
 consumption, checksums, and supported standard-format profiles.
 
 The custom example delegates to the built-in gzip backend to demonstrate the
@@ -100,4 +100,4 @@ The enabled builds used Zstandard 1.5.7, LZ4 1.10.0, and zlib 1.3.1. These runs
 cover the examples' field comparisons and identity-byte check. No new sanitizer,
 fuzzing, macOS, or ARM runs were performed for these examples. Earlier runtime
 qualification is recorded separately in the
-[compression verification record](../../docs/verification-compression-2026-09-17.md).
+[compression verification record](../../docs/verification/verification-compression-2026-09-17.md).

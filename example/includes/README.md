@@ -24,7 +24,7 @@ has its own version header. Include files before declarations; do not wrap inclu
 inside namespaces.
 Generate the entry schema only: included declarations become part of that entry's
 header or Java outer class. Overlapping generated C++ headers can redefine shared
-types if used together. See the [complete include contract](../../docs/usage.md#share-declarations-with-includes).
+types if used together. See the [complete include contract](../../docs/guides/usage.md#share-declarations-with-includes).
 
 ## Build and run all six consumers
 
@@ -37,7 +37,7 @@ cmake --build out/include-examples --config Debug
 ctest --test-dir out/include-examples -C Debug -R serializer_include_ --output-on-failure
 ```
 
-Use the [platform build setup](../../docs/cmake_integration.md#build-this-repository)
+Use the [platform build setup](../../docs/guides/cmake_integration.md#build-this-repository)
 for compiler and dependency discovery. The normal test build includes all three C++
 consumers. `SERIALIZER_BUILD_JAVA_EXAMPLES=ON` adds all three Java consumers.
 

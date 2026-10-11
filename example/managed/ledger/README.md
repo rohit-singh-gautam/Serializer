@@ -265,7 +265,7 @@ cmake --build out/managed-ledger-consumer --config Release
 ```
 
 Use the platform's C++ developer environment and configure clang-format as described
-in [CMake integration](../../../docs/cmake_integration.md). Run the resulting executable
+in [CMake integration](../../../docs/guides/cmake_integration.md). Run the resulting executable
 from the standalone build directory (or its `Release` subdirectory for multi-config generators).
 In a repository build, it is under `example/managed/ledger/` in the build directory.
 

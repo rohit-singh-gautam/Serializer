@@ -45,8 +45,8 @@ wire formats and journal/collaboration protocol versions are retained.
 - [x] Dedicated [custom-ID examples](example/custom_ids/README.md) provide maintained
   consumers for all eleven languages and a C++ managed snapshot/undo companion.
 
-See [numeric/record behavior](docs/behavior.md), [construction](docs/construction.md),
-[record map keys](docs/generics.md), and [state registries](docs/state_registry.md).
+See [numeric/record behavior](docs/schema/behavior.md), [construction](docs/schema/construction.md),
+[record map keys](docs/schema/generics.md), and [state registries](docs/managed/state_registry.md).
 
 ## Conditional or separate work
 
@@ -54,7 +54,7 @@ See [numeric/record behavior](docs/behavior.md), [construction](docs/constructio
   design and is not implemented**. Application-key bindings meet custom addressing
   while retaining existing scalar allocation, recovery and collaboration.
 - [x] Research low-memory mostly-disk indexing and existing database support; see
-  the [paged indexing study](docs/paged_indexing.md), including customer-provider
+  the [paged indexing study](docs/design/paged_indexing.md), including customer-provider
   boundaries and the journal/history/authorization/collaboration invariants.
 - [ ] Implement and qualify a bounded paged backend or database adapter. This
   remains a proposal, with no new dependency, benchmark or memory guarantee.
@@ -67,6 +67,6 @@ See [numeric/record behavior](docs/behavior.md), [construction](docs/constructio
 ## Qualification
 
 Native regression, SDK and editor results are recorded in
-[the enhancement verification record](docs/verification-registry-numeric-2026-10-11.md).
+[the enhancement verification record](docs/verification/verification-registry-numeric-2026-10-11.md).
 Unsupported combinations are separate from completed checks; no all-configuration
 performance claim is made.

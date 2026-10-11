@@ -35,6 +35,6 @@ a `PASS` message and fails if an expected state-management guarantee is violated
 
 The [portable examples](../README.md) show application-owned key/binding policy
 in every language. Their host registries do not supply Serializer's C++ managed
-history or journal. See [state registries](../../../docs/state_registry.md) for
+history or journal. See [state registries](../../../docs/managed/state_registry.md) for
 typed field paths, hash/ordered indexes, provider lifetimes, memory admission,
 and the authority boundary used by collaboration.

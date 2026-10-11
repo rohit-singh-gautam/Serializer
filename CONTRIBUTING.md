@@ -25,7 +25,7 @@ to using the project, see the [accessibility statement](ACCESSIBILITY.md).
 Fork the repository, clone your fork, and create a branch for your change.
 The default development build requires CMake 3.28+, a C++20 compiler and standard
 library, clang-format 19+, and GoogleTest. Follow the
-[build requirements](docs/cmake_integration.md#build-this-repository) to install
+[build requirements](docs/guides/cmake_integration.md#build-this-repository) to install
 dependencies and select a toolchain.
 
 From the repository root, the existing test wrappers configure and build the
@@ -41,14 +41,14 @@ make test
 ./make.ps1 test
 ```
 
-See the [build and generation guide](docs/build_and_generation.md#build-and-test)
+See the [build and generation guide](docs/guides/build_and_generation.md#build-and-test)
 for direct CMake commands, presets, and optional build features. Use the
 [qualification guide](qualification/README.md) for interoperability, fuzzing,
 sanitizers, and performance checks relevant to your change.
 
 ## Make a focused change
 
-- Use the [product-positioning reference](docs/product_positioning.md) for
+- Use the [product-positioning reference](docs/project/product_positioning.md) for
   descriptions of Serializer — State Framework. Match claims to implemented
   capabilities and the package being described; distinguish editor support from
   the compiler and application runtime.

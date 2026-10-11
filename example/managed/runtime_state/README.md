@@ -9,4 +9,4 @@ retained state from a previous document convention and recovers a previous
 journal into a distinct destination artifact.
 
 See [the schema](document.serializer), [the consumer](main.cpp), and
-[state examples](../../../docs/state_enhancements.md) for the contracts and limits.
+[state examples](../../../docs/managed/state_enhancements.md) for the contracts and limits.

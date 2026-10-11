@@ -62,7 +62,7 @@ The fixture produced 1,799,682 binary bytes and 2,470,757 JSON bytes on Windows.
 ## Build and run
 
 Run from the repository root with CMake 3.28+, a C++20 compiler, and
-[clang-format 19+](../../docs/cmake_integration.md#formatter-setup).
+[clang-format 19+](../../docs/guides/cmake_integration.md#formatter-setup).
 On Windows, use an x64 Visual Studio developer shell.
 
 ```sh
@@ -98,5 +98,5 @@ write an output prefix, or partially modify the destination.
 
 For applications with multiple messages on a long-lived connection, provide an
 input bounded to one frame or an exact-size buffer. No framing is added here.
-See the [stream concepts and adapter contract](../../docs/usage.md#stream-concepts-and-implicit-adapters)
+See the [stream concepts and adapter contract](../../docs/guides/usage.md#stream-concepts-and-implicit-adapters)
 for the full requirements and customization points.

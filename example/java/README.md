@@ -57,7 +57,7 @@ warnings treated as errors. With tests enabled, CTest also runs the examples.
 The targets are `serializer_java_round_trip`, `serializer_java_style_serializer`,
 `serializer_java_style_google`, and `serializer_java_style_oracle`.
 
-See [Java output](../../docs/java.md) for direct CLI/javac commands, API mappings,
+See [Java output](../../docs/languages/java.md) for direct CLI/javac commands, API mappings,
 profile scope, protocol compatibility, resource limits, and current limitations.
 
 Run the generic example separately:

@@ -193,7 +193,7 @@ model IDs, snapshot formats or journals. The default uint64 policy keeps protoco
 5/6 records without a session wrapper. Other policies use protocol 7/8 and a generated
 `session_envelope` with a format tag, the original record payload with numeric
 session placeholders zeroed, and the encoded session values. See the
-[wire contract](../wire_format.md#collaboration-envelopes). Both endpoints must use
+[wire contract](../serialization/wire_format.md#collaboration-envelopes). Both endpoints must use
 the same session policy; cross-format messages are rejected rather than coerced.
 Typed envelopes add framing and temporary encoding buffers; the default uint64
 path still uses the original generated records without this overhead.
@@ -440,7 +440,7 @@ can be an explicit new application command passing the same acceptance checks.
 
 ## Verification
 
-The [latest four-toolchain verification](../verification-toolchains-2026-10-07.md)
+The [latest four-toolchain verification](../verification/verification-toolchains-2026-10-07.md)
 includes the complete default collaboration suites on Windows x64 (MSVC and
 clang-cl) and Ubuntu WSL2 x64 (GCC and Clang), using Release with a C++20 baseline
 and managed records, SIMD, and all compression backends enabled. The results below

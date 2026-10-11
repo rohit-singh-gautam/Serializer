@@ -1,5 +1,7 @@
 # Implementation walkthroughs
 
+[Documentation index](../README.md)
+
 This folder explains how Serializer's current code works, using small examples
 and links to the implementing functions. Keep proposals in their design guides.
 
@@ -10,4 +12,4 @@ and links to the implementing functions. Keep proposals in their design guides.
 - [Managed editors](managed_editors.md): shared channels, callback type erasure,
   target resolution, generated getters/setters, and map/array identity checks.
 
-For application setup and public APIs, start with [usage](../usage.md).
+For application setup and public APIs, start with [usage](../guides/usage.md).

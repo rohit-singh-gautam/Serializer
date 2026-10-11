@@ -1,3 +1,8 @@
+# 1.1.41
+
+- Update documentation links for the categorized repository guides and references.
+- Keep both editor package versions synchronized.
+
 # 1.1.40
 
 - Support schema language 1.12.0 overloaded construction and generic readonly signatures.

@@ -103,7 +103,7 @@
   current. Review both for every change; update both in the same change whenever
   schema syntax, supported features, public APIs, protocol behavior, build steps,
   or recommended usage changes.
-- Update their linked [usage guide](docs/usage.md), wire-format contract, migration
+- Update their linked [usage guide](docs/guides/usage.md), wire-format contract, migration
   notes, and skill metadata where affected. Keep detailed examples in the usage
   guide and task instructions in the skill, with working links between them.
 - Document implemented behavior separately from proposals. Include relevant

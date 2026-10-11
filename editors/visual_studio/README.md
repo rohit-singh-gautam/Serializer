@@ -1,12 +1,12 @@
 # Rohit Serializer for Visual Studio
 
-Version **1.1.40** supports schema language 1.12.0 overloaded constructors, nested constructor input types, factory-constrained owning parameter defaults, generic readonly method signatures and `common_type<T, Input>` result types. It highlights `cpp storage(none)`, `readonly constexpr(cpp)`, constructor `validate expression(...)` and `initialize cpp { ... };` contracts. Shared navigation retains independent input scopes and treats contract names as metadata. New VS Code schema snippets select language 1.12.0.
+Version **1.1.41** supports schema language 1.12.0 overloaded constructors, nested constructor input types, factory-constrained owning parameter defaults, generic readonly method signatures and `common_type<T, Input>` result types. It highlights `cpp storage(none)`, `readonly constexpr(cpp)`, constructor `validate expression(...)` and `initialize cpp { ... };` contracts. Shared navigation retains independent input scopes and treats contract names as metadata. New VS Code schema snippets select language 1.12.0.
 
 Version **1.1.38** highlights embedded target source using available TextMate
 language grammars. `cpp { ... }`, `java { ... }`, and the other native tags select
 their language's syntax inside method bodies, class declarations, and preambles.
 Install a grammar provider for targets the Visual Studio instance does not bundle.
-See [embedded source highlighting](../../docs/editor_extension.md#embedded-source-highlighting)
+See [embedded source highlighting](../../docs/editors/editor_extension.md#embedded-source-highlighting)
 and the [custom C++ example](../../example/cpp/custom_code/README.md).
 This adds syntax coloring; IntelliSense and semantic diagnostics inside schema
 blocks remain unavailable.
@@ -43,7 +43,7 @@ Version **1.1.28** shares language `1.3.0` digest highlighting and navigation:
 `digest`, `digest[32]`, and `digest(sha256)`. Named algorithms and byte extents
 are metadata; adjacent qualified types and legacy declared types named `digest`
 retain navigation. VS Code's companion package adds digest snippets and uses
-the `1.3.0` schema header. See the [digest contract](../../docs/digest.md).
+the `1.3.0` schema header. See the [digest contract](../../docs/schema/digest.md).
 
 ## Navigation
 
@@ -76,8 +76,8 @@ reads existing files; it never saves, configures, builds or prompts to generate.
 The extension also configures comment toggling, bracket/quote pairs and indentation.
 It does not provide semantic diagnostics, completion, member/function navigation,
 snippets or VS Code's CMake commands. Use existing CMake targets for generation.
-See [usage](../../docs/usage.md), [CMake integration](../../docs/cmake_integration.md)
-and the [navigation investigation](../../docs/editor_navigation.md).
+See [usage](../../docs/guides/usage.md), [CMake integration](../../docs/guides/cmake_integration.md)
+and the [navigation investigation](../../docs/editors/editor_navigation.md).
 
 ## About Serializer
 
@@ -91,7 +91,7 @@ native managed engines currently run in C++.
 
 [Project website](https://www.singh.org.in/serializer.html) ·
 [Serializer repository](https://github.com/rohit-singh-gautam/Serializer) ·
-[Serialization guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/usage.md) ·
+[Serialization guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/guides/usage.md) ·
 [C++ state-management guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/managed/getting_started.md)
 
 ## Download and install Serializer
@@ -100,16 +100,16 @@ The editor extension is separate from the Serializer compiler and runtime:
 
 - [Download Serializer source (ZIP)](https://github.com/rohit-singh-gautam/Serializer/archive/refs/heads/main.zip)
   or [clone the repository](https://github.com/rohit-singh-gautam/Serializer).
-- Follow the [build and installation instructions](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/cmake_integration.md#use-an-installed-package)
+- Follow the [build and installation instructions](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/guides/cmake_integration.md#use-an-installed-package)
   to install the compiler, runtime library, headers, and CMake package.
-- Use the [CMake integration guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/cmake_integration.md)
+- Use the [CMake integration guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/guides/cmake_integration.md)
   to add Serializer to your project and generate code from schemas.
 
 Installing this extension does not install the compiler or runtime.
 For compiler/runtime 1.7.0 and newer, generated applications link the 0BSD
 `Serializer::runtime` target; the generation helper supplies this automatically.
 The GPL `Serializer::serializer_lib` target is reserved for compiler API use.
-See the [licensing guide](../../docs/licensing.md) for proprietary applications
+See the [licensing guide](../../docs/project/licensing.md) for proprietary applications
 and source-schema notices. The editor extension retains its own repository license.
 
 ## Build and install
@@ -144,7 +144,7 @@ installation. It uses full-framework MSBuild with locked dependencies, bundles
 the current shared resolver, rebuilds and validates:
 
 ```text
-out/extensions/serializer-visual-studio-1.1.40.vsix
+out/extensions/serializer-visual-studio-1.1.41.vsix
 ```
 
 Close Visual Studio, double-click the VSIX, select the installation and restart
@@ -167,7 +167,7 @@ arguments, and named instantiations. Parameters navigate to their local declarat
 generic definitions navigate to the C++ native template or existing concrete generated types.
 Generated instances map back to the generic definition across all output languages.
 Unused generic definitions have a C++ template destination; other languages require a concrete contract. See
-[schema generics](../../docs/generics.md) for the supported compiler profile.
+[schema generics](../../docs/schema/generics.md) for the supported compiler profile.
 
 `navigation_editor.cs` exports native MEF command and Ctrl+click providers.
 `navigation_bridge.ts` uses the shared resolver through a small host path adapter.
@@ -213,7 +213,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File editors/visual_studio/te
 It creates a hidden Visual Studio 2026 instance and a disposable solution, checks
 native commands and reversed selections, then terminates only its own test host.
 Use `-ProgId VisualStudio.DTE.17.0` to target a Visual Studio 2022 installation.
-See the [verification record](../../docs/editor_extension.md#verification-performed)
+See the [verification record](../../docs/editors/editor_extension.md#verification-performed)
 for completed runs and remaining editor-host coverage.
 
 The [installation target](https://learn.microsoft.com/en-us/visualstudio/extensibility/migration/extension-compatibility?view=visualstudio)
@@ -244,11 +244,11 @@ contracts; fixed-array output is currently unsupported there. The shared grammar
 highlights dimension arithmetic and the `matrix` snippet inserts a fixed-array
 example. Both packages use the same navigation implementation.
 
-Version 1.1.25 recognizes payload `version`/`compatibility`, `version2`/`version3`/`version4`, `created`/`obsolete`/`replaced`, and `reserve` syntax. Qualified field-type navigation remains available beside lifecycle metadata. See the [revision contract](../../docs/versioning.md).
+Version 1.1.25 recognizes payload `version`/`compatibility`, `version2`/`version3`/`version4`, `created`/`obsolete`/`replaced`, and `reserve` syntax. Qualified field-type navigation remains available beside lifecycle metadata. See the [revision contract](../../docs/schema/versioning.md).
 
 ## Release policies (1.1.25)
 
-Both extensions highlight `releases`, nested `policy` / `any` / `all`, and the `max_age`, `keep_last`, `released_since`, `expires_on`, and compatibility leaves. The schema compiler folds these into ordinary version bounds; generated readers contain no dates or policy tree. See the [release policy contract](../../docs/versioning.md#release-dates-and-compile-time-policies).
+Both extensions highlight `releases`, nested `policy` / `any` / `all`, and the `max_age`, `keep_last`, `released_since`, `expires_on`, and compatibility leaves. The schema compiler folds these into ordinary version bounds; generated readers contain no dates or policy tree. See the [release policy contract](../../docs/schema/versioning.md#release-dates-and-compile-time-policies).
 
 ## Magic and format exclusions (1.1.25)
 
@@ -268,7 +268,7 @@ and type-definition navigation, including unsaved and transitive included schema
 VS Code includes `array_inferred` and `magic_typed` snippets; its schema snippet
 selects `serializer version 1.12.0;`. The original `1` header remains exactly
 `1.0.0` and does not enable these features. See the
-[magic contract](../../docs/magic_and_omission.md) and [fixed arrays](../../docs/generics.md).
+[magic contract](../../docs/schema/magic_and_omission.md) and [fixed arrays](../../docs/schema/generics.md).
 
 ## Simplicity warnings (1.1.31)
 
@@ -283,7 +283,7 @@ warnings appear in build output; this extension does not provide semantic diagno
 Omit the redundant name with `public version uint32 (1) { 1 };`. Its implicit
 generated member remains `version`, preserving the API and wire identities.
 Retain a custom revision name when existing consumers depend on it. See the
-[revision contract](../../docs/versioning.md).
+[revision contract](../../docs/schema/versioning.md).
 
 ## Compact integer fields (1.1.25)
 

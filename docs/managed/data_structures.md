@@ -3,7 +3,7 @@
 Implemented registry subset in compiler/runtime `1.16.0`: generated C++ object
 catalogs and field/base descriptors, snapshot-owned ordered/hash field indexes,
 transactional key binding/adoption/retirement and runtime uniqueness invariants.
-See [state registries](../state_registry.md) for the actual public API and limits.
+See [state registries](state_registry.md) for the actual public API and limits.
 This does not implement the complete structures illustrated below, automatic
 maintained index caches, or a disk backend.
 
@@ -919,7 +919,7 @@ public:
 ```
 
 `has_before` and `has_after` retain the explicit presence/value format used by this
-illustrative schema. Language `1.7.0` also supports [generic optionals](../optional.md),
+illustrative schema. Language `1.7.0` also supports [generic optionals](../schema/optional.md),
 which generate C++ `std::optional<T>` directly. Replacing these paired fields with
 an optional changes their wire layout and requires a payload migration. The paired
 value field is still serialized when its flag is false, and must then contain its

@@ -64,7 +64,7 @@ native managed engines currently run in C++.
 Install **Rohit Serializer** from the existing
 [Visual Studio Marketplace listing](https://marketplace.visualstudio.com/items?itemName=rohitjairajsingh.rohitserializervisualstudio)
 and restart Visual Studio. Install the compiler and runtime separately using the
-[source-build and installation guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/cmake_integration.md#use-an-installed-package).
+[source-build and installation guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/guides/cmake_integration.md#use-an-installed-package).
 Open a `.serializer` schema and build your project's generation targets when you
 need generated-output destinations.
 
@@ -75,5 +75,5 @@ release state from a published package.
 
 [Project website](https://www.singh.org.in/serializer.html) ·
 [Serializer repository](https://github.com/rohit-singh-gautam/Serializer) ·
-[Serialization guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/usage.md) ·
+[Serialization guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/guides/usage.md) ·
 [C++ state-management guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/managed/getting_started.md)

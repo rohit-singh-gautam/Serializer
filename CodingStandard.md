@@ -48,7 +48,7 @@ repository's `AGENTS.md` and README.
 Java source and generated Java use Java-specific presentation profiles rather than
 the C++ identifier rules below. Use UpperCamelCase types, lowerCamelCase fields and
 methods, and UPPER_SNAKE_CASE constants in maintained Java code. See
-[Java profiles](docs/java.md#java-coding-styles) for generated layout options.
+[Java profiles](docs/languages/java.md#java-coding-styles) for generated layout options.
 
 Use names consistent with Serializer's public API and generated protocol methods.
 
@@ -177,7 +177,7 @@ IDs, quoted literal contents, and intentional malformed test input.
   Keep its built-in formatter settings aligned with `.clang-format`. Alternative
   output profiles and their example consumers follow the documented target rules;
   generator/runtime implementation code continues to follow this repository's rules.
-  See [output configuration](docs/output_configuration.md). Keep wire names and IDs
+  See [output configuration](docs/languages/output_configuration.md). Keep wire names and IDs
   independent of target-language naming, and validate naming collisions before emission.
 
 - Follow each repository's declared language baseline and supported platforms.

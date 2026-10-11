@@ -15,4 +15,4 @@ a direct library adapter can emit chunks to the sink instead.
 Target: `serializer_compression_custom`. This demonstration requires
 `SERIALIZER_WITH_ZLIB=ON`; the custom interface itself does not require zlib.
 See [build instructions and shared limits](../README.md) and the
-[backend contract](../../../docs/compression.md#backend-options-and-extensibility).
+[backend contract](../../../docs/serialization/compression.md#backend-options-and-extensibility).

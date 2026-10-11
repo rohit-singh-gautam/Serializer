@@ -19,7 +19,7 @@ The [custom C++ example](cpp/custom_code/README.md) demonstrates a `cpp preamble
 access-qualified native class declarations, inline `readonly` and `edit` bodies,
 and a method defined in an application `.cpp` file. It builds through CMake and
 exercises all four generated native protocols, exact-message decoding, and
-overflow rejection. See [schema behavior](../docs/behavior.md) for target tags
+overflow rejection. See [schema behavior](../docs/schema/behavior.md) for target tags
 and external-definition contracts.
 
 ## Record conversions
@@ -34,7 +34,7 @@ python example/run.py --compiler out/build/make-Release/Release/serializer.exe -
 ```
 
 On Linux use the corresponding compiler/runtime paths and omit the WSL option.
-See [conversion rules](../docs/conversions.md) for supported value shapes.
+See [conversion rules](../docs/schema/conversions.md) for supported value shapes.
 
 ## Derived sizes and stateless layout
 
@@ -53,9 +53,9 @@ python test/stateless_languages.py --compiler out/build/make-Release/Release/ser
 
 The size runner executes both class-specific INI policies: `verify` and `retain`.
 It also checks source preservation, structural failures and bounded decoding.
-See [size controls](../docs/derived_sizes.md),
-[stateless constraints](../docs/generics.md#stateless-type-constraints), and
-[qualification](../docs/verification-deferred-features-2026-10-11.md).
+See [size controls](../docs/schema/derived_sizes.md),
+[stateless constraints](../docs/schema/generics.md#stateless-type-constraints), and
+[qualification](../docs/verification/verification-deferred-features-2026-10-11.md).
 
 The [generic schema examples](generics/README.md) demonstrate `result<T>`, multiple
 parameters, nested applications, arrays/maps, named roots, and C++ template aliases.
@@ -139,7 +139,7 @@ applications may use `@types/node` instead.
 On Windows, `--wsl-languages c,rust,swift` explicitly builds and runs those targets
 with installed WSL SDKs. `--sanitize` enables address/undefined sanitizers with
 the GCC/Clang C toolchain. SDK and language baseline details are in the
-[native language guide](../docs/native_languages.md).
+[native language guide](../docs/languages/native_languages.md).
 
 Add `--big-endian` to `--example interoperability --language all` to include
 QEMU s390x C/C++ producers and consumers using the same little-endian wire
@@ -213,7 +213,7 @@ four protocols with strict reads:
 python example/run.py --compiler build/serializer --example versioning --language all
 ```
 
-See the [revision contract](../docs/versioning.md) for policy semantics and support limits.
+See the [revision contract](../docs/schema/versioning.md) for policy semantics and support limits.
 
 ## Document collections
 
@@ -237,7 +237,7 @@ python example/run.py --compiler build/serializer --example optional --language 
 ```
 
 Use language 1.7.0 and compiler/runtime 1.12.0. See the
-[optional contract](../docs/optional.md) for target APIs and wire semantics.
+[optional contract](../docs/schema/optional.md) for target APIs and wire semantics.
 The basic, collections and complex examples use payload `version` metadata,
 keep version 1, and verify rejection of future version 2. These supported
 payload revisions are metadata; changing them requires a deliberate schema migration.
