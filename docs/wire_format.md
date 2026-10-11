@@ -58,6 +58,42 @@ format; migrating an existing artifact requires agreed schemas for both peers.
 Unmarked classes retain their existing layout. `binary_positional` is an exact
 alias of `binary_none`.
 
+Native C++ binary output defaults to `binary_scalar_normalization::preserve`,
+which retains every existing scalar bit pattern. The explicit `positive_zero`
+output policy changes only floating negative-zero payloads to positive zero,
+including generated scalar batches and nested collections/optionals. It adds
+no wire marker, changes no source values, and leaves readers unchanged. Values
+encoded with this policy therefore decode as positive zero; an application that
+uses these bytes for cache or digest identity must select the same policy at
+every producer. NaN payloads, infinities, other nonzero values, keys and lengths
+retain their ordinary mapping. This is a runtime output selection independent
+of schema-language and payload revision. See [native output policies](usage.md#bounded-native-binary-sizing-and-scalar-normalization).
+
+Bounded `binary_integer_size`, `binary_string_size` and generic `binary_size`
+traverse the same generated output fields and validate the ordinary native wire
+contract without allocating encoded storage. Their byte bound includes keys,
+presence bytes, nested objects and terminators; overflow rejects the current
+operation instead of wrapping. No sizing metadata is serialized.
+
+Class-specific generated equality and ordering are native value APIs only.
+Their output configuration does not add comparison state, metadata, field IDs,
+or wire bytes. Selecting transient fields for comparison does not make those
+fields durable. See [record comparisons](record_comparisons.md).
+
+### Borrowed native C++ output
+
+Native binary output and bounded counting accept standard spans and reference
+wrappers without changing the wire contract. A `std::span` writes the collection
+count and elements of its owning vector/array equivalent; its C++ extent and
+ownership are absent from the payload. A `std::reference_wrapper` writes exactly
+its referent's bytes, including schema-native enum context, with no additional
+marker. Nested records, collections, optionals, and map payloads retain their
+normal keys, presence bytes, endian and scalar normalization policies. Character
+spans use the character-array contract rather than the UTF-8 string contract.
+These synchronous output/counting operations retain no source ownership or
+pointers; callers preserve backing storage for traversal. See
+[borrowed usage](usage.md#borrowed-native-binary-values).
+
 [Schema generics](generics.md) are expanded before codec generation. Each concrete
 application encodes exactly like an equivalent ordinary class; no parameter names,
 type tags, or generic envelope bytes are added. Both peers must agree on the

@@ -2,10 +2,18 @@
 #include "native_schema.hpp"
 #include "version_writer.hpp"
 #include "behavior_writer.hpp"
+#include "predicate_helpers.hpp"
+#include "statement_behavior_writer.hpp"
+#include "construction_writer.hpp"
+#include "comparison_writer.hpp"
 
 #include <functional>
+#include <algorithm>
+#include <cstddef>
+#include <map>
 #include <string>
 #include <utility>
+#include <vector>
 
 namespace rohit::serializer::writer::native {
 namespace {
@@ -20,6 +28,7 @@ constexpr std::string_view keywords =
 // Emit direct Python field operations without a generic intermediate object tree.
 class python_emitter {
   const schema& model;
+  behavior::checked_helpers arithmetic_helpers{};
   std::string output{runtime};
   std::size_t indent{};
   bool dynamic_first{};
@@ -389,24 +398,45 @@ class python_emitter {
               [&](const auto& item) { return item.name == name; });
           return "self." + field(member->name, member->access);
         };
-        std::set<std::string> symbols; behavior::expression_symbols(*method.expression, symbols);
-        for (const auto& name : symbols) {
+        if (method.predicate_body) { open("try"); }
+        std::map<std::string, const behavior_expression*> symbols;
+        if (!method.predicate_body) { behavior::scalar_symbols(*method.expression, symbols); }
+        for (const auto& [name, node] : symbols) {
           const auto text = symbol(name);
-          open("if type(" + text + ") not in (float, int) or not " + behavior::finite(text, "python"));
-          line("raise ValueError('Portable expression requires finite numeric inputs')"); --indent;
-          const auto input_type = behavior::symbol_type(value, method, name);
-          if (input_type == "int32" || input_type == "uint32") {
-            open("if type(" + text + ") is not int or not (" +
-                (input_type == "int32" ? "-2147483648" : "0") + " <= " + text + " <= " +
-                (input_type == "int32" ? "2147483647" : "4294967295") + ")");
-            line("raise ValueError('Portable integer conversion is outside the declared type')"); --indent;
+          if (node->result_type == "bool") {
+            line(arithmetic_helpers.checked + "_boolean(" + text + ")");
+          } else if (node->result_type.starts_with("enum:")) {
+            const auto maximum = std::to_string(static_cast<const enum_node&>(*node->resolved_type->resolved_node).enum_name_list.size() - 1);
+            line(arithmetic_helpers.checked + "_integer(" + text + ", 0, " + maximum + ", " + type(*node->resolved_type) + ")");
+          } else if (node->result_type.starts_with("int") || node->result_type.starts_with("uint") || node->result_type == "char") {
+            const auto [minimum, maximum] = behavior::integer_range(node->result_type);
+            line(arithmetic_helpers.checked + "_integer(" + text + ", " + minimum + ", " + maximum + ")");
+          } else {
+            line(arithmetic_helpers.checked + "(" + text + ")");
           }
         }
-        const auto binary64_symbol = [&](std::string_view name) { return "float(" + symbol(name) + ")"; };
-        line("_srl_result = " + behavior::expression(*method.expression, "python", binary64_symbol));
-        open("if not _math.isfinite(_srl_result)");
-        line("raise ValueError('Non-finite portable result')"); --indent;
+        behavior::expression_context context;
+        context.predicate = method.predicate_body;
+        context.member_name = [&](auto member) { return field(member); };
+        context.native_type = [&](const auto& value_type) { return type(value_type); };
+        context.enum_value = [&](const auto& value_type, auto enumerator) { return type(value_type) + "." + pascal(enumerator); };
+        while (std::any_of(method.parameters.begin(), method.parameters.end(), [&](const auto& parameter) {
+          return field(parameter.name) == context.budget_name;
+        })) { context.budget_name += '_'; }
+        if (behavior::has_reduction(*method.expression)) {
+          line(context.budget_name + " = [" + std::to_string(behavior_expression::maximum_reduction_visits) + "]");
+        }
+        line("_srl_result = " + behavior::expression(*method.expression, "python", symbol, arithmetic_helpers, context));
+        if (method.return_type.name != "bool") {
+          open("if not _math.isfinite(_srl_result)");
+          line("raise ValueError('Non-finite portable result')"); --indent;
+        }
         line("return _srl_result");
+        if (method.predicate_body) {
+          --indent;
+          open("except (ArithmeticError, ValueError, TypeError, AttributeError, IndexError)");
+          line("return False"); --indent;
+        }
       } else {
         open("if self._srl_behavior is None");
         line("raise RuntimeError('Attach required behavior before invocation')"); --indent;
@@ -441,6 +471,75 @@ class python_emitter {
       line("return self.implementation." + field(method->name) + "(" + calls + ")"); --indent;
     }
     --indent;
+  }
+
+  // Emit opt-in comparisons over borrowed selected values without replacing Python object identity.
+  void comparisons(const class_node& value) {
+    const auto* options = comparison::find(value, model.class_comparisons);
+    if (!options) { return; }
+    const auto selected = comparison::parts(value, *options);
+    struct operand {
+      std::string name;
+      bool nested{};
+      bool floating{};
+    };
+    std::vector<operand> operands;
+    for (const auto* base : selected.bases) {
+      const auto index = static_cast<std::size_t>(base - value.parents.data());
+      operands.push_back({field("base" + std::to_string(index), base->access), true, false});
+    }
+    for (const auto* item : selected.fields) {
+      const auto& type = item->type_name_list.front();
+      operands.push_back({field(item->name, item->access), type.resolved_node &&
+          type.resolved_node->type == object_type::class_type,
+          type.name == "float" || type.name == "double"});
+    }
+    const auto name = model.names.at(&value);
+    if (options->equality) {
+      open("def equals_value(self, other: " + name + ") -> bool");
+      line("\"\"\"Compare selected values synchronously; floating NaN is unequal.\"\"\"");
+      open("if not isinstance(other, " + name + ")");
+      line("return False");
+      --indent;
+      std::string expression;
+      for (const auto& item : operands) {
+        if (!expression.empty()) { expression += " and "; }
+        expression += item.nested ? "self." + item.name + ".equals_value(other." + item.name + ")" :
+            "self." + item.name + " == other." + item.name;
+      }
+      line("return " + (expression.empty() ? std::string{"True"} : expression));
+      --indent;
+    }
+    if (options->ordering) {
+      open("def compare_value(self, other: " + name + ") -> int | None");
+      line("\"\"\"Compare selected values lexically; None denotes an unordered floating value.\"\"\"");
+      open("if not isinstance(other, " + name + ")");
+      line("return None");
+      --indent;
+      for (const auto& item : operands) {
+        const auto left = "self." + item.name, right = "other." + item.name;
+        if (item.nested) {
+          line("srl_order = " + left + ".compare_value(" + right + ")");
+          open("if srl_order != 0");
+          line("return srl_order");
+          --indent;
+        } else {
+          if (item.floating) {
+            open("if _math.isnan(" + left + ") or _math.isnan(" + right + ")");
+            line("return None");
+            --indent;
+          }
+          open("if " + left + " < " + right);
+          line("return -1");
+          --indent;
+          open("if " + left + " > " + right);
+          line("return 1");
+          --indent;
+        }
+      }
+      line("return 0");
+      --indent;
+    }
   }
 
   // Emit slot-based owning models with independent defaults and exact decode APIs.
@@ -479,7 +578,8 @@ class python_emitter {
           fields.push_back({f + "_" + snake(alt.enum_name), {type(alt), initial(alt)}});
         }
       } else if (item.modifier == member::modifier_type::none) {
-        fields.push_back({f, {type(t), initial(t, literal(item))}});
+        fields.push_back({f, {type(t), item.default_factory.empty() ? initial(t, literal(item)) :
+            construction::factory_call(type(t), field(item.default_factory), "python")}});
       } else {
         fields.push_back({f,
                           {item.modifier == member::modifier_type::array
@@ -509,6 +609,13 @@ class python_emitter {
     if (external_behavior) { line("self._srl_behavior = None"); }
     --indent;
     behaviors(value);
+    comparisons(value);
+    output += behavior::python_block(construction::factories(value, name, "python",
+        [&](const auto& item) { return type(item); },
+        [&](auto item, auto access) { return field(item, access); },
+        [&](const auto& item) { return item.default_factory.empty() ?
+            initial(item.type_name_list.front(), literal(item)) : construction::factory_call(
+                type(item.type_name_list.front()), field(item.default_factory), "python"); }), indent * 4);
     open("def encode(self, protocol: Protocol) -> bytes");
     line("\"\"\"Encode one complete message into independent bytes.\"\"\"");
     line("out = _Writer(protocol)");
@@ -685,10 +792,17 @@ class python_emitter {
 
 public:
   // Bind the validated schema for one output module.
-  explicit python_emitter(const schema& value) : model{value} {}
+  explicit python_emitter(const schema& value) : model{value} {
+    arithmetic_helpers = behavior::select_helpers(model.nodes,
+        [&](const auto& node) { return model.names.at(&node); },
+        [&](const auto name) { return field(name); });
+  }
   // Generate a complete module with pre-encoded field keys and typed models.
   std::string generate() {
     line("from abc import ABC as _ABC, abstractmethod as _abstractmethod");
+    output += behavior::helpers("python", arithmetic_helpers);
+    output += behavior::helpers_predicate("python", arithmetic_helpers);
+    output += behavior::helpers_typed("python", arithmetic_helpers);
     for (const auto& code : model.preambles) {
       if (code.language == "python") { output += behavior::source_marker(code, "python") + code.text + "\n"; }
     }

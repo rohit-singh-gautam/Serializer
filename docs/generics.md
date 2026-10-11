@@ -123,8 +123,9 @@ without nonempty initializers in all eleven native codec backends. Collection
 initializers, including inferred extents, remain C++ only; direct Protobuf fixed
 arrays remain unsupported.
 
-Generic definitions require unpacked owning storage without inheritance, raw
-unions, recursive ownership, variadics, or user specializations. Managed definitions
+Generic definitions require unpacked owning storage without raw unions,
+recursive ownership, variadics, or user specializations. Inheritance requires
+language `1.8.0`, as described below. Managed definitions
 are supported through concrete C++ specializations, as described below.
 Language `1.4.0` owning `variant(...)` alternatives may reference generic type
 parameters; C++ retains `std::variant<T, ...>` storage in the generated template.
@@ -136,6 +137,61 @@ boundaries. Definition names resolve in
 declaration scope; explicit arguments resolve in use-site scope. Definitions and
 nondependent types must precede their uses, including through transitive includes.
 Collections are field modifiers, not type arguments; wrap a collection in a class.
+
+## Owning generated bases
+
+Language `1.8.0` allows generic owning classes to inherit previously declared
+concrete or generic generated classes. A concrete class may also inherit a
+generic application:
+
+```text
+serializer version 1.8.0;
+class metadata stable_ids {
+  public uint32 revision (1);
+}
+class value_base<T> stable_ids : public metadata (10, "metadata") {
+  public T value (1);
+}
+class annotated<T> stable_ids : public value_base<T> (10, "value") {
+  public string label (1);
+}
+instantiate count_annotation = annotated<uint32>;
+class reply stable_ids : public annotated<uint32> (10, "annotation") {
+  public bool accepted (1);
+}
+```
+
+C++ emits ordinary native inheritance and retains dependent arguments in template
+base lists and codec calls. Application code accesses inherited public members
+normally, for example `annotated<std::uint32_t>{}.value`. Concrete contracts in
+other languages use their existing composed base records. Inheritance never
+flattens fields onto a new wire layout: each base retains its declared occurrence
+ID/name, nested payload and existing protocol encoding. Multiple bases follow the
+existing owning inheritance rules; generic bases must be unpacked owning generated
+classes. A bare type parameter cannot supply an arbitrary host base. Duplicate
+concrete direct bases, forward references and recursive ownership reject.
+
+Schema-native constructors and factories are copied with each concrete contract;
+their parameter types are substituted and constructor/self return names bind to
+the emitted owning class. Use these declarations for name-sensitive generic
+construction. Opaque native code remains authored target text and is not renamed
+or interpreted during specialization. See [behavior](behavior.md) for construction
+syntax and default factories.
+
+## Reusable C++ entry headers
+
+Independently generated C++ entry headers may include the same schema. The compiler
+guards individual enum/class/template definitions, concrete aliases, optional
+application metadata and managed companions, so identical shared types appear once
+per translation unit. Header order does not change the selected definition. Keep
+generation options consistent for shared types; importing differing declarations
+or output profiles under the same generated qualified name produces a clear
+preprocessor error instead of silently selecting one definition. Native preambles
+from a shared source are guarded independently as well.
+
+These guards preserve all existing generated type names and wire identities.
+They do not provide cross-language import modules; portable languages retain their
+documented generated module/outer-class layout.
 
 ## Managed specializations
 
@@ -174,6 +230,8 @@ and generated tests exercise these contracts.
 | --- | --- | --- | --- |
 | Ordinary native generic declaration without concrete contracts | Native template and codecs | No model emitted | No model emitted |
 | Concrete type/dimension applications without fixed arrays | Supported | Existing concrete records/codecs | Existing concrete records/codecs |
+| Owning generic/concrete generated bases, language 1.8 | Native inheritance; inherited member access | Concrete composed base records | Concrete composed base records |
+| Shared schema types in independently generated entry headers | Per-type and companion guards; incompatible definitions reject | Existing module layout | Existing module/outer-class layout |
 | Fixed arrays without nonempty initializers | std::array, four native protocols | Array/list, four native protocols with exact extent checks | Native arrays/collections with exact extent checks |
 | Fixed arrays with initializers or direct Protobuf output | Initializers supported; Protobuf rejected | Explicit generation-time unsupported diagnostic | Explicit generation-time unsupported diagnostic |
 | Ordinary generic values in managed roots | Generated replacement setters/history/journals | Managed runtime remains unsupported | Managed runtime remains unsupported |

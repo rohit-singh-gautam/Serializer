@@ -1,0 +1,46 @@
+serializer version 1.8.0;
+
+class construction_empty {}
+
+class construction_point stable_ids {
+  public double x (1);
+  public double y (2);
+  public constructor(double x_value, double y_value) {
+    x = x_value;
+    y = y_value;
+  }
+  public factory origin() {
+    x = 2.0;
+    y = 3.0;
+  }
+}
+
+class construction_record stable_ids {
+  public construction_point position (1) default(origin);
+  public uint64 tag (2);
+  public transient layout(empty) construction_empty passive;
+  public factory positioned(construction_point input) {
+    position = input;
+  }
+  public factory noop(double unused) {}
+}
+
+class construction_identity<T> {
+  public T value;
+  public constructor(T input) {
+    value = input;
+  }
+  public factory from_value(T input) {
+    value = input;
+  }
+}
+instantiate construction_byte_identity = construction_identity<uint8>;
+
+class construction_generic_base<T> {
+  public T value (1);
+}
+
+class construction_generic_derived<T> : public construction_generic_base<T> ("base", 1) {
+  public uint32 count (2);
+}
+instantiate construction_byte_derived = construction_generic_derived<uint8>;

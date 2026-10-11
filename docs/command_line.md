@@ -1,6 +1,6 @@
 # Serializer compiler and schema versions
 
-The compiler and runtime release is **1.12.0**, defined by `project(... VERSION ...)` in the
+The compiler and runtime release is **1.13.0**, defined by `project(... VERSION ...)` in the
 root CMake file. `serializer --version` (or `-v`) prints that release and the
 supported schema language version. CMake generates `<rohit/version.hpp>` with
 `rohit::serializer::compiler_version`, `schema_language_version_text`, and
@@ -35,7 +35,7 @@ class account stable_ids {
 The statement must precede every declaration. Whitespace and `//` or `/* ... */`
 comments may precede it or separate its keywords. The version has exactly three
 unsigned decimal components separated by dots, without whitespace or comments
-inside the version. The supported language is **1.7.0**, accepting older contracts
+inside the version. The supported language is **1.8.0**, accepting older contracts
 in the same major version. The original
 `serializer version 1;` is an exact alias for `serializer version 1.0.0;`, exclusive
 to version 1; future integer majors such as `2;` are not aliases for `2.0.0;`.
@@ -71,8 +71,8 @@ the complete parsed result. See [licensing and notice rules](licensing.md).
 The repository's [schema language versioning policy](../AGENTS.md#schema-language-versioning)
 uses `major.minor.patch` for language releases, independently of the compiler
 release. `serializer_schema_language_version` in the root CMake file defines the
-language release separately from `project(... VERSION ...)`. Compiler **1.12.0**
-currently supports language **1.7.0**; `serializer --version` reports both.
+language release separately from `project(... VERSION ...)`. Compiler **1.13.0**
+currently supports language **1.8.0**; `serializer --version` reports both.
 
 Language `1.7.0` adds [generic owning optional values](optional.md) and
 collection type expressions `array<T>` / `map<K,V>`. Every declaring file
@@ -225,6 +225,9 @@ option, or backend failures leave existing destinations unchanged. Filesystem
 write failures are reported but writes across multiple files are not atomic.
 Outputs cannot alias each other, the input schema, the INI file, or custom format
 file. See [output configuration](output_configuration.md) for profile scope.
+Class-specific `[language.class.source::qualified_name]` sections can enable
+[record comparisons](record_comparisons.md) for each selected backend. They are
+INI settings; no new comparison CLI option or schema keyword is required.
 
 ## Generate several configurations from one parse
 

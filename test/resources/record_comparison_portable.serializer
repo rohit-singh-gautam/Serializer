@@ -1,0 +1,45 @@
+serializer version 1.8.0;
+
+enum comparison_stage {
+  idle,
+  queued
+}
+
+class comparison_atom {
+  public uint64 ordinal;
+}
+
+class comparison_key {
+  public uint64 rank;
+  public uint32 sequence;
+  public bool active;
+  public string label;
+  public comparison_stage stage;
+  public comparison_atom atom;
+  public transient uint32 cache;
+}
+
+class comparison_measurement {
+  public double value;
+}
+
+class comparison_base {
+  public uint32 category;
+}
+
+class comparison_derived : public comparison_base ("base", 1) {
+  public uint32 sequence (2);
+}
+
+class comparison_selected : public comparison_base ("base", 1) {
+  public uint32 sequence (2);
+  public uint32 unused (3);
+  public transient uint32 cache;
+}
+
+class comparison_generic<T> {
+  public T value;
+}
+instantiate comparison_byte = comparison_generic<uint8>;
+
+class comparison_empty {}

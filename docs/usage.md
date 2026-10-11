@@ -1,5 +1,12 @@
 # Using Serializer in a C++ application
 
+For schema language 1.8 value construction, named generic factories, typed
+structured defaults, and passive transient layout hints, follow the runnable
+[construction guide](construction.md). These declarations retain ordinary
+default decoding and add no serialized executable state. See
+[the current qualification](verification-integration-enhancements-2026-10-11.md)
+for executed checks and backend limits.
+
 Serializer — **State Framework** provides generated serialization codecs and a
 C++ managed runtime. This guide starts with data exchange; serialization-only
 applications can use ordinary generated models. For transactional editing,
@@ -337,7 +344,7 @@ class person stable_ids {
 ```
 
 - Use `class`, `enum`, and `namespace`; schema declarations are not C++ source.
-- Start every new `.serializer` file with `serializer version 1.7.0;` before declarations.
+- Start every new `.serializer` file with `serializer version 1.8.0;` before declarations.
   Older `1.0.0` files remain supported.
   The original `serializer version 1;` is an exact alias for `1.0.0`, exclusive to
   version 1. Future versions require three components. The language version is
@@ -401,12 +408,14 @@ namespace demo {
   spaces, backslashes, absolute paths, and other extensions are rejected.
   `./` and `../` are supported. Paths resolve from the including file, independently
   of the compiler's working directory. Comments may separate directive tokens.
-- Every file requires its own supported version header. `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, and the
+- Every file requires its own supported version header. `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, and the
   original `1` alias may coexist in an include graph. Typed magic and inferred
   arrays require `1.1.0`, compact scalars require `1.2.0`, and built-in digests
   require `1.3.0`; owning variants require `1.4.0` and warning suppression requires
   `1.5.0`; built-in `optional<T>`, `array<T>` and `map<K,V>` require `1.7.0`
-  in the file that declares them. Includes follow that
+  in the file that declares them. Typed construction/defaults, empty transient
+  layout, generic inheritance and the new checked expressions require `1.8.0`.
+  Includes follow that
   header and precede all declarations, at file scope only.
 - Nested dependencies load before their includers. Repeated paths, normalized path
   aliases, mixed shorthand/explicit spellings, and diamond dependencies contribute
@@ -568,6 +577,14 @@ pass its path through the helper's `GENERATOR` option.
 
 ## 3. Encode and decode an exact message
 
+For generated value equality and ordering, add class-specific INI sections such
+as `[cpp.class.demo::person]` with `equality = true` and
+`ordering = lexicographic`. Every backend supports its own independent section;
+the initial portable field profile is scalar/enum/generated records. Select an
+exact field order when the comparison differs from durable declaration order.
+See [record comparisons](record_comparisons.md) for APIs, NaN behavior, generic
+requirements, supported shapes and internal C++ alias restrictions.
+
 Save this as `main.cpp` for the CMake example:
 
 ```cpp
@@ -611,6 +628,92 @@ output storage while the input view is alive, and do not reset, overwrite, or gr
 it during decoding. Destination storage must be independent of the input bytes.
 For a reused output buffer, call `reset()` before encoding the next message after
 all readers of the previous message have finished.
+
+### Bounded native binary sizing and scalar normalization
+
+`binary_integer_size(value, maximum_bytes)` and
+`binary_string_size(value, maximum_bytes)` in `<rohit/serializer.hpp>` count the
+production generated traversal without allocating output storage. Keys, lengths,
+optional presence, nested records and object terminators count toward the bound.
+Invalid field IDs, UTF-8 and enum values fail under the ordinary output rules;
+exceeding the byte budget throws `rohit::exception::stream_overflow_exception`.
+`binary_size<serialize_key_type::none>(value, maximum_bytes)` also supports
+positional output. The existing `binary_none_size` remains the constexpr API.
+The generic `binary_size<KeyType, WireEndian, TextValidation, ScalarNormalization>`
+accepts the corresponding codec policies. `binary_count_stream` exposes a bounded
+counter for direct codec calls and deliberately has no writable byte pointer.
+A failing operation leaves its count unchanged; prior operations remain counted.
+
+For identity bytes that equate both floating zeros, select the output-only
+`binary_scalar_normalization::positive_zero` policy:
+
+```cpp
+namespace codec = rohit::serializer;
+rohit::full_stream_auto_alloc output;
+codec::binary_none<codec::serialize_type::out, rohit::stream,
+    codec::binary_text_validation::strict, codec::read_policy::strict,
+    codec::binary_scalar_normalization::positive_zero> encoder{output};
+encoder.serialize_out(value);
+```
+
+The final optional template argument is available on every native binary alias
+and on `binary` itself. Its default, `preserve`, retains all previous bytes.
+`positive_zero` writes floating `-0` as `+0` throughout fixed-field batches,
+fixed/dynamic arrays, nested arrays, optionals and map payloads. Other floating
+values, including infinities and NaN bit patterns, retain their original bits;
+integer, enum and presence encodings are unchanged. The source model is borrowed
+and never modified or copied as a whole. Floating arrays still reserve one
+contiguous payload and transform directly into it; default output retains its
+existing bulk-copy/endian-swap path. JSON and other codecs have no normalization
+policy, and readers retain their ordinary value semantics. Treat this explicit
+policy as part of the contract for a digest/cache identity's input bytes.
+Count and write an unchanged value using the same policy; sizing does not freeze
+the model or provide concurrent access synchronization.
+
+For an owning encoded message, use the existing `rohit::fixed_buffer` allocation
+transfer and retained span APIs described below; sizing does not introduce another
+buffer representation.
+
+### Borrowed native binary values
+
+Native `binary`, `binary_none`, `binary_integer`, `binary_string`, and their bounded
+counting helpers accept `std::span<Element, Extent>` and `std::reference_wrapper<T>`
+directly. A span emits the ordinary collection length followed by its elements,
+identically to a vector or fixed array with the same values. Both fixed and dynamic
+extents and const/mutable elements are supported. Character spans represent
+character collections; use `std::string_view` for the native string contract.
+A reference wrapper transparently encodes its supported referent, including a
+generated record, scalar, span, or optional, without adding presence or type bytes.
+
+```cpp
+#include <rohit/serializer.hpp>
+#include <array>
+#include <functional>
+#include <span>
+
+namespace codec = rohit::serializer;
+const std::array<double, 3> source{-0.0, 1.0, 2.0};
+const std::span borrowed{source};
+const auto bytes = codec::binary_integer_size(borrowed, 4096);
+rohit::full_stream_auto_alloc output;
+codec::binary_integer<codec::serialize_type::out> encoder{output};
+encoder.serialize_out(std::cref(borrowed));
+```
+
+Borrowed values can occur within fixed/dynamic collections, optionals, map payloads,
+and other borrowed wrappers. Element traversal retains generated record field
+keys, enum context, terminators, endian selection, UTF-8 checks, and the selected
+scalar normalization. Scalar spans retain one contiguous payload reservation and
+the ordinary bulk-copy, endian-swap, or normalization path. Referents and containers
+are neither copied as a whole nor modified.
+
+Each write or count borrows synchronously and retains no source pointer afterward.
+The caller keeps every referent and backing element alive and unchanged for the
+complete traversal, independently of output-buffer growth. Borrowing adds no
+lifetime extension or synchronization. Counting and writing are separate
+observations: preserve the same source values and policies between them when the
+count is used as an output budget. These are output APIs; decoding retains the
+existing owning destinations.
 
 ### String-backed output buffers
 

@@ -31,6 +31,21 @@ For an introduction to application editing features, begin with
 
 ## Schema behavior and managed enhancements
 
+Language 1.8 also supports typed [construction, factories and structured
+defaults](construction.md), owning [generic inheritance](generics.md), and
+stateless transient layout hints. Compiler/runtime 1.13 adds compatible
+C++ per-type import guards, bounded allocation-free keyed binary counting,
+opt-in signed-zero output normalization, and generated guarded collection
+callbacks. Layout overlap is supported by the C++ ABI attribute and native
+zero-sized value representations; other runtimes retain their ordinary empty
+record storage. These APIs do not add native managed engines outside C++.
+
+Typed readonly predicates support exact integer/enum comparisons, public
+member/index access and bounded sequence reductions. Predicate failures return
+false; ordinary checked expressions retain their failure APIs. Eligible C++
+readonly methods preserve constant evaluation and nonthrowing contracts. See
+[behavior contracts](behavior.md) for the supported scalar and collection profile.
+
 Language 1.6 adds function contracts, explicit target bodies/preambles and
 `transient` fields. Compiler/runtime 1.11 adds C++ managed public multiple bases,
 nonpublic durable fields, owning variants, named concrete managed generics,
@@ -41,6 +56,14 @@ fixed arrays now have exact-length codecs and independent defaults in all eleven
 ordinary outputs. See [runnable document examples and remaining work](state_enhancements.md)
 and [behavior generation](behavior.md). Native managed engines outside C++ remain
 unimplemented; codecs and behavior declarations do not supply those engines.
+
+Compiler/runtime 1.13 also adds opt-in [class-specific record equality and ordering](record_comparisons.md)
+across all eleven outputs, with scalar/record portable restrictions and unchanged wire formats.
+
+Language 1.8 adds portable checked division, sqrt/sin/cos, comparisons and boolean
+guards/results in all eleven ordinary outputs. Arithmetic domains and finite
+intermediate checks preserve short circuit branch evaluation; sine/cosine use
+each SDK's math library. See the [portable expression contract](behavior.md#portable-arithmetic).
 
 ## Serialization and streams
 
@@ -163,7 +186,7 @@ behavior remain unchanged.
 
 Language-specific output profiles select layouts and naming conventions. Schemas use
 `.serializer` and begin with a supported language header; new schemas use
-`serializer version 1.7.0;`. Older `1.6.0`, `1.5.0`, `1.4.0`, `1.3.0`, `1.2.0`, `1.1.0`, `1.0.0` and the original `1` alias remain supported.
+`serializer version 1.8.0;`. Older `1.7.0`, `1.6.0`, `1.5.0`, `1.4.0`, `1.3.0`, `1.2.0`, `1.1.0`, `1.0.0` and the original `1` alias remain supported.
 Schema language and compiler versions are independent.
 Future versions require all three components. Share declarations with `include
 common;` before any declarations. Paths are unquoted and relative to the including file;
@@ -175,7 +198,7 @@ Namespace scopes are reused during parsing; duplicate types and namespace/type c
 are rejected. See [schema includes](usage.md#share-declarations-with-includes) and the
 [paired C++/Java examples](../example/includes/README.md). Quoted defaults preserve
 literal spaces, for example `public string label { "schema default" };`; escaping the
-space is unnecessary. Run `serializer --version` for compiler version **1.12.0** and
+space is unnecessary. Run `serializer --version` for compiler version **1.13.0** and
 supported schema versions. See [command-line options](command_line.md) for
 multi-language generation and overrides.
 
@@ -344,7 +367,7 @@ and expose received state separately for resolution.
 ### Acknowledged-state clients and collaborative undo
 
 The lower-level acknowledged-state API remains available: Use `replica.propose(session,
-operation, [](../auto& edit) { ... })` with generated editors; the default authority
+operation, [](auto& edit) { ... })` with generated editors; the default authority
 accepts these proposals without a handwritten command schema or dispatcher. Custom
 server command handlers remain optional. Accepted transactions now include serialized
 field-change records with author/operation identity, stable entity/field addresses,

@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: 0BSD
 // See LICENSE-RUNTIME for permission to use this runtime in proprietary applications.
 #pragma once
+#include <rohit/binary_count_stream.hpp>
 #include <rohit/binary_output_support.hpp>
 #include <rohit/compression.hpp>
 #include <rohit/decode.hpp>
@@ -40,6 +41,22 @@
 namespace rohit::serializer {
 
 namespace detail {
+// Borrow a supported value without extending its lifetime or copying its storage.
+template <typename T>
+constexpr const T& binary_referent(const T& value) noexcept { return value; }
+
+// Remove reference wrappers recursively while retaining a const borrow of the ultimate value.
+template <typename T>
+constexpr decltype(auto) binary_referent(const std::reference_wrapper<T>& value) noexcept {
+  return binary_referent(value.get());
+}
+
+// Recognize standard contiguous borrows without widening supported owning container shapes.
+template <typename T>
+inline constexpr bool binary_span = false;
+template <typename Element, std::size_t Extent>
+inline constexpr bool binary_span<std::span<Element, Extent>> = true;
+
 // Decode through the binary compact hook, preserving all other protocol mappings.
 template <bool Prefix, typename Protocol, std::unsigned_integral T>
 void read_compact(Protocol& protocol, T& value) {
@@ -1636,7 +1653,8 @@ public:
 template <serialize_type type, serialize_key_type KeyType,
           std::endian WireEndian = std::endian::little, typename Stream = stream,
           binary_text_validation TextValidation = binary_text_validation::strict,
-          read_policy ReadPolicy = read_policy::strict>
+          read_policy ReadPolicy = read_policy::strict,
+          binary_scalar_normalization ScalarNormalization = binary_scalar_normalization::preserve>
 class binary;
 
 template <serialize_key_type KeyType, std::endian WireEndian = std::endian::little,
@@ -2008,22 +2026,26 @@ public:
 
 template <serialize_key_type KeyType, std::endian WireEndian,
           rohit::type_check::input_buffer Stream, binary_text_validation TextValidation,
-          read_policy ReadPolicy>
-class binary<serialize_type::in, KeyType, WireEndian, Stream, TextValidation, ReadPolicy>
+          read_policy ReadPolicy, binary_scalar_normalization ScalarNormalization>
+class binary<serialize_type::in, KeyType, WireEndian, Stream, TextValidation, ReadPolicy,
+             ScalarNormalization>
     : public binary_in_base<KeyType, WireEndian, Stream, TextValidation, ReadPolicy> {
 public:
   using binary_in_base<KeyType, WireEndian, Stream, TextValidation, ReadPolicy>::binary_in_base;
   using stream_type = Stream;
   template <rohit::type_check::input_buffer OtherStream>
   using rebind_stream =
-      binary<serialize_type::in, KeyType, WireEndian, OtherStream, TextValidation, ReadPolicy>;
+      binary<serialize_type::in, KeyType, WireEndian, OtherStream, TextValidation, ReadPolicy,
+             ScalarNormalization>;
   static constexpr read_policy policy = ReadPolicy;
   static constexpr bool is_json = false;
 };
 
 template <serialize_key_type KeyType, std::endian WireEndian = std::endian::little,
-          rohit::type_check::output_buffer Stream = stream,
-          binary_text_validation TextValidation = binary_text_validation::strict>
+          typename Stream = stream,
+          binary_text_validation TextValidation = binary_text_validation::strict,
+          binary_scalar_normalization ScalarNormalization = binary_scalar_normalization::preserve>
+  requires (rohit::type_check::output_buffer<Stream> || detail::binary_counting_stream<Stream>)
 class binary_out_base {
 public:
   static constexpr bool is_json = false;
@@ -2033,6 +2055,10 @@ public:
   constexpr static serialize_key_type key_type = KeyType;
   constexpr static std::endian wire_endian = WireEndian;
   constexpr static binary_text_validation text_validation = TextValidation;
+  constexpr static binary_scalar_normalization scalar_normalization = ScalarNormalization;
+  static_assert(ScalarNormalization == binary_scalar_normalization::preserve ||
+                ScalarNormalization == binary_scalar_normalization::positive_zero,
+                "Unsupported binary scalar normalization policy");
   static_assert(TextValidation == binary_text_validation::strict ||
                 TextValidation == binary_text_validation::unchecked,
                 "Unsupported binary text validation policy");
@@ -2060,17 +2086,24 @@ public:
   // Inherit schema-native value context through nested generated objects.
   auto schema_values() noexcept { return detail::schema_value_scope{schema_values_}; }
 
+  // Borrow an optional referent for this call while retaining its schema-native enum mapping.
+  template <typename T>
+  void serialize_out_named_optional(const std::reference_wrapper<T>& value) {
+    serialize_out_named_optional(value.get());
+  }
+
   // Preserve named scalar enum payloads through optionals; collection payloads remain ordinal.
   template <typename T>
   void serialize_out_named_optional(const T& value) {
-    if constexpr (detail::optional_enum<T>) {
+    if constexpr (detail::json_optional<T>) {
       if (schema_values_) {
         out_stream.append(static_cast<std::uint8_t>(value.has_value()));
         if (value) {
-          if constexpr (std::is_enum_v<typename T::value_type>) {
-            serialize_out(detail::enum_name(*value));
+          const auto& payload = detail::binary_referent(*value);
+          if constexpr (std::is_enum_v<std::remove_cvref_t<decltype(payload)>>) {
+            serialize_out(detail::enum_name(payload));
           } else {
-            serialize_out_named_optional(*value);
+            serialize_out_named_optional(payload);
           }
         }
         return;
@@ -2171,8 +2204,13 @@ public:
   void struct_serialize_out_fixed(Values... values) {
     constexpr auto bytes = (detail::binary_fixed_bytes<Values> + ...);
     out_stream.reserve(bytes);
-    auto* output = out_stream.get_curr_and_increase_unchecked(bytes);
-    (detail::write_fixed_scalar<WireEndian>(output, values), ...);
+    if constexpr (detail::binary_counting_stream<Stream>) {
+      out_stream.commit_counted_bytes(bytes);
+    } else {
+      auto* output = out_stream.get_curr_and_increase_unchecked(bytes);
+      (detail::write_fixed_scalar<WireEndian>(
+           output, detail::normalize_binary_scalar<ScalarNormalization>(values)), ...);
+    }
   }
 
   // Batch field IDs and scalar snapshots in their original wire order, validating before reservation.
@@ -2184,13 +2222,18 @@ public:
     ((bytes += detail::fixed_identifier_bytes(fields.first) + detail::binary_fixed_bytes<Values>),
      ...);
     out_stream.reserve(bytes);
-    auto* output = out_stream.get_curr_and_increase_unchecked(bytes);
-    // Every prefix and value fits the single reservation and cannot fail while writing.
-    const auto write = [&output](const auto& field) noexcept {
-      detail::write_fixed_prefix(output, field.first);
-      detail::write_fixed_scalar<WireEndian>(output, field.second);
-    };
-    (write(fields), ...);
+    if constexpr (detail::binary_counting_stream<Stream>) {
+      out_stream.commit_counted_bytes(bytes);
+    } else {
+      auto* output = out_stream.get_curr_and_increase_unchecked(bytes);
+      // Every prefix and value fits the single reservation and cannot fail while writing.
+      const auto write = [&output](const auto& field) noexcept {
+        detail::write_fixed_prefix(output, field.first);
+        detail::write_fixed_scalar<WireEndian>(
+            output, detail::normalize_binary_scalar<ScalarNormalization>(field.second));
+      };
+      (write(fields), ...);
+    }
   }
 
   // Batch named scalar fields; name storage must remain valid and independent of the output buffer.
@@ -2204,15 +2247,20 @@ public:
       (detail::validate_utf8(fields.first), ...);
     }
     out_stream.reserve(bytes);
-    auto* output = out_stream.get_curr_and_increase_unchecked(bytes);
-    // Wire names and their compact lengths stay interleaved with the original field values.
-    const auto write = [&output](const auto& field) noexcept {
-      detail::write_fixed_prefix(output, static_cast<std::uint32_t>(field.first.size()));
-      std::memcpy(output, field.first.data(), field.first.size());
-      output += field.first.size();
-      detail::write_fixed_scalar<WireEndian>(output, field.second);
-    };
-    (write(fields), ...);
+    if constexpr (detail::binary_counting_stream<Stream>) {
+      out_stream.commit_counted_bytes(bytes);
+    } else {
+      auto* output = out_stream.get_curr_and_increase_unchecked(bytes);
+      // Wire names and their compact lengths stay interleaved with the original field values.
+      const auto write = [&output](const auto& field) noexcept {
+        detail::write_fixed_prefix(output, static_cast<std::uint32_t>(field.first.size()));
+        std::memcpy(output, field.first.data(), field.first.size());
+        output += field.first.size();
+        detail::write_fixed_scalar<WireEndian>(
+            output, detail::normalize_binary_scalar<ScalarNormalization>(field.second));
+      };
+      (write(fields), ...);
+    }
   }
 
   // Batch constant names and scalar snapshots with a compile-time extent and one reservation.
@@ -2232,15 +2280,20 @@ public:
       return total;
     }();
     out_stream.reserve(bytes);
-    auto* output = out_stream.get_curr_and_increase_unchecked(bytes);
-    // Constant key bytes are disjoint from output, and each captured scalar survives stream growth.
-    const auto write = [&output](const auto& field) noexcept {
-      const auto& name = field.first.bytes;
-      std::memcpy(output, name.data(), name.size());
-      output += name.size();
-      detail::write_fixed_scalar<WireEndian>(output, field.second);
-    };
-    (write(fields), ...);
+    if constexpr (detail::binary_counting_stream<Stream>) {
+      out_stream.commit_counted_bytes(bytes);
+    } else {
+      auto* output = out_stream.get_curr_and_increase_unchecked(bytes);
+      // Constant key bytes are disjoint from output, and each captured scalar survives stream growth.
+      const auto write = [&output](const auto& field) noexcept {
+        const auto& name = field.first.bytes;
+        std::memcpy(output, name.data(), name.size());
+        output += name.size();
+        detail::write_fixed_scalar<WireEndian>(
+            output, detail::normalize_binary_scalar<ScalarNormalization>(field.second));
+      };
+      (write(fields), ...);
+    }
   }
 
   // Encode a nonnegative 30-bit integer in one to four bytes; reject invalid values before writing.
@@ -2308,6 +2361,12 @@ public:
     }
   }
 
+  // Borrow the wrapped value synchronously; callers retain ownership and keep it alive for this call.
+  template <typename T>
+  void serialize_out(const std::reference_wrapper<T>& value) {
+    serialize_out(value.get());
+  }
+
   // Append encoded fields to the contiguous stream; never copy an aggregate object layout.
   // Byte writes follow the stream reservation policy; later failures can leave prior output.
   template <typename T>
@@ -2345,16 +2404,18 @@ public:
                     "Binary floating-point output requires a 32-bit or 64-bit IEC 559 representation");
       // Preserve scalar bits, then use the integer path for the selected wire byte order.
       if constexpr (sizeof(T) == sizeof(std::uint32_t)) {
-        serialize_out(std::bit_cast<std::uint32_t>(value));
+        serialize_out(std::bit_cast<std::uint32_t>(
+            detail::normalize_binary_scalar<ScalarNormalization>(value)));
       } else if constexpr (sizeof(T) == sizeof(std::uint64_t)) {
-        serialize_out(std::bit_cast<std::uint64_t>(value));
+        serialize_out(std::bit_cast<std::uint64_t>(
+            detail::normalize_binary_scalar<ScalarNormalization>(value)));
       }
     } else if constexpr (type_check::serializer_out_enabled_ptr<T, binary_out_base>) {
       if (!value) { throw std::invalid_argument{"Null source object"}; }
       value->serialize_out(*this);
     } else if constexpr (type_check::serializer_out_enabled<T, binary_out_base>) {
       value.serialize_out(*this);
-    } else if constexpr (type_check::vector<T> || type_check::fixed_array<T>) {
+    } else if constexpr (type_check::vector<T> || type_check::fixed_array<T> || detail::binary_span<T>) {
       serialize_out_variable(value.size());
       using element_type = typename T::value_type;
       if constexpr (detail::binary_array_scalar<element_type>) {
@@ -2365,7 +2426,20 @@ public:
           throw rohit::exception::stream_overflow_exception{};
         }
         const auto bytes = value.size() * sizeof(element_type);
-        if constexpr (sizeof(element_type) == 1 || WireEndian == std::endian::native) {
+        if constexpr (ScalarNormalization == binary_scalar_normalization::positive_zero &&
+                      std::floating_point<element_type>) {
+          // Normalize directly into the reserved output range, preserving one bulk reservation.
+          out_stream.append_transformed(
+              value.data(), bytes, bytes,
+              [](std::uint8_t* output, const std::uint8_t* input, std::size_t size) noexcept {
+                for (std::size_t offset{}; offset < size; offset += sizeof(element_type)) {
+                  element_type scalar;
+                  std::memcpy(&scalar, input + offset, sizeof(scalar));
+                  detail::write_fixed_scalar<WireEndian>(
+                      output, detail::normalize_binary_scalar<ScalarNormalization>(scalar));
+                }
+              });
+        } else if constexpr (sizeof(element_type) == 1 || WireEndian == std::endian::native) {
           // Only padding-free scalar arrays match the wire representation; never copy classes.
           out_stream.append(value.data(), bytes);
         } else {
@@ -2422,43 +2496,80 @@ public:
 }; // class binary_out_base
 
 template <serialize_key_type KeyType, std::endian WireEndian,
-          rohit::type_check::output_buffer Stream, binary_text_validation TextValidation,
-          read_policy ReadPolicy>
-class binary<serialize_type::out, KeyType, WireEndian, Stream, TextValidation, ReadPolicy>
-    : public binary_out_base<KeyType, WireEndian, Stream, TextValidation> {
+          typename Stream, binary_text_validation TextValidation,
+          read_policy ReadPolicy, binary_scalar_normalization ScalarNormalization>
+  requires (rohit::type_check::output_buffer<Stream> || detail::binary_counting_stream<Stream>)
+class binary<serialize_type::out, KeyType, WireEndian, Stream, TextValidation, ReadPolicy,
+             ScalarNormalization>
+    : public binary_out_base<KeyType, WireEndian, Stream, TextValidation, ScalarNormalization> {
 public:
-  using binary_out_base<KeyType, WireEndian, Stream, TextValidation>::binary_out_base;
+  using binary_out_base<KeyType, WireEndian, Stream, TextValidation,
+                        ScalarNormalization>::binary_out_base;
   using stream_type = Stream;
-  template <rohit::type_check::output_buffer OtherStream>
+  template <typename OtherStream>
   using rebind_stream =
-      binary<serialize_type::out, KeyType, WireEndian, OtherStream, TextValidation, ReadPolicy>;
+      binary<serialize_type::out, KeyType, WireEndian, OtherStream, TextValidation, ReadPolicy,
+             ScalarNormalization>;
   static constexpr read_policy policy = ReadPolicy;
   static constexpr bool is_json = false;
 };
 
 template <serialize_type type, typename Stream = stream,
           binary_text_validation TextValidation = binary_text_validation::strict,
-          read_policy ReadPolicy = read_policy::strict>
+          read_policy ReadPolicy = read_policy::strict,
+          binary_scalar_normalization ScalarNormalization = binary_scalar_normalization::preserve>
 using binary_integer = binary<type, serialize_key_type::integer, std::endian::little, Stream,
-                              TextValidation, ReadPolicy>;
+                              TextValidation, ReadPolicy, ScalarNormalization>;
 
 template <serialize_type type, typename Stream = stream,
           binary_text_validation TextValidation = binary_text_validation::strict,
-          read_policy ReadPolicy = read_policy::strict>
+          read_policy ReadPolicy = read_policy::strict,
+          binary_scalar_normalization ScalarNormalization = binary_scalar_normalization::preserve>
 using binary_string = binary<type, serialize_key_type::string, std::endian::little, Stream,
-                             TextValidation, ReadPolicy>;
+                             TextValidation, ReadPolicy, ScalarNormalization>;
 
 template <serialize_type type, typename Stream = stream,
           binary_text_validation TextValidation = binary_text_validation::strict,
-          read_policy ReadPolicy = read_policy::strict>
+          read_policy ReadPolicy = read_policy::strict,
+          binary_scalar_normalization ScalarNormalization = binary_scalar_normalization::preserve>
 using binary_none =
-    binary<type, serialize_key_type::none, std::endian::little, Stream, TextValidation, ReadPolicy>;
+    binary<type, serialize_key_type::none, std::endian::little, Stream, TextValidation, ReadPolicy,
+           ScalarNormalization>;
 
 // Expose the descriptive positional spelling without changing the original protocol or bytes.
 template <serialize_type type, typename Stream = stream,
           binary_text_validation TextValidation = binary_text_validation::strict,
-          read_policy ReadPolicy = read_policy::strict>
-using binary_positional = binary_none<type, Stream, TextValidation, ReadPolicy>;
+          read_policy ReadPolicy = read_policy::strict,
+          binary_scalar_normalization ScalarNormalization = binary_scalar_normalization::preserve>
+using binary_positional = binary_none<type, Stream, TextValidation, ReadPolicy, ScalarNormalization>;
+
+// Validate and count one native binary traversal under an explicit byte budget, with no allocation.
+template <serialize_key_type KeyType, std::endian WireEndian = std::endian::little,
+          binary_text_validation TextValidation = binary_text_validation::strict,
+          binary_scalar_normalization ScalarNormalization = binary_scalar_normalization::preserve,
+          typename Value>
+std::size_t binary_size(const Value& value,
+                        std::size_t maximum_bytes = rohit::detail::maximum_buffer_bytes) {
+  binary_count_stream output{maximum_bytes};
+  binary_out_base<KeyType, WireEndian, binary_count_stream, TextValidation,
+                  ScalarNormalization> encoder{output};
+  encoder.serialize_out(value);
+  return output.size();
+}
+
+// Count integer field keys, nested records, and terminators using the production native codec.
+template <typename Value>
+std::size_t binary_integer_size(
+    const Value& value, std::size_t maximum_bytes = rohit::detail::maximum_buffer_bytes) {
+  return binary_size<serialize_key_type::integer>(value, maximum_bytes);
+}
+
+// Count UTF-8 field names and payloads with the same validation as string-key binary output.
+template <typename Value>
+std::size_t binary_string_size(
+    const Value& value, std::size_t maximum_bytes = rohit::detail::maximum_buffer_bytes) {
+  return binary_size<serialize_key_type::string>(value, maximum_bytes);
+}
 
 namespace detail {
 // Preserve custom protocol types unless they explicitly support binding a concrete stream type.

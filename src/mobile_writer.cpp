@@ -2,12 +2,18 @@
 #include "native_schema.hpp"
 #include "version_writer.hpp"
 #include "behavior_writer.hpp"
+#include "construction_writer.hpp"
+#include "comparison_writer.hpp"
 #include "format_writer.hpp"
 
 #include <algorithm>
 #include <cctype>
+#include <cstddef>
 #include <map>
+#include <set>
 #include <string>
+#include <string_view>
+#include <vector>
 
 namespace rohit::serializer::writer::native {
 namespace {
@@ -21,6 +27,7 @@ constexpr std::string_view kotlin_runtime =
 class mobile_emitter {
   const schema& model;
   const bool swift;
+  behavior::checked_helpers arithmetic_helpers{};
   std::string output{};
   std::size_t indent{};
   bool variable_first{};
@@ -698,7 +705,7 @@ class mobile_emitter {
       const auto modifier = swift && method.effect == function_declaration::effect_type::edit ? "mutating " : "";
       open(std::string(method.access == access_type::public_access ? "public " : "private ") + modifier +
           select("func ", "fun ") + field(method.name) + "(" + arguments + ")" +
-          (swift && method.expression ? " throws" : "") + select(" -> ", ": ") + result_type);
+          (swift && method.expression && !method.predicate_body ? " throws" : "") + select(" -> ", ": ") + result_type);
       if (!swift && method.dispatch != function_declaration::dispatch_type::ordinary) {
         line("srlBehavior?.let { return it." + field(method.name) + "(this" + (calls.empty() ? "" : ", " + calls) + ") }");
       }
@@ -709,17 +716,55 @@ class mobile_emitter {
               [&](const auto& item) { return item.name == name; });
           return argument == method.parameters.end() ? select("self.", "this.") + field(name) : field(name);
         };
-        std::set<std::string> symbols; behavior::expression_symbols(*method.expression, symbols);
-        for (const auto& name : symbols) {
-          const auto kotlin_value = behavior::symbol_type(value, method, name) == "double" ?
-              "(" + symbol(name) + ")" : "(" + symbol(name) + ").toDouble()";
-          line(select("if !Double(" + symbol(name) + ").isFinite { throw SerializerError.invalid(\"Non-finite portable input\") }",
-              "if (!" + kotlin_value + ".isFinite()) { throw SerializerException(\"Non-finite portable input\") }"));
+        behavior::expression_context context;
+        context.member_name = [&](std::string_view name) { return field(name); };
+        context.native_type = [&](const type_name& expression_type) { return type(expression_type); };
+        context.enum_value = [&](const type_name& expression_type, std::string_view name) {
+          return type(expression_type) + "." + pascal(name);
+        };
+        context.predicate = method.predicate_body;
+        if (behavior::expression_has_reduction(*method.expression)) {
+          while (std::any_of(method.parameters.begin(), method.parameters.end(),
+              [&](const auto& parameter) { return field(parameter.name) == context.budget_name; })) {
+            context.budget_name += '_';
+          }
+          line("var " + context.budget_name + " = " +
+              std::to_string(behavior_expression::maximum_reduction_visits));
         }
-        line(select("let ", "val ") + "srlBehaviorResult = " + behavior::expression(*method.expression, language, symbol));
-        line(select("if !srlBehaviorResult.isFinite { throw SerializerError.invalid(\"Non-finite portable result\") }",
-            "if (!srlBehaviorResult.isFinite()) { throw SerializerException(\"Non-finite portable result\") }"));
+        if (!method.predicate_body) {
+          std::set<std::string> symbols; behavior::expression_symbols(*method.expression, symbols);
+          for (const auto& name : symbols) {
+            const auto scalar_type = behavior::symbol_type(value, method, name);
+            if (scalar_type != "double" && scalar_type != "float") { continue; }
+            const auto argument = std::find_if(method.parameters.begin(), method.parameters.end(),
+                [&](const auto& parameter) { return parameter.name == name; });
+            if (argument == method.parameters.end()) {
+              const auto input_field = std::find_if(value.member_list.begin(), value.member_list.end(),
+                  [&](const auto& field_value) { return field_value.name == name; });
+              if (input_field->modifier != member::modifier_type::none) { continue; }
+            }
+            line(select("if !Double(" + symbol(name) + ").isFinite { throw SerializerError.invalid(\"Non-finite portable input\") }",
+                "if (!(" + symbol(name) + ").isFinite()) { throw SerializerException(\"Non-finite portable input\") }"));
+          }
+        }
+        const bool catches_failure = method.predicate_body &&
+            (!swift || behavior::expression_can_fail(*method.expression, method.predicate_body));
+        if (catches_failure) { open(select("do", "try")); }
+        line(select("let ", "val ") + "srlBehaviorResult = " +
+            (swift && behavior::expression_can_fail(*method.expression, method.predicate_body) ? "try " : "") +
+            behavior::expression(*method.expression, language, symbol, arithmetic_helpers, context));
+        if (method.return_type.name != "bool") {
+          line(select("if !srlBehaviorResult.isFinite { throw SerializerError.invalid(\"Non-finite portable result\") }",
+              "if (!srlBehaviorResult.isFinite()) { throw SerializerException(\"Non-finite portable result\") }"));
+        }
         line("return srlBehaviorResult");
+        if (catches_failure) {
+          --indent;
+          line(select("} catch {", "} catch (_: SerializerException) {"));
+          ++indent;
+          line("return false");
+          close();
+        }
       }
       close();
     }
@@ -748,6 +793,100 @@ class mobile_emitter {
           "func " + field(method->name) + "(" + parameters + ") -> " + (method->return_type.name == "void" ? "Void" : type(method->return_type)));
       line("return implementation." + field(method->name) + "(" + calls + ")"); close();
     }
+    close();
+  }
+
+  // Compare portable selected values with exact text identity and nullable unordered results.
+  void comparisons(const class_node& value) {
+    const auto* options = comparison::find(value, model.class_comparisons);
+    if (!options || (!options->equality && !options->ordering)) { return; }
+    const auto selected = comparison::parts(value, *options);
+    struct part {
+      std::string name;
+      bool nested{};
+      const type_name* type{};
+    };
+    std::vector<part> parts;
+    for (const auto* base : selected.bases) {
+      const auto index = static_cast<std::size_t>(base - value.parents.data());
+      parts.push_back({"base" + std::to_string(index), true, nullptr});
+    }
+    for (const auto* item : selected.fields) {
+      const auto& type = item->type_name_list.front();
+      parts.push_back({field(item->name), type.resolved_node &&
+          type.resolved_node->type == object_type::class_type, &type});
+    }
+    const auto text = [](const part& item) {
+      return item.type && (item.type->name == "string" || item.type->name.starts_with("version"));
+    };
+    const auto name = model.names.at(&value);
+    if (options->equality) {
+      line(select("/// Test equality of the configured schema values.",
+                  "// Test equality of the configured schema values."));
+      open(select("public func equals_value(_ other: " + name + ") -> Bool",
+                  "fun equals_value(other: " + name + "): Boolean"));
+      std::string expression;
+      for (const auto& item : parts) {
+        const auto left = select("self.", "this.") + item.name;
+        const auto right = "other." + item.name;
+        if (!expression.empty()) { expression += " && "; }
+        if (item.nested) {
+          expression += left + ".equals_value(" + right + ")";
+        } else if (swift && text(item)) {
+          expression += left + ".utf8.elementsEqual(" + right + ".utf8)";
+        } else {
+          expression += left + " == " + right;
+        }
+      }
+      line("return " + (expression.empty() ? std::string{"true"} : expression));
+      close();
+    }
+    if (!options->ordering) { return; }
+    line(select("/// Return lexicographic order, or nil when the first unequal value is unordered.",
+                "// Return lexicographic order, or null when the first unequal value is unordered."));
+    open(select("public func compare_value(_ other: " + name + ") -> Int?",
+                "fun compare_value(other: " + name + "): Int?"));
+    for (std::size_t index{}; index < parts.size(); ++index) {
+      const auto& item = parts[index];
+      auto left = select("self.", "this.") + item.name;
+      auto right = "other." + item.name;
+      const auto order = "srlOrder" + std::to_string(index);
+      if (item.nested) {
+        line(select("guard let " + order + " = " + left + ".compare_value(" + right +
+                        ") else { return nil }",
+                    "val " + order + " = " + left + ".compare_value(" + right +
+                        ") ?: return null"));
+        line(select("if " + order + " != 0 { return " + order + " }",
+                    "if (" + order + " != 0) { return " + order + " }"));
+      } else if (text(item)) {
+        if (swift) {
+          line("if " + left + ".utf8.lexicographicallyPrecedes(" + right +
+               ".utf8) { return -1 }");
+          line("if " + right + ".utf8.lexicographicallyPrecedes(" + left +
+               ".utf8) { return 1 }");
+        } else {
+          line("val " + order + " = srlCompareText(" + left + ", " + right + ")");
+          line("if (" + order + " != 0) { return " + order + " }");
+        }
+      } else if (item.type->name == "bool") {
+        line(select("if " + left + " != " + right + " { return " + left + " ? 1 : -1 }",
+                    "if (" + left + " != " + right + ") { return if (" + left +
+                        ") 1 else -1 }"));
+      } else {
+        if (item.type->name == "float" || item.type->name == "double") {
+          line(select("if " + left + ".isNaN || " + right + ".isNaN { return nil }",
+                      "if (" + left + ".isNaN() || " + right + ".isNaN()) { return null }"));
+        } else if (item.type->type == object_type::enum_type) {
+          left += select(".rawValue", ".ordinal");
+          right += select(".rawValue", ".ordinal");
+        }
+        line(select("if " + left + " < " + right + " { return -1 }",
+                    "if (" + left + " < " + right + ") { return -1 }"));
+        line(select("if " + left + " > " + right + " { return 1 }",
+                    "if (" + left + " > " + right + ") { return 1 }"));
+      }
+    }
+    line("return 0");
     close();
   }
 
@@ -795,15 +934,23 @@ class mobile_emitter {
           declare(id + pascal(alt.enum_name), type(alt), initial(alt), item.access);
         }
       } else if (item.modifier == member::modifier_type::none) {
-        declare(id, type(t), initial(t, literal(item)), item.access);
+        declare(id, type(t), item.default_factory.empty() ? initial(t, literal(item)) :
+            construction::factory_call(type(t), field(item.default_factory), swift ? "swift" : "kotlin"), item.access);
       } else {
         declare(id, collection_type(item), empty(item), item.access);
       }
     }
     behaviors(value);
+    comparisons(value);
     if (swift) {
       line("/// Construct independent schema defaults.");
       line("public init() {}");
+      output += construction::factories(value, name, "swift",
+          [&](const auto& item) { return type(item); },
+          [&](auto item, auto) { return field(item); },
+          [&](const auto& item) { return item.default_factory.empty() ?
+              initial(item.type_name_list.front(), literal(item)) : construction::factory_call(
+                  type(item.type_name_list.front()), field(item.default_factory), "swift"); });
     }
     line("// Encode one complete message into independent byte storage.");
     open(select("public func encode(_ protocolValue: Protocol) throws -> [UInt8]",
@@ -815,6 +962,12 @@ class mobile_emitter {
     if (!swift) {
       open("companion object");
       magic_declaration(value);
+      output += construction::factories(value, name, "kotlin",
+          [&](const auto& item) { return type(item); },
+          [&](auto item, auto) { return field(item); },
+          [&](const auto& item) { return item.default_factory.empty() ?
+              initial(item.type_name_list.front(), literal(item)) : construction::factory_call(
+                  type(item.type_name_list.front()), field(item.default_factory), "kotlin"); });
     }
     std::string ids = select("[", "intArrayOf(");
     bool id_first = true;
@@ -1093,6 +1246,9 @@ public:
   // Bind a schema and optional JVM package before emitting any source.
   mobile_emitter(const schema& value, bool apple, std::string_view package)
       : model{value}, swift{apple} {
+    arithmetic_helpers = behavior::select_helpers(model.nodes,
+        [&](const auto& node) { return model.names.at(&node); },
+        [&](const auto name) { return field(name); });
     if (!swift) {
       output = "@file:OptIn(ExperimentalUnsignedTypes::class)\n";
       if (!package.empty()) {
@@ -1114,6 +1270,7 @@ public:
       if (code.language == (swift ? "swift" : "kotlin")) { output += behavior::source_marker(code, swift ? "swift" : "kotlin") + code.text + "\n"; }
     }
     output += swift ? swift_runtime : kotlin_runtime;
+    output += behavior::helpers(swift ? "swift" : "kotlin", arithmetic_helpers);
   }
   // Emit the runtime, immutable schema key table, enums, and owning models.
   std::string generate() {

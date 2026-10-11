@@ -1,0 +1,25 @@
+serializer version 1.8.0;
+
+namespace reusable_models {
+  enum state {
+    ready,
+    done
+  }
+  class common_base stable_ids {
+    public uint32 count (1);
+  }
+  class secondary_base stable_ids {
+    public state status (1);
+  }
+  class generic_base<T> stable_ids : public common_base (10, "metadata") {
+    public T value (1);
+  }
+  class generic_derived<T> stable_ids : public generic_base<T> (11, "payload"),
+      public secondary_base (12, "status") {
+    public array T values (1);
+  }
+  instantiate named_derived = generic_derived<uint32>;
+  class optional_value<T> stable_ids {
+    public optional<T> value (1);
+  }
+}

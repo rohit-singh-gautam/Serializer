@@ -3,6 +3,8 @@
 #include <rohit/serializer_creator.hpp>
 
 #include "generics.hpp"
+#include "reuse_first.hpp"
+#include "reuse_second.hpp"
 
 #include <string>
 #include <string_view>
@@ -153,13 +155,82 @@ TEST(schema_generics, rejects_invalid_schemas) {
         "class box<T> { public box<box<T>> value; } class root { public box<uint32> value; }",
         "class box<T> view {}",
         "class box<T> packed {}",
-        "class base {} class box<T> : public base {}",
+        "class box<T> : public T {}",
         "class box<T> { public union(T,uint32) value; }",
         "class box<T> { public T value; } class use { public box<use> value; }",
         "class box<T> {} instantiate root = uint32;"}) {
     SCOPED_TRACE(source);
     EXPECT_THROW(parse_generic(source), std::exception);
   }
+}
+
+// Generated entry headers share templates, enums, concrete aliases and ordinary types.
+TEST(schema_generics, reusable_headers_and_owning_inheritance) {
+  using namespace reusable_models;
+  static_assert(std::is_base_of_v<common_base, generic_base<std::uint32_t>>);
+  static_assert(std::is_base_of_v<generic_base<std::uint32_t>, generic_derived<std::uint32_t>>);
+  first_contract value{};
+  value.value.count = 4;
+  value.value.value = 17;
+  value.value.status = state::done;
+  value.value.values = {8, 9};
+  value.selection.value = 3;
+  const auto check = [&]<template <schema::serialize_type> class Protocol>() {
+    rohit::full_stream_auto_alloc output{};
+    value.template serialize_out<Protocol>(output);
+    const auto input = rohit::make_constant_stream(output.begin(), output.current_offset());
+    const auto recovered = schema::deserialize_exact<second_contract, Protocol>(input);
+    EXPECT_EQ(recovered.value.count, 4u);
+    EXPECT_EQ(recovered.value.value, 17u);
+    EXPECT_EQ(recovered.value.status, state::done);
+    EXPECT_EQ(recovered.value.values, (std::vector<std::uint32_t>{8, 9}));
+    EXPECT_EQ(recovered.selection.value, 3u);
+    rohit::full_stream_auto_alloc native_bytes{};
+    value.value.template serialize_out<Protocol>(native_bytes);
+    const auto native_input = rohit::make_constant_stream(native_bytes.begin(), native_bytes.current_offset());
+    const auto named = schema::deserialize_exact<named_derived, Protocol>(native_input);
+    EXPECT_EQ(named.count, 4u);
+    EXPECT_EQ(named.value, 17u);
+    rohit::full_stream_auto_alloc named_bytes{};
+    named.template serialize_out<Protocol>(named_bytes);
+    EXPECT_EQ(std::string_view(reinterpret_cast<const char*>(native_bytes.begin()), native_bytes.current_offset()),
+              std::string_view(reinterpret_cast<const char*>(named_bytes.begin()), named_bytes.current_offset()));
+  };
+  check.template operator()<schema::binary_none>();
+  check.template operator()<schema::binary_integer>();
+  check.template operator()<schema::binary_string>();
+  check.template operator()<schema::json>();
+}
+
+// Concrete generic inheritance lowers to generated base models in every ordinary backend.
+TEST(schema_generics, generic_inheritance_lowering_and_version_gate) {
+  const auto nodes = parse_generic(
+      "serializer version 1.8.0; class base<T> stable_ids { public T value (1); } "
+      "class derived<T> stable_ids : public base<T> (2, \"base\") { public bool ready (1); } "
+      "instantiate selected = derived<uint32>; class root : public derived<uint32> {}");
+  const auto* selected = find_class(nodes, "selected");
+  ASSERT_NE(selected, nullptr);
+  ASSERT_EQ(selected->parents.size(), 1u);
+  ASSERT_NE(selected->parents.front().parent_class, nullptr);
+  EXPECT_EQ(selected->parents.front().parent_class->member_list.front().type_name_list.front().name,
+            "uint32");
+  const auto* root = find_class(nodes, "root");
+  ASSERT_NE(root, nullptr);
+  EXPECT_EQ(root->parents.front().parent_class->generic_name, "derived");
+  for (const auto language : {"js", "typescript", "go", "csharp", "rust", "python", "swift", "kotlin", "c"}) {
+    SCOPED_TRACE(language);
+    EXPECT_FALSE(schema::writer::portable::generate(nodes, language, "Schema").empty());
+  }
+  rohit::full_stream_auto_alloc java{};
+  EXPECT_NO_THROW(schema::writer::java::write(java, nodes, "Schema"));
+  EXPECT_THROW(parse_generic("serializer version 1.7.0; class base {} class derived<T> : public base {}"),
+               std::exception);
+  EXPECT_THROW(parse_generic("serializer version 1.7.0; class base<T> {} class derived : public base<uint32> {}"),
+               std::exception);
+  EXPECT_THROW(parse_generic("serializer version 1.8.0; class base<T> {} class derived<T> : public base<T>, public base<T> {} instantiate selected=derived<uint32>;"),
+               std::exception);
+  EXPECT_THROW(parse_generic("serializer version 1.8.0; class base<T> {} class derived<T> : public T {}"),
+               std::exception);
 }
 
 // A later nested namespace cannot capture qualified map keys frozen in a generic definition.

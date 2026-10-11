@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Use Serializer as a state framework when creating or changing schemas, generated behavior, multi-language codecs, bounded decoding, revisions, C++ managed transactions, history, journals, collaboration, or persistence. Review the installed version's entire feature set and apply every feature relevant to the user's contract; preserve wire compatibility and qualify unsupported combinations."
+description: "Use Serializer as a state framework when creating or changing schemas, generated behavior, construction/comparisons, multi-language codecs, bounded decoding, revisions, C++ managed transactions, history, journals, collaboration, or persistence. Review the installed version's entire feature set and apply every feature relevant to the user's contract; preserve wire compatibility and qualify unsupported combinations."
 ---
 
 # Serializer Integration
@@ -21,6 +21,47 @@ and AGENTS.md. Apply it when loaded as a skill or read directly from a supplied
 checkout; direct use does not require copying the skill into the consuming project.
 
 ## Use the full framework
+
+Compiler/runtime 1.13.0 supports schema language 1.8.0. For new integrations,
+review [typed construction and layout](../../../docs/construction.md),
+[checked behavior](../../../docs/behavior.md), and
+[generic inheritance/reusable headers](../../../docs/generics.md).
+Use schema constructors/factories to bind the actual generated owner of concrete
+generic instances; keep opaque native blocks verbatim. Use `default(factory)`
+for structured record defaults and `transient layout(empty)` only for stateless
+passive records. The layout hint has no durable meaning and physical overlap is
+backend-dependent; qualify size/alignment on the selected compiler.
+C++ managed lowering retains ordinary-field construction in both storage
+profiles; construct managed child occurrences through transaction APIs.
+
+Use [class-specific comparisons](../../../docs/record_comparisons.md) to generate
+memberwise equality and lexicographic ordering through
+`[language.class.source::qualified_name]` INI sections. Select durable/base values
+or an exact own-field list; do not manually duplicate that field traversal.
+Preserve NaN's unordered result, native C++ comparison categories and unsigned
+widths. Portable selected collections, optionals, digests, union/variant and dotted
+revision types remain unsupported; qualify each selected backend. Nested records
+need matching comparison settings. Named instances inherit source settings or
+select their own; compiler-internal C++ aliases share the template's selection.
+Direct C++ managed values exclude hidden persistent identity; managed
+`separate_values` comparison opt-in is unsupported and diagnoses.
+Existing outputs remain unchanged without opt-in.
+
+For bounded native output observations, use `binary_size<KeyType>(value, limit)`,
+`binary_integer_size`, or `binary_string_size`; counting allocates no encoded
+buffer. Use the existing `fixed_buffer` transfer API for actual message ownership.
+Select `binary_scalar_normalization::positive_zero` explicitly for cache/digest
+encodings needing equal signed-zero bytes. The default `preserve` retains current
+wire bytes and source values; array and fixed-batch traversal remains generated.
+Borrow native binary values directly with `std::span` and
+`std::reference_wrapper`, including the bounded counting pass. Keep all referents
+alive and unchanged until synchronous traversal finishes; borrowing adds no
+ownership or synchronization and does not provide borrowed decode destinations.
+Use generated `edit_<collection>()` callbacks and scoped borrowed lookups instead
+of copying complete ordinary collections or mutating a live read snapshot.
+Independently identified members continue to use identity-based typed editors.
+Follow [output usage](../../../docs/usage.md) and
+[collection guarantees](../../../docs/managed/cpp_runtime.md).
 
 For every Serializer task, review the installed revision's
 [feature status](../../../docs/feature_status.md) and
@@ -503,11 +544,11 @@ feature as a prerequisite without the user's request.
   generated replacement setters and the existing history/journal APIs.
   Consult [usage](../../../docs/usage.md), [migration](../../../migration.md), and
   [qualification](../../../docs/verification-dimensions-2026-10-04.md).
-- Use `.serializer` files beginning with `serializer version 1.7.0;`, before declarations
+- Use `.serializer` files beginning with `serializer version 1.8.0;`, before declarations
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
-  remains available through `parser::parse(input)`. Schema language version 1.7.0 is
-  independent of compiler release 1.12.0 and wire protocols. Bug fixes and minor
+  remains available through `parser::parse(input)`. Schema language version 1.8.0 is
+  independent of compiler release 1.13.0 and wire protocols. Bug fixes and minor
   updates increment the patch number; new features increment the minor number.
   Minor and patch releases preserve full compatibility. Developers change the
   major number manually, with best-effort compatibility across major releases.
@@ -534,10 +575,12 @@ feature as a prerequisite without the user's request.
 - Reopened namespaces reuse their scope during parsing. Duplicate qualified
   classes/enums and namespace/type conflicts are errors; same leaf names in
   different namespaces are valid. Referenced types still precede their use.
-- Generate only the entry schema for a combined model. Included declarations are
-  emitted into each selected entry output; overlapping C++
-  entry graphs can produce duplicate definitions when their headers are included
-  together. All generation helpers track transitive inputs using depfiles. Library
+- Generate the requested entry schemas. Included declarations are
+  emitted into each selected entry output; compiler 1.13 guards individual C++
+  types and managed companions, so matching overlapping entry graphs can be
+  included together. Different generated definitions of one C++ type produce
+  an explicit preprocessor error; use matching naming/runtime profiles.
+  All generation helpers track transitive inputs using depfiles. Library
   callers use `parser::parse_file(path)` and pass its `statements` to the writers.
   See [include usage](../../../docs/usage.md#share-declarations-with-includes) and
   [paired C++/Java examples](../../../example/includes/README.md).
@@ -577,6 +620,10 @@ feature as a prerequisite without the user's request.
   bare storage is an empty `std::vector<uint8_t>`. All eleven native outputs
   support storage/codecs with fixed cardinality checks. Map keys, nonempty digest
   defaults, C++ views, and Protobuf mappings reject explicitly.
+  With behavior language `1.6.0` or newer, all three digest forms also work in
+  native/external method return and parameter signatures. Keep native byte
+  ownership, lifetime and result lengths explicit; methods neither hash nor add
+  wire fields, and digest values remain outside portable expressions.
   Compute hashes explicitly through `<rohit/digest.hpp>` and
   `rohit::make_digest<rohit::digest_algorithm::sha256>(input)` with
   `Serializer::runtime`; portable applications choose their own provider.
@@ -587,6 +634,30 @@ feature as a prerequisite without the user's request.
   migrating equal-width digest types. Follow [digest usage](../../../docs/digest.md),
   [licensing rationale](../../../docs/licensing.md#why-the-license-was-separated),
   and [migration](../../../migration.md#digest-fields-and-creation-9-october-2026).
+
+- Language `1.8.0` portable comparisons retain matching native signed/unsigned
+  widths, float/double, boolean equality and declared enum identity. Adjacent
+  integer literals bind to the declared width and reject out-of-range values;
+  never convert uint64 identity or ordering through binary64. Public nested and
+  inherited fields, sequence/fixed-array indices, exact uint64 `size`, qualified
+  enum constants and total `math.is_finite` observations support readonly checks.
+  Use `predicate(...)` only for bool readonly methods when reached semantic
+  failures should return false. It validates reached paths only; `expression(...)`
+  retains throwing/status failure and eager scalar floating input checks, except
+  values observed by `math.is_finite`. Bounds and arithmetic inside finite
+  observations still fail normally. C semantic predicate failure publishes false
+  with `srl_ok`; null receiver/output plumbing remains `srl_invalid`.
+- Use `all(items, literal_bound, item => boolean)` or `any(...)` for bounded
+  readonly traversal. Literal bounds are 1..1,000,000 and length is checked before
+  visiting elements. Every invocation shares a 1,000,000 visited-item budget across
+  nested reductions, with short circuiting; empty all is true and empty any false.
+  Binder names cannot shadow fields, parameters or outer binders. Maps, optional/
+  variant projections, integer arithmetic, mutation and arbitrary calls are not
+  supported by this profile. Eligible C++ readonly typed methods preserve
+  constexpr/noexcept; runtime math and checked throwing operations retain runtime
+  qualifiers. Qualify native bodies separately. See [behavior domains and bounded
+  checks](../../../docs/behavior.md#portable-arithmetic) and run
+  `test/typed_behavior_languages.py` against the required SDKs.
 - For new portable byte-keyed maps, prefer `map(uint8)`. Existing `map(char)`
   output retains signed Java `byte` ordering and compiler-dependent C++ `char`
   ordering; other backends use unsigned bytes. High-byte keys decode across
@@ -863,7 +934,7 @@ versioned snippets, and invokes the same targets through CMake Tools. Run the ro
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 1.1.33 is shared with the Visual Studio extension and is independent of
+version 1.1.35 is shared with the Visual Studio extension and is independent of
 compiler and schema versions. Keep both editor extension versions equal.
 Both package descriptions and READMEs identify the
 [Serializer repository](https://github.com/rohit-singh-gautam/Serializer). Configure
@@ -1513,7 +1584,7 @@ Regenerate all relevant language and editor outputs when changing these contract
 
 Consult the [versioning verification record](../../../docs/verification-versioning-2026-10-06.md) and [release-policy verification record](../../../docs/verification-release-policies-2026-10-06.md) for completed language, compiler, codec, and editor checks. Release catalogs and nested allow policies are evaluated entirely during schema compilation; generated readers and writers contain only resolved version bounds.
 
-Use [payload versioning](../../../docs/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the supported schema language header (`1.7.0`, older `1.6.0`/`1.5.0`/`1.4.0`/`1.3.0`/`1.2.0`/`1.1.0`/`1.0.0`, or the original `1` alias for `1.0.0`) from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.
+Use [payload versioning](../../../docs/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the supported schema language header (`1.8.0`, older `1.7.0`/`1.6.0`/`1.5.0`/`1.4.0`/`1.3.0`/`1.2.0`/`1.1.0`/`1.0.0`, or the original `1` alias for `1.0.0`) from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.
 
 Declare payload revisions with Serializer's `version` member instead of an ordinary
 counter field. The paired `union_variant` examples declare

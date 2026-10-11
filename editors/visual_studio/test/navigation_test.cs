@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using Rohit.Serializer.VisualStudio;
 
@@ -41,6 +42,46 @@ internal static class NavigationTest {
       foreach (var spelling in new[] { "optional<", "array<", "map<", "nested;", "find(", "input)" }) {
         Require(NavigationRunner.Resolve(model, optionalText.IndexOf(spelling, StringComparison.Ordinal), false,
           generated, live, CancellationToken.None).Length == 0, "optional constructors and fields have no type destination");
+        ++checks;
+      }
+      var constructionText = "serializer version 1.8.0; include sales/order; " +
+        "class base<T> {} class derived<T> : public base<T> { " +
+        "public transient layout(empty) demo::order passive; " +
+        "public constructor(demo::order input) { value = input; } " +
+        "public factory make(demo::order input) { value = input; } }";
+      live[model] = constructionText;
+      for (var occurrence = constructionText.IndexOf("demo::order", StringComparison.Ordinal); occurrence >= 0;
+           occurrence = constructionText.IndexOf("demo::order", occurrence + "demo::order".Length, StringComparison.Ordinal)) {
+        for (var cursor = occurrence; cursor <= occurrence + "demo::order".Length; ++cursor) {
+          var destination = NavigationRunner.Resolve(model, cursor, false, generated, live, CancellationToken.None);
+          Require(destination.Length == 1 && File.ReadAllText(destination[0].file)
+            .Substring(destination[0].start, destination[0].end - destination[0].start) == "order",
+            "construction/layout parameter boundaries and live includes");
+          ++checks;
+        }
+      }
+      var inheritedParameter = constructionText.IndexOf("public base<T>", StringComparison.Ordinal) + "public base<".Length;
+      var ownParameter = constructionText.IndexOf("T> :", StringComparison.Ordinal);
+      Require(NavigationRunner.Resolve(model, inheritedParameter, false, generated, live, CancellationToken.None)
+        .Single().start == ownParameter, "generic base parameter uses derived declaration scope");
+      ++checks;
+      var predicateText = "serializer version 1.8.0; include sales/order; class sha256 {} class reading { " +
+        "public function digest(sha256) fingerprint(demo::order input) readonly cpp { return {}; }; " +
+        "public function bool usable() readonly predicate(all(samples, 8, item => " +
+        "item.state == demo::order_state::draft && math.is_finite(item.value))); }";
+      live[model] = predicateText;
+      foreach (var name in new[] { "demo::order", "demo::order_state" }) {
+        var start = predicateText.IndexOf(name, StringComparison.Ordinal);
+        for (var cursor = start; cursor <= start + name.Length; ++cursor) {
+          var destination = NavigationRunner.Resolve(model, cursor, false, generated, live, CancellationToken.None);
+          Require(destination.Length == 1 && Path.GetFileName(destination[0].file) == "order.serializer",
+            "digest signature and typed predicate enum cursor boundaries");
+          ++checks;
+        }
+      }
+      foreach (var spelling in new[] { "sha256)", "fingerprint(", "samples,", "item =>", "draft &&", "is_finite" }) {
+        Require(NavigationRunner.Resolve(model, predicateText.IndexOf(spelling, StringComparison.Ordinal), false,
+          generated, live, CancellationToken.None).Length == 0, "predicate values and digest algorithms are not type operands");
         ++checks;
       }
       live[model] = text;
@@ -217,6 +258,33 @@ internal static class NavigationTest {
         Require(local.Length == 1 && local[0].start == genericStart + "result<".Length, "generic parameter declaration");
         ++checks;
       }
+      if (args.Length > 3) {
+        var inheritedOutput = Path.GetFullPath(args[3]);
+        var inheritedModel = Path.Combine(Path.GetDirectoryName(inheritedOutput), "generic-inheritance.serializer");
+        var inheritedText = File.ReadAllText(inheritedModel);
+        // A live edit moves the field while the generated output and dependency file remain unchanged.
+        live[inheritedModel] = "// Unsaved field declaration offset.\n" + inheritedText;
+        var declaration = live[inheritedModel].IndexOf("inherited_count", StringComparison.Ordinal);
+        var fieldDefinitions = NavigationRunner.Resolve(inheritedModel, declaration, true, inheritedOutput, live, CancellationToken.None);
+        Require(fieldDefinitions.Select(item => Path.GetExtension(item.file)).Distinct().Count() == 11,
+          "schema inherited field definitions in every output language");
+        ++checks;
+        var fieldLanguages = new HashSet<string>();
+        foreach (var outputFile in Directory.GetFiles(inheritedOutput).Where(file => Path.GetExtension(file) != ".d")) {
+          var outputText = File.ReadAllText(outputFile);
+          foreach (Match occurrence in Regex.Matches(outputText, @"\b(?:inherited_count|inheritedCount|InheritedCount)\b")) {
+            var source = NavigationRunner.Resolve(outputFile, occurrence.Index, false, inheritedOutput, live, CancellationToken.None);
+            if (source.Length != 1 || source[0].file != inheritedModel || source[0].start != declaration) { continue; }
+            var endpoint = NavigationRunner.Resolve(outputFile, occurrence.Index + occurrence.Length, false,
+              inheritedOutput, live, CancellationToken.None);
+            Require(endpoint.Length == 1 && endpoint[0].start == declaration, "inherited generic field selection endpoint");
+            fieldLanguages.Add(Path.GetExtension(outputFile));
+            ++checks;
+            break;
+          }
+        }
+        Require(fieldLanguages.Count == 11, "inherited generic field declarations in every output language with unsaved schema edits");
+      }
       var dimensionsFile = Path.GetFullPath(Path.Combine(repository, "test/resources/dimensions.serializer"));
       var dimensionsText = File.ReadAllText(dimensionsFile);
       live[dimensionsFile] = dimensionsText;
@@ -232,7 +300,7 @@ internal static class NavigationTest {
           }
         }
       }
-      Console.WriteLine("Visual Studio shared resolver passed: " + checks + " source/output checks, real .NET interpreter, all 11 languages, digest metadata/legacy names, optional operands/signatures, dimension defaults/extents, typed magic/inferred arrays, selection endpoints, unsaved includes and cancellation.");
+      Console.WriteLine("Visual Studio shared resolver passed: " + checks + " source/output checks, real .NET interpreter, all 11 languages, construction/layout signatures, inherited generic fields, digest metadata/legacy names, optional operands/signatures, dimension defaults/extents, typed magic/inferred arrays, selection endpoints, unsaved includes and cancellation.");
       return 0;
     } catch (Exception error) { Console.Error.WriteLine(error); return 1; }
   }

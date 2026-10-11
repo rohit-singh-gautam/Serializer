@@ -22,6 +22,7 @@
 #include "schema_policy.hpp"
 #include "schema_scan.hpp"
 #include "schema_version.hpp"
+#include "native_schema.hpp"
 
 #include <algorithm>
 #include <array>
@@ -288,7 +289,7 @@ void skip_whitespace_and_comment(const rohit::type_check::schema_input_buffer au
     }
     const auto kind = input.curr()[1];
     if (kind != '/' && kind != '*') {
-      throw exception::bad_input_data{input, "Invalid schema comment"};
+      return; // A portable division token belongs to the expression parser.
     }
     input.advance_unchecked(2);
     if (kind == '/') {
@@ -1266,9 +1267,32 @@ bool behavior_modifier_head(const rohit::type_check::schema_input_buffer auto& i
   const auto lookahead = make_constant_full_stream(input.curr(), input.remaining_buffer());
   parse_identifier_impl(lookahead); skip_whitespace_and_comment(lookahead);
   if (lookahead.full() || !is_first_identifier(lookahead)) { return false; }
+  const auto type_start = make_constant_full_stream(lookahead.curr(), lookahead.remaining_buffer());
   const auto candidate = parse_identifier_impl(lookahead); skip_whitespace_and_comment(lookahead);
   if (lookahead.full()) { return false; }
   if (is_first_identifier(lookahead) || *lookahead == ':' || *lookahead == '<' || *lookahead == '[') { return true; }
+  if (candidate == "digest" && *lookahead == '(') {
+    const auto algorithm = make_constant_full_stream(lookahead.curr(), lookahead.remaining_buffer());
+    ++algorithm;
+    skip_whitespace_and_comment(algorithm);
+    // Numeric/quoted field metadata on a user type named function/transient retains its grammar.
+    if (algorithm.full() || !is_first_identifier(algorithm)) { return false; }
+    static_cast<void>(parse_type_expression(type_start, nullptr));
+    skip_whitespace_and_comment(type_start);
+    return !type_start.full() && is_first_identifier(type_start);
+  }
+  if (keyword == "transient" && candidate == "layout" && *lookahead == '(') {
+    ++lookahead;
+    skip_whitespace_and_comment(lookahead);
+    if (lookahead.full() || !is_first_identifier(lookahead)) { return false; }
+    parse_identifier_impl(lookahead);
+    skip_whitespace_and_comment(lookahead);
+    if (lookahead.full() || *lookahead != ')') { return false; }
+    ++lookahead;
+    skip_whitespace_and_comment(lookahead);
+    // Numeric/quoted field metadata on a user type named transient keeps its original grammar.
+    return !lookahead.full() && is_first_identifier(lookahead);
+  }
   if (keyword == "transient" && (candidate == "variant" || candidate == "union") && *lookahead == '(') {
     ++lookahead; skip_whitespace_and_comment(lookahead);
     return !lookahead.full() && is_first_identifier(lookahead);
@@ -1313,6 +1337,7 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   auto access = parse_access_type_impl(in_stream);
   skip_whitespace_and_comment(in_stream);
   bool transient{};
+  bool empty_layout{};
   if (behavior_modifier_head(in_stream, "transient")) {
     if (active_language_version < language_version{1u, 6u, 0u}) {
       throw exception::bad_member_spec{in_stream, "Transient fields require serializer version 1.6.0"};
@@ -1320,6 +1345,27 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
     parse_identifier_impl(in_stream);
     skip_whitespace_and_comment(in_stream);
     transient = true;
+    if (next_keyword(in_stream, "layout")) {
+      const auto hint = make_constant_full_stream(in_stream.curr(), in_stream.remaining_buffer());
+      parse_identifier_impl(hint);
+      skip_whitespace_and_comment(hint);
+      if (!hint.full() && *hint == '(') {
+        if (active_language_version < language_version{1u, 8u, 0u}) {
+          throw exception::bad_member_spec{in_stream, "Transient layout hints require serializer version 1.8.0"};
+        }
+        parse_identifier_impl(in_stream);
+        skip_whitespace_and_comment(in_stream);
+        check_and_increase(in_stream, '(');
+        skip_whitespace_and_comment(in_stream);
+        if (parse_identifier_impl(in_stream) != "empty") {
+          throw exception::bad_member_spec{in_stream, "Only layout(empty) is supported"};
+        }
+        skip_whitespace_and_comment(in_stream);
+        check_and_increase(in_stream, ')');
+        skip_whitespace_and_comment(in_stream);
+        empty_layout = true;
+      }
+    }
   }
   compact_encoding compact{compact_encoding::none};
   bool compact_strict{true};
@@ -1498,6 +1544,7 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   bool explicit_id{false};
   bool parsed_default_value{false};
   std::string default_value{};
+  std::string default_factory{};
   std::vector<std::string> array_values{};
   std::string compatibility{};
   std::vector<version_release> releases{};
@@ -1523,6 +1570,21 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
       } else {
         default_value = get_default_value(in_stream);
       }
+    } else if (next_keyword(in_stream, "default")) {
+      if (active_language_version < language_version{1u, 8u, 0u}) {
+        throw exception::bad_member_spec{in_stream, "Structured defaults require serializer version 1.8.0"};
+      }
+      if (parsed_default_value) {
+        throw exception::bad_member_spec{in_stream, "Only one default value is allowed"};
+      }
+      parsed_default_value = true;
+      parse_identifier_impl(in_stream);
+      skip_whitespace_and_comment(in_stream);
+      check_and_increase(in_stream, '(');
+      skip_whitespace_and_comment(in_stream);
+      default_factory = parse_identifier_impl(in_stream);
+      skip_whitespace_and_comment(in_stream);
+      check_and_increase(in_stream, ')');
     } else if (next_keyword(in_stream, "compatibility")) {
       if (!version || !compatibility.empty()) {
         throw exception::bad_member_spec{in_stream,
@@ -1593,6 +1655,8 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
     }
   }
   result.transient = transient;
+  result.empty_layout = empty_layout;
+  result.default_factory = std::move(default_factory);
   result.inferred_extent = infer_extent;
   result.owning_variant = owning_variant;
   result.compact = compact;
@@ -1700,6 +1764,7 @@ object_type parse_object_type(const rohit::type_check::schema_input_buffer auto&
 } // parse_object_type
 
 #include "behavior_parser.hpp"
+#include "construction_parser.hpp"
 
 // Parse class body from the schema input; malformed input throws.
 void parse_class_body_impl(const rohit::type_check::schema_input_buffer auto& in_stream,
@@ -1721,6 +1786,13 @@ void parse_class_body_impl(const rohit::type_check::schema_input_buffer auto& in
     const auto access = next_keyword(lookahead, "public") || next_keyword(lookahead, "private") ||
         next_keyword(lookahead, "protected") ? parse_access_type_impl(lookahead) : access_type::error;
     skip_whitespace_and_comment(lookahead);
+    if (construction_head(lookahead)) {
+      parse_access_type_impl(in_stream);
+      skip_whitespace_and_comment(in_stream);
+      obj->constructions.push_back(parse_construction(in_stream, access, obj->parent_namespace));
+      skip_whitespace_and_comment(in_stream);
+      continue;
+    }
     if (behavior_modifier_head(lookahead, "function")) {
       parse_access_type_impl(in_stream);
       skip_whitespace_and_comment(in_stream);
@@ -1773,6 +1845,7 @@ void parse_class_body_impl(const rohit::type_check::schema_input_buffer auto& in
   }
 }
 
+// Parse a generated base occurrence, retaining type arguments and its wire identity.
 parent parse_parent(const rohit::type_check::schema_input_buffer auto& in_stream,
                     namespace_node* current_namespace, const std::uint32_t id) {
   auto access = parse_access_type_impl(in_stream);
@@ -1786,7 +1859,12 @@ parent parse_parent(const rohit::type_check::schema_input_buffer auto& in_stream
     skip_whitespace_and_comment(in_stream);
     managed = true;
   }
-  auto full_name = parse_hierarchical_identifier_impl(in_stream);
+  auto base_type = parse_type_expression(in_stream, current_namespace);
+  if (base_type.application && active_language_version < language_version{1u, 8u, 0u}) {
+    throw exception::bad_class{in_stream,
+        "Generic bases require serializer version 1.8.0 or newer"};
+  }
+  auto full_name = base_type.name;
   std::string display_name = full_name;
   std::uint32_t new_id = id;
   bool explicit_id{false};
@@ -1796,7 +1874,8 @@ parent parse_parent(const rohit::type_check::schema_input_buffer auto& in_stream
     skip_whitespace_and_comment(in_stream);
   }
   validate_field_key(in_stream, new_id, display_name);
-  return {access, full_name, display_name, new_id, current_namespace, nullptr, explicit_id, managed};
+  return {access, full_name, display_name, new_id, current_namespace, nullptr, explicit_id, managed,
+          {std::move(base_type)}};
 }
 
 // Parse parent list from the schema input; malformed input throws.
@@ -1906,6 +1985,11 @@ parse_class_header(const rohit::type_check::schema_input_buffer auto& in_stream,
     skip_whitespace_and_comment(in_stream);
     auto parsed_parents = parse_parent_list(in_stream, current_namespace, id);
     std::swap(parents, parsed_parents);
+  }
+  if (!parameters.empty() && !parents.empty() &&
+      active_language_version < language_version{1u, 8u, 0u}) {
+    throw exception::bad_class{in_stream,
+        "Generic inheritance requires serializer version 1.8.0 or newer"};
   }
 
   auto result = std::make_unique<class_node>(object_type::class_type, std::move(name), current_namespace,
@@ -2633,6 +2717,117 @@ void register_declaration(const rohit::type_check::schema_input_buffer auto& inp
 }
 
 // Resolve member types against the discovered namespace and type declarations.
+// Bind structured defaults to a public zero-argument factory on an owning record.
+void validate_factory_default(const rohit::type_check::schema_input_buffer auto& input,
+                              const member& field, const class_node& owner) {
+  if (field.default_factory.empty()) { return; }
+  if (field.modifier != member::modifier_type::none || field.type_name_list.size() != 1 ||
+      field.version || field.magic || !field.type_name_list.front().resolved_node ||
+      field.type_name_list.front().resolved_node->type != object_type::class_type) {
+    throw exception::bad_member_spec{input, "default(factory) requires an owning generated record field"};
+  }
+  const auto& type = static_cast<const class_node&>(*field.type_name_list.front().resolved_node);
+  if (&type == &owner) {
+    throw exception::bad_member_spec{input, "Structured defaults cannot embed their owning record recursively"};
+  }
+  if (std::none_of(type.constructions.begin(), type.constructions.end(), [&](const auto& factory) {
+      return !factory.constructor && factory.name == field.default_factory &&
+          factory.parameters.empty() && factory.access == access_type::public_access;
+    })) {
+    throw exception::bad_member_spec{input, "Structured default requires a public zero-argument factory: " + field.default_factory};
+  }
+}
+
+// Check that an overlap hint cannot hide state, identity, or an active runtime reference.
+void validate_empty_layout(const rohit::type_check::schema_input_buffer auto& input,
+                           const member& field) {
+  if (!field.empty_layout) { return; }
+  if (!field.transient || field.modifier != member::modifier_type::none ||
+      field.type_name_list.size() != 1 || !field.type_name_list.front().resolved_node ||
+      field.type_name_list.front().resolved_node->type != object_type::class_type) {
+    throw exception::bad_member_spec{input, "layout(empty) requires a transient generated empty record"};
+  }
+  const auto& type = static_cast<const class_node&>(*field.type_name_list.front().resolved_node);
+  if (!type.member_list.empty() || !type.parents.empty() || type.supports_managed() ||
+      !type.native_blocks.empty() || std::any_of(type.functions.begin(), type.functions.end(), [](const auto& method) {
+        return method.dispatch != function_declaration::dispatch_type::ordinary;
+      })) {
+    throw exception::bad_member_spec{input, "layout(empty) cannot overlap stateful or polymorphic records"};
+  }
+}
+
+// Resolve owned initialization types and reject native expressions or ambiguous construction APIs.
+void validate_constructions(const rohit::type_check::schema_input_buffer auto& input,
+                            class_node& owner, std::unordered_map<std::string, syntax_node*>& symbols) {
+  if (!owner.constructions.empty() &&
+      (owner.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
+       (owner.attributes & class_attributes::packed) != class_attributes::none)) {
+    throw exception::bad_member_spec{input, "Portable construction requires an unpacked owning record"};
+  }
+  std::unordered_set<std::string> names;
+  bool constructor{};
+  for (auto& factory : owner.constructions) {
+    if (factory.constructor && factory.parameters.empty()) {
+      throw exception::bad_member_spec{input, "Portable constructors require parameters; use a zero-argument factory for structured defaults"};
+    }
+    if (factory.constructor ? std::exchange(constructor, true) : !names.insert(factory.name).second) {
+      throw exception::bad_member_spec{input, "Only one portable constructor and unique factory names are supported"};
+    }
+    const auto api_name = factory.constructor ? std::string{"create"} : factory.name;
+    if ((!factory.constructor && (api_name == "create" || api_name == owner.name || api_name.starts_with("srl_"))) ||
+        std::any_of(owner.member_list.begin(), owner.member_list.end(), [&](const auto& field) { return field.name == api_name; }) ||
+        std::any_of(owner.functions.begin(), owner.functions.end(), [&](const auto& method) { return method.name == api_name; })) {
+      throw exception::bad_member_spec{input, "Construction name collides with generated or declared API"};
+    }
+    for (auto& parameter : factory.parameters) {
+      resolve_type(input, parameter.type, symbols);
+      // Every wrapped record parameter must provide storage independent of borrowed wire bytes.
+      const auto validate_owned_type = [&](auto&& inspect, const type_name& type) -> void {
+        validate_nested_modes(input, owner, type.resolved_node);
+        for (const auto& argument : type.arguments) { inspect(inspect, argument); }
+      };
+      validate_owned_type(validate_owned_type, parameter.type);
+      if (factory.constructor && parameter.type.resolved_node == &owner) {
+        throw exception::bad_member_spec{input, "Portable constructors cannot take their owning record by value"};
+      }
+    }
+    std::unordered_set<std::string> assigned_parameters;
+    for (auto& assignment : factory.assignments) {
+      const auto found = std::find_if(owner.member_list.begin(), owner.member_list.end(),
+          [&](const auto& field) { return field.name == assignment.field; });
+      if (found == owner.member_list.end() || found->modifier != member::modifier_type::none ||
+          found->managed || found->version) {
+        throw exception::bad_member_spec{input, "Construction requires an ordinary owned field declared by its owner: " + assignment.field};
+      }
+      if (assignment.parameter) {
+        if (!assigned_parameters.insert(assignment.value).second) {
+          throw exception::bad_member_spec{input, "An owned construction parameter may initialize only one field"};
+        }
+        const auto parameter = std::find_if(factory.parameters.begin(), factory.parameters.end(),
+            [&](const auto& item) { return item.name == assignment.value; });
+        if (parameter == factory.parameters.end() || parameter->type.get_full_name() != found->type_name_list.front().get_full_name()) {
+          throw exception::bad_member_spec{input, "Construction assignment requires exactly matching owned types"};
+        }
+      } else {
+        auto value = *found;
+        value.default_value = assignment.factory_default ? std::string{} : assignment.value;
+        value.default_factory = assignment.factory_default ? assignment.value : std::string{};
+        if (assignment.factory_default) { validate_factory_default(input, value, owner); }
+        else {
+          if (value.type_name_list.front().name == "float" || value.type_name_list.front().name == "double") {
+            validate_magic_constant(input, value);
+          }
+          // Keep the schema spelling: backend validation still needs quoted chars and enum qualifiers.
+          if (writer::native::literal(value).empty()) {
+            throw exception::bad_member_spec{input, "Construction requires a nonempty typed scalar literal"};
+          }
+        }
+      }
+    }
+  }
+}
+
+// Resolve member types against the discovered namespace and type declarations.
 void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream,
                     std::vector<std::unique_ptr<rohit::serializer::syntax_node>>& statements,
                     std::unordered_map<std::string, syntax_node*>& variable_type_map) {
@@ -2649,7 +2844,8 @@ void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream
         register_declaration(in_stream, *statement, variable_type_map);
         auto class_ptr = dynamic_cast<class_node*>(statement.get());
         for (auto& base : class_ptr->parents) {
-          auto* node = find_declared_type(base.name, base.current_namespace, variable_type_map);
+          auto* node = base.parent_class ? static_cast<syntax_node*>(base.parent_class) :
+              find_declared_type(base.name, base.current_namespace, variable_type_map);
           if (!node || node == class_ptr || node->type != object_type::class_type) {
             throw exception::bad_class{in_stream, "Parent must name a previously declared class"};
           }
@@ -2683,6 +2879,8 @@ void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream
           validate_compact_member(in_stream, member, false);
           validate_digest_member(in_stream, *class_ptr, member);
           validate_optional_member(in_stream, *class_ptr, member);
+          validate_factory_default(in_stream, member, *class_ptr);
+          validate_empty_layout(in_stream, member);
           if (member.modifier == member::modifier_type::map) {
             type_name key{std::string{member.key}, member.type_name_list.front().declared_namespace};
             resolve_type(in_stream, key, variable_type_map);
@@ -2694,6 +2892,7 @@ void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream
           }
         }
         std::unordered_set<std::string> signatures;
+        validate_constructions(in_stream, *class_ptr, variable_type_map);
         for (auto& method : class_ptr->functions) {
           if (method.return_type.name != "void") {
             resolve_type(in_stream, method.return_type, variable_type_map);
@@ -2709,9 +2908,9 @@ void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream
                   [&](const auto& field) { return field.name == method.name; })) {
             throw exception::bad_member_spec{in_stream, "Duplicate function signature or field collision"};
           }
-          if (method.expression && (method.return_type.name != "double" ||
-              validate_behavior_expression(*method.expression, *class_ptr, method) != "double")) {
-            throw exception::bad_member_spec{in_stream, "Portable expressions require a double result"};
+          if (method.expression && ((method.return_type.name != "double" && method.return_type.name != "bool") ||
+              validate_behavior_expression(*method.expression, *class_ptr, method, variable_type_map) != method.return_type.name)) {
+            throw exception::bad_member_spec{in_stream, "Portable expression result must match its declared double/bool return type"};
           }
         }
         validate_view_names(in_stream, *class_ptr);

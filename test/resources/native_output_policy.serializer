@@ -1,0 +1,16 @@
+serializer version 1.7.0;
+
+namespace native_output_policy {
+  enum state { idle, active }
+  class record stable_ids {
+    public float first (1);
+    public double second (64);
+    public uint32 count (16384);
+    public array double values (3);
+    public array[3] float fixed_values (4);
+    public optional<array<optional<double>>> nested (5);
+    public map(string) optional<double> labels (6);
+    public optional<state> status (7);
+    public string text (8);
+  }
+}

@@ -196,6 +196,20 @@ template <typename Input> struct behavior_expression_parser {
   const Input& input;
   std::size_t nodes{};
   std::size_t depth{};
+  // New operators retain their declaring file's language contract, including includes.
+  void require_checked_language() {
+    if (active_language_version < language_version{1u, 8u, 0u}) {
+      throw exception::bad_member_spec{input, "Checked guards and math require serializer version 1.8.0"};
+    }
+  }
+  // Consume an exact operator without advancing on a mismatch.
+  bool consume(std::string_view token) {
+    skip_whitespace_and_comment(input);
+    const std::string_view remaining{reinterpret_cast<const char*>(input.curr()), input.remaining_buffer()};
+    if (!remaining.starts_with(token)) { return false; }
+    input += token.size();
+    return true;
+  }
   // Allocate one checked expression node with an original source location.
   behavior_expression make(behavior_expression::operation kind, std::string value = {}) {
     constexpr std::size_t maximum_expression_nodes = 1024;
@@ -212,13 +226,14 @@ template <typename Input> struct behavior_expression_parser {
     behavior_expression result;
     if (*input == '(') {
       ++input;
-      result = sum();
+      result = conditional();
       skip_whitespace_and_comment(input);
       check_and_increase(input, ')');
-    } else if (*input == '+' || *input == '-') {
+    } else if (*input == '+' || *input == '-' || *input == '!') {
       const auto sign = *input;
       ++input;
-      result = make(sign == '+' ? operation::positive : operation::negative);
+      if (sign == '!') { require_checked_language(); }
+      result = make(sign == '+' ? operation::positive : sign == '-' ? operation::negative : operation::logical_not);
       result.operands.push_back(primary());
     } else if (is_number(*input)) {
       const auto* begin = input.curr();
@@ -237,19 +252,70 @@ template <typename Input> struct behavior_expression_parser {
       skip_whitespace_and_comment(input);
       if (name == "math" && *input == '.') {
         ++input;
-        if (parse_identifier_impl(input) != "pi") {
-          throw exception::bad_member_spec{input, "Only math.pi is a portable constant"};
+        const auto member = parse_identifier_impl(input);
+        if (member == "pi") { result = make(operation::pi); }
+        else if (member == "sqrt" || member == "sin" || member == "cos" || member == "is_finite") {
+          require_checked_language();
+          skip_whitespace_and_comment(input);
+          check_and_increase(input, '(');
+          result = make(member == "sqrt" ? operation::square_root : member == "sin" ? operation::sine :
+                        member == "cos" ? operation::cosine : operation::is_finite);
+          result.operands.push_back(conditional());
+          skip_whitespace_and_comment(input);
+          check_and_increase(input, ')');
+        } else { throw exception::bad_member_spec{input, "Unknown portable math constant or function"}; }
+      } else if ((name == "all" || name == "any") && *input == '(') {
+        require_checked_language(); ++input;
+        result = make(name == "all" ? operation::all : operation::any);
+        result.operands.push_back(conditional());
+        skip_whitespace_and_comment(input); check_and_increase(input, ',');
+        skip_whitespace_and_comment(input);
+        const auto* begin = input.curr();
+        while (!input.full() && is_number(*input)) { ++input; }
+        const auto* end = input.curr();
+        const auto bound = std::from_chars(reinterpret_cast<const char*>(begin),
+                                           reinterpret_cast<const char*>(end), result.reduction_bound);
+        constexpr auto maximum_reduction_bound = behavior_expression::maximum_reduction_visits;
+        if (begin == end || bound.ec != std::errc{} || result.reduction_bound == 0 ||
+            result.reduction_bound > maximum_reduction_bound) {
+          throw exception::bad_member_spec{input, "Reduction bound must be a literal from 1 to 1000000"};
         }
-        result = make(operation::pi);
-      } else if (name == "to_double" && *input == '(') {
+        skip_whitespace_and_comment(input); check_and_increase(input, ',');
+        skip_whitespace_and_comment(input); result.value = parse_identifier_impl(input);
+        if (!consume("=>")) { throw exception::bad_member_spec{input, "Reduction requires item => boolean expression"}; }
+        result.operands.push_back(conditional());
+        skip_whitespace_and_comment(input); check_and_increase(input, ')');
+      } else if ((name == "size" || name == "to_double") && *input == '(') {
         ++input;
-        result = make(operation::to_double);
-        result.operands.push_back(primary());
+        if (name == "size") { require_checked_language(); }
+        result = make(name == "size" ? operation::collection_size : operation::to_double);
+        result.operands.push_back(conditional());
         skip_whitespace_and_comment(input);
         check_and_increase(input, ')');
+      } else if ((name == "true" || name == "false") && active_language_version >= language_version{1u, 8u, 0u}) {
+        result = make(operation::boolean, std::move(name));
+      } else if (consume("::")) {
+        require_checked_language();
+        std::string qualified{name};
+        qualified += "::" + parse_identifier_impl(input);
+        while (consume("::")) { qualified += "::" + parse_identifier_impl(input); }
+        result = make(operation::enum_constant, std::move(qualified));
       } else {
         result = make(operation::symbol, std::move(name));
       }
+    }
+    // Projections are typed after generic resolution and remain side-effect free.
+    for (;;) {
+      if (consume(".")) {
+        require_checked_language();
+        auto next = make(operation::member_access, parse_identifier_impl(input));
+        next.operands.push_back(std::move(result)); result = std::move(next);
+      } else if (consume("[")) {
+        require_checked_language();
+        auto next = make(operation::index_access);
+        next.operands.push_back(std::move(result)); next.operands.push_back(conditional());
+        skip_whitespace_and_comment(input); check_and_increase(input, ']'); result = std::move(next);
+      } else { break; }
     }
     --depth;
     return result;
@@ -258,9 +324,11 @@ template <typename Input> struct behavior_expression_parser {
   behavior_expression product() {
     auto result = primary();
     skip_whitespace_and_comment(input);
-    while (!input.full() && *input == '*') {
+    while (!input.full() && (*input == '*' || *input == '/')) {
+      const auto token = *input;
+      if (token == '/') { require_checked_language(); }
       ++input;
-      auto next = make(behavior_expression::operation::multiply);
+      auto next = make(token == '*' ? behavior_expression::operation::multiply : behavior_expression::operation::divide);
       next.operands.push_back(std::move(result));
       next.operands.push_back(primary());
       result = std::move(next);
@@ -282,6 +350,66 @@ template <typename Input> struct behavior_expression_parser {
       skip_whitespace_and_comment(input);
     }
     return result;
+  }
+  // Comparison/equality precede boolean conjunction and disjunction; operands are type checked later.
+  behavior_expression comparison() {
+    auto result = sum();
+    for (;;) {
+      using operation = behavior_expression::operation;
+      std::optional<operation> kind;
+      if (consume("<=")) { kind = operation::less_equal; }
+      else if (consume(">=")) { kind = operation::greater_equal; }
+      else if (consume("<")) { kind = operation::less; }
+      else if (consume(">")) { kind = operation::greater; }
+      if (!kind) { return result; }
+      require_checked_language();
+      auto next = make(*kind); next.operands.push_back(std::move(result)); next.operands.push_back(sum());
+      result = std::move(next);
+    }
+  }
+  // Equality supports matching double or boolean operands only.
+  behavior_expression equality() {
+    auto result = comparison();
+    for (;;) {
+      using operation = behavior_expression::operation;
+      std::optional<operation> kind;
+      if (consume("==")) { kind = operation::equal; }
+      else if (consume("!=")) { kind = operation::not_equal; }
+      if (!kind) { return result; }
+      require_checked_language();
+      auto next = make(*kind); next.operands.push_back(std::move(result)); next.operands.push_back(comparison());
+      result = std::move(next);
+    }
+  }
+  // Logical operators evaluate their right operands only when needed.
+  behavior_expression conjunction() {
+    auto result = equality();
+    while (consume("&&")) {
+      require_checked_language(); auto next = make(behavior_expression::operation::logical_and);
+      next.operands.push_back(std::move(result)); next.operands.push_back(equality()); result = std::move(next);
+    }
+    return result;
+  }
+  // Disjunction is weaker than conjunction, matching every generated target's native precedence.
+  behavior_expression disjunction() {
+    auto result = conjunction();
+    while (consume("||")) {
+      require_checked_language(); auto next = make(behavior_expression::operation::logical_or);
+      next.operands.push_back(std::move(result)); next.operands.push_back(conjunction()); result = std::move(next);
+    }
+    return result;
+  }
+  // A guarded branch preserves short circuit evaluation and bounds recursively nested guards.
+  behavior_expression conditional() {
+    auto result = disjunction();
+    if (!consume("?")) { return result; }
+    require_checked_language();
+    if (++depth > 64) { throw exception::bad_member_spec{input, "Expression nesting exceeds 64"}; }
+    auto next = make(behavior_expression::operation::conditional);
+    next.operands.push_back(std::move(result)); next.operands.push_back(conditional());
+    skip_whitespace_and_comment(input); check_and_increase(input, ':');
+    next.operands.push_back(conditional()); --depth;
+    return next;
   }
 };
 
@@ -336,12 +464,21 @@ function_declaration parse_function(const rohit::type_check::schema_input_buffer
   result.effect = effect == "edit" ? function_declaration::effect_type::edit :
                                    function_declaration::effect_type::readonly;
   skip_whitespace_and_comment(input);
-  if (next_keyword(input, "expression")) {
+  if (next_keyword(input, "expression") || next_keyword(input, "predicate")) {
+    result.predicate_body = next_keyword(input, "predicate");
+    if (result.predicate_body) {
+      if (active_language_version < language_version{1u, 8u, 0u} || result.return_type.name != "bool") {
+        throw exception::bad_member_spec{input, "Portable predicate requires bool and serializer version 1.8.0"};
+      }
+    }
     parse_identifier_impl(input);
     skip_whitespace_and_comment(input);
     check_and_increase(input, '(');
     const auto expression_begin = behavior_source_offset(input);
-    result.expression = behavior_expression_parser{input}.sum();
+    result.expression = behavior_expression_parser{input}.conditional();
+    if (result.return_type.name == "bool" && active_language_version < language_version{1u, 8u, 0u}) {
+      throw exception::bad_member_spec{input, "Boolean portable results require serializer version 1.8.0"};
+    }
     locate_behavior(*result.expression, expression_begin, behavior_source_offset(input));
     skip_whitespace_and_comment(input);
     check_and_increase(input, ')');
@@ -368,36 +505,206 @@ function_declaration parse_function(const rohit::type_check::schema_input_buffer
   return result;
 }
 
-// Type every pure node; integer values require an explicit exact int32/uint32 conversion.
+// Bind scalar identities, lexical reduction items and readonly projections without numeric narrowing.
 std::string validate_behavior_expression(behavior_expression& value, const class_node& owner,
-                                        const function_declaration& method) {
+    const function_declaration& method,
+    const std::unordered_map<std::string, syntax_node*>& symbols = {},
+    const std::map<std::string, behavior_expression>& locals = {}) {
   using operation = behavior_expression::operation;
-  if (value.kind == operation::literal || value.kind == operation::pi) { return "double"; }
+  const auto typed = [&](std::string type) { value.result_type = type; return type; };
+  const auto bind = [&](const type_name& type, member::modifier_type modifier = member::modifier_type::none,
+                        std::uint64_t extent = 0) {
+    value.resolved_type = type; value.collection_modifier = modifier; value.fixed_extent = extent;
+    return typed(modifier == member::modifier_type::array || type.is_sequence() ? "collection" :
+                 type.type == object_type::enum_type ? "enum:" + type.get_full_name() :
+                 type.type == object_type::class_type ? "record:" + type.get_full_name() : type.name);
+  };
+  const auto integer = [](std::string_view type) {
+    return type == "char" || type == "int8" || type == "uint8" || type == "int16" ||
+        type == "uint16" || type == "int32" || type == "uint32" || type == "int64" || type == "uint64";
+  };
+  const auto scalar = [&](const std::string& type) {
+    return integer(type) || type == "bool" || type == "float" || type == "double" || type.starts_with("enum:");
+  };
+  const auto literal = [&](behavior_expression& node, const std::string& target) {
+    if (target == "float" && node.kind == operation::literal) {
+      float number{}; const auto parsed = std::from_chars(node.value.data(), node.value.data() + node.value.size(), number);
+      if (parsed.ec != std::errc{} || !std::isfinite(number)) { throw std::invalid_argument{"Expression literal is outside float"}; }
+      node.result_type = "float"; node.resolved_type = type_name{std::string{"float"}, owner.parent_namespace};
+      node.resolved_type->type = object_type::primitive; return true;
+    }
+    if (!integer(target)) { return false; }
+    std::string text;
+    if (node.kind == operation::literal && node.value.find_first_of(".eE") == std::string::npos) { text = node.value; }
+    else if ((node.kind == operation::negative || node.kind == operation::positive) &&
+             node.operands.size() == 1 && node.operands.front().kind == operation::literal &&
+             node.operands.front().value.find_first_of(".eE") == std::string::npos) {
+      text = (node.kind == operation::negative ? "-" : "") + node.operands.front().value;
+    } else { return false; }
+    const bool signed_value = target.starts_with("int");
+    const unsigned width = target == "char" || target.ends_with("8") ? 8 : target.ends_with("16") ? 16 : target.ends_with("32") ? 32 : 64;
+    bool valid{};
+    if (signed_value) {
+      std::int64_t number{}; const auto parsed = std::from_chars(text.data(), text.data() + text.size(), number);
+      valid = parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size() &&
+          (width == 64 || (number >= -(std::int64_t{1} << (width - 1)) && number < (std::int64_t{1} << (width - 1))));
+    } else {
+      std::uint64_t number{}; const auto parsed = std::from_chars(text.data(), text.data() + text.size(), number);
+      valid = parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size() &&
+          (width == 64 || number < (std::uint64_t{1} << width));
+    }
+    if (!valid) { throw std::invalid_argument{"Integral expression literal is outside " + target}; }
+    node.kind = operation::integer_literal; node.value = std::move(text); node.operands.clear();
+    node.result_type = target; node.resolved_type = type_name{std::string{target}, owner.parent_namespace};
+    node.resolved_type->type = object_type::primitive;
+    return true;
+  };
+  const auto validate = [&](behavior_expression& node, const auto& scope) {
+    return validate_behavior_expression(node, owner, method, symbols, scope);
+  };
+  if (value.kind == operation::literal || value.kind == operation::pi) {
+    return typed(value.result_type == "float" ? "float" : "double");
+  }
+  if (value.kind == operation::integer_literal) { return value.result_type; }
+  if (value.kind == operation::boolean) { return typed("bool"); }
   if (value.kind == operation::symbol) {
+    if (value.local_symbol) { return value.result_type; }
+    if (const auto local = locals.find(value.value); local != locals.end()) {
+      value = local->second; return value.result_type;
+    }
     const auto parameter = std::find_if(method.parameters.begin(), method.parameters.end(),
         [&](const auto& item) { return item.name == value.value; });
-    if (parameter != method.parameters.end()) { return parameter->type.name; }
+    if (parameter != method.parameters.end()) { return bind(parameter->type); }
     const auto field = std::find_if(owner.member_list.begin(), owner.member_list.end(),
         [&](const auto& item) { return item.name == value.value; });
-    if (field == owner.member_list.end() || field->modifier != member::modifier_type::none) {
-      throw std::invalid_argument{"Unknown scalar expression symbol: " + value.value};
+    if (field == owner.member_list.end() || (field->modifier != member::modifier_type::none && field->modifier != member::modifier_type::array)) {
+      throw std::invalid_argument{"Unknown or unsupported expression symbol: " + value.value};
     }
-    return field->type_name_list.front().name;
+    return bind(field->type_name_list.front(), field->modifier, field->fixed_extent);
+  }
+  if (value.kind == operation::enum_constant) {
+    if (value.resolved_type) { return bind(*value.resolved_type); }
+    const auto split = value.value.rfind("::");
+    const auto type_spelling = value.value.substr(0, split), enumerator = value.value.substr(split + 2);
+    const auto* declaration = find_declared_type(type_spelling, owner.parent_namespace, symbols);
+    if (!declaration || declaration->type != object_type::enum_type) { throw std::invalid_argument{"Unknown expression enum: " + type_spelling}; }
+    const auto& enumeration = static_cast<const enum_node&>(*declaration);
+    if (std::find(enumeration.enum_name_list.begin(), enumeration.enum_name_list.end(), enumerator) == enumeration.enum_name_list.end()) {
+      throw std::invalid_argument{"Unknown expression enumerator: " + value.value};
+    }
+    type_name type{std::string{type_spelling}, owner.parent_namespace}; type.type = object_type::enum_type; type.resolved_node = declaration;
+    type.defined_namespace = declaration->parent_namespace; value.value = enumerator; return bind(type);
+  }
+  if (value.kind == operation::member_access) {
+    validate(value.operands.at(0), locals);
+    const auto& base = value.operands.front();
+    if (base.result_type.starts_with("record:") && base.resolved_type && base.resolved_type->resolved_node) {
+      const auto& record = static_cast<const class_node&>(*base.resolved_type->resolved_node);
+      const member* selected{};
+      const auto find = [&](const auto& self, const class_node& current, std::vector<std::size_t> path) -> void {
+        for (const auto& field : current.member_list) {
+          if (field.name == value.value && field.access == access_type::public_access) {
+            if (selected) { throw std::invalid_argument{"Ambiguous inherited expression member: " + value.value}; }
+            selected = &field; value.member_base_path = path;
+          }
+        }
+        for (std::size_t index{}; index < current.parents.size(); ++index) {
+          const auto& parent = current.parents[index];
+          if (parent.access != access_type::public_access || !parent.parent_class) { continue; }
+          auto nested = path; nested.push_back(index); self(self, *parent.parent_class, std::move(nested));
+        }
+      };
+      find(find, record, {});
+      if (selected && (selected->modifier == member::modifier_type::none || selected->modifier == member::modifier_type::array)) {
+        return bind(selected->type_name_list.front(), selected->modifier, selected->fixed_extent);
+      }
+    }
+    throw std::invalid_argument{"Member projection requires an accessible generated record field: " + value.value};
+  }
+  if (value.kind == operation::index_access || value.kind == operation::collection_size || value.kind == operation::all || value.kind == operation::any) {
+    validate(value.operands.at(0), locals);
+    const auto& container = value.operands.front();
+    if (container.result_type != "collection" || !container.resolved_type) { throw std::invalid_argument{"Portable collection operation requires a sequence or fixed array"}; }
+    const auto element = container.resolved_type->is_sequence() ? container.resolved_type->arguments.front() : *container.resolved_type;
+    if (value.kind == operation::collection_size) {
+      type_name size_type{std::string{"uint64"}, owner.parent_namespace}; size_type.type = object_type::primitive; return bind(size_type);
+    }
+    if (value.kind == operation::index_access) {
+      auto index_type = validate(value.operands.at(1), locals);
+      if (literal(value.operands.at(1), "uint64")) { index_type = "uint64"; }
+      if (!integer(index_type)) { throw std::invalid_argument{"Collection indices require exact integral values"}; }
+      return bind(element);
+    }
+    if (locals.contains(value.value) ||
+        std::any_of(method.parameters.begin(), method.parameters.end(), [&](const auto& parameter) { return parameter.name == value.value; }) ||
+        std::any_of(owner.member_list.begin(), owner.member_list.end(), [&](const auto& field) { return field.name == value.value; })) {
+      throw std::invalid_argument{"Reduction binder cannot shadow an existing expression symbol: " + value.value};
+    }
+    const auto binder = value.value;
+    behavior_expression local; local.kind = operation::symbol; local.local_symbol = true;
+    local.value = "_srl_expression_item_" + std::to_string(value.source_offset);
+    while (locals.contains(local.value) ||
+        std::any_of(locals.begin(), locals.end(), [&](const auto& binding) { return binding.second.value == local.value; }) ||
+        std::any_of(method.parameters.begin(), method.parameters.end(), [&](const auto& parameter) { return parameter.name == local.value; }) ||
+        std::any_of(owner.member_list.begin(), owner.member_list.end(), [&](const auto& field) { return field.name == local.value; })) {
+      local.value += '_';
+    }
+    local.resolved_type = element;
+    local.result_type = element.type == object_type::enum_type ? "enum:" + element.get_full_name() :
+        element.type == object_type::class_type ? "record:" + element.get_full_name() : element.is_sequence() ? "collection" : element.name;
+    auto nested = locals; nested.emplace(binder, local);
+    if (validate(value.operands.at(1), nested) != "bool") { throw std::invalid_argument{"Collection reductions require a boolean body"}; }
+    value.value = local.value; return typed("bool");
   }
   if (value.kind == operation::to_double) {
-    const auto type = validate_behavior_expression(value.operands.at(0), owner, method);
+    const auto type = validate(value.operands.at(0), locals);
     if (type != "int32" && type != "uint32") {
       throw std::invalid_argument{"to_double currently requires int32 or uint32"};
     }
     value.value = type;
-    return "double";
+    return typed("double");
   }
-  for (auto& operand : value.operands) {
-    if (validate_behavior_expression(operand, owner, method) != "double") {
-      throw std::invalid_argument{"Portable arithmetic requires explicit binary64 values"};
+  std::vector<std::string> types;
+  for (auto& operand : value.operands) { types.push_back(validate(operand, locals)); }
+  if (value.kind == operation::is_finite) {
+    if (types.at(0) != "float" && types.at(0) != "double") { throw std::invalid_argument{"math.is_finite requires float or double"}; }
+    return typed("bool");
+  }
+  if (types.size() == 2) {
+    if (literal(value.operands[1], types[0])) { types[1] = types[0]; }
+    if (literal(value.operands[0], types[1])) { types[0] = types[1]; }
+  }
+  if (value.kind == operation::conditional) {
+    if (literal(value.operands[2], types[1])) { types[2] = types[1]; }
+    if (literal(value.operands[1], types[2])) { types[1] = types[2]; }
+    if (types.at(0) != "bool" || types.at(1) != types.at(2) || !scalar(types.at(1))) {
+      throw std::invalid_argument{"Portable guard requires a boolean condition and matching scalar branches"};
     }
+    value.resolved_type = value.operands[1].resolved_type;
+    return typed(types.at(1));
   }
-  return "double";
+  if (value.kind == operation::logical_not || value.kind == operation::logical_and || value.kind == operation::logical_or) {
+    if (std::any_of(types.begin(), types.end(), [](const auto& type) { return type != "bool"; })) {
+      throw std::invalid_argument{"Portable logical operators require boolean operands"};
+    }
+    return typed("bool");
+  }
+  if (value.kind == operation::equal || value.kind == operation::not_equal) {
+    if (types.at(0) != types.at(1) || !scalar(types.at(0))) {
+      throw std::invalid_argument{"Portable equality requires matching scalar or enum operands"};
+    }
+    return typed("bool");
+  }
+  if (value.kind == operation::less || value.kind == operation::less_equal || value.kind == operation::greater || value.kind == operation::greater_equal) {
+    if (types.at(0) != types.at(1) || !scalar(types.at(0)) || types.at(0) == "bool") {
+      throw std::invalid_argument{"Portable ordering requires matching numeric or enum operands"};
+    }
+    return typed("bool");
+  }
+  if (std::any_of(types.begin(), types.end(), [](const auto& type) { return type != "double"; })) {
+    throw std::invalid_argument{"Portable arithmetic/comparisons require explicit binary64 operands"};
+  }
+  return typed(value.kind == operation::less || value.kind == operation::less_equal || value.kind == operation::greater || value.kind == operation::greater_equal ? "bool" : "double");
 }
 
 // Match complete resolved signatures before selecting backend dispatch adapters.

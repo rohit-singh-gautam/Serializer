@@ -5,6 +5,7 @@ const { execFileSync } = require('node:child_process');
 const { Navigator } = require('../out/navigator');
 const { indexSource, managedNames, resolveType } = require('../out/navigation_model');
 const { fileKey } = require('../out/model');
+const { generatedMember, indexGeneratedSource, outputMemberNames } = require('../out/generated_navigation');
 
 const repository = path.resolve(__dirname, '../../..');
 const compiler = process.env.SERIALIZER_COMPILER;
@@ -13,7 +14,8 @@ const outputs = { cpp: 'model.hpp', java: 'Schema.java', js: 'schema.mjs', types
   kotlin: 'Schema.kt', c: 'schema.h' };
 
 /** Check both directions against freshly generated types, rather than handwritten output approximations. */
-async function verify(entry, directory, options = [], selectedOutputs = outputs, typeReferences = false) {
+async function verify(entry, directory, options = [], selectedOutputs = outputs, typeReferences = false,
+  memberDeclarations = false) {
   const args = ['--input', entry, '--language', Object.keys(selectedOutputs).join(','), '--cpp.format', 'false',
     '--depfile', path.join(directory, 'all.d'), ...options];
   fs.mkdirSync(directory, { recursive: true });
@@ -84,6 +86,45 @@ async function verify(entry, directory, options = [], selectedOutputs = outputs,
         }
       }
     }
+    if (memberDeclarations) {
+      for (const declaration of schema.index.members ?? []) {
+        const definitions = await resolver.schema(schema.file, declaration.start, true);
+        assert.equal(new Set(definitions.map(item => item.file)).size, files.length,
+          `${declaration.owner}::${declaration.name}: generated field definitions in every language`);
+        assert.deepEqual(await resolver.schema(schema.file, declaration.end, true), definitions,
+          'schema inherited field definition boundary');
+        for (const definition of definitions) {
+          for (const cursor of [definition.start, definition.end]) {
+            const origins = await resolver.generatedDeclaration(definition.file, cursor);
+            assert.deepEqual(origins.map(origin => [fileKey(origin.file), origin.start, origin.end]),
+              [[fileKey(schema.file), declaration.start, declaration.end]],
+              'every generated field copy retains generic and named-instantiation provenance');
+            ++checks;
+          }
+        }
+        for (const output of files) {
+          const text = fs.readFileSync(output, 'utf8');
+          const generated = indexGeneratedSource(text, output);
+          const names = outputMemberNames(declaration.name, output, text);
+          let target;
+          for (const token of text.matchAll(/[A-Za-z_]\w*/g)) {
+            if (!names.includes(token[0]) || !generatedMember(text, output, generated, token.index)) { continue; }
+            const origins = await resolver.generatedDeclaration(output, token.index);
+            if (origins.some(origin => fileKey(origin.file) === fileKey(schema.file) && origin.start === declaration.start)) {
+              target = token;
+              break;
+            }
+          }
+          assert.ok(target, `${declaration.owner}::${declaration.name}: generated field navigation in ${output}`);
+          for (const offset of [target.index, target.index + target[0].length]) {
+            const origins = await resolver.generatedDeclaration(output, offset);
+            assert.deepEqual(origins.map(origin => [fileKey(origin.file), origin.start, origin.end]),
+              [[fileKey(schema.file), declaration.start, declaration.end]], 'generated inherited field boundary');
+            ++checks;
+          }
+        }
+      }
+    }
   }
   return checks;
 }
@@ -121,6 +162,16 @@ namespace optional_models {
 }
 `);
   checks += await verify(optionalInput, path.join(directory, 'optional'), [], outputs, true);
+  const inheritanceInput = path.join(directory, 'generic-inheritance.serializer');
+  fs.writeFileSync(inheritanceInput, `serializer version 1.8.0;
+namespace inherited_models {
+  class base<T> stable_ids { public uint32 inherited_count (1); public T owned (2); }
+  class derived<T> stable_ids : public base<T> (10, "base") { public string label (1); }
+  instantiate count_derived = derived<uint32>;
+  class root stable_ids : public derived<uint32> (10, "value") { public uint32 tag (1); }
+}
+`);
+  checks += await verify(inheritanceInput, path.join(directory, 'generic-inheritance'), [], outputs, true, true);
   const suppressionInput = path.join(directory, 'warning-suppression.serializer');
   fs.writeFileSync(suppressionInput, `serializer version 1.5.0;
 namespace warning_models {
@@ -175,7 +226,7 @@ namespace Names_ { class Value_Type {} }
     checks += await verify(input, path.join(directory, `java-${profile}`),
       ['--java.coding_standard', profile, '--java.package', 'example.models'], { java: outputs.java });
   }
-  console.log(`Fresh compiler navigation passed: ${checks} bidirectional type checks across all 11 output languages, nested optionals and generic containers, unnamed revisions and warning suppression, unions and variants, digest fields, compact fields, typed magic and inferred arrays, identical codecs for legacy/dotted headers, transitive includes, acronyms, preserved names, and direct/separated managed classes across all C++ profiles.`);
+  console.log(`Fresh compiler navigation passed: ${checks} bidirectional type/field checks across all 11 output languages, owning generic inheritance and inherited declarations, nested optionals and generic containers, unnamed revisions and warning suppression, unions and variants, digest fields, compact fields, typed magic and inferred arrays, identical codecs for legacy/dotted headers, transitive includes, acronyms, preserved names, and direct/separated managed classes across all C++ profiles.`);
 }
 
 main().catch(error => { console.error(error.stderr?.toString() || error); process.exitCode = 1; });

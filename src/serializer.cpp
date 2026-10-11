@@ -543,10 +543,14 @@ int main(const int argc, const char* argv[]) {
         output->write(writer::cpp::generate_schema(schema, options.cpp));
       } else {
         const auto& language = request.language;
-        const auto& settings = language == "go"       ? options.go
+        auto settings = language == "go"       ? options.go
                                : language == "csharp" ? options.csharp
                                : language == "kotlin" ? options.kotlin
                                                       : options.js;
+        if (const auto found = options.class_comparisons.find(language);
+            found != options.class_comparisons.end()) {
+          settings.class_comparisons = found->second;
+        }
         output->write(writer::portable::generate_schema(schema, language,
             request.destination.stem().string(), settings));
       }

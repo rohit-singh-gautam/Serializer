@@ -12,3 +12,10 @@ class DocumentData stable_ids : public DocumentBase ("base", 1) {
   public function void Update(double next) edit go { value.Measure = next };
   public function double Score() readonly;
 }
+
+// Exported Go methods use the same digest signature contract as the other SDKs.
+class DigestBehavior {
+  public function digest Variable(digest payload) readonly go { return payload };
+  public function digest[3] FixedBytes(digest[3] payload) readonly go { return payload };
+  public function digest(sha256) Standard(digest(sha256) payload) readonly go { return payload };
+}

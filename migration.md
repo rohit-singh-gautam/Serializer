@@ -1,5 +1,39 @@
 # Migrating to the snake_case Serializer API
 
+## Integration enhancements (11 October 2026)
+
+Compiler/runtime **1.13.0** supports language **1.8.0** while retaining earlier
+schemas and their default wire behavior. Raise each declaring file's header only
+when using portable constructors/factories, structured `default(factory)` values,
+`layout(empty)`, generic inheritance, or the new checked expression operators.
+Regenerate all selected outputs with the matching compiler/runtime. See
+[construction](docs/construction.md), [generics](docs/generics.md), and
+[behavior](docs/behavior.md) for contracts and limitations.
+
+New C++ type guards allow overlapping entry headers with identical definitions.
+Incompatible output profiles for one qualified C++ type diagnose rather than
+silently selecting whichever header was included first. Preserve the same
+managed identity/naming configuration across those units.
+
+Bounded keyed counting and guarded collection APIs do not change stored formats.
+Signed-zero normalization is opt-in output behavior: default codecs preserve
+existing bytes, and normalized cache/digest encodings need an explicit shared
+policy. Do not silently normalize a released persisted payload. Changing a
+structured default can change the meaning of a missing keyed field even though
+no wire tag is added. Empty transient hints have no wire or history effect;
+physical overlap remains compiler/ABI-dependent.
+
+Native output/counting can now borrow `std::span` and `std::reference_wrapper`
+directly; callers must keep referents alive and unchanged through synchronous
+traversal. Eligible portable C++ construction remains `constexpr`, while
+unsupported constant-evaluation shapes retain runtime construction.
+[Class-specific comparison configuration](docs/record_comparisons.md) is opt-in
+for every backend and leaves wire bytes unchanged. Review selected fields,
+NaN/unordered behavior and portable shape restrictions before enabling it.
+Named generic records retain their native type identity and may override source
+comparison settings. Compiler-internal C++ aliases share their template's
+comparison selection; conflicting internal alias settings reject.
+
 ## Simplicity warnings and local suppression (10 October 2026)
 
 Compiler/runtime **1.10.0** adds advisory parser warnings for initialized ordinary

@@ -1,0 +1,53 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.8.0;
+
+namespace comparison_demo {
+  class shipment_key stable_ids {
+    public uint64 warehouse (1);
+    public uint64 aisle (2);
+    public uint64 shelf (3);
+    public uint64 parcel (4);
+    public transient uint64 cache;
+  }
+
+  class float_record {
+    public double value;
+  }
+
+  class base_record {
+    public uint32 value;
+  }
+
+  class derived_record : public base_record ("base", 1) {
+    public uint32 extra (2);
+  }
+
+  class selected_record : public base_record ("base", 1) {
+    public uint32 first (2);
+    public uint32 second (3);
+    public transient uint32 cache;
+  }
+
+  class equality_only {
+    public uint32 value;
+  }
+
+  class order_only {
+    public uint32 value;
+  }
+
+  class empty_record {}
+
+  class generic_record<T> {
+    public T value;
+  }
+  instantiate byte_record = generic_record<uint8>;
+
+  class generic_base<T> {
+    public T base_value;
+  }
+  class generic_derived<T> : public generic_base<T> ("base", 1) {
+    public T value (2);
+  }
+}

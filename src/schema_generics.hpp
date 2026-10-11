@@ -390,7 +390,7 @@ class generic_lowering {
     }
     auto concrete =
         std::make_unique<class_node>(object_type::class_type, instance_name(key), nullptr,
-                                     definition->attributes, std::vector<parent>{});
+                                     definition->attributes, std::vector<parent>{definition->parents});
     if (!occupied.insert(concrete->name).second) {
       throw exception::bad_class{input, "Generated generic name collision: " + concrete->name};
     }
@@ -401,6 +401,7 @@ class generic_lowering {
     concrete->generic_parameters = definition->generic_parameters;
     concrete->member_list = definition->member_list;
     concrete->functions = definition->functions;
+    concrete->constructions = definition->constructions;
     concrete->native_blocks = definition->native_blocks;
     concrete->body_order = definition->body_order;
     concrete->magic_bytes = definition->magic_bytes;
@@ -432,6 +433,13 @@ class generic_lowering {
     }
     constexpr auto maximum = static_cast<std::uint64_t>(std::numeric_limits<std::ptrdiff_t>::max());
     std::uint64_t total{};
+    for (const auto& base : object.parents) {
+      const auto bytes = minimum_storage(*base.parent_class, depth + 1);
+      if (bytes > maximum - total) {
+        throw exception::bad_class{input, "Inherited fixed storage exceeds backend representability"};
+      }
+      total += bytes;
+    }
     for (const auto& field : object.member_list) {
       if (field.modifier != member::modifier_type::none && field.fixed_extent == 0) { continue; }
       const auto& type = field.type_name_list.front();
@@ -456,10 +464,37 @@ class generic_lowering {
     return std::max(std::uint64_t{1}, total);
   }
 
-  // Substitute field and map-key types, retaining wire IDs, order, names, and defaults verbatim.
+  // Resolve generated bases in declaration scope and preserve their occurrence wire identities.
+  void resolve_parents(class_node& object,
+                       const std::unordered_map<std::string, type_name>& bindings,
+                       std::size_t depth) {
+    std::unordered_set<const syntax_node*> bases{};
+    for (auto& base : object.parents) {
+      if (base.type_expression.empty()) {
+        base.type_expression.emplace_back(std::string{base.name}, base.current_namespace);
+      }
+      auto& type = base.type_expression.front();
+      resolve(type, bindings, depth);
+      if (!type.resolved_node || type.type != object_type::class_type ||
+          type.resolved_node == &object || !bases.insert(type.resolved_node).second) {
+        throw exception::bad_class{input, "Parent must name a distinct previously declared class"};
+      }
+      base.parent_class = const_cast<class_node*>(static_cast<const class_node*>(type.resolved_node));
+      if (!object.generic_name.empty() &&
+          (base.parent_class->storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
+           (base.parent_class->attributes & class_attributes::packed) == class_attributes::packed)) {
+        throw exception::bad_class{input, "Generic bases require unpacked owning generated classes"};
+      }
+      base.name = type.name;
+      base.current_namespace = nullptr;
+    }
+  }
+
+  // Substitute bases, fields and map keys without changing wire IDs, order, names or defaults.
   void resolve_fields(class_node& object,
                       const std::unordered_map<std::string, type_name>& bindings,
                       std::size_t depth) {
+    resolve_parents(object, bindings, depth);
     if (object.magic_field) {
       auto& field = *object.magic_field;
       for (auto& type : field.type_name_list) {
@@ -512,6 +547,9 @@ class generic_lowering {
       if (method.return_type.name != "void") { resolve(method.return_type, bindings, depth); }
       for (auto& parameter : method.parameters) { resolve(parameter.type, bindings, depth); }
     }
+    for (auto& construction : object.constructions) {
+      for (auto& parameter : construction.parameters) { resolve(parameter.type, bindings, depth); }
+    }
     static_cast<void>(minimum_storage(object));
   }
 
@@ -539,12 +577,11 @@ class generic_lowering {
         } else if (raw->type == object_type::class_type) {
           auto& object = static_cast<class_node&>(*raw);
           if (!object.type_parameters.empty()) {
-            if (!object.parents.empty() ||
-                object.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
+            if (object.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
                 (object.attributes & class_attributes::packed) == class_attributes::packed) {
               throw exception::bad_class{
                   input,
-                  "Generic classes require unpacked owning fields without inheritance"};
+                  "Generic classes require unpacked owning fields"};
             }
             class_node earlier{object_type::class_type, std::string{object.name},
                                object.parent_namespace, class_attributes::none, {}};
@@ -563,6 +600,22 @@ class generic_lowering {
               }
               earlier.type_parameters.push_back(parameter.name);
               earlier.generic_parameters.push_back(parameter);
+            }
+            for (auto& base : object.parents) {
+              if (base.type_expression.empty()) {
+                base.type_expression.emplace_back(std::string{base.name}, base.current_namespace);
+              }
+              auto& type = base.type_expression.front();
+              validate_expression(type, object);
+              if (!type.resolved_node || type.type != object_type::class_type) {
+                throw exception::bad_class{input, "Generic parent must name a generated class"};
+              }
+              base.parent_class = const_cast<class_node*>(static_cast<const class_node*>(type.resolved_node));
+              if ((base.parent_class->attributes & class_attributes::packed) == class_attributes::packed) {
+                throw exception::bad_class{input, "Generic bases require unpacked owning generated classes"};
+              }
+              base.name = type.name;
+              base.current_namespace = nullptr;
             }
             if (object.magic_field) {
               auto& field = *object.magic_field;
@@ -601,6 +654,11 @@ class generic_lowering {
               if (method.return_type.name != "void") { validate_expression(method.return_type, object); }
               for (auto& parameter : method.parameters) { validate_expression(parameter.type, object); }
             }
+            for (auto& construction : object.constructions) {
+              for (auto& parameter : construction.parameters) {
+                validate_expression(parameter.type, object);
+              }
+            }
             retained_templates.push_back(&object);
             emit(std::move(node));
             continue;
@@ -616,8 +674,10 @@ class generic_lowering {
             }
             const auto& source = static_cast<const class_node&>(*target.resolved_node);
             object.attributes = source.attributes;
+            object.parents = source.parents;
             object.member_list = source.member_list;
             object.functions = source.functions;
+            object.constructions = source.constructions;
             object.native_blocks = source.native_blocks;
             object.body_order = source.body_order;
             object.magic_bytes = source.magic_bytes;
@@ -629,6 +689,7 @@ class generic_lowering {
             object.reserved_ids = source.reserved_ids;
             object.reserved_variables = source.reserved_variables;
             object.reserved_names = source.reserved_names;
+            object.named_generic_source = source.generic_name;
             object.instance_of.clear();
           } else {
             incomplete.insert(object.get_full_name());
@@ -675,6 +736,9 @@ inline bool contains_generics(const std::vector<std::unique_ptr<syntax_node>>& n
       if (!object.type_parameters.empty() || !object.instance_of.empty()) {
         return true;
       }
+      for (const auto& base : object.parents) {
+        if (!base.type_expression.empty() && base.type_expression.front().application) { return true; }
+      }
       for (const auto& field : object.member_list) {
         if (!field.extent_expression.empty()) { return true; }
         for (const auto& type : field.type_name_list) {
@@ -686,6 +750,11 @@ inline bool contains_generics(const std::vector<std::unique_ptr<syntax_node>>& n
       for (const auto& method : object.functions) {
         if (method.return_type.application) { return true; }
         for (const auto& parameter : method.parameters) {
+          if (parameter.type.application) { return true; }
+        }
+      }
+      for (const auto& construction : object.constructions) {
+        for (const auto& parameter : construction.parameters) {
           if (parameter.type.application) { return true; }
         }
       }

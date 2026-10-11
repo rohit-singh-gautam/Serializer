@@ -1,4 +1,4 @@
-serializer version 1.6.0;
+serializer version 1.8.0;
 
 // Methods use schema-bound symbols without becoming durable fields.
 class document_metrics stable_ids {
@@ -12,4 +12,23 @@ class document_metrics stable_ids {
     expression(page_width * page_height * to_double(page_count) * copies);
   public function double annotation_weight() readonly
     expression(to_double(annotation_count) * 0.5 + (math.pi - 3.141592653589793));
+  public function double ratio(double denominator) readonly expression(page_width / denominator);
+  public function double guarded_root(double value) readonly
+    expression(value >= 0.0 ? math.sqrt(value) : 0.0);
+  public function double square_root(double value) readonly expression(math.sqrt(value));
+  public function double wave(double value) readonly expression(math.sin(value) + math.cos(value));
+  public function bool valid_ratio(double denominator) readonly
+    expression(denominator != 0.0 && page_width / denominator > 1.0);
+  public function bool guarded_choice(bool enabled, double value) readonly
+    expression(!enabled || (value >= 0.0 ? math.sqrt(value) == 2.0 : false));
+  public function bool overflow_guard(double value) readonly expression(value * 2.0 > 0.0);
+  public function double portable_arithmetic_checked(double input) readonly expression(-input);
+  public function double portable_arithmetic_divide(double left, double right) readonly expression(left + right);
+  public function double portable_arithmetic_sqrt(double input) readonly expression(-input);
+  public function double helper_parameter(double portable_arithmetic_checked, double portable_arithmetic_divide,
+    double portable_arithmetic_sqrt) readonly
+    expression(portable_arithmetic_checked * 2.0 + portable_arithmetic_divide / portable_arithmetic_sqrt);
 }
+
+// Private generated helpers must not reserve otherwise-valid global schema type names.
+class portable_arithmetic_checked {}

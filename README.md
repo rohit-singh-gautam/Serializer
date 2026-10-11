@@ -32,19 +32,42 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **1.12.0**. Bug fixes and minor updates
+The current compiler and runtime release is **1.13.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
-compatibility across major releases. The schema language version is **1.7.0**;
+compatibility across major releases. The schema language version is **1.8.0**;
 see [release and schema versions](docs/command_line.md).
 
-Use `serializer version 1.7.0;` for new schemas. Older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, and `1.6.0` schemas remain supported. The original
+Use `serializer version 1.8.0;` for new schemas. Older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, and `1.7.0` schemas remain supported. The original
 `serializer version 1;` is an exact compatibility alias for `1.0.0`, exclusive to
 version 1. Future versions require all three components; see the
 [schema language policy](docs/command_line.md#schema-language-version-policy).
 
 **Supported outputs:** C++, Java, JavaScript, TypeScript declarations, Go, C#,
 Rust, Python, Swift, Kotlin, and C. TypeScript uses the JavaScript runtime.
+
+Language `1.8.0` adds [portable constructors, factories, structured defaults,
+and empty transient layout hints](docs/construction.md), owning generic
+[inheritance](docs/generics.md), and checked comparisons, boolean guards,
+division and `math.sqrt/sin/cos` [expressions](docs/behavior.md). Typed readonly
+predicates add exact integer/enum checks, member/index access and bounded `all`/`any`
+reductions, returning false for reached invalid checks.
+Compiler/runtime `1.13.0` adds allocation-free bounded keyed binary counting,
+borrowed span/reference output, an opt-in signed-zero output policy, reusable C++
+generated type guards, [class-specific record comparisons](docs/record_comparisons.md), and
+guarded transaction collection callbacks. Existing default codecs and wire
+identities remain unchanged. See [usage](docs/usage.md) and
+[verification](docs/verification-integration-enhancements-2026-10-11.md).
+Algorithm-qualified digest return signatures retain the existing built-in digest
+representation; see [digest values](docs/digest.md).
+
+### Borrowed native binary output
+
+Native C++ binary output and bounded counting accept `std::span` and
+`std::reference_wrapper` directly, including nested generated records, optionals,
+and map payloads. They preserve the owning value's wire bytes and output policies
+while borrowing source storage for each synchronous call. Keep the referents alive
+and unchanged through traversal; see [borrowed output](docs/usage.md#borrowed-native-binary-values).
 
 **Start here:** [Usage guide](docs/usage.md) · [Runnable examples](example/README.md) ·
 [CMake integration](docs/cmake_integration.md)
@@ -382,8 +405,8 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editor_extension.md) |
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
-Both extensions use source release version **1.1.33**, independent of compiler version
-**1.12.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
+Both extensions use source release version **1.1.35**, independent of compiler version
+**1.13.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
 for supported destinations and language-service prerequisites.
 VS Code also supports navigation from read-only Git index/history tabs, using
 the displayed snapshot and current workspace destinations.

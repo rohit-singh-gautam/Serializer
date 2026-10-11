@@ -201,6 +201,53 @@ int main(void){
     return sources[language]
 
 
+def digest_consumer(language, source):
+    """Call bare, fixed and algorithm-sized digest methods with high-bit byte values."""
+    checks = {
+        "cpp": ("  DocumentData value{};", r'''  DigestBehavior digests{};std::vector<uint8_t> dynamic{0,128,255};std::array<uint8_t,3> fixed{0,128,255};std::array<uint8_t,32> standard{};standard[31]=255;
+  if(digests.variable(dynamic)!=dynamic || digests.fixed_bytes(fixed)!=fixed || digests.standard(standard)!=standard)return 10;
+'''),
+        "java": ("    var value=new Schema.DocumentData();", r'''    var digests=new Schema.DigestBehavior();byte[] fixed={0,(byte)128,(byte)255};byte[] standard=new byte[32];standard[31]=(byte)255;
+    if(!java.util.Arrays.equals(digests.variable(fixed),fixed) || !java.util.Arrays.equals(digests.fixed_bytes(fixed),fixed) || !java.util.Arrays.equals(digests.standard(standard),standard))throw new AssertionError("Digest signature");
+'''),
+        "javascript": ("const value=new DocumentData();", r'''const digests=new DigestBehavior();const fixed=[0,128,255];const standard=Array(32).fill(0);standard[31]=255;
+if(digests.variable(fixed)[2]!==255 || digests.fixed_bytes(fixed)[1]!==128 || digests.standard(standard)[31]!==255)throw Error('Digest signature');
+'''),
+        "go": ("  value:=NewDocumentData();", r'''  digests:=NewDigestBehavior();fixed:=[]byte{0,128,255};standard:=make([]byte,32);standard[31]=255
+  if digests.Variable(fixed)[2]!=255 || digests.FixedBytes(fixed)[1]!=128 || digests.Standard(standard)[31]!=255{panic("Digest signature")}
+'''),
+        "csharp": ("    var basis=new DocumentBase", r'''    var digests=new DigestBehavior();byte[] fixedBytes={0,128,255};byte[] standard=new byte[32];standard[31]=255;
+    if(digests.variable(fixedBytes)[2]!=255 || digests.fixed_bytes(fixedBytes)[1]!=128 || digests.standard(standard)[31]!=255)throw new Exception("Digest signature");
+'''),
+        "rust": ("  let mut value=DocumentData", r'''  let digests=DigestBehavior::default();let fixed=vec![0,128,255];let mut standard=vec![0;32];standard[31]=255;
+  assert_eq!(digests.variable(fixed.clone()),fixed);assert_eq!(digests.fixed_bytes(fixed.clone()),fixed);assert_eq!(digests.standard(standard.clone()),standard);
+'''),
+        "python": ("value=DocumentData();", r'''digests=DigestBehavior();fixed=[0,128,255];standard=[0]*32;standard[31]=255
+assert digests.variable(fixed)==fixed and digests.fixed_bytes(fixed)==fixed and digests.standard(standard)==standard
+'''),
+        "swift": ("var value=DocumentData();", r'''let digests=DigestBehavior();let fixed:[UInt8]=[0,128,255];var standard=[UInt8](repeating:0,count:32);standard[31]=255
+precondition(digests.variable(fixed)==fixed && digests.fixedBytes(fixed)==fixed && digests.standard(standard)==standard)
+'''),
+        "kotlin": ("  val value=DocumentData();", r'''  val digests=DigestBehavior();val fixed=ubyteArrayOf(0u,128u,255u);val standard=UByteArray(32);standard[31]=255u
+  check(digests.variable(fixed).contentEquals(fixed) && digests.fixedBytes(fixed).contentEquals(fixed) && digests.standard(standard).contentEquals(standard))
+'''),
+        "c": ("  document_base base={0};", r'''  digest_behavior digests={0};uint8_t fixed_bytes[]={0,128,255};uint8_t standard_bytes[32]={0};standard_bytes[31]=255;
+  srl_buffer fixed={fixed_bytes,sizeof fixed_bytes,sizeof fixed_bytes},standard={standard_bytes,sizeof standard_bytes,sizeof standard_bytes};
+  if(digest_behavior_variable(&digests,fixed).data[2]!=255 || digest_behavior_fixed_bytes(&digests,fixed).data[1]!=128 || digest_behavior_standard(&digests,standard).data[31]!=255)return 10;
+'''),
+    }
+    key = "javascript" if language == "typescript" else language
+    anchor, extra = checks[key]
+    if key == "javascript":
+        source = source.replace("DocumentBase,DocumentData,", "DigestBehavior,DocumentBase,DocumentData,", 1)
+    elif key == "python":
+        source = source.replace("import DocumentBase,", "import DigestBehavior,DocumentBase,", 1)
+    elif key == "kotlin":
+        source = "@file:OptIn(kotlin.ExperimentalUnsignedTypes::class)\n" + source
+    assert anchor in source, language
+    return source.replace(anchor, extra + anchor, 1)
+
+
 def qualify_unused_cpp_definition(runner, args):
     """Linking qualification must reject an absent method even though no method invocation exists."""
     directory=args.build/"unused-definition-negative";directory.mkdir(parents=True,exist_ok=True)
@@ -283,10 +330,10 @@ def main():
     runner=examples.Runner(args)
     for language in languages:
         source=args.build/"consumers"/language;source.mkdir(parents=True,exist_ok=True)
-        (source/behavior.FILES[language]).write_text(consumer(language),encoding="utf-8")
+        (source/behavior.FILES[language]).write_text(digest_consumer(language,consumer(language)),encoding="utf-8")
         executable=runner.build(language,"native behavior",args.build/language,source)
         examples.run(executable)
-        print(f"PASS: {language}, native bodies/hooks, abstract/virtual/override adapters, external definition, edit",flush=True)
+        print(f"PASS: {language}, native bodies/hooks, digest returns, abstract/virtual/override adapters, external definition, edit",flush=True)
         qualify_missing_definition(language,runner,args)
 
     if "cpp" in languages:qualify_unused_cpp_definition(runner,args)

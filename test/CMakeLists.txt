@@ -1,12 +1,15 @@
 set(schemas)
 foreach(fixture IN ITEMS enum person test1 array map variable assessment views storage_reuse
-    fixed_fields constant_names includes wire_compatibility generics dimensions versioning magic typed_magic inferred_arrays compact_fields digests owning_variants owning_variant_cpp optional_cpp)
+    fixed_fields constant_names includes wire_compatibility generics dimensions versioning magic typed_magic inferred_arrays compact_fields digests owning_variants owning_variant_cpp optional_cpp native_output_policy reuse_first reuse_second construction readonly_behavior)
   list(APPEND schemas "${CMAKE_CURRENT_SOURCE_DIR}/resources/${fixture}.serializer")
 endforeach()
 
 add_executable(core_serializer_test
   core_serializer_test.cpp
   behavior_test.cpp
+  readonly_behavior_test.cpp
+  construction_test.cpp
+  native_binary_output_policy_test.cpp
   digest_test.cpp
   digest_schema_test.cpp
   digest_codec_test.cpp
@@ -69,6 +72,20 @@ elseif(UNIX)
 endif()
 
 add_test(NAME core_serializer_test COMMAND core_serializer_test)
+
+# Qualify opt-in record comparisons through the same schema and INI pipeline as user builds.
+add_executable(record_comparison_test record_comparison_test.cpp)
+serializer_generate(TARGET record_comparison_test
+  SCHEMAS resources/record_comparison.serializer
+  CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/record_comparison.ini"
+  OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/record_comparison")
+target_link_libraries(record_comparison_test PRIVATE Serializer::serializer_lib GTest::gtest_main)
+if(MSVC)
+  target_compile_options(record_comparison_test PRIVATE /W4 /WX)
+else()
+  target_compile_options(record_comparison_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME record_comparison_test COMMAND record_comparison_test)
 
 # Compare native owning variants with independently generated JavaScript and TypeScript models.
 find_program(serializer_variant_node NAMES node)
@@ -203,7 +220,7 @@ if(Python3_Interpreter_FOUND)
   add_test(NAME serializer_generic_python
     COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/example/generics/run.py"
       --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/generic_python")
-  foreach(behavior_suite IN ITEMS behavior_languages native_behavior_languages)
+  foreach(behavior_suite IN ITEMS behavior_languages native_behavior_languages typed_behavior_languages)
     add_test(NAME "serializer_${behavior_suite}_python"
       COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/${behavior_suite}.py"
         --compiler "$<TARGET_FILE:serializer>" --language python
@@ -223,6 +240,34 @@ if(Python3_Interpreter_FOUND)
       --build "${CMAKE_CURRENT_BINARY_DIR}/optional_python")
 endif()
 if(SERIALIZER_BUILD_MANAGED)
+  add_executable(managed_reuse_test managed_reuse_test.cpp)
+  serializer_generate(TARGET managed_reuse_test
+    SCHEMAS resources/managed_reuse_first.serializer resources/managed_reuse_second.serializer
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed_reuse")
+  target_link_libraries(managed_reuse_test PRIVATE Serializer::managed GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(managed_reuse_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(managed_reuse_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME managed_reuse_test COMMAND managed_reuse_test)
+  foreach(profile IN ITEMS direct separate)
+    add_executable(transaction_collection_${profile}_test transaction_collection_test.cpp)
+    set(transaction_collection_config)
+    if(profile STREQUAL "separate")
+      set(transaction_collection_config CONFIG resources/managed_separate.ini)
+    endif()
+    serializer_generate(TARGET transaction_collection_${profile}_test
+      SCHEMAS resources/transaction_collections.serializer ${transaction_collection_config}
+      OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/transaction_collections_${profile}")
+    target_link_libraries(transaction_collection_${profile}_test PRIVATE Serializer::managed GTest::gtest_main)
+    if(MSVC)
+      target_compile_options(transaction_collection_${profile}_test PRIVATE /W4 /WX)
+    else()
+      target_compile_options(transaction_collection_${profile}_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_test(NAME transaction_collection_${profile}_test COMMAND transaction_collection_${profile}_test)
+  endforeach()
   foreach(profile IN ITEMS direct separate)
     add_executable(managed_optional_${profile}_test managed_optional_test.cpp)
     set(optional_managed_config)

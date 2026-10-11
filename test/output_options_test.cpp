@@ -12,6 +12,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <utility>
 
 namespace {
 namespace writer = rohit::serializer::writer;
@@ -36,6 +37,38 @@ std::string emit(std::string_view schema, writer::cpp_options options) {
   const auto statements = rohit::serializer::parser::parse(input);
   options.format = false;
   return writer::cpp::generate(statements, options);
+}
+
+// Ignore only decimal body fingerprints on the generated unit's exact guard directives.
+std::string normalized_generated_fingerprints(std::string source) {
+  constexpr std::string_view guard_prefix = "SERIALIZER_GENERATED_";
+  constexpr std::string_view hex_digits = "0123456789ABCDEF";
+  constexpr std::string_view decimal_digits = "0123456789";
+  for (std::size_t line_start{}; line_start < source.size();) {
+    const auto line_end = source.find('\n', line_start);
+    const auto line_size = (line_end == std::string::npos ? source.size() : line_end) - line_start;
+    const std::string_view line{source.data() + line_start, line_size};
+    const bool comparison = line.starts_with("#if ");
+    const std::string_view directive = comparison ? "#if " : "#define ";
+    if (line.starts_with(directive) && line.substr(directive.size()).starts_with(guard_prefix)) {
+      const auto identity_start = directive.size() + guard_prefix.size();
+      const auto identity_end = line.find_first_not_of(hex_digits, identity_start);
+      const std::string_view separator = comparison ? " != " : " ";
+      if (identity_end != std::string_view::npos && identity_end > identity_start &&
+          line.substr(identity_end).starts_with(separator)) {
+        const auto value_start = identity_end + separator.size();
+        const auto value_end = line.find_first_not_of(decimal_digits, value_start);
+        if (value_end != std::string_view::npos && value_end > value_start &&
+            line.substr(value_end) == "ULL") {
+          source.replace(line_start + value_start, value_end - value_start, "0");
+        }
+      }
+    }
+    const auto next_line = source.find('\n', line_start);
+    if (next_line == std::string::npos) { break; }
+    line_start = next_line + 1;
+  }
+  return source;
 }
 
 // Remove only the separately generated compile-time declarations before comparing existing APIs.
@@ -216,6 +249,45 @@ TEST(output_options, configuration_and_diagnostics) {
   }
 }
 
+// Resolve source-qualified class settings without changing backend-wide defaults.
+TEST(output_options, class_comparison_configuration) {
+  configuration_file temporary;
+  const auto options = writer::read_output_options(temporary.write(
+      "[cpp.class.example::sort_key]\nequality = true\nordering = lexicographic\n"
+      "fields = category, sequence\n[cpp.class.example::empty]\nfields = durable\n"));
+  const auto& key = options.cpp.class_comparisons.at("example::sort_key");
+  EXPECT_TRUE(key.equality);
+  EXPECT_TRUE(key.ordering);
+  EXPECT_EQ(key.fields, (std::vector<std::string>{"category", "sequence"}));
+  const auto& empty = options.cpp.class_comparisons.at("example::empty");
+  EXPECT_FALSE(empty.equality);
+  EXPECT_FALSE(empty.ordering);
+  EXPECT_TRUE(empty.fields.empty());
+  EXPECT_TRUE(writer::cpp_options{}.class_comparisons.empty());
+  for (const auto language : {"java", "js", "typescript", "go", "csharp", "rust",
+                              "python", "swift", "kotlin", "c"}) {
+    const auto portable = writer::read_output_options(temporary.write(
+        "[" + std::string{language} + ".class.example::sort_key]\nequality = true\n"
+        "ordering = lexicographic\nfields = category, sequence\n"));
+    const auto& comparisons = std::string_view{language} == "java" ?
+        portable.java.class_comparisons : portable.class_comparisons.at(language);
+    EXPECT_TRUE(comparisons.at("example::sort_key").equality);
+    EXPECT_TRUE(comparisons.at("example::sort_key").ordering);
+  }
+  for (const auto invalid : {
+      "[cpp.class.]\nequality = true\n", "[cpp.class.example:::key]\nequality = true\n",
+      "[cpp.class.example::key]\nequality = yes\n",
+      "[cpp.class.example::key]\nordering = true\n",
+      "[cpp.class.example::key]\nfields = sequence, sequence\n",
+      "[cpp.class.example::key]\nfields = sequence,\n",
+      "[cpp.class.example::key]\nfields = base.field\n",
+      "[cpp.class.example::key]\nunknown = true\n",
+      "[cpp.class.example::key]\nequality = true\nequality = false\n"}) {
+    EXPECT_THROW(writer::read_output_options(temporary.write(invalid)), std::invalid_argument)
+        << invalid;
+  }
+}
+
 // All advertised profiles must have a real formatter mapping and round-trip configuration name.
 TEST(output_options, java_configuration_and_diagnostics) {
   configuration_file temporary{};
@@ -335,8 +407,71 @@ TEST(output_options, constant_evaluation_retains_complete_runtime_source) {
     auto enabled_options = baseline_options;
     enabled_options.constant_evaluation = true;
     const auto enabled = emit(selected_schema, enabled_options);
-    EXPECT_EQ(without_constant_declarations(enabled), baseline);
+    EXPECT_EQ(normalized_generated_fingerprints(without_constant_declarations(enabled)),
+              normalized_generated_fingerprints(baseline));
   }
+}
+
+// Reusable guards distinguish new behavior/construction bodies and configured comparison definitions.
+TEST(output_options, reusable_guards_cover_behavior_construction_and_comparisons) {
+  const auto schema = [](std::string_view factory_value, std::string_view predicate_value) {
+    return "serializer version 1.8.0; class guard_probe { public uint64 token; "
+        "public constructor(uint64 input) { token = input; } "
+        "public factory seeded() { token = " + std::string{factory_value} + "; } "
+        "public function bool matches() readonly predicate(token == " +
+        std::string{predicate_value} + "); }";
+  };
+  const auto signature = [](const std::string& source) {
+    const auto begin = source.find("#define SERIALIZER_GENERATED_");
+    if (begin == std::string::npos) { throw std::runtime_error{"Missing generated definition guard"}; }
+    return source.substr(begin, source.find('\n', begin) - begin);
+  };
+  writer::cpp_options options;
+  const auto baseline = signature(emit(schema("1", "1"), options));
+  EXPECT_EQ(baseline, signature(emit(schema("1", "1"), options)));
+  for (const auto& changed : {signature(emit(schema("2", "1"), options)),
+                              signature(emit(schema("1", "2"), options))}) {
+    EXPECT_NE(baseline, changed);
+    EXPECT_EQ(baseline.substr(0, baseline.rfind(' ')), changed.substr(0, changed.rfind(' ')));
+  }
+  options.class_comparisons.emplace("guard_probe", writer::class_comparison_options{true, true, {}});
+  const auto compared = signature(emit(schema("1", "1"), options));
+  EXPECT_NE(baseline, compared);
+  EXPECT_EQ(baseline.substr(0, baseline.rfind(' ')), compared.substr(0, compared.rfind(' ')));
+}
+
+// Guard fingerprints are metadata; guard identities, generated bodies and other numbers remain observable.
+TEST(output_options, runtime_source_comparison_preserves_nonmetadata_changes) {
+  constexpr std::string_view before =
+      "#if SERIALIZER_GENERATED_3A3A7265636F7264 != 123ULL\n"
+      "#define SERIALIZER_GENERATED_3A3A7265636F7264 123ULL\n"
+      "#if OTHER_GUARD != 123ULL\n#define OTHER_GUARD 123ULL\n"
+      "constexpr auto value = 123ULL;\n";
+  constexpr std::string_view metadata_changed =
+      "#if SERIALIZER_GENERATED_3A3A7265636F7264 != 456ULL\n"
+      "#define SERIALIZER_GENERATED_3A3A7265636F7264 456ULL\n"
+      "#if OTHER_GUARD != 123ULL\n#define OTHER_GUARD 123ULL\n"
+      "constexpr auto value = 123ULL;\n";
+  const auto normalized = normalized_generated_fingerprints(std::string{before});
+  EXPECT_EQ(normalized, normalized_generated_fingerprints(std::string{metadata_changed}));
+  for (const auto token : {"OTHER_GUARD != 123ULL", "OTHER_GUARD 123ULL", "value = 123ULL"}) {
+    auto changed = std::string{before};
+    const auto begin = changed.find(token);
+    ASSERT_NE(begin, std::string::npos);
+    changed.replace(changed.find("123ULL", begin), std::string_view{"123"}.size(), "456");
+    EXPECT_NE(normalized, normalized_generated_fingerprints(std::move(changed)));
+  }
+  for (const auto token : {"3A3A7265636F7264", "OTHER_GUARD", "value = 123ULL"}) {
+    auto changed = std::string{before};
+    const auto begin = changed.find(token);
+    ASSERT_NE(begin, std::string::npos);
+    changed.insert(begin, "A");
+    EXPECT_NE(normalized, normalized_generated_fingerprints(std::move(changed)));
+  }
+  constexpr std::string_view expression = "#if SERIALIZER_GENERATED_3A3A7265636F7264 != 123ULL + 1ULL\n";
+  EXPECT_EQ(normalized_generated_fingerprints(std::string{expression}), expression);
+  EXPECT_NE(normalized_generated_fingerprints(emit("class record { public uint16 value; }", writer::cpp_options{})),
+            normalized_generated_fingerprints(emit("class record { public uint32 value; }", writer::cpp_options{})));
 }
 
 // Restricted output retains positional codecs and rejects conflicts without losing semantics.

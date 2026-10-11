@@ -279,6 +279,58 @@ Insertion adopts the value (or converts an opt-in ordinary value) and assigns
 new IDs to the inserted root and all managed descendants.
 Application validation can be supplied through the store constructor callback.
 
+Ordinary array and map fields also generate `edit_<field>()`, including primitive,
+record and fixed-array elements. This accessor returns a checked collection
+editor under the nearest managed owner:
+
+```cpp
+store.execute_transaction([](auto& tx) {
+  auto points = tx.root().edit_points();
+  points.append(point{1, 2});
+  points.insert(std::size_t{0}, point{3, 4});
+  points.update_element(std::size_t{1}, [](auto& point) { point.x = 9; });
+  points.with_element(std::size_t{1}, [](const auto& point) {
+    inspect(point); // The borrowed reference expires when this callback returns.
+  });
+  points.erase(std::size_t{0});
+  auto scores = tx.root().edit_scores();
+  scores.insert(std::string{"score"}, 5.0);
+  scores.update_element(std::string{"score"}, [](auto& score) { score += 1; });
+}).throw_if_failed();
+```
+
+Sequences select elements with `std::size_t` indexes; maps select application keys.
+`size()` avoids copying the container. `with_element(selector, callback)` returns
+false for absence and invokes a `void` callback with a const reference for presence.
+`update_element` invokes a `void` callback with the ordinary mutable element;
+a missing selector throws `std::out_of_range`. `erase` reports whether an element
+was removed. Sequence `insert` accepts positions through `size()`; `append` adds
+at the end. A duplicate map insertion throws `std::invalid_argument`. Fixed arrays
+expose lookup and element mutation but do not provide insertion, append or erasure.
+Conversions and allocation failures inside insertion fail the entire action.
+Packed dynamic Boolean arrays have no addressable `bool` element: their callbacks
+inspect or update one Boolean snapshot, committing its bit after a successful
+mutation callback; the owning collection is never copied by these accessors.
+
+Borrowed callbacks are synchronous and must neither retain element pointers or
+references nor reenter transaction/store operations. Mutable callbacks apply only
+to ordinary values and must preserve any dormant identity slots. Independently
+managed collections continue to expose their identity-based `insert`/`append`,
+`erase(id)` and generated `edit(id)` setters, which allocate fresh IDs and reject
+removed/replaced occurrences. They additionally provide
+`with_element(id, callback)` for a synchronous const borrow of the identified
+payload. There is no unrestricted mutable callback for independently managed IDs.
+Runtime-only collections expose `edit_<field>()` exclusively through a runtime
+editor and remain outside durable history and wire data.
+
+All these operations use the same isolated transaction candidate, owner
+notification, identity validation, history, journal publication/recovery and
+collaboration machinery as generated setters. Any callback exception, invalid
+mutation selector or duplicate insertion fails the entire action even when caught
+by the caller. Editors contain checked resolvers, never candidate references;
+they reject use after the action closes. No borrowed lookup extends snapshot or
+element lifetime beyond its callback.
+
 `commit()` records completion and throws on failure. Destruction records failure
 without throwing; exceptional unwinding reverts. Callback execution returns the
 outcome after completion and does not retry or retain the lambda. Call `revert()`

@@ -1,0 +1,20 @@
+serializer version 1.7.0;
+
+namespace transaction_collections {
+  class point stable_ids {
+    public double x (1);
+    public double y (2);
+  }
+  class entry stable_ids managed {
+    public string text (1);
+  }
+  class document stable_ids managed {
+    public array point points (1);
+    public map(string) double scores (2);
+    public array[3] double coefficients (3);
+    public managed array entry entries (4);
+    public managed map(string) entry keyed_entries (5);
+    public transient array uint32 scratch;
+    public array bool flags (7);
+  }
+}

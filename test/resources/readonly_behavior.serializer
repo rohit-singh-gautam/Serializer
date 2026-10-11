@@ -1,0 +1,26 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.8.0;
+
+enum readonly_phase { idle, ready }
+class readonly_identity {
+  public uint64 identity;
+  public bool enabled;
+  public readonly_phase phase;
+  public array[3] uint64 values;
+  public function bool matches(uint64 candidate) readonly expression(identity == candidate);
+  public function bool ready() readonly expression(enabled && phase == readonly_phase::ready);
+  public function bool indexed(int64 index, uint64 candidate) readonly predicate(values[index] == candidate);
+  public function bool positive() readonly predicate(all(values, 3, item => item > 0));
+  public function bool too_many() readonly predicate(all(values, 2, item => item > 0));
+  public function bool finite(double value) readonly predicate(math.is_finite(value));
+  public function bool guarded(bool inspect, double value) readonly predicate(!inspect || math.sqrt(value) > 0.0);
+  public function bool ratio(double denominator) readonly predicate(1.0 / denominator > 0.0);
+}
+
+// Unrelated nonliteral storage must not suppress a scalar readonly method's constexpr declaration.
+class readonly_nonliteral {
+  public uint64 identity;
+  public map<uint64, uint64> cache;
+  public function bool matches(uint64 candidate) readonly expression(identity == candidate);
+}

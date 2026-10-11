@@ -26,6 +26,9 @@ enum class serialize_key_type { none, integer, string };
 // Unchecked binary text requires the caller to guarantee valid UTF-8 at the boundary.
 enum class binary_text_validation { strict, unchecked };
 
+// Select output-only floating-point identity; model values and decoder semantics stay unchanged.
+enum class binary_scalar_normalization { preserve, positive_zero };
+
 namespace constants {
 // The first byte stores a two-bit length tag and six payload bits.
 inline constexpr std::uint32_t variable_tag_mask = 0xc0U;
@@ -57,6 +60,18 @@ static_assert((variable_tag_mask & variable_payload_mask) == 0);
 } // namespace constants
 
 namespace detail {
+// Normalize floating zero at the wire boundary while retaining every other scalar's exact bits.
+template <binary_scalar_normalization Policy, typename T>
+constexpr T normalize_binary_scalar(T value) noexcept {
+  static_assert(Policy == binary_scalar_normalization::preserve ||
+                Policy == binary_scalar_normalization::positive_zero);
+  if constexpr (Policy == binary_scalar_normalization::positive_zero && std::floating_point<T>) {
+    return value == T{} ? T{} : value;
+  } else {
+    return value;
+  }
+}
+
 // Keep public scalar storage and JSON values independent of the native binary encoding.
 template <bool Prefix, bool Strict, std::unsigned_integral T> struct compact_output {
   T value;

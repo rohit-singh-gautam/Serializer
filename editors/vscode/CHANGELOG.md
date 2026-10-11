@@ -1,3 +1,19 @@
+# 1.1.35
+
+- Highlight typed predicates, finite checks, indexed fields and bounded all/any reductions.
+- Recognize algorithm-qualified digest return declarations without treating the digest algorithm as a method name.
+- Navigate qualified enum constants in predicates through included and unsaved schemas.
+- Add a readonly predicate snippet and keep both editor versions synchronized.
+
+# 1.1.34
+
+- Highlight language 1.8 constructors/factories, structured defaults, empty transient layout and checked portable math/guards.
+- Navigate constructor/factory parameter types and generic base applications with declaration-scope generic parameters.
+- Map generated field declarations in all eleven output languages to their schema, including inherited members resolved by native language services.
+- Preserve unsaved/transitive include navigation, selection boundaries and unrelated native symbols.
+- Add construction/default/layout snippets and select language 1.8.0 in new schemas.
+- Keep both editor package versions synchronized.
+
 # 1.1.33
 
 - Recognize schema language 1.7.0 optional<T> and nested generic array/map type operands.

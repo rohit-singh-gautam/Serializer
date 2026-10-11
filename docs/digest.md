@@ -47,6 +47,14 @@ language `1.3.0` or newer. An existing declared type named `digest` still resolv
 as that user type for a bare reference, including in older schemas. Explicit
 `digest(...)` and `digest[N]` select the built-in byte type.
 
+With [schema behavior](behavior.md), language `1.6.0` and newer also accepts all
+three forms in native or external method return and parameter types. A method
+such as `public function digest(sha256) copy_hash(digest(sha256) payload) readonly;`
+has no wire identity. Its application implementation supplies the bytes and
+their ownership; generated methods do not hash or validate an opaque native
+body's result. Existing digest field layouts and codec cardinality checks apply
+unchanged.
+
 ## Supported algorithms
 
 | Schema algorithm / C++ enum member | Digest bytes | Digest bits |

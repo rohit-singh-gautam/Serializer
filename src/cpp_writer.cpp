@@ -21,6 +21,10 @@
 #include "protobuf_schema.hpp"
 #include "schema_version.hpp"
 #include "behavior_writer.hpp"
+#include "predicate_helpers.hpp"
+#include "statement_behavior_writer.hpp"
+#include "construction_writer.hpp"
+#include "comparison_writer.hpp"
 
 #include <rohit/serializer_creator.hpp>
 
@@ -77,7 +81,9 @@ class emitter : private naming {
   bool constant_evaluation_enabled{false};
   bool positional_only{false};
   bool emission_only{false};
+  bool managed_separate_values{false};
   bool rename_behavior_identifiers{true};
+  std::map<std::string, class_comparison_options> class_comparisons;
   friend class managed_writer<emitter>;
   managed_writer<emitter> managed_;
   // Keep compiler metadata names independent of presentation profiles.
@@ -91,7 +97,9 @@ public:
         constant_evaluation_enabled{options.constant_evaluation},
         positional_only{options.protocols == cpp_protocols::binary_none},
         emission_only{options.emission_only},
+        managed_separate_values{options.managed_separate_values},
         rename_behavior_identifiers{options.rename_identifiers},
+        class_comparisons{options.class_comparisons},
         managed_{*this, options.managed_id_type, options.managed_separate_values} {
     if (emission_only && (!constant_evaluation_enabled || !positional_only)) {
       throw std::invalid_argument{
@@ -154,6 +162,146 @@ public:
       return emission_only ? "::std::span<const ::std::uint8_t>" : "::std::vector<::std::uint8_t>";
     }
     return storage_type_name(value.name, value.resolved_node, mode);
+  }
+
+  // Retain dependent generated base applications in native template inheritance and traversal.
+  std::string parent_type_name(const parent& base) {
+    return !base.type_expression.empty() && base.type_expression.front().application ?
+        generic_default(base.type_expression.front()) : storage_type_name(base.name, base.parent_class);
+  }
+
+  // Compare selected schema values without including wire headers or hidden runtime metadata.
+  void write_comparisons(rohit::type_check::output_buffer auto& output,
+                         const class_node* object) {
+    const auto* comparison_settings = comparison::find(*object, class_comparisons);
+    if (!comparison_settings || (!comparison_settings->equality && !comparison_settings->ordering)) {
+      return;
+    }
+    const auto selection = comparison::parts(*object, *comparison_settings);
+    const auto values = [&](std::string_view receiver) {
+      std::vector<std::string> result;
+      for (const auto* base : selection.bases) {
+        result.push_back("static_cast<const " + parent_type_name(*base) + "&>(" +
+                         std::string{receiver} + ")");
+      }
+      for (const auto* field : selection.fields) {
+        result.push_back(std::string{receiver} + "." + member_name(*field));
+      }
+      return result;
+    };
+    const auto tuple = [](const std::vector<std::string>& items) {
+      std::string result{"::std::tie("};
+      for (std::size_t index{}; index < items.size(); ++index) {
+        if (index) { result += ", "; }
+        result += items[index];
+      }
+      return result + ")";
+    };
+    const auto self = type_name(object->name);
+    std::set<std::string> occupied;
+    std::set<const class_node*> visited;
+    // Inherited members and template parameters can also trigger native shadow diagnostics.
+    const auto collect_names = [&](auto&& recurse, const class_node& owner) -> void {
+      if (!visited.insert(&owner).second) { return; }
+      occupied.insert(type_name(owner.name));
+      for (const auto& parameter : owner.generic_parameters) { occupied.insert(parameter.name); }
+      for (const auto& field : owner.member_list) { occupied.insert(member_name(field)); }
+      for (const auto& method : owner.functions) { occupied.insert(function_name(method.name)); }
+      for (const auto& base : owner.parents) {
+        if (base.parent_class) { recurse(recurse, *base.parent_class); }
+      }
+    };
+    collect_names(collect_names, *object);
+    // Select a deterministic spelling without restricting previously valid schema names.
+    const auto parameter_name = [&](std::string_view source) {
+      const auto base = local_name(source);
+      auto result = base;
+      for (std::size_t suffix{}; occupied.contains(result);) {
+        result = base + "_" + std::to_string(++suffix);
+      }
+      occupied.insert(result);
+      return result;
+    };
+    const auto other = parameter_name("other");
+    const auto left = parameter_name("left");
+    const auto right = parameter_name("right");
+    const auto lhs = tuple(values("(*this)"));
+    const auto rhs = tuple(values(other));
+    const bool generic = object->type == object_type::generic_definition;
+    output.write("\npublic:\n");
+    if (comparison_settings->equality) {
+      output.write("  // Test memberwise equality using the configured schema field selection.\n"
+                   "  constexpr bool operator==(const ", self, "& ", other, ") const");
+      const auto left_values = values(left);
+      const auto right_values = values(right);
+      if (generic && !left_values.empty()) {
+        output.write("\n    requires requires(const ", self, "& ", left,
+                     ", const ", self, "& ", right, ") {\n");
+        for (std::size_t index{}; index < left_values.size(); ++index) {
+          output.write("      { ", left_values[index], " == ", right_values[index],
+                       " } -> ::std::convertible_to<bool>;\n");
+        }
+        output.write("    }");
+      }
+      output.write(" {\n");
+      if (selection.bases.empty() && selection.fields.empty()) {
+        output.write("    static_cast<void>(", other, ");\n");
+      }
+      output.write("    return ", lhs, " == ", rhs, ";\n  }\n");
+    }
+    if (comparison_settings->ordering) {
+      output.write("  // Preserve the members' comparison category in lexicographic order.\n"
+                   "  constexpr auto operator<=>(const ", self, "& ", other, ") const");
+      if (generic) {
+        output.write("\n    requires requires(const ", self, "& ", left,
+                     ", const ", self, "& ", right, ") {\n      ",
+                     tuple(values(left)), " <=> ", tuple(values(right)), ";\n    }");
+      }
+      output.write(" {\n");
+      if (selection.bases.empty() && selection.fields.empty()) {
+        output.write("    static_cast<void>(", other, ");\n");
+      }
+      output.write("    return ", lhs, " <=> ", rhs, ";\n  }\n");
+    }
+  }
+
+  // Native generic aliases share operators with their source template and cannot diverge.
+  void bind_comparison_aliases(const std::vector<std::unique_ptr<syntax_node>>& statements) {
+    for (const auto& statement : statements) {
+      if (statement->type == object_type::namespace_type) {
+        bind_comparison_aliases(static_cast<const namespace_node&>(*statement).statements);
+      } else if (statement->type == object_type::class_type) {
+        const auto& object = static_cast<const class_node&>(*statement);
+        const auto configured = class_comparisons.find(object.get_full_name());
+        if (object.generic_name.empty() || object.supports_managed() ||
+            configured == class_comparisons.end()) { continue; }
+        const auto [source, inserted] = class_comparisons.emplace(object.generic_name,
+                                                                 configured->second);
+        if (!inserted && (source->second.equality != configured->second.equality ||
+                          source->second.ordering != configured->second.ordering ||
+                          source->second.fields != configured->second.fields)) {
+          throw std::invalid_argument{
+              "C++ generic aliases require identical comparison configuration: " +
+              object.get_full_name() + " and " + object.generic_name};
+        }
+      }
+    }
+  }
+
+  // Share identical generated declarations while diagnosing incompatible imports of one type.
+  void write_reusable_unit(auto& output, std::string_view identity, std::string_view source) {
+    if (source.empty()) { return; }
+    constexpr std::string_view hex_digits = "0123456789ABCDEF";
+    std::string guard = "SERIALIZER_GENERATED_";
+    for (const unsigned char byte : identity) {
+      guard += hex_digits[byte >> 4];
+      guard += hex_digits[byte & 15];
+    }
+    const auto signature = std::to_string(detail::field_name_hash(source)) + "ULL";
+    output.write("#if defined(", guard, ")\n#if ", guard, " != ", signature,
+        "\n#error \"Incompatible Serializer generated definitions for ", identity,
+        "\"\n#endif\n#else\n#define ", guard, " ", signature, "\n", source,
+        "#endif // ", guard, "\n\n");
   }
 
   // Detect a schema-native optional anywhere in a generated model's owned value graph.
@@ -224,10 +372,13 @@ public:
         }
         application += ">";
         if (emitted.insert(application).second) {
-          output.write("namespace rohit::serializer::detail {\n"
+          full_stream_auto_alloc unit_output{};
+          unit_output.write("namespace rohit::serializer::detail {\n"
                        "// Retain canonical optional values for this concrete schema application.\n"
                        "template<> inline constexpr bool schema_optional_values<", application,
                        "> = true;\n}\n");
+          write_reusable_unit(output, "optional:" + application,
+              {reinterpret_cast<const char*>(unit_output.begin()), unit_output.current_offset()});
         }
       }
     }
@@ -461,7 +612,7 @@ public:
         out_stream.write(", ");
       }
       write_access_type(out_stream, parent.access);
-      out_stream.write(' ', storage_type_name(parent.name, parent.parent_class));
+      out_stream.write(' ', parent_type_name(parent));
     }
   }
 
@@ -480,18 +631,32 @@ public:
     write_access_type(output, method.access);
     output.write(":\n  ");
     using dispatch = function_declaration::dispatch_type;
+    const bool typed_body = method.expression && !body && !editor_receiver &&
+        method.effect == function_declaration::effect_type::readonly;
+    std::set<std::string> checked_float_inputs;
+    if (typed_body && !method.predicate_body) {
+      behavior::floating_symbols(*method.expression, checked_float_inputs);
+    }
+    const bool inferred_constexpr = typed_body && method.dispatch == dispatch::ordinary &&
+        behavior::constexpr_expression(*method.expression) &&
+        behavior::constexpr_parameters(*owner, method) && checked_float_inputs.empty();
+    const bool inferred_noexcept = typed_body &&
+        (method.predicate_body || behavior::noexcept_expression(*method.expression));
     if (method.dispatch == dispatch::virtual_method || method.dispatch == dispatch::override_method) {
       output.write("virtual ");
     }
+    if (inferred_constexpr) { output.write("constexpr "); }
     output.write(method.return_type.name == "void" ? "void" : generic_default(method.return_type), " ",
                  function_name(method.name), "(");
     for (std::size_t index = 0; index < method.parameters.size(); ++index) {
       const auto& argument = method.parameters[index];
       if (index) { output.write(", "); }
+      if (method.expression) { output.write("[[maybe_unused]] "); }
       output.write(generic_default(argument.type), " ", local_name(argument.name));
     }
     output.write(")");
     if (!editor_receiver && method.effect == function_declaration::effect_type::readonly) { output.write(" const"); }
+    if (inferred_noexcept) { output.write(" noexcept"); }
     if (method.dispatch == dispatch::override_method && behavior::concrete_virtual_base(*owner, method)) { output.write(" override"); }
     if (editor_receiver) { output.write(" requires (!Access::is_runtime_access)"); }
     if (method.dispatch == dispatch::abstract_method) { output.write(" = 0;\n"); return; }
@@ -514,19 +679,53 @@ public:
       if (argument != method.parameters.end()) { return local_name(argument->name); }
       const auto field = std::find_if(owner->member_list.begin(), owner->member_list.end(),
           [&](const auto& value) { return value.name == name; });
+      if (field == owner->member_list.end()) { throw std::invalid_argument{"Unbound native behavior symbol"}; }
       return std::string{"this->"} + member_name(*field);
     };
     output.write(" {\n");
-    std::set<std::string> symbols;
-    behavior::expression_symbols(*method.expression, symbols);
-    for (const auto& name : symbols) {
-      output.write("    if (!::std::isfinite(static_cast<double>(", symbol(name),
-                   "))) { throw ::std::domain_error{\"Portable expression requires finite inputs\"}; }\n");
+    if (!method.predicate_body) {
+      std::set<std::string> symbols;
+      behavior::floating_symbols(*method.expression, symbols);
+      for (const auto& name : symbols) {
+        output.write("    if (!::std::isfinite(static_cast<double>(", symbol(name),
+            "))) { throw ::std::domain_error{\"Portable expression requires finite inputs\"}; }\n");
+      }
     }
-    output.write("    const double serializer_behavior_result = ",
-        behavior::expression(*method.expression, "cpp", symbol), ";\n",
-        "    if (!::std::isfinite(serializer_behavior_result)) { throw ::std::domain_error{\"Non-finite portable result\"}; }\n",
-        "    return serializer_behavior_result;\n  }\n");
+    behavior::statement_context context;
+    context.cpp = true; context.predicate = method.predicate_body; context.symbol = symbol;
+    const auto collides = [&](std::string_view prefix) {
+      return std::any_of(method.parameters.begin(), method.parameters.end(), [&](const auto& argument) {
+        return local_name(argument.name).starts_with(prefix);
+      });
+    };
+    while (collides(context.prefix) || collides(context.valid) || collides(context.budget)) {
+      context.prefix += '_'; context.valid += '_'; context.budget += '_';
+    }
+    context.native_type = [&](const auto& type) { return generic_default(type); };
+    context.enum_value = [&](const auto& type, auto name) { return full_type_name(type.resolved_node) + "::" + enum_name(name); };
+    context.member = [&](const behavior_expression& node, std::string base) {
+      const auto* record = static_cast<const class_node*>(node.operands.front().resolved_type->resolved_node);
+      for (const auto index : node.member_base_path) { record = record->parents.at(index).parent_class; }
+      const auto field = std::find_if(record->member_list.begin(), record->member_list.end(),
+          [&](const auto& item) { return item.name == node.value; });
+      return "(" + base + ")." + member_name(*field);
+    };
+    std::size_t indentation = 4;
+    context.line = [&](const auto& text) { output.write(std::string(indentation, ' '), text, "\n"); };
+    context.open = [&](const auto& text) { context.line(text + " {"); indentation += 2; };
+    context.close = [&]() { indentation -= 2; context.line("}"); };
+    context.fail = [&]() { context.line(method.predicate_body ? "return false;" :
+        "throw ::std::domain_error{\"Invalid portable expression\"};"); };
+    context.line("bool " + context.valid + " = true;");
+    context.line("(void)" + context.valid + ";");
+    if (behavior::has_reduction(*method.expression)) {
+      context.line("::std::size_t " + context.budget + " = " +
+          std::to_string(behavior_expression::maximum_reduction_visits) + ";");
+    }
+    behavior::statement_expression lower{context};
+    const auto result = lower.emit(*method.expression);
+    context.line("return " + result + ";");
+    output.write("  }\n");
   }
 
   // Explicit qualification retains references to every required external definition, even when unused.
@@ -616,8 +815,12 @@ public:
       if (!support.empty()) {
         out_stream.write(support, '\n');
       }
+      if (member.empty_layout) {
+        out_stream.write("  static_assert(std::is_empty_v<", get_cpp_type(member), ">, \"layout(empty) requires a stateless type\");\n"
+                         "#if defined(_MSC_VER)\n  [[msvc::no_unique_address]]\n#else\n  [[no_unique_address]]\n#endif\n");
+      }
       out_stream.write("  ", get_cpp_type(member), ' ', member_name(member), "{");
-      if (!member.default_value.empty()) {
+      if (!member.default_value.empty() || !member.default_factory.empty()) {
         // Initialize the backing array explicitly so generic elements may also be aggregates.
         const bool aggregate_elements = member.inferred_extent;
         if (aggregate_elements) { out_stream.write("{"); }
@@ -651,17 +854,17 @@ public:
       if (key_type == rohit::serializer::serialize_key_type::string) {
         out_stream.write("::std::make_pair(", constant_output_name(parent.display_name),
                          ", static_cast<const ",
-                         storage_type_name(parent.name, parent.parent_class),
+                         parent_type_name(parent),
                          "*>(this))"
                          ");");
       } else if (key_type == rohit::serializer::serialize_key_type::integer) {
         out_stream.write("::std::make_pair(static_cast<::std::uint32_t>(", parent.id,
                          "), static_cast<const ",
-                         storage_type_name(parent.name, parent.parent_class),
+                         parent_type_name(parent),
                          "*>(this))"
                          ");");
       } else {
-        out_stream.write("static_cast<const ", storage_type_name(parent.name, parent.parent_class),
+        out_stream.write("static_cast<const ", parent_type_name(parent),
                          "*>(this)"
                          ");");
       }
@@ -1073,7 +1276,7 @@ public:
   // Pass a matching base donor without adding a protocol value charge for the parent.
   void write_parent_input(rohit::type_check::output_buffer auto& output, const parent& base,
                           std::string_view indent) {
-    const auto base_type = storage_type_name(base.name, base.parent_class);
+    const auto base_type = parent_type_name(base);
     output.write(indent, "if constexpr (::std::is_same_v<StorageSource, ::std::nullptr_t>) {\n",
                  indent, "  static_cast<", base_type, "*>(this)->serialize_in(",
                  local_name("serializer_protocol"), ");\n", indent, "} else {\n", indent,
@@ -1824,7 +2027,7 @@ public:
                  "  template <::rohit::serializer::wire_format SelectedFormat = ::rohit::serializer::wire_format::protobuf>\n"
                  "  void serializer_protobuf_reset() {\n");
     for (const auto& base : object.parents) {
-      output.write("    static_cast<", storage_type_name(base.name, base.parent_class),
+      output.write("    static_cast<", parent_type_name(base),
                    "*>(this)->template serializer_protobuf_reset<SelectedFormat>();\n");
     }
     for (const auto& item : object.member_list) {
@@ -1859,7 +2062,7 @@ public:
     for (const auto& base : object.parents) {
       output.write("    ", protocol, ".template field<", base.id, ">(\"", base.display_name,
                    "\", \"", protobuf_json_name(base.display_name), "\", *static_cast<const ",
-                   storage_type_name(base.name, base.parent_class), "*>(this));\n");
+                   parent_type_name(base), "*>(this));\n");
     }
     for (const auto& item : object.member_list) {
       const auto condition = protobuf_field_condition(item.omitted_formats, "ProtobufProtocol::format");
@@ -1924,7 +2127,7 @@ public:
       output.write("      if (", protocol, ".template match<", base.id, ">(\"", base.display_name,
                    "\", \"", protobuf_json_name(base.display_name), "\")) {\n        ", protocol,
                    ".template occurrence<false>(protobuf_seen_", base.id, ");\n        ", protocol,
-                   ".field(*static_cast<", storage_type_name(base.name, base.parent_class),
+                   ".field(*static_cast<", parent_type_name(base),
                    "*>(this));\n        continue;\n      }\n");
     }
     for (const auto& item : object.member_list) {
@@ -2208,7 +2411,13 @@ public:
       }
     }
     write_ordered_body(out_stream, obj);
+    out_stream.write(construction::factories(*obj, type_name(obj->name), "cpp",
+        [&](const auto& value) { return generic_default(value); },
+        [&](auto name, auto) { return field_name(name); },
+        [&](const auto& value) { return default_value(value); },
+        [&](auto name) { return function_name(name); }));
     write_behavior_contract(out_stream, obj);
+    write_comparisons(out_stream, obj);
 
     out_stream.write("\npublic:\n"
                      "  static constexpr bool serializer_reuses_storage = ",
@@ -2430,60 +2639,64 @@ public:
           emission_namespace_open = true;
         }
       }
-      switch (statement->type) {
-      case object_type::namespace_type:
+      if (statement->type == object_type::namespace_type) {
         write_namespace(out_stream, dynamic_cast<const namespace_node*>(statement.get()));
-        break;
-
+        continue;
+      }
+      full_stream_auto_alloc unit_output{};
+      switch (statement->type) {
       case object_type::class_type:
         if (!static_cast<const class_node*>(statement.get())->generic_name.empty() &&
             !static_cast<const class_node*>(statement.get())->supports_managed()) {
           const auto& object = static_cast<const class_node&>(*statement);
           const auto* definition = generic_definitions.at(object.generic_name);
-          out_stream.write("using ", type_name(object.name), " = ", full_type_name(definition), "<");
+          unit_output.write("using ", type_name(object.name), " = ", full_type_name(definition), "<");
           for (std::size_t index = 0; index < object.generic_arguments.size(); ++index) {
-            if (index != 0) { out_stream.write(", "); }
+            if (index != 0) { unit_output.write(", "); }
             const auto& argument = object.generic_arguments[index];
-            out_stream.write(argument.kind == generic_argument_kind::dimension ?
+            unit_output.write(argument.kind == generic_argument_kind::dimension ?
                 std::to_string(argument.dimension) + "ULL" : storage_type_name(argument));
           }
-          out_stream.write(">;\n\n");
+          unit_output.write(">;\n\n");
           if (!behavior::contracts(object).empty()) {
             const auto qualified = full_type_name(definition);
             const auto separator = qualified.rfind("::");
             const auto scope = separator == std::string::npos ? std::string{} : qualified.substr(0, separator + 2);
             for (const auto suffix : {"_behavior", "_behavior_adapter"}) {
-              out_stream.write("using ", type_name(object.name + suffix), " = ", scope, type_name(definition->name + suffix), "<");
+              unit_output.write("using ", type_name(object.name + suffix), " = ", scope, type_name(definition->name + suffix), "<");
               for (std::size_t index{}; index < object.generic_arguments.size(); ++index) {
-                if (index) { out_stream.write(", "); }
+                if (index) { unit_output.write(", "); }
                 const auto& argument = object.generic_arguments[index];
-                out_stream.write(argument.kind == generic_argument_kind::dimension ?
+                unit_output.write(argument.kind == generic_argument_kind::dimension ?
                     std::to_string(argument.dimension) + "ULL" : storage_type_name(argument));
               }
-              out_stream.write(">;\n");
+              unit_output.write(">;\n");
             }
           }
           break;
         }
-        if (!managed_.write_primary(out_stream, static_cast<const class_node*>(statement.get()))) {
-          write_class(out_stream, static_cast<const class_node*>(statement.get()));
+        if (!managed_.write_primary(unit_output, static_cast<const class_node*>(statement.get()))) {
+          write_class(unit_output, static_cast<const class_node*>(statement.get()));
         }
         break;
 
       case object_type::generic_definition:
         generic_definitions.emplace(statement->get_full_name(), static_cast<const class_node*>(statement.get()));
         if (!static_cast<const class_node*>(statement.get())->supports_managed()) {
-          write_class(out_stream, static_cast<const class_node*>(statement.get()));
+          write_class(unit_output, static_cast<const class_node*>(statement.get()));
         }
         break;
 
       case object_type::enum_type:
-        write_enum(out_stream, dynamic_cast<const enum_node*>(statement.get()));
+        write_enum(unit_output, dynamic_cast<const enum_node*>(statement.get()));
         break;
 
       default:
         break;
       }
+      const std::string_view unit_source{reinterpret_cast<const char*>(unit_output.begin()),
+                                        unit_output.current_offset()};
+      write_reusable_unit(out_stream, full_type_name(statement.get()), unit_source);
     }
     if (emission_namespace_open) { out_stream.write("} // namespace emission\n\n"); }
   }
@@ -2542,6 +2755,9 @@ public:
           throw std::invalid_argument{"cpp.protocols binary_none does not support managed or view models"};
         }
         if (emission_only) {
+          if (!object.constructions.empty()) {
+            throw std::invalid_argument{"cpp.emission_only does not support owning construction APIs"};
+          }
           for (const auto& field : object.member_list) {
             if (field.modifier == member::modifier_type::map) {
               throw std::invalid_argument{"cpp.emission_only does not support map fields"};
@@ -2567,6 +2783,24 @@ public:
     if (positional_only) { validate_positional_profile(statements); }
     if (protobuf_enabled) { validate_protobuf_schema(statements); }
     validate_names(statements);
+    bind_comparison_aliases(statements);
+    comparison::validate(statements, class_comparisons);
+    const bool has_comparisons = std::any_of(class_comparisons.begin(), class_comparisons.end(),
+        [](const auto& entry) { return entry.second.equality || entry.second.ordering; });
+    if (managed_separate_values && has_comparisons) {
+      std::map<std::string, const class_node*> owners;
+      comparison::collect(statements, owners);
+      for (const auto& [name, owner] : owners) {
+        const auto* settings = comparison::find(*owner, class_comparisons);
+        if (owner->supports_managed() && settings && (settings->equality || settings->ordering)) {
+          throw std::invalid_argument{
+              "C++ managed comparisons do not support cpp.managed_separate_values: " + name};
+        }
+      }
+    }
+    if (emission_only && has_comparisons) {
+      throw std::invalid_argument{"C++ record comparisons require owning output, not cpp.emission_only"};
+    }
     managed_.prepare(statements);
     if (emission_only) {
       out_stream.write("// Generated by Serializer. Do not edit this file manually.\n"
@@ -2593,6 +2827,7 @@ public:
     }
     if (has_variants) { out_stream.write("#include <variant>\n"); }
     out_stream.write("\n#include <array>\n#include <cstddef>\n");
+    if (has_comparisons) { out_stream.write("#include <compare>\n#include <concepts>\n"); }
     if (has_views) {
       out_stream.write("#include <span>\n");
     }
@@ -2608,9 +2843,17 @@ public:
                      "#include <type_traits>\n"
                      "#include <utility>\n"
                      "#include <vector>\n\n");
-    const auto native_hooks = behavior::preambles(statements, "cpp");
-    if (!native_hooks.empty()) {
-      out_stream.write("// clang-format off\n", native_hooks, "// clang-format on\n");
+    out_stream.write(behavior::helpers("cpp"));
+    out_stream.write(behavior::helpers_predicate("cpp"));
+    for (const auto& statement : statements) {
+      if (statement->type != object_type::native_code) { continue; }
+      const auto& code = static_cast<const native_code_node&>(*statement).code;
+      if (code.language != "cpp") { continue; }
+      const auto native_hook = "// clang-format off\n" + behavior::source_marker(code, "cpp") +
+          behavior::line_directive(code, "cpp") + code.text + behavior::reset_line("cpp") +
+          "\n// clang-format on\n";
+      const auto identity = "preamble:" + code.source_path + ":" + std::to_string(code.source_offset);
+      write_reusable_unit(out_stream, identity, native_hook);
     }
     write_statement_list(out_stream, statements);
     std::set<std::string> optional_applications;

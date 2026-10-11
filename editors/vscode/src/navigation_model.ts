@@ -17,12 +17,14 @@ export interface TypeSymbol extends Span {
   declaration: number;
   definition: boolean;
   schemaQualified?: string;
+  genericSource?: Span & { name: string; scope: string[] };
   typeParameter?: boolean;
 }
 export interface SourceIndex {
   symbols: TypeSymbol[];
   includes: SchemaInclude[];
   references: Array<Span & { name: string; scope: string[]; kind?: TypeSymbol['kind'] }>;
+  members?: Array<Span & { name: string; owner: string }>;
 }
 
 /** Resolve schema include shorthand without searching for alternate files or extensions. */
@@ -48,10 +50,11 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
   const code = codeOnly(text);
   const tokens: Token[] = [...code.matchAll(/[A-Za-z_][A-Za-z_0-9]*|::|[^\s]/g)]
     .map(match => ({ text: match[0], start: match.index!, end: match.index! + match[0].length }));
-  const result: SourceIndex = { symbols: [], includes: [], references: [] };
+  const result: SourceIndex = { symbols: [], includes: [], references: [], members: [] };
   const scopes: string[][] = [[]];
   const namespaceBodies = new Map<number, string[]>();
-  const currentScope = (): string[] => scopes[scopes.length - 1];
+  let referenceScope: string[] | undefined;
+  const currentScope = (): string[] => referenceScope ?? scopes[scopes.length - 1];
 
   /** Consume a qualified identifier and retain every component as one navigation range. */
   function qualified(start: number): { next: number; name: string; start: number; end: number } | undefined {
@@ -71,6 +74,11 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
     const maximumTypeDepth = 128;
     if (depth >= maximumTypeDepth) { return start + 1; }
     const token = tokens[start]?.text;
+    if (token === 'layout' && tokens[start + 1]?.text === '(') {
+      let next = start + 2;
+      while (next < tokens.length && ![')', ';', '}'].includes(tokens[next].text)) { ++next; }
+      return tokens[next]?.text === ')' ? typeReference(next + 1, depth + 1) : next;
+    }
     if (token === 'digest' && ['(', '['].includes(tokens[start + 1]?.text ?? '')) {
       // Algorithm names and manual byte extents are metadata, not schema type references.
       const close = tokens[start + 1].text === '(' ? ')' : ']';
@@ -182,6 +190,23 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
         }
         --i;
       }
+    } else if (schema && ['expression', 'predicate'].includes(token.text) &&
+               tokens[i + 1]?.text === '(') {
+      // Typed enum constants reference their type; lambda variables and field projections do not.
+      let depth = 1;
+      for (let next = i + 2; next < tokens.length && depth; ++next) {
+        if (tokens[next].text === '(') { ++depth; }
+        if (tokens[next].text === ')') { --depth; }
+        const value = qualified(next);
+        if (value && value.name.includes('::')) {
+          const separator = value.next - 2;
+          result.references.push({ start: value.start, end: tokens[separator - 1].end,
+            name: value.name.slice(0, value.name.lastIndexOf('::')),
+            scope: [...currentScope()], kind: 'enum' });
+          next = value.next - 1;
+        }
+        i = next;
+      }
     } else if (token.text === '{') {
       scopes.push(namespaceBodies.get(i) ?? currentScope());
     } else if (token.text === '}') {
@@ -210,14 +235,24 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
       const name = tokens[i + 1];
       if (name && tokens[i + 2]?.text === '=') {
         const qualifiedName = [...currentScope(), name.text].join('::');
+        const family = qualified(i + 3);
         result.symbols.push({ ...name, name: name.text, qualified: qualifiedName, kind: 'class',
-          body: name.start, declaration: token.start, definition: true });
+          body: name.start, declaration: token.start, definition: true,
+          genericSource: family ? { start: family.start, end: family.end,
+            name: family.name, scope: [...currentScope()] } : undefined });
         result.references.push({ ...name, name: qualifiedName, scope: [] });
         typeReference(i + 3);
       }
     } else if (schema && ['public', 'private', 'protected'].includes(token.text)) {
       // Typed magic can reference an enum; legacy magic and payload versions have no type operand.
-      if (tokens[i + 1]?.text === 'function') {
+      if ((tokens[i + 1]?.text === 'constructor' && tokens[i + 2]?.text === '(') ||
+          (tokens[i + 1]?.text === 'factory' && tokens[i + 3]?.text === '(')) {
+        let next = i + (tokens[i + 1].text === 'constructor' ? 3 : 4);
+        while (next < tokens.length && ![')', ';', '}'].includes(tokens[next].text)) {
+          next = typeReference(next) + 1;
+          if (tokens[next]?.text === ',') { ++next; }
+        }
+      } else if (tokens[i + 1]?.text === 'function') {
         let next = i + 2;
         if (['virtual', 'abstract', 'override'].includes(tokens[next]?.text)) { ++next; }
         next = typeReference(next);
@@ -234,7 +269,13 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
       } else if (tokens[i + 1]?.text === 'magic') {
         if (qualified(i + 2)) { defaultReference(typeReference(i + 2), true); }
       } else if (tokens[i + 1]?.text !== 'version') {
-        defaultReference(typeReference(i + 1));
+        const next = typeReference(i + 1);
+        const field = tokens[next];
+        if (field && /^[A-Za-z_]\w*$/.test(field.text)) {
+          result.members!.push({ start: field.start, end: field.end, name: field.text,
+            owner: currentScope().join('::') });
+        }
+        defaultReference(next);
       }
     } else if (token.text === 'class' || token.text === 'struct' || token.text === 'enum') {
       if (tokens[i - 1]?.text === 'enum') { continue; }
@@ -273,8 +314,18 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
       }
       // Keep primary-template forward declarations for C++ service results, but not parameters.
       if (!schema && !['{', ':', 'final', ';'].includes(tokens[body]?.text)) { continue; }
+      const header = body;
       while (body < tokens.length && !['{', ';', '}'].includes(tokens[body].text)) { ++body; }
       if (tokens[body]?.text !== '{' && (schema || tokens[body]?.text !== ';')) { continue; }
+      if (schema) {
+        referenceScope = [...currentScope(), name.text];
+        for (let next = header; next < body; ++next) {
+          if (['public', 'private', 'protected'].includes(tokens[next].text)) {
+            next = typeReference(next + 1) - 1;
+          }
+        }
+        referenceScope = undefined;
+      }
       if (schema && parameters.length) {
         const scope = [...currentScope(), name.text];
         namespaceBodies.set(body, scope);
@@ -290,7 +341,7 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
         kind: token.text === 'enum' ? 'enum' : 'class', start: name.start, end: name.end,
         body: tokens[body].start, declaration: token.start, definition: tokens[body].text === '{' };
       result.symbols.push(symbol);
-      if (classScopes && symbol.definition) {
+      if ((classScopes || schema) && symbol.definition) {
         namespaceBodies.set(body, [...currentScope(), name.text]);
       }
       if (schema) {
@@ -300,6 +351,7 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
           name: symbol.qualified, scope: [] });
         result.references.push({ start: name.start, end: name.end,
           name: symbol.qualified, scope: [] });
+        i = body - 1;
       }
     }
   }

@@ -37,6 +37,15 @@ storage injected through an opaque class hook has no generated history, identity
 or runtime-reset contract. A selected
 target without a body uses its external-definition contract.
 
+Native and external method signatures also accept `digest`, `digest[N]`, and
+`digest(algorithm)` as return and parameter types with language `1.6.0` or newer.
+For example, `public function digest(sha256) copy_hash(digest(sha256) payload)
+readonly cpp { return payload; };` returns the supplied bytes. These signatures
+use each target's existing digest storage type; they add no wire fields and do
+not compute a hash. Native code remains responsible for its byte ownership and
+length contract, including the lifetime of a returned C `srl_buffer`. Digest
+values are outside the portable expression profile. See [digest storage](digest.md).
+
 | Target | External definition or attachment |
 |---|---|
 | C++ | Define the generated member in application `.cpp`; call `model::serializer_require_behavior_definitions()` during qualification to retain references to unused required definitions |
@@ -129,14 +138,89 @@ public function double average(double copies) readonly
 The portable form supports finite binary64 literals, declared scalar symbols,
 `math.pi`, unary `+`/`-`, binary `+`/`-`/`*`, grouping and explicit
 `to_double(int32_or_uint32)`. Arithmetic operands and the result are `double`;
-implicit integer arithmetic, loops, assignment, general calls and division are
-rejected. Bounds are 1024 expression nodes and depth 64. This deliberately small
-language leaves application-specific logic in native code.
+implicit integer arithmetic, arbitrary loops, assignment and general calls are rejected.
+Bounds are 1024 expression nodes and depth 64. This bounded language leaves
+application-specific logic in native code.
 
-Evaluation preserves the parsed order and Python symbols are converted to
-binary64 after validation, even when application code assigns Python integers. Inputs and result must be finite; integer
-conversions are exact over the declared 32-bit range, including Java unsigned
+Language `1.8.0` adds binary64 division, `math.sqrt(value)`, `math.sin(value)` and
+`math.cos(value)`, numeric comparisons `<`, `<=`, `>`, `>=`, matching scalar/enum
+equality `==`/`!=`, boolean literals/parameters/fields, `!`, `&&`, `||`, and
+`condition ? when_true : when_false`. Conditions must be boolean; both branches
+must have the same scalar type, and the declared return type must match.
+Arithmetic requires explicit double operands. Comparisons retain matching signed
+or unsigned integer widths, float/double, bool equality, or declared enum identity;
+an adjacent integer literal binds to that exact width and is checked for range.
+Mixed signed/unsigned or integer/floating comparisons require an explicit supported
+conversion. Qualified enum constants use `mode::active`.
+The operators use conventional precedence, left associative arithmetic, and
+right associative conditional branches. `&&`, `||` and `?:` evaluate only the
+needed operands/branch, so a guard can exclude invalid arithmetic:
+
+```text
+serializer version 1.8.0;
+class measurements {
+  public function double root(double value) readonly
+    expression(value >= 0.0 ? math.sqrt(value) : 0.0);
+  public function bool ratio_exceeds(double value, double divisor) readonly
+    expression(divisor != 0.0 && value / divisor > 1.0);
+}
+```
+
+Both positive and negative zero divisors reject. Square root accepts finite
+nonnegative inputs, including negative zero. Sine/cosine accept any finite
+binary64 input and use radians; results follow the target's standard math library
+without a guarantee of identical final bits across SDKs. Every evaluated numeric
+intermediate must be finite, including arithmetic feeding a comparison. Skipped
+branches perform no arithmetic/domain checks. Direct scalar floating input
+symbols are validated for finiteness before `expression(...)`
+evaluation, including symbols in skipped branches. Floating member/index/item
+loads are checked when reached. Dynamic targets require the declared boolean,
+integer range and enum identity without coercion. Older declared contracts reject
+the new operators and boolean results.
+
+Readonly boolean methods can instead declare `predicate(...)`. Reached invalid
+arithmetic, projections or bounded traversal return false; skipped branches perform
+no validation. This API does not throw or panic for semantic failure. C checked
+predicate calls publish false with `srl_ok`; null receiver/result arguments still
+return `srl_invalid`. `math.is_finite(float_or_double)` observes NaN/infinity and
+returns false in either form, allowing explicit finite guards. Bounds and arithmetic
+inside that observation remain checked.
+
+Public generated record fields can be projected with `point.coordinate`, including
+public inherited fields. Sequences and fixed arrays support `items[index]` and
+`size(items)`, which returns exact uint64. Indices must be exact integral values;
+negative or out-of-range reached indices fail before reading storage.
+
+```text
+public function bool usable(uint64 index) readonly
+  predicate(index < size(samples) && math.is_finite(samples[index].coordinate));
+public function bool all_usable() readonly
+  predicate(all(samples, 16, item => math.is_finite(item.coordinate)));
+```
+
+`all(collection, bound, item => boolean)` and `any(...)` evaluate readonly typed
+items in order with short circuiting. The literal bound is 1 through 1,000,000;
+the collection's length must satisfy it before any item is evaluated. Empty `all`
+is true and empty `any` is false. Every invocation shares a 1,000,000 visited-item
+budget across nested reductions, charged once per visited item. Exhaustion fails
+the expression or returns false for a predicate. Binder names cannot shadow fields,
+parameters or outer binders. Maps, optional/variant projection, integer arithmetic,
+mutation and arbitrary calls are outside this profile.
+
+C++ emits `constexpr`/`noexcept` for eligible readonly typed methods, including
+exact scalar predicates and bounded projections/reductions whose operations permit
+constant evaluation. Runtime math and throwing checked expression operations retain
+their appropriate runtime qualifiers; native/opaque bodies remain application-owned.
+
+Evaluation preserves the parsed order. Python floating arithmetic inputs are
+converted to binary64 after validation, even when application code assigns Python
+integers; exact integer comparisons retain integer values. Arithmetic inputs,
+intermediates and results must be finite; integer conversions
+are exact over the declared 32-bit range, including Java unsigned
 storage. Dynamic targets also reject fractional/out-of-range integer operands.
+Private arithmetic helpers avoid authored type, member and parameter names after
+the selected naming conversion. Helper-like schema names keep their original
+bindings, including under Java/C# `naming = preserve`.
 
 | Target | Nonfinite input/result |
 |---|---|
@@ -145,7 +229,7 @@ storage. Dynamic targets also reject fractional/out-of-range integer operands.
 | Kotlin | `SerializerException` |
 | Go, Rust | Panic/assertion failure |
 | Swift | Throwing method |
-| C | Checked `srl_status` API leaves output unchanged; convenience API returns NaN and sets `errno` |
+| C | Checked `srl_status` API leaves double/bool output unchanged; convenience API returns NaN (double) or false (bool) and sets `errno` |
 
 ## Beautification and diagnostic mapping
 
@@ -168,6 +252,8 @@ metadata anchor. This is a fragment map, not a statement-by-statement native AST
 
 ```powershell
 python test/behavior_languages.py --compiler out/build/make-Release/Release/serializer.exe --language all
+python test/behavior_languages.py --compiler out/build/make-Release/Release/serializer.exe --language java,csharp --preserve-names
+python test/typed_behavior_languages.py --compiler out/build/make-Release/Release/serializer.exe --language all
 python test/native_behavior_languages.py --compiler out/build/make-Release/Release/serializer.exe --language all
 ```
 

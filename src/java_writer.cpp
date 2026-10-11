@@ -1,6 +1,8 @@
 #include "schema_projection.hpp"
 #include "version_writer.hpp"
 #include "behavior_writer.hpp"
+#include "construction_writer.hpp"
+#include "comparison_writer.hpp"
 #include "format_writer.hpp"
 #include "generated_notices.hpp"
 #include <rohit/serializer_creator.hpp>
@@ -176,6 +178,7 @@ std::string width(std::string_view name) {
 class emitter {
   const java_options& options;
   std::string outer;
+  behavior::checked_helpers arithmetic_helpers{};
   std::string source{};
   std::size_t level{1};
   std::map<const syntax_node*, std::string> names{};
@@ -316,6 +319,10 @@ class emitter {
 
   // Translate portable literal defaults and reject arbitrary C++ expressions.
   std::string default_value(const member& value) const {
+    if (!value.default_factory.empty()) {
+      return construction::factory_call(names.at(value.type_name_list.front().resolved_node),
+          field(value.default_factory), "java");
+    }
     const auto& item = value.type_name_list.front();
     if (item.name.starts_with("version")) {
       return schema_version::trim(value.default_value);
@@ -897,18 +904,109 @@ class emitter {
               [&](const auto& item) { return item.name == name; });
           return argument == method.parameters.end() ? "this." + field(name) : field(name);
         };
-        std::set<std::string> symbols; behavior::expression_symbols(*method.expression, symbols);
-        for (const auto& input : symbols) {
-          line("if (!Double.isFinite(" + symbol(input) + ")) { throw new ArithmeticException(\"Non-finite input\"); }");
+        if (!method.predicate_body) {
+          std::set<std::string> symbols; behavior::expression_symbols(*method.expression, symbols);
+          for (const auto& input : symbols) {
+            const auto scalar = behavior::symbol_type(value, method, input);
+            const auto field_input = std::find_if(value.member_list.begin(), value.member_list.end(), [&](const auto& item) { return item.name == input; });
+            if ((scalar != "float" && scalar != "double") || (field_input != value.member_list.end() && field_input->modifier != member::modifier_type::none)) { continue; }
+            line("if (!Double.isFinite(" + symbol(input) + ")) { throw new ArithmeticException(\"Non-finite input\"); }");
+          }
         }
-        line("double srlBehaviorResult = " + behavior::expression(*method.expression, "java", symbol) + ";");
-        line("if (!Double.isFinite(srlBehaviorResult)) { throw new ArithmeticException(\"Non-finite result\"); }");
+        behavior::expression_context context;
+        context.member_name = [&](std::string_view name) { return field(name); };
+        context.native_type = [&](const auto& item) { return type(item); };
+        context.enum_value = [&](const auto& item, std::string_view name) { return type(item) + "." + constant(name); };
+        context.predicate = method.predicate_body;
+        while (std::any_of(method.parameters.begin(), method.parameters.end(), [&](const auto& parameter) {
+          return field(parameter.name) == context.budget_name;
+        })) { context.budget_name += '_'; }
+        if (behavior::expression_has_reduction(*method.expression)) { line("long[] " + context.budget_name + " = {" + std::to_string(behavior_expression::maximum_reduction_visits) + "};"); }
+        if (method.predicate_body) { line("try {"); ++level; }
+        line(std::string{method.return_type.name == "bool" ? "boolean" : "double"} + " srlBehaviorResult = " + behavior::expression(*method.expression, "java", symbol, arithmetic_helpers, context) + ";");
+        if (method.return_type.name != "bool") { line("if (!Double.isFinite(srlBehaviorResult)) { throw new ArithmeticException(\"Non-finite result\"); }"); }
         line("return srlBehaviorResult;");
+        if (method.predicate_body) { --level; line("} catch (RuntimeException srlFailure) { return false; }"); }
       } else {
         line("if (srlBehavior == null) { throw new IllegalStateException(\"Attach the required behavior before invocation\"); }");
         line(std::string(return_type == "void" ? "" : "return ") + "srlBehavior." + field(method.name) + "(" + arguments + ");");
       }
       --level; line("}");
+    }
+  }
+
+  // Compare selected owned values lexicographically without treating NaN as an ordered value.
+  void comparisons(const class_node& value) {
+    const auto* settings = comparison::find(value, options.class_comparisons);
+    if (!settings || (!settings->equality && !settings->ordering)) { return; }
+    const auto selected = comparison::parts(value, *settings);
+    struct operand {
+      const rohit::serializer::type_name* type;
+      bool record;
+      std::string left, right;
+    };
+    std::vector<operand> operands;
+    for (std::size_t index{}; index < value.parents.size(); ++index) {
+      if (std::find(selected.bases.begin(), selected.bases.end(), &value.parents[index]) != selected.bases.end()) {
+        operands.push_back({nullptr, true, "this.base" + std::to_string(index), "other.base" + std::to_string(index)});
+      }
+    }
+    for (const auto* member : selected.fields) {
+      const auto& type = member->type_name_list.front();
+      const bool record = type.resolved_node && (type.resolved_node->type == object_type::class_type ||
+                                               type.resolved_node->type == object_type::generic_definition);
+      operands.push_back({&type, record, "this." + field(member->name), "other." + field(member->name)});
+    }
+    const auto name = type_name(value.name);
+    if (settings->equality) {
+      line("/** Compare selected values; NaN remains unequal, including to itself. */");
+      line("public boolean equals_value(" + name + " other) {"); ++level;
+      line("if (other == null) { return false; }");
+      for (const auto& part : operands) {
+        const auto equal = part.record ? part.left + ".equals_value(" + part.right + ")" :
+            part.type->name == "string" ? part.left + ".equals(" + part.right + ")" :
+            part.left + " == " + part.right;
+        line("if (!(" + equal + ")) { return false; }");
+      }
+      line("return true;"); --level; line("}");
+    }
+    if (settings->ordering) {
+      line("/** Return -1, 0 or 1 lexicographically, or null for an unordered compared value. */");
+      line("public java.lang.Integer compare_value(" + name + " other) {"); ++level;
+      line("if (other == null) { return null; }");
+      std::size_t index{};
+      for (const auto& part : operands) {
+        const auto result = "srlComparison" + std::to_string(index++);
+        if (part.record) {
+          line("java.lang.Integer " + result + " = " + part.left + ".compare_value(" + part.right + ");");
+          line("if (" + result + " == null || " + result + " != 0) { return " + result + "; }");
+          continue;
+        }
+        const auto& type = *part.type;
+        if (type.name == "float" || type.name == "double") {
+          const auto native = type.name == "float" ? "java.lang.Float" : "java.lang.Double";
+          line("if (" + std::string{native} + ".isNaN(" + part.left + ") || " + native + ".isNaN(" + part.right + ")) { return null; }");
+        }
+        if (type.name == "bool") {
+          line("if (" + part.left + " != " + part.right + ") { return " + part.left + " ? 1 : -1; }");
+        } else if (type.name == "string" || type.type == object_type::enum_type || type.name == "uint64") {
+          const auto compare = type.name == "string" ? outer + ".compareText(" + part.left + ", " + part.right + ")" :
+              type.name == "uint64" ? "java.lang.Long.compareUnsigned(" + part.left + ", " + part.right + ")" :
+              "java.lang.Integer.compare(" + part.left + ".ordinal(), " + part.right + ".ordinal())";
+          line("int " + result + " = " + compare + ";");
+          line("if (" + result + " < 0) { return -1; }");
+          line("if (" + result + " > 0) { return 1; }");
+        } else {
+          const auto convert = [&](const std::string& source) {
+            return type.name == "uint8" || type.name == "char" ? "java.lang.Byte.toUnsignedInt(" + source + ")" :
+                type.name == "uint16" ? "java.lang.Short.toUnsignedInt(" + source + ")" :
+                type.name == "uint32" ? "java.lang.Integer.toUnsignedLong(" + source + ")" : source;
+          };
+          line("if (" + convert(part.left) + " < " + convert(part.right) + ") { return -1; }");
+          line("if (" + convert(part.left) + " > " + convert(part.right) + ") { return 1; }");
+        }
+      }
+      line("return 0;"); --level; line("}");
     }
   }
 
@@ -991,6 +1089,11 @@ class emitter {
       declaration(item);
     }
     behaviors(value);
+    source += construction::factories(value, name, "java",
+        [&](const auto& item) { return type(item); },
+        [&](auto item, auto) { return field(item); },
+        [&](const auto& item) { return default_value(item); });
+    comparisons(value);
     line("/** Encode this value into an independent exact-size message. */");
     line("public byte[] encode(Protocol protocol) {");
     ++level;
@@ -1350,6 +1453,11 @@ public:
       throw std::invalid_argument{"Java output filename conflicts with runtime type: " + outer};
     }
     register_nodes(values, outer, reserved);
+    std::vector<const syntax_node*> helper_nodes;
+    for (const auto& [node, name] : names) { static_cast<void>(name); helper_nodes.push_back(node); }
+    arithmetic_helpers = behavior::select_helpers(helper_nodes,
+        [&](const auto& node) { return type_name(node.name); },
+        [&](const auto name) { return field(name); });
     source = generated_license_notice(values, "//", true) +
              "// Generated by Serializer. Requires Java 17 or newer.\n";
     if (!options.package_name.empty()) {
@@ -1369,6 +1477,7 @@ public:
         "/** Schema types and dependency-free codecs. */\npublic final class " + outer + " {\n";
     line("/** Static schema container. */");
     line("private " + outer + "() {}");
+    source += behavior::helpers("java", arithmetic_helpers);
     // Runtime source uses two-space nesting; reindent for the selected profile.
     std::size_t start{};
     while (start < runtime_source.size()) {
@@ -1402,6 +1511,7 @@ public:
 std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,
                      std::string_view outer_class, const java_options& options) {
   require_unmanaged_backend(statements);
+  comparison::validate(statements, options.class_comparisons, true);
   emitter generator{options, outer_class};
   return behavior::finalize_mappings(generator.generate(statements));
 }

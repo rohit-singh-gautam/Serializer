@@ -1,17 +1,86 @@
-// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+﻿// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
 #include <rohit/serializer_creator.hpp>
 #include <algorithm>
+#include <array>
 #include <functional>
 #include <map>
+#include <optional>
 #include <set>
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 namespace rohit::serializer::writer::behavior {
+
+// Private arithmetic helper names remain distinct from all authored symbols in one output unit.
+struct checked_helpers {
+  std::string checked{"srl_behavior_checked"};
+  std::string divide{"srl_behavior_divide"};
+  std::string square_root{"srl_behavior_sqrt"};
+  // Compare the complete private helper contract for reuse and guard selection.
+  bool operator==(const checked_helpers&) const = default;
+};
+
+// Bind typed projections and the per-invocation predicate validity and reduction budget.
+struct expression_context {
+  std::function<std::string(std::string_view)> member_name;
+  std::function<std::string(const type_name&)> native_type;
+  std::function<std::string(const type_name&, std::string_view)> enum_value;
+  bool predicate{};
+  bool unchecked_leaf{};
+  std::string valid_name{"srl_behavior_ok"};
+  std::string budget_name{"srl_behavior_budget"};
+};
+
+// Lower typed operations before the legacy binary64 operation cases.
+inline std::optional<std::string> typed_expression(const behavior_expression& node, std::string_view language,
+    const std::function<std::string(std::string_view)>& symbol, const checked_helpers& names,
+    const expression_context& context);
+
+// Lower a resolved expression using backend names and explicit evaluation state.
+inline std::string expression(const behavior_expression& node, std::string_view language,
+    const std::function<std::string(std::string_view)>& symbol, const checked_helpers& names = {},
+    const expression_context& context = {});
+
+// Choose helper spellings after backend conversion without reserving otherwise-valid schema names.
+inline checked_helpers select_helpers(const std::vector<const syntax_node*>& nodes,
+    const std::function<std::string(const syntax_node&)>& declaration,
+    const std::function<std::string(std::string_view)>& identifier) {
+  std::set<std::string> symbols;
+  for (const auto* node : nodes) {
+    symbols.insert(declaration(*node));
+    if (node->type != object_type::class_type) { continue; }
+    const auto& owner = static_cast<const class_node&>(*node);
+    for (const auto& field : owner.member_list) { symbols.insert(identifier(field.name)); }
+    for (const auto& method : owner.functions) {
+      const auto name = identifier(method.name);
+      symbols.insert(name);
+      // C and Go publish owner-prefixed free functions; other backends use member names.
+      symbols.insert(declaration(*node) + "_" + name);
+      for (const auto& parameter : method.parameters) { symbols.insert(identifier(parameter.name)); }
+    }
+    for (const auto& factory : owner.constructions) {
+      symbols.insert(identifier(factory.constructor ? "create" : factory.name));
+      for (const auto& parameter : factory.parameters) { symbols.insert(identifier(parameter.name)); }
+    }
+  }
+  checked_helpers result{identifier("portable_arithmetic_checked"), identifier("portable_arithmetic_divide"),
+                         identifier("portable_arithmetic_sqrt")};
+  const auto collides = [&](const auto& helper) {
+    return symbols.contains(helper) || symbols.contains(helper + "_predicate") ||
+        symbols.contains(helper + "_integer") || symbols.contains(helper + "_boolean") ||
+        symbols.contains(helper + "_index") || symbols.contains(helper + "_reduce");
+  };
+  while (collides(result.checked) || collides(result.divide) || collides(result.square_root)) {
+    result.checked += '_'; result.divide += '_'; result.square_root += '_';
+  }
+  return result;
+}
 
 // Select an authored implementation without interpreting or rewriting its native tokens.
 inline const native_code_block* native_body(const function_declaration& method, std::string_view language) {
@@ -33,15 +102,42 @@ inline void require_native_names(const class_node& owner, std::string_view langu
 
 // Lower already type-checked expressions using bound backend field/parameter spellings.
 inline std::string expression(const behavior_expression& node, std::string_view language,
-                              const std::function<std::string(std::string_view)>& symbol) {
+                              const std::function<std::string(std::string_view)>& symbol,
+                              const checked_helpers& names, const expression_context& context) {
   using operation = behavior_expression::operation;
+  if (const auto typed = typed_expression(node, language, symbol, names, context)) { return *typed; }
+  const auto argument = [&](std::string value) {
+    // Native Rust rejects redundant grouping around helper arguments and condition values.
+    while (language == "rust" && value.starts_with('(') && value.ends_with(')')) {
+      std::size_t nesting{};
+      bool complete_group = true;
+      for (std::size_t index{}; index < value.size(); ++index) {
+        if (value[index] == '(') { ++nesting; }
+        if (value[index] == ')' && --nesting == 0 && index + 1 != value.size()) {
+          complete_group = false; break;
+        }
+      }
+      if (!complete_group) { break; }
+      value = value.substr(1, value.size() - 2);
+    }
+    return value;
+  };
+  const auto helper_prefix = language == "cpp" ? "::rohit::serializer::detail::" : "";
+  const auto checked = [&](std::string value) {
+    if (context.predicate && language == "rust") {
+      return names.checked + "_predicate(" + argument(std::move(value)) + ", &mut " + context.valid_name + ")";
+    }
+    return std::string{helper_prefix} + names.checked + "(" + argument(std::move(value)) + (language == "c" ? ", &srl_behavior_ok)" : ")");
+  };
+  const auto child = [&](std::size_t index) { return expression(node.operands.at(index), language, symbol, names, context); };
   switch (node.kind) {
   case operation::literal:
-    return node.value.find_first_of(".eE") == std::string::npos ? node.value + ".0" : node.value;
+    return (node.value.find_first_of(".eE") == std::string::npos ? node.value + ".0" : node.value) + (language == "rust" ? "_f64" : "");
   case operation::symbol: return symbol(node.value);
-  case operation::pi: return "3.141592653589793";
+  case operation::boolean: return language == "python" ? (node.value == "true" ? "True" : "False") : node.value;
+  case operation::pi: return language == "rust" ? "3.141592653589793_f64" : "3.141592653589793";
   case operation::to_double: {
-    const auto value = expression(node.operands.at(0), language, symbol);
+    const auto value = child(0);
     if (language == "cpp") { return "static_cast<double>(" + value + ")"; }
     if (language == "java" && node.value == "uint32") { return "((double)Integer.toUnsignedLong(" + value + "))"; }
     if (language == "rust") { return "(" + value + " as f64)"; }
@@ -52,16 +148,242 @@ inline std::string expression(const behavior_expression& node, std::string_view 
     if (language == "js" || language == "typescript") { return "Number(" + value + ")"; }
     return "((double)(" + value + "))";
   }
-  case operation::positive: return std::string(language == "rust" ? "(" : "(+") + expression(node.operands.at(0), language, symbol) + ")";
-  case operation::negative: return "(-" + expression(node.operands.at(0), language, symbol) + ")";
+  case operation::positive: return std::string(language == "rust" ? "(" : "(+") + child(0) + ")";
+  case operation::negative: return "(-" + child(0) + ")";
+  case operation::divide: return std::string{helper_prefix} + names.divide + (context.predicate && language == "rust" ? "_predicate" : "") + "(" + argument(child(0)) + ", " + argument(child(1)) + (context.predicate && language == "rust" ? ", &mut " + context.valid_name + ")" : language == "c" ? ", &srl_behavior_ok)" : ")");
+  case operation::square_root: return std::string{helper_prefix} + names.square_root + (context.predicate && language == "rust" ? "_predicate" : "") + "(" + argument(child(0)) + (context.predicate && language == "rust" ? ", &mut " + context.valid_name + ")" : language == "c" ? ", &srl_behavior_ok)" : ")");
+  case operation::sine:
+  case operation::cosine: {
+    const auto function = node.kind == operation::sine ? "sin" : "cos";
+    const auto value = child(0);
+    if (language == "rust") { return checked("(" + value + ")." + function + "()"); }
+    const auto prefix = language == "cpp" ? "::std::" : language == "csharp" ? "System.Math." : language == "java" || language == "js" || language == "typescript" ? "Math." : language == "python" ? "_math." : language == "go" ? "math." : language == "kotlin" ? "kotlin.math." : "";
+    const auto spelling = language == "go" || language == "csharp" ? (node.kind == operation::sine ? "Sin" : "Cos") : function;
+    return checked(std::string{prefix} + spelling + "(" + value + ")");
+  }
+  case operation::logical_not: return std::string{language == "python" ? "(not " : "(!"} + child(0) + ")";
+  case operation::logical_and:
+  case operation::logical_or:
+    return "(" + child(0) + (node.kind == operation::logical_and ? (language == "python" ? " and " : " && ") : (language == "python" ? " or " : " || ")) + child(1) + ")";
+  case operation::conditional:
+    if (language == "python") { return "(" + child(1) + " if " + child(0) + " else " + child(2) + ")"; }
+    if (language == "rust") { return "(if " + argument(child(0)) + " { " + argument(child(1)) + " } else { " + argument(child(2)) + " })"; }
+    if (language == "kotlin") { return "(if (" + child(0) + ") " + child(1) + " else " + child(2) + ")"; }
+    if (language == "go") { return "func() " + (node.resolved_type && context.native_type ? context.native_type(*node.resolved_type) : std::string{node.result_type == "bool" ? "bool" : "float64"}) + " { if " + child(0) + " { return " + child(1) + " }; return " + child(2) + " }()"; }
+    return "(" + child(0) + " ? " + child(1) + " : " + child(2) + ")";
+  case operation::less:
+  case operation::less_equal:
+  case operation::greater:
+  case operation::greater_equal:
+  case operation::equal:
+  case operation::not_equal: {
+    const auto token = node.kind == operation::less ? " < " : node.kind == operation::less_equal ? " <= " : node.kind == operation::greater ? " > " : node.kind == operation::greater_equal ? " >= " : node.kind == operation::equal ? " == " : " != ";
+    return "(" + child(0) + token + child(1) + ")";
+  }
   case operation::add:
   case operation::subtract:
   case operation::multiply:
-    return "(" + expression(node.operands.at(0), language, symbol) +
+    return checked(child(0) +
         (node.kind == operation::add ? " + " : node.kind == operation::subtract ? " - " : " * ") +
-        expression(node.operands.at(1), language, symbol) + ")";
+        child(1));
+  default: break;
   }
   throw std::invalid_argument{"Unsupported portable behavior expression"};
+}
+
+// Checked helper calls preserve branch laziness and reject invalid numeric intermediate values.
+inline std::string helpers(std::string_view language, const checked_helpers& names = {}) {
+  if (names != checked_helpers{}) {
+    auto source = helpers(language);
+    const std::array<std::pair<std::string_view, std::string>, 3> replacements{{
+        {"srl_behavior_checked", names.checked}, {"srl_behavior_divide", names.divide},
+        {"srl_behavior_sqrt", names.square_root}}};
+    for (const auto& [before, after] : replacements) {
+      std::size_t offset{};
+      while ((offset = source.find(before, offset)) != std::string::npos) {
+        source.replace(offset, before.size(), after);
+        offset += after.size();
+      }
+    }
+    if (language == "c") {
+      const std::string_view original_guard{"SRL_C_BEHAVIOR_HELPERS_INCLUDED"};
+      const auto guard = std::string{original_guard} + "_" + names.checked;
+      std::size_t offset{};
+      while ((offset = source.find(original_guard, offset)) != std::string::npos) {
+        source.replace(offset, original_guard.size(), guard);
+        offset += guard.size();
+      }
+    }
+    return source;
+  }
+  if (language == "cpp") { return R"CODE(
+#ifndef SERIALIZER_CPP_BEHAVIOR_HELPERS_INCLUDED
+#define SERIALIZER_CPP_BEHAVIOR_HELPERS_INCLUDED
+namespace rohit::serializer::detail {
+// Reject invalid intermediate values before a comparison can conceal arithmetic failure.
+inline double srl_behavior_checked(double value) {
+  if (!::std::isfinite(value)) { throw ::std::domain_error{"Non-finite portable expression"}; }
+  return value;
+}
+// Both signed zero divisors are outside the portable division domain.
+inline double srl_behavior_divide(double left, double right) {
+  if (right == 0.0) { throw ::std::domain_error{"Portable division by zero"}; }
+  return srl_behavior_checked(left / right);
+}
+// Square root accepts finite nonnegative inputs, including negative zero.
+inline double srl_behavior_sqrt(double value) {
+  if (value < 0.0) { throw ::std::domain_error{"Portable square root requires nonnegative input"}; }
+  return srl_behavior_checked(::std::sqrt(value));
+}
+} // namespace rohit::serializer::detail
+#endif
+)CODE"; }
+  if (language == "c") { return R"CODE(
+#ifndef SRL_C_BEHAVIOR_HELPERS_INCLUDED
+#define SRL_C_BEHAVIOR_HELPERS_INCLUDED
+/* Retain any numeric failure even when a surrounding comparison produces a boolean. */
+static inline double srl_behavior_checked(double value, bool* valid) {
+  if (!isfinite(value)) { *valid = false; }
+  return value;
+}
+/* Division rejects both signed zero divisors without publishing a result. */
+static inline double srl_behavior_divide(double left, double right, bool* valid) {
+  if (right == 0.0) { *valid = false; return NAN; }
+  return srl_behavior_checked(left / right, valid);
+}
+/* Negative square roots fail while negative zero remains a valid input. */
+static inline double srl_behavior_sqrt(double value, bool* valid) {
+  if (value < 0.0) { *valid = false; return NAN; }
+  return srl_behavior_checked(sqrt(value), valid);
+}
+#endif
+)CODE"; }
+  if (language == "python") { return R"CODE(
+def srl_behavior_checked(value):
+    """Reject non-finite numeric intermediates before surrounding boolean comparisons."""
+    if type(value) not in (int, float):
+        raise ValueError('Portable expression requires a numeric scalar')
+    try:
+        value = float(value)
+    except OverflowError as error:
+        raise ValueError('Non-finite portable expression') from error
+    if not _math.isfinite(value):
+        raise ValueError('Non-finite portable expression')
+    return value
+
+def srl_behavior_divide(left, right):
+    """Reject both signed zero divisors using the portable arithmetic failure contract."""
+    if right == 0.0:
+        raise ValueError('Portable division by zero')
+    return srl_behavior_checked(left / right)
+
+def srl_behavior_sqrt(value):
+    """Accept nonnegative finite input, including negative zero."""
+    if value < 0.0:
+        raise ValueError('Portable square root requires nonnegative input')
+    return srl_behavior_checked(_math.sqrt(value))
+)CODE"; }
+  if (language == "rust") { return R"CODE(
+// Reject invalid numeric intermediates before a comparison can conceal arithmetic failure.
+fn srl_behavior_checked(value: f64) -> f64 { assert!(value.is_finite(), "Non-finite portable expression"); value }
+// Division excludes both signed zero divisors.
+fn srl_behavior_divide(left: f64, right: f64) -> f64 { assert!(right != 0.0, "Portable division by zero"); srl_behavior_checked(left / right) }
+// Square root includes negative zero and excludes negative finite inputs.
+fn srl_behavior_sqrt(value: f64) -> f64 { assert!(value >= 0.0, "Portable square root requires nonnegative input"); srl_behavior_checked(value.sqrt()) }
+)CODE"; }
+  if (language == "go") { return R"CODE(
+// Reject invalid numeric intermediates before surrounding boolean comparisons.
+func srl_behavior_checked(value float64) float64 { if math.IsNaN(value) || math.IsInf(value, 0) { panic("Non-finite portable expression") }; return value }
+// Division excludes both signed zero divisors.
+func srl_behavior_divide(left, right float64) float64 { if right == 0 { panic("Portable division by zero") }; return srl_behavior_checked(left / right) }
+// Square root accepts nonnegative inputs including negative zero.
+func srl_behavior_sqrt(value float64) float64 { if value < 0 { panic("Portable square root requires nonnegative input") }; return srl_behavior_checked(math.Sqrt(value)) }
+)CODE"; }
+  if (language == "swift") { return R"CODE(
+// Reject non-finite numeric intermediates before surrounding boolean comparisons.
+private func srl_behavior_checked(_ value: Double) throws -> Double {
+  if !value.isFinite { throw SerializerError.invalid("Non-finite portable expression") }
+  return value
+}
+// Division excludes both signed zero divisors.
+private func srl_behavior_divide(_ left: Double, _ right: Double) throws -> Double {
+  if right == 0 { throw SerializerError.invalid("Portable division by zero") }
+  return try srl_behavior_checked(left / right)
+}
+// Square root accepts nonnegative inputs, including negative zero.
+private func srl_behavior_sqrt(_ value: Double) throws -> Double {
+  if value < 0 { throw SerializerError.invalid("Portable square root requires nonnegative input") }
+  return try srl_behavior_checked(sqrt(value))
+}
+)CODE"; }
+  if (language == "kotlin") { return R"CODE(
+// Reject invalid intermediates before surrounding boolean comparisons.
+private fun srl_behavior_checked(value: Double): Double {
+  if (!value.isFinite()) { throw SerializerException("Non-finite portable expression") }
+  return value
+}
+// Division excludes both signed zero divisors.
+private fun srl_behavior_divide(left: Double, right: Double): Double {
+  if (right == 0.0) { throw SerializerException("Portable division by zero") }
+  return srl_behavior_checked(left / right)
+}
+// Square root accepts nonnegative inputs, including negative zero.
+private fun srl_behavior_sqrt(value: Double): Double {
+  if (value < 0.0) { throw SerializerException("Portable square root requires nonnegative input") }
+  return srl_behavior_checked(kotlin.math.sqrt(value))
+}
+)CODE"; }
+  if (language == "java" || language == "csharp") {
+    const auto real = language == "java" ? "Double" : "double";
+    const auto finite_name = language == "java" ? ".isFinite" : ".IsFinite";
+    const auto error = language == "java" ? "ArithmeticException" : "System.ArithmeticException";
+    const auto sqrt_name = language == "java" ? "Math.sqrt" : "System.Math.Sqrt";
+    return "\n// Reject invalid intermediates before surrounding boolean comparisons.\nprivate static double srl_behavior_checked(double value) { if (!" + std::string{real} + finite_name + "(value)) { throw new " + error + "(\"Non-finite portable expression\"); } return value; }\n" +
+      "// Division excludes both signed zero divisors.\nprivate static double srl_behavior_divide(double left, double right) { if (right == 0.0) { throw new " + error + "(\"Portable division by zero\"); } return srl_behavior_checked(left / right); }\n" +
+      "// Square root accepts nonnegative inputs, including negative zero.\nprivate static double srl_behavior_sqrt(double value) { if (value < 0.0) { throw new " + error + "(\"Portable square root requires nonnegative input\"); } return srl_behavior_checked(" + sqrt_name + "(value)); }\n";
+  }
+  if (language == "js") { return R"CODE(
+// Reject invalid numeric intermediates before surrounding boolean comparisons.
+function srl_behavior_checked(value) { if (!Number.isFinite(value)) { throw new RangeError('Non-finite portable expression'); } return value; }
+// Division excludes both signed zero divisors.
+function srl_behavior_divide(left, right) { if (right === 0) { throw new RangeError('Portable division by zero'); } return srl_behavior_checked(left / right); }
+// Square root accepts nonnegative inputs, including negative zero.
+function srl_behavior_sqrt(value) { if (value < 0) { throw new RangeError('Portable square root requires nonnegative input'); } return srl_behavior_checked(Math.sqrt(value)); }
+)CODE"; }
+  return {};
+}
+
+// Swift requires try only when an evaluated subtree contains a throwing numeric helper.
+inline bool expression_can_fail(const behavior_expression& node, bool predicate = false, bool unchecked_leaf = false) {
+  using operation = behavior_expression::operation;
+  switch (node.kind) {
+  case operation::add:
+  case operation::subtract:
+  case operation::multiply:
+  case operation::divide:
+  case operation::square_root:
+  case operation::sine:
+  case operation::cosine: return true;
+  case operation::index_access:
+  case operation::all:
+  case operation::any: return true;
+  case operation::is_finite:
+    return std::any_of(node.operands.begin(), node.operands.end(), [&](const auto& child) { return expression_can_fail(child, predicate, true); });
+  case operation::symbol:
+  case operation::member_access:
+    if (!unchecked_leaf && (predicate || node.local_symbol || node.kind == operation::member_access) &&
+        (node.result_type == "double" || node.result_type == "float")) { return true; }
+    [[fallthrough]];
+  default:
+    return std::any_of(node.operands.begin(), node.operands.end(), [&](const auto& child) { return expression_can_fail(child, predicate, unchecked_leaf); });
+  }
+}
+
+// Detect reductions that share one bounded visit budget across nested evaluations.
+inline bool expression_has_reduction(const behavior_expression& node) {
+  using operation = behavior_expression::operation;
+  return node.kind == operation::all || node.kind == operation::any ||
+      std::any_of(node.operands.begin(), node.operands.end(), expression_has_reduction);
 }
 
 // Quote source metadata safely inside a comment or a native #line string literal.
@@ -164,7 +486,8 @@ inline std::string_view symbol_type(const class_node& owner, const function_decl
 
 // Gather only fields/parameters used by a portable body for validation before arithmetic.
 inline void expression_symbols(const behavior_expression& node, std::set<std::string>& result) {
-  if (node.kind == behavior_expression::operation::symbol) { result.insert(node.value); }
+  if (node.kind == behavior_expression::operation::is_finite) { return; }
+  if (node.kind == behavior_expression::operation::symbol && !node.local_symbol) { result.insert(node.value); }
   for (const auto& child : node.operands) { expression_symbols(child, result); }
 }
 
@@ -277,3 +600,5 @@ inline void require_unique_callable_names(const class_node& owner, std::string_v
 inline void require_ordinary_dispatch(const function_declaration&, std::string_view) {}
 
 } // namespace rohit::serializer::writer::behavior
+
+#include "typed_expression_writer.hpp"

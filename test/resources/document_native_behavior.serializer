@@ -47,3 +47,37 @@ class DocumentData stable_ids : public DocumentBase ("base",1) {
     using number_type = double;
   }
 }
+
+// Native digest signatures preserve bytes; methods add no durable fields or wire IDs.
+class DigestBehavior {
+  public function digest variable(digest payload) readonly
+    cpp { return payload; }
+    java { return payload; }
+    javascript { return payload; }
+    csharp { return payload; }
+    rust { payload }
+    python { return payload }
+    swift { return payload }
+    kotlin { return payload }
+    c { (void)value; return payload; };
+  public function digest[3] fixed_bytes(digest[3] payload) readonly
+    cpp { return payload; }
+    java { return payload; }
+    javascript { return payload; }
+    csharp { return payload; }
+    rust { payload }
+    python { return payload }
+    swift { return payload }
+    kotlin { return payload }
+    c { (void)value; return payload; };
+  public function digest(sha256) standard(digest(sha256) payload) readonly
+    cpp { return payload; }
+    java { return payload; }
+    javascript { return payload; }
+    csharp { return payload; }
+    rust { payload }
+    python { return payload }
+    swift { return payload }
+    kotlin { return payload }
+    c { (void)value; return payload; };
+}

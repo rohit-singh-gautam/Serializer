@@ -3,7 +3,8 @@ import * as path from 'node:path';
 import { fileKey, includeCandidates } from './model';
 import { cppIncludeAt, dependencySchemas, indexSource, resolveType, spanAt,
   SourceIndex, Span, TypeSymbol } from './navigation_model';
-import { generatedBanner, indexGeneratedSource, outputNames } from './generated_navigation';
+import { generatedBanner, generatedMember, indexGeneratedSource, outputMemberNames,
+  outputNames } from './generated_navigation';
 
 export interface NavigationTarget extends Span { file: string }
 export interface NavigationFiles {
@@ -145,7 +146,36 @@ export class Navigator {
     return [...new Set(preferred.length ? preferred : available)];
   }
 
-  /** Prefer generated type definitions, falling back to their schema without generating output. */
+  /** Find generated field definitions through the same dependency and owner identity as reverse navigation. */
+  private async memberDefinitions(file: string, member: Span & { name: string; owner: string }): Promise<NavigationTarget[]> {
+    const targets: NavigationTarget[] = [];
+    for (const output of await this.outputs(file, file)) {
+      const generated = await this.source(output);
+      if (!generated || this.host.cancelled()) { continue; }
+      const names = outputMemberNames(member.name, output, generated.text);
+      const owners = outputNames(member.owner, output, generated.text);
+      for (const entry of await this.headerEntries(output)) {
+        const graph = await this.graph(entry);
+        const symbols = graph.flatMap(source => source.index.symbols);
+        for (const alias of symbols.filter(symbol => symbol.genericSource)) {
+          if (resolveType(alias.genericSource!, symbols).some(family => family.qualified === member.owner)) {
+            owners.push(...outputNames(alias.qualified, output, generated.text));
+          }
+        }
+      }
+      for (const token of generated.text.matchAll(/[A-Za-z_]\w*/g)) {
+        if (this.host.cancelled()) { return []; }
+        if (!names.includes(token[0])) { continue; }
+        const field = generatedMember(generated.text, output, generated.index, token.index!);
+        if (field && (field.owner.schemaQualified === member.owner || owners.includes(field.owner.qualified))) {
+          targets.push({ file: output, start: field.start, end: field.end });
+        }
+      }
+    }
+    return this.unique(targets.length ? targets : [{ file, start: member.start, end: member.end }]);
+  }
+
+  /** Prefer generated type and field definitions, falling back to their schema without generating output. */
   async schema(file: string, offset: number, definition: boolean): Promise<NavigationTarget[]> {
     const source = await this.source(file);
     const include = source && spanAt(source.index.includes, offset);
@@ -155,6 +185,8 @@ export class Navigator {
       // An include identifies a schema, which may contribute many generated declarations.
       return [{ file: included, start: 0, end: 0 }];
     }
+    const member = definition && source && spanAt(source.index.members ?? [], offset);
+    if (member) { return this.memberDefinitions(file, member); }
     const declarations = await this.declarations(file, offset);
     if (!definition) { return this.unique(declarations); }
     const targets: NavigationTarget[] = [];
@@ -248,23 +280,45 @@ export class Navigator {
     const symbol = source && (spanAt(source.index.symbols.map(item =>
       ({ ...item, start: item.declaration })), offset)
       ?? source.index.symbols.find(item => item.declaration >= offset && item.end <= end));
-    if (!symbol) { return []; }
+    const member = !symbol && source ? generatedMember(source.text, header, source.index, offset) : undefined;
+    if (!symbol && !member) { return []; }
     const entries = await this.headerEntries(header);
     if (!entries.length) { return []; }
     const targets: NavigationTarget[] = [];
     for (const entry of entries) {
       const matches: Declaration[] = [];
-      for (const schema of await this.graph(entry)) {
+      const graph = await this.graph(entry);
+      const symbols = graph.flatMap(schema => schema.index.symbols);
+      const families = new Set<string>();
+      if (member) {
+        // Named concrete copies retain field provenance from the generic declaration.
+        for (const alias of symbols.filter(symbol => symbol.genericSource &&
+            outputNames(symbol.qualified, header, source!.text).includes(member.owner.qualified))) {
+          for (const family of resolveType(alias.genericSource!, symbols)) { families.add(family.qualified); }
+        }
+      }
+      for (const schema of graph) {
+        if (member) {
+          const members = (schema.index.members ?? []).filter(declaration =>
+            (member.owner.schemaQualified === declaration.owner || families.has(declaration.owner) ||
+             outputNames(declaration.owner, header, source!.text).includes(member.owner.qualified)) &&
+            outputMemberNames(declaration.name, header, source!.text).includes(member.name));
+          const exact = members.filter(declaration => declaration.name === member.name);
+          for (const declaration of exact.length ? exact : members) {
+            targets.push({ file: schema.file, start: declaration.start, end: declaration.end });
+          }
+          continue;
+        }
         for (const declaration of schema.index.symbols) {
-          if (declaration.kind === symbol.kind && (symbol.schemaQualified === declaration.qualified ||
+          if (declaration.kind === symbol!.kind && (symbol!.schemaQualified === declaration.qualified ||
             [...outputNames(declaration.qualified, header, source!.text),
-            ...(/\.(hpp|h|hxx|hh)$/i.test(header) ? managedNames(declaration.qualified) : [])].includes(symbol.qualified))) {
+            ...(/\.(hpp|h|hxx|hh)$/i.test(header) ? managedNames(declaration.qualified) : [])].includes(symbol!.qualified))) {
             matches.push({ ...declaration, file: schema.file });
           }
         }
       }
       const exact = matches.filter(declaration =>
-        outputNames(declaration.qualified, header, source!.text)[0] === symbol.qualified);
+        outputNames(declaration.qualified, header, source!.text)[0] === symbol!.qualified);
       targets.push(...(exact.length ? exact : matches));
     }
     return this.unique(targets);

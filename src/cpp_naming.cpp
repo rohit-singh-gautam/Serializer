@@ -218,6 +218,11 @@ std::string naming::full_type_name(const syntax_node* node) const {
 
 // Retain C++ expressions, spell 64-bit boundary literals portably, and resolve enum names.
 std::string naming::default_value(const member& field) const {
+  if (!field.default_factory.empty()) {
+    const auto& type = field.type_name_list.front();
+    const auto owner = type.resolved_node ? full_type_name(type.resolved_node) : type.name;
+    return owner + "::" + function_name(field.default_factory) + "()";
+  }
   if (field.inferred_extent && field.modifier == member::modifier_type::array) {
     // Inferred initializers are parsed schema lists; preserve nested aggregates and quoted commas.
     std::string result;
@@ -502,6 +507,13 @@ void naming::validate_names(const std::vector<std::unique_ptr<syntax_node>>& sta
           std::set<std::string> parameter_names;
           for (const auto& parameter : method.parameters) {
             insert_name(parameter_names, field_name(parameter.name));
+          }
+        }
+        for (const auto& construction : object.constructions) {
+          insert_name(owning, function_name(construction.constructor ? "create" : construction.name));
+          std::set<std::string> parameter_names;
+          for (const auto& parameter : construction.parameters) {
+            insert_name(parameter_names, "srl_arg_" + field_name(parameter.name));
           }
         }
         if (object.has_mode(storage_mode::owning) && owning.contains("to_string")) {

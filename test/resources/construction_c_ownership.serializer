@@ -1,0 +1,17 @@
+serializer version 1.8.0;
+
+class construction_owned {
+  public string transferred;
+  public string retained {"seed"};
+  public constructor(string input) {
+    transferred = input;
+    retained = "constructed";
+  }
+  public factory from_text(string input) {
+    transferred = input;
+    retained = "constructed";
+  }
+  public factory unused(optional<uint32> ignored_optional,
+                        array<uint32> ignored_sequence,
+                        map<string, uint32> ignored_map) {}
+}

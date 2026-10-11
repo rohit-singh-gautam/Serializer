@@ -1,0 +1,9 @@
+serializer version 1.8.0;
+include reuse_shared;
+
+namespace reusable_models {
+  class first_contract stable_ids {
+    public generic_derived<uint32> value (1);
+    public optional_value<uint32> selection (2);
+  }
+}

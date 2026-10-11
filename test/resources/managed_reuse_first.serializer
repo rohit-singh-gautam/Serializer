@@ -1,0 +1,8 @@
+serializer version 1.8.0;
+include managed_reuse_shared;
+
+namespace reusable_managed {
+  class first_contract stable_ids {
+    public shared_state state (1);
+  }
+}

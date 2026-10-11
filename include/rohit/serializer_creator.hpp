@@ -351,6 +351,8 @@ struct member {
   bool compact_strict{true}; // Prefix overflow is checked unless truncation is explicit.
   bool owning_variant{false}; // The variant keyword selects owning storage without changing union wire data.
   bool transient{false}; // Memory-only schema field; excluded from all durable traversal.
+  bool empty_layout{false}; // Portable hint: overlap only a stateless transient generated value.
+  std::string default_factory{}; // Typed zero-argument factory on the field's generated record.
 
   // Compare the relevant values without modifying either operand.
   bool operator==(const member& rhs) const {
@@ -358,7 +360,8 @@ struct member {
            type_name_list == rhs.type_name_list && name == rhs.name && managed == rhs.managed &&
            extent_expression == rhs.extent_expression && fixed_extent == rhs.fixed_extent &&
            inferred_extent == rhs.inferred_extent && owning_variant == rhs.owning_variant &&
-           transient == rhs.transient &&
+           transient == rhs.transient && empty_layout == rhs.empty_layout &&
+           default_factory == rhs.default_factory &&
            version == rhs.version && magic == rhs.magic &&
            compact == rhs.compact && compact_strict == rhs.compact_strict &&
            obsolete == rhs.obsolete &&
@@ -385,7 +388,14 @@ struct native_code_block {
 
 // A typed, expression-only computation; durable field identities are not involved.
 struct behavior_expression {
-  enum class operation { literal, symbol, pi, to_double, positive, negative, add, subtract, multiply };
+  static constexpr std::size_t maximum_reduction_visits = 1000000;
+  enum class operation {
+    literal, symbol, pi, to_double, positive, negative, add, subtract, multiply,
+    boolean, divide, square_root, sine, cosine, less, less_equal, greater, greater_equal,
+    equal, not_equal, logical_not, logical_and, logical_or, conditional,
+    integer_literal, member_access, index_access, enum_constant, collection_size,
+    is_finite, all, any
+  };
   operation kind{operation::literal};
   std::string value{};
   std::vector<behavior_expression> operands{};
@@ -394,12 +404,36 @@ struct behavior_expression {
   std::size_t source_line{1};
   std::size_t source_column{1};
   std::string source_path{};
+  std::string result_type{}; // Bound by validation before backend lowering.
+  std::optional<type_name> resolved_type{}; // Preserve exact storage and generated type identity.
+  member::modifier_type collection_modifier{member::modifier_type::none};
+  std::size_t reduction_bound{}; // Positive literal bound, independent of the shared visit budget.
+  bool local_symbol{false}; // Reduction binders resolve lexically instead of against the receiver.
+  std::uint64_t fixed_extent{}; // Fixed authored arrays need no runtime length member.
+  std::vector<std::size_t> member_base_path{}; // Composed portable bases used by inherited projections.
 };
 
 // A named argument with the schema's owned value type.
 struct function_parameter {
   type_name type{std::string{"double"}, nullptr};
   std::string name{};
+};
+
+// One owned field initialization, bound to a parameter, literal, or typed default factory.
+struct construction_assignment {
+  std::string field{};
+  std::string value{};
+  bool parameter{false};
+  bool factory_default{false};
+};
+
+// Portable value construction binds the generated owner instead of opaque self-type tokens.
+struct construction_declaration {
+  access_type access{access_type::public_access};
+  bool constructor{false};
+  std::string name{};
+  std::vector<function_parameter> parameters{};
+  std::vector<construction_assignment> assignments{};
 };
 
 // Schema-declared behavior is an API contract, not serialized executable state.
@@ -419,6 +453,7 @@ struct function_declaration {
   std::size_t source_line{1};
   std::size_t source_column{1};
   std::string source_path{};
+  bool predicate_body{false}; // Readonly bool: reached semantic failures return false.
 };
 
 // Keep declaration order separate from the field-only persistence traversal.
@@ -447,6 +482,8 @@ struct parent {
   class_node* parent_class{nullptr}; // This will be filled in later
   bool explicit_id{false};
   bool managed{false}; // Activate identity on this base occurrence, not on every use of its type.
+  // Preserve dependent generic arguments until the owning class is specialized.
+  std::vector<type_name> type_expression{};
 };
 
 // A resolved class schema with the requested C++ storage representations.
@@ -456,6 +493,7 @@ struct class_node : public syntax_node {
   std::vector<parent> parents;
   std::vector<member> member_list{};
   std::vector<function_declaration> functions{};
+  std::vector<construction_declaration> constructions{};
   std::vector<native_code_block> native_blocks{};
   std::vector<class_body_item> body_order{};
   std::string magic_bytes{}; // Exact raw binary prefix; no terminator, length, or field identity.
@@ -481,6 +519,8 @@ struct class_node : public syntax_node {
   std::vector<std::uint32_t> reserved_ids{};
   std::vector<std::string> reserved_variables{};
   std::vector<std::string> reserved_names{};
+  // Named concrete records retain their generic source for output-only behavior selection.
+  std::string named_generic_source{};
   // Initialize this object from the supplied storage or value state.
   class_node(object_type type, std::string&& name, namespace_node* parent_namespace,
              class_attributes attributes, std::vector<parent>&& parents)
@@ -490,7 +530,8 @@ struct class_node : public syntax_node {
   class_node(class_node&& rhs)
       : syntax_node{std::move(rhs)}, attributes{rhs.attributes}, storage_modes{rhs.storage_modes},
         parents{std::move(rhs.parents)}, member_list{std::move(rhs.member_list)},
-        functions{std::move(rhs.functions)}, native_blocks{std::move(rhs.native_blocks)},
+        functions{std::move(rhs.functions)}, constructions{std::move(rhs.constructions)},
+        native_blocks{std::move(rhs.native_blocks)},
         body_order{std::move(rhs.body_order)},
         magic_bytes{std::move(rhs.magic_bytes)}, magic_field{std::move(rhs.magic_field)},
         magic_access{rhs.magic_access},
@@ -502,7 +543,8 @@ struct class_node : public syntax_node {
         generic_arguments{std::move(rhs.generic_arguments)},
         reserved_ids{std::move(rhs.reserved_ids)},
         reserved_variables{std::move(rhs.reserved_variables)},
-        reserved_names{std::move(rhs.reserved_names)} {}
+        reserved_names{std::move(rhs.reserved_names)},
+        named_generic_source{std::move(rhs.named_generic_source)} {}
   // Return the sole version discriminator, or null for an unchanged unversioned contract.
   const member* version_member() const {
     for (const auto& field : member_list) {

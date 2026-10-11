@@ -1,0 +1,7 @@
+serializer version 1.8.0;
+
+class typed_budget_shadow {
+  public array uint64 values;
+  public function bool valid(uint64 srl_behavior_budget) readonly
+    predicate(all(values, 16, item => item == srl_behavior_budget));
+}

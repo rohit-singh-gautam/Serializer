@@ -17,7 +17,7 @@
   "Schema": {
     "prefix": "schema",
     "body": [
-      "serializer version 1.7.0;",
+      "serializer version 1.8.0;",
       "",
       "namespace ${1:models} {",
       "class ${2:account} stable_ids {",
@@ -197,5 +197,38 @@
     "prefix": "optional",
     "body": "public optional<${1:string}> ${2:value} (${3:1});$0",
     "description": "Declare an absent-by-default owning optional; C++ uses std::optional; requires schema language 1.7.0"
+  },
+  "Portable constructor": {
+    "prefix": "constructor",
+    "body": [
+      "public constructor(${1:double} ${2:input}) {",
+      "  ${3:value} = $2;",
+      "}$0"
+    ],
+    "description": "Initialize owned fields using typed schema parameters"
+  },
+  "Portable factory": {
+    "prefix": "factory",
+    "body": [
+      "public factory ${1:make}(${2:double} ${3:input}) {",
+      "  ${4:value} = $3;",
+      "}$0"
+    ],
+    "description": "Return the owning class with typed field assignments"
+  },
+  "Structured default": {
+    "prefix": "default-factory",
+    "body": "default(${1:origin})$0",
+    "description": "Select a zero-parameter schema factory as a field default"
+  },
+  "Empty transient layout": {
+    "prefix": "transient-empty",
+    "body": "public transient layout(empty) ${1:reference} ${2:execution};$0",
+    "description": "Request empty stateless transient C++ field layout without wire state"
+  },
+  "Portable predicate": {
+    "prefix": "predicate",
+    "body": "public function bool ${1:is_valid}() readonly predicate(${2:value != 0});$0",
+    "description": "Return false for reached invalid checks in a typed readonly predicate"
   }
 }

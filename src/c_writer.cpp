@@ -3,12 +3,18 @@
 #include "version_writer.hpp"
 #include "format_writer.hpp"
 #include "behavior_writer.hpp"
+#include "statement_behavior_writer.hpp"
+#include "construction_writer.hpp"
+#include "comparison_writer.hpp"
 
 #include <algorithm>
+#include <cstddef>
 #include <map>
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <utility>
+#include <vector>
 
 namespace rohit::serializer::writer::native {
 namespace {
@@ -23,6 +29,7 @@ constexpr std::string_view keywords =
 // Emit C11 structs and direct codecs with explicit, transactional ownership.
 class c_emitter {
   const schema& model;
+  behavior::checked_helpers arithmetic_helpers{};
   std::string output{
       "#pragma once\n#ifndef SRL_NATIVE_RUNTIME_INCLUDED\n#define SRL_NATIVE_RUNTIME_INCLUDED\n"};
   std::size_t indent{};
@@ -40,6 +47,10 @@ class c_emitter {
                                   "calloc",   "realloc",   "free",     "memset",     "memcpy",
                                   "memcmp",   "strlen",    "strcmp",   "strtod",     "strtof",
                                   "strtoull", "qsort",     "snprintf", "localeconv", "errno"};
+    if (std::any_of(model.class_comparisons.begin(), model.class_comparisons.end(),
+                    [](const auto& item) { return item.second.ordering; })) {
+      symbols.insert({"srl_comparison_result", "srl_less", "srl_equal", "srl_greater", "srl_unordered"});
+    }
     const auto add = [&](const std::string& symbol) {
       validate_identifier(symbol, keywords);
       if (!symbols.insert(symbol).second) {
@@ -58,6 +69,11 @@ class c_emitter {
         for (const auto suffix :
              {"_init", "_free", "_encode", "_decode", "_srl_read", "_srl_write"}) {
           add(n + suffix);
+        }
+        if (const auto* options = comparison::find(static_cast<const class_node&>(*node),
+                                                  model.class_comparisons)) {
+          if (options->equality) { add(n + "_equals_value"); }
+          if (options->ordering) { add(n + "_compare_value"); }
         }
         for (const auto& item : static_cast<const class_node&>(*node).member_list) {
           if (item.modifier == member::modifier_type::array ||
@@ -799,8 +815,9 @@ class c_emitter {
       const auto receiver = std::string(method.effect == function_declaration::effect_type::readonly ? "const " : "") + model_name + "* value";
       std::string parameters = receiver, arguments = "value";
       for (const auto& argument : method.parameters) {
-        parameters += ", " + type(argument.type) + " " + field(argument.name);
-        arguments += ", " + field(argument.name);
+        const auto argument_name = (method.expression ? "srl_arg_" : "") + field(argument.name);
+        parameters += ", " + type(argument.type) + " " + argument_name;
+        arguments += ", " + argument_name;
       }
       const auto* native = behavior::native_body(method, "c");
       if (!native && !method.expression) {
@@ -811,21 +828,41 @@ class c_emitter {
         const auto symbol = [&](std::string_view name_value) {
           const auto argument = std::find_if(method.parameters.begin(), method.parameters.end(),
               [&](const auto& item) { return item.name == name_value; });
-          return argument == method.parameters.end() ? "value->" + field(name_value) : field(name_value);
+          return argument == method.parameters.end() ? "value->" + field(name_value) : "srl_arg_" + field(name_value);
         };
-        open("static inline srl_status " + identifier + "_checked(" + parameters + ", double* result)");
+        open("static inline srl_status " + identifier + "_checked(" + parameters + ", " + result_type + "* result)");
         line("if (!value || !result) { return srl_invalid; }");
-        std::set<std::string> symbols; behavior::expression_symbols(*method.expression, symbols);
-        for (const auto& name_value : symbols) {
-          line("if (!isfinite((double)(" + symbol(name_value) + "))) { return srl_range; }");
+        for (const auto& argument : method.parameters) { line("(void)srl_arg_" + field(argument.name) + ";"); }
+        line("bool srl_behavior_ok = true;");
+        if (!method.predicate_body) {
+          std::set<std::string> symbols; behavior::floating_symbols(*method.expression, symbols);
+          for (const auto& name_value : symbols) {
+            line("if (!isfinite((double)(" + symbol(name_value) + "))) { return srl_range; }");
+          }
         }
-        line("double candidate = " + behavior::expression(*method.expression, "c", symbol) + ";");
-        line("if (!isfinite(candidate)) { return srl_range; }");
-        line("*result = candidate;"); line("return srl_ok;"); close();
-        open("static inline double " + identifier + "(" + parameters + ")");
-        line("double result;");
+        line("(void)srl_behavior_ok;");
+        behavior::statement_context context;
+        context.predicate = method.predicate_body; context.helpers = arithmetic_helpers; context.symbol = symbol;
+        context.native_type = [&](const auto& value_type) { return type(value_type); };
+        context.enum_value = [&](const auto& value_type, auto enumerator) { return type(value_type) + "_" + field(enumerator); };
+        context.member = [&](const behavior_expression& node, std::string base) {
+          for (const auto index : node.member_base_path) { base = "(" + base + ").base" + std::to_string(index); }
+          return "(" + base + ")." + field(node.value);
+        };
+        context.line = [&](const auto& text) { line(text); };
+        context.open = [&](const auto& text) { open(text); };
+        context.close = [&]() { close(); };
+        context.fail = [&]() { line(method.predicate_body ? "*result = false; return srl_ok;" : "return srl_range;"); };
+        if (behavior::has_reduction(*method.expression)) {
+          line("size_t srl_behavior_budget = " + std::to_string(behavior_expression::maximum_reduction_visits) + ";");
+        }
+        behavior::statement_expression lower{context};
+        const auto candidate = lower.emit(*method.expression);
+        line("*result = " + candidate + ";"); line("return srl_ok;"); close();
+        open("static inline " + result_type + " " + identifier + "(" + parameters + ")");
+        line(result_type + " result;");
         line("srl_status status = " + identifier + "_checked(" + arguments + ", &result);");
-        line("if (status != srl_ok) { errno = status == srl_invalid ? EINVAL : ERANGE; return NAN; }");
+        line("if (status != srl_ok) { errno = status == srl_invalid ? EINVAL : ERANGE; return " + std::string{method.return_type.name == "bool" ? "false" : "NAN"} + "; }");
         line("return result;"); close();
       } else {
         open("static inline " + result_type + " " + identifier + "(" + parameters + ")");
@@ -848,6 +885,136 @@ class c_emitter {
             model_name + "_" + field(method.name) + ";");
         line("(void)required" + std::to_string(index) + ";");
       }
+      close();
+    }
+  }
+
+  // Describe an owned parameter moved on success; scalar inputs remain passed by value.
+  bool construction_owned(const type_name& value) const {
+    return value.type == object_type::class_type || value.name == "string" || value.is_optional() ||
+        value.is_sequence() || value.is_associative() || value.is_digest();
+  }
+  // Compose the portable constructor/factory C signature with explicit destination ownership.
+  std::string construction_signature(const class_node& value, const construction_declaration& factory) const {
+    const auto n = name(&value);
+    std::string result = "static inline srl_status " + n + "_" +
+        field(factory.constructor ? "create" : factory.name) + "(" + n + "* result";
+    for (const auto& argument : factory.parameters) {
+      result += ", " + type(argument.type) + (construction_owned(argument.type) ? "* " : " ") +
+          "srl_arg_" + field(argument.name);
+    }
+    return result + ")";
+  }
+  // Publish a fresh constructed candidate only after allocation succeeds; owned inputs move once.
+  void constructions(const class_node& value) {
+    const auto n = name(&value);
+    construction::validate_names(value, n, [&](auto identifier, auto) { return field(identifier); });
+    for (const auto& factory : value.constructions) {
+      line("/* Construct into initialized/zeroed result; move inputs must be disjoint from result and each other. Failure preserves both. */");
+      open(construction_signature(value, factory));
+      line("if (!result) { return srl_invalid; }");
+      for (const auto& argument : factory.parameters) {
+        if (construction_owned(argument.type)) {
+          line("if (!srl_arg_" + field(argument.name) + ") { return srl_invalid; }");
+        } else {
+          line("(void)srl_arg_" + field(argument.name) + ";");
+        }
+      }
+      line(n + " srl_candidate = {0}; srl_status status = " + n + "_init(&srl_candidate);");
+      for (const auto& assignment : factory.assignments) {
+        const auto found = std::find_if(value.member_list.begin(), value.member_list.end(),
+            [&](const auto& item) { return item.name == assignment.field; });
+        const auto& t = found->type_name_list.front();
+        const auto dst = "srl_candidate." + field(found->name);
+        if (assignment.parameter) {
+          if (!construction_owned(t)) { line(dst + " = srl_arg_" + field(assignment.value) + ";"); }
+        } else if (assignment.factory_default) {
+          line("if (status == srl_ok) { status = " + type(t) + "_" + field(assignment.value) + "(&" + dst + "); }");
+        } else {
+          free_value(t, dst);
+          auto literal_value = *found;
+          literal_value.default_value = assignment.value;
+          init_value(t, dst, literal(literal_value), "status");
+        }
+      }
+      line("if (status != srl_ok) { " + n + "_free(&srl_candidate); return status; }");
+      for (const auto& assignment : factory.assignments) {
+        const auto found = std::find_if(value.member_list.begin(), value.member_list.end(),
+            [&](const auto& item) { return item.name == assignment.field; });
+        if (!assignment.parameter || !construction_owned(found->type_name_list.front())) { continue; }
+        const auto dst = "srl_candidate." + field(found->name);
+        const auto argument = "srl_arg_" + field(assignment.value);
+        free_value(found->type_name_list.front(), dst);
+        line(dst + " = *" + argument + "; memset(" + argument + ", 0, sizeof(*" + argument + "));");
+      }
+      line(n + "_free(result); *result = srl_candidate; return srl_ok;");
+      close();
+    }
+  }
+
+  // Compare initialized borrowed values without allocation; null arguments are unequal/unordered.
+  void comparisons(const class_node& value) {
+    const auto* options = comparison::find(value, model.class_comparisons);
+    if (!options) { return; }
+    const auto selected = comparison::parts(value, *options);
+    struct operand {
+      std::string name;
+      const syntax_node* nested{};
+      bool text{};
+      bool floating{};
+    };
+    std::vector<operand> operands;
+    for (const auto* base : selected.bases) {
+      const auto index = static_cast<std::size_t>(base - value.parents.data());
+      operands.push_back({"base" + std::to_string(index), base->parent_class, false, false});
+    }
+    for (const auto* item : selected.fields) {
+      const auto& type = item->type_name_list.front();
+      const auto* nested = type.resolved_node && type.resolved_node->type == object_type::class_type ?
+          type.resolved_node : nullptr;
+      operands.push_back({field(item->name), nested, type.name == "string",
+                         type.name == "float" || type.name == "double"});
+    }
+    const auto n = name(&value);
+    if (options->equality) {
+      line("/* Compare selected values without moving ownership; floating NaN is unequal. */");
+      open("static inline bool " + n + "_equals_value(const " + n + "* value, const " + n + "* other)");
+      line("if (!value || !other) { return false; }");
+      std::string expression;
+      for (const auto& item : operands) {
+        const auto left = "value->" + item.name, right = "other->" + item.name;
+        if (!expression.empty()) { expression += " && "; }
+        expression += item.nested ? name(item.nested) + "_equals_value(&" + left + ", &" + right + ")" :
+            item.text ? "srl_string_compare(&" + left + ", &" + right + ") == 0" :
+                        left + " == " + right;
+      }
+      line("return " + (expression.empty() ? std::string{"true"} : expression) + ";");
+      close();
+    }
+    if (options->ordering) {
+      line("/* Borrow selected values lexically; null or NaN returns srl_unordered. */");
+      open("static inline srl_comparison_result " + n + "_compare_value(const " + n + "* value, const " + n + "* other)");
+      line("if (!value || !other) { return srl_unordered; }");
+      for (std::size_t index{}; index < operands.size(); ++index) {
+        const auto& item = operands[index];
+        const auto left = "value->" + item.name, right = "other->" + item.name;
+        const auto result = "srl_order_" + std::to_string(index);
+        if (item.nested) {
+          line("const srl_comparison_result " + result + " = " + name(item.nested) +
+               "_compare_value(&" + left + ", &" + right + ");");
+          line("if (" + result + " != srl_equal) { return " + result + "; }");
+        } else if (item.text) {
+          line("const int " + result + " = srl_string_compare(&" + left + ", &" + right + ");");
+          line("if (" + result + " != 0) { return " + result + " < 0 ? srl_less : srl_greater; }");
+        } else {
+          if (item.floating) {
+            line("if (isnan(" + left + ") || isnan(" + right + ")) { return srl_unordered; }");
+          }
+          line("if (" + left + " < " + right + ") { return srl_less; }");
+          line("if (" + left + " > " + right + ") { return srl_greater; }");
+        }
+      }
+      line("return srl_equal;");
       close();
     }
   }
@@ -899,6 +1066,10 @@ class c_emitter {
         }
       } else if (f.modifier == member::modifier_type::none) {
         init_value(f.type_name_list.front(), dst, literal(f), "status");
+        if (!f.default_factory.empty()) {
+          line("if (status == srl_ok) { status = " + type(f.type_name_list.front()) + "_" +
+              field(f.default_factory) + "(&" + dst + "); }");
+        }
       } else if (f.fixed_extent != 0) {
         const auto count = std::to_string(f.fixed_extent);
         line("if (status == srl_ok) { " + dst + ".data = (" + type(f.type_name_list.front()) +
@@ -913,6 +1084,8 @@ class c_emitter {
     }
     line("if (status != srl_ok) { " + n + "_free(value); } return status;");
     close();
+    constructions(value);
+    comparisons(value);
     const auto magic_name = (value.magic_access == access_type::public_access ? "" : "srl_") +
                             n + "_magic";
     line("/* Encode in schema order; the source retains ownership of all its fields. */");
@@ -1161,6 +1334,17 @@ public:
                     "_fields"} {
     output += runtime;
     output += "\n#endif /* SRL_NATIVE_RUNTIME_INCLUDED */\n";
+    if (std::any_of(model.class_comparisons.begin(), model.class_comparisons.end(),
+                    [](const auto& item) { return item.second.ordering; })) {
+      output += "\n#ifndef SRL_NATIVE_COMPARISON_INCLUDED\n#define SRL_NATIVE_COMPARISON_INCLUDED\n"
+          "/* Partial ordering preserves floating unordered values and exact scalar comparisons. */\n"
+          "typedef enum srl_comparison_result { srl_less = -1, srl_equal = 0, srl_greater = 1, "
+          "srl_unordered = 2 } srl_comparison_result;\n#endif\n";
+    }
+    arithmetic_helpers = behavior::select_helpers(model.nodes,
+        [&](const auto& node) { return name(&node); },
+        [&](const auto name) { return field(name); });
+    output += behavior::helpers("c", arithmetic_helpers);
   }
   // Emit immutable key tables, public owning layouts, and checked direct codecs.
   std::string generate() {
@@ -1176,6 +1360,9 @@ public:
       for (const auto& method : object_value.functions) {
         collect_generic_types(method.return_type);
         for (const auto& argument : method.parameters) { collect_generic_types(argument.type); }
+      }
+      for (const auto& factory : object_value.constructions) {
+        for (const auto& argument : factory.parameters) { collect_generic_types(argument.type); }
       }
     }
     validate_symbols();
@@ -1244,6 +1431,18 @@ public:
       line("static inline void " + n + "_free(" + n + "* value);");
       line("static inline void " + n + "_srl_read(srl_reader* in, " + n + "* value);");
       line("static inline void " + n + "_srl_write(srl_writer* out, const " + n + "* value);");
+      if (const auto* options = comparison::find(static_cast<const class_node&>(*node),
+                                                model.class_comparisons)) {
+        if (options->equality) {
+          line("static inline bool " + n + "_equals_value(const " + n + "* value, const " + n + "* other);");
+        }
+        if (options->ordering) {
+          line("static inline srl_comparison_result " + n + "_compare_value(const " + n + "* value, const " + n + "* other);");
+        }
+      }
+      for (const auto& factory : static_cast<const class_node&>(*node).constructions) {
+        line(construction_signature(static_cast<const class_node&>(*node), factory) + ";");
+      }
     }
     for (const auto& [n, value] : generic_types) {
       line("static inline void " + n + "_srl_read(srl_reader* in, " + n + "* value, bool collection_context);");

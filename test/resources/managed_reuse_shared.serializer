@@ -1,0 +1,7 @@
+serializer version 1.8.0;
+
+namespace reusable_managed {
+  class shared_state stable_ids managed {
+    public uint32 value (1);
+  }
+}

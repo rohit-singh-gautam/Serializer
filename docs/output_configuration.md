@@ -38,7 +38,7 @@ short options, version reporting, and required `.serializer` version headers.
 For several variants of the same schema, repeat `--config` and supply matching
 output paths for each configuration. Each INI is loaded independently over the defaults;
 shared CLI overrides apply to each variant. The compiler parses the schema once
-and generates all variants before writing any output. The INI format is unchanged
+and generates all variants before writing any output. The INI syntax is unchanged
 and has no named-configuration sections. See
 [batch-generation examples and output ordering](command_line.md#generate-several-configurations-from-one-parse)
 and the [CMake variants helper](cmake_integration.md#generate-several-configurations-from-one-parse).
@@ -67,6 +67,17 @@ there are no escape sequences, inline comments, environment expansion, or includ
 File paths in the config resolve relative to its directory. A bare executable
 name is searched on `PATH`; a relative executable path containing a directory is
 resolved relative to the config. CLI paths resolve from the current working directory.
+
+## Class-specific comparison settings
+
+Each implemented backend accepts `[language.class.source::qualified_name]`
+sections selecting `equality = true|false`, `ordering = none|lexicographic`, and
+`fields = durable` or a comma-separated list of own source member names. They
+select comparison APIs independently of backend naming and codec generation;
+they do not change the schema or serialized formats. Unknown selectors and
+unsupported selected shapes diagnose before outputs are replaced. See
+[record comparisons](record_comparisons.md) for generated APIs, portable field
+restrictions, NaN behavior and C++ generic alias requirements.
 
 ## Supported profiles
 

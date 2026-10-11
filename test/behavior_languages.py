@@ -13,6 +13,80 @@ FILES = {"cpp": "main.cpp", "java": "Main.java", "javascript": "main.mjs", "type
          "swift": "main.swift", "kotlin": "Main.kt", "c": "main.c"}
 
 
+def checked_consumer(language, source):
+    """Exercise checked division/math and lazy boolean guards using each SDK's failure API."""
+    checks = {
+        "cpp": ("  if(value.page_area()", r'''  if(value.ratio(2)!=2 || value.guarded_root(-1)!=0 || value.guarded_root(4)!=2 || value.wave(0)!=1 || value.valid_ratio(0) || !value.valid_ratio(2) || !value.guarded_choice(false,-1) || value.guarded_choice(true,-1) || !value.guarded_choice(true,4)) return 7;
+  for(int index=0;index<4;++index){bool rejected=false;try{if(index==0)(void)value.ratio(0);else if(index==1)(void)value.ratio(-0.0);else if(index==2)(void)value.square_root(-1);else(void)value.overflow_guard(std::numeric_limits<double>::max());}catch(const std::domain_error&){rejected=true;}if(!rejected)return 8;}
+'''),
+        "java": ("    if(value.pageArea()", r'''    if(value.ratio(2)!=2 || value.guardedRoot(-1)!=0 || value.guardedRoot(4)!=2 || value.wave(0)!=1 || value.validRatio(0) || !value.validRatio(2) || !value.guardedChoice(false,-1) || value.guardedChoice(true,-1) || !value.guardedChoice(true,4))throw new AssertionError("Checked math");
+    for(int index=0;index<4;++index){boolean rejected=false;try{if(index==0)value.ratio(0);else if(index==1)value.ratio(-0.0);else if(index==2)value.squareRoot(-1);else value.overflowGuard(Double.MAX_VALUE);}catch(ArithmeticException exception){rejected=true;}if(!rejected)throw new AssertionError("Domain accepted");}
+'''),
+        "javascript": ("if(value.pageArea()", r'''if(value.ratio(2)!==2 || value.guardedRoot(-1)!==0 || value.guardedRoot(4)!==2 || value.wave(0)!==1 || value.validRatio(0) || !value.validRatio(2) || !value.guardedChoice(false,-1) || value.guardedChoice(true,-1) || !value.guardedChoice(true,4))throw Error('Checked math');
+for(const operation of [()=>value.ratio(0),()=>value.ratio(-0),()=>value.squareRoot(-1),()=>value.overflowGuard(Number.MAX_VALUE)]){let rejected=false;try{operation()}catch(error){rejected=error instanceof RangeError}if(!rejected)throw Error('Domain accepted');}
+'''),
+        "go": ("  if value.PageArea()", r'''  if value.Ratio(2)!=2 || value.GuardedRoot(-1)!=0 || value.GuardedRoot(4)!=2 || value.Wave(0)!=1 || value.ValidRatio(0) || !value.ValidRatio(2) || !value.GuardedChoice(false,-1) || value.GuardedChoice(true,-1) || !value.GuardedChoice(true,4){panic("Checked math")}
+  for _,operation:=range []func(){func(){value.Ratio(0)},func(){value.Ratio(math.Copysign(0,-1))},func(){value.SquareRoot(-1)},func(){value.OverflowGuard(math.MaxFloat64)}}{rejected:=func()(failed bool){defer func(){if recover()!=nil{failed=true}}();operation();return}();if !rejected{panic("Domain accepted")}}
+'''),
+        "csharp": ("    if(value.PageArea()", r'''    if(value.Ratio(2)!=2 || value.GuardedRoot(-1)!=0 || value.GuardedRoot(4)!=2 || value.Wave(0)!=1 || value.ValidRatio(0) || !value.ValidRatio(2) || !value.GuardedChoice(false,-1) || value.GuardedChoice(true,-1) || !value.GuardedChoice(true,4))throw new Exception("Checked math");
+    foreach(Action operation in new Action[]{()=>value.Ratio(0),()=>value.Ratio(-0.0),()=>value.SquareRoot(-1),()=>value.OverflowGuard(double.MaxValue)}){bool rejected=false;try{operation();}catch(ArithmeticException){rejected=true;}if(!rejected)throw new Exception("Domain accepted");}
+'''),
+        "rust": ("  assert_eq!(value.page_area()", r'''  assert_eq!(value.ratio(2.0),2.0);assert_eq!(value.guarded_root(-1.0),0.0);assert_eq!(value.guarded_root(4.0),2.0);assert_eq!(value.wave(0.0),1.0);assert!(!value.valid_ratio(0.0));assert!(value.valid_ratio(2.0));assert!(value.guarded_choice(false,-1.0));assert!(!value.guarded_choice(true,-1.0));assert!(value.guarded_choice(true,4.0));
+  for index in 0..4{assert!(std::panic::catch_unwind(||{match index{0=>{value.ratio(0.0);},1=>{value.ratio(-0.0);},2=>{value.square_root(-1.0);},_=>{value.overflow_guard(f64::MAX);}}}).is_err());}
+'''),
+        "python": ("assert value.page_area()", r'''assert value.ratio(2)==2 and value.guarded_root(-1)==0 and value.guarded_root(4)==2 and value.wave(0)==1 and not value.valid_ratio(0) and value.valid_ratio(2) and value.guarded_choice(False,-1) and not value.guarded_choice(True,-1) and value.guarded_choice(True,4)
+for operation in (lambda:value.ratio(0),lambda:value.ratio(-0.0),lambda:value.square_root(-1),lambda:value.overflow_guard(1.7976931348623157e308)):
+    try:operation()
+    except ValueError:pass
+    else:raise AssertionError('Domain accepted')
+'''),
+        "swift": ("let page=try value.pageArea()", r'''let ratio=try value.ratio(2);let emptyRoot=try value.guardedRoot(-1);let root=try value.guardedRoot(4);let wave=try value.wave(0);let invalid=try value.validRatio(0);let valid=try value.validRatio(2);let disabled=try value.guardedChoice(false,-1);let negative=try value.guardedChoice(true,-1);let positive=try value.guardedChoice(true,4)
+precondition(ratio==2 && emptyRoot==0 && root==2 && wave==1 && !invalid && valid && disabled && !negative && positive)
+for index in 0..<4{var rejected=false;do{switch index{case 0:_=try value.ratio(0);case 1:_=try value.ratio(-0.0);case 2:_=try value.squareRoot(-1);default:_=try value.overflowGuard(Double.greatestFiniteMagnitude)}}catch{rejected=true};precondition(rejected)}
+'''),
+        "kotlin": ("  check(value.pageArea()", r'''  check(value.ratio(2.0)==2.0 && value.guardedRoot(-1.0)==0.0 && value.guardedRoot(4.0)==2.0 && value.wave(0.0)==1.0 && !value.validRatio(0.0) && value.validRatio(2.0) && value.guardedChoice(false,-1.0) && !value.guardedChoice(true,-1.0) && value.guardedChoice(true,4.0))
+  for(index in 0..3){check(runCatching{when(index){0->value.ratio(0.0);1->value.ratio(-0.0);2->value.squareRoot(-1.0);else->value.overflowGuard(Double.MAX_VALUE)}}.isFailure)}
+'''),
+        "c": ("  if(document_metrics_page_area(", r'''  if(document_metrics_ratio(&value,2)!=2 || document_metrics_guarded_root(&value,-1)!=0 || document_metrics_guarded_root(&value,4)!=2 || document_metrics_wave(&value,0)!=1 || document_metrics_valid_ratio(&value,0) || !document_metrics_valid_ratio(&value,2) || !document_metrics_guarded_choice(&value,false,-1) || document_metrics_guarded_choice(&value,true,-1) || !document_metrics_guarded_choice(&value,true,4))return 7;
+  double unchanged=17;bool boolean_unchanged=true;
+  if(document_metrics_ratio_checked(&value,0,&unchanged)!=srl_range || unchanged!=17 || document_metrics_ratio_checked(&value,-0.0,&unchanged)!=srl_range || document_metrics_square_root_checked(&value,-1,&unchanged)!=srl_range || unchanged!=17 || document_metrics_overflow_guard_checked(&value,DBL_MAX,&boolean_unchanged)!=srl_range || !boolean_unchanged)return 8;
+  errno=0;if(document_metrics_overflow_guard(&value,DBL_MAX) || errno!=ERANGE)return 9;
+'''),
+    }
+    anchor, extra = checks[language]
+    helper_checks = {
+        "cpp": "  if(value.helper_parameter(3,4,2)!=8)return 10;\n",
+        "java": '    if(value.helperParameter(3,4,2)!=8)throw new AssertionError("Helper lookup");\n',
+        "javascript": "if(value.helperParameter(3,4,2)!==8)throw Error('Helper lookup');\n",
+        "go": '  if value.HelperParameter(3,4,2)!=8{panic("Helper lookup")}\n',
+        "csharp": '    if(value.HelperParameter(3,4,2)!=8)throw new Exception("Helper lookup");\n',
+        "rust": "  assert_eq!(value.helper_parameter(3.0,4.0,2.0),8.0);\n",
+        "python": "assert value.helper_parameter(3,4,2)==8\n",
+        "swift": "let helper=try value.helperParameter(3,4,2);precondition(helper==8)\n",
+        "kotlin": "  check(value.helperParameter(3.0,4.0,2.0)==8.0)\n",
+        "c": "  if(document_metrics_helper_parameter(&value,3,4,2)!=8)return 10;\n",
+    }
+    assert anchor in source, language
+    return source.replace(anchor, helper_checks[language] + extra + anchor, 1)
+
+
+def preserve_names(source, language):
+    """Qualify the same checked behavior contract with Java/C# schema spelling preserved."""
+    schema_names = ("document_metrics", "page_width", "page_height", "page_count", "annotation_count",
+                    "page_area", "total_area", "annotation_weight", "guarded_root", "square_root",
+                    "valid_ratio", "guarded_choice", "overflow_guard", "helper_parameter")
+    for name in schema_names:
+        words = name.split("_")
+        if name == "document_metrics" or language == "csharp":
+            emitted = "".join(word.capitalize() for word in words)
+        else:
+            emitted = words[0] + "".join(word.capitalize() for word in words[1:])
+        source = source.replace(emitted, name)
+    if language == "csharp":
+        source = source.replace(".Ratio(", ".ratio(").replace(".Wave(", ".wave(")
+    return source
+
+
 def consumer(language):
     """Check equal values, exact int32/uint32 conversion and failure before publishing a result."""
     sources = {
@@ -185,8 +259,8 @@ int main(void){
 ''',
     }
     if language == "typescript":
-        return sources["javascript"].replace("catch(error){", "catch(error: unknown){").replace("value.pageCount=invalid", "value.pageCount=invalid as number").replace("value.annotationCount=invalid", "value.annotationCount=invalid as number")
-    return sources[language]
+        return checked_consumer("javascript", sources["javascript"]).replace("catch(error){", "catch(error: unknown){").replace("value.pageCount=invalid", "value.pageCount=invalid as number").replace("value.annotationCount=invalid", "value.annotationCount=invalid as number")
+    return checked_consumer(language, sources[language])
 
 
 def main():
@@ -197,6 +271,7 @@ def main():
     parser.add_argument("--build", type=Path, default=ROOT / "out/behavior-languages")
     parser.add_argument("--language", default="all")
     parser.add_argument("--wsl-languages", default="")
+    parser.add_argument("--preserve-names", action="store_true")
     args = parser.parse_args()
     args.sanitize = False
     args.compiler = args.compiler.resolve()
@@ -204,11 +279,15 @@ def main():
         args.cpp_library = args.cpp_library.resolve()
     args.build = args.build.resolve()
     languages = list(examples.LANGUAGES if args.language == "all" else args.language.split(","))
+    if args.preserve_names and not set(languages).issubset({"java", "csharp"}):
+        parser.error("--preserve-names qualifies Java and C# outputs only")
     targets = {("js" if language == "javascript" else language): args.build / language / examples.OUTPUTS[language] for language in languages}
     if "typescript" in languages and "javascript" not in languages:
         targets["js"] = args.build / "typescript/schema.mjs"
     command = [args.compiler, "--input", ROOT / "test/resources/document_behavior.serializer", "--language", ",".join(targets),
                "--cpp.format=false", "--go.package=main", "--kotlin.package="]
+    if args.preserve_names:
+        command += [f"--{language}.naming=preserve" for language in languages]
     for language, destination in targets.items():
         destination.parent.mkdir(parents=True, exist_ok=True)
         command += [f"--{language}.output", destination]
@@ -219,10 +298,13 @@ def main():
     for language in languages:
         source = args.build / "consumers" / language
         source.mkdir(parents=True, exist_ok=True)
-        (source / FILES[language]).write_text(consumer(language), encoding="utf-8")
+        authored = consumer(language)
+        if args.preserve_names:
+            authored = preserve_names(authored, language)
+        (source / FILES[language]).write_text(authored, encoding="utf-8")
         executable = runner.build(language, "behavior", args.build / language, source)
         examples.run(executable)
-        print(f"PASS: {language}, portable behavior, integral boundaries, non-finite inputs and overflow", flush=True)
+        print(f"PASS: {language}, portable arithmetic/math domains, boolean short circuit, integral boundaries, overflow and helper lookup", flush=True)
 
 
 if __name__ == "__main__":

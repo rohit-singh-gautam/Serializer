@@ -13,7 +13,13 @@ Start with [small schema examples](schema_examples.md) if you are new to the syn
 ## Schema structure
 
 Every `.serializer` file starts with a supported language header before declarations.
-Use `serializer version 1.7.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, and `1.6.0` remain supported.
+Use `serializer version 1.8.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, and `1.7.0` remain supported.
+
+Language 1.8 adds [typed value construction and structured defaults](construction.md):
+`public constructor(double input) { value = input; }`,
+`public factory make(double input) { value = input; }`, and record-field
+`default(factory_name)`. A transient stateless generated record may request
+`layout(empty)`. These declarations never add field identities or wire metadata.
 The original `serializer version 1;` is exactly the `1.0.0` language contract;
 only version 1 has an integer shorthand. Future versions require all three
 components. Schema-language and compiler release versions are independent.
@@ -130,6 +136,18 @@ consume no durable wire IDs. Transient values follow normal copying and are
 excluded from persistence, managed history and collaboration. See
 [behavior contracts](behavior.md) and [state examples](state_enhancements.md) for
 attachment rules, checked runtime edits, inheritance and migration APIs.
+
+Language `1.8.0` adds checked portable division, `math.sqrt`/`math.sin`/`math.cos`,
+typed scalar comparisons, boolean literals/logic/results and short circuit `?:`
+guards. Integer comparisons retain their native width; enum constants and
+public member/index projections retain their resolved schema type.
+Division by either signed zero, negative square roots and nonfinite numeric
+intermediates reject consistently through each target's documented failure API.
+Readonly boolean methods may use `predicate(...)` to return false for reached
+semantic failures instead. `math.is_finite`, `size`, and bounded `all`/`any`
+reductions support collection validity checks without native callbacks.
+See [portable arithmetic](behavior.md#portable-arithmetic) for domains,
+precedence, input validation, reduction limits and branch behavior.
 
 ### Generic owning classes
 

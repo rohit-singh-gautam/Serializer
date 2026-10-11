@@ -3,6 +3,8 @@
 #include "generated_notices.hpp"
 #include "version_writer.hpp"
 #include "behavior_writer.hpp"
+#include "construction_writer.hpp"
+#include "comparison_writer.hpp"
 #include <rohit/serializer_creator.hpp>
 
 #include <algorithm>
@@ -127,6 +129,7 @@ class emitter {
   target language;
   const portable_options& options;
   std::string unit;
+  behavior::checked_helpers arithmetic_helpers{};
   std::string source{};
   std::size_t level{};
   std::vector<const syntax_node*> nodes{};
@@ -270,6 +273,10 @@ class emitter {
   }
   // Validate portable literals before translating their native spelling.
   std::string default_value(const member& value) const {
+    if (!value.default_factory.empty()) {
+      return construction::factory_call(names.at(value.type_name_list.front().resolved_node),
+          field(value.default_factory, access_type::public_access), language == target::go ? "go" : "js");
+    }
     const auto& item = value.type_name_list.front();
     if (item.name.starts_with("version")) {
       return schema_version::trim(value.default_value);
@@ -617,10 +624,11 @@ class emitter {
         close();
       } else {
         const auto count = choose("(" + expression + ").length", "len(" + expression + ")", "(" + expression + ").Count");
+        const auto index = "srl_index_" + std::to_string(level);
         statement("output.beginArray(" + count + ")");
-        open(choose("for (let index = 0; index < " + count + "; ++index)", "for index := 0; index < " + count + "; index++", "for (int index = 0; index < " + count + "; ++index)"));
-        statement("output.element(index)");
-        write_value(item, "(" + expression + ")[index]", true);
+        open(choose("for (let " + index + " = 0; " + index + " < " + count + "; ++" + index + ")", "for " + index + " := 0; " + index + " < " + count + "; " + index + "++", "for (int " + index + " = 0; " + index + " < " + count + "; ++" + index + ")"));
+        statement("output.element(" + index + ")");
+        write_value(item, "(" + expression + ")[" + index + "]", true);
         close();
       }
       statement("output.endArray()");
@@ -1657,7 +1665,13 @@ class emitter {
         statement("return this.#srlBehavior[" + quote(field(method.name, access_type::public_access)) + "](" + calls + ")");
         close(); continue;
       }
-      open(language == target::go ? "func (value *" + model_name + ") " + identifier + "(" + arguments + ") " + return_type :
+      std::string receiver_name = "value";
+      if (language == target::go && method.expression) {
+        while (std::any_of(method.parameters.begin(), method.parameters.end(), [&](const auto& argument) {
+          return name(argument.name, false, options.rename_identifiers) == receiver_name;
+        })) { receiver_name += "_"; }
+      }
+      open(language == target::go ? "func (" + receiver_name + " *" + model_name + ") " + identifier + "(" + arguments + ") " + return_type :
           language == target::csharp ? std::string(method.access == access_type::public_access ? "public " : "private ") +
               return_type + " " + identifier + "(" + arguments + ")" : identifier + "(" + arguments + ")");
       if (method.dispatch != function_declaration::dispatch_type::ordinary &&
@@ -1682,7 +1696,7 @@ class emitter {
           }
           const auto member = std::find_if(value.member_list.begin(), value.member_list.end(),
               [&](const auto& item) { return item.name == name_value; });
-          return std::string(language == target::go ? "value." : "this.") + field(member->name, member->access);
+          return (language == target::go ? receiver_name + "." : std::string{"this."}) + field(member->name, member->access);
         };
         std::set<std::string> symbols;
         behavior::expression_symbols(*method.expression, symbols);
@@ -1690,6 +1704,18 @@ class emitter {
             language == target::csharp ? "throw new System.ArithmeticException(\"Non-finite portable expression\")" :
                                         "throw new RangeError(\"Non-finite portable expression\")";
         for (const auto& input : symbols) {
+          if (method.predicate_body) { continue; }
+          const auto scalar_type = behavior::symbol_type(value, method, input);
+          const auto field_input = std::find_if(value.member_list.begin(), value.member_list.end(), [&](const auto& item) { return item.name == input; });
+          if ((scalar_type != "float" && scalar_type != "double" && scalar_type != "bool") ||
+              (field_input != value.member_list.end() && field_input->modifier != member::modifier_type::none)) { continue; }
+          if (behavior::symbol_type(value, method, input) == "bool") {
+            if (language == target::js) {
+              condition("typeof " + symbol(input) + " !== 'boolean'");
+              statement("throw new RangeError('Portable expression requires boolean inputs')"); close();
+            }
+            continue;
+          }
           const auto expression = language == target::go ? "float64(" + symbol(input) + ")" : symbol(input);
           condition((language == target::js ? "typeof " + expression + " !== 'number' || " : "") +
               "!" + (language == target::csharp ? "double.IsFinite(" + expression + ")" : behavior::finite(expression)));
@@ -1704,12 +1730,34 @@ class emitter {
             close();
           }
         }
-        statement(choose("const ", "", "double ") + std::string{"srlBehaviorResult"} +
-            choose(" = ", " := ", " = ") + behavior::expression(*method.expression, selected, symbol));
-        condition("!" + (language == target::csharp ? std::string{"double.IsFinite(srlBehaviorResult)"} : behavior::finite("srlBehaviorResult")));
-        statement(error);
-        close();
+        behavior::expression_context context;
+        context.member_name = [&](std::string_view item) { return field(item, access_type::public_access); };
+        context.native_type = [&](const auto& item) { return type(item); };
+        context.enum_value = [&](const auto& item, std::string_view name) { return enum_constant(item, name); };
+        context.predicate = method.predicate_body;
+        while (std::any_of(method.parameters.begin(), method.parameters.end(), [&](const auto& parameter) {
+          return name(parameter.name, false, options.rename_identifiers) == context.budget_name;
+        })) { context.budget_name += '_'; }
+        if (behavior::expression_has_reduction(*method.expression)) {
+          const auto budget = std::to_string(behavior_expression::maximum_reduction_visits);
+          statement(choose("let " + context.budget_name + " = " + budget, context.budget_name + " := " + budget, "int " + context.budget_name + " = " + budget));
+        }
+        if (method.predicate_body && language == target::go) {
+          open("return func() (srlPredicateResult bool)");
+          line("defer func() { if recover() != nil { srlPredicateResult = false } }()");
+        } else if (method.predicate_body) { open("try"); }
+        statement(choose("const ", "", method.return_type.name == "bool" ? "bool " : "double ") + std::string{"srlBehaviorResult"} +
+            choose(" = ", " := ", " = ") + behavior::expression(*method.expression, selected, symbol, arithmetic_helpers, context));
+        if (method.return_type.name != "bool") {
+          condition("!" + (language == target::csharp ? std::string{"double.IsFinite(srlBehaviorResult)"} : behavior::finite("srlBehaviorResult")));
+          statement(error); close();
+        }
         statement("return srlBehaviorResult");
+        if (method.predicate_body && language == target::go) { --level; line("}()"); }
+        else if (method.predicate_body) {
+          close(); open(language == target::csharp ? "catch (System.Exception srlFailure) when (srlFailure is System.ArithmeticException || srlFailure is System.NullReferenceException || srlFailure is System.ArgumentException || srlFailure is System.IndexOutOfRangeException)" : "catch (srlFailure)");
+          statement("return false"); close();
+        }
       }
       close();
     }
@@ -1770,6 +1818,109 @@ class emitter {
           (language == target::go ? "value.Implementation." : "this.implementation.") + id + "(" + calls + ")"); close();
     }
     if (language != target::go) { close(); }
+  }
+
+  // Compare the selected durable values with exact integers and unordered floating NaN.
+  void comparisons(const class_node& value) {
+    const auto* settings = comparison::find(value, options.class_comparisons);
+    if (!settings || (!settings->equality && !settings->ordering)) { return; }
+    const auto identifier = names.at(&value);
+    if (language == target::typescript) {
+      if (settings->equality) { line("equals_value(other: " + identifier + " | null): boolean;"); }
+      if (settings->ordering) { line("compare_value(other: " + identifier + " | null): -1 | 0 | 1 | null;"); }
+      return;
+    }
+    const auto selected = comparison::parts(value, *settings);
+    struct operand {
+      const rohit::serializer::type_name* type;
+      bool record;
+      std::string left, right;
+    };
+    std::vector<operand> operands;
+    for (std::size_t index{}; index < value.parents.size(); ++index) {
+      const auto& base = value.parents[index];
+      if (std::find(selected.bases.begin(), selected.bases.end(), &base) != selected.bases.end()) {
+        const auto member_name = field(std::string(language == target::go ? "Base" : "base") +
+                                      std::to_string(index), base.access);
+        operands.push_back({nullptr, true, choose("this.", "value.", "this.") + member_name,
+                            "other." + member_name});
+      }
+    }
+    for (const auto* member : selected.fields) {
+      const auto& member_type = member->type_name_list.front();
+      const bool record = member_type.resolved_node &&
+          (member_type.resolved_node->type == object_type::class_type ||
+           member_type.resolved_node->type == object_type::generic_definition);
+      const auto member_name = field(member->name, member->access);
+      operands.push_back({&member_type, record, choose("this.", "value.", "this.") + member_name,
+                          "other." + member_name});
+    }
+    const auto null_other = choose("!(other instanceof " + identifier + ")",
+                                   "value == nil || other == nil", "other is null");
+    if (settings->equality) {
+      line("// Compare selected values; NaN remains unequal, including to itself.");
+      open(choose("equals_value(other)", "func (value *" + identifier + ") EqualsValue(other *" + identifier + ") bool",
+                  "public bool equals_value(" + identifier + "? other)"));
+      condition(null_other); statement("return false"); close();
+      for (const auto& part : operands) {
+        const auto equal = part.record ? part.left + choose(".equals_value(", ".EqualsValue(", ".equals_value(") + part.right + ")" :
+            part.left + choose(" === ", " == ", " == ") + part.right;
+        condition("!(" + equal + ")"); statement("return false"); close();
+      }
+      statement("return true"); close();
+    }
+    if (settings->ordering) {
+      line("// Return -1, 0 or 1 lexicographically; a reached NaN makes the result unordered.");
+      open(choose("compare_value(other)", "func (value *" + identifier + ") CompareValue(other *" + identifier + ") (int, bool)",
+                  "public int? compare_value(" + identifier + "? other)"));
+      condition(null_other); statement(choose("return null", "return 0, false", "return null")); close();
+      std::size_t index{};
+      for (const auto& part : operands) {
+        const auto result = "srlComparison" + std::to_string(index++);
+        if (part.record) {
+          if (language == target::go) {
+            statement(result + ", " + result + "Ordered := " + part.left + ".CompareValue(" + part.right + ")");
+            condition("!" + result + "Ordered || " + result + " != 0");
+            statement("return " + result + ", " + result + "Ordered"); close();
+          } else {
+            statement(choose("const ", "", "int? ") + result + " = " + part.left + ".compare_value(" + part.right + ")");
+            condition(language == target::js ? result + " === null || " + result + " !== 0" :
+                      "!" + result + ".HasValue || " + result + ".Value != 0");
+            statement("return " + result); close();
+          }
+          continue;
+        }
+        const auto& member_type = *part.type;
+        if (member_type.name == "float" || member_type.name == "double") {
+          const auto is_nan = [&](const std::string& expression) {
+            return language == target::go ? "math.IsNaN(float64(" + expression + "))" :
+                language == target::js ? "Number.isNaN(" + expression + ")" :
+                std::string{member_type.name == "float" ? "global::System.Single" : "global::System.Double"} + ".IsNaN(" + expression + ")";
+          };
+          condition(is_nan(part.left) + " || " + is_nan(part.right));
+          statement(choose("return null", "return 0, false", "return null")); close();
+        }
+        if (member_type.name == "bool") {
+          condition(part.left + " != " + part.right);
+          condition(part.left); statement(choose("return 1", "return 1, true", "return 1")); close();
+          statement(choose("return -1", "return -1, true", "return -1")); close();
+        } else if ((member_type.name == "string" && language != target::go) ||
+                   (member_type.type == object_type::enum_type && language == target::csharp)) {
+          const auto qualified_unit = "global::" + (options.namespace_name.empty() ? "" : options.namespace_name + ".") + unit;
+          statement(choose("const ", "", "int ") + result + " = " +
+                    (language == target::js ? "srlCompare" : qualified_unit + ".SrlCompare") +
+                    "(" + part.left + ", " + part.right + ")");
+          condition(result + " < 0"); statement("return -1"); close();
+          condition(result + " > 0"); statement("return 1"); close();
+        } else {
+          condition(part.left + " < " + part.right);
+          statement(choose("return -1", "return -1, true", "return -1")); close();
+          condition(part.left + " > " + part.right);
+          statement(choose("return 1", "return 1, true", "return 1")); close();
+        }
+      }
+      statement(choose("return 0", "return 0, true", "return 0")); close();
+    }
   }
 
   // Emit an owning class with exact-message public APIs.
@@ -1851,6 +2002,14 @@ class emitter {
       declarations(value);
     }
     if (language != target::go) { behaviors(value); }
+    if (language != target::go) {
+      source += construction::factories(value, identifier,
+          language == target::csharp ? "csharp" : language == target::typescript ? "typescript" : "js",
+          [&](const auto& item) { return type(item); },
+          [&](auto item, auto access) { return field(item, access); },
+          [&](const auto& item) { return default_value(item); });
+      comparisons(value);
+    }
     if (language == target::typescript) {
       line("constructor();");
       line("encode(protocol: Protocol): Uint8Array;");
@@ -1893,6 +2052,13 @@ class emitter {
       close();
     }
     if (language == target::go) { behaviors(value); }
+    if (language == target::go) {
+      source += construction::factories(value, identifier, "go",
+          [&](const auto& item) { return type(item); },
+          [&](auto item, auto access) { return field(item, access); },
+          [&](const auto& item) { return default_value(item); });
+      comparisons(value);
+    }
     line("// Encode one complete message into independent storage.");
     open(choose("encode(protocol)",
                 "func (value *" + identifier + ") Encode(protocol Protocol) ([]byte, error)",
@@ -2005,6 +2171,10 @@ public:
     }
     register_nodes(values);
     validate();
+    arithmetic_helpers = behavior::select_helpers(nodes,
+        [&](const auto& node) { return names.at(&node); },
+        [&](const auto name) { return field(name, language == target::go ?
+            access_type::private_access : access_type::public_access); });
     source += generated_license_notice(values);
     line("// Generated by Serializer. Regenerate from the .serializer schema; do not edit.");
     if (language == target::go) {
@@ -2012,6 +2182,7 @@ public:
       line("package " + options.package_name);
       source += behavior::preambles(values, "go");
       source += go_runtime;
+      source += behavior::helpers("go", arithmetic_helpers);
     } else if (language == target::csharp) {
       line("#nullable enable");
       source += behavior::preambles(values, "csharp");
@@ -2031,9 +2202,12 @@ public:
       }
       open("public static partial class " + unit);
       source += csharp_runtime;
+      source += behavior::helpers("csharp", arithmetic_helpers);
     } else if (language == target::js) {
       source += behavior::preambles(values, "js");
       source += js_runtime;
+      source += behavior::helpers("js", arithmetic_helpers);
+      source += behavior::helpers_typed("js", arithmetic_helpers);
     } else {
       source += behavior::preambles(values, "typescript");
       line("export declare const Protocol: Readonly<{JSON: 0; BINARY_NONE: 1; BINARY_INTEGER: 2; "
@@ -2074,21 +2248,27 @@ std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements
                      std::string_view language, std::string_view unit_name,
                      const portable_options& options) {
   require_unmanaged_backend(statements);
-  if (language == "c") {
-    return behavior::finalize_mappings(generated_license_notice(statements) + native::c(native::schema{statements}));
-  }
-  if (language == "swift") {
-    return behavior::finalize_mappings(generated_license_notice(statements) + native::swift(native::schema{statements}));
-  }
-  if (language == "kotlin") {
-    return behavior::finalize_mappings(generated_license_notice(statements) +
-           native::kotlin(native::schema{statements}, options.package_name));
-  }
-  if (language == "rust") {
-    return behavior::finalize_mappings(generated_license_notice(statements) + native::rust(native::schema{statements}));
-  }
-  if (language == "python") {
-    return behavior::finalize_mappings(generated_license_notice(statements, "#") + native::python(native::schema{statements}));
+  comparison::validate(statements, options.class_comparisons, true);
+  if (language == "c" || language == "swift" || language == "kotlin" ||
+      language == "rust" || language == "python") {
+    native::schema comparison_schema{statements};
+    comparison_schema.class_comparisons = options.class_comparisons;
+    if (language == "c") {
+      return behavior::finalize_mappings(generated_license_notice(statements) + native::c(comparison_schema));
+    }
+    if (language == "swift") {
+      return behavior::finalize_mappings(generated_license_notice(statements) + native::swift(comparison_schema));
+    }
+    if (language == "kotlin") {
+      return behavior::finalize_mappings(generated_license_notice(statements) +
+             native::kotlin(comparison_schema, options.package_name));
+    }
+    if (language == "rust") {
+      return behavior::finalize_mappings(generated_license_notice(statements) + native::rust(comparison_schema));
+    }
+    if (language == "python") {
+      return behavior::finalize_mappings(generated_license_notice(statements, "#") + native::python(comparison_schema));
+    }
   }
   const auto selected = language == "js"       ? target::js
                         : language == "go"     ? target::go

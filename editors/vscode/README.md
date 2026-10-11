@@ -1,10 +1,14 @@
 # Rohit Serializer for Visual Studio Code
 
-Version **1.1.33** adds schema language 1.7.0 `optional<T>` and nested
-generic array/map navigation, including generic method signatures. C++ optional
-values use `std::optional`; nested element types retain declaration and generated
-output navigation. The companion VS Code `optional` snippet creates an absent
-optional field; new schema snippets select language 1.7.0.
+Version **1.1.35** adds schema language 1.8.0 constructors/factories,
+`default(factory)`, transient `layout(empty)`, checked math/boolean expressions,
+typed predicates with bounded reductions, digest return signatures, and owning
+generic bases. Qualified enum constants in predicates navigate to their type.
+Signature and base type navigation retains generic
+parameter scope and unsaved included schemas. Schema field definitions open
+their generated fields. Generated field declarations map
+back to their declaring schema, including inherited fields reached through the
+native language service. New schema snippets select language 1.8.0.
 
 **Editor support for Serializer — State Framework**
 
@@ -325,7 +329,7 @@ Empty extents and element types receive fixed-array highlighting. Enum type
 operands and qualified enum defaults in typed magic retain declaration, definition,
 and type-definition navigation, including unsaved and transitive included schemas.
 VS Code includes `array_inferred` and `magic_typed` snippets; its schema snippet
-selects `serializer version 1.7.0;`. The original `1` header remains exactly
+selects `serializer version 1.8.0;`. The original `1` header remains exactly
 `1.0.0` and does not enable these features. See the
 [magic contract](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/magic_and_omission.md) and [fixed arrays](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/generics.md).
 

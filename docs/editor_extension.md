@@ -17,10 +17,20 @@ Serializer provides separate packages for VS Code and Visual Studio. Both use
 to the VS Code extension. For the Visual Studio VSIX, see
 [Visual Studio](#visual-studio-extension) below.
 
-Both extensions use release version **1.1.31**. Keep their versions equal and
+Both extensions use release version **1.1.35**. Keep their versions equal and
 increment them together for future changes, including changes to only one package.
 Their release number is independent of the compiler/runtime release and the schema
 language version; only the two editor packages are synchronized.
+
+Version **1.1.35** adds schema language 1.8.0 constructors/factories,
+`default(factory)`, transient `layout(empty)`, checked math/boolean expressions,
+typed predicates with bounded reductions, digest return signatures, and owning
+generic bases. Qualified enum constants in predicates navigate to their type.
+Signature and base type navigation retains generic
+parameter scope and unsaved included schemas. Schema field definitions open
+their generated fields. Generated field declarations map
+back to their declaring schema, including inherited fields reached through the
+native language service. New schema snippets select language 1.8.0.
 
 Version **1.1.31** highlights schema language `1.5.0` field suffixes such as
 `ignore(warning magic, version)`. Warning rules are metadata; qualified types
@@ -37,7 +47,7 @@ Version **1.1.28** recognizes language `1.3.0` digest fields: bare `digest`,
 algorithm names and decimal extents. The shared resolver skips those operands
 while retaining neighboring qualified/generic references and legacy declared
 types named `digest`. VS Code adds `digest`, `digest-opaque`, and `digest-fixed`
-snippets; the current schema snippet selects `1.5.0`. See [digest usage](digest.md).
+snippets; the current schema snippet selects `1.8.0`. See [digest usage](digest.md).
 
 Version 1.1.27 directs generated applications to `Serializer::runtime`, the 0BSD
 application target introduced by compiler/runtime 1.7.0. `serializer_generate`
@@ -124,13 +134,13 @@ Packaging compiles and bundles TypeScript, copies the canonical grammar, logo,
 and repository license into the extension, and writes:
 
 ```text
-out/extensions/serializer-vscode-1.1.29.vsix
+out/extensions/serializer-vscode-1.1.35.vsix
 ```
 
 From the repository root, install it with:
 
 ```sh
-code --install-extension out/extensions/serializer-vscode-1.1.29.vsix
+code --install-extension out/extensions/serializer-vscode-1.1.35.vsix
 ```
 
 Alternatively run **Extensions: Install from VSIX** and select the file. The
@@ -302,7 +312,8 @@ its real definition provider; otherwise the test supplies a controlled C++ provi
 `npm run test:navigation:generated` invokes the current compiler specified by
 `SERIALIZER_COMPILER` and checks every complex-model type in all 11 outputs in
 both directions. It also covers acronym/digit naming and preserve profiles using
-fresh output and a shared depfile. It does not require the target-language SDKs.
+fresh output and a shared depfile. It checks owning generic bases and their field
+declarations in every output language. It does not require the target-language SDKs.
 Coverage includes unnamed payload revisions and intentional ordinary fields using
 single and comma-separated warning suppression rules in all eleven outputs.
 
@@ -572,7 +583,7 @@ npm ci --prefix editors/vscode
 ```
 
 The script restores locked NuGet dependencies, rebuilds package intermediates, and writes
-`out/extensions/serializer-visual-studio-1.1.29.vsix`. Close Visual Studio,
+`out/extensions/serializer-visual-studio-1.1.35.vsix`. Close Visual Studio,
 double-click this VSIX, install into the desired instance, and restart Visual
 Studio. The root `install_extension.ps1` remains the VS Code installer.
 
@@ -676,7 +687,7 @@ Empty extents and element types receive fixed-array highlighting. Enum type
 operands and qualified enum defaults in typed magic retain declaration, definition,
 and type-definition navigation, including unsaved and transitive included schemas.
 VS Code includes `array_inferred` and `magic_typed` snippets; its schema snippet
-selects `serializer version 1.5.0;`. The original `1` header remains exactly
+selects `serializer version 1.8.0;`. The original `1` header remains exactly
 `1.0.0` and does not enable these features. See the
 [magic contract](magic_and_omission.md) and [fixed arrays](generics.md).
 

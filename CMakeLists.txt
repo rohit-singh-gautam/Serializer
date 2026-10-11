@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.28)
 
-project(serializer VERSION 1.12.0 LANGUAGES CXX)
+project(serializer VERSION 1.13.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
-set(serializer_schema_language_version 1.7.0)
+set(serializer_schema_language_version 1.8.0)
 string(REPLACE "." ";" serializer_schema_language_version_components
   "${serializer_schema_language_version}")
 list(GET serializer_schema_language_version_components 0 serializer_schema_language_version_major)
@@ -60,6 +60,7 @@ add_library(serializer_runtime
   include/rohit/constant_binary.hpp
   include/rohit/constant_binary_output.hpp
   include/rohit/binary_output_support.hpp
+  include/rohit/binary_count_stream.hpp
   include/rohit/binary_scalar.hpp
   include/rohit/utf8.hpp
   include/rohit/protobuf.hpp
@@ -78,6 +79,12 @@ add_library(Serializer::runtime ALIAS serializer_runtime)
 # Retain the original compiler-library API and target for existing compiler clients.
 add_library(serializer_lib
   src/parser.cpp
+  src/construction_parser.hpp
+  src/construction_writer.hpp
+  src/predicate_helpers.hpp
+  src/typed_expression_writer.hpp
+  src/statement_behavior_writer.hpp
+  src/comparison_writer.hpp
   src/schema_policy.cpp
   src/schema_policy.hpp
   src/schema_scan.cpp
@@ -336,7 +343,7 @@ if(SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
       --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_runtime>"
       --build "${PROJECT_BINARY_DIR}/generic_languages" --language all
       "--wsl-languages=${SERIALIZER_EXAMPLE_WSL_LANGUAGES}")
-  foreach(behavior_suite IN ITEMS behavior_languages native_behavior_languages optional_languages)
+  foreach(behavior_suite IN ITEMS behavior_languages native_behavior_languages optional_languages construction_languages record_comparison_languages)
     add_test(NAME "serializer_${behavior_suite}"
       COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/test/${behavior_suite}.py"
         --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_runtime>"
@@ -344,6 +351,12 @@ if(SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
         "--wsl-languages=${SERIALIZER_EXAMPLE_WSL_LANGUAGES}")
     set_tests_properties("serializer_${behavior_suite}" PROPERTIES TIMEOUT 1800 LABELS serializer_native)
   endforeach()
+  add_test(NAME serializer_construction_c_ownership
+    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/test/construction_c_ownership.py"
+      --compiler "$<TARGET_FILE:serializer>"
+      --build "${PROJECT_BINARY_DIR}/construction_c_ownership"
+      "--wsl-languages=${SERIALIZER_EXAMPLE_WSL_LANGUAGES}")
+  set_tests_properties(serializer_construction_c_ownership PROPERTIES TIMEOUT 1800 LABELS serializer_native)
   set_tests_properties(serializer_generic_languages PROPERTIES TIMEOUT 1800 LABELS serializer_native)
   add_test(NAME serializer_optional_variant_languages
     COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/test/optional_languages.py"

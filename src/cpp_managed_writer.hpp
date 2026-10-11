@@ -53,6 +53,13 @@ class managed_writer {
     const auto& type = field.type_name_list.front();
     return type.is_optional() || type.is_sequence() || type.is_associative();
   }
+  // Identify ordinary collection fields eligible for callback-scoped transaction operations.
+  bool collection_type(const member& field) const {
+    const auto& type = field.type_name_list.front();
+    return field.modifier == member::modifier_type::array ||
+           field.modifier == member::modifier_type::map ||
+           type.is_sequence() || type.is_associative();
+  }
   // Generate synthetic data and metadata through the ordinary schema codec pipeline.
   void write_owning_class(auto& output, const class_node* node) {
     writer_.write_owning_class(output, node);
@@ -89,7 +96,9 @@ class managed_writer {
     target.attributes = source.attributes;
     target.member_list = source.member_list;
     target.functions = source.functions;
+    target.constructions = source.constructions;
     target.native_blocks = source.native_blocks;
+    target.named_generic_source = source.named_generic_source;
     target.body_order = source.body_order;
     target.magic_bytes = source.magic_bytes;
     target.magic_field = source.magic_field;
@@ -325,6 +334,7 @@ class managed_writer {
           reserve_method("emplace_");
           reserve_method("edit_");
         } else if (!field.version) { reserve_method("set_"); }
+        if (!field.owning_variant && collection_type(field)) { reserve_method("edit_"); }
         const auto* node = child_node(field.type_name_list.front());
         if (!field.owning_variant && (field.managed ||
             (node && node->type == object_type::class_type && field.modifier == member::modifier_type::none))) {
@@ -450,6 +460,18 @@ class managed_writer {
             function_name("set_" + field.name), "(decltype(payload_type::", member, ") value) const",
             constraint, " { access_.update([&](auto& target) { ", lifetime_guard(source, field, "target"),
             "target.", member, " = ::std::move(value); }); }\n");
+      }
+      if (collection_type(field)) {
+        write_managed_text(output,
+            "  // Edit ordinary collection elements under their nearest owner's checked boundary.\n  auto ",
+            function_name("edit_" + field.name), "() const", constraint, " { ");
+        const auto guard = lifetime_guard(source, field, "value");
+        if (!guard.empty()) {
+          write_managed_text(output, "access_.update([&](const auto& value) { ", guard, " }); ");
+        }
+        write_managed_text(output,
+            "auto child = access_.template member<false>(&payload_type::", member,
+            "); return ::rohit::managed::detail::value_collection_editor<decltype(child)>{::std::move(child)}; }\n");
       }
       if (!child_class) {
         continue;
@@ -983,25 +1005,32 @@ class managed_writer {
       if (!separate_values_) {
         continue;
       }
-      open_managed_namespace(output, item.source);
-      write_owning_class(output, item.data.get());
-      write_owning_class(output, item.storage.get());
-      close_managed_namespace(output, item.source);
+      full_stream_auto_alloc unit_output{};
+      open_managed_namespace(unit_output, item.source);
+      write_owning_class(unit_output, item.data.get());
+      write_owning_class(unit_output, item.storage.get());
+      close_managed_namespace(unit_output, item.source);
+      writer_.write_reusable_unit(output, "managed-storage:" + full_type_name(item.source),
+          {reinterpret_cast<const char*>(unit_output.begin()), unit_output.current_offset()});
     }
     for (const auto* source : editor_classes) {
-      write_editor(output, source);
-      write_runtime_traits(output, source);
+      full_stream_auto_alloc unit_output{};
+      write_editor(unit_output, source);
+      write_runtime_traits(unit_output, source);
       if (separate_values_ && source->supports_managed()) {
         const auto& item = managed_for(source);
-        write_runtime_traits(output, item.data.get());
-        write_runtime_traits(output, item.storage.get());
+        write_runtime_traits(unit_output, item.data.get());
+        write_runtime_traits(unit_output, item.storage.get());
       }
+      writer_.write_reusable_unit(output, "managed-editor:" + full_type_name(source),
+          {reinterpret_cast<const char*>(unit_output.begin()), unit_output.current_offset()});
     }
     for (const auto& item : managed_classes) {
+      full_stream_auto_alloc unit_output{};
       const auto hash = hash_managed_schema(item.source);
       std::set<const class_node*> path_visited;
       const auto inherited_paths = has_inherited_field_paths(item.source, path_visited);
-      write_managed_text(output,
+      write_managed_text(unit_output,
                          "namespace rohit::managed {\n// Generated managed binding for this "
                          "schema type.\n"
                          "template <> struct model_traits<",
@@ -1016,11 +1045,11 @@ class managed_writer {
                          "  static constexpr ::std::string_view schema_id = \"",
                          separate_values_ ? "managed.v1:" : "managed.direct.v1:",
                          item.source->get_full_name(), ":", hash, ":", managed_id_type, "\";\n");
-      write_managed_text(output,
+      write_managed_text(unit_output,
           "  // Select an explicitly negotiated nested-path collaboration wire contract when required.\n"
           "  static constexpr bool has_inherited_field_paths = ", inherited_paths ? "true" : "false", ";\n");
       write_managed_text(
-          output,
+          unit_output,
           "  // Select application fields for the editor without exposing identity setters.\n"
           "  static auto& payload(storage_type& input) { return ",
           separate_values_ ? "input.value" : "input",
@@ -1028,9 +1057,9 @@ class managed_writer {
           "  // Read the same payload through an immutable storage view.\n"
           "  static const auto& payload(const storage_type& input) { return ",
           separate_values_ ? "input.value" : "input", "; }\n");
-      write_conversion(output, item, true);
-      write_conversion(output, item, false);
-      write_managed_text(output,
+      write_conversion(unit_output, item, true);
+      write_conversion(unit_output, item, false);
+      write_managed_text(unit_output,
           "  // Reset only memory fields after accepted durable restoration.\n"
           "  static void reset_runtime_fields(storage_type& value) { runtime_traits<storage_type>::reset(value); }\n"
           "  // Carry memory fields across an isolated runtime-only update.\n"
@@ -1038,14 +1067,14 @@ class managed_writer {
           "  // Include durable and memory-only owned state in resident-byte estimates.\n"
           "  static ::std::size_t estimate_memory(const storage_type& value) { return runtime_traits<storage_type>::estimate_memory(value); }\n");
       write_managed_text(
-          output,
+          unit_output,
           "  // Visit only independently identified occurrences; ordinary children remain values.\n"
           "  static void visit_entities(auto& storage, auto&& visitor) {\n"
           "    visitor(storage.persistent_id, \"",
           item.source->get_full_name(), "\");\n");
       for (const auto& base : item.source->parents) {
         if (base.managed) {
-          write_managed_text(output, "    model_traits<", full_type_name(base.parent_class),
+          write_managed_text(unit_output, "    model_traits<", full_type_name(base.parent_class),
               ">::visit_entities(static_cast<::std::conditional_t<::std::is_const_v<::std::remove_reference_t<decltype(storage)>>, const ",
               base_storage_type(base), ", ", base_storage_type(base),
               ">&>(", separate_values_ ? "storage.value" : "storage", "), visitor);\n");
@@ -1056,33 +1085,33 @@ class managed_writer {
         if (!field.managed) {
           continue;
         }
-        write_managed_text(output, "    if (", active_field(item.source, field,
+        write_managed_text(unit_output, "    if (", active_field(item.source, field,
             separate_values_ ? "storage.value" : "storage"), ") {\n");
         const auto traits =
             "model_traits<" + full_type_name(child_node(field.type_name_list.front())) + ">";
         const auto value =
             std::string{separate_values_ ? "storage.value." : "storage."} + field_name(field.name);
         if (wrapped_type(field)) {
-          write_managed_text(output, "    detail::visit_owned_children(", value,
+          write_managed_text(unit_output, "    detail::visit_owned_children(", value,
               ", [&](auto& child) { ", traits, "::visit_entities(child, visitor); });\n");
         } else if (field.owning_variant) {
-          write_managed_text(output,
+          write_managed_text(unit_output,
               "    ::std::visit([&](auto& child) { using child_type = ::std::remove_cvref_t<decltype(child)>; "
               "model_traits<child_type>::visit_entities(child, visitor); }, ", value, ");\n");
         } else if (field.modifier == member::modifier_type::none) {
-          write_managed_text(output, "    ", traits, "::visit_entities(", value, ", visitor);\n");
+          write_managed_text(unit_output, "    ", traits, "::visit_entities(", value, ", visitor);\n");
         } else {
           write_managed_text(
-              output, "    for (auto& child : ", value, ") { ", traits, "::visit_entities(child",
+              unit_output, "    for (auto& child : ", value, ") { ", traits, "::visit_entities(child",
               field.modifier == member::modifier_type::map ? ".second" : "", ", visitor); }\n");
         }
-        write_managed_text(output, "    }\n");
+        write_managed_text(unit_output, "    }\n");
       }
-      write_managed_text(output, "  }\n");
-      write_collaboration_traversal(output, item);
-      write_collaboration_history(output, item);
+      write_managed_text(unit_output, "  }\n");
+      write_collaboration_traversal(unit_output, item);
+      write_collaboration_history(unit_output, item);
       write_managed_text(
-          output,
+          unit_output,
           "  // Structural decoding and store identity checks precede application "
           "validation.\n"
           "  static void validate(const storage_type&) {}\n"
@@ -1092,13 +1121,15 @@ class managed_writer {
           "<decltype(access)>{::std::move(access)}; }\n"
           "};\n}\n");
       if (separate_values_) {
-        write_managed_text(output,
+        write_managed_text(unit_output,
                            "namespace rohit::managed {\n"
                            "// Let editor access resolve this explicit storage wrapper's payload.\n"
                            "template <> struct model_traits<",
                            full_type_name(item.storage.get()), "> : model_traits<",
                            full_type_name(item.source), "> {};\n}\n");
       }
+      writer_.write_reusable_unit(output, "managed-traits:" + full_type_name(item.source),
+          {reinterpret_cast<const char*>(unit_output.begin()), unit_output.current_offset()});
     }
   }
 

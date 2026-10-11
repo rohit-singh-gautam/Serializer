@@ -1,0 +1,46 @@
+serializer version 1.8.0;
+
+enum probe_mode { inactive, active }
+class probe_point {
+  public double coordinate;
+  public bool enabled;
+}
+class probe_parent {
+  public uint64 token;
+}
+class probe_child : public probe_parent ("base", 1) {
+  public uint64 detail;
+}
+class typed_probe {
+  public uint64 token;
+  public uint64 neighbor;
+  public int64 signed_token;
+  public probe_mode mode;
+  public probe_point point;
+  public probe_child inherited;
+  public array probe_point samples;
+  public array uint64 masks;
+  public array[3] uint64 fixed_masks;
+  public array bool switches;
+  public array<array<uint64>> batches;
+  public function bool exact_identity() readonly expression(token != 0 || neighbor != 0);
+  public function bool constant_value(uint64 ignored) readonly predicate(true);
+  public function bool exact_order() readonly expression(token > neighbor);
+  public function bool signed_minimum() readonly expression(signed_token == -9223372036854775808);
+  public function bool mode_active() readonly expression(mode == probe_mode::active);
+  public function bool inherited_identity() readonly expression(inherited.token == token);
+  public function bool finite_observation() readonly expression(math.is_finite(point.coordinate));
+  public function bool finite_value() readonly predicate(point.coordinate >= 0.0);
+  public function bool guarded_value() readonly predicate(!point.enabled || point.coordinate >= 0.0);
+  public function bool safe_index(uint64 index) readonly predicate(index < size(samples) && math.is_finite(samples[index].coordinate));
+  public function bool reached_index(uint64 index) readonly predicate(samples[index].coordinate >= 0.0);
+  public function bool signed_index(int64 index) readonly predicate(samples[index].coordinate >= 0.0);
+  public function bool all_finite() readonly predicate(all(samples, 16, item => math.is_finite(item.coordinate)));
+  public function bool any_enabled() readonly predicate(any(samples, 16, item => item.enabled));
+  public function bool masks_valid() readonly predicate(all(masks, 16, item => item == 0 || item == 18446744073709551615));
+  public function bool fixed_valid() readonly predicate(size(fixed_masks) == 3 && all(fixed_masks, 3, item => item == 0));
+  public function bool fixed_matches(uint64 index, uint64 expected) readonly predicate(fixed_masks[index] == expected);
+  public function bool switches_valid() readonly predicate(all(switches, 16, item => item));
+  public function bool nested_budget() readonly predicate(all(batches, 2000, batch => all(batch, 2000, item => item == 0)));
+  public function bool division_valid(double divisor) readonly predicate(point.coordinate / divisor >= 0.0);
+}

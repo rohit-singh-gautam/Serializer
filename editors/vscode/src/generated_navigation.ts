@@ -1,5 +1,5 @@
 import * as path from 'node:path';
-import { codeOnly, generatedNames, indexSource, SourceIndex, TypeSymbol } from './navigation_model';
+import { codeOnly, generatedNames, indexSource, SourceIndex, Span, TypeSymbol } from './navigation_model';
 
 export const navigationLanguages = ['serializer', 'cpp', 'c', 'java', 'javascript', 'javascriptreact',
   'typescript', 'typescriptreact', 'go', 'csharp', 'rust', 'python', 'swift', 'kotlin'];
@@ -142,4 +142,73 @@ export function outputNames(qualified: string, file: string, text: string): stri
   }
   return ['rust', 'python', 'swift', 'kotlin'].includes(language ?? '') ? [pascal.join('')]
     : [...new Set([parts.join(''), pascal.join('')])];
+}
+
+/** Locate a generated field declaration without treating method locals as schema members. */
+export function generatedMember(text: string, file: string, index: SourceIndex,
+  offset: number): (Span & { name: string; owner: TypeSymbol }) | undefined {
+  const language = generatedLanguage(file, text);
+  const code = generatedCode(text, language ?? '');
+  let start = offset;
+  if (!/[A-Za-z_0-9]/.test(code[start] ?? '') && /[A-Za-z_0-9]/.test(code[start - 1] ?? '')) { --start; }
+  if (!/[A-Za-z_0-9]/.test(code[start] ?? '')) { return undefined; }
+  while (start > 0 && /[A-Za-z_0-9]/.test(code[start - 1])) { --start; }
+  let end = start;
+  while (end < code.length && /[A-Za-z_0-9]/.test(code[end])) { ++end; }
+  const name = code.slice(start, end);
+  if (!/^[A-Za-z_]/.test(name)) { return undefined; }
+  const owners = index.symbols.filter(symbol => symbol.kind === 'class' && symbol.definition &&
+    symbol.body < start).sort((left, right) => right.body - left.body);
+  for (const owner of owners) {
+    if (language === 'python') {
+      const lineStart = code.lastIndexOf('\n', start) + 1;
+      const prefix = code.slice(lineStart, start);
+      // Only the generated initializer owns field assignments; ordinary method locals do not.
+      const previous = code.slice(owner.body, start);
+      const method = [...previous.matchAll(/^    def\s+(\w+)\(/gm)].at(-1)?.[1];
+      if (method === '__init__' && /^        self\.$/.test(prefix) && /^\s*=/.test(code.slice(end))) {
+        return { start, end, name, owner };
+      }
+      continue;
+    }
+    const open = code.indexOf('{', owner.body);
+    if (open < 0 || open >= start) { continue; }
+    let depth = 1;
+    for (let next = open + 1; next < start && depth > 0; ++next) {
+      if (code[next] === '{') { ++depth; }
+      if (code[next] === '}') { --depth; }
+    }
+    const suffix = code.slice(end);
+    const lineStart = Math.max(code.lastIndexOf('\n', start), code.lastIndexOf(';', start), open) + 1;
+    const prefix = code.slice(lineStart, start);
+    if (language === 'javascript' && depth === 2 && /^\s*this\.$/.test(prefix) && /^\s*=/.test(suffix)) {
+      const method = [...code.slice(open, start).matchAll(/^\s{2}(\w+)\s*\(/gm)].at(-1)?.[1];
+      if (method === 'constructor') { return { start, end, name, owner }; }
+    }
+    if (depth !== 1) { continue; }
+    const declaration = ['cpp', 'java', 'csharp', 'c'].includes(language ?? '')
+      ? /\S\s+$/.test(prefix) && /^\s*(?:\{|=|;)/.test(suffix) && !/\b(return|using|class|struct|enum)\b/.test(prefix)
+      : language === 'go' ? /^\s*$/.test(prefix) && /^\s+\S/.test(suffix)
+      : language === 'rust' ? /^\s*pub\s+$/.test(prefix) && /^\s*:/.test(suffix)
+      : language === 'swift' ? /^\s*(?:public\s+)?(?:var|let)\s+$/.test(prefix) && /^\s*:/.test(suffix)
+      : language === 'kotlin' ? /^\s*(?:var|val)\s+$/.test(prefix) && /^\s*:/.test(suffix)
+      : language === 'typescript' ? /^\s*(?:public\s+|readonly\s+)?$/.test(prefix) && /^\s*:/.test(suffix)
+      : language === 'javascript' ? /^\s*$/.test(prefix) && /^\s*=/.test(suffix) : false;
+    if (declaration) { return { start, end, name, owner }; }
+  }
+  return undefined;
+}
+
+/** Preserve the actual field naming conventions independently of owning type profiles. */
+export function outputMemberNames(name: string, file: string, text: string): string[] {
+  const language = generatedLanguage(file, text);
+  const words = name.replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+    .replace(/([A-Z0-9])([A-Z][a-z])/g, '$1_$2').split('_').filter(Boolean);
+  const snake = words.map(word => word.toLowerCase()).join('_');
+  const pascal = words.map(word => word[0].toUpperCase() + word.slice(1).toLowerCase()).join('');
+  const camel = pascal ? pascal[0].toLowerCase() + pascal.slice(1) : pascal;
+  if (language === 'cpp') { return [...new Set([name, snake, `${snake}_`, pascal, camel])]; }
+  if (['c', 'python', 'rust'].includes(language ?? '')) { return [snake]; }
+  if (language === 'go' || language === 'csharp') { return [...new Set([name, pascal])]; }
+  return [...new Set([name, camel])];
 }

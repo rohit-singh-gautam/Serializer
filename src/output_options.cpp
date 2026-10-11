@@ -1,6 +1,7 @@
 #include <rohit/output_options.hpp>
 #include <rohit/stream.hpp>
 
+#include <algorithm>
 #include <array>
 #include <cerrno>
 #include <chrono>
@@ -44,6 +45,45 @@ bool read_bool(std::string_view value) {
     return false;
   }
   throw std::invalid_argument{"Expected true or false"};
+}
+
+// Validate source identifiers before accepting class selectors or explicit member lists.
+bool source_identifier(std::string_view value) {
+  const auto first = [](char character) {
+    return (character >= 'a' && character <= 'z') ||
+           (character >= 'A' && character <= 'Z') || character == '_';
+  };
+  if (value.empty() || !first(value.front())) { return false; }
+  return std::all_of(value.begin() + 1, value.end(), [&](char character) {
+    return first(character) || (character >= '0' && character <= '9');
+  });
+}
+
+// Require a fully qualified source spelling, with no empty namespace components.
+bool source_class_name(std::string_view value) {
+  while (true) {
+    const auto separator = value.find("::");
+    if (!source_identifier(value.substr(0, separator))) { return false; }
+    if (separator == std::string_view::npos) { return true; }
+    value.remove_prefix(separator + std::string_view{"::"}.size());
+  }
+}
+
+// Select durable declaration order or an exact, duplicate-free source member order.
+std::vector<std::string> comparison_fields(std::string_view value) {
+  if (value == "durable") { return {}; }
+  std::vector<std::string> fields;
+  std::set<std::string> seen;
+  while (true) {
+    const auto separator = value.find(',');
+    const std::string field{trim(value.substr(0, separator))};
+    if (!source_identifier(field) || !seen.insert(field).second) {
+      throw std::invalid_argument{"Expected distinct source member names or fields = durable"};
+    }
+    fields.push_back(field);
+    if (separator == std::string_view::npos) { return fields; }
+    value.remove_prefix(separator + 1);
+  }
 }
 
 // Own an atomically created temporary directory and clean it up on every exit path.
@@ -269,8 +309,17 @@ output_options read_output_options(const std::filesystem::path& file) {
       }
       if (text.front() == '[' && text.back() == ']') {
         section = trim(text.substr(1, text.size() - 2));
+        constexpr std::string_view class_separator{".class."};
+        const auto class_offset = section.find(class_separator);
+        bool class_section = class_offset != std::string::npos &&
+            source_class_name(std::string_view{section}.substr(class_offset + class_separator.size()));
+        if (class_section) {
+          const auto languages = parse_output_languages(std::string_view{section}.substr(0, class_offset));
+          class_section = languages.size() == 1;
+        }
         if ((section != "output" && section != "cpp" && section != "java" && section != "js" &&
-             section != "go" && section != "csharp" && section != "kotlin" && section != "managed") ||
+             section != "go" && section != "csharp" && section != "kotlin" && section != "managed" &&
+             !class_section) ||
             !sections.insert(section).second) {
           throw std::invalid_argument{"Unknown or repeated section: " + section};
         }
@@ -294,7 +343,26 @@ output_options read_output_options(const std::filesystem::path& file) {
       if (value.empty()) {
         throw std::invalid_argument{"Empty configuration value: " + key};
       }
-      if (section == "output" && key == "language") {
+      if (const auto class_offset = section.find(".class."); class_offset != std::string::npos) {
+        constexpr std::string_view class_separator{".class."};
+        const auto language = section.substr(0, class_offset);
+        const auto name = section.substr(class_offset + class_separator.size());
+        auto& comparisons = language == "cpp" ? result.cpp.class_comparisons :
+            language == "java" ? result.java.class_comparisons : result.class_comparisons[language];
+        auto& comparison = comparisons[name];
+        if (key == "equality") {
+          comparison.equality = read_bool(value);
+        } else if (key == "ordering") {
+          if (value != "none" && value != "lexicographic") {
+            throw std::invalid_argument{"Expected ordering = none or lexicographic"};
+          }
+          comparison.ordering = value == "lexicographic";
+        } else if (key == "fields") {
+          comparison.fields = comparison_fields(value);
+        } else {
+          throw std::invalid_argument{"Unknown class configuration key: " + key};
+        }
+      } else if (section == "output" && key == "language") {
         result.language = value;
         parse_output_languages(value);
       } else if ((section == "js" || section == "go" || section == "csharp") && key == "naming") {

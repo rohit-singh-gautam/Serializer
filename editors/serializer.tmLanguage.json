@@ -13,13 +13,127 @@
       "include": "#native_code"
     },
     {
-      "begin": "\\b(function)\\s+(?:(virtual|abstract|override)\\s+)?",
+      "begin": "\\b(expression|predicate)\\s*(\\()",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.serializer"
+        },
+        "2": {
+          "name": "punctuation.section.group.serializer"
+        }
+      },
+      "end": "\\)(?=\\s*;)",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.group.serializer"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "name": "support.function.serializer",
+          "match": "\\bmath\\.(sqrt|sin|cos|is_finite)\\b|\\b(?:to_double|size|all|any)(?=\\s*\\()"
+        },
+        {
+          "name": "constant.language.serializer",
+          "match": "\\b(?:true|false)\\b|\\bmath\\.pi\\b"
+        },
+        {
+          "name": "constant.numeric.serializer",
+          "match": "(?<![\\w.])(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?"
+        },
+        {
+          "name": "keyword.operator.serializer",
+          "match": "=>|==|!=|<=|>=|&&|\\|\\||[-+*/=<>!?:]"
+        },
+        {
+          "name": "punctuation.section.group.serializer",
+          "match": "[()\\[\\]]"
+        },
+        {
+          "name": "entity.name.type.serializer",
+          "match": "(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*(?=::[A-Za-z_][A-Za-z_0-9]*)"
+        }
+      ]
+    },
+    {
+      "match": "\\b(constructor)(?=\\s*\\()",
+      "captures": {
+        "1": {
+          "name": "storage.type.serializer"
+        }
+      }
+    },
+    {
+      "match": "\\b(factory)\\s+([A-Za-z_][A-Za-z_0-9]*)(?=\\s*\\()",
+      "captures": {
+        "1": {
+          "name": "storage.type.serializer"
+        },
+        "2": {
+          "name": "entity.name.function.serializer"
+        }
+      }
+    },
+    {
+      "match": "\\b(layout)\\s*(\\()\\s*(empty)\\s*(\\))",
+      "captures": {
+        "1": {
+          "name": "storage.modifier.serializer"
+        },
+        "2": {
+          "name": "punctuation.section.group.serializer"
+        },
+        "3": {
+          "name": "constant.other.layout.serializer"
+        },
+        "4": {
+          "name": "punctuation.section.group.serializer"
+        }
+      }
+    },
+    {
+      "match": "\\b(default)\\s*(\\()\\s*([A-Za-z_][A-Za-z_0-9]*)\\s*(\\))",
+      "captures": {
+        "1": {
+          "name": "keyword.control.serializer"
+        },
+        "2": {
+          "name": "punctuation.section.group.serializer"
+        },
+        "3": {
+          "name": "entity.name.function.serializer"
+        },
+        "4": {
+          "name": "punctuation.section.group.serializer"
+        }
+      }
+    },
+    {
+      "match": "\\bmath\\.(sqrt|sin|cos|is_finite)\\b|\\b(?:to_double|size|all|any)(?=\\s*\\()",
+      "name": "support.function.serializer"
+    },
+    {
+      "match": "\\bmath\\.pi\\b",
+      "name": "constant.language.serializer"
+    },
+    {
+      "begin": "\\b(function)\\s+(?:(virtual|abstract|override)\\s+)?(?:(digest\\s*(?:\\([^)]*\\)|\\[[^\\]]*\\]))\\s+)?",
       "beginCaptures": {
         "1": {
           "name": "storage.type.serializer"
         },
         "2": {
           "name": "storage.modifier.serializer"
+        },
+        "3": {
+          "patterns": [
+            {
+              "include": "#digest_spec"
+            }
+          ]
         }
       },
       "end": "\\b([A-Za-z_][A-Za-z_0-9]*)\\s*(\\()|(?=[;{}])",
@@ -295,7 +409,7 @@
       }
     },
     {
-      "match": "\\b(public|protected|private|managed)\\s+((?!(?:(?:array|map|union|managed|transient|function|version|magic)\\b|variant\\s*\\())(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
+      "match": "\\b(public|protected|private|managed)\\s+((?!(?:(?:array|map|union|managed|transient|function|version|magic)\\b|variant\\s*\\(|constructor\\s*\\(|factory\\s+[A-Za-z_]\\w*\\s*\\())(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
       "captures": {
         "1": {
           "name": "storage.modifier.serializer"
@@ -382,7 +496,7 @@
     },
     {
       "name": "keyword.control.serializer",
-      "match": "\\b(serializer|expression|preamble|version|magic|omit|compatibility|created|obsolete|replaced|reserve|releases|policy|any|all|max_age|keep_last|released_since|expires_on)\\b"
+      "match": "\\b(serializer|expression|predicate|preamble|version|magic|omit|compatibility|created|obsolete|replaced|reserve|releases|policy|any|all|max_age|keep_last|released_since|expires_on)\\b"
     },
     {
       "name": "storage.type.serializer",
@@ -410,7 +524,7 @@
     },
     {
       "name": "keyword.operator.serializer",
-      "match": "::|=|[-+]"
+      "match": "::|==|!=|<=|>=|&&|\\|\\||[-+*/=<>!?]"
     },
     {
       "name": "punctuation.section.block.serializer",

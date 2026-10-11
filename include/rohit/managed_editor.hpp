@@ -5,6 +5,8 @@
 #include <rohit/managed_owned.hpp>
 
 #include <algorithm>
+#include <concepts>
+#include <cstddef>
 #include <exception>
 #include <cstdint>
 #include <limits>
@@ -15,6 +17,7 @@
 #include <type_traits>
 #include <utility>
 #include <variant>
+#include <vector>
 
 namespace rohit::managed {
 template <typename Root>
@@ -233,6 +236,150 @@ public:
   }
 };
 
+// Edit ordinary collections under their nearest managed owner without copying the container.
+template <typename Access>
+class value_collection_editor {
+  Access access_;
+  using container_type = typename Access::value_type;
+  static constexpr bool is_map = requires { typename container_type::mapped_type; };
+  static constexpr bool is_bool_vector = std::same_as<container_type, std::vector<bool>>;
+
+  // Resolve a map key or checked sequence index only for the duration of one candidate callback.
+  template <typename Key, typename Values>
+  static auto find_element(Values& values, const Key& key) {
+    if constexpr (is_map) {
+      const auto found = values.find(key);
+      return found == values.end() ? nullptr : std::addressof(found->second);
+    } else {
+      static_assert(std::same_as<Key, std::size_t>, "Sequence selectors use std::size_t");
+      return key < values.size() ? std::addressof(values[key]) : nullptr;
+    }
+  }
+
+public:
+  // Bind an ordinary schema collection to one guarded transaction path.
+  explicit value_collection_editor(Access access) : access_{std::move(access)} {}
+
+  // Read the current count without copying elements or exposing candidate storage.
+  std::size_t size() const {
+    std::size_t result{};
+    access_.update([&](const auto& values) { result = values.size(); });
+    return result;
+  }
+
+  // Borrow one const element synchronously; references may not outlive or reenter the callback.
+  template <typename Key, typename Callable>
+  bool with_element(const Key& key, Callable&& callback) const {
+    bool found{};
+    access_.update([&](const auto& values) {
+      if constexpr (is_bool_vector) {
+        static_assert(std::same_as<Key, std::size_t>, "Sequence selectors use std::size_t");
+        if (key < values.size()) {
+          // Packed vector<bool> has no borrowable bool object; inspect one scalar snapshot.
+          const bool value = values[key];
+          static_assert(std::same_as<std::invoke_result_t<Callable, const bool&>, void>);
+          std::invoke(std::forward<Callable>(callback), value);
+          found = true;
+        }
+      } else {
+        if (const auto* value = find_element(values, key)) {
+          static_assert(std::same_as<std::invoke_result_t<Callable, decltype(*value)>, void>,
+                        "Borrowed collection callbacks must return void");
+          std::invoke(std::forward<Callable>(callback), *value);
+          found = true;
+        }
+      }
+    });
+    return found;
+  }
+
+  // Mutate one ordinary element under its owner's failure boundary; a missing selector fails.
+  template <typename Key, typename Callable>
+  void update_element(const Key& key, Callable&& callback) const {
+    access_.update([&](auto& values) {
+      if constexpr (is_bool_vector) {
+        static_assert(std::same_as<Key, std::size_t>, "Sequence selectors use std::size_t");
+        if (key >= values.size()) { throw std::out_of_range{"Collection element does not exist"}; }
+        // Commit the packed bit only after the callback has completed successfully.
+        bool value = values[key];
+        static_assert(std::same_as<std::invoke_result_t<Callable, bool&>, void>);
+        std::invoke(std::forward<Callable>(callback), value);
+        values[key] = value;
+      } else {
+        auto* value = find_element(values, key);
+        if (!value) { throw std::out_of_range{"Collection element does not exist"}; }
+        static_assert(std::same_as<std::invoke_result_t<Callable, decltype(*value)>, void>,
+                      "Collection mutation callbacks must return void");
+        std::invoke(std::forward<Callable>(callback), *value);
+      }
+    });
+  }
+
+  // Append an ordinary sequence element atomically with respect to transaction publication.
+  template <typename Value>
+  void append(Value&& value) const
+    requires (!is_map && requires (container_type& values,
+                                  typename container_type::value_type element) {
+      values.push_back(std::move(element));
+    }) {
+    access_.guard([&] {
+      typename container_type::value_type element{std::forward<Value>(value)};
+      access_.update([&](auto& values) { values.push_back(std::move(element)); });
+    });
+  }
+
+  // Insert before a checked sequence index; fixed arrays deliberately provide no insertion.
+  template <typename Value>
+  void insert(std::size_t index, Value&& value) const
+    requires (!is_map && requires (container_type& values,
+                                  typename container_type::value_type element) {
+      values.insert(values.begin(), std::move(element));
+    }) {
+    access_.guard([&] {
+      typename container_type::value_type element{std::forward<Value>(value)};
+      access_.update([&](auto& values) {
+        if (index > values.size()) { throw std::out_of_range{"Collection insertion index exceeds size"}; }
+        values.insert(values.begin() + static_cast<typename container_type::difference_type>(index),
+                      std::move(element));
+      });
+    });
+  }
+
+  // Insert a unique map key; conversion, duplicate keys, and allocation failures fail the action.
+  template <typename Key, typename Value>
+  void insert(Key&& key, Value&& value) const requires is_map {
+    access_.guard([&] {
+      typename container_type::key_type owned_key{std::forward<Key>(key)};
+      typename container_type::mapped_type owned_value{std::forward<Value>(value)};
+      access_.update([&](auto& values) {
+        if (!values.emplace(std::move(owned_key), std::move(owned_value)).second) {
+          throw std::invalid_argument{"Collection map key already exists"};
+        }
+      });
+    });
+  }
+
+  // Erase an existing selector and report absence; fixed arrays expose element updates only.
+  template <typename Key>
+  bool erase(const Key& key) const requires requires (container_type& values) {
+    values.erase(values.begin());
+  } {
+    bool erased{};
+    access_.update([&](auto& values) {
+      if constexpr (is_map) {
+        erased = values.erase(key) != 0;
+      } else {
+        static_assert(std::same_as<Key, std::size_t>, "Sequence selectors use std::size_t");
+        if (key < values.size()) {
+          values.erase(values.begin() + static_cast<typename container_type::difference_type>(key));
+          erased = true;
+        }
+      }
+    });
+    return erased;
+  }
+};
+
 template <typename Access, typename Plain> class optional_editor;
 template <typename Access, typename Plain> class array_editor;
 template <typename Access, typename Plain> class map_editor;
@@ -319,6 +466,25 @@ public:
   // Bind this collection to its owning transaction and member path.
   explicit map_editor(Access access) : access_{std::move(access)} {}
 
+  // Borrow a managed payload by stable identity; callback references expire on return.
+  template <typename Callable>
+  bool with_element(id_type id, Callable&& callback) const {
+    bool found{};
+    access_.update([&](const auto& values) {
+      for (const auto& [key, value] : values) {
+        static_cast<void>(key);
+        if (const auto* child = find_owned_child<const typename traits::storage_type>(value, id)) {
+          const auto& payload = traits::payload(*child);
+          static_assert(std::same_as<std::invoke_result_t<Callable, decltype(payload)>, void>);
+          std::invoke(std::forward<Callable>(callback), payload);
+          found = true;
+          break;
+        }
+      }
+    });
+    return found;
+  }
+
   // Create an entity editor which detects erasure or replacement before each operation.
   auto edit(id_type id) const {
     return access_.guard([&] {
@@ -372,6 +538,24 @@ class array_editor {
 public:
   // Bind the sequence to its owning transaction and member path.
   explicit array_editor(Access access) : access_{std::move(access)} {}
+
+  // Borrow one identified payload synchronously without copying its owning array.
+  template <typename Callable>
+  bool with_element(id_type id, Callable&& callback) const {
+    bool found{};
+    access_.update([&](const auto& values) {
+      for (const auto& value : values) {
+        if (const auto* child = find_owned_child<const typename traits::storage_type>(value, id)) {
+          const auto& payload = traits::payload(*child);
+          static_assert(std::same_as<std::invoke_result_t<Callable, decltype(payload)>, void>);
+          std::invoke(std::forward<Callable>(callback), payload);
+          found = true;
+          break;
+        }
+      }
+    });
+    return found;
+  }
 
   // Select by identity on each operation; an erased occurrence is never silently replaced.
   auto edit(id_type id) const {

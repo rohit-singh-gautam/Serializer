@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <map>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -12,6 +13,14 @@ enum class coding_standard { serializer, core, google, llvm, gnu, cert, misra, a
 
 // Select generated C++ protocol entry points independently of constant evaluation.
 enum class cpp_protocols { all, binary_none };
+
+// Opt in to comparison APIs for one source-qualified generated owning record.
+struct class_comparison_options {
+  bool equality{false};
+  bool ordering{false};
+  // An empty list selects durable fields and base subobjects in declaration order.
+  std::vector<std::string> fields{};
+};
 
 struct cpp_options {
   coding_standard standard{coding_standard::serializer};
@@ -25,6 +34,7 @@ struct cpp_options {
   bool constant_evaluation{false};
   cpp_protocols protocols{cpp_protocols::all};
   bool emission_only{false};
+  std::map<std::string, class_comparison_options> class_comparisons{};
 };
 
 enum class java_coding_standard { serializer, google, oracle };
@@ -33,6 +43,7 @@ struct java_options {
   java_coding_standard standard{java_coding_standard::serializer};
   bool rename_identifiers{true};
   std::string package_name{};
+  std::map<std::string, class_comparison_options> class_comparisons{};
 };
 
 // Native naming and module configuration for portable owning backends.
@@ -40,6 +51,7 @@ struct portable_options {
   bool rename_identifiers{true};
   std::string package_name{"generated"};
   std::string namespace_name{"SerializerGenerated"};
+  std::map<std::string, class_comparison_options> class_comparisons{};
 };
 
 struct output_options {
@@ -51,6 +63,8 @@ struct output_options {
   portable_options go{};
   portable_options csharp{};
   portable_options kotlin{true, "", ""};
+  // Other portable sections remain independent even when their naming profile is shared.
+  std::map<std::string, std::map<std::string, class_comparison_options>> class_comparisons{};
 };
 
 // Parse a nonempty comma-separated language list; reject unknown, empty, or repeated names.

@@ -15,6 +15,14 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <unordered_map>
+
+namespace rohit::serializer::parser {
+// Exercise binding of an in-memory expression AST before source offsets or aliases exist.
+std::string validate_behavior_expression(behavior_expression&, const class_node&,
+    const function_declaration&, const std::unordered_map<std::string, syntax_node*>&,
+    const std::map<std::string, behavior_expression>&);
+}
 
 namespace {
 namespace codec = rohit::serializer;
@@ -76,6 +84,125 @@ TEST(behavior, expression_types_and_signature_failures) {
     SCOPED_TRACE(text);
     EXPECT_THROW(parse_schema(document_with(text)), std::exception);
   }
+}
+
+// Digest signatures reuse field type parsing without confusing ordinary keyword-named types.
+TEST(behavior, digest_return_types_and_keyword_ambiguity) {
+  const auto parsed = parse_schema(R"SCHEMA(serializer version 1.6.0;
+class digest_behavior stable_ids {
+  public digest(sha256) stored (1);
+  public transient digest(sha256) scratch;
+  public function digest variable(digest payload) readonly;
+  public function digest[3] fixed_bytes(digest[3] payload) readonly;
+  public function digest(sha256) standard(digest(sha256) payload) readonly;
+})SCHEMA");
+  const auto& owner = static_cast<const codec::class_node&>(*parsed.statements.front());
+  ASSERT_EQ(owner.functions.size(), 3U);
+  EXPECT_EQ(owner.member_list.size(), 2U);
+  EXPECT_TRUE(owner.member_list.back().transient);
+  EXPECT_EQ(owner.functions[0].return_type.digest_extent, 0U);
+  EXPECT_EQ(owner.functions[1].return_type.digest_extent, 3U);
+  EXPECT_EQ(owner.functions[2].return_type.digest, rohit::digest_algorithm::sha256);
+  EXPECT_EQ(owner.functions[2].return_type.digest_extent, rohit::digest_size(rohit::digest_algorithm::sha256));
+  for (const auto& method : owner.functions) {
+    EXPECT_TRUE(method.return_type.is_digest());
+    ASSERT_EQ(method.parameters.size(), 1U);
+    EXPECT_EQ(method.parameters[0].type.digest_extent, method.return_type.digest_extent);
+  }
+  codec::writer::cpp_options cpp_options; cpp_options.format = false;
+  EXPECT_FALSE(codec::writer::cpp::generate(parsed.statements, cpp_options).empty());
+  EXPECT_FALSE(codec::writer::java::generate(parsed.statements, "Schema").empty());
+  for (const auto language : {"js", "typescript", "go", "csharp", "rust", "python", "swift", "kotlin", "c"}) {
+    SCOPED_TRACE(language);
+    EXPECT_FALSE(codec::writer::portable::generate(parsed.statements, language, "Schema").empty());
+  }
+  for (const auto declaration : {
+      "public function digest(sha128) invalid() readonly;",
+      "public function digest(sha256 invalid() readonly;",
+      "public function digest[0] invalid() readonly;",
+      "public function digest(sha256) invalid() readonly expression(1.0);"}) {
+    SCOPED_TRACE(declaration);
+    EXPECT_THROW(parse_schema(document_with(declaration)), std::exception);
+  }
+  for (const auto version : {"1.5.0", "1.6.0", "1.8.0"}) {
+    for (const auto type : {"function", "transient"}) {
+      const auto legacy = parse_schema(std::string{"serializer version "} + version +
+          "; class " + type + " {} class holder stable_ids { public " + type + " digest (1); }");
+      const auto& holder = static_cast<const codec::class_node&>(*legacy.statements.back());
+      EXPECT_TRUE(holder.functions.empty());
+      ASSERT_EQ(holder.member_list.size(), 1U);
+      EXPECT_FALSE(holder.member_list.front().transient);
+    }
+  }
+  EXPECT_THROW(parse_schema("serializer version 1.5.0; class holder { public function digest(sha256) value() readonly; }"), std::exception);
+}
+
+// Guards type boolean operands explicitly and preserve the selected language contract.
+TEST(behavior, checked_expression_types_and_language_gates) {
+  const auto schema = [](std::string_view body, std::string_view version = "1.8.0") {
+    return "serializer version " + std::string{version} + "; class sample { public double value (1); " + std::string{body} + " }";
+  };
+  EXPECT_NO_THROW(parse_schema(schema("public function bool valid(bool enabled, double divisor) readonly expression(!enabled || (divisor != 0.0 && value / divisor >= 0.0));")));
+  EXPECT_NO_THROW(parse_schema(schema("public function double root() readonly expression(value < 0.0 ? 0.0 : math.sqrt(value));")));
+  for (const auto expression : {"value / 2.0", "math.sqrt(value)", "math.sin(value)", "math.cos(value)", "value > 0.0 ? value : 0.0"}) {
+    SCOPED_TRACE(expression);
+    EXPECT_THROW(parse_schema(schema("public function double result() readonly expression(" + std::string{expression} + ");", "1.7.0")), std::exception);
+  }
+  for (const auto body : {
+      "public function bool result() readonly expression(value);",
+      "public function double result() readonly expression(true);",
+      "public function double result() readonly expression(value ? 1.0 : 0.0);",
+      "public function double result() readonly expression(true ? value : false);",
+      "public function bool result() readonly expression(value && true);",
+      "public function bool result() readonly expression(value == true);",
+      "public function bool result(int32 integer) readonly expression(integer < 1.0);",
+      "public function double result() readonly expression(math.sqrt(true));"}) {
+    SCOPED_TRACE(body); EXPECT_THROW(parse_schema(schema(body)), std::exception);
+  }
+  const auto parsed = parse_schema(schema("public function bool result(double divisor) readonly expression(divisor != 0.0 && value / divisor > 1.0);"));
+  const auto& model = static_cast<const codec::class_node&>(*parsed.statements[0]);
+  EXPECT_EQ(model.functions[0].expression->result_type, "bool");
+  codec::writer::cpp_options options; options.format = false;
+  EXPECT_NE(codec::writer::cpp::generate(parsed.statements, options).find("srl_behavior_divide"), std::string::npos);
+  for (const auto language : {"js", "typescript", "go", "csharp", "rust", "python", "swift", "kotlin", "c"}) {
+    SCOPED_TRACE(language); EXPECT_FALSE(codec::writer::portable::generate(parsed.statements, language, "Schema").empty());
+  }
+  EXPECT_FALSE(codec::writer::java::generate(parsed.statements, "Schema").empty());
+}
+
+// Previously-valid helper-like schema names must retain their binding after helper generation.
+TEST(behavior, private_arithmetic_helpers_avoid_authored_names) {
+  const auto parsed = parse_schema(R"SCHEMA(serializer version 1.7.0;
+class sample {
+  public function double result(double portable_arithmetic_checked) readonly expression(portable_arithmetic_checked * 2.0);
+  public function double portable_arithmetic_divide(double input) readonly expression(-input);
+})SCHEMA");
+  const auto cpp_parsed = parse_schema(R"SCHEMA(serializer version 1.7.0;
+class srl_behavior_checked {}
+class sample {
+  public function double result(double value) readonly expression(value * 2.0);
+})SCHEMA");
+  codec::writer::cpp_options cpp_options; cpp_options.format = false; cpp_options.rename_identifiers = false;
+  const auto cpp = codec::writer::cpp::generate(cpp_parsed.statements, cpp_options);
+  EXPECT_NE(cpp.find("namespace rohit::serializer::detail {"), std::string::npos);
+  EXPECT_NE(cpp.find("::rohit::serializer::detail::srl_behavior_checked("), std::string::npos);
+  codec::writer::java_options java_options; java_options.rename_identifiers = false;
+  const auto java = codec::writer::java::generate(parsed.statements, "Schema", java_options);
+  EXPECT_NE(java.find("portable_arithmetic_checked_(portable_arithmetic_checked * 2.0)"), std::string::npos);
+  for (const auto language : {"go", "csharp", "rust", "python", "swift", "kotlin", "c"}) {
+    SCOPED_TRACE(language);
+    EXPECT_FALSE(codec::writer::portable::generate(parsed.statements, language, "Schema").empty());
+  }
+  const auto c = codec::writer::portable::generate(parsed.statements, "c", "Schema");
+  EXPECT_NE(c.find("SRL_C_BEHAVIOR_HELPERS_INCLUDED_portable_arithmetic_checked_"), std::string::npos);
+  const auto go_preserved = parse_schema(R"SCHEMA(serializer version 1.7.0;
+class Sample {
+  public double Value;
+  public function double Twice(double Input) readonly expression(Input * 2.0);
+})SCHEMA");
+  codec::writer::portable_options go_options; go_options.rename_identifiers = false;
+  const auto go = codec::writer::portable::generate(go_preserved.statements, "go", "Schema", go_options);
+  EXPECT_NE(go.find("portable_arithmetic_checked(Input * 2.0)"), std::string::npos);
 }
 
 // New declarations cannot silently change an older schema's grammar contract.
@@ -279,4 +406,58 @@ TEST(behavior, legacy_type_names_remain_unambiguous) {
     const auto& derived = static_cast<const codec::class_node&>(*parsed.statements[4]);
     EXPECT_FALSE(derived.parents[0].managed);
   }
+}
+
+// Exact integer identities, public projections and reduction binders retain their resolved types.
+TEST(behavior, typed_predicate_ast_and_bounds) {
+  const auto parsed = parse_schema(R"SCHEMA(serializer version 1.8.0;
+enum status { idle, ready }
+class point { public double x; }
+class sample { public uint64 token; public uint64 neighbor; public point location;
+  public array point items; public status state;
+  public function bool identity() readonly expression(token != 0 || neighbor != 0);
+  public function bool enabled() readonly expression(state == status::ready);
+  public function bool valid(uint64 index) readonly predicate(index < size(items) && math.is_finite(items[index].x));
+  public function bool bounded() readonly predicate(all(items, 16, item => math.is_finite(item.x)));
+})SCHEMA");
+  const auto& owner = static_cast<const codec::class_node&>(*parsed.statements.back());
+  const auto& identity = *owner.functions[0].expression;
+  EXPECT_EQ(identity.operands[0].operands[1].result_type, "uint64");
+  EXPECT_EQ(identity.operands[0].operands[1].kind, codec::behavior_expression::operation::integer_literal);
+  EXPECT_TRUE(owner.functions[2].predicate_body);
+  EXPECT_EQ(owner.functions[3].expression->reduction_bound, 16U);
+  EXPECT_TRUE(codec::writer::behavior::expression_has_reduction(*owner.functions[3].expression));
+  const auto nested = parse_schema("serializer version 1.8.0; class sample { public array<array<uint64>> groups; public function bool valid() readonly predicate(all(groups, 16, group => all(group, 16, item => item == group[0]))); }");
+  const auto& outer = *static_cast<const codec::class_node&>(*nested.statements.front()).functions.front().expression;
+  const auto& inner = outer.operands[1];
+  EXPECT_NE(outer.value, inner.value);
+  EXPECT_EQ(inner.operands[1].operands[1].operands[0].value, outer.value);
+  EXPECT_THROW(parse_schema("serializer version 1.8.0; class sample { public uint64 value; public function bool bad() readonly expression(value == -1); }"), std::exception);
+  EXPECT_THROW(parse_schema("serializer version 1.8.0; class sample { public array bool values; public function bool bad() readonly predicate(all(values, 0, item => item)); }"), std::exception);
+  EXPECT_THROW(parse_schema("serializer version 1.8.0; class sample { public array bool values; public function bool bad() readonly predicate(all(values, 1000001, item => item)); }"), std::exception);
+  EXPECT_THROW(parse_schema("serializer version 1.8.0; class sample { public array bool values; public function bool bad() readonly predicate(all(values, 16, values => values)); }"), std::exception);
+  EXPECT_THROW(parse_schema("serializer version 1.8.0; class sample { private double value; } class outer { public sample item; public function bool bad() readonly predicate(item.value >= 0.0); }"), std::exception);
+  EXPECT_THROW(parse_schema("serializer version 1.8.0; class sample { public uint64 value; public int64 other; public function bool bad() readonly expression(value == other); }"), std::exception);
+}
+
+// Missing source positions must not make an inner binder capture an outer item reference.
+TEST(behavior, in_memory_nested_binder_aliases) {
+  const auto parsed = parse_schema("serializer version 1.8.0; class sample { public array<array<uint64>> groups; public function bool valid() readonly predicate(true); }");
+  const auto& owner = static_cast<const codec::class_node&>(*parsed.statements.front());
+  using expression = codec::behavior_expression;
+  using operation = expression::operation;
+  const auto symbol = [](std::string name) { expression result; result.kind = operation::symbol; result.value = std::move(name); return result; };
+  expression index; index.kind = operation::index_access; index.operands.push_back(symbol("group"));
+  expression zero; zero.kind = operation::literal; zero.value = "0"; index.operands.push_back(zero);
+  expression equal; equal.kind = operation::equal; equal.operands.push_back(symbol("item")); equal.operands.push_back(index);
+  expression inner; inner.kind = operation::all; inner.value = "item"; inner.reduction_bound = 16;
+  inner.operands.push_back(symbol("group")); inner.operands.push_back(equal);
+  expression outer; outer.kind = operation::all; outer.value = "group"; outer.reduction_bound = 16;
+  outer.operands.push_back(symbol("groups")); outer.operands.push_back(inner);
+  ASSERT_EQ(outer.source_offset, 0U);
+  ASSERT_EQ(outer.operands[1].source_offset, 0U);
+  EXPECT_EQ(codec::parser::validate_behavior_expression(outer, owner, owner.functions.front(), {}, {}), "bool");
+  EXPECT_NE(outer.value, outer.operands[1].value);
+  EXPECT_EQ(outer.operands[1].operands[1].operands[1].operands[0].value, outer.value);
+  EXPECT_EQ(outer.operands[1].operands[1].operands[0].value, outer.operands[1].value);
 }

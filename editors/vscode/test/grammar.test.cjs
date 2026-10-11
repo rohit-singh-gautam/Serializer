@@ -26,9 +26,49 @@ test('optional and nested container generics highlight types without consuming f
   }
   assert.equal(result.ruleStack.depth, 1);
   const snippets = JSON.parse(fs.readFileSync(path.join(__dirname, '../snippets/serializer.json'), 'utf8'));
-  assert.equal(snippets.Schema.body[0], 'serializer version 1.7.0;');
+  assert.equal(snippets.Schema.body[0], 'serializer version 1.8.0;');
   assert.equal(snippets['Optional field'].prefix, 'optional');
   assert.match(snippets['Optional field'].body, /optional</);
+});
+
+test('language 1.8 construction, layout, generic bases and checked math retain distinct scopes', async () => {
+  const grammar = await loadGrammar();
+  const line = 'class derived<T> : public lib::base<T> { ' +
+    'public constructor(lib::point input) { value = input; } ' +
+    'public factory origin() { value = default(zero); } ' +
+    'public transient layout(empty) lib::empty reference; ' +
+    'public function bool valid(double x) readonly expression(x >= 0.0 && math.sqrt(x) / 2.0 < math.pi ? true : false); }';
+  const result = grammar.tokenizeLine(line, INITIAL);
+  const scope = word => result.tokens.find(token => token.startIndex <= line.indexOf(word) &&
+    token.endIndex > line.indexOf(word)).scopes.at(-1);
+  assert.equal(scope('constructor'), 'storage.type.serializer');
+  assert.equal(scope('factory'), 'storage.type.serializer');
+  assert.equal(scope('origin'), 'entity.name.function.serializer');
+  assert.equal(scope('zero'), 'entity.name.function.serializer');
+  assert.equal(scope('empty)'), 'constant.other.layout.serializer');
+  assert.equal(scope('sqrt'), 'support.function.serializer');
+  for (const word of ['>=', '&&', '/', '< math', '?']) { assert.equal(scope(word), 'keyword.operator.serializer'); }
+  for (const word of ['base', 'point', 'empty reference']) { assert.equal(scope(word), 'entity.name.type.serializer'); }
+  assert.equal(result.ruleStack.depth, 1);
+});
+
+test('digest returns and bounded typed predicates retain declaration and operator scopes', async () => {
+  const grammar = await loadGrammar();
+  const line = 'class reading { public function digest(sha256) fingerprint() readonly cpp { return {}; }; ' +
+    'public function bool usable() readonly predicate(size(samples) <= 8 && ' +
+    'all(samples, 8, item => math.is_finite(item.value)) && state == lib::phase::ready && samples[0].enabled); }';
+  const result = grammar.tokenizeLine(line, INITIAL);
+  const scope = word => result.tokens.find(token => token.startIndex <= line.indexOf(word) &&
+    token.endIndex > line.indexOf(word)).scopes.at(-1);
+  assert.equal(scope('digest('), 'support.type.serializer');
+  assert.equal(scope('sha256'), 'constant.other.algorithm.serializer');
+  assert.equal(scope('fingerprint'), 'entity.name.function.serializer');
+  assert.equal(scope('predicate'), 'keyword.control.serializer');
+  for (const word of ['size', 'all(samples', 'is_finite']) { assert.equal(scope(word), 'support.function.serializer'); }
+  assert.equal(scope('=>'), 'keyword.operator.serializer');
+  assert.equal(scope('[0]'), 'punctuation.section.group.serializer');
+  assert.equal(scope('lib::phase'), 'entity.name.type.serializer');
+  assert.equal(result.ruleStack.depth, 1);
 });
 
 test('warning suppression highlights scoped rules and preserves ordinary keyword spellings', async () => {
