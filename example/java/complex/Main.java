@@ -4,10 +4,9 @@ import java.util.Arrays;
 
 /** Import JSON and use the same owning model with every native wire protocol. */
 public final class Main {
-  /** Edit a typed field and check every decoded field through canonical binary bytes. */
+  /** Read a supported payload version and check every decoded field through canonical binary bytes. */
   public static void main(String[] args) throws Exception {
     var value = Schema.ExampleModel.decode(Files.readAllBytes(Path.of(args[0])), Schema.Protocol.JSON);
-    value.revision += 1;
     var canonical = value.encode(Schema.Protocol.BINARY_NONE);
     for (var protocol : Schema.Protocol.values()) {
       var copy = Schema.ExampleModel.decode(value.encode(protocol), protocol);

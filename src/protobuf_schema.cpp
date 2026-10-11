@@ -81,6 +81,13 @@ void object(const class_node& value) {
     register_name(item.display_name);
     field_number(item.id);
     if (std::any_of(item.type_name_list.begin(), item.type_name_list.end(),
+                    [](const auto& type) {
+                      return type.is_optional() || type.is_sequence() || type.is_associative();
+                    })) {
+      throw std::invalid_argument{"Protobuf optional and generic collection mapping is unsupported: " +
+                                  value.get_full_name() + "." + item.name};
+    }
+    if (std::any_of(item.type_name_list.begin(), item.type_name_list.end(),
                     [](const auto& type) { return type.is_digest(); })) {
       throw std::invalid_argument{"Protobuf digest mapping is unsupported: " +
                                   value.get_full_name() + "." + item.name};

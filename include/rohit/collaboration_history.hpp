@@ -74,39 +74,15 @@ auto collaboration_membership(const Value& value) {
     std::vector<std::uint64_t> result{static_cast<std::uint64_t>(value.index())};
     std::visit([&](const auto& child) { result.push_back(child.persistent_id); }, value);
     return result;
-  } else if constexpr (requires { value.persistent_id; }) {
-    return value.persistent_id;
-  } else if constexpr (requires { typename Value::mapped_type; }) {
-    std::map<typename Value::key_type, std::uint64_t> members;
-    for (const auto& [key, child] : value) {
-      members.emplace(key, child.persistent_id);
-    }
-    return members;
   } else {
-    std::vector<std::uint64_t> members;
-    members.reserve(value.size());
-    for (const auto& child : value) {
-      members.push_back(child.persistent_id);
-    }
-    return members;
+    return owned_membership(value);
   }
 }
 
 // Visit single children, map values, or ordered elements without retaining borrowed references.
 template <typename Value, typename Visitor>
 void collaboration_children(Value& value, Visitor&& visitor) {
-  if constexpr (requires { value.persistent_id; }) {
-    visitor(value);
-  } else if constexpr (requires { typename Value::mapped_type; }) {
-    for (auto& [key, child] : value) {
-      static_cast<void>(key);
-      visitor(child);
-    }
-  } else {
-    for (auto& child : value) {
-      visitor(child);
-    }
-  }
+  visit_owned_children(value, std::forward<Visitor>(visitor));
 }
 
 // Bound encoded fields independently of snapshots; collection fields contain only ownership edges.

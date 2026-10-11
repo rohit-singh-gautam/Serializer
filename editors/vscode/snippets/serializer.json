@@ -17,7 +17,7 @@
   "Schema": {
     "prefix": "schema",
     "body": [
-      "serializer version 1.6.0;",
+      "serializer version 1.7.0;",
       "",
       "namespace ${1:models} {",
       "class ${2:account} stable_ids {",
@@ -192,5 +192,10 @@
       "  };"
     ],
     "description": "Inline C++ implementation; declare other backend bodies where needed"
+  },
+  "Optional field": {
+    "prefix": "optional",
+    "body": "public optional<${1:string}> ${2:value} (${3:1});$0",
+    "description": "Declare an absent-by-default owning optional; C++ uses std::optional; requires schema language 1.7.0"
   }
 }

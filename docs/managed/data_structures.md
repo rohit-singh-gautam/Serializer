@@ -911,10 +911,12 @@ public:
 };
 ```
 
-`has_before` and `has_after` explicitly represent absence using supported schema
-fields. The current grammar does not generate `std::optional<T>`. The paired value
-field is still serialized when its flag is false, and must then contain its default
-value; this is an illustrative representation, not a storage optimization.
+`has_before` and `has_after` retain the explicit presence/value format used by this
+illustrative schema. Language `1.7.0` also supports [generic optionals](../optional.md),
+which generate C++ `std::optional<T>` directly. Replacing these paired fields with
+an optional changes their wire layout and requires a payload migration. The paired
+value field is still serialized when its flag is false, and must then contain its
+default value; this is an illustrative representation, not a storage optimization.
 Insert requires only after, update requires both, and remove requires only before.
 `exact_paths` distinguishes exact path lists from conservative entity invalidation.
 

@@ -350,3 +350,13 @@ TEST(schema_include, generated_cpp_round_trip) {
   EXPECT_EQ(decoded.second.label, "included");
 }
 } // namespace
+
+// An includer cannot grant a newer language contract to a dependency's optional syntax.
+TEST_F(schema_include_test, optional_language_contract_is_per_file) {
+  write("common.serializer", "serializer version 1.6.0; class item { public optional<uint32> value; }");
+  write("root.serializer", "serializer version 1.7.0; include common; class root { public item value; }");
+  reject("require serializer version 1.7.0");
+  write("common.serializer", "serializer version 1.7.0; class item { public optional<uint32> value; }");
+  write("root.serializer", "serializer version 1; include common; class root { public item value; }");
+  EXPECT_NO_THROW(schema::parser::parse_file(directory / "root.serializer"));
+}

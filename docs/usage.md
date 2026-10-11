@@ -337,7 +337,7 @@ class person stable_ids {
 ```
 
 - Use `class`, `enum`, and `namespace`; schema declarations are not C++ source.
-- Start every new `.serializer` file with `serializer version 1.6.0;` before declarations.
+- Start every new `.serializer` file with `serializer version 1.7.0;` before declarations.
   Older `1.0.0` files remain supported.
   The original `serializer version 1;` is an exact alias for `1.0.0`, exclusive to
   version 1. Future versions require three components. The language version is
@@ -401,11 +401,12 @@ namespace demo {
   spaces, backslashes, absolute paths, and other extensions are rejected.
   `./` and `../` are supported. Paths resolve from the including file, independently
   of the compiler's working directory. Comments may separate directive tokens.
-- Every file requires its own supported version header. `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, and the
+- Every file requires its own supported version header. `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, and the
   original `1` alias may coexist in an include graph. Typed magic and inferred
   arrays require `1.1.0`, compact scalars require `1.2.0`, and built-in digests
   require `1.3.0`; owning variants require `1.4.0` and warning suppression requires
-  `1.5.0` in the file that declares them. Includes follow that
+  `1.5.0`; built-in `optional<T>`, `array<T>` and `map<K,V>` require `1.7.0`
+  in the file that declares them. Includes follow that
   header and precede all declarations, at file scope only.
 - Nested dependencies load before their includers. Repeated paths, normalized path
   aliases, mixed shorthand/explicit spellings, and diamond dependencies contribute
@@ -1471,4 +1472,38 @@ protocols and default JSON readers retain their existing behavior.
 C++ `std::optional<T>` host arguments are supported by native JSON readers and
 writers: an empty optional is `null`, and a present optional uses `T`'s codec.
 This is useful for generic schema fields without changing existing JSON names.
-It does not introduce a schema nullable keyword or native binary optional codec.
+Compiler/runtime 1.12.0 also supports these standard values in all three native
+binary codecs using the checked byte presence tag. A host argument alone does
+not define a concrete cross-language schema contract; use built-in
+`optional<T>` below for that contract and for lossless nested JSON presence.
+
+## Optional owning values
+
+Use language `1.7.0` and compiler/runtime `1.12.0`:
+
+```text
+serializer version 1.7.0;
+class result<T> {
+  public optional<T> value;
+}
+class message {
+  public optional<uint32> count;
+  public optional<optional<string>> label;
+  public optional<array<uint32>> numbers;
+  public optional<map<string, uint32>> scores;
+}
+```
+
+C++ fields use the actual standard types, for example
+`std::optional<std::vector<std::uint32_t>>`. Assign values normally and call
+`.reset()` to make them absent. Declare a concrete `result<uint32>` field or
+named instantiation for other language outputs. The default is absent. JSON
+`[]` means absent and `[value]` means present; nested `[]`, `[[]]`, and `[["text"]]`
+remain distinct. `null` is rejected. Binary writes byte `0` or `1`, followed by
+the contained value only for `1`. See the [optional contract](optional.md).
+
+Use `deserialize_exact<Value, Protocol>` for an entirely validated fresh value,
+then assign it to replace an existing object. C++ in-place object readers retain
+existing values for missing keyed fields; an explicit absent optional resets
+an engaged field. Existing standalone C++ JSON handling of `std::optional`
+generic arguments retains its earlier `null`/value representation.

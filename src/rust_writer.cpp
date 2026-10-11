@@ -48,6 +48,9 @@ class rust_emitter {
   }
   // Map schema scalars to their exact native Rust representation.
   std::string type(const type_name& value) const {
+    if (value.is_optional()) { return "Option<" + type(value.arguments.front()) + ">"; }
+    if (value.is_sequence()) { return "Vec<" + type(value.arguments.front()) + ">"; }
+    if (value.is_associative()) { return "BTreeMap<" + type(value.arguments[0]) + ", " + type(value.arguments[1]) + ">"; }
     if (value.type != object_type::primitive) {
       return model.names.at(value.resolved_node);
     }
@@ -86,6 +89,9 @@ class rust_emitter {
   }
   // Construct independent schema defaults for owned values.
   std::string initial(const type_name& value, std::string literal_value = {}) const {
+    if (value.is_optional()) { return "None"; }
+    if (value.is_sequence()) { return "Vec::new()"; }
+    if (value.is_associative()) { return "BTreeMap::new()"; }
     if (value.is_digest()) { return "vec![0; " + std::to_string(value.digest_extent) + "]"; }
     if (value.type == object_type::class_type) {
       return type(value) + "::default()";
@@ -113,6 +119,16 @@ class rust_emitter {
   }
   // Decode one scalar with explicit wire context.
   std::string read(const type_name& value, bool collection) const {
+    if (value.is_optional()) {
+      return "srl_read_optional(input, |input| Ok(" + read(value.arguments.front(), collection) + "))?";
+    }
+    if (value.is_sequence()) {
+      return "srl_read_array(input, |input| Ok(" + read(value.arguments.front(), true) + "))?";
+    }
+    if (value.is_associative()) {
+      return "srl_read_map(input, |input| Ok(" + read(value.arguments[0], true) +
+             "), |input| Ok(" + read(value.arguments[1], true) + "))?";
+    }
     if (value.is_digest()) {
       return "srl_read_digest(input, " + std::to_string(value.digest_extent) + ")?";
     }
@@ -142,7 +158,33 @@ class rust_emitter {
   }
   // Write a borrowed scalar without copying owning fields.
   void write(const type_name& value, const std::string& expression, bool collection) {
-    if (value.is_digest()) {
+    if (value.is_optional()) {
+      line("out.begin_optional(" + expression + ".is_some())?;");
+      const auto item = "optional_" + std::to_string(indent);
+      open("if let Some(" + item + ") = " + expression + ".as_ref()");
+      write(value.arguments.front(), item, collection);
+      close();
+      line("out.end_array()?;");
+    } else if (value.is_sequence() || value.is_associative()) {
+      line("out.begin_array(" + expression + ".len())?;");
+      const auto suffix = std::to_string(indent);
+      const auto item = "item_" + suffix;
+      const auto key = "key_" + suffix;
+      open("for (index_" + suffix + ", " + (value.is_associative() ? "(" + key + ", " + item + ")" : item) +
+           ") in " + expression + ".iter().enumerate()");
+      line("out.element(index_" + suffix + ")?;");
+      if (value.is_associative()) {
+        line("if out.json() { out.begin_object()?; out.field(0, 0, true)?; }");
+        write(value.arguments[0], key, true);
+        line("if out.json() { out.field(0, 1, false)?; }");
+        write(value.arguments[1], item, true);
+        line("if out.json() { out.end_object()?; }");
+      } else {
+        write(value.arguments.front(), item, true);
+      }
+      close();
+      line("out.end_array()?;");
+    } else if (value.is_digest()) {
       const auto borrowed = expression.starts_with('(') ? expression.substr(1, expression.size() - 2) : "&" + expression;
       line("srl_write_digest(out, " + borrowed + ", " + std::to_string(value.digest_extent) + ")?;");
     } else if (value.type == object_type::class_type) {

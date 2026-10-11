@@ -5,6 +5,7 @@
 #include <concepts>
 #include <cstddef>
 #include <limits>
+#include <optional>
 #include <stdexcept>
 #include <type_traits>
 #include <variant>
@@ -36,6 +37,8 @@ std::size_t estimate_dynamic_memory(const Value& value) {
                 std::same_as<type, ::rohit::serializer::version3> ||
                 std::same_as<type, ::rohit::serializer::version4>) {
     result = 0;
+  } else if constexpr (requires { value.has_value(); value.value(); }) {
+    if (value) { result = estimate_dynamic_memory(*value); }
   } else if constexpr (requires { typename type::traits_type; value.capacity(); }) {
     result = multiply_memory_estimate(value.capacity(), sizeof(typename type::value_type));
     add_memory_estimate(result, sizeof(typename type::value_type));

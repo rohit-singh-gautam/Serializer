@@ -13,7 +13,7 @@ Start with [small schema examples](schema_examples.md) if you are new to the syn
 ## Schema structure
 
 Every `.serializer` file starts with a supported language header before declarations.
-Use `serializer version 1.6.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, and `1.5.0` remain supported.
+Use `serializer version 1.7.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, and `1.6.0` remain supported.
 The original `serializer version 1;` is exactly the `1.0.0` language contract;
 only version 1 has an integer shorthand. Future versions require all three
 components. Schema-language and compiler release versions are independent.
@@ -321,10 +321,23 @@ Views use positional binary, so field order and types must still match.
 |bool|bool|1|Bool|
 |string|std::string|variable|String|
 
+## Optional values
+
+Language `1.7.0` adds `optional<T>` for an owning value that may be absent.
+C++ uses `std::optional<T>` directly. Nesting and collection payloads are supported:
+`optional<optional<uint32>>`, `optional<array<string>>`, and
+`optional<map<string, uint32>>`. Existing `array optional<T>` and
+`map(Key) optional<T>` fields work too. Initial values are absent; only an
+empty schema initializer is accepted. JSON uses `[]` or `[value]`; native binary
+uses a byte `0` or `1` followed by a present value. See [optionals](optional.md)
+for exact framing, limits, standard language mappings, and managed semantics.
+
 ## Collection types
 
 Use `array Type` for a sequence and `map(KeyType) ValueType` for a keyed collection.
-See the [schema examples](schema_examples.md) for complete declarations.
+Language `1.7.0` also accepts owning generic type expressions `array<T>` and
+`map<K,V>`, including inside `optional<T>`. These use the existing collection
+wire representation. See the [schema examples](schema_examples.md) for complete declarations.
 
 ## Union and variant choices
 
@@ -437,7 +450,9 @@ throw `std::out_of_range` before writing that prefix.
 ## Native JSON host types
 
 C++ generic fields may use `std::optional<T>` when encoding and decoding native
-JSON; an empty value is JSON `null`. This is a host type capability, not a new
-schema type or binary encoding. Evolving JSON readers can explicitly select
+JSON; an empty value is JSON `null`. This legacy host contract remains available.
+Runtime 1.12.0 also encodes host optionals with binary presence tags. For schema
+presence, language 1.7.0 adds `optional<T>` with canonical zero/one-element JSON
+framing; see [generic optionals](optional.md). Evolving JSON readers can explicitly select
 `read_policy::flexible`; regenerate classes for the unknown-member hook.
 See [JSON compatibility](usage.md#json-compatibility).

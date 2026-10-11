@@ -209,3 +209,11 @@ The parser failures concern empty-input exception types; the view test reports
 an unsupported-type exception. That run was not a clean full-suite qualification.
 No performance benchmark, GraalVM build, or non-Windows Java runtime test was run
 in either verification; those checks remain outstanding.
+
+## Optional values
+
+Language 1.7.0 and compiler/runtime 1.12.0 support `optional<T>`, including
+nested presence, record payloads, optional arrays/maps, and collections of
+optionals. See the [optional contract](optional.md) for the standard target
+representations, exact JSON/binary framing, defaults, and limits. Runnable
+[optional examples](../example/README.md#optional-values) exercise every output.

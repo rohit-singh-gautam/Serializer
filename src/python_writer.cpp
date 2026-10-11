@@ -51,6 +51,9 @@ class python_emitter {
   }
   // Resolve a default without sharing mutable objects between instances.
   std::string initial(const type_name& value, const std::string& literal_value = {}) const {
+    if (value.is_optional()) { return "()"; }
+    if (value.is_sequence()) { return "[]"; }
+    if (value.is_associative()) { return "{}"; }
     if (value.is_digest()) { return "[0] * " + std::to_string(value.digest_extent); }
     if (value.type == object_type::class_type) {
       return model.names.at(value.resolved_node) + "()";
@@ -71,6 +74,9 @@ class python_emitter {
   }
   // Map schema scalars to public Python type annotations.
   std::string type(const type_name& value) const {
+    if (value.is_optional()) { return "tuple[()] | tuple[" + type(value.arguments.front()) + "]"; }
+    if (value.is_sequence()) { return "list[" + type(value.arguments.front()) + "]"; }
+    if (value.is_associative()) { return "dict[" + type(value.arguments[0]) + ", " + type(value.arguments[1]) + "]"; }
     if (value.type != object_type::primitive) {
       return model.names.at(value.resolved_node);
     }
@@ -82,6 +88,16 @@ class python_emitter {
   }
   // Build a scalar decoding expression; ordinary nested fields merge in order.
   std::string read(const type_name& value, bool collection, const std::string& old = {}) const {
+    if (value.is_optional()) {
+      return "_read_optional(input, lambda: " + read(value.arguments.front(), collection) + ")";
+    }
+    if (value.is_sequence()) {
+      return "[" + read(value.arguments.front(), true) + " for _ in input.entries()]";
+    }
+    if (value.is_associative()) {
+      return "_read_map(input, lambda: " + read(value.arguments[0], true) +
+             ", lambda: " + read(value.arguments[1], true) + ")";
+    }
     if (value.is_digest()) {
       return "_read_digest(input, " + std::to_string(value.digest_extent) + ")";
     }
@@ -114,7 +130,32 @@ class python_emitter {
   }
   // Write one typed scalar directly to the output buffer.
   void write(const type_name& value, const std::string& expression, bool collection) {
-    if (value.is_digest()) {
+    if (value.is_optional()) {
+      line("if not isinstance(" + expression + ", tuple) or len(" + expression + ") > 1: raise ValueError('Invalid optional')");
+      line("out.begin_optional(bool(" + expression + "))");
+      open("if " + expression);
+      write(value.arguments.front(), "(" + expression + ")[0]", collection);
+      --indent;
+      line("out.end_optional()");
+    } else if (value.is_sequence() || value.is_associative()) {
+      line("out.begin_array(len(" + expression + "))");
+      const auto suffix = std::to_string(indent);
+      const auto item = "item_" + suffix;
+      open("for index_" + suffix + ", " + item + " in enumerate(" +
+           (value.is_associative() ? "sorted(" + expression + ")" : expression) + ")");
+      line("out.element(index_" + suffix + ")");
+      if (value.is_associative()) {
+        line("if out.protocol == Protocol.JSON: out.begin_object(); out.field(0, 0, True)");
+        write(value.arguments[0], item, true);
+        line("if out.protocol == Protocol.JSON: out.field(0, 1, False)");
+        write(value.arguments[1], "(" + expression + ")[" + item + "]", true);
+        line("if out.protocol == Protocol.JSON: out.end_object()");
+      } else {
+        write(value.arguments.front(), item, true);
+      }
+      --indent;
+      line("out.end_array()");
+    } else if (value.is_digest()) {
       line("_write_digest(out, " + expression + ", " + std::to_string(value.digest_extent) + ")");
     } else if (value.type == object_type::class_type) {
       line(expression + "._write(out)");

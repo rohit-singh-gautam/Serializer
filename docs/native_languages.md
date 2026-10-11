@@ -196,3 +196,11 @@ The shared test corpus exercises every truncated prefix, exact decode, limits,
 integer extrema, Unicode, duplicate maps, repeated fields, and C failure
 transactionality. The full matrix covers ten runtimes plus a typed TypeScript
 consumer: **11 × 11 × 4 protocols × 3 variants = 1,452 exchanges**.
+
+## Optional values
+
+Language 1.7.0 and compiler/runtime 1.12.0 support `optional<T>`, including
+nested presence, record payloads, optional arrays/maps, and collections of
+optionals. See the [optional contract](optional.md) for the standard target
+representations, exact JSON/binary framing, defaults, and limits. Runnable
+[optional examples](../example/README.md#optional-values) exercise every output.

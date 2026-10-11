@@ -23,7 +23,8 @@ typedef enum srl_read_policy { srl_read_strict, srl_read_compatible, srl_read_fl
 typedef struct srl_limits { size_t max_bytes, max_string_bytes, max_elements, max_depth; srl_read_policy read_policy; } srl_limits;
 typedef struct srl_field { const uint8_t* json; size_t json_size; const uint8_t* binary; size_t binary_size; } srl_field;
 typedef struct srl_writer { srl_buffer buffer; srl_protocol protocol; srl_status status; size_t depth; } srl_writer;
-enum { srl_number_scratch_bytes = 128 };
+enum { srl_number_scratch_bytes = 128, srl_maximum_write_depth = 64,
+       srl_optional_absent_tag = 0, srl_optional_present_tag = 1 };
 typedef struct srl_reader { const uint8_t* data; size_t size, offset, depth, elements; srl_protocol protocol; srl_status status; srl_limits limits; char token[srl_number_scratch_bytes]; } srl_reader;
 typedef struct srl_key { uint32_t id; srl_string name; bool named; } srl_key;
 _Static_assert(CHAR_BIT == 8 && sizeof(float) == 4 && sizeof(double) == 8 && FLT_RADIX == 2 && FLT_MANT_DIG == 24 && DBL_MANT_DIG == 53, "Serializer requires IEEE binary32/binary64 and 8-bit bytes");
@@ -156,7 +157,7 @@ static inline void srl_write_enum(srl_writer* out, uint32_t value, const char* c
   else { srl_write_compact(out, value); }
 }
 /* Check recursion before writing an object's fields. */
-static inline void srl_write_begin(srl_writer* out) { if (out->depth >= 64) { out->status = srl_limit; return; } ++out->depth; if (out->protocol == srl_json) { srl_put_byte(out, '{'); } }
+static inline void srl_write_begin(srl_writer* out) { if (out->depth >= srl_maximum_write_depth) { out->status = srl_limit; return; } ++out->depth; if (out->protocol == srl_json) { srl_put_byte(out, '{'); } }
 /* Append a pre-encoded schema key. */
 static inline void srl_write_field(srl_writer* out, uint32_t id, const srl_field* key, bool first) {
   if (out->protocol == srl_json) { if (!first) { srl_put_byte(out, ','); } srl_put(out, key->json, key->json_size); }
@@ -171,6 +172,27 @@ static inline void srl_write_array(srl_writer* out, size_t size) { if (out->prot
 static inline void srl_write_element(srl_writer* out, size_t index) { if (out->protocol == srl_json && index) { srl_put_byte(out, ','); } }
 /* Finish a JSON collection. */
 static inline void srl_write_array_end(srl_writer* out) { if (out->protocol == srl_json) { srl_put_byte(out, ']'); } }
+
+/* Charge nested value framing without introducing object keys or collection counts. */
+static inline bool srl_write_container_enter(srl_writer* out) {
+  if (out->status != srl_ok) { return false; }
+  if (out->depth >= srl_maximum_write_depth) { out->status = srl_limit; return false; }
+  ++out->depth; return true;
+}
+/* Restore framing depth after a entered value, including failed contained output. */
+static inline void srl_write_container_leave(srl_writer* out) { if (out->depth) { --out->depth; } }
+/* Emit a strict one-byte presence tag or a zero/one-element JSON frame. */
+static inline bool srl_write_optional_begin(srl_writer* out, bool present) {
+  if (!srl_write_container_enter(out)) { return false; }
+  srl_put_byte(out, out->protocol == srl_json ? '[' :
+               present ? srl_optional_present_tag : srl_optional_absent_tag);
+  return out->status == srl_ok;
+}
+/* Close the JSON optional frame and restore nesting accounting. */
+static inline void srl_write_optional_end(srl_writer* out) {
+  if (out->protocol == srl_json) { srl_put_byte(out, ']'); }
+  srl_write_container_leave(out);
+}
 
 /* Check bounds before every read; preserve the first reported failure. */
 static inline bool srl_require(srl_reader* in, size_t count) { if (in->status != srl_ok) { return false; } if (count > in->size-in->offset) { in->status = srl_truncated; return false; } return true; }
@@ -359,6 +381,41 @@ static inline bool srl_read_element(srl_reader* in, size_t index, size_t count) 
   else { srl_whitespace(in); if (!srl_require(in, 1)) { return false; } if (in->data[in->offset] == ']') { ++in->offset; return false; } if (index) { srl_expect(in, ','); } }
   if (in->elements == in->limits.max_elements) { in->status = srl_limit; return false; } ++in->elements; return in->status == srl_ok;
 }
+/* Bound every built-in generic wrapper before decoding its nested value. */
+static inline bool srl_read_container_enter(srl_reader* in) {
+  if (in->status != srl_ok) { return false; }
+  if (in->depth >= in->limits.max_depth) { in->status = srl_limit; return false; }
+  ++in->depth; return true;
+}
+/* Restore nesting after one entered generic value. */
+static inline void srl_read_container_leave(srl_reader* in) { if (in->depth) { --in->depth; } }
+/* Read strict presence framing and charge one element only when it is present. */
+static inline bool srl_read_optional_begin(srl_reader* in, bool* present) {
+  *present = false;
+  if (!srl_read_container_enter(in)) { return false; }
+  if (in->protocol == srl_json) {
+    srl_expect(in, '['); srl_whitespace(in);
+    if (!srl_require(in, 1)) { return false; }
+    if (in->data[in->offset] == ']') { ++in->offset; return true; }
+    *present = true;
+  } else {
+    if (!srl_require(in, 1)) { return false; }
+    const uint8_t tag = in->data[in->offset++];
+    if (tag > srl_optional_present_tag) { in->status = srl_invalid; return false; }
+    *present = tag == srl_optional_present_tag;
+  }
+  if (*present) {
+    if (in->elements >= in->limits.max_elements) { in->status = srl_limit; return false; }
+    ++in->elements;
+  }
+  return true;
+}
+/* Require exactly one JSON value and reject null, extra elements and trailing commas. */
+static inline void srl_read_optional_end(srl_reader* in, bool present) {
+  if (present && in->protocol == srl_json && in->status == srl_ok) { srl_expect(in, ']'); }
+  srl_read_container_leave(in);
+}
+
 /* Grow typed collection storage through void values, avoiding pointer-to-pointer aliasing. */
 static inline void* srl_grow(srl_reader* in, void* old, size_t capacity, size_t item_size) {
   if (in->status != srl_ok) { return NULL; } if (capacity && item_size > SIZE_MAX/capacity) { in->status = srl_allocation; return NULL; }

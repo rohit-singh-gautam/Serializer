@@ -574,6 +574,7 @@ type_name parse_type_expression(const rohit::type_check::schema_input_buffer aut
       throw exception::bad_member_type{input, "Digest types do not accept generic arguments"};
     }
     result.application = true;
+    result.optional_language_supported = active_language_version >= language_version{1u, 7u, 0u};
     ++input;
     skip_whitespace_and_comment(input);
     while (!input.full() && *input != '>') {
@@ -1454,7 +1455,8 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   // Only the selector syntax claims this keyword; existing user types and generic
   // parameters called variant retain their meaning in every supported language version.
   const bool owning_variant = next_type.name == "variant" && !in_stream.full() && *in_stream == '(';
-  auto member_modifier = owning_variant ? member::modifier_type::variant : parse_member_modifier(next_type.name);
+  auto member_modifier = owning_variant ? member::modifier_type::variant
+      : next_type.application ? member::modifier_type::none : parse_member_modifier(next_type.name);
   if (owning_variant && active_language_version < language_version{1u, 4u, 0u}) {
     throw exception::bad_member_type{in_stream, "Variant fields require serializer version 1.4.0 or newer"};
   }
@@ -2494,6 +2496,42 @@ void validate_digest_member(const rohit::type_check::schema_input_buffer auto& i
   }
 }
 
+// Validate nested owning generic values without treating absence as a class instance.
+void validate_optional_member(const rohit::type_check::schema_input_buffer auto& input,
+                              const class_node& owner, const member& field) {
+  const auto validate = [&](const auto& self, const type_name& type) -> void {
+    if (type.is_optional() || type.is_sequence() || type.is_associative()) {
+      if (!field.default_value.empty()) {
+        throw exception::bad_member_type{input,
+            "Optional and generic collection fields accept only empty schema defaults"};
+      }
+      if (owner.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
+          (owner.attributes & class_attributes::packed) != class_attributes::none) {
+        throw exception::bad_member_type{input,
+            "Optional and generic collection fields require unpacked owning storage"};
+      }
+      for (const auto& argument : type.arguments) { self(self, argument); }
+    } else if (type.resolved_node && type.type == object_type::class_type &&
+               static_cast<const class_node&>(*type.resolved_node).storage_modes !=
+                   static_cast<std::uint8_t>(storage_mode::owning)) {
+      throw exception::bad_member_type{input, "Generic value arguments require owning storage"};
+    }
+  };
+  for (const auto& type : field.type_name_list) {
+    if (type.is_optional() || type.is_sequence() || type.is_associative()) {
+      validate(validate, type);
+    }
+  }
+}
+
+// Locate the entity type beneath optional presence and owning collection wrappers.
+const type_name& managed_value_type(const type_name& type) {
+  if (type.is_optional() || type.is_sequence() || type.is_associative()) {
+    return managed_value_type(type.arguments.back());
+  }
+  return type;
+}
+
 // Validate inferred char bytes and qualify enum values after their element type is resolved.
 void normalize_inferred_constants(const rohit::type_check::schema_input_buffer auto& input,
                              member& field) {
@@ -2630,10 +2668,13 @@ void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream
           for (auto& type : member.type_name_list) {
             resolve_type(in_stream, type, variable_type_map);
             validate_nested_modes(in_stream, *class_ptr, type.resolved_node);
+            const auto& managed_type = managed_value_type(type);
             if (member.managed &&
-                ((member.modifier == member::modifier_type::variant && !member.owning_variant) || !type.resolved_node ||
-                 type.resolved_node->type != object_type::class_type ||
-                 !static_cast<const class_node*>(type.resolved_node)->supports_managed())) {
+                ((member.modifier == member::modifier_type::variant &&
+                  (!member.owning_variant || type.is_optional() || type.is_sequence() || type.is_associative())) ||
+                 !managed_type.resolved_node ||
+                 managed_type.resolved_node->type != object_type::class_type ||
+                 !static_cast<const class_node*>(managed_type.resolved_node)->supports_managed())) {
               throw exception::bad_member_type{in_stream,
                   "managed members require a class declared managed or containing its own managed member"};
             }
@@ -2641,6 +2682,7 @@ void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream
           normalize_inferred_constants(in_stream, member);
           validate_compact_member(in_stream, member, false);
           validate_digest_member(in_stream, *class_ptr, member);
+          validate_optional_member(in_stream, *class_ptr, member);
           if (member.modifier == member::modifier_type::map) {
             type_name key{std::string{member.key}, member.type_name_list.front().declared_namespace};
             resolve_type(in_stream, key, variable_type_map);

@@ -11,3 +11,6 @@ for the example contract and [all examples](../../README.md) for SDK setup.
 The local [entry schema](model.serializer) includes the shared schema; compile
 only this entry when generating the example manually. Generated files belong
 in the build directory.
+
+The root uses `public version uint32 (1) { 1 };`. The consumer preserves
+version 1 through all four protocols; the runner verifies JSON version 2 is rejected.

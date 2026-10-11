@@ -183,6 +183,20 @@ class emitter {
   }
   // Map schema scalar storage to native types.
   std::string type(const rohit::serializer::type_name& value) const {
+    if (value.is_optional()) {
+      const auto inner = type(value.arguments.front());
+      return choose("([] | [" + inner + "])", "*" + inner, "System.ValueTuple<" + inner + ">?");
+    }
+    if (value.is_sequence()) {
+      const auto inner = type(value.arguments.front());
+      return choose(inner + "[]", "[]" + inner, "System.Collections.Generic.List<" + inner + ">");
+    }
+    if (value.is_associative()) {
+      const auto key = type(value.arguments[0]);
+      const auto inner = type(value.arguments[1]);
+      return choose("Map<" + key + ", " + inner + ">", "map[" + key + "]" + inner,
+                    "System.Collections.Generic.Dictionary<" + key + ", " + inner + ">");
+    }
     if (value.type != object_type::primitive) {
       return (language == target::go && value.type == object_type::class_type ? "*" : "") +
              names.at(value.resolved_node);
@@ -227,6 +241,9 @@ class emitter {
   }
   // Construct a fresh schema default.
   std::string initial(const rohit::serializer::type_name& value) const {
+    if (value.is_optional()) { return choose("[]", "nil", "null"); }
+    if (value.is_sequence()) { return choose("[]", "make(" + type(value) + ", 0)", "new " + type(value) + "()"); }
+    if (value.is_associative()) { return choose("new Map()", "make(" + type(value) + ")", "new " + type(value) + "()"); }
     if (value.is_digest()) {
       const auto size = std::to_string(value.digest_extent);
       return choose("Array(" + size + ").fill(0)", "make([]byte, " + size + ")",
@@ -500,6 +517,18 @@ class emitter {
   // Emit a scalar read expression, optionally merging an ordinary nested field.
   std::string read_value(const rohit::serializer::type_name& value, bool collection,
                          const std::string& previous = {}) const {
+    if (value.is_optional() || value.is_sequence() || value.is_associative()) {
+      const auto suffix = value.is_optional() ? "Optional" : value.is_sequence() ? "Array" : "Map";
+      const auto& inner = value.arguments.back();
+      const auto decoder = [&](const rohit::serializer::type_name& item, bool context) {
+        const auto expression = read_value(item, context);
+        return choose("() => " + expression, "func() " + type(item) + " { return " + expression + " }",
+                      "() => " + expression);
+      };
+      return choose("srlRead", "srlRead", "SrlRead") + suffix + "(input, " +
+             (value.is_associative() ? decoder(value.arguments[0], true) + ", " : "") +
+             decoder(inner, value.is_optional() ? collection : true) + ")";
+    }
     if (value.is_digest()) {
       return choose("srlReadDigest", "srlReadDigest", "SrlReadDigest") +
              "(input, " + std::to_string(value.digest_extent) + ")";
@@ -545,7 +574,58 @@ class emitter {
   // Write a scalar directly with explicit wire width and enum context.
   void write_value(const rohit::serializer::type_name& value, const std::string& expression,
                    bool collection) {
-    if (value.is_digest()) {
+    if (value.is_optional()) {
+      const auto present = choose(expression + ".length === 1", expression + " != nil", expression + ".HasValue");
+      if (language == target::js) {
+        condition("!Array.isArray(" + expression + ") || " + expression + ".length > 1");
+        statement("throw new RangeError(\"Invalid optional\")");
+        close();
+      }
+      statement("output.beginOptional(" + present + ")");
+      condition(present);
+      write_value(value.arguments.front(), choose("(" + expression + ")[0]", "(*(" + expression + "))", "(" + expression + ").GetValueOrDefault().Item1"), collection);
+      close();
+      statement("output.endArray()");
+    } else if (value.is_sequence() || value.is_associative()) {
+      open("");
+      const auto& item = value.arguments.back();
+      if (value.is_associative()) {
+        const auto& key = value.arguments[0];
+        if (language == target::js) {
+          local("keys", "Array.from(" + expression + ".keys()).sort(srlCompare)");
+        } else if (language == target::go) {
+          local("keys", "make([]" + type(key) + ", 0, len(" + expression + "))");
+          open("for key := range " + expression);
+          statement("keys = append(keys, key)");
+          close();
+          line("sort.Slice(keys, func(i, j int) bool { return " +
+               std::string{key.name == "bool" ? "!keys[i] && keys[j]" : "keys[i] < keys[j]"} + " })");
+        } else {
+          local("keys", "new System.Collections.Generic.List<" + type(key) + ">(" + expression + ".Keys)");
+          statement("keys.Sort(SrlCompare)");
+        }
+        const auto count = choose("keys.length", "len(keys)", "keys.Count");
+        statement("output.beginArray(" + count + ")");
+        open(choose("for (let index = 0; index < " + count + "; ++index)", "for index := 0; index < " + count + "; index++", "for (int index = 0; index < " + count + "; ++index)"));
+        local("entryKey", "keys[index]");
+        statement("output.element(index)");
+        condition("output.json()"); statement("output.raw(\"{\\\"key\\\":\")"); close();
+        write_value(key, "entryKey", true);
+        condition("output.json()"); statement("output.raw(\",\\\"value\\\":\")"); close();
+        write_value(item, choose("(" + expression + ").get(entryKey)", "(" + expression + ")[entryKey]", "(" + expression + ")[entryKey]"), true);
+        condition("output.json()"); statement("output.raw(\"}\")"); close();
+        close();
+      } else {
+        const auto count = choose("(" + expression + ").length", "len(" + expression + ")", "(" + expression + ").Count");
+        statement("output.beginArray(" + count + ")");
+        open(choose("for (let index = 0; index < " + count + "; ++index)", "for index := 0; index < " + count + "; index++", "for (int index = 0; index < " + count + "; ++index)"));
+        statement("output.element(index)");
+        write_value(item, "(" + expression + ")[index]", true);
+        close();
+      }
+      statement("output.endArray()");
+      close();
+    } else if (value.is_digest()) {
       statement(choose("srlWriteDigest", "srlWriteDigest", "SrlWriteDigest") +
                 "(output, " + expression + ", " + std::to_string(value.digest_extent) + ")");
     } else if (value.type == object_type::class_type) {
@@ -721,7 +801,10 @@ class emitter {
     if (value.modifier == member::modifier_type::array && language != target::js) {
       const auto& scalar = value.type_name_list.front();
       int scalar_width{};
-      if (scalar.type == object_type::primitive && scalar.name != "string" && !scalar.is_digest()) {
+      if (scalar.is_optional()) {
+        scalar_width = 1;
+      } else if (scalar.type == object_type::primitive && scalar.name != "string" && !scalar.is_digest() &&
+                 !scalar.is_sequence() && !scalar.is_associative()) {
         scalar_width = scalar.name == "bool" || scalar.name == "char" ? 1
                        : scalar.name == "float"                       ? 4
                        : scalar.name == "double"                      ? 8

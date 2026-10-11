@@ -4,6 +4,7 @@
 #pragma once
 
 #include "serializer.hpp"
+#include "managed_owned.hpp"
 #include <algorithm>
 #include <compare>
 #include <cstddef>
@@ -92,28 +93,12 @@ public:
   // Parent membership identifies relocations/births/deletions without reporting every child payload edit.
   template <typename ChildTraits>
   void owned(std::uint64_t entity, std::uint32_t field, const auto& input) {
-    if constexpr (requires { input.persistent_id; }) {
-      value(entity, field, input.persistent_id);
-      entity_scope([&] { ChildTraits::visit_collaboration_fields(input, *this); });
-    } else if constexpr (requires { typename std::remove_cvref_t<decltype(input)>::mapped_type; }) {
-      std::map<typename std::remove_cvref_t<decltype(input)>::key_type, std::uint64_t> membership;
-      for (const auto& [key, child] : input) { membership.emplace(key, child.persistent_id); }
-      value(entity, field, membership);
-      entity_scope([&] {
-        for (const auto& [key, child] : input) {
-          static_cast<void>(key);
-          ChildTraits::visit_collaboration_fields(child, *this);
-        }
+    value(entity, field, owned_membership(input));
+    entity_scope([&] {
+      visit_owned_children(input, [&](const auto& child) {
+        ChildTraits::visit_collaboration_fields(child, *this);
       });
-    } else {
-      std::vector<std::uint64_t> membership;
-      membership.reserve(input.size());
-      for (const auto& child : input) { membership.push_back(child.persistent_id); }
-      value(entity, field, membership);
-      entity_scope([&] {
-        for (const auto& child : input) { ChildTraits::visit_collaboration_fields(child, *this); }
-      });
-    }
+    });
   }
 };
 

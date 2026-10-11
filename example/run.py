@@ -9,7 +9,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 LANGUAGES = ('cpp', 'java', 'javascript', 'typescript', 'go', 'csharp', 'rust', 'python', 'swift', 'kotlin', 'c')
-EXAMPLES = ('basic', 'collections', 'complex', 'interoperability', 'versioning', 'union_variant', 'document_collections')
+EXAMPLES = ('basic', 'collections', 'complex', 'interoperability', 'versioning', 'union_variant', 'document_collections', 'optional')
 OUTPUTS = {'cpp': 'message.hpp', 'java': 'Schema.java', 'javascript': 'schema.mjs',
            'typescript': 'schema.d.mts', 'go': 'schema.go', 'csharp': 'Schema.cs',
            'rust': 'schema.rs', 'python': 'schema.py', 'swift': 'Schema.swift',
@@ -203,7 +203,7 @@ class Runner:
             expected = json.loads(input_file.read_text(encoding='utf-8'))
             if example == 'versioning':
                 expected = {'version': 10, 'id': 42, 'enabled': True, 'name': 'Ada'}
-            elif example != 'union_variant':
+            elif example not in ('basic', 'collections', 'complex', 'union_variant', 'optional'):
                 expected['revision'] += 1
             for language, command in commands.items():
                 output = fixtures / f'{language}.json'
@@ -223,7 +223,7 @@ class Runner:
                             output = fixtures / f'{language}_invalid.json'
                             require_rejection([*command, self.path(language, input_path),
                                                self.path(language, output)], output)
-            if example == 'union_variant':
+            if example in ('basic', 'collections', 'complex', 'union_variant', 'optional'):
                 # This negative JSON fixture changes only the generated payload-version discriminator.
                 unsupported = {**expected, 'version': 2}
                 future_input = fixtures / 'unsupported_version.json'
@@ -231,6 +231,15 @@ class Runner:
                 for language, command in commands.items():
                     output = fixtures / f'{language}_unsupported.json'
                     require_rejection([*command, self.path(language, future_input), self.path(language, output)], output)
+            if example == 'optional':
+                for invalid_value in (None, [1, 2], [None]):
+                    invalid = {**expected, 'count': invalid_value}
+                    input_path = fixtures / 'invalid_optional.json'
+                    input_path.write_text(json.dumps(invalid), encoding='utf-8')
+                    for language, command in commands.items():
+                        output = fixtures / f'{language}_invalid_optional.json'
+                        require_rejection([*command, self.path(language, input_path),
+                                           self.path(language, output)], output)
             print(f'PASS: {example}, {len(selected)} languages, all 4 protocols', flush=True)
 
 

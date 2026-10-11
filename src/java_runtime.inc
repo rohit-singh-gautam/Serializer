@@ -226,6 +226,10 @@ private static final class Writer {
     --depth;
   }
 
+  /** Write optional framing with a single binary presence byte. */
+  void beginOptional(boolean present) {
+    if (json()) { bytes.write('['); } else { integer(present ? 1 : 0, 1, true); }
+  }
   /** Begin a collection with its element count where binary requires one. */
   void beginArray(int count) {
     if (json()) { bytes.write('['); }
@@ -547,7 +551,41 @@ R"java(      java.lang.String mantissa = value.split("[eE]", 2)[0];
 }
 )java"
 R"java(
-/** Store caller-provided bytes, using the existing uint8 sequence framing. */
+/** Preserve each optional level with bounded canonical []/[value] framing. */
+private static <T> java.util.Optional<T> srlReadOptional(Reader in, java.util.function.Supplier<T> decode) {
+  if (++in.depth > in.limits.maxDepth) throw in.error("Depth limit");
+  boolean present;
+  if (in.json()) { in.beginArray(); present = in.nextElement(0, -1); }
+  else { long tag = in.integer(1, true); if (tag > 1) throw in.error("Invalid optional tag"); present = tag != 0;
+    if (present && ++in.elements > in.limits.maxElements) throw in.error("Element limit"); }
+  java.util.Optional<T> result = present ? java.util.Optional.of(decode.get()) : java.util.Optional.empty();
+  if (present && in.json() && in.nextElement(1, -1)) throw in.error("Invalid optional length");
+  --in.depth; return result;
+}
+/** Decode generic arrays without reserving an untrusted declared count. */
+private static <T> java.util.List<T> srlReadArray(Reader in, java.util.function.Supplier<T> decode) {
+  int count = in.beginArray(); java.util.List<T> result = new java.util.ArrayList<>();
+  for (int index = 0; in.nextElement(index, count); ++index) result.add(decode.get());
+  return result;
+}
+/** Decode generic maps using the native entry contract and last complete value. */
+private static <K, V> java.util.NavigableMap<K, V> srlReadMap(Reader in, java.util.NavigableMap<K, V> result, java.util.function.Supplier<K> key, java.util.function.Supplier<V> value) {
+  int count = in.beginArray();
+  for (int index = 0; in.nextElement(index, count); ++index) {
+    K k = null; V v = null; boolean hasKey = false, hasValue = false;
+    if (in.json()) {
+      in.beginObject(); boolean first = true;
+      while (in.nextObject(first)) { first = false;
+        switch (in.key()) { case "key": k = key.get(); hasKey = true; break;
+          case "value": v = value.get(); hasValue = true; break; default: throw in.error("Unknown map entry field"); }
+      }
+      in.endObject(); if (!hasKey || !hasValue) throw in.error("Incomplete map entry");
+    } else { k = key.get(); v = value.get(); }
+    result.put(k, v);
+  }
+  return result;
+}
+/** Store bytes as a uint8 sequence without computing their digest. */
 private static void srlWriteDigest(Writer out, byte[] value, int expected) {
   if (value == null || (expected != 0 && value.length != expected)) throw new IllegalArgumentException("Digest length mismatch");
   out.beginArray(value.length);

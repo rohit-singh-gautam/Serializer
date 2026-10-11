@@ -190,7 +190,8 @@ struct type_name {
         arguments{rhs.arguments}, kind{rhs.kind}, expression{rhs.expression},
         dimension{rhs.dimension}, application{rhs.application}, source_offset{rhs.source_offset},
         digest{rhs.digest}, digest_extent{rhs.digest_extent},
-        digest_language_supported{rhs.digest_language_supported} {}
+        digest_language_supported{rhs.digest_language_supported},
+        optional_language_supported{rhs.optional_language_supported} {}
   // Assign the documented view or value state from the source object.
   type_name& operator=(const type_name& rhs) {
     name = rhs.name;
@@ -208,6 +209,7 @@ struct type_name {
     digest = rhs.digest;
     digest_extent = rhs.digest_extent;
     digest_language_supported = rhs.digest_language_supported;
+    optional_language_supported = rhs.optional_language_supported;
     return *this;
   }
 
@@ -226,6 +228,22 @@ struct type_name {
   rohit::digest_algorithm digest{rohit::digest_algorithm::none};
   std::uint32_t digest_extent{}; // Zero denotes caller-provided variable-length bytes.
   bool digest_language_supported{true}; // The source file's selected contract survives includes.
+  bool optional_language_supported{true}; // Built-in generic types require language 1.7.
+
+  // Identify built-in owning presence without claiming user declarations with the same name.
+  bool is_optional() const noexcept {
+    return type == object_type::primitive && name == "optional" && application;
+  }
+
+  // Identify an owning sequence used as a generic type argument.
+  bool is_sequence() const noexcept {
+    return type == object_type::primitive && name == "array" && application;
+  }
+
+  // Identify an owning map used as a generic type argument.
+  bool is_associative() const noexcept {
+    return type == object_type::primitive && name == "map" && application;
+  }
 
   // Identify byte-container primitives without confusing a user declaration named digest.
   bool is_digest() const noexcept {
@@ -235,6 +253,14 @@ struct type_name {
   // Resolve this syntax node name relative to its containing namespace.
   std::string get_full_name() const {
     if (resolved_node) { return resolved_node->get_full_name(); }
+    if (is_optional() || is_sequence() || is_associative()) {
+      std::string result = name + "<";
+      for (std::size_t index = 0; index < arguments.size(); ++index) {
+        if (index != 0) { result += ","; }
+        result += arguments[index].get_full_name();
+      }
+      return result + ">";
+    }
     std::string full_name{};
     if (defined_namespace) {
       full_name = get_full_name_for_namespace(defined_namespace);

@@ -1,9 +1,10 @@
 # Rohit Serializer for Visual Studio Code
 
-Version **1.1.32** adds language 1.6 function/transient highlighting, opaque
-native-block handling, method signature type navigation and snippets. Shared
-grammar/navigation changes apply to both editor packages.
-
+Version **1.1.33** adds schema language 1.7.0 `optional<T>` and nested
+generic array/map navigation, including generic method signatures. C++ optional
+values use `std::optional`; nested element types retain declaration and generated
+output navigation. The companion VS Code `optional` snippet creates an absent
+optional field; new schema snippets select language 1.7.0.
 
 **Editor support for Serializer — State Framework**
 
@@ -324,7 +325,7 @@ Empty extents and element types receive fixed-array highlighting. Enum type
 operands and qualified enum defaults in typed magic retain declaration, definition,
 and type-definition navigation, including unsaved and transitive included schemas.
 VS Code includes `array_inferred` and `magic_typed` snippets; its schema snippet
-selects `serializer version 1.6.0;`. The original `1` header remains exactly
+selects `serializer version 1.7.0;`. The original `1` header remains exactly
 `1.0.0` and does not enable these features. See the
 [magic contract](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/magic_and_omission.md) and [fixed arrays](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/generics.md).
 

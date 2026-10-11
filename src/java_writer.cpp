@@ -229,6 +229,9 @@ class emitter {
 
   // Resolve a fully qualified generated Java type to avoid shadowing by schema fields.
   std::string type(const rohit::serializer::type_name& value, bool boxed = false) const {
+    if (value.is_optional()) { return "java.util.Optional<" + type(value.arguments.front(), true) + ">"; }
+    if (value.is_sequence()) { return "java.util.List<" + type(value.arguments.front(), true) + ">"; }
+    if (value.is_associative()) { return "java.util.NavigableMap<" + type(value.arguments[0], true) + ", " + type(value.arguments[1], true) + ">"; }
     if (value.is_digest()) { return "byte[]"; }
     return value.type == object_type::primitive ? primitive(value.name, boxed)
                                                 : names.at(value.resolved_node);
@@ -236,11 +239,23 @@ class emitter {
 
   // Allocate outer arrays before a digest value's byte dimension.
   std::string array_initial(const rohit::serializer::type_name& value, const std::string& count) const {
+    if (value.is_optional() || value.is_sequence() || value.is_associative()) {
+      const auto erased = value.is_optional() ? "java.util.Optional" : value.is_sequence() ? "java.util.List" : "java.util.NavigableMap";
+      return "(" + type(value) + "[]) new " + erased + "[" + count + "]";
+    }
     return value.is_digest() ? "new byte[" + count + "][]" : "new " + type(value) + "[" + count + "]";
   }
 
   // Construct a fresh schema default for a single value.
   std::string initial(const rohit::serializer::type_name& value) const {
+    if (value.is_optional()) { return "java.util.Optional.empty()"; }
+    if (value.is_sequence()) { return "new java.util.ArrayList<>()"; }
+    if (value.is_associative()) {
+      member map;
+      map.key = value.arguments[0].name;
+      map.key_node = value.arguments[0].resolved_node;
+      return map_initializer(map);
+    }
     if (value.is_digest()) { return "new byte[" + std::to_string(value.digest_extent) + "]"; }
     if (value.type == object_type::class_type) {
       return "new " + type(value) + "()";
@@ -390,6 +405,17 @@ class emitter {
   // Build a direct scalar read expression with context-sensitive enum representation.
   std::string read_value(const rohit::serializer::type_name& value, const std::string& reader,
                          bool collection) const {
+    if (value.is_optional()) {
+      return "srlReadOptional(" + reader + ", () -> " + read_value(value.arguments.front(), reader, collection) + ")";
+    }
+    if (value.is_sequence()) {
+      return "srlReadArray(" + reader + ", () -> " + read_value(value.arguments.front(), reader, true) + ")";
+    }
+    if (value.is_associative()) {
+      return "srlReadMap(" + reader + ", " + initial(value) + ", () -> " +
+             read_value(value.arguments[0], reader, true) + ", () -> " +
+             read_value(value.arguments[1], reader, true) + ")";
+    }
     if (value.is_digest()) {
       return "srlReadDigest(" + reader + ", " + std::to_string(value.digest_extent) + ")";
     }
@@ -426,7 +452,36 @@ class emitter {
   // Emit a scalar write without reflection or a generic object dispatch table.
   void write_value(const rohit::serializer::type_name& value, const std::string& expression,
                    bool collection) {
-    if (value.is_digest()) {
+    if (value.is_optional()) {
+      line("out.beginOptional(" + expression + ".isPresent());");
+      line("if (" + expression + ".isPresent()) {");
+      ++level;
+      write_value(value.arguments.front(), "(" + expression + ").get()", collection);
+      --level;
+      line("}");
+      line("out.endArray();");
+    } else if (value.is_sequence() || value.is_associative()) {
+      const auto suffix = std::to_string(level);
+      const auto item = "item" + suffix;
+      const auto index = "index" + suffix;
+      line("out.beginArray(" + expression + ".size());");
+      line("int " + index + " = 0;");
+      line("for (var " + item + " : " + expression + (value.is_associative() ? ".entrySet()" : "") + ") {");
+      ++level;
+      line("out.element(" + index + "++);");
+      if (value.is_associative()) {
+        line("if (out.json()) { out.beginObject(); out.field(0, \"key\", true); }");
+        write_value(value.arguments[0], item + ".getKey()", true);
+        line("if (out.json()) { out.field(0, \"value\", false); }");
+        write_value(value.arguments[1], item + ".getValue()", true);
+        line("if (out.json()) { out.endObject(); }");
+      } else {
+        write_value(value.arguments.front(), item, true);
+      }
+      --level;
+      line("}");
+      line("out.endArray();");
+    } else if (value.is_digest()) {
       line("srlWriteDigest(out, " + expression + ", " + std::to_string(value.digest_extent) + ");");
     } else if (value.type == object_type::class_type) {
       line(expression + ".write(out);");
@@ -524,7 +579,8 @@ class emitter {
     }
     if (value.modifier == member::modifier_type::array) {
       line(access + type(item) + "[] " + name + " = " + (value.fixed_extent == 0 ? array_initial(item, "0") :
-          item.type == object_type::primitive && item.name != "string" && !item.is_digest()
+          item.type == object_type::primitive && item.name != "string" && !item.is_digest() &&
+                  !item.is_optional() && !item.is_sequence() && !item.is_associative()
               ? array_initial(item, std::to_string(value.fixed_extent))
               : "java.util.stream.IntStream.range(0, " + std::to_string(value.fixed_extent) +
                     ").mapToObj(index -> " + initial(item) + ").toArray(size -> " +
@@ -610,7 +666,10 @@ class emitter {
     }
     if (value.modifier == member::modifier_type::array) {
       std::string element_width{"0"};
-      if (item.type == object_type::primitive && item.name != "string" && !item.is_digest()) {
+      if (item.is_optional()) {
+        element_width = "1";
+      } else if (item.type == object_type::primitive && item.name != "string" && !item.is_digest() &&
+                 !item.is_sequence() && !item.is_associative()) {
         element_width = item.name == "bool" || item.name == "char" ? "1"
                         : item.name == "float"                     ? "4"
                         : item.name == "double"                    ? "8"
@@ -890,6 +949,14 @@ class emitter {
       }
     }
     const auto name = type_name(value.name);
+    if (std::any_of(value.member_list.begin(), value.member_list.end(), [](const auto& field) {
+          const auto& item = field.type_name_list.front();
+          return field.modifier == member::modifier_type::array &&
+                 (item.is_optional() || item.is_sequence() || item.is_associative());
+        })) {
+      // Java cannot create arrays of parameterized types; the emitted cast preserves the API.
+      line("@SuppressWarnings({\"unchecked\", \"rawtypes\"})");
+    }
     line("public static final class " + name + " {");
     ++level;
     if (value.magic_field) {

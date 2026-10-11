@@ -503,11 +503,11 @@ feature as a prerequisite without the user's request.
   generated replacement setters and the existing history/journal APIs.
   Consult [usage](../../../docs/usage.md), [migration](../../../migration.md), and
   [qualification](../../../docs/verification-dimensions-2026-10-04.md).
-- Use `.serializer` files beginning with `serializer version 1.6.0;`, before declarations
+- Use `.serializer` files beginning with `serializer version 1.7.0;`, before declarations
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
-  remains available through `parser::parse(input)`. Schema language version 1.6.0 is
-  independent of compiler release 1.11.0 and wire protocols. Bug fixes and minor
+  remains available through `parser::parse(input)`. Schema language version 1.7.0 is
+  independent of compiler release 1.12.0 and wire protocols. Bug fixes and minor
   updates increment the patch number; new features increment the minor number.
   Minor and patch releases preserve full compatibility. Developers change the
   major number manually, with best-effort compatibility across major releases.
@@ -542,6 +542,31 @@ feature as a prerequisite without the user's request.
   See [include usage](../../../docs/usage.md#share-declarations-with-includes) and
   [paired C++/Java examples](../../../example/includes/README.md).
 - In owning representations, map `array T` to `std::vector<T>` and `map(K) T` to `std::map<K, T>`.
+- With language `1.7.0` and compiler/runtime `1.12.0`, use built-in generic
+  `optional<T>` for standard owning presence. C++ must use `std::optional<T>`
+  directly; do not implement an application optional container. Use
+  `optional<optional<T>>`, `optional<array<T>>`, `optional<map<K,V>>`, existing
+  `array optional<T>` / `map(K) optional<T>`, and generic `optional<T>` fields
+  as required. Each declaring included file needs its own `1.7.0` header.
+  User-declared generic types named `optional` retain precedence. Initial values
+  are absent; only empty schema initializers are supported. JSON uses `[]` or
+  `[value]`, preserving every nested presence state; `null` rejects. All native
+  binary protocols use a checked byte 0/1 plus a present payload, with existing
+  target decode limits; C++ additionally accounts for logical allocation and work.
+  C++ in-place readers retain missing keyed fields;
+  explicit absence clears an engaged optional. Use fresh exact decoding before
+  whole-object replacement. Preserve the old standalone C++ JSON null/value
+  generic-argument contract when evolving an existing application.
+  Owning standard mappings exist for all eleven outputs; C uses generated
+  presence/value storage because C has no standard optional generic. Native
+  managed optionals use existing occurrence traversal and typed editors; qualify
+  identity, history, journal recovery and collaboration for the selected shapes.
+  View/packed and direct Protobuf optional mappings reject. Changing presence,
+  nesting or payload type is a wire migration; use the compatibility checker
+  and retained payload revisions. Read [the optional contract](../../../docs/optional.md)
+  and run the [all-language optional examples](../../../example/README.md#optional-values).
+  Consult [optional qualification](../../../docs/verification-optionals-2026-10-11.md)
+  for the executed all-SDK, native, managed recovery and editor checks.
 - With language `1.3.0` and compiler/runtime `1.8.0`, use `digest` for variable
   application-supplied bytes, `digest[N]` for a decimal fixed byte extent
   (1..65,536), or `digest(algorithm)` for a supported standard output length.
@@ -698,6 +723,8 @@ Windows. Keep their common `configure`, `all`, `test`, `clean`, `rebuild`, and
 verify both when changing either. Both default to Release and four build jobs,
 build all enabled CMake targets, and use the `VCPKG_ROOT` toolchain when set.
 The test target builds before running CTest; configure stops before building.
+Run Windows MSVC tests from Visual Studio Developer PowerShell x64: compile-rejection
+checks invoke MSVC directly and need its standard-library and Windows SDK include paths.
 Clean verifies the expected repository root and runs `git clean -fdx` from that
 root. **Clean and rebuild delete untracked source files and local configuration
 along with ignored build caches, dependencies, and editor packages.** They
@@ -836,7 +863,7 @@ versioned snippets, and invokes the same targets through CMake Tools. Run the ro
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 1.1.32 is shared with the Visual Studio extension and is independent of
+version 1.1.33 is shared with the Visual Studio extension and is independent of
 compiler and schema versions. Keep both editor extension versions equal.
 Both package descriptions and READMEs identify the
 [Serializer repository](https://github.com/rohit-singh-gautam/Serializer). Configure
@@ -1014,7 +1041,8 @@ user instruction to defer generation/builds/tests and report what remains unveri
   names (including escaped aliases), and preserve decode limits. Regenerate classes
   to enable this protocol hook. Native JSON also supports C++ `std::optional<T>`
   generic arguments as null or typed values; this does not add a schema type or
-  binary optional encoding. See `docs/usage.md#json-compatibility`.
+  binary optional encoding in older releases. For schema-native optional values
+  use language 1.7.0 `optional<T>` and the contract below. See `docs/usage.md#json-compatibility`.
   Malformed values fail with
   `IllegalArgumentException`. Do not share mutable input/object storage across
   concurrent codec calls. No explicit SIMD or native acceleration is implemented.
@@ -1485,7 +1513,7 @@ Regenerate all relevant language and editor outputs when changing these contract
 
 Consult the [versioning verification record](../../../docs/verification-versioning-2026-10-06.md) and [release-policy verification record](../../../docs/verification-release-policies-2026-10-06.md) for completed language, compiler, codec, and editor checks. Release catalogs and nested allow policies are evaluated entirely during schema compilation; generated readers and writers contain only resolved version bounds.
 
-Use [payload versioning](../../../docs/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the supported schema language header (`1.6.0`, older `1.5.0`/`1.4.0`/`1.3.0`/`1.2.0`/`1.1.0`/`1.0.0`, or the original `1` alias for `1.0.0`) from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.
+Use [payload versioning](../../../docs/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the supported schema language header (`1.7.0`, older `1.6.0`/`1.5.0`/`1.4.0`/`1.3.0`/`1.2.0`/`1.1.0`/`1.0.0`, or the original `1` alias for `1.0.0`) from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.
 
 Declare payload revisions with Serializer's `version` member instead of an ordinary
 counter field. The paired `union_variant` examples declare

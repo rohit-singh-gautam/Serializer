@@ -134,6 +134,16 @@ public:
   // Preserve digest byte cardinality wherever a primitive type appears in generated storage.
   std::string storage_type_name(const ::rohit::serializer::type_name& value,
                                 storage_mode mode = storage_mode::owning) {
+    if (value.is_optional()) {
+      return "::std::optional<" + storage_type_name(value.arguments.front(), mode) + ">";
+    }
+    if (value.is_sequence()) {
+      return "::std::vector<" + storage_type_name(value.arguments.front(), mode) + ">";
+    }
+    if (value.is_associative()) {
+      return "::std::map<" + storage_type_name(value.arguments[0], mode) + ", " +
+             storage_type_name(value.arguments[1], mode) + ">";
+    }
     if (value.type == object_type::unresolved && value.name == "digest") {
       return value.name; // Existing generic parameters retain their spelling and meaning.
     }
@@ -144,6 +154,83 @@ public:
       return emission_only ? "::std::span<const ::std::uint8_t>" : "::std::vector<::std::uint8_t>";
     }
     return storage_type_name(value.name, value.resolved_node, mode);
+  }
+
+  // Detect a schema-native optional anywhere in a generated model's owned value graph.
+  bool contains_optional(const class_node* object, std::set<const class_node*>& visited) const {
+    if (!visited.insert(object).second) { return false; }
+    const auto inspect = [&](auto&& recurse, const serializer::type_name& type) -> bool {
+      if (type.is_optional()) { return true; }
+      for (const auto& argument : type.arguments) {
+        if (recurse(recurse, argument)) { return true; }
+      }
+      return type.resolved_node && type.resolved_node->type == object_type::class_type &&
+             contains_optional(static_cast<const class_node*>(type.resolved_node), visited);
+    };
+    for (const auto& base : object->parents) {
+      if (contains_optional(base.parent_class, visited)) { return true; }
+    }
+    for (const auto& parameter : object->generic_parameters) {
+      for (const auto& argument : parameter.default_argument) {
+        if (inspect(inspect, argument)) { return true; }
+      }
+    }
+    for (const auto& field : object->member_list) {
+      for (const auto& type : field.type_name_list) {
+        if (inspect(inspect, type)) { return true; }
+      }
+    }
+    return false;
+  }
+
+  // Scope canonical JSON optional projection only for schemas using the built-in optional type.
+  void write_schema_value_scope(rohit::type_check::output_buffer auto& output,
+                                const class_node* object) {
+    std::set<const class_node*> visited;
+    const bool optional = contains_optional(object, visited);
+    if (optional || object->type == object_type::generic_definition) {
+      output.write("\n    [[maybe_unused]] auto ",
+                   variant_helper_name(*object, local_name("serializer_schema_values")),
+                   " = ::rohit::serializer::detail::enter_schema_values");
+      if (!optional) {
+        output.write("<::rohit::serializer::detail::schema_optional_values<",
+                     type_name(object->name), ">>");
+      }
+      output.write("(",
+                   local_name("serializer_protocol"), ");");
+    }
+  }
+
+  // Describe schema-selected generic applications without changing legacy host specializations.
+  void write_optional_applications(rohit::type_check::output_buffer auto& output,
+                                    const std::vector<std::unique_ptr<syntax_node>>& statements,
+                                    std::set<std::string>& emitted) {
+    for (const auto& statement : statements) {
+      if (statement->type == object_type::namespace_type) {
+        write_optional_applications(output,
+            static_cast<const namespace_node&>(*statement).statements, emitted);
+      } else if (statement->type == object_type::class_type) {
+        const auto& object = static_cast<const class_node&>(*statement);
+        std::set<const class_node*> visited;
+        if (object.generic_name.empty() || object.supports_managed() ||
+            !contains_optional(&object, visited)) { continue; }
+        const auto* definition = generic_definitions.at(object.generic_name);
+        std::string application = full_type_name(definition) + "<";
+        for (std::size_t index = 0; index < object.generic_arguments.size(); ++index) {
+          if (index != 0) { application += ", "; }
+          const auto& argument = object.generic_arguments[index];
+          application += argument.kind == generic_argument_kind::dimension ?
+              std::to_string(argument.dimension) + "ULL" : storage_type_name(argument);
+        }
+        application += ">";
+        if (emitted.insert(application).second) {
+          output.write("namespace rohit::serializer::detail {\n"
+                       "// Retain canonical optional values for this concrete schema application.\n"
+                       "template<> inline constexpr bool schema_optional_values<", application,
+                       "> = true;\n}\n");
+        }
+      }
+    }
   }
 
   // Select the symbolic discriminator type independently of its storage field.
@@ -619,8 +706,8 @@ public:
       if (member.modifier != member::modifier_type::none ||
           member.type_name_list[0].type != object_type::enum_type) {
         out_stream.write("::std::make_pair(", constant_output_name(member.display_name), ", ",
-                         "::std::cref(this->", member_name(member),
-                         "))"
+                         "::rohit::serializer::detail::schema_named_value{this->", member_name(member),
+                         "})"
                          ");");
       } else {
         out_stream.write("::std::make_pair(", constant_output_name(member.display_name), ", ",
@@ -677,6 +764,9 @@ public:
            field.compact == compact_encoding::none &&
            field.type_name_list.front().type == object_type::primitive &&
            !field.type_name_list.front().is_digest() &&
+           !field.type_name_list.front().is_optional() &&
+           !field.type_name_list.front().is_sequence() &&
+           !field.type_name_list.front().is_associative() &&
            field.type_name_list.front().name != "string" &&
            !field.type_name_list.front().name.starts_with("version");
   }
@@ -730,6 +820,7 @@ public:
   class_node native_layout(const class_node& object, std::string_view format) {
     class_node result{object.type, std::string{object.name}, object.parent_namespace,
                       object.attributes, std::vector<parent>{object.parents}};
+    result.generic_parameters = object.generic_parameters;
     result.magic_bytes = object.magic_bytes;
     result.magic_field = object.magic_field;
     result.magic_access = object.magic_access;
@@ -931,6 +1022,7 @@ public:
          "SerializeOutProtocol::key_type == ::rohit::serializer::serialize_key_type::string,\n     "
          "  "
          " \"Unsupported serializer key type\");"));
+    write_schema_value_scope(out_stream, obj);
     if (obj->has_magic()) {
       out_stream.write("\n    if constexpr (!::rohit::serializer::detail::is_json_protocol<SerializeOutProtocol> &&\n"
                        "                  !requires { ", local_name("serializer_protocol"), ".protobuf_object(*this); } && !(",
@@ -992,12 +1084,20 @@ public:
 
   // Donate a present field's storage; absent keyed fields retain the fresh candidate's defaults.
   void write_field_input(rohit::type_check::output_buffer auto& output, const member& field,
-                         std::string_view indent, bool explicit_type = true) {
+                         std::string_view indent, bool explicit_type = true,
+                         bool named_optional = false) {
     if (!field.omitted_formats.empty()) {
       output.write(indent, "if constexpr (", omission_condition(field.omitted_formats, "SerializeInProtocol"),
                    ") { throw ::std::invalid_argument{\"Field omitted from selected format\"}; } else {\n");
     }
     const auto cpp_type = get_cpp_type(field);
+    if (named_optional && field.compact == compact_encoding::none) {
+      output.write(indent, "if constexpr (::rohit::serializer::detail::optional_enum<",
+                   "::std::remove_cvref_t<decltype(this->", member_name(field), ")>>) {\n",
+                   indent, "  ::rohit::serializer::detail::read_schema_named(",
+                   local_name("serializer_protocol"), ", this->", member_name(field), ");\n",
+                   indent, "} else {\n");
+    }
     const bool has_storage = field.modifier == member::modifier_type::array ||
                              field.modifier == member::modifier_type::map ||
                              cpp_type == "::std::string" ||
@@ -1019,6 +1119,9 @@ public:
           local_name("storage_donor"), "->", member_name(field), ");\n", indent, "}\n");
     } else {
       output.write(indent, read);
+    }
+    if (named_optional && field.compact == compact_encoding::none) {
+      output.write(indent, "}\n");
     }
     if (!field.omitted_formats.empty()) { output.write(indent, "}\n"); }
   }
@@ -1437,7 +1540,8 @@ public:
                            member_name(*item.field), ");\n");
           if (!item.field->omitted_formats.empty()) { out_stream.write("          }\n"); }
         } else {
-          write_field_input(out_stream, *item.field, "          ", false);
+          write_field_input(out_stream, *item.field, "          ", false,
+                            item.field->modifier == member::modifier_type::none);
         }
         if (!item.magic) { out_stream.write("          return;\n"); }
         out_stream.write("        }\n");
@@ -1493,6 +1597,7 @@ public:
         "SerializeInProtocol::key_type "
         "== ::rohit::serializer::serialize_key_type::string,\n        \"Unsupported serializer key "
         "type\");"));
+    write_schema_value_scope(out_stream, obj);
     if (obj->has_magic()) {
       out_stream.write("\n    if constexpr (!::rohit::serializer::detail::is_json_protocol<SerializeInProtocol> &&\n"
                        "                  !requires { ", local_name("serializer_protocol"), ".protobuf_object(*this); } && !(",
@@ -2396,6 +2501,14 @@ public:
 
   // Retain earlier parameter references and declaration-scope type defaults in public aliases.
   std::string generic_default(const ::rohit::serializer::type_name& value) {
+    if (value.is_optional() || value.is_sequence()) {
+      return std::string{value.is_optional() ? "::std::optional<" : "::std::vector<"} +
+             generic_default(value.arguments.front()) + ">";
+    }
+    if (value.is_associative()) {
+      return "::std::map<" + generic_default(value.arguments[0]) + ", " +
+             generic_default(value.arguments[1]) + ">";
+    }
     if (value.kind == generic_argument_kind::dimension && value.dimension != 0) {
       return std::to_string(value.dimension) + "ULL";
     }
@@ -2487,6 +2600,7 @@ public:
                      "#include <functional>\n"
                      "#include <map>\n"
                      "#include <memory>\n"
+                     "#include <optional>\n"
                      "#include <stdexcept>\n"
                      "#include <string>\n"
                      "#include <string_view>\n"
@@ -2499,6 +2613,8 @@ public:
       out_stream.write("// clang-format off\n", native_hooks, "// clang-format on\n");
     }
     write_statement_list(out_stream, statements);
+    std::set<std::string> optional_applications;
+    write_optional_applications(out_stream, statements, optional_applications);
     managed_.write(out_stream);
   }
 };

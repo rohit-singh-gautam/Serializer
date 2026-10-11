@@ -107,6 +107,20 @@ async function main() {
     path.join(directory, 'digests'));
   checks += await verify(path.join(repository, 'test/resources/inferred_arrays.serializer'),
     path.join(directory, 'inferred-arrays'), [], { cpp: outputs.cpp }, true);
+  const optionalInput = path.join(directory, 'optional.serializer');
+  fs.writeFileSync(optionalInput, `serializer version 1.7.0;
+namespace optional_models {
+  class sample stable_ids { public uint32 id (1); }
+  class model stable_ids {
+    public optional<optional_models::sample> item (1);
+    public optional<optional<optional_models::sample>> nested (2);
+    public optional<array<optional_models::sample>> rows (3);
+    public optional<map<string, optional_models::sample>> lookup (4);
+    public array optional<optional_models::sample> items (5);
+  }
+}
+`);
+  checks += await verify(optionalInput, path.join(directory, 'optional'), [], outputs, true);
   const suppressionInput = path.join(directory, 'warning-suppression.serializer');
   fs.writeFileSync(suppressionInput, `serializer version 1.5.0;
 namespace warning_models {
@@ -161,7 +175,7 @@ namespace Names_ { class Value_Type {} }
     checks += await verify(input, path.join(directory, `java-${profile}`),
       ['--java.coding_standard', profile, '--java.package', 'example.models'], { java: outputs.java });
   }
-  console.log(`Fresh compiler navigation passed: ${checks} bidirectional type checks across all 11 output languages, unnamed revisions and warning suppression, unions and variants, digest fields, compact fields, typed magic and inferred arrays, identical codecs for legacy/dotted headers, transitive includes, acronyms, preserved names, and direct/separated managed classes across all C++ profiles.`);
+  console.log(`Fresh compiler navigation passed: ${checks} bidirectional type checks across all 11 output languages, nested optionals and generic containers, unnamed revisions and warning suppression, unions and variants, digest fields, compact fields, typed magic and inferred arrays, identical codecs for legacy/dotted headers, transitive includes, acronyms, preserved names, and direct/separated managed classes across all C++ profiles.`);
 }
 
 main().catch(error => { console.error(error.stderr?.toString() || error); process.exitCode = 1; });

@@ -160,3 +160,23 @@ Every language has a `document_collections` example. Run
 `python example/run.py --compiler <serializer> --language all --example document_collections`.
 The shared document schema exercises exact arrays of nested records, strings and
 integers, transient wire exclusion and rejection of short/oversized arrays.
+
+## Optional values
+
+Every language has a runnable `optional` example using the
+[shared generic schema](schemas/optional/model.serializer). It covers absent
+and present scalars, generated records, nested optionals, optional arrays/maps,
+empty present collections, collections of optionals, and generic `optional<T>`
+fields. C++ storage is the actual `std::optional<T>`. The independent fixture
+is preserved through all four protocols; invalid JSON presence frames and
+unsupported version 2 reject.
+
+```sh
+python example/run.py --compiler build/serializer --example optional --language all
+```
+
+Use language 1.7.0 and compiler/runtime 1.12.0. See the
+[optional contract](../docs/optional.md) for target APIs and wire semantics.
+The basic, collections and complex examples use payload `version` metadata,
+keep version 1, and verify rejection of future version 2. These supported
+payload revisions are metadata; changing them requires a deliberate schema migration.

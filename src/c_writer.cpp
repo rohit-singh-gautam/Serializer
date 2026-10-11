@@ -5,6 +5,7 @@
 #include "behavior_writer.hpp"
 
 #include <algorithm>
+#include <map>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -27,6 +28,10 @@ class c_emitter {
   std::size_t indent{};
   bool variable_first{};
   std::string fields_name;
+  std::map<std::string, type_name> generic_types;
+  std::set<std::string> defined_generic_types;
+  std::set<const class_node*> defined_classes;
+  std::set<const class_node*> defining_classes;
   // Reserve generated global symbols before emitting C's shared typedef/function namespace.
   void validate_symbols() const {
     std::set<std::string> symbols{"size_t",   "ptrdiff_t", "int8_t",   "int16_t",    "int32_t",
@@ -97,6 +102,14 @@ class c_emitter {
   }
   // Select exact-width C scalar storage.
   std::string type(const type_name& value) const {
+    if (value.is_optional() || value.is_sequence() || value.is_associative()) {
+      std::string result = "srl_" + value.name;
+      for (const auto& argument : value.arguments) {
+        const auto argument_type = type(argument);
+        result += "_" + std::to_string(argument_type.size()) + "_" + argument_type;
+      }
+      return result;
+    }
     if (value.type != object_type::primitive) {
       return name(value.resolved_node);
     }
@@ -198,7 +211,9 @@ class c_emitter {
   // Initialize one scalar in zeroed storage; propagate the first allocation failure.
   void init_value(const type_name& value, const std::string& dst, const std::string& literal_value,
                   const std::string& status) {
-    if (value.is_digest()) {
+    if (value.is_optional() || value.is_sequence() || value.is_associative()) {
+      line("memset(&" + dst + ", 0, sizeof(" + dst + "));");
+    } else if (value.is_digest()) {
       line("if (" + status + " == srl_ok) { " + status + " = srl_digest_init(&" + dst + ", " + std::to_string(value.digest_extent) + "); }");
     } else if (value.type == object_type::class_type) {
       line("if (" + status + " == srl_ok) { " + status + " = " + type(value) + "_init(&" + dst +
@@ -214,7 +229,14 @@ class c_emitter {
   }
   // Release one owning scalar; zeroing nested models prevents stale ownership.
   void free_value(const type_name& value, const std::string& dst) {
-    if (value.is_digest()) {
+    if (value.is_optional()) {
+      open("if (" + dst + ".has_value)");
+      free_value(value.arguments.front(), dst + ".value");
+      close();
+      line("memset(&" + dst + ", 0, sizeof(" + dst + "));");
+    } else if (value.is_sequence() || value.is_associative()) {
+      line(type(value) + "_clear(&" + dst + ");");
+    } else if (value.is_digest()) {
       line("srl_buffer_free(&" + dst + ");");
     } else if (value.type == object_type::class_type) {
       line(type(value) + "_free(&" + dst + ");");
@@ -224,14 +246,21 @@ class c_emitter {
   }
   // Read a scalar directly into the candidate, merging ordinary nested objects.
   void read_value(const type_name& value, const std::string& dst, bool collection_context) {
-    if (value.is_digest()) {
+    read_value(value, dst, std::string{collection_context ? "true" : "false"});
+  }
+  // Keep enum context transparent through generic optional wrappers.
+  void read_value(const type_name& value, const std::string& dst,
+                  const std::string& collection_context) {
+    if (value.is_optional() || value.is_sequence() || value.is_associative()) {
+      line(type(value) + "_srl_read(in, &" + dst + ", " + collection_context + ");");
+    } else if (value.is_digest()) {
       line("srl_read_digest(in, &" + dst + ", " + std::to_string(value.digest_extent) + ");");
     } else if (value.type == object_type::class_type) {
       line(type(value) + "_srl_read(in, &" + dst + ");");
     } else if (value.type == object_type::enum_type) {
       line(dst + " = (" + type(value) + ")srl_read_enum(in, " + type(value) +
            "_srl_names, sizeof(" + type(value) + "_srl_names)/sizeof(" + type(value) +
-           "_srl_names[0]), " + (collection_context ? "true" : "false") + ");");
+           "_srl_names[0]), " + collection_context + ");");
     } else if (value.name.starts_with("version")) {
       line("srl_read_version(in, &" + dst + ", " + std::string{value.name.back()} + ");");
     } else if (value.name == "string") {
@@ -256,14 +285,21 @@ class c_emitter {
   }
   // Write one typed scalar without a generic object representation.
   void write_value(const type_name& value, const std::string& src, bool collection_context) {
-    if (value.is_digest()) {
+    write_value(value, src, std::string{collection_context ? "true" : "false"});
+  }
+  // Keep enum context transparent through generic optional wrappers.
+  void write_value(const type_name& value, const std::string& src,
+                  const std::string& collection_context) {
+    if (value.is_optional() || value.is_sequence() || value.is_associative()) {
+      line(type(value) + "_srl_write(out, &" + src + ", " + collection_context + ");");
+    } else if (value.is_digest()) {
       line("srl_write_digest(out, &" + src + ", " + std::to_string(value.digest_extent) + ");");
     } else if (value.type == object_type::class_type) {
       line(type(value) + "_srl_write(out, &" + src + ");");
     } else if (value.type == object_type::enum_type) {
       line("srl_write_enum(out, (uint32_t)" + src + ", " + type(value) + "_srl_names, sizeof(" +
            type(value) + "_srl_names)/sizeof(" + type(value) + "_srl_names[0]), " +
-           (collection_context ? "true" : "false") + ");");
+           collection_context + ");");
     } else if (value.name.starts_with("version")) {
       line("srl_write_version(out, &" + src + ", " + std::string{value.name.back()} + ");");
     } else if (value.name == "string") {
@@ -293,15 +329,13 @@ class c_emitter {
                                   : "(" + a + " > " + b + ") - (" + a + " < " + b + ")";
   }
   // Emit typed collection cleanup and map normalization helpers.
-  void collection_helpers(const class_node& owner, const member& value) {
-    const auto n = collection(owner, value);
-    const auto& t = value.type_name_list.front();
-    const bool map = value.modifier == member::modifier_type::map;
+  void collection_helpers(const std::string& n, const type_name& t, bool map,
+                          const type_name& key_type) {
     line("/* Release every initialized collection slot, including partially decoded values. */");
     open("static inline void " + n + "_clear(" + n + "* value)");
     open("for (size_t i = 0; i < value->size; ++i)");
     if (map) {
-      free_value(map_key(value), "value->data[i].key");
+      free_value(key_type, "value->data[i].key");
       free_value(t, "value->data[i].value");
     } else {
       free_value(t, "value->data[i]");
@@ -318,14 +352,14 @@ class c_emitter {
     open("static inline int " + n + "_compare(const void* left, const void* right)");
     line("const " + entry + "* a = (const " + entry + "*)left; const " + entry + "* b = (const " +
          entry + "*)right;");
-    line("const int order = " + compare(map_key(value), "a->key", "b->key") + ";");
+    line("const int order = " + compare(key_type, "a->key", "b->key") + ";");
     line("return order ? order : (a->srl_order > b->srl_order) - (a->srl_order < b->srl_order);");
     close();
     line("/* Sort borrowed entry pointers without mutating the source map. */");
     open("static inline int " + n + "_compare_pointer(const void* left, const void* right)");
     line("const " + entry + "* a = *(const " + entry + "* const*)left; const " + entry +
          "* b = *(const " + entry + "* const*)right;");
-    line("const int order = " + compare(map_key(value), "a->key", "b->key") + ";");
+    line("const int order = " + compare(key_type, "a->key", "b->key") + ";");
     line("return order ? order : (a > b) - (a < b);");
     close();
     line("/* Compact duplicate keys in O(n log n), freeing superseded owned values. */");
@@ -336,10 +370,10 @@ class c_emitter {
     open("for (size_t first = 0; first < value->size;)");
     line("size_t last = first;");
     line("while (last+1 < value->size && (" +
-         compare(map_key(value), "value->data[first].key", "value->data[last+1].key") +
+         compare(key_type, "value->data[first].key", "value->data[last+1].key") +
          ") == 0) { ++last; }");
     open("for (size_t i = first; i < last; ++i)");
-    free_value(map_key(value), "value->data[i].key");
+    free_value(key_type, "value->data[i].key");
     free_value(t, "value->data[i].value");
     close();
     line("if (target != last) { value->data[target] = value->data[last]; "
@@ -380,12 +414,16 @@ class c_emitter {
       close();
       return;
     }
-    const auto n = collection(owner, value);
-    const bool map = value.modifier == member::modifier_type::map;
+    read_collection(dst, collection(owner, value), t,
+                    value.modifier == member::modifier_type::map, map_key(value), value.fixed_extent);
+  }
+  // Decode any typed owning collection, including a nested generic array or map.
+  void read_collection(const std::string& dst, const std::string& n, const type_name& t,
+                       bool map, const type_name& key_type, std::size_t fixed_extent) {
     line(n + "_clear(&" + dst + ");");
     line("const size_t count = srl_read_array(in);");
-    if (value.fixed_extent != 0) {
-      line("if (in->protocol != srl_json && count != " + std::to_string(value.fixed_extent) +
+    if (fixed_extent != 0) {
+      line("if (in->protocol != srl_json && count != " + std::to_string(fixed_extent) +
            ") { in->status = srl_invalid; return; }");
     }
     line("const size_t capacity = srl_array_capacity(in, count, " +
@@ -396,8 +434,8 @@ class c_emitter {
     line("if (" + dst + ".data) { " + dst + ".capacity = capacity; }");
     close();
     open("for (size_t index = 0; srl_read_element(in, index, count); ++index)");
-    if (value.fixed_extent != 0) {
-      line("if (index >= " + std::to_string(value.fixed_extent) +
+    if (fixed_extent != 0) {
+      line("if (index >= " + std::to_string(fixed_extent) +
            ") { in->status = srl_invalid; break; }");
     }
     open("if (" + dst + ".size == " + dst + ".capacity)");
@@ -417,7 +455,7 @@ class c_emitter {
       read_value(t, slot, true);
     } else {
       line(slot + ".srl_order = index;");
-      init_value(map_key(value), slot + ".key", {}, "in->status");
+      init_value(key_type, slot + ".key", {}, "in->status");
       init_value(t, slot + ".value", {}, "in->status");
       open("if (in->protocol == srl_json)");
       line(
@@ -425,9 +463,9 @@ class c_emitter {
       line("srl_read_begin(in);");
       open("while (srl_read_key(in, NULL, 0, entry_cursor++, &entry))");
       open("if (srl_string_equal(&entry.name, \"key\"))");
-      free_value(map_key(value), slot + ".key");
-      init_value(map_key(value), slot + ".key", {}, "in->status");
-      read_value(map_key(value), slot + ".key", true);
+      free_value(key_type, slot + ".key");
+      init_value(key_type, slot + ".key", {}, "in->status");
+      read_value(key_type, slot + ".key", true);
       line("has_key = true;");
       close();
       open("else if (srl_string_equal(&entry.name, \"value\"))");
@@ -443,13 +481,13 @@ class c_emitter {
       line("if (in->status == srl_ok && (!has_key || !has_value)) { in->status = srl_invalid; }");
       close();
       open("else");
-      read_value(map_key(value), slot + ".key", true);
+      read_value(key_type, slot + ".key", true);
       read_value(t, slot + ".value", true);
       close();
     }
     close();
-    if (value.fixed_extent != 0) {
-      line("if (in->status == srl_ok && " + dst + ".size != " + std::to_string(value.fixed_extent) +
+    if (fixed_extent != 0) {
+      line("if (in->status == srl_ok && " + dst + ".size != " + std::to_string(fixed_extent) +
            ") { in->status = srl_invalid; }");
     }
     if (map) {
@@ -489,10 +527,16 @@ class c_emitter {
       write_value(t, src, false);
       return;
     }
+    write_collection(src, collection(owner, value), t,
+                     value.modifier == member::modifier_type::map, map_key(value), value.fixed_extent);
+  }
+  // Encode nested or member collections with the same ordering and ownership contract.
+  void write_collection(const std::string& src, const std::string& n, const type_name& t,
+                        bool map, const type_name& key_type, std::size_t fixed_extent) {
     line("if (" + src + ".size && !" + src + ".data) { out->status = srl_invalid; return; }");
-    if (value.modifier == member::modifier_type::array) {
-      if (value.fixed_extent != 0) {
-        line("if (" + src + ".size != " + std::to_string(value.fixed_extent) +
+    if (!map) {
+      if (fixed_extent != 0) {
+        line("if (" + src + ".size != " + std::to_string(fixed_extent) +
              ") { out->status = srl_invalid; return; }");
       }
       line("srl_write_array(out, " + src + ".size);");
@@ -501,8 +545,8 @@ class c_emitter {
       write_value(t, src + ".data[i]", true);
       close();
     } else {
-      const auto n = collection(owner, value), entry = n + "_entry";
-      if (map_key(value).name == "string") {
+      const auto entry = n + "_entry";
+      if (key_type.name == "string") {
         line("for (size_t i = 0; i < " + src + ".size; ++i) { if (!srl_utf8((const uint8_t*)" +
              src + ".data[i].key.data, " + src +
              ".data[i].key.size)) { out->status = srl_invalid; return; } }");
@@ -518,7 +562,7 @@ class c_emitter {
       line("size_t count = 0;");
       open("for (size_t i = 0; i < " + src + ".size; ++i)");
       line("if (i+1 == " + src + ".size || (" +
-           compare(map_key(value), "entries[i]->key", "entries[i+1]->key") +
+           compare(key_type, "entries[i]->key", "entries[i+1]->key") +
            ") != 0) { entries[count++] = entries[i]; }");
       close();
       line("srl_write_array(out, count);");
@@ -526,7 +570,7 @@ class c_emitter {
       line("srl_write_element(out, i);");
       line("if (out->protocol == srl_json) { srl_write_begin(out); srl_write_field(out, 0, &" +
            fields_name + "[0], true); }");
-      write_value(map_key(value), "entries[i]->key", true);
+      write_value(key_type, "entries[i]->key", true);
       line("if (out->protocol == srl_json) { srl_write_field(out, 0, &" + fields_name +
            "[1], false); }");
       write_value(t, "entries[i]->value", true);
@@ -596,6 +640,9 @@ class c_emitter {
       line("uint8_t srl_empty;");
     }
     close(";");
+  }
+  // Complete member map entries after all inline class and generic value layouts exist.
+  void map_declarations(const class_node& value) {
     for (const auto& f : value.member_list) {
       if (f.modifier != member::modifier_type::map) {
         continue;
@@ -605,6 +652,102 @@ class c_emitter {
       line("struct " + entry + " { " + type(map_key(f)) + " key; " +
            type(f.type_name_list.front()) + " value; size_t srl_order; };");
     }
+  }
+  // Collect each concrete built-in type, including types used only in behavior signatures.
+  void collect_generic_types(const type_name& value) {
+    for (const auto& argument : value.arguments) { collect_generic_types(argument); }
+    if (value.is_optional() || value.is_sequence() || value.is_associative()) {
+      generic_types.try_emplace(type(value), value);
+    }
+  }
+  // Emit pointer-based collection layouts before inline optional/class layouts are scheduled.
+  void generic_collection_declarations() {
+    for (const auto& [n, value] : generic_types) {
+      line("typedef struct " + n + " " + n + ";");
+      if (value.is_associative()) { line("typedef struct " + n + "_entry " + n + "_entry;"); }
+    }
+    for (const auto& [n, value] : generic_types) {
+      if (value.is_optional()) { continue; }
+      const auto item = value.is_associative() ? n + "_entry" : type(value.arguments.front());
+      line("struct " + n + " { " + item + "* data; size_t size; size_t capacity; };");
+      defined_generic_types.insert(n);
+    }
+  }
+  // Complete inline dependencies while allowing cycles that cross owning sequence/map pointers.
+  void define_type(const type_name& value) {
+    if (value.type == object_type::class_type) {
+      define_class(static_cast<const class_node&>(*value.resolved_node));
+    } else if (value.is_optional() && !defined_generic_types.contains(type(value))) {
+      define_type(value.arguments.front());
+      line("/* Explicit presence; absent values own no initialized element. */");
+      line("struct " + type(value) + " { bool has_value; " + type(value.arguments.front()) + " value; };");
+      defined_generic_types.insert(type(value));
+    }
+  }
+  // Order C's by-value layouts independently of declaration order; reject infinite inline storage.
+  void define_class(const class_node& value) {
+    if (defined_classes.contains(&value)) { return; }
+    if (!defining_classes.insert(&value).second) {
+      throw std::invalid_argument{"Direct self-containing C optional/model layout"};
+    }
+    for (const auto& parent : value.parents) { define_class(*parent.parent_class); }
+    for (const auto& field_value : value.member_list) {
+      if (field_value.modifier == member::modifier_type::none ||
+          field_value.modifier == member::modifier_type::variant) {
+        for (const auto& alternative : field_value.type_name_list) { define_type(alternative); }
+      }
+    }
+    declarations(value);
+    defining_classes.erase(&value);
+    defined_classes.insert(&value);
+  }
+  // Complete map entry payloads after all class and optional definitions are available.
+  void generic_map_declarations() {
+    for (const auto& [n, value] : generic_types) {
+      if (value.is_associative()) {
+        line("struct " + n + "_entry { " + type(value.arguments.front()) + " key; " +
+             type(value.arguments.back()) + " value; size_t srl_order; };");
+      }
+    }
+  }
+  // Isolate generic codec returns so nested maps always release their borrowed sorting arrays.
+  void generic_codecs(const type_name& value) {
+    const auto n = type(value);
+    const auto dst = std::string{"(*value)"};
+    line("/* Decode a generic value; the enclosing model owns transactional publication. */");
+    open("static inline void " + n + "_srl_read(srl_reader* in, " + n + "* value, bool collection_context)");
+    line("(void)collection_context;");
+    if (value.is_optional()) {
+      line("bool present = false;");
+      line("if (!srl_read_optional_begin(in, &present)) { return; }");
+      free_value(value, dst);
+      line(dst + ".has_value = present;");
+      open("if (present)");
+      init_value(value.arguments.front(), dst + ".value", {}, "in->status");
+      read_value(value.arguments.front(), dst + ".value", std::string{"collection_context"});
+      close();
+      line("srl_read_optional_end(in, present);");
+    } else {
+      line("if (!srl_read_container_enter(in)) { return; }");
+      read_collection(dst, n, value.arguments.back(), value.is_associative(), value.arguments.front(), 0);
+      line("srl_read_container_leave(in);");
+    }
+    close();
+    line("/* Encode a borrowed generic value without changing its owning storage. */");
+    open("static inline void " + n + "_srl_write(srl_writer* out, const " + n + "* value, bool collection_context)");
+    line("(void)collection_context;");
+    if (value.is_optional()) {
+      line("if (!srl_write_optional_begin(out, " + dst + ".has_value)) { return; }");
+      open("if (" + dst + ".has_value)");
+      write_value(value.arguments.front(), dst + ".value", std::string{"collection_context"});
+      close();
+      line("srl_write_optional_end(out);");
+    } else {
+      line("if (!srl_write_container_enter(out)) { return; }");
+      write_collection(dst, n, value.arguments.back(), value.is_associative(), value.arguments.front(), 0);
+      line("srl_write_container_leave(out);");
+    }
+    close();
   }
   // A copied function table provides checked dispatch independently of a model's codec storage.
   void dispatch_adapter(const class_node& value) {
@@ -715,7 +858,8 @@ class c_emitter {
     behaviors(value);
     for (const auto& f : value.member_list) {
       if (f.modifier == member::modifier_type::array || f.modifier == member::modifier_type::map) {
-        collection_helpers(value, f);
+        collection_helpers(collection(value, f), f.type_name_list.front(),
+                           f.modifier == member::modifier_type::map, map_key(f));
       }
     }
     line("/* Release every owned field; accepts zeroed and partially initialized values. */");
@@ -1023,6 +1167,17 @@ public:
     for (const auto& code : model.preambles) {
       if (code.language == "c") { output += behavior::source_marker(code, "c") + code.text + "\n"; }
     }
+    for (const auto* node : model.nodes) {
+      if (node->type != object_type::class_type) { continue; }
+      const auto& object_value = static_cast<const class_node&>(*node);
+      for (const auto& field_value : object_value.member_list) {
+        for (const auto& alternative : field_value.type_name_list) { collect_generic_types(alternative); }
+      }
+      for (const auto& method : object_value.functions) {
+        collect_generic_types(method.return_type);
+        for (const auto& argument : method.parameters) { collect_generic_types(argument.type); }
+      }
+    }
     validate_symbols();
     for (std::size_t i = 0; i < model.ordered_keys.size(); ++i) {
       const auto& key = model.ordered_keys[i];
@@ -1070,10 +1225,14 @@ public:
         line(names + "};");
       }
     }
+    generic_collection_declarations();
     for (const auto* node : model.nodes) {
-      if (node->type == object_type::class_type) {
-        declarations(static_cast<const class_node&>(*node));
-      }
+      if (node->type == object_type::class_type) { define_class(static_cast<const class_node&>(*node)); }
+    }
+    for (const auto& [n, value] : generic_types) { (void)n; define_type(value); }
+    generic_map_declarations();
+    for (const auto* node : model.nodes) {
+      if (node->type == object_type::class_type) { map_declarations(static_cast<const class_node&>(*node)); }
     }
     for (const auto* node : model.nodes) {
       if (node->type != object_type::class_type) {
@@ -1086,6 +1245,16 @@ public:
       line("static inline void " + n + "_srl_read(srl_reader* in, " + n + "* value);");
       line("static inline void " + n + "_srl_write(srl_writer* out, const " + n + "* value);");
     }
+    for (const auto& [n, value] : generic_types) {
+      line("static inline void " + n + "_srl_read(srl_reader* in, " + n + "* value, bool collection_context);");
+      line("static inline void " + n + "_srl_write(srl_writer* out, const " + n + "* value, bool collection_context);");
+      if (!value.is_optional()) { line("static inline void " + n + "_clear(" + n + "* value);"); }
+    }
+    for (const auto& [n, value] : generic_types) {
+      if (value.is_optional()) { continue; }
+      collection_helpers(n, value.arguments.back(), value.is_associative(), value.arguments.front());
+    }
+    for (const auto& [n, value] : generic_types) { (void)n; generic_codecs(value); }
     for (const auto* node : model.nodes) {
       if (node->type == object_type::class_type) {
         object(static_cast<const class_node&>(*node));

@@ -5,6 +5,32 @@ const { test } = require('node:test');
 const { Registry, INITIAL } = require('vscode-textmate');
 const onig = require('vscode-oniguruma');
 
+test('optional and nested container generics highlight types without consuming fields or method names', async () => {
+  const grammar = await loadGrammar();
+  const line = 'serializer version 1.7.0; class box<T = optional<lib::person>> { ' +
+    'public optional<optional<lib::person>> value; public optional<array<T>> rows; ' +
+    'public optional<map<string, lib::person>> lookup; public array optional<T> items; ' +
+    'public function optional<lib::person> find(optional<lib::person> input) cpp { return input; }; }';
+  const result = grammar.tokenizeLine(line, INITIAL);
+  /** Read a token scope at its source offset. */
+  const scope = offset => result.tokens.find(token => token.startIndex <= offset && token.endIndex > offset).scopes.at(-1);
+  for (const match of line.matchAll(/person/g)) {
+    assert.equal(scope(match.index), 'entity.name.type.serializer');
+  }
+  for (const match of line.matchAll(/optional/g)) {
+    assert.equal(scope(match.index), 'entity.name.type.serializer');
+  }
+  assert.equal(scope(line.indexOf('find(')), 'entity.name.function.serializer');
+  for (const word of ['value;', 'rows;', 'lookup;', 'items;', 'input)']) {
+    assert.equal(scope(line.indexOf(word)), 'source.serializer', word);
+  }
+  assert.equal(result.ruleStack.depth, 1);
+  const snippets = JSON.parse(fs.readFileSync(path.join(__dirname, '../snippets/serializer.json'), 'utf8'));
+  assert.equal(snippets.Schema.body[0], 'serializer version 1.7.0;');
+  assert.equal(snippets['Optional field'].prefix, 'optional');
+  assert.match(snippets['Optional field'].body, /optional</);
+});
+
 test('warning suppression highlights scoped rules and preserves ordinary keyword spellings', async () => {
   const grammar = await loadGrammar();
   for (const suffix of ['ignore(warning version)', 'ignore(warning magic, version)',

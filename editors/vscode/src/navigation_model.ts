@@ -90,6 +90,16 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
       }
     }
     if (token === 'managed' || token === 'transient') { return typeReference(start + 1, depth + 1); }
+    if (['optional', 'array', 'map'].includes(token) && tokens[start + 1]?.text === '<') {
+      // Only user-declared constructors have destinations; retain references for compatible schemas.
+      result.references.push({ ...qualified(start)!, scope: [...currentScope()] });
+      let next = start + 2;
+      while (next < tokens.length && !['>', ';', '}'].includes(tokens[next].text)) {
+        next = typeReference(next, depth + 1);
+        if (tokens[next]?.text === ',') { ++next; }
+      }
+      return tokens[next]?.text === '>' ? next + 1 : next;
+    }
     if (token === 'array') {
       let next = start + 1;
       if (tokens[next]?.text === '[') {

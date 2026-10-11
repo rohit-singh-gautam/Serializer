@@ -137,6 +137,8 @@ internal class SrlWriter(val protocol: Protocol) {
     // Close protocol-specific framing and leave this object.
     fun endObject() { if (json()) output.write(125) else if (protocol != Protocol.BINARY_NONE) output.write(0); depth-- }
     // Begin a collection using its actual element count.
+    // Write optional framing with one binary presence byte.
+    fun beginOptional(present: Boolean) { if (json()) output.write(91) else integer(if (present) 1uL else 0uL, 1, true) }
     fun beginArray(count: Int) { if (json()) output.write(91) else compact(count) }
     // Separate JSON entries.
     fun element(index: Int) { if (json() && index != 0) output.write(44) }
@@ -157,8 +159,8 @@ internal class SrlReader(val data: ByteArray, val protocol: Protocol, val limits
     }
 
     private var offset = 0
-    private var depth = 0
-    private var elements = 0
+    var depth = 0
+    var elements = 0
     private val view = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)
     private val utf8 = Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT)
     // Normalize malformed byte sequences to the codec's public validation exception.
@@ -331,7 +333,35 @@ private val srlNumber = Regex("-?(0|[1-9][0-9]*)(\\.[0-9]+)?([eE][+-]?[0-9]+)?")
 private fun srlNonzero(text: String): Boolean = text.takeWhile { it != 'e' && it != 'E' }.any { it in '1'..'9' }
 )serializer"
 R"serializer(
-// Store bytes without implicitly hashing any model field.
+// Preserve nested standard JVM Optional values and enforce per-level budgets.
+internal fun <T : Any> srlReadOptional(input: SrlReader, decode: () -> T): java.util.Optional<T> {
+    if (++input.depth > input.limits.maxDepth) throw SerializerException("Depth limit")
+    val present: Boolean
+    if (input.json()) { input.beginArray(); present = input.nextElement(0, -1) }
+    else { val tag = input.integer(1, true); if (tag > 1uL) throw SerializerException("Invalid optional tag"); present = tag != 0uL
+        if (present && ++input.elements > input.limits.maxElements) throw SerializerException("Element limit") }
+    val result = if (present) java.util.Optional.of(decode()) else java.util.Optional.empty<T>()
+    if (present && input.json() && input.nextElement(1, -1)) throw SerializerException("Invalid optional length")
+    input.depth--; return result
+}
+// Decode generic arrays incrementally under the shared entry budget.
+internal fun <T> srlReadArray(input: SrlReader, decode: () -> T): MutableList<T> {
+    val count = input.beginArray(); val result = mutableListOf<T>()
+    while (input.nextElement(result.size, count)) result.add(decode()); return result
+}
+// Decode complete native map entries and replace duplicate keys.
+internal fun <K : Any, V : Any> srlReadMap(input: SrlReader, key: () -> K, value: () -> V): MutableMap<K, V> {
+    val count = input.beginArray(); val result = linkedMapOf<K, V>(); var index = 0
+    while (input.nextElement(index++, count)) {
+        val k: K; val v: V
+        if (input.json()) { input.beginObject(); var cursor = 0; var entryKey: K? = null; var entryValue: V? = null
+            while (true) { val field = input.key(srlEmptyIds, cursor++) ?: break
+                when (field.name) { "key" -> entryKey = key(); "value" -> entryValue = value(); else -> throw SerializerException("Unknown map entry field") } }
+            input.endObject(); k = entryKey ?: throw SerializerException("Incomplete map entry"); v = entryValue ?: throw SerializerException("Incomplete map entry")
+        } else { k = key(); v = value() }; result[k] = v
+    }; return result
+}
+// Write stored digest bytes without computing their digest.
 internal fun srlWriteDigest(out: SrlWriter, value: UByteArray, expected: Int) {
     if (expected != 0 && value.size != expected) throw SerializerException("Digest length mismatch")
     out.beginArray(value.size)

@@ -28,7 +28,6 @@ int main(int argc, char** argv) {
   example_model value = {0};
   require(example_model_decode(&value, input.data, input.size, srl_json, NULL) == srl_ok,
           "Decode failed");
-  ++value.revision;
   require(example_model_encode(&value, srl_binary_none, &canonical) == srl_ok, "Encode failed");
   for (int protocol = srl_json; protocol <= srl_binary_string; ++protocol) {
     srl_buffer encoded = {0}, decoded = {0};

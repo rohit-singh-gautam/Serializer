@@ -13,28 +13,35 @@
       "include": "#native_code"
     },
     {
-      "match": "\\b(function)\\s+(?:(virtual|abstract|override)\\s+)?([A-Za-z_][A-Za-z_0-9:]*)\\s+([A-Za-z_][A-Za-z_0-9]*)\\s*(\\()",
-      "captures": {
+      "begin": "\\b(function)\\s+(?:(virtual|abstract|override)\\s+)?",
+      "beginCaptures": {
         "1": {
           "name": "storage.type.serializer"
         },
         "2": {
           "name": "storage.modifier.serializer"
-        },
-        "3": {
-          "patterns": [
-            {
-              "include": "#type_name"
-            }
-          ]
-        },
-        "4": {
+        }
+      },
+      "end": "\\b([A-Za-z_][A-Za-z_0-9]*)\\s*(\\()|(?=[;{}])",
+      "endCaptures": {
+        "1": {
           "name": "entity.name.function.serializer"
         },
-        "5": {
+        "2": {
           "name": "punctuation.section.group.serializer"
         }
-      }
+      },
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#generic_arguments"
+        },
+        {
+          "include": "#type_name"
+        }
+      ]
     },
     {
       "name": "meta.include.serializer",

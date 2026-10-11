@@ -25,7 +25,7 @@ make extension
 ```
 
 ```powershell
-# Windows (PowerShell; GNU Make is not required)
+# Windows (Visual Studio Developer PowerShell x64; GNU Make is not required)
 # all/rebuild also package both extensions; require Node.js 22+, npm and Visual Studio MSBuild
 ./make.ps1 all
 ./make.ps1 test
@@ -33,6 +33,11 @@ make extension
 ./make.ps1 rebuild
 ./make.ps1 extension
 ```
+
+Use Developer PowerShell when running MSVC tests: compiler rejection checks
+invoke the compiler directly and need its standard-library and Windows SDK
+include paths. CMake's Visual Studio generator can build from ordinary
+PowerShell, but that does not initialize the environment for these checks.
 
 The Linux `Makefile` and Windows `make.ps1` keep their common commands, defaults,
 and corresponding options synchronized. Both default to Release and configure/build

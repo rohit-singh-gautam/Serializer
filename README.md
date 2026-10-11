@@ -32,13 +32,13 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **1.11.0**. Bug fixes and minor updates
+The current compiler and runtime release is **1.12.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
-compatibility across major releases. The schema language version is **1.6.0**;
+compatibility across major releases. The schema language version is **1.7.0**;
 see [release and schema versions](docs/command_line.md).
 
-Use `serializer version 1.6.0;` for new schemas. Older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, and `1.5.0` schemas remain supported. The original
+Use `serializer version 1.7.0;` for new schemas. Older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, and `1.6.0` schemas remain supported. The original
 `serializer version 1;` is an exact compatibility alias for `1.0.0`, exclusive to
 version 1. Future versions require all three components; see the
 [schema language policy](docs/command_line.md#schema-language-version-policy).
@@ -94,6 +94,11 @@ declaration can omit its default member name: `public version uint32 (1) { 1 };`
 Language `1.5.0` adds field-local `ignore(warning magic, version)` before the
 semicolon for intentional uses. Warnings do not change generated APIs or bytes;
 review an existing wire contract before replacing an ordinary field.
+
+Language `1.7.0` adds [generic optional values](docs/optional.md):
+`optional<T>` stores absence or an owning value and maps directly to C++
+`std::optional<T>`. Nested optionals and optional arrays/maps have distinct
+JSON and native binary representations across every output language.
 
 C++20 [constant-evaluation binary output](docs/constant_evaluation.md) can count a
 value's exact positional size, write caller-owned memory, or return an exact-size
@@ -318,7 +323,7 @@ make rebuild
 make extension
 ```
 
-On Windows with PowerShell:
+On Windows with Visual Studio Developer PowerShell (x64):
 
 ```powershell
 ./make.ps1 all
@@ -327,6 +332,9 @@ On Windows with PowerShell:
 ./make.ps1 rebuild
 ./make.ps1 extension
 ```
+
+The compiler rejection tests invoke MSVC directly. Developer PowerShell supplies
+the compiler's standard-library and Windows SDK include paths for those tests.
 
 Both wrappers provide synchronized `configure`, `all`, `test`, `clean`, `rebuild`,
 and `extension` commands. `clean` verifies the repository root and runs Git cleanup;
@@ -374,8 +382,8 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editor_extension.md) |
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
-Both extensions use source release version **1.1.32**, independent of compiler version
-**1.11.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
+Both extensions use source release version **1.1.33**, independent of compiler version
+**1.12.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
 for supported destinations and language-service prerequisites.
 VS Code also supports navigation from read-only Git index/history tabs, using
 the displayed snapshot and current workspace destinations.
@@ -462,6 +470,7 @@ for reporting barriers to using the project.
   size counting, existing-memory writing and exact-array factories, opt-in generation,
   runtime path preservation, supported values and compiler qualification.
 - [Four-toolchain verification](docs/verification-toolchains-2026-10-07.md): x64 Windows/MSVC and clang-cl, and Ubuntu WSL2/GCC and Clang, with default runtime features enabled.
+- [Optional qualification](docs/verification-optionals-2026-10-11.md): nested presence, all eleven language SDKs, managed recovery, examples, and editor checks.
 - [Default runtime verification](docs/verification-default-features-2026-10-07.md): managed/compression defaults and installed-header checks.
 - [Compact scalar qualification](docs/verification-compact-2026-10-07.md): all eleven SDKs, frozen wire fixtures, strict/lenient cases, native tests, and editor checks.
 - [Verification record](docs/verification-2026-09-17.md): tested revisions, configurations, and outstanding checks.
