@@ -284,6 +284,7 @@ struct generic_parameter {
   generic_argument_kind kind{generic_argument_kind::type};
   std::string name{};
   std::vector<type_name> default_argument{};
+  bool stateless{false}; // Require an owning generated record with no instance storage or hooks.
 };
 
 // Compile-time release metadata is owned by the schema AST, never the payload runtime.
@@ -312,6 +313,8 @@ struct version_policy {
   // Preserve policy structure when comparing or cloning compiler metadata.
   bool operator==(const version_policy&) const = default;
 };
+
+enum class auto_size_scope { record, payload };
 
 struct member {
   enum class modifier_type { none, array, map, variant };
@@ -353,6 +356,14 @@ struct member {
   bool transient{false}; // Memory-only schema field; excluded from all durable traversal.
   bool empty_layout{false}; // Portable hint: overlap only a stateless transient generated value.
   std::string default_factory{}; // Typed zero-argument factory on the field's generated record.
+  std::vector<std::string> auto_size_formats{}; // Selected native formats derive the containing record's byte length.
+  bool wire_only{false}; // Computed auto-size metadata has no per-instance storage.
+  auto_size_scope size_scope{auto_size_scope::record}; // Payload excludes this complete field key and scalar.
+
+  // Select a computed fixed-width size without storing per-instance codec policy.
+  bool auto_sizes(std::string_view format) const {
+    return std::find(auto_size_formats.begin(), auto_size_formats.end(), format) != auto_size_formats.end();
+  }
 
   // Compare the relevant values without modifying either operand.
   bool operator==(const member& rhs) const {
@@ -362,6 +373,8 @@ struct member {
            inferred_extent == rhs.inferred_extent && owning_variant == rhs.owning_variant &&
            transient == rhs.transient && empty_layout == rhs.empty_layout &&
            default_factory == rhs.default_factory &&
+           auto_size_formats == rhs.auto_size_formats &&
+           wire_only == rhs.wire_only && size_scope == rhs.size_scope &&
            version == rhs.version && magic == rhs.magic &&
            compact == rhs.compact && compact_strict == rhs.compact_strict &&
            obsolete == rhs.obsolete &&
@@ -436,6 +449,21 @@ struct construction_declaration {
   std::vector<construction_assignment> assignments{};
 };
 
+// A readonly source projection supplies one exactly typed target field.
+struct conversion_assignment {
+  std::string field{};
+  std::vector<std::string> source_path{};
+  std::vector<std::vector<std::size_t>> source_base_paths{};
+};
+
+// An explicit value conversion constructs fresh target defaults without changing wire metadata.
+struct conversion_declaration {
+  access_type access{access_type::public_access};
+  type_name target{std::string{}, nullptr};
+  std::string name{};
+  std::vector<conversion_assignment> assignments{};
+};
+
 // Schema-declared behavior is an API contract, not serialized executable state.
 struct function_declaration {
   enum class effect_type { readonly, edit };
@@ -494,6 +522,7 @@ struct class_node : public syntax_node {
   std::vector<member> member_list{};
   std::vector<function_declaration> functions{};
   std::vector<construction_declaration> constructions{};
+  std::vector<conversion_declaration> conversions{};
   std::vector<native_code_block> native_blocks{};
   std::vector<class_body_item> body_order{};
   std::string magic_bytes{}; // Exact raw binary prefix; no terminator, length, or field identity.
@@ -531,6 +560,7 @@ struct class_node : public syntax_node {
       : syntax_node{std::move(rhs)}, attributes{rhs.attributes}, storage_modes{rhs.storage_modes},
         parents{std::move(rhs.parents)}, member_list{std::move(rhs.member_list)},
         functions{std::move(rhs.functions)}, constructions{std::move(rhs.constructions)},
+        conversions{std::move(rhs.conversions)},
         native_blocks{std::move(rhs.native_blocks)},
         body_order{std::move(rhs.body_order)},
         magic_bytes{std::move(rhs.magic_bytes)}, magic_field{std::move(rhs.magic_field)},

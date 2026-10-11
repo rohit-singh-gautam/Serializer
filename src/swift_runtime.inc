@@ -63,6 +63,11 @@ fileprivate final class SrlWriter {
 
     let protocolValue: Protocol
     var bytes: [UInt8] = []
+    /// Patch an already-written fixed-width integer in place without changing the span.
+    func patchInteger(_ position: Int, _ value: UInt64, _ width: Int) throws {
+        guard position >= 0 && width <= bytes.count-position else { throw SerializerError.invalid("Invalid size patch") }
+        for index in 0..<width { bytes[position+index] = UInt8(truncatingIfNeeded: value >> (index*UInt8.bitWidth)) }
+    }
     private var depth = 0
     // Reserve modest initial capacity; each encoding owns its result.
     init(_ protocolValue: Protocol) { self.protocolValue = protocolValue; bytes.reserveCapacity(256) }
@@ -169,6 +174,8 @@ fileprivate final class SrlReader {
     let protocolValue: Protocol
     let limits: Limits
     private var offset = 0
+    /// Observe consumed bytes without changing bounded input state.
+    func position() -> Int { offset }
     var depth = 0
     var elements = 0
     // Share immutable array storage during a call; returned model values own their data.

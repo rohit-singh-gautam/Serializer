@@ -24,7 +24,9 @@
 #include "predicate_helpers.hpp"
 #include "statement_behavior_writer.hpp"
 #include "construction_writer.hpp"
+#include "conversion_writer.hpp"
 #include "comparison_writer.hpp"
+#include "auto_size_writer.hpp"
 
 #include <rohit/serializer_creator.hpp>
 
@@ -84,6 +86,7 @@ class emitter : private naming {
   bool managed_separate_values{false};
   bool rename_behavior_identifiers{true};
   std::map<std::string, class_comparison_options> class_comparisons;
+  auto_size::configuration class_auto_sizes;
   friend class managed_writer<emitter>;
   managed_writer<emitter> managed_;
   // Keep compiler metadata names independent of presentation profiles.
@@ -100,6 +103,7 @@ public:
         managed_separate_values{options.managed_separate_values},
         rename_behavior_identifiers{options.rename_identifiers},
         class_comparisons{options.class_comparisons},
+        class_auto_sizes{options.class_auto_sizes},
         managed_{*this, options.managed_id_type, options.managed_separate_values} {
     if (emission_only && (!constant_evaluation_enabled || !positional_only)) {
       throw std::invalid_argument{
@@ -805,6 +809,7 @@ public:
     access_type last_access{access_type::private_access};
 
     for (const auto& member : members) {
+      if (member.wire_only) { continue; }
       if (member.access != last_access) {
         out_stream.write('\n');
         write_access_type(out_stream, member.access);
@@ -892,6 +897,16 @@ public:
       out_stream.write(
           (std::string{"\n      "} + local_name("serializer_protocol") + ".struct_serialize_out("));
     }
+    if (!member.auto_size_formats.empty()) {
+      if (key_type == serialize_key_type::string) {
+        out_stream.write("::std::make_pair(", constant_output_name(member.display_name), ", ");
+      } else if (key_type == serialize_key_type::integer) {
+        out_stream.write("::std::make_pair(static_cast<::std::uint32_t>(", member.id, "), ");
+      }
+      out_stream.write(local_name("auto_size_value_" + std::to_string(member.id)),
+                       std::string_view{key_type == serialize_key_type::none ? ");" : "));"});
+      return;
+    }
     if (member.compact != compact_encoding::none) {
       if (key_type == serialize_key_type::string) {
         out_stream.write("::std::make_pair(", constant_output_name(member.display_name), ", ");
@@ -964,6 +979,7 @@ public:
   // Identify fixed-width schema scalars; collections, enums, unions, and objects end a run.
   bool is_fixed_field(const member& field) {
     return field.modifier == member::modifier_type::none &&
+           field.auto_size_formats.empty() &&
            field.compact == compact_encoding::none &&
            field.type_name_list.front().type == object_type::primitive &&
            !field.type_name_list.front().is_digest() &&
@@ -1058,6 +1074,89 @@ public:
                    ">() == ::rohit::serializer::wire_format::" + format;
     }
     return condition.empty() ? "false" : condition;
+  }
+
+  // Reserve computed locals separately from authored storage; a counting sink writes fixed-width zeroes.
+  void write_auto_size_output(auto& output, const class_node& owner) {
+    for (const auto* field : auto_size::fields(owner)) {
+      const auto local = local_name("auto_size_value_" + std::to_string(field->id));
+      const auto selected = omission_condition(field->auto_size_formats, "SerializeOutProtocol");
+      std::string excluded{"0"};
+      if (field->size_scope == auto_size_scope::payload) {
+        excluded.clear();
+        for (const auto& format : field->auto_size_formats) {
+          if (!excluded.empty()) { excluded += " + "; }
+          excluded += "(::rohit::serializer::detail::protocol_wire_format<SerializeOutProtocol>() == "
+                      "::rohit::serializer::wire_format::" + format + " ? " +
+                      std::to_string(auto_size::field_bytes(*field, format)) + " : 0)";
+        }
+      }
+      output.write("\n    [[maybe_unused]] const auto ", local_name("auto_size_count_guard_" + std::to_string(field->id)),
+                   " = ::rohit::serializer::detail::make_auto_size_count_guard<", get_cpp_type(*field), ">(",
+                   local_name("serializer_protocol"), ", ", selected, ", ", excluded, ");\n");
+      output.write("\n    [[maybe_unused]] ", get_cpp_type(*field), " ", local,
+                   " = ", field->wire_only ? "0" : "this->" + member_name(*field), ";\n    if constexpr (",
+                   selected, ") {\n      ",
+                   local, " = ", local_name("serializer_protocol"), ".template measure_record_size<",
+                   get_cpp_type(*field), ">(*this");
+      if (field->size_scope == auto_size_scope::payload) {
+        output.write(", ", excluded);
+      }
+      output.write(");\n    }\n");
+    }
+  }
+
+  // Validate fixed derived header widths after one complete count traversal, including nested records.
+  void write_auto_size_output_end(auto& output, const class_node& owner) {
+    for (const auto* field : auto_size::fields(owner)) {
+      output.write("\n    ", local_name("auto_size_count_guard_" + std::to_string(field->id)), ".finish();\n");
+    }
+  }
+
+  // Snapshot the bounded cursor before magic and track one required header without trusting its value.
+  void write_auto_size_input_start(auto& output, const class_node& owner) {
+    if (auto_size::fields(owner).empty()) { return; }
+    output.write("\n    [[maybe_unused]] const auto ", local_name("auto_size_remaining"),
+                 " = ::rohit::serializer::detail::auto_size_remaining(", local_name("serializer_protocol"),
+                 ");\n    bool ", local_name("auto_size_seen"), " = false;\n"
+                 "    [[maybe_unused]] ::std::uint32_t ", local_name("auto_size_id"), " = 0;\n"
+                 "    [[maybe_unused]] ::std::string_view ", local_name("auto_size_name"), ";\n");
+    output.write("    [[maybe_unused]] ::std::uint64_t ", local_name("auto_size_wire_value"), " = 0;\n"
+                 "    [[maybe_unused]] ::std::uint64_t* ", local_name("auto_size_wire_destination"), " = nullptr;\n"
+                 "    [[maybe_unused]] ::std::size_t ", local_name("auto_size_wire_width"), " = 0;\n"
+                 "    [[maybe_unused]] ::std::size_t ", local_name("auto_size_field_bytes"), " = 0;\n");
+    for (const auto* field : auto_size::fields(owner)) {
+      output.write("    if constexpr (", omission_condition(field->auto_size_formats, "SerializeInProtocol"),
+                   ") { ", local_name("auto_size_id"), " = ", field->id, "; ",
+                   local_name("auto_size_name"), " = \"", field->display_name, "\";");
+      if (field->wire_only) {
+        output.write(" ", local_name("auto_size_wire_destination"), " = &", local_name("auto_size_wire_value"),
+                     "; ", local_name("auto_size_wire_width"), " = sizeof(", get_cpp_type(*field), ");");
+      }
+      output.write(" }\n");
+    }
+  }
+
+  // Verify native record spans after complete structural decoding; retain only skips the value comparison.
+  void write_auto_size_input_end(auto& output, const class_node& owner) {
+    for (const auto* field : auto_size::fields(owner)) {
+      output.write("\n    if constexpr (", omission_condition(field->auto_size_formats, "SerializeInProtocol"),
+                   ") {\n      if (!", local_name("auto_size_seen"),
+                   ") { throw ::std::invalid_argument{\"Missing auto_size field\"}; }\n");
+      if (auto_size::verifies(owner, class_auto_sizes)) {
+        output.write("      const auto ", local_name("auto_size_actual"), " = ",
+                     local_name("auto_size_remaining"), " - ::rohit::serializer::detail::auto_size_remaining(",
+                     local_name("serializer_protocol"), ");\n      if (",
+                     field->wire_only ? local_name("auto_size_wire_value") : "this->" + member_name(*field), " != ",
+                     local_name("auto_size_actual"));
+        if (field->size_scope == auto_size_scope::payload) {
+          output.write(" - ", local_name("auto_size_field_bytes"));
+        }
+        output.write(
+                     ") { throw ::std::invalid_argument{\"auto_size field does not match record bytes\"}; }\n");
+      }
+      output.write("    }\n");
+    }
   }
 
   void write_serializer_out_layout(rohit::type_check::output_buffer auto& out_stream,
@@ -1174,6 +1273,7 @@ public:
                  std::string_view{constant_output ? "serialize_constant_out" : "serialize_out"},
                  "(SerializeOutProtocol& ", local_name("serializer_protocol"), ") const {\n");
     }
+    write_auto_size_output(output, *object);
     if (object->has_magic()) {
       output.write("    if constexpr (!(",
                    omission_condition(object->magic_omitted_formats, "SerializeOutProtocol"),
@@ -1185,6 +1285,7 @@ public:
                        ".serialize_magic(::std::string_view{magic, sizeof(magic)});\n    }\n"});
     }
     write_serializer_out_body(output, object, serialize_key_type::none);
+    write_auto_size_output_end(output, *object);
     output.write("\n  }\n\n");
     if (!constant_output) {
       output.write("  // Encode to a buffer or byte sink satisfying the output stream concept.\n"
@@ -1226,6 +1327,7 @@ public:
          "  "
          " \"Unsupported serializer key type\");"));
     write_schema_value_scope(out_stream, obj);
+    write_auto_size_output(out_stream, *obj);
     if (obj->has_magic()) {
       out_stream.write("\n    if constexpr (!::rohit::serializer::detail::is_json_protocol<SerializeOutProtocol> &&\n"
                        "                  !requires { ", local_name("serializer_protocol"), ".protobuf_object(*this); } && !(",
@@ -1253,7 +1355,9 @@ public:
     out_stream.write("\n      } else {");
     write_serializer_out_body(out_stream, obj, rohit::serializer::serialize_key_type::string);
     out_stream.write("\n      }");
-    out_stream.write("\n    }\n  }\n\n");
+    out_stream.write("\n    }\n");
+    write_auto_size_output_end(out_stream, *obj);
+    out_stream.write("  }\n\n");
     out_stream.write("  // Encode to a buffer or byte sink satisfying the output stream concept.\n"
                      "  template <template <::rohit::serializer::serialize_type> class Protocol,\n"
                      "            ::rohit::type_check::output_stream SerializerStream>\n"
@@ -1451,7 +1555,18 @@ public:
       }
       const auto& member = obj->member_list[index++];
       if (member.modifier != member::modifier_type::variant) {
-        write_serializer_in_body_non_union_key_none(out_stream, member);
+        if (member.wire_only) {
+          out_stream.write("      { ", get_cpp_type(member), " actual{}; ", local_name("serializer_protocol"),
+                           ".serialize_in(actual); ", local_name("auto_size_wire_value"), " = actual; }\n");
+        } else {
+          write_serializer_in_body_non_union_key_none(out_stream, member);
+        }
+        if (member.auto_sizes("binary_none")) {
+          out_stream.write("      ", local_name("auto_size_seen"), " = true;\n");
+          if (member.size_scope == auto_size_scope::payload) {
+            out_stream.write("      ", local_name("auto_size_field_bytes"), " = sizeof(", get_cpp_type(member), ");\n");
+          }
+        }
       } else if (member.type_name_list.size()) {
         write_serializer_in_body_union_key_none(out_stream, member);
       }
@@ -1628,6 +1743,7 @@ public:
     write_serializer_in_body_for_parent_key_integer(out_stream, obj);
 
     for (const auto& member : obj->member_list) {
+      if (member.wire_only) { continue; }
       if (member.modifier != member::modifier_type::variant) {
         write_serializer_in_body_non_union_key_integer(out_stream, member);
       } else if (member.type_name_list.size()) {
@@ -1681,6 +1797,7 @@ public:
       groups[detail::field_name_hash(base.display_name)].push_back({base.display_name, &base});
     }
     for (const auto& field : obj->member_list) {
+      if (field.wire_only) { continue; }
       if (field.modifier == member::modifier_type::variant) {
         for (const auto& alternative : field.type_name_list) {
           const auto name = field.display_name + ":" + alternative.enum_name;
@@ -1763,11 +1880,19 @@ public:
   // Wrap JSON handlers only for schemas whose fixed header is present in that format.
   void write_keyed_input(rohit::type_check::output_buffer auto& output, const class_node& object,
                          std::string_view reader) {
+    std::string selected_reader{reader};
+    if (!auto_size::fields(object).empty()) {
+      selected_reader = local_name("auto_size_reader");
+      output.write("auto ", selected_reader, " = ::rohit::serializer::detail::make_auto_size_reader(", reader,
+                   ", ", local_name("auto_size_seen"), ", ", local_name("auto_size_id"), ", ",
+                   local_name("auto_size_name"), ", ", local_name("auto_size_wire_destination"), ", ",
+                   local_name("auto_size_wire_width"), ", &", local_name("auto_size_field_bytes"), ");\n      ");
+    }
     if (object.has_magic() && !object.magic_omits("json")) {
       output.write("::rohit::serializer::detail::read_magic_object(", local_name("serializer_protocol"),
-                   ", ", reader, ", ", magic_value(object), ");");
+                   ", ", selected_reader, ", ", magic_value(object), ");");
     } else {
-      output.write(local_name("serializer_protocol"), ".struct_serialize_in(&", reader, ");");
+      output.write(local_name("serializer_protocol"), ".struct_serialize_in(&", selected_reader, ");");
     }
   }
 
@@ -1801,6 +1926,7 @@ public:
         "== ::rohit::serializer::serialize_key_type::string,\n        \"Unsupported serializer key "
         "type\");"));
     write_schema_value_scope(out_stream, obj);
+    write_auto_size_input_start(out_stream, *obj);
     if (obj->has_magic()) {
       out_stream.write("\n    if constexpr (!::rohit::serializer::detail::is_json_protocol<SerializeInProtocol> &&\n"
                        "                  !requires { ", local_name("serializer_protocol"), ".protobuf_object(*this); } && !(",
@@ -1830,7 +1956,7 @@ public:
       out_stream.write("\n      ", local_name("storage_reader"), ".finish();\n");
     } else {
       out_stream.write("      if constexpr (::std::is_same_v<StorageSource, ::std::nullptr_t>) {\n        ");
-      if (obj->has_magic() && !obj->magic_omits("json")) {
+      if ((obj->has_magic() && !obj->magic_omits("json")) || !auto_size::fields(*obj).empty()) {
         write_keyed_input(out_stream, *obj, "*this");
       } else {
         out_stream.write(local_name("serializer_protocol"), ".template struct_serialize_in<", type_name(obj->name), ">(this);");
@@ -1841,8 +1967,10 @@ public:
       write_keyed_input(out_stream, *obj, local_name("storage_reader"));
       out_stream.write("\n      }");
     }
+    out_stream.write("\n    }\n");
+    write_auto_size_input_end(out_stream, *obj);
     out_stream.write(
-        "\n    }\n  }\n\n  // Decode from a buffer or bounded EOF-delimited byte source.\n"
+        "  }\n\n  // Decode from a buffer or bounded EOF-delimited byte source.\n"
         "  template <template <::rohit::serializer::serialize_type> class Protocol,\n"
         "            ::rohit::type_check::input_stream SerializerStream>\n"
         "  void serialize_in(SerializerStream&& ",
@@ -1936,6 +2064,7 @@ public:
                  "                 ::rohit::serializer::wire_format::binary_none)\n"
                  "  void serialize_in(SerializeInProtocol& ", local_name("serializer_protocol"),
                  ", [[maybe_unused]] StorageSource ", local_name("storage_donor"), " = nullptr) {\n");
+    write_auto_size_input_start(output, *object);
     if (object->has_magic()) {
       output.write("    if constexpr (!(",
                    omission_condition(object->magic_omitted_formats, "SerializeInProtocol"),
@@ -1947,6 +2076,7 @@ public:
                        ".validate_magic(::std::string_view{magic, sizeof(magic)});\n    }\n"});
     }
     write_serializer_in_body_key_none(output, object);
+    write_auto_size_input_end(output, *object);
     output.write("  }\n\n");
     output.write(
         "\n  // Decode from a buffer or bounded EOF-delimited byte source.\n"
@@ -2031,6 +2161,7 @@ public:
                    "*>(this)->template serializer_protobuf_reset<SelectedFormat>();\n");
     }
     for (const auto& item : object.member_list) {
+      if (item.wire_only) { continue; }
       const auto condition = protobuf_field_condition(item.omitted_formats, "SelectedFormat");
       if (!condition.empty()) {
         output.write("    if constexpr (", condition, ") {\n");
@@ -2065,6 +2196,7 @@ public:
                    parent_type_name(base), "*>(this));\n");
     }
     for (const auto& item : object.member_list) {
+      if (item.wire_only) { continue; }
       const auto condition = protobuf_field_condition(item.omitted_formats, "ProtobufProtocol::format");
       if (!condition.empty()) {
         output.write("    if constexpr (", condition, ") {\n");
@@ -2097,6 +2229,7 @@ public:
       output.write("    bool protobuf_seen_", base.id, "{};\n");
     }
     for (const auto& item : object.member_list) {
+      if (item.wire_only) { continue; }
       output.write("    [[maybe_unused]] bool protobuf_seen_", item.id, "{};\n");
     }
     if (object.has_magic()) {
@@ -2131,6 +2264,7 @@ public:
                    "*>(this));\n        continue;\n      }\n");
     }
     for (const auto& item : object.member_list) {
+      if (item.wire_only) { continue; }
       const auto condition = protobuf_field_condition(item.omitted_formats, "ProtobufProtocol::format");
       if (!condition.empty()) {
         output.write("    if constexpr (", condition, ") {\n");
@@ -2407,6 +2541,9 @@ public:
       for (const auto& parameter : obj->generic_parameters) {
         if (parameter.kind == generic_argument_kind::dimension) {
           out_stream.write("  static_assert(", parameter.name, " > 0, \"Invalid dimension: expected positive uint64\");\n");
+        } else if (parameter.stateless) {
+          out_stream.write("  static_assert(::std::is_empty_v<", parameter.name,
+              ">, \"Stateless generic argument requires an empty type\");\n");
         }
       }
     }
@@ -2416,6 +2553,13 @@ public:
         [&](auto name, auto) { return field_name(name); },
         [&](const auto& value) { return default_value(value); },
         [&](auto name) { return function_name(name); }));
+    if (emission_only && !obj->conversions.empty()) {
+      throw std::invalid_argument{"Borrowed emission models cannot expose owning conversions"};
+    }
+    out_stream.write(conversion::methods(*obj, type_name(obj->name), "cpp",
+        [&](const auto& value) { return generic_default(value); },
+        [&](auto name, auto) { return field_name(name); },
+        [&](auto name, auto) { return function_name(name); }));
     write_behavior_contract(out_stream, obj);
     write_comparisons(out_stream, obj);
 
@@ -2783,6 +2927,7 @@ public:
     if (positional_only) { validate_positional_profile(statements); }
     if (protobuf_enabled) { validate_protobuf_schema(statements); }
     validate_names(statements);
+    auto_size::validate(statements, class_auto_sizes);
     bind_comparison_aliases(statements);
     comparison::validate(statements, class_comparisons);
     const bool has_comparisons = std::any_of(class_comparisons.begin(), class_comparisons.end(),
@@ -2811,6 +2956,13 @@ public:
                        "#include <array>\n#include <cstddef>\n#include <cstdint>\n#include <memory>\n"
                        "#include <span>\n#include <stdexcept>\n#include <string_view>\n"
                        "#include <type_traits>\n\n");
+      std::map<std::string, const class_node*> size_owners;
+      auto_size::collect(statements, size_owners);
+      if (std::any_of(size_owners.begin(), size_owners.end(), [](const auto& entry) {
+            return !auto_size::fields(*entry.second).empty();
+          })) {
+        out_stream.write("#include <rohit/auto_size.hpp>\n\n");
+      }
       write_statement_list(out_stream, statements);
       return;
     }

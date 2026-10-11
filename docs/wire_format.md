@@ -1,5 +1,21 @@
 # Wire format and decoding contract
 
+Language `1.9.0` adds [derived size fields](derived_sizes.md) to the native binary
+protocols only. `size_scope(record)` counts from before record magic through the
+record's own end marker, including its size field key/value. `size_scope(payload)`
+subtracts the actual complete size field. Enclosing keys and collection prefixes
+are outside a nested record's span. Fixed little-endian uint32/uint64 values
+avoid variable-width fixed points. Every active size header must occur exactly
+once; decoding measures existing bounded traversal rather than trusting its
+declared value for allocation or parsing boundaries. INI `retain` skips only the
+size-value comparison. Encoding leaves stored source values unchanged.
+
+`wire_only` removes application storage for that field without changing its wire
+identity. [`omit(all_except(...))`](magic_and_omission.md) resolves to the existing
+per-protocol omission set. [Conversions](conversions.md) and stateless type
+constraints introduce no wire tags. Unannotated earlier schemas retain their
+formats. `binary_none` encodes declared values, not native object memory.
+
 The schema language header is compiler input metadata and is never serialized.
 `serializer version 1;` and `serializer version 1.0.0;` select the same contract
 and produce identical codecs. Schema-language and compiler release versions are

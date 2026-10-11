@@ -349,16 +349,24 @@ output_options read_output_options(const std::filesystem::path& file) {
         const auto name = section.substr(class_offset + class_separator.size());
         auto& comparisons = language == "cpp" ? result.cpp.class_comparisons :
             language == "java" ? result.java.class_comparisons : result.class_comparisons[language];
-        auto& comparison = comparisons[name];
-        if (key == "equality") {
+        if (key == "auto_size_validation") {
+          if (value != "verify" && value != "retain") {
+            throw std::invalid_argument{"Expected auto_size_validation = verify or retain"};
+          }
+          auto& sizes = language == "cpp" ? result.cpp.class_auto_sizes :
+              language == "java" ? result.java.class_auto_sizes : result.class_auto_sizes[language];
+          sizes[name].validation = value == "verify" ? auto_size_validation::verify :
+                                                       auto_size_validation::retain;
+        } else if (key == "equality") {
+          auto& comparison = comparisons[name];
           comparison.equality = read_bool(value);
         } else if (key == "ordering") {
           if (value != "none" && value != "lexicographic") {
             throw std::invalid_argument{"Expected ordering = none or lexicographic"};
           }
-          comparison.ordering = value == "lexicographic";
+          comparisons[name].ordering = value == "lexicographic";
         } else if (key == "fields") {
-          comparison.fields = comparison_fields(value);
+          comparisons[name].fields = comparison_fields(value);
         } else {
           throw std::invalid_argument{"Unknown class configuration key: " + key};
         }

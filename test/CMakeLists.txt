@@ -1,6 +1,6 @@
 set(schemas)
 foreach(fixture IN ITEMS enum person test1 array map variable assessment views storage_reuse
-    fixed_fields constant_names includes wire_compatibility generics dimensions versioning magic typed_magic inferred_arrays compact_fields digests owning_variants owning_variant_cpp optional_cpp native_output_policy reuse_first reuse_second construction readonly_behavior)
+    fixed_fields constant_names includes wire_compatibility generics dimensions versioning magic typed_magic inferred_arrays compact_fields digests owning_variants owning_variant_cpp optional_cpp native_output_policy reuse_first reuse_second construction readonly_behavior derived_sizes conversion stateless_layout)
   list(APPEND schemas "${CMAKE_CURRENT_SOURCE_DIR}/resources/${fixture}.serializer")
 endforeach()
 
@@ -9,6 +9,9 @@ add_executable(core_serializer_test
   behavior_test.cpp
   readonly_behavior_test.cpp
   construction_test.cpp
+  auto_size_test.cpp
+  conversion_test.cpp
+  stateless_constraints_test.cpp
   native_binary_output_policy_test.cpp
   digest_test.cpp
   digest_schema_test.cpp
@@ -130,6 +133,26 @@ elseif(UNIX)
   target_compile_options(constant_binary_test PRIVATE -Wall -Werror -Wpedantic -Wextra -Weffc++)
 endif()
 add_test(NAME constant_binary_test COMMAND constant_binary_test)
+
+# Derive nested size headers through the same owning and borrowed compile-time output pipeline.
+add_executable(auto_size_constant_test auto_size_constant_test.cpp)
+serializer_generate(TARGET auto_size_constant_test
+  SCHEMAS resources/auto_size_constant.serializer
+  CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/auto_size_constant.ini"
+  OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto_size_constant/owning")
+add_library(auto_size_constant_emission INTERFACE)
+serializer_generate(TARGET auto_size_constant_emission
+  SCHEMAS resources/auto_size_constant.serializer
+  CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/auto_size_emission.ini"
+  OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/auto_size_constant/emission")
+target_include_directories(auto_size_constant_test PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
+target_link_libraries(auto_size_constant_test PRIVATE auto_size_constant_emission Serializer::runtime GTest::gtest_main)
+if(MSVC)
+  target_compile_options(auto_size_constant_test PRIVATE /W4 /WX)
+else()
+  target_compile_options(auto_size_constant_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME auto_size_constant_test COMMAND auto_size_constant_test)
 add_test(NAME constant_binary_negative
   COMMAND "${CMAKE_COMMAND}"
     "-DCOMPILER=${CMAKE_CXX_COMPILER}"

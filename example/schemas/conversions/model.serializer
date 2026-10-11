@@ -1,0 +1,43 @@
+serializer version 1.9.0;
+
+// Explicit projections leave wire identities and the source's owned values unchanged.
+enum routing_mode { ordinary, express }
+class postal_address stable_ids {
+  public string street (1) {"Harbor Road"};
+  public uint32 postcode (2) {410};
+  public transient uint32 delivery_count {12};
+}
+class delivery_notice stable_ids {
+  public uint64 number (1);
+  public postal_address destination (2);
+  public routing_mode mode (3);
+  public uint8 priority (4);
+  public transient bool preview {true};
+}
+class ticket_metadata stable_ids {
+  public uint8 priority (1) {2};
+}
+class shipment_ticket stable_ids : public ticket_metadata (10, "metadata") {
+  public uint64 number (1);
+  public postal_address contact (2);
+  public routing_mode region (3);
+  public conversion postal_address as to_address {
+    street = contact.street;
+    postcode = contact.postcode;
+  };
+  public conversion delivery_notice as to_notice {
+    number = number;
+    destination = contact;
+    mode = region;
+    priority = priority;
+  };
+}
+class ticket_view<T> stable_ids {
+  public T value (1);
+  public uint32 revision (2) {3};
+}
+class ticket_value<T> stable_ids {
+  public T value (1);
+  public conversion ticket_view<T> as to_view { value = value; };
+}
+instantiate short_ticket = ticket_value<uint16>;

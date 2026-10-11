@@ -22,6 +22,14 @@ struct class_comparison_options {
   std::vector<std::string> fields{};
 };
 
+// Select whether a decoded derived size must match the consumed record bytes.
+enum class auto_size_validation { verify, retain };
+
+// Wire selection remains schema-owned; this option changes decoder verification only.
+struct class_auto_size_options {
+  auto_size_validation validation{auto_size_validation::verify};
+};
+
 struct cpp_options {
   coding_standard standard{coding_standard::serializer};
   bool rename_identifiers{true};
@@ -35,6 +43,7 @@ struct cpp_options {
   cpp_protocols protocols{cpp_protocols::all};
   bool emission_only{false};
   std::map<std::string, class_comparison_options> class_comparisons{};
+  std::map<std::string, class_auto_size_options> class_auto_sizes{};
 };
 
 enum class java_coding_standard { serializer, google, oracle };
@@ -44,6 +53,7 @@ struct java_options {
   bool rename_identifiers{true};
   std::string package_name{};
   std::map<std::string, class_comparison_options> class_comparisons{};
+  std::map<std::string, class_auto_size_options> class_auto_sizes{};
 };
 
 // Native naming and module configuration for portable owning backends.
@@ -52,6 +62,7 @@ struct portable_options {
   std::string package_name{"generated"};
   std::string namespace_name{"SerializerGenerated"};
   std::map<std::string, class_comparison_options> class_comparisons{};
+  std::map<std::string, class_auto_size_options> class_auto_sizes{};
 };
 
 struct output_options {
@@ -65,6 +76,7 @@ struct output_options {
   portable_options kotlin{true, "", ""};
   // Other portable sections remain independent even when their naming profile is shared.
   std::map<std::string, std::map<std::string, class_comparison_options>> class_comparisons{};
+  std::map<std::string, std::map<std::string, class_auto_size_options>> class_auto_sizes{};
 };
 
 // Parse a nonempty comma-separated language list; reject unknown, empty, or repeated names.

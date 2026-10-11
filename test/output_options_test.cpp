@@ -288,6 +288,31 @@ TEST(output_options, class_comparison_configuration) {
   }
 }
 
+// Validate decoder-only derived-size policy independently of comparison opt-in.
+TEST(output_options, class_auto_size_configuration) {
+  configuration_file temporary;
+  for (const auto language : {"cpp", "java", "js", "typescript", "go", "csharp", "rust",
+                              "python", "swift", "kotlin", "c"}) {
+    const auto options = writer::read_output_options(temporary.write(
+        "[" + std::string{language} + ".class.example::packet]\nauto_size_validation = retain\n"));
+    const auto& sizes = std::string_view{language} == "cpp" ? options.cpp.class_auto_sizes :
+        std::string_view{language} == "java" ? options.java.class_auto_sizes :
+        options.class_auto_sizes.at(language);
+    EXPECT_EQ(sizes.at("example::packet").validation, writer::auto_size_validation::retain);
+  }
+  EXPECT_EQ(writer::class_auto_size_options{}.validation, writer::auto_size_validation::verify);
+  const auto mixed = writer::read_output_options(temporary.write(
+      "[cpp.class.example::packet]\nauto_size_validation = verify\nequality = true\n"));
+  EXPECT_TRUE(mixed.cpp.class_comparisons.at("example::packet").equality);
+  EXPECT_EQ(mixed.cpp.class_auto_sizes.at("example::packet").validation,
+            writer::auto_size_validation::verify);
+  for (const auto invalid : {
+      "[cpp.class.example::packet]\nauto_size_validation = unchecked\n",
+      "[cpp.class.example::packet]\nauto_size_validation = verify\nauto_size_validation = retain\n"}) {
+    EXPECT_THROW(writer::read_output_options(temporary.write(invalid)), std::invalid_argument);
+  }
+}
+
 // All advertised profiles must have a real formatter mapping and round-trip configuration name.
 TEST(output_options, java_configuration_and_diagnostics) {
   configuration_file temporary{};

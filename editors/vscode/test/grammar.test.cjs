@@ -26,7 +26,7 @@ test('optional and nested container generics highlight types without consuming f
   }
   assert.equal(result.ruleStack.depth, 1);
   const snippets = JSON.parse(fs.readFileSync(path.join(__dirname, '../snippets/serializer.json'), 'utf8'));
-  assert.equal(snippets.Schema.body[0], 'serializer version 1.8.0;');
+  assert.equal(snippets.Schema.body[0], 'serializer version 1.9.0;');
   assert.equal(snippets['Optional field'].prefix, 'optional');
   assert.match(snippets['Optional field'].body, /optional</);
 });
@@ -49,6 +49,44 @@ test('language 1.8 construction, layout, generic bases and checked math retain d
   assert.equal(scope('sqrt'), 'support.function.serializer');
   for (const word of ['>=', '&&', '/', '< math', '?']) { assert.equal(scope(word), 'keyword.operator.serializer'); }
   for (const word of ['base', 'point', 'empty reference']) { assert.equal(scope(word), 'entity.name.type.serializer'); }
+  assert.equal(result.ruleStack.depth, 1);
+});
+
+test('new metadata keywords preserve ordinary field IDs and qualified stateless defaults', async () => {
+  const grammar = await loadGrammar();
+  const line = 'class sample<T = lib::stateless> { public uint32 auto_size(1); ' +
+    'public uint32 all_except(2); public uint32 size_scope(3); }';
+  const result = grammar.tokenizeLine(line, INITIAL);
+  const scope = word => result.tokens.find(token => token.startIndex <= line.indexOf(word) &&
+    token.endIndex > line.indexOf(word)).scopes.at(-1);
+  for (const word of ['auto_size', 'all_except', 'size_scope']) {
+    assert.equal(scope(word), 'source.serializer');
+  }
+  assert.equal(scope('stateless'), 'entity.name.type.serializer');
+  assert.equal(result.ruleStack.depth, 1);
+});
+
+test('language 1.9 constraints, size metadata and conversions have contextual scopes', async () => {
+  const grammar = await loadGrammar();
+  const line = 'class passive<T: stateless = lib::empty> { public transient layout(empty) T reference; ' +
+    'public wire_only uint32 encoded_size(1) auto_size(binary_none, binary_integer) ' +
+    'size_scope(payload) omit(all_except(binary_none, binary_integer)); ' +
+    'public conversion lib::view as to_view { address = contact.street; }; ' +
+    'public uint32 stateless; public uint32 all_except; }';
+  const result = grammar.tokenizeLine(line, INITIAL);
+  const scope = word => result.tokens.find(token => token.startIndex <= line.indexOf(word) &&
+    token.endIndex > line.indexOf(word)).scopes.at(-1);
+  assert.equal(scope('stateless ='), 'storage.modifier.serializer');
+  assert.equal(scope('wire_only'), 'storage.modifier.serializer');
+  assert.equal(scope('auto_size'), 'storage.modifier.serializer');
+  assert.equal(scope('binary_none,'), 'constant.other.format.serializer');
+  assert.equal(scope('payload)'), 'constant.other.layout.serializer');
+  assert.equal(scope('all_except('), 'keyword.control.serializer');
+  assert.equal(scope('conversion'), 'storage.type.serializer');
+  assert.equal(scope('view as'), 'entity.name.type.serializer');
+  assert.equal(scope('to_view'), 'entity.name.function.serializer');
+  assert.equal(scope('stateless;'), 'source.serializer');
+  assert.equal(scope('all_except;'), 'source.serializer');
   assert.equal(result.ruleStack.depth, 1);
 });
 

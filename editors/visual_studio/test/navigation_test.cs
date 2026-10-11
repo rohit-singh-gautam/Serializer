@@ -84,6 +84,31 @@ internal static class NavigationTest {
           generated, live, CancellationToken.None).Length == 0, "predicate values and digest algorithms are not type operands");
         ++checks;
       }
+      var conversionText = "serializer version 1.9.0; class empty {} class passive<T: stateless = empty> { " +
+        "public transient layout(empty) T reference; } class contact { public string street; } " +
+        "class other { public string street; } class base { public uint32 rank; } class view { public string address; public uint32 rank; } " +
+        "class ticket : public base { public contact contact; public wire_only uint32 encoded_size(1) auto_size(binary_integer) " +
+        "size_scope(payload) omit(all_except(binary_integer)); public conversion view as to_view { address = contact.street; rank = rank; }; }";
+      live[model] = conversionText;
+      foreach (var pair in new[] {
+        new[] { conversionText.IndexOf("address =", StringComparison.Ordinal), conversionText.IndexOf("address;", StringComparison.Ordinal) },
+        new[] { conversionText.IndexOf("contact.street", StringComparison.Ordinal), conversionText.IndexOf("contact;", StringComparison.Ordinal) },
+        new[] { conversionText.LastIndexOf("street;", StringComparison.Ordinal), conversionText.IndexOf("street;", StringComparison.Ordinal) },
+        new[] { conversionText.IndexOf("rank =", StringComparison.Ordinal), conversionText.IndexOf("rank;", conversionText.IndexOf("class view", StringComparison.Ordinal), StringComparison.Ordinal) },
+        new[] { conversionText.IndexOf("= rank", StringComparison.Ordinal) + 2, conversionText.IndexOf("rank;", StringComparison.Ordinal) }
+      }) {
+        var destination = NavigationRunner.Resolve(model, pair[0], false, generated, live, CancellationToken.None);
+        Require(destination.Length == 1 && destination[0].start == pair[1], "conversion source/target inherited field projection");
+        Require(NavigationRunner.Reference(model, conversionText, pair[0], CancellationToken.None) != null,
+          "conversion projection Ctrl+click range");
+        checks += 2;
+      }
+      var conversionChanged = conversionText.Replace("public contact contact", "public other contact");
+      live[model] = conversionChanged;
+      Require(NavigationRunner.Resolve(model, conversionChanged.LastIndexOf("street;", StringComparison.Ordinal), false,
+        generated, live, CancellationToken.None).Single().start == conversionChanged.IndexOf("street;",
+        conversionChanged.IndexOf("class other", StringComparison.Ordinal), StringComparison.Ordinal), "unsaved conversion field type");
+      ++checks;
       live[model] = text;
       foreach (var name in new[] { "demo::order", "demo::snapshot", "demo::customer" }) {
         var start = text.IndexOf(name, StringComparison.Ordinal);

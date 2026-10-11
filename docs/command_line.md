@@ -1,6 +1,6 @@
 # Serializer compiler and schema versions
 
-The compiler and runtime release is **1.13.0**, defined by `project(... VERSION ...)` in the
+The compiler and runtime release is **1.14.0**, defined by `project(... VERSION ...)` in the
 root CMake file. `serializer --version` (or `-v`) prints that release and the
 supported schema language version. CMake generates `<rohit/version.hpp>` with
 `rohit::serializer::compiler_version`, `schema_language_version_text`, and
@@ -35,7 +35,7 @@ class account stable_ids {
 The statement must precede every declaration. Whitespace and `//` or `/* ... */`
 comments may precede it or separate its keywords. The version has exactly three
 unsigned decimal components separated by dots, without whitespace or comments
-inside the version. The supported language is **1.8.0**, accepting older contracts
+inside the version. The supported language is **1.9.0**, accepting older contracts
 in the same major version. The original
 `serializer version 1;` is an exact alias for `serializer version 1.0.0;`, exclusive
 to version 1; future integer majors such as `2;` are not aliases for `2.0.0;`.
@@ -71,8 +71,15 @@ the complete parsed result. See [licensing and notice rules](licensing.md).
 The repository's [schema language versioning policy](../AGENTS.md#schema-language-versioning)
 uses `major.minor.patch` for language releases, independently of the compiler
 release. `serializer_schema_language_version` in the root CMake file defines the
-language release separately from `project(... VERSION ...)`. Compiler **1.13.0**
-currently supports language **1.8.0**; `serializer --version` reports both.
+language release separately from `project(... VERSION ...)`. Compiler **1.14.0**
+currently supports language **1.9.0**; `serializer --version` reports both.
+
+Language `1.9.0` adds [derived sizes and decoder policies](derived_sizes.md),
+complement omission lists, [explicit record conversions](conversions.md), and
+[stateless type constraints](generics.md#stateless-type-constraints). These require
+the new header in each declaring file. Existing language contracts remain
+supported. INI `[language.class.source::qualified_name]` accepts
+`auto_size_validation = verify|retain` for every backend; the default is `verify`.
 
 Language `1.7.0` adds [generic owning optional values](optional.md) and
 collection type expressions `array<T>` / `map<K,V>`. Every declaring file

@@ -48,14 +48,14 @@ inline selection parts(const class_node& owner, const class_comparison_options& 
   if (options.fields.empty()) {
     for (const auto& base : owner.parents) { result.bases.push_back(&base); }
     for (const auto& field : owner.member_list) {
-      if (!field.transient && !field.fixed_name) { result.fields.push_back(&field); }
+      if (!field.transient && !field.fixed_name && !field.wire_only) { result.fields.push_back(&field); }
     }
     return result;
   }
   std::set<std::string> seen;
   for (const auto& name : options.fields) {
     const auto found = std::find_if(owner.member_list.begin(), owner.member_list.end(),
-        [&](const member& field) { return field.name == name && !field.fixed_name; });
+        [&](const member& field) { return field.name == name && !field.fixed_name && !field.wire_only; });
     if (found == owner.member_list.end() || !seen.insert(name).second) {
       throw std::invalid_argument{"Unknown or repeated comparison field: " +
                                   owner.get_full_name() + "::" + name};
@@ -98,6 +98,11 @@ inline void validate_api_names(const class_node& owner, const class_comparison_o
   for (const auto& factory : owner.constructions) {
     if (collision(factory.name)) {
       throw std::invalid_argument{"Generated comparison API collision: " + factory.name};
+    }
+  }
+  for (const auto& method : owner.conversions) {
+    if (collision(method.name)) {
+      throw std::invalid_argument{"Generated comparison API collision: " + method.name};
     }
   }
 }

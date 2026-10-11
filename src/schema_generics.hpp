@@ -1,6 +1,8 @@
 #pragma once
 
 #include <rohit/serializer_creator.hpp>
+#include "conversion_contract.hpp"
+#include "stateless_constraint.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -42,6 +44,9 @@ void validate_digest_member(const rohit::type_check::schema_input_buffer auto& i
 // Check the owning profile and defaults for recursive built-in generic value types.
 void validate_optional_member(const rohit::type_check::schema_input_buffer auto& input,
                               const class_node& owner, const member& field);
+// Validate overlap hints in concrete records and explicitly constrained template definitions.
+void validate_empty_layout(const rohit::type_check::schema_input_buffer auto& input,
+                          const class_node& owner, const member& field);
 
 // Lower concrete contracts once while retaining validated native C++ template definitions.
 template <typename Input>
@@ -219,7 +224,22 @@ class generic_lowering {
     }
   }
 
-  // Validate generic bodies even when unused; dependent constraints are checked after substitution.
+  // Check concrete empty records or a forwarded parameter carrying the same proof.
+  void validate_stateless_argument(const type_name& argument, const class_node* owner = nullptr) const {
+    if (owner && !argument.application && !argument.resolved_node) {
+      const auto parameter = std::find_if(owner->generic_parameters.begin(), owner->generic_parameters.end(),
+          [&](const auto& value) { return value.name == argument.name; });
+      if (parameter != owner->generic_parameters.end() && parameter->stateless) { return; }
+    }
+    if (!argument.resolved_node || argument.resolved_node->type != object_type::class_type ||
+        !is_stateless_record(static_cast<const class_node&>(*argument.resolved_node))) {
+      throw exception::bad_member_type{input,
+          "Stateless argument requires a generated empty owning record or constrained type parameter: " +
+          argument.name};
+    }
+  }
+
+  // Bind declaration-scope references and require proof for constrained forwarded arguments.
   void validate_expression(type_name& type, const class_node& owner) const {
     if (type.kind == generic_argument_kind::dimension) {
       throw exception::bad_member_type{input, "Type/value kind mismatch: expected type"};
@@ -276,6 +296,9 @@ class generic_lowering {
         bind_dimension(argument, placeholders(owner), true);
       } else {
         validate_expression(argument, owner);
+        if (object->generic_parameters[index].stateless) {
+          validate_stateless_argument(argument, &owner);
+        }
       }
     }
     if (node) {
@@ -364,6 +387,7 @@ class generic_lowering {
         bind_dimension(argument, supplied ? bindings : substitutions);
       } else {
         resolve(argument, supplied ? bindings : substitutions, depth + 1);
+        if (parameter.stateless) { validate_stateless_argument(argument); }
       }
       if (argument.resolved_node && argument.type == object_type::class_type) {
         const auto& value = static_cast<const class_node&>(*argument.resolved_node);
@@ -402,6 +426,7 @@ class generic_lowering {
     concrete->member_list = definition->member_list;
     concrete->functions = definition->functions;
     concrete->constructions = definition->constructions;
+    concrete->conversions = definition->conversions;
     concrete->native_blocks = definition->native_blocks;
     concrete->body_order = definition->body_order;
     concrete->magic_bytes = definition->magic_bytes;
@@ -550,6 +575,8 @@ class generic_lowering {
     for (auto& construction : object.constructions) {
       for (auto& parameter : construction.parameters) { resolve(parameter.type, bindings, depth); }
     }
+    for (auto& method : object.conversions) { resolve(method.target, bindings, depth); }
+    conversion::validate(object);
     static_cast<void>(minimum_storage(object));
   }
 
@@ -593,6 +620,7 @@ class generic_lowering {
                     bind_dimension(argument, placeholders(earlier), true);
                   } else {
                     validate_expression(argument, earlier);
+                    if (parameter.stateless) { validate_stateless_argument(argument, &earlier); }
                   }
                 }
               } catch (const std::exception& error) {
@@ -640,6 +668,7 @@ class generic_lowering {
               validate_compact_member(input, field, true);
               validate_digest_member(input, object, field);
               validate_optional_member(input, object, field);
+              validate_empty_layout(input, object, field);
               if (field.modifier == member::modifier_type::map) {
                 type_name key{std::string{field.key}, object.parent_namespace};
                 validate_expression(key, object);
@@ -659,6 +688,8 @@ class generic_lowering {
                 validate_expression(parameter.type, object);
               }
             }
+            for (auto& method : object.conversions) { validate_expression(method.target, object); }
+            conversion::validate(object);
             retained_templates.push_back(&object);
             emit(std::move(node));
             continue;
@@ -678,6 +709,7 @@ class generic_lowering {
             object.member_list = source.member_list;
             object.functions = source.functions;
             object.constructions = source.constructions;
+            object.conversions = source.conversions;
             object.native_blocks = source.native_blocks;
             object.body_order = source.body_order;
             object.magic_bytes = source.magic_bytes;
@@ -757,6 +789,9 @@ inline bool contains_generics(const std::vector<std::unique_ptr<syntax_node>>& n
         for (const auto& parameter : construction.parameters) {
           if (parameter.type.application) { return true; }
         }
+      }
+      for (const auto& method : object.conversions) {
+        if (method.target.application) { return true; }
       }
     }
   }

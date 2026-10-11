@@ -2,8 +2,10 @@
 #include "version_writer.hpp"
 #include "behavior_writer.hpp"
 #include "construction_writer.hpp"
+#include "conversion_writer.hpp"
 #include "comparison_writer.hpp"
 #include "format_writer.hpp"
+#include "auto_size_writer.hpp"
 #include "generated_notices.hpp"
 #include <rohit/serializer_creator.hpp>
 
@@ -547,6 +549,17 @@ class emitter {
     if (!positional && !omitted.empty()) {
       line("if (" + omitted + ") { throw in.error(\"Field omitted from selected format\"); }");
     }
+    if (!item.auto_size_formats.empty()) {
+      const auto selected = omitted_condition(item.auto_size_formats, "in.protocol", "Protocol.",
+          protocol_name_style::upper_snake);
+      const auto seen_name = "autoSizeSeen" + std::to_string(item.id);
+      line("if (" + selected + ") {");
+      ++level;
+      line("if (" + seen_name + ") { throw in.error(\"Duplicate auto_size field\"); }");
+      line(seen_name + " = true;");
+      --level;
+      line("}");
+    }
     const auto* version = owner.version_member();
     if (version) {
       const auto slot = std::to_string(version_slot(owner, item));
@@ -560,10 +573,17 @@ class emitter {
       line("if (in.protocol != Protocol.BINARY_NONE || (" + active + ")) {");
       ++level;
     }
-    if (item.modifier == member::modifier_type::variant) {
+    if (item.wire_only) {
+      line("autoSizeValue" + std::to_string(item.id) + " = " +
+          read_value(item.type_name_list.front(), "in", false) + ";");
+    } else if (item.modifier == member::modifier_type::variant) {
       read_union(item, alternative);
     } else {
       read_field(item);
+    }
+    if (item.size_scope == auto_size_scope::payload && !item.auto_size_formats.empty() &&
+        auto_size::verifies(owner, options.class_auto_sizes)) {
+      line("autoSizeFieldBytes" + std::to_string(item.id) + " = in.offset - autoSizeFieldStart;");
     }
     if (!active.empty()) {
       --level;
@@ -1028,6 +1048,7 @@ class emitter {
       add_field("base" + std::to_string(index));
     }
     for (const auto& item : value.member_list) {
+      if (item.wire_only) { continue; }
       const auto name = field(item.name);
       for (const auto& alternative : item.type_name_list) {
         if (alternative.resolved_node == &value &&
@@ -1086,13 +1107,16 @@ class emitter {
            "();");
     }
     for (const auto& item : value.member_list) {
-      declaration(item);
+      if (!item.wire_only) { declaration(item); }
     }
     behaviors(value);
     source += construction::factories(value, name, "java",
         [&](const auto& item) { return type(item); },
         [&](auto item, auto) { return field(item); },
         [&](const auto& item) { return default_value(item); });
+    source += conversion::methods(value, name, "java",
+        [&](const auto& item) { return type(item); },
+        [&](auto item, auto) { return field(item); });
     comparisons(value);
     line("/** Encode this value into an independent exact-size message. */");
     line("public byte[] encode(Protocol protocol) {");
@@ -1120,6 +1144,16 @@ class emitter {
     line("/** Write schema fields in declaration order. */");
     line("private void write(Writer out) {");
     ++level;
+    const auto sized_fields = auto_size::fields(value);
+    if (!sized_fields.empty()) {
+      line("int autoSizeStart = out.bytes.size();");
+      for (const auto* item : sized_fields) {
+        line("int autoSizePosition" + std::to_string(item->id) + " = -1;");
+        if (item->size_scope == auto_size_scope::payload) {
+          line("int autoSizeFieldBytes" + std::to_string(item->id) + " = 0;");
+        }
+      }
+    }
     if (value.version_member()) {
       check_version(value, false);
     }
@@ -1223,9 +1257,34 @@ class emitter {
         --level;
         line("}");
       } else {
+        if (item.size_scope == auto_size_scope::payload && !item.auto_size_formats.empty()) {
+          line("int autoSizeFieldStart = out.bytes.size();");
+        }
         line("out.field(" + std::to_string(item.id) + ", " + quote(item.display_name) + ", " +
              first_flag(first) + ");");
-        write_field(item);
+        if (item.auto_size_formats.empty()) {
+          write_field(item);
+        } else {
+          const auto selected = omitted_condition(item.auto_size_formats, "out.protocol", "Protocol.",
+              protocol_name_style::upper_snake);
+          line("if (" + selected + ") {");
+          ++level;
+          line("autoSizePosition" + std::to_string(item.id) + " = out.bytes.size();");
+          line("out.integer(0, " + width(item.type_name_list.front().name) + ", true);");
+          if (item.size_scope == auto_size_scope::payload) {
+            line("autoSizeFieldBytes" + std::to_string(item.id) + " = out.bytes.size() - autoSizeFieldStart;");
+          }
+          --level;
+          line("} else {");
+          ++level;
+          if (item.wire_only) {
+            line("throw new java.lang.IllegalArgumentException(\"Inactive wire_only field\");");
+          } else {
+            write_field(item);
+          }
+          --level;
+          line("}");
+        }
       }
       --level;
       line("}");
@@ -1241,6 +1300,17 @@ class emitter {
       first = false;
     }
     line("out.endObject();");
+    for (const auto* item : sized_fields) {
+      const auto position = "autoSizePosition" + std::to_string(item->id);
+      line("if (" + position + " >= 0) {");
+      ++level;
+      // JVM byte buffers are Int bounded, so every positive span fits uint32 and uint64.
+      line("out.bytes.patchInteger(" + position + ", out.bytes.size() - autoSizeStart" +
+          (item->size_scope == auto_size_scope::payload ? " - autoSizeFieldBytes" + std::to_string(item->id) : "") + ", " +
+          width(item->type_name_list.front().name) + ");");
+      --level;
+      line("}");
+    }
     --level;
     line("}");
     line("/** Read known fields only; keyed omissions retain schema defaults. */");
@@ -1252,6 +1322,21 @@ class emitter {
     line("/** Merge duplicate nested fields in input order within this fresh message. */");
     line("private static " + name + " read(Reader in, " + name + " result) {");
     ++level;
+    if (!sized_fields.empty() && auto_size::verifies(value, options.class_auto_sizes)) {
+      line("int autoSizeStart = in.offset;");
+    }
+    for (const auto* item : sized_fields) {
+      line("boolean autoSizeSeen" + std::to_string(item->id) + " = false;");
+      if (item->wire_only) { line(type(item->type_name_list.front()) + " autoSizeValue" + std::to_string(item->id) + " = 0;"); }
+      if (item->size_scope == auto_size_scope::payload && auto_size::verifies(value, options.class_auto_sizes)) {
+        line("int autoSizeFieldBytes" + std::to_string(item->id) + " = 0;");
+      }
+    }
+    const bool payload_size = auto_size::verifies(value, options.class_auto_sizes) &&
+        std::any_of(sized_fields.begin(), sized_fields.end(), [](const auto* item) {
+      return item->size_scope == auto_size_scope::payload;
+    });
+    if (payload_size) { line("int autoSizeFieldStart = in.offset;"); }
     if (value.has_magic()) {
       const auto omitted = omitted_condition(value.magic_omitted_formats, "in.protocol",
                                               "Protocol.", protocol_name_style::upper_snake);
@@ -1292,6 +1377,7 @@ class emitter {
       }
       line("{");
       ++level;
+      if (payload_size) { line("autoSizeFieldStart = in.offset;"); }
       read_versioned_member(value, item, -1, true);
       --level;
       line("}");
@@ -1301,6 +1387,7 @@ class emitter {
     ++level;
     line("while (true) {");
     ++level;
+    if (payload_size) { line("autoSizeFieldStart = in.offset;"); }
     line("int key = in.compact();");
     line("if (key == 0) { break; }");
     line("switch (key) {");
@@ -1330,6 +1417,7 @@ class emitter {
     line("while (!in.json() || in.nextObject(first)) {");
     ++level;
     line("first = false;");
+    if (payload_size) { line("autoSizeFieldStart = in.offset;"); }
     line("String key = in.key();");
     line("if (!in.json() && key.isEmpty()) { break; }");
     line("switch (key) {");
@@ -1382,6 +1470,23 @@ class emitter {
     --level;
     line("}");
     line("in.endObject();");
+    for (const auto* item : sized_fields) {
+      const auto selected = omitted_condition(item->auto_size_formats, "in.protocol", "Protocol.",
+          protocol_name_style::upper_snake);
+      line("if (" + selected + ") {");
+      ++level;
+      line("if (!autoSizeSeen" + std::to_string(item->id) +
+          ") { throw in.error(\"Missing auto_size field\"); }");
+      if (auto_size::verifies(value, options.class_auto_sizes)) {
+        auto stored = item->wire_only ? "autoSizeValue" + std::to_string(item->id) : "result." + field(item->name);
+        if (item->type_name_list.front().name == "uint32") { stored = "java.lang.Integer.toUnsignedLong(" + stored + ")"; }
+        const auto adjustment = item->size_scope == auto_size_scope::payload
+            ? " - autoSizeFieldBytes" + std::to_string(item->id) : "";
+        line("if (" + stored + " != in.offset - autoSizeStart" + adjustment + ") { throw in.error(\"auto_size span mismatch\"); }");
+      }
+      --level;
+      line("}");
+    }
     if (magic_json) {
       line("if (in.json() && !magicSeen) { throw in.error(\"Missing schema magic\"); }");
     }
@@ -1511,6 +1616,7 @@ public:
 std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,
                      std::string_view outer_class, const java_options& options) {
   require_unmanaged_backend(statements);
+  auto_size::validate(statements, options.class_auto_sizes);
   comparison::validate(statements, options.class_comparisons, true);
   emitter generator{options, outer_class};
   return behavior::finalize_mappings(generator.generate(statements));

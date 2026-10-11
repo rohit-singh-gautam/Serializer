@@ -175,6 +175,43 @@ export class Navigator {
     return this.unique(targets.length ? targets : [{ file, start: member.start, end: member.end }]);
   }
 
+  /** Resolve each conversion projection against current included declarations, including unsaved field types. */
+  private async conversionMember(file: string, offset: number): Promise<(NavigationTarget & { name: string; owner: string })[]> {
+    const source = await this.source(file);
+    const reference = source && spanAt(source.index.memberReferences ?? [], offset);
+    if (!reference) { return []; }
+    const graph = await this.graph(file);
+    const symbols = graph.flatMap(item => item.index.symbols);
+    let owners = resolveType({ ...reference.owner, start: reference.start, end: reference.end }, symbols);
+    const members = graph.flatMap(item => (item.index.members ?? []).map(member => ({ ...member, file: item.file })));
+    /** Follow authored bases and named generic declarations without depending on saved generated output. */
+    const inherited = (initial: TypeSymbol[]): TypeSymbol[] => {
+      const result: TypeSymbol[] = [];
+      const pending = [...initial];
+      const seen = new Set<string>();
+      while (pending.length && seen.size < maximumIncludeDepth) {
+        const owner = pending.pop()!;
+        if (seen.has(owner.qualified)) { continue; }
+        seen.add(owner.qualified); result.push(owner);
+        for (const base of owner.bases ?? []) {
+          pending.push(...resolveType({ ...base, start: owner.start, end: owner.end }, symbols));
+        }
+        if (owner.genericSource) { pending.push(...resolveType(owner.genericSource, symbols)); }
+      }
+      return result;
+    };
+    const projection = [...reference.path, reference.name];
+    for (let index = 0; index < projection.length; ++index) {
+      const name = projection[index];
+      const selected = members.filter(member => member.name === name &&
+        inherited(owners).some(owner => owner.qualified === member.owner));
+      if (index === projection.length - 1) { return selected; }
+      owners = selected.flatMap(member => member.type
+        ? resolveType({ ...member.type, start: member.start, end: member.end }, symbols) : []);
+    }
+    return [];
+  }
+
   /** Prefer generated type and field definitions, falling back to their schema without generating output. */
   async schema(file: string, offset: number, definition: boolean): Promise<NavigationTarget[]> {
     const source = await this.source(file);
@@ -184,6 +221,12 @@ export class Navigator {
       if (!await this.source(included)) { return []; }
       // An include identifies a schema, which may contribute many generated declarations.
       return [{ file: included, start: 0, end: 0 }];
+    }
+    const projected = await this.conversionMember(file, offset);
+    if (projected.length) {
+      return definition ? this.unique((await Promise.all(projected.map(member =>
+        this.memberDefinitions(member.file, member)))).flat()) : this.unique(projected.map(member =>
+        ({ file: member.file, start: member.start, end: member.end })));
     }
     const member = definition && source && spanAt(source.index.members ?? [], offset);
     if (member) { return this.memberDefinitions(file, member); }

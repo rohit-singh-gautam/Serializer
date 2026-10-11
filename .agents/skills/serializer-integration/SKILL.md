@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Use Serializer as a state framework when creating or changing schemas, generated behavior, construction/comparisons, multi-language codecs, bounded decoding, revisions, C++ managed transactions, history, journals, collaboration, or persistence. Review the installed version's entire feature set and apply every feature relevant to the user's contract; preserve wire compatibility and qualify unsupported combinations."
+description: "Use Serializer as a state framework when creating or changing schemas, generated behavior, construction/comparisons/conversions, derived wire sizes, stateless generic constraints, multi-language codecs, bounded decoding, revisions, C++ managed transactions, history, journals, collaboration, or persistence. Review the installed version's entire feature set and apply every feature relevant to the user's contract; preserve wire compatibility and qualify unsupported combinations."
 ---
 
 # Serializer Integration
@@ -22,7 +22,28 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
-Compiler/runtime 1.13.0 supports schema language 1.8.0. For new integrations,
+Compiler/runtime 1.14.0 supports schema language 1.9.0. For new integrations,
+review [derived wire sizes](../../../docs/derived_sizes.md),
+[explicit value conversions](../../../docs/conversions.md), and
+[stateless generic constraints](../../../docs/generics.md#stateless-type-constraints).
+Use fixed unsigned `auto_size` headers only for native binary; default record
+scope includes the header itself. Select `wire_only` when transport metadata
+needs no application storage, and `size_scope(payload)` only when the agreed
+wire value excludes its entire own key/value. Both choices are schema contracts.
+Choose `auto_size_validation=verify|retain` per language/class in INI; retention
+must keep structural header and normal decoder limits. Use
+`omit(all_except(format,...))` for a nonempty comma-separated inclusion list.
+Conversions copy exact public value projections into fresh target defaults;
+qualify documented unsupported shapes and native ownership. Stateless constraints
+prove generic defaults/arguments and forwarding eligibility without new wire data.
+Follow [usage](../../../docs/usage.md) and
+[qualification](../../../docs/verification-deferred-features-2026-10-11.md).
+Raw object memory is not `binary_none`; do not infer an ABI dump from encoded sizes.
+C++ constant-evaluation and emission-only profiles derive positional size headers
+with both scopes and nested wire-only metadata. Use the
+[compile-time byte-image workflow](../../../docs/constant_evaluation.md), qualify
+its existing shape restrictions, and verify runtime byte parity.
+For value creation,
 review [typed construction and layout](../../../docs/construction.md),
 [checked behavior](../../../docs/behavior.md), and
 [generic inheritance/reusable headers](../../../docs/generics.md).
@@ -544,11 +565,11 @@ feature as a prerequisite without the user's request.
   generated replacement setters and the existing history/journal APIs.
   Consult [usage](../../../docs/usage.md), [migration](../../../migration.md), and
   [qualification](../../../docs/verification-dimensions-2026-10-04.md).
-- Use `.serializer` files beginning with `serializer version 1.8.0;`, before declarations
+- Use `.serializer` files beginning with `serializer version 1.9.0;`, before declarations
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
-  remains available through `parser::parse(input)`. Schema language version 1.8.0 is
-  independent of compiler release 1.13.0 and wire protocols. Bug fixes and minor
+  remains available through `parser::parse(input)`. Schema language version 1.9.0 is
+  independent of compiler release 1.14.0 and wire protocols. Bug fixes and minor
   updates increment the patch number; new features increment the minor number.
   Minor and patch releases preserve full compatibility. Developers change the
   major number manually, with best-effort compatibility across major releases.
@@ -934,7 +955,7 @@ versioned snippets, and invokes the same targets through CMake Tools. Run the ro
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 1.1.35 is shared with the Visual Studio extension and is independent of
+version 1.1.36 is shared with the Visual Studio extension and is independent of
 compiler and schema versions. Keep both editor extension versions equal.
 Both package descriptions and READMEs identify the
 [Serializer repository](https://github.com/rohit-singh-gautam/Serializer). Configure
@@ -1584,7 +1605,7 @@ Regenerate all relevant language and editor outputs when changing these contract
 
 Consult the [versioning verification record](../../../docs/verification-versioning-2026-10-06.md) and [release-policy verification record](../../../docs/verification-release-policies-2026-10-06.md) for completed language, compiler, codec, and editor checks. Release catalogs and nested allow policies are evaluated entirely during schema compilation; generated readers and writers contain only resolved version bounds.
 
-Use [payload versioning](../../../docs/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the supported schema language header (`1.8.0`, older `1.7.0`/`1.6.0`/`1.5.0`/`1.4.0`/`1.3.0`/`1.2.0`/`1.1.0`/`1.0.0`, or the original `1` alias for `1.0.0`) from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.
+Use [payload versioning](../../../docs/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the supported schema language header (`1.9.0`, older `1.8.0`/`1.7.0`/`1.6.0`/`1.5.0`/`1.4.0`/`1.3.0`/`1.2.0`/`1.1.0`/`1.0.0`, or the original `1` alias for `1.0.0`) from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.
 
 Declare payload revisions with Serializer's `version` member instead of an ordinary
 counter field. The paired `union_variant` examples declare

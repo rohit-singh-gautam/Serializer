@@ -1,5 +1,15 @@
 # Features and implementation status
 
+Compiler/runtime **1.14.0** and language **1.9.0** add
+[native binary derived sizes](derived_sizes.md), stored or `wire_only` headers,
+record/payload scope, class-specific decoder validation, complement omission
+lists, [explicit portable record conversions](conversions.md), and
+[stateless generic constraints](generics.md#stateless-type-constraints).
+Supported backend combinations and executed checks are recorded in
+[qualification](verification-deferred-features-2026-10-11.md). Raw ABI dumps are
+not an output protocol; conversions support the ordinary value shapes documented
+in their guide.
+
 [Back to the project overview](../README.md)
 
 Serializer — **State Framework** combines schema-driven data exchange with C++
@@ -186,7 +196,7 @@ behavior remain unchanged.
 
 Language-specific output profiles select layouts and naming conventions. Schemas use
 `.serializer` and begin with a supported language header; new schemas use
-`serializer version 1.8.0;`. Older `1.7.0`, `1.6.0`, `1.5.0`, `1.4.0`, `1.3.0`, `1.2.0`, `1.1.0`, `1.0.0` and the original `1` alias remain supported.
+`serializer version 1.9.0;`. Older `1.8.0`, `1.7.0`, `1.6.0`, `1.5.0`, `1.4.0`, `1.3.0`, `1.2.0`, `1.1.0`, `1.0.0` and the original `1` alias remain supported.
 Schema language and compiler versions are independent.
 Future versions require all three components. Share declarations with `include
 common;` before any declarations. Paths are unquoted and relative to the including file;
@@ -198,7 +208,7 @@ Namespace scopes are reused during parsing; duplicate types and namespace/type c
 are rejected. See [schema includes](usage.md#share-declarations-with-includes) and the
 [paired C++/Java examples](../example/includes/README.md). Quoted defaults preserve
 literal spaces, for example `public string label { "schema default" };`; escaping the
-space is unnecessary. Run `serializer --version` for compiler version **1.13.0** and
+space is unnecessary. Run `serializer --version` for compiler version **1.14.0** and
 supported schema versions. See [command-line options](command_line.md) for
 multi-language generation and overrides.
 

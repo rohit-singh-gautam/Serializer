@@ -2,7 +2,8 @@
 
 [Back to the project overview](../README.md)
 
-Status: implemented in compiler/runtime release **1.4.0**. Updated: 2026-10-07.
+Status: implemented in compiler/runtime release **1.4.0**; derived-size support
+added in **1.14.0**. Updated: 2026-10-11.
 
 This document describes C++20 constant-evaluation support for Serializer's
 binary_none protocol. The public APIs, default-off generator option, and independent
@@ -48,6 +49,51 @@ The feature consists of:
 7. An independent optional C++ profile emitting only positional binary codecs.
 8. Wire-parity, failure, toolchain, and runtime-regression qualification.
 9. An optional borrowed emission-only model profile with a concrete output method.
+
+### Derived sizes in compile-time byte images
+
+Schema language **1.9.0** permits native `auto_size` fields in both owning
+constant-evaluation models and borrowed emission-only models. For example:
+
+```text
+serializer version 1.9.0;
+class archive_entry {
+  public wire_only uint32 encoded_size(1) auto_size(binary_none)
+    omit(all_except(binary_none));
+  public string title(2);
+}
+```
+
+Generate with `[cpp] constant_evaluation = true`, then produce the exact schema
+byte image through the existing factory API:
+
+```cpp
+#include "model.hpp"
+#include <rohit/constant_binary.hpp>
+
+constexpr auto archive_bytes = rohit::serializer::make_binary_none_bytes<[] {
+  archive_entry value{};
+  value.title = "Survey";
+  return value;
+}>();
+static_assert(archive_bytes.size() == 11);
+static_assert(archive_bytes.front() == archive_bytes.size());
+```
+
+The four-byte header, one-byte string count and six title bytes form the image;
+`wire_only` creates no stored header member. Ordinary size fields likewise leave
+their source value unchanged. `size_scope(payload)` subtracts the size field's
+fixed scalar width in positional binary, while default record scope includes it.
+Magic bytes and nested records follow the same contract as ordinary runtime
+codecs. The counter uses fixed-width placeholders to prevent recursive size
+measurement; writing computes each record's own header before emitting its bytes.
+
+This support is limited to compile-time `binary_none` output and the existing
+C++20 value/container subset. It does not add compile-time decoding or an ABI
+memory dump. The ordinary bounded reader verifies the resulting headers. Both
+profiles are qualified with exact byte assertions and runtime parity in
+[the derived-size constant test](../test/auto_size_constant_test.cpp); see
+[derived-size controls](derived_sizes.md) for scope and decoder policies.
 
 Compile-time deserialization, JSON, keyed binary, Protobuf, compression, file I/O,
 managed stores, and constexpr support for every standard container are outside

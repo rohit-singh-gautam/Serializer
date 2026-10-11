@@ -17,7 +17,7 @@
   "Schema": {
     "prefix": "schema",
     "body": [
-      "serializer version 1.8.0;",
+      "serializer version 1.9.0;",
       "",
       "namespace ${1:models} {",
       "class ${2:account} stable_ids {",
@@ -230,5 +230,29 @@
     "prefix": "predicate",
     "body": "public function bool ${1:is_valid}() readonly predicate(${2:value != 0});$0",
     "description": "Return false for reached invalid checks in a typed readonly predicate"
+  },
+  "Stateless layout": {
+    "prefix": "stateless-layout",
+    "body": [
+      "class ${1:passive}<${2:Reference}: stateless = ${3:empty_record}> stable_ids {",
+      "  public transient layout(empty) $2 ${4:reference};",
+      "  $0",
+      "}"
+    ],
+    "description": "Require generated empty owning arguments; schema language 1.9.0"
+  },
+  "Computed size header": {
+    "prefix": "auto-size",
+    "body": "public ${1|wire_only ,|}uint32 ${2:encoded_size} (${3:1}) auto_size(binary_none, binary_integer, binary_string) size_scope(${4|record,payload|}) omit(all_except(binary_none, binary_integer, binary_string));$0",
+    "description": "Compute a native binary span including the record by default; schema language 1.9.0"
+  },
+  "Portable conversion": {
+    "prefix": "conversion",
+    "body": [
+      "public conversion ${1:target_record} as ${2:to_view} {",
+      "  ${3:target_field} = ${4:source.field};",
+      "};$0"
+    ],
+    "description": "Create a fresh owning record from exact public field projections; schema language 1.9.0"
   }
 }

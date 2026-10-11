@@ -50,14 +50,24 @@ private fun srlField(value: String): SrlField {
 private fun srlVersionParts(value: String, count: Int): List<Int> { val parts = value.split('.'); if (parts.size != count) throw SerializerException("Invalid dotted revision"); return parts.map { if (!it.matches(Regex("0|[1-9][0-9]{0,4}"))) throw SerializerException("Invalid dotted revision"); val n = it.toInt(); if (n > 65535) throw SerializerException("Invalid dotted revision"); n } }
 // Compare numeric components in declaration order.
 private fun srlVersionCompare(a: String, b: String, count: Int): Int { val x = srlVersionParts(a, count); val y = srlVersionParts(b, count); for (i in 0 until count) if (x[i] != y[i]) return x[i].compareTo(y[i]); return 0 }
+// Backpatch fixed-width bytes in the existing buffer without copying the message.
+private class SrlSizeBuffer : ByteArrayOutputStream(256) {
+    fun patchInteger(position: Int, value: ULong, width: Int) {
+        if (position < 0 || width > count-position) throw SerializerException("Invalid size patch")
+        for (index in 0 until width) buf[position+index] = (value shr (index*Byte.SIZE_BITS)).toByte()
+    }
+}
 internal class SrlWriter(val protocol: Protocol) {
     // Write count-free binary components or canonical JSON text.
     fun version(value: String, count: Int) { val parts = srlVersionParts(value, count); if (json()) text(value) else for (n in parts) integer(n.toULong(), 2, true) }
 
-    private val output = ByteArrayOutputStream(256)
+    private val output = SrlSizeBuffer()
     private var depth = 0
     // Return an independent exact-size encoding.
     fun bytes(): ByteArray = output.toByteArray()
+    // Observe the encoded span and patch its selected fixed-width size field.
+    fun position(): Int = output.size()
+    fun patchInteger(position: Int, value: ULong, width: Int) { output.patchInteger(position, value, width) }
     // Test the active protocol.
     fun json(): Boolean = protocol == Protocol.JSON
     // Append validated numeric text or punctuation.
@@ -159,6 +169,8 @@ internal class SrlReader(val data: ByteArray, val protocol: Protocol, val limits
     }
 
     private var offset = 0
+    // Report consumed bytes without exposing or changing bounded input state.
+    fun position(): Int = offset
     var depth = 0
     var elements = 0
     private val view = ByteBuffer.wrap(data).order(ByteOrder.LITTLE_ENDIAN)

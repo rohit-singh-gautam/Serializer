@@ -19,12 +19,14 @@ export interface TypeSymbol extends Span {
   schemaQualified?: string;
   genericSource?: Span & { name: string; scope: string[] };
   typeParameter?: boolean;
+  bases?: Array<{ name: string; scope: string[] }>;
 }
 export interface SourceIndex {
   symbols: TypeSymbol[];
   includes: SchemaInclude[];
   references: Array<Span & { name: string; scope: string[]; kind?: TypeSymbol['kind'] }>;
-  members?: Array<Span & { name: string; owner: string }>;
+  members?: Array<Span & { name: string; owner: string; type?: { name: string; scope: string[] }; wireOnly?: boolean }>;
+  memberReferences?: Array<Span & { name: string; owner: { name: string; scope: string[] }; path: string[] }>;
 }
 
 /** Resolve schema include shorthand without searching for alternate files or extensions. */
@@ -50,7 +52,7 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
   const code = codeOnly(text);
   const tokens: Token[] = [...code.matchAll(/[A-Za-z_][A-Za-z_0-9]*|::|[^\s]/g)]
     .map(match => ({ text: match[0], start: match.index!, end: match.index! + match[0].length }));
-  const result: SourceIndex = { symbols: [], includes: [], references: [], members: [] };
+  const result: SourceIndex = { symbols: [], includes: [], references: [], members: [], memberReferences: [] };
   const scopes: string[][] = [[]];
   const namespaceBodies = new Map<number, string[]>();
   let referenceScope: string[] | undefined;
@@ -97,7 +99,7 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
         return typeReference(operand, depth + 1);
       }
     }
-    if (token === 'managed' || token === 'transient') { return typeReference(start + 1, depth + 1); }
+    if (token === 'managed' || token === 'transient' || token === 'wire_only') { return typeReference(start + 1, depth + 1); }
     if (['optional', 'array', 'map'].includes(token) && tokens[start + 1]?.text === '<') {
       // Only user-declared constructors have destinations; retain references for compatible schemas.
       result.references.push({ ...qualified(start)!, scope: [...currentScope()] });
@@ -245,7 +247,35 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
       }
     } else if (schema && ['public', 'private', 'protected'].includes(token.text)) {
       // Typed magic can reference an enum; legacy magic and payload versions have no type operand.
-      if ((tokens[i + 1]?.text === 'constructor' && tokens[i + 2]?.text === '(') ||
+      if (tokens[i + 1]?.text === 'conversion') {
+        const target = qualified(i + 2);
+        let next = typeReference(i + 2);
+        if (target && tokens[next]?.text === 'as' && tokens[next + 2]?.text === '{') {
+          const targetOwner = { name: target.name, scope: [...currentScope()] };
+          const sourceOwner = { name: currentScope().join('::'), scope: [] };
+          next += 3;
+          while (next < tokens.length && !['}', '{'].includes(tokens[next].text)) {
+            const destination = tokens[next];
+            if (/^[A-Za-z_]\w*$/.test(destination.text) && tokens[next + 1]?.text === '=') {
+              result.memberReferences!.push({ ...destination, name: destination.text, owner: targetOwner, path: [] });
+              next += 2;
+              const projection: string[] = [];
+              while (/^[A-Za-z_]\w*$/.test(tokens[next]?.text ?? '')) {
+                const component = tokens[next];
+                result.memberReferences!.push({ ...component, name: component.text, owner: sourceOwner, path: [...projection] });
+                projection.push(component.text);
+                ++next;
+                if (tokens[next]?.text !== '.') { break; }
+                ++next;
+              }
+            }
+            while (next < tokens.length && ![';', '}', '{'].includes(tokens[next].text)) { ++next; }
+            if (tokens[next]?.text === ';') { ++next; }
+          }
+          // The conversion body is its own grammar; do not mistake its target names for declarations.
+          i = next;
+        }
+      } else if ((tokens[i + 1]?.text === 'constructor' && tokens[i + 2]?.text === '(') ||
           (tokens[i + 1]?.text === 'factory' && tokens[i + 3]?.text === '(')) {
         let next = i + (tokens[i + 1].text === 'constructor' ? 3 : 4);
         while (next < tokens.length && ![')', ';', '}'].includes(tokens[next].text)) {
@@ -269,11 +299,15 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
       } else if (tokens[i + 1]?.text === 'magic') {
         if (qualified(i + 2)) { defaultReference(typeReference(i + 2), true); }
       } else if (tokens[i + 1]?.text !== 'version') {
+        const referenceStart = result.references.length;
         const next = typeReference(i + 1);
         const field = tokens[next];
         if (field && /^[A-Za-z_]\w*$/.test(field.text)) {
           result.members!.push({ start: field.start, end: field.end, name: field.text,
-            owner: currentScope().join('::') });
+            owner: currentScope().join('::'),
+            type: result.references[referenceStart] ? { name: result.references[referenceStart].name,
+              scope: [...currentScope()] } : undefined,
+            wireOnly: tokens[i + 1]?.text === 'wire_only' || undefined });
         }
         defaultReference(next);
       }
@@ -315,13 +349,17 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
       // Keep primary-template forward declarations for C++ service results, but not parameters.
       if (!schema && !['{', ':', 'final', ';'].includes(tokens[body]?.text)) { continue; }
       const header = body;
+      const bases: Array<{ name: string; scope: string[] }> = [];
       while (body < tokens.length && !['{', ';', '}'].includes(tokens[body].text)) { ++body; }
       if (tokens[body]?.text !== '{' && (schema || tokens[body]?.text !== ';')) { continue; }
       if (schema) {
         referenceScope = [...currentScope(), name.text];
         for (let next = header; next < body; ++next) {
           if (['public', 'private', 'protected'].includes(tokens[next].text)) {
+            const referenceStart = result.references.length;
             next = typeReference(next + 1) - 1;
+            const base = result.references[referenceStart];
+            if (base) { bases.push({ name: base.name, scope: [...base.scope] }); }
           }
         }
         referenceScope = undefined;
@@ -339,7 +377,8 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
       const symbol: TypeSymbol = { name: name.text,
         qualified: [...currentScope(), name.text].join('::'),
         kind: token.text === 'enum' ? 'enum' : 'class', start: name.start, end: name.end,
-        body: tokens[body].start, declaration: token.start, definition: tokens[body].text === '{' };
+        body: tokens[body].start, declaration: token.start, definition: tokens[body].text === '{',
+        bases: bases.length ? bases : undefined };
       result.symbols.push(symbol);
       if ((classScopes || schema) && symbol.definition) {
         namespaceBodies.set(body, [...currentScope(), name.text]);

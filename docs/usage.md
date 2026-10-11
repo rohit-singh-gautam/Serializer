@@ -1,5 +1,13 @@
 # Using Serializer in a C++ application
 
+For language `1.9.0`, use [derived sizes](derived_sizes.md) for computed binary
+headers, `wire_only` storage and record/payload counting controls;
+[`omit(all_except(...))`](magic_and_omission.md) for protocol inclusion lists;
+[record conversions](conversions.md) for explicit portable value mappings; and
+[stateless constraints](generics.md#stateless-type-constraints) for reusable
+empty transient policies. See the [public runnable examples](../example/README.md)
+and their [qualification](verification-deferred-features-2026-10-11.md).
+
 For schema language 1.8 value construction, named generic factories, typed
 structured defaults, and passive transient layout hints, follow the runnable
 [construction guide](construction.md). These declarations retain ordinary
@@ -344,7 +352,7 @@ class person stable_ids {
 ```
 
 - Use `class`, `enum`, and `namespace`; schema declarations are not C++ source.
-- Start every new `.serializer` file with `serializer version 1.8.0;` before declarations.
+- Start every new `.serializer` file with `serializer version 1.9.0;` before declarations.
   Older `1.0.0` files remain supported.
   The original `serializer version 1;` is an exact alias for `1.0.0`, exclusive to
   version 1. Future versions require three components. The language version is
@@ -408,13 +416,15 @@ namespace demo {
   spaces, backslashes, absolute paths, and other extensions are rejected.
   `./` and `../` are supported. Paths resolve from the including file, independently
   of the compiler's working directory. Comments may separate directive tokens.
-- Every file requires its own supported version header. `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, and the
+- Every file requires its own supported version header. `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, and the
   original `1` alias may coexist in an include graph. Typed magic and inferred
   arrays require `1.1.0`, compact scalars require `1.2.0`, and built-in digests
   require `1.3.0`; owning variants require `1.4.0` and warning suppression requires
   `1.5.0`; built-in `optional<T>`, `array<T>` and `map<K,V>` require `1.7.0`
   in the file that declares them. Typed construction/defaults, empty transient
   layout, generic inheritance and the new checked expressions require `1.8.0`.
+  Derived sizes/storage/scope, complement omissions, conversions and stateless
+  generic constraints require `1.9.0` in their declaring file.
   Includes follow that
   header and precede all declarations, at file scope only.
 - Nested dependencies load before their includers. Repeated paths, normalized path

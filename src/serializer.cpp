@@ -551,6 +551,10 @@ int main(const int argc, const char* argv[]) {
             found != options.class_comparisons.end()) {
           settings.class_comparisons = found->second;
         }
+        if (const auto found = options.class_auto_sizes.find(language);
+            found != options.class_auto_sizes.end()) {
+          settings.class_auto_sizes = found->second;
+        }
         output->write(writer::portable::generate_schema(schema, language,
             request.destination.stem().string(), settings));
       }

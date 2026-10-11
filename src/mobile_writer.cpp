@@ -3,8 +3,10 @@
 #include "version_writer.hpp"
 #include "behavior_writer.hpp"
 #include "construction_writer.hpp"
+#include "conversion_writer.hpp"
 #include "comparison_writer.hpp"
 #include "format_writer.hpp"
+#include "auto_size_writer.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -248,6 +250,15 @@ class mobile_emitter {
                   "throw SerializerException(\"Field omitted from selected format\")"));
       close();
     }
+    if (!item.auto_size_formats.empty()) {
+      const auto selected = omissions(item.auto_size_formats, true);
+      const auto seen_name = "autoSizeSeen" + std::to_string(item.id);
+      open(select("if " + selected, "if (" + selected + ")"));
+      line(select("if " + seen_name + " { throw SerializerError.invalid(\"Duplicate auto_size field\") }",
+          "if (" + seen_name + ") { throw SerializerException(\"Duplicate auto_size field\") }"));
+      line(seen_name + " = true");
+      close();
+    }
     const auto* version = owner.version_member();
     if (version) {
       const auto slot = std::to_string(version_slot(owner, item));
@@ -264,7 +275,18 @@ class mobile_emitter {
       open(select("if input.protocolValue != .BINARY_NONE || (" + active + ")",
                   "if (input.protocol != Protocol.BINARY_NONE || (" + active + "))"));
     }
-    read_member(item);
+    if (item.wire_only) {
+      const auto decoded = read(item.type_name_list.front(), false);
+      line(auto_size::verifies(owner, model.class_auto_sizes)
+          ? "autoSizeValue" + std::to_string(item.id) + " = " + decoded
+          : select("_ = ", "") + decoded);
+    } else {
+      read_member(item);
+    }
+    if (item.size_scope == auto_size_scope::payload && !item.auto_size_formats.empty() &&
+        auto_size::verifies(owner, model.class_auto_sizes)) {
+      line("autoSizeFieldBytes" + std::to_string(item.id) + " = input.position() - autoSizeFieldStart");
+    }
     if (!active.empty()) {
       close();
     }
@@ -473,8 +495,30 @@ class mobile_emitter {
       close();
       return;
     }
+    if (value.size_scope == auto_size_scope::payload && !value.auto_size_formats.empty()) {
+      line(select("let ", "val ") + "autoSizeFieldStart = " + select("out.bytes.count", "out.position()"));
+    }
     key(value.id, value.display_name, first);
     const auto& t = value.type_name_list.front();
+    if (!value.auto_size_formats.empty()) {
+      const auto selected = omissions(value.auto_size_formats, false);
+      open(select("if " + selected, "if (" + selected + ")"));
+      line("autoSizePosition" + std::to_string(value.id) + " = " + select("out.bytes.count", "out.position()"));
+      line("out.integer(" + select("0", "0uL") + ", " + std::to_string(width(t)) + ", true)");
+      if (value.size_scope == auto_size_scope::payload) {
+        line("autoSizeFieldBytes" + std::to_string(value.id) + " = " + select("out.bytes.count", "out.position()") + " - autoSizeFieldStart");
+      }
+      close();
+      open("else");
+      if (value.wire_only) {
+        line(select("throw SerializerError.invalid(\"Inactive wire_only field\")",
+            "throw SerializerException(\"Inactive wire_only field\")"));
+      } else {
+        write(t, src, false);
+      }
+      close();
+      return;
+    }
     if (value.modifier == member::modifier_type::none) {
       if (value.compact != compact_encoding::none) {
         const auto compact_value = swift ? "UInt64(" + src + ")"
@@ -926,6 +970,7 @@ class mobile_emitter {
       declare("base" + std::to_string(i), n, n + "()", base.access);
     }
     for (const auto& item : value.member_list) {
+      if (item.wire_only) { continue; }
       const auto id = field(item.name);
       const auto& t = item.type_name_list.front();
       if (item.modifier == member::modifier_type::variant) {
@@ -952,6 +997,9 @@ class mobile_emitter {
               initial(item.type_name_list.front(), literal(item)) : construction::factory_call(
                   type(item.type_name_list.front()), field(item.default_factory), "swift"); });
     }
+    output += conversion::methods(value, name, swift ? "swift" : "kotlin",
+        [&](const auto& item) { return type(item); },
+        [&](auto item, auto) { return field(item); });
     line("// Encode one complete message into independent byte storage.");
     open(select("public func encode(_ protocolValue: Protocol) throws -> [UInt8]",
                 "fun encode(protocolValue: Protocol): ByteArray"));
@@ -1017,6 +1065,16 @@ class mobile_emitter {
     line("// Encode typed fields in declaration order.");
     open(select("fileprivate func srlWrite(_ out: SrlWriter) throws",
                 "internal fun srlWrite(out: SrlWriter)"));
+    const auto sized_fields = auto_size::fields(value);
+    if (!sized_fields.empty()) {
+      line(select("let ", "val ") + "autoSizeStart = " + select("out.bytes.count", "out.position()"));
+      for (const auto* item : sized_fields) {
+        line("var autoSizePosition" + std::to_string(item->id) + " = -1");
+        if (item->size_scope == auto_size_scope::payload) {
+          line("var autoSizeFieldBytes" + std::to_string(item->id) + " = 0");
+        }
+      }
+    }
     if (value.version_member()) {
       check_version(value, false);
     }
@@ -1087,10 +1145,38 @@ class mobile_emitter {
     }
     variable_first = false;
     line("out.endObject()");
+    for (const auto* item : sized_fields) {
+      const auto position = "autoSizePosition" + std::to_string(item->id);
+      open(select("if " + position + " >= 0", "if (" + position + " >= 0)"));
+      line(select("let ", "val ") + "autoSizeSpan = " + select("out.bytes.count", "out.position()") + " - autoSizeStart" +
+          (item->size_scope == auto_size_scope::payload ? " - autoSizeFieldBytes" + std::to_string(item->id) : ""));
+      if (swift && item->type_name_list.front().name == "uint32") {
+        line("guard UInt64(autoSizeSpan) <= UInt64(UInt32.max) else { throw SerializerError.invalid(\"auto_size span overflow\") }");
+      }
+      // JVM byte buffers are Int bounded, so their positive span always fits uint32.
+      line(attempt() + "out.patchInteger(" + position + ", " +
+          select("UInt64(autoSizeSpan)", "autoSizeSpan.toULong()") + ", " +
+          std::to_string(width(item->type_name_list.front())) + ")");
+      close();
+    }
     close();
     line("// Merge repeated nested fields while replacing complete collections.");
     open(select("fileprivate mutating func srlRead(_ input: SrlReader) throws",
                 "internal fun srlRead(input: SrlReader)"));
+    if (!sized_fields.empty() && auto_size::verifies(value, model.class_auto_sizes)) {
+      line(select("let ", "val ") + "autoSizeStart = input.position()");
+    }
+    for (const auto* item : sized_fields) {
+      line("var autoSizeSeen" + std::to_string(item->id) + " = false");
+      if (auto_size::verifies(value, model.class_auto_sizes)) {
+        if (item->wire_only) { line("var autoSizeValue" + std::to_string(item->id) + ": " + type(item->type_name_list.front()) + " = " + initial(item->type_name_list.front())); }
+        if (item->size_scope == auto_size_scope::payload) { line("var autoSizeFieldBytes" + std::to_string(item->id) + " = 0"); }
+      }
+    }
+    const bool payload_size = auto_size::verifies(value, model.class_auto_sizes) &&
+        std::any_of(sized_fields.begin(), sized_fields.end(), [](const auto* item) {
+          return item->size_scope == auto_size_scope::payload;
+        });
     if (value.has_magic()) {
       const auto omitted = omissions(value.magic_omitted_formats, true);
       const auto active = "!input.json()" + (omitted.empty() ? "" : " && !(" + omitted + ")");
@@ -1118,11 +1204,13 @@ class mobile_emitter {
     }
     line(attempt() + "input.beginObject()");
     line("var cursor = 0");
-    if (swift) {
+    if (swift && !payload_size) {
       open("while let key = try input.key(Self.srlIds, cursor)");
     } else {
       open("while (true)");
-      line("val key = input.key(srlIds, cursor) ?: break");
+      if (payload_size) { line(select("let ", "val ") + "autoSizeFieldStart = input.position()"); }
+      line(select("guard let key = try input.key(Self.srlIds, cursor) else { break }",
+          "val key = input.key(srlIds, cursor) ?: break"));
     }
     line("cursor += 1");
     line((swift && value.parents.empty() && value.member_list.empty() && !value.has_magic() ? "let " : "var ") +
@@ -1212,6 +1300,27 @@ class mobile_emitter {
     close();
     close();
     line("input.endObject()");
+    for (const auto* item : sized_fields) {
+      const auto selected = omissions(item->auto_size_formats, true);
+      open(select("if " + selected, "if (" + selected + ")"));
+      line(select("if !autoSizeSeen" + std::to_string(item->id) +
+          " { throw SerializerError.invalid(\"Missing auto_size field\") }",
+          "if (!autoSizeSeen" + std::to_string(item->id) +
+          ") { throw SerializerException(\"Missing auto_size field\") }"));
+      if (auto_size::verifies(value, model.class_auto_sizes)) {
+        const auto stored_value = item->wire_only ? "autoSizeValue" + std::to_string(item->id)
+            : select("self.", "this.") + field(item->name);
+        const auto stored = select("UInt64(" + stored_value + ")",
+            stored_value + (item->type_name_list.front().name == "uint64" ? "" : ".toULong()"));
+        const auto span_value = "input.position() - autoSizeStart" +
+            (item->size_scope == auto_size_scope::payload ? " - autoSizeFieldBytes" + std::to_string(item->id) : "");
+        const auto span = select("UInt64(" + span_value + ")", "(" + span_value + ").toULong()");
+        line(select("if " + stored + " != " + span +
+            " { throw SerializerError.invalid(\"auto_size span mismatch\") }",
+            "if (" + stored + " != " + span + ") { throw SerializerException(\"auto_size span mismatch\") }"));
+      }
+      close();
+    }
     if (magic_json) {
       line(select("if input.json() && !magicSeen { throw SerializerError.invalid(\"Missing schema magic\") }",
                   "if (input.json() && !magicSeen) { throw SerializerException(\"Missing schema magic\") }"));

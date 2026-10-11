@@ -139,6 +139,21 @@ cannot omit formats, and unknown or duplicate format selectors fail generation.
 Native backends support the four native codecs; Protobuf mappings remain a
 separate C++ feature rather than additional codecs in every generated language.
 
+Language `1.9.0` adds complement lists:
+
+```text
+public uint32 length(1) omit(all_except(binary_none, binary_integer));
+```
+
+This keeps the field in the listed protocols and omits it from every other
+supported protocol, including JSON and Protobuf mappings. `all_except` accepts a
+nonempty comma-separated list and canonicalizes the same aliases as `omit`.
+Unknown or repeated selectors (including repeated aliases), empty lists and
+mixing a complement with ordinary omission selectors are rejected. The same
+form can select magic formats. It resolves to ordinary omission metadata and
+adds no runtime flags. [Wire-only size headers](derived_sizes.md) must omit all
+formats outside their `auto_size` selection.
+
 C++ codecs expose a `static constexpr wire_format format` marker. Generated
 omission handling uses compile-time protocol selection, so it introduces no
 per-object flags or runtime format tests. Existing custom protocol key markers

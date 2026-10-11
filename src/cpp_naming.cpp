@@ -516,6 +516,9 @@ void naming::validate_names(const std::vector<std::unique_ptr<syntax_node>>& sta
             insert_name(parameter_names, "srl_arg_" + field_name(parameter.name));
           }
         }
+        for (const auto& conversion : object.conversions) {
+          insert_name(owning, function_name(conversion.name));
+        }
         if (object.has_mode(storage_mode::owning) && owning.contains("to_string")) {
           for (const auto& field : object.member_list) {
             if (field.modifier == member::modifier_type::variant) {

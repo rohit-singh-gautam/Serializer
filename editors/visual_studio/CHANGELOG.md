@@ -1,3 +1,11 @@
+# 1.1.36
+
+- Support schema language 1.9.0 stateless generic constraints and defaults.
+- Highlight computed size fields, wire-only headers, record/payload scope and complement omission selectors.
+- Navigate conversion target types and field projections through inherited declarations and unsaved includes.
+- Add stateless-layout, computed-size and conversion snippets; new schemas select language 1.9.0.
+- Preserve extension IDs and validate both packages with shared grammar and navigation tests.
+
 # 1.1.35
 
 - Highlight typed predicates, finite checks, indexed fields and bounded all/any reductions.

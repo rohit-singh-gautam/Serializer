@@ -1,5 +1,24 @@
 # Migrating to the snake_case Serializer API
 
+## Derived sizes and portable conversions (11 October 2026)
+
+Compiler/runtime **1.14.0** supports language **1.9.0**, preserving earlier
+contracts. Raise the header only in files using `auto_size`, `wire_only`,
+`size_scope`, `omit(all_except(...))`, declarative conversions or stateless type
+constraints. Regenerate all selected outputs with the matching compiler/runtime.
+See [derived sizes](docs/derived_sizes.md), [conversions](docs/conversions.md),
+[constraints](docs/generics.md#stateless-type-constraints), and
+[qualification](docs/verification-deferred-features-2026-10-11.md).
+
+Adding a size field or changing its scope/width/format selection changes that
+payload contract. Preserve released identities and migrate or revise historical
+records explicitly; do not add a positional header to persisted data silently.
+Changing an existing member to `wire_only` removes its generated storage/API and
+can change native object layout. Prefer a new metadata declaration where that
+change is inappropriate. This storage choice is opt-in and does not infer a raw
+ABI format. Conversions and stateless constraints do not add serialized data.
+Decoder `retain` remains bounded and still rejects missing or repeated headers.
+
 ## Integration enhancements (11 October 2026)
 
 Compiler/runtime **1.13.0** supports language **1.8.0** while retaining earlier

@@ -1,0 +1,51 @@
+serializer version 1.9.0;
+
+// Compute record-local lengths while the in-memory values remain ordinary scalars.
+class sized_payload {
+  public uint32 encoded_size(1) auto_size(binary_none, binary_integer, binary_string)
+    omit(all_except(binary_none, binary_integer, binary_string));
+  public string text(2);
+  public array uint32 samples(3);
+}
+
+// Each nested record measures its own framing rather than the enclosing field key or array prefix.
+class sized_envelope {
+  public uint64 encoded_size(1) auto_size(binary_none, binary_integer, binary_string)
+    omit(all_except(binary_none, binary_integer, binary_string));
+  public uint32 tag(2) {7};
+  public sized_payload payload(3);
+  public array sized_payload items(4);
+}
+
+// Independent fields may select different protocols without ambiguity or variable-width fixed points.
+class split_sized {
+  public uint32 positional_size(1) auto_size(binary_positional)
+    omit(all_except(binary_positional));
+  public uint32 integer_size(2) auto_size(binary_integer)
+    omit(all_except(binary_integer));
+  public uint64 string_size(3) auto_size(binary_string)
+    omit(all_except(binary_string));
+  public string text(4);
+}
+
+// Fixed magic bytes participate in the containing native binary record length.
+class sized_magic {
+  public magic(1) {'SIZE'} omit(json);
+  public uint32 encoded_size(2) auto_size(binary_none, binary_integer, binary_string)
+    omit(all_except(binary_none, binary_integer, binary_string));
+  public string text(3);
+}
+
+// Transport metadata can be computed and validated without adding object storage.
+class wire_sized {
+  public wire_only uint32 encoded_size(1) auto_size(binary_none, binary_integer, binary_string)
+    omit(all_except(binary_none, binary_integer, binary_string));
+  public string text(2);
+}
+
+// Payload counts retain framing and data but exclude the complete size field itself.
+class payload_sized {
+  public uint32 encoded_size(1) auto_size(binary_none, binary_integer, binary_string)
+    size_scope(payload) omit(all_except(binary_none, binary_integer, binary_string));
+  public string text(2);
+}

@@ -334,6 +334,8 @@ struct field_contract {
   std::vector<std::pair<std::string, std::string>> alternatives{};
   std::uint64_t fixed_extent{};
   compact_encoding compact{compact_encoding::none};
+  bool derived_size{};
+  auto_size_scope size_scope{auto_size_scope::record};
 };
 
 // Preserve parent-before-member order, field identity, map keys, and ordered union alternatives.
@@ -348,6 +350,9 @@ std::vector<field_contract> fields(const class_node& type, std::string_view form
     field_contract contract{field.id, field.display_name, {}, fixed_array_default(field), {}};
     contract.fixed_extent = field.fixed_extent;
     contract.compact = field.compact;
+    contract.derived_size = !format.empty() && field.auto_sizes(format);
+    contract.size_scope = contract.derived_size ? field.size_scope : auto_size_scope::record;
+    if (contract.derived_size) { contract.default_value.clear(); }
     switch (field.modifier) {
     case member::modifier_type::none:
       contract.shape = "value:" + type_identity(field.type_name_list.front());
@@ -598,6 +603,9 @@ void check_class(std::vector<compatibility_issue>& result, const class_node& pre
     }
     if (before.shape != found->shape) {
       issue(result, field_path, "Field type, container shape, map key, or parent identity changed");
+    }
+    if (before.derived_size != found->derived_size || before.size_scope != found->size_scope) {
+      issue(result, field_path, "Derived record size validation or byte scope changed");
     }
     if ((protocol == compatibility_protocol::binary_none ||
          protocol == compatibility_protocol::binary_integer ||

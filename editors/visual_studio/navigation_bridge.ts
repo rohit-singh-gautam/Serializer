@@ -39,7 +39,7 @@ async function files(): Promise<NavigationFiles> {
 export function reference(file: string, text: string, offset: number): string {
   if (!file.endsWith('.serializer')) { return 'null'; }
   const index = indexSource(text, true);
-  return JSON.stringify(spanAt([...index.references, ...index.includes], offset) ?? null);
+  return JSON.stringify(spanAt([...index.references, ...index.includes, ...(index.memberReferences ?? [])], offset) ?? null);
 }
 
 /** Reuse the tested resolver; all file reads remain passive and use captured live buffers first. */

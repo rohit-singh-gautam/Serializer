@@ -1,0 +1,5 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.9.0;
+
+include ../../example/schemas/stateless_layout/model;

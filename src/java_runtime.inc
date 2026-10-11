@@ -77,12 +77,24 @@ private static int compareText(java.lang.String first, java.lang.String second) 
 
 /** Per-call writer; generated codecs access fields directly without reflection. */
 private static final class Writer {
+  /** Keep the buffer helper inside the already reserved writer scope. */
+  private static final class SizeBuffer extends java.io.ByteArrayOutputStream {
+    /** Backpatch already-written fixed-width bytes without copying the surrounding message. */
+    void patchInteger(int position, long value, int width) {
+      if (position < 0 || width > count - position) {
+        throw new java.lang.IllegalArgumentException("Invalid size patch");
+      }
+      for (int index = 0; index < width; ++index) {
+        buf[position + index] = (byte) (value >>> (index * java.lang.Byte.SIZE));
+      }
+    }
+  }
   /** Write count-free binary components or the canonical JSON text. */
   void version(String value, int count) { int[] parts = srlVersionParts(value, count); if (json()) text(value); else for (int part : parts) integer(part, 2, true); }
 
   private static final int COMPACT_MAX = 0x3fffffff;
   final Protocol protocol;
-  final java.io.ByteArrayOutputStream bytes = new java.io.ByteArrayOutputStream();
+  final SizeBuffer bytes = new SizeBuffer();
   int depth;
 
   /** Create an isolated encoding session. */

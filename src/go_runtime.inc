@@ -75,6 +75,14 @@ func srlNewWriter(protocol Protocol) *srlWriter {
 func (out *srlWriter) fail(message string) { if out.err == nil { out.err = fmt.Errorf("%s", message) } }
 // json reports whether output is JSON.
 func (out *srlWriter) json() bool { return out.protocol == JSON }
+// position observes owned output bytes without copying the buffer.
+func (out *srlWriter) position() int { return len(out.bytes) }
+// patchInteger fills a checked fixed-width placeholder without another encoding pass.
+func (out *srlWriter) patchInteger(position int, value uint64, width int) {
+  if out.err != nil { return }
+  if (width != 4 && width != 8) || position < 0 || width > len(out.bytes) || position > len(out.bytes) - width || (width == 4 && value > math.MaxUint32) { out.fail("Derived record size out of range"); return }
+  if width == 4 { binary.LittleEndian.PutUint32(out.bytes[position:position+width], uint32(value)) } else { binary.LittleEndian.PutUint64(out.bytes[position:position+width], value) }
+}
 // raw appends punctuation or already validated numeric text.
 func (out *srlWriter) raw(value string) { if out.err == nil { out.bytes = append(out.bytes, value...) } }
 // compact writes the native two-bit length tag.
@@ -206,6 +214,8 @@ func srlNewReader(bytes []byte, protocol Protocol, limits Limits) *srlReader {
 }
 // fail records the first byte offset without including message contents.
 func (in *srlReader) fail(message string) { if in.err == nil { in.err = fmt.Errorf("%s at byte %d", message, in.offset) } }
+// position observes consumed bytes independently of a declared size field.
+func (in *srlReader) position() int { return in.offset }
 // json tests the active protocol.
 func (in *srlReader) json() bool { return in.protocol == JSON }
 // require checks lengths before indexing or arithmetic.

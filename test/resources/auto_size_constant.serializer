@@ -1,0 +1,19 @@
+serializer version 1.9.0;
+
+namespace sized_constant_models {
+  class leaf stable_ids {
+    private magic uint16(99) { 4660 };
+    public wire_only uint64 encoded_size(1) auto_size(binary_none) size_scope(payload)
+      omit(all_except(binary_none));
+    public string label(2);
+    public array[3] uint16 values(3);
+    public transient uint32 scratch;
+  }
+
+  class envelope stable_ids {
+    private magic(99) { 'E' };
+    public uint32 encoded_size(1) auto_size(binary_none);
+    public leaf payload(2);
+    public array[2] leaf children(3);
+  }
+}

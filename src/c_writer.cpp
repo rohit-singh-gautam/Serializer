@@ -4,7 +4,9 @@
 #include "format_writer.hpp"
 #include "behavior_writer.hpp"
 #include "statement_behavior_writer.hpp"
+#include "auto_size_writer.hpp"
 #include "construction_writer.hpp"
+#include "conversion_writer.hpp"
 #include "comparison_writer.hpp"
 
 #include <algorithm>
@@ -66,6 +68,12 @@ class c_emitter {
           add(n + "_" + field(item));
         }
       } else {
+        for (const auto& conversion : static_cast<const class_node&>(*node).conversions) {
+          const auto method = n + "_" + field(conversion.name);
+          add(method);
+          add(method + "_result");
+          add(method + "_result_free");
+        }
         for (const auto suffix :
              {"_init", "_free", "_encode", "_decode", "_srl_read", "_srl_write"}) {
           add(n + suffix);
@@ -511,6 +519,18 @@ class c_emitter {
     }
   }
   // Encode collections with deterministic map ordering and checked temporary allocation.
+  // Subtract the canonical selected key and scalar when payload scope excludes the size field.
+  std::string auto_size_payload_bytes(const member& value, bool input) const {
+    std::string result{"("};
+    for (const auto& format : value.auto_size_formats) {
+      if (result.size() != 1) { result += " + "; }
+      result += "(" + omitted_condition({format}, input ? "in->protocol" : "out->protocol", "srl_",
+          protocol_name_style::lower_snake) + " ? " + std::to_string(auto_size::field_bytes(value, format)) + " : 0)";
+    }
+    return result + ")";
+  }
+
+  // Encode collections with deterministic map ordering and checked temporary allocation.
   void write_member(const class_node& owner, const member& value, bool first) {
     const auto src = "value->" + field(value.name);
     const auto& t = value.type_name_list.front();
@@ -533,6 +553,20 @@ class c_emitter {
     }
     key(value.id, value.display_name, first);
     if (value.modifier == member::modifier_type::none) {
+      if (!value.auto_size_formats.empty()) {
+        const auto active = omitted_condition(value.auto_size_formats, "out->protocol", "srl_",
+                                               protocol_name_style::lower_snake);
+        open("if (" + active + ")");
+        line("srl_size_pos_" + std::to_string(value.id) + " = out->buffer.size;");
+        line("srl_write_integer(out, 0, " + std::to_string(width(t)) + ", true);");
+        close();
+        if (!value.wire_only) {
+          open("else");
+          write_value(t, src, false);
+          close();
+        }
+        return;
+      }
       if (value.compact != compact_encoding::none) {
         line("srl_write_compact_value(out, (uint64_t)" + src + ", " +
              std::to_string(width(t)) + ", " +
@@ -640,6 +674,7 @@ class c_emitter {
     }
     for (const auto& f : value.member_list) {
       const auto id = field(f.name);
+      if (f.wire_only) { continue; }
       any = true;
       if (f.modifier == member::modifier_type::variant) {
         line("uint32_t " + id + "_index;");
@@ -1037,6 +1072,7 @@ class c_emitter {
     }
     for (const auto& f : value.member_list) {
       const auto dst = "value->" + field(f.name);
+      if (f.wire_only) { continue; }
       if (f.modifier == member::modifier_type::variant) {
         for (const auto& alt : f.type_name_list) {
           free_value(alt, dst + "_" + field(alt.enum_name));
@@ -1060,6 +1096,7 @@ class c_emitter {
     }
     for (const auto& f : value.member_list) {
       const auto dst = "value->" + field(f.name);
+      if (f.wire_only) { continue; }
       if (f.modifier == member::modifier_type::variant) {
         for (const auto& alt : f.type_name_list) {
           init_value(alt, dst + "_" + field(alt.enum_name), {}, "status");
@@ -1085,12 +1122,21 @@ class c_emitter {
     line("if (status != srl_ok) { " + n + "_free(value); } return status;");
     close();
     constructions(value);
+    output += conversion::methods(value, n, "c",
+        [&](const auto& item) { return type(item); },
+        [&](auto item, auto) { return field(item); });
     comparisons(value);
     const auto magic_name = (value.magic_access == access_type::public_access ? "" : "srl_") +
                             n + "_magic";
     line("/* Encode in schema order; the source retains ownership of all its fields. */");
     open("static inline void " + n + "_srl_write(srl_writer* out, const " + n + "* value)");
     line("(void)value; if (out->status != srl_ok) { return; }");
+    if (!auto_size::fields(value).empty()) {
+      line("const size_t srl_size_start = out->buffer.size;");
+      for (const auto* item : auto_size::fields(value)) {
+        line("size_t srl_size_pos_" + std::to_string(item->id) + " = 0;");
+      }
+    }
     if (value.version_member()) {
       check_version(value, false);
     }
@@ -1166,10 +1212,38 @@ class c_emitter {
     }
     variable_first = false;
     line("srl_write_end(out);");
+    for (const auto* item : auto_size::fields(value)) {
+      const auto active = omitted_condition(item->auto_size_formats, "out->protocol", "srl_",
+                                             protocol_name_style::lower_snake);
+      const auto bytes = std::to_string(width(item->type_name_list.front()));
+      open("if (out->status == srl_ok && (" + active + "))");
+      line("const size_t srl_size_bytes = out->buffer.size - srl_size_start" +
+           (item->size_scope == auto_size_scope::payload ? " - " + auto_size_payload_bytes(*item, false) : "") + ";");
+      if (item->type_name_list.front().name == "uint32") {
+        line("if (srl_size_bytes > UINT32_MAX) { out->status = srl_range; return; }");
+      }
+      open("for (size_t srl_size_byte = 0; srl_size_byte < " + bytes + "; ++srl_size_byte)");
+      line("out->buffer.data[srl_size_pos_" + std::to_string(item->id) +
+           " + srl_size_byte] = (uint8_t)((uint64_t)srl_size_bytes >> (srl_size_byte * CHAR_BIT));");
+      close();
+      close();
+    }
     close();
     line("/* Decode into a private candidate; public decoding commits only complete messages. */");
     open("static inline void " + n + "_srl_read(srl_reader* in, " + n + "* value)");
     line("(void)value; if (in->status != srl_ok) { return; }");
+    if (!auto_size::fields(value).empty()) {
+      line("const size_t srl_size_start = in->offset; (void)srl_size_start;");
+      for (const auto* item : auto_size::fields(value)) {
+        line("bool srl_size_seen_" + std::to_string(item->id) + " = false;");
+        if (item->size_scope == auto_size_scope::payload) {
+          line("size_t srl_size_field_bytes_" + std::to_string(item->id) + " = 0; (void)srl_size_field_bytes_" + std::to_string(item->id) + ";");
+        }
+        if (item->wire_only) {
+          line("uint64_t srl_size_value_" + std::to_string(item->id) + " = 0; (void)srl_size_value_" + std::to_string(item->id) + ";");
+        }
+      }
+    }
     if (value.has_magic()) {
       const auto omitted = omitted_condition(value.magic_omitted_formats, "in->protocol",
                                               "srl_", protocol_name_style::lower_snake);
@@ -1212,7 +1286,13 @@ class c_emitter {
     ids += "0};";
     line(ids);
     line("size_t cursor = 0; srl_key key = {0};");
-    open("while (srl_read_key(in, ids, sizeof(ids)/sizeof(ids[0])-1, cursor++, &key))");
+    if (auto_size::fields(value).empty()) {
+      open("while (srl_read_key(in, ids, sizeof(ids)/sizeof(ids[0])-1, cursor++, &key))");
+    } else {
+      open("while (true)");
+      line("const size_t srl_size_field_start = in->offset; (void)srl_size_field_start;");
+      line("if (!srl_read_key(in, ids, sizeof(ids)/sizeof(ids[0])-1, cursor++, &key)) { break; }");
+    }
     line("uint32_t id = key.id; int alternative = -1;");
     open("if (key.named)");
     bool branch_first = true;
@@ -1269,7 +1349,26 @@ class c_emitter {
     }
     for (const auto& f : wire_members(value)) {
       open("case " + std::to_string(f.id) + ":");
-      read_versioned_member(value, f);
+      if (!f.auto_size_formats.empty()) {
+        const auto active = omitted_condition(f.auto_size_formats, "in->protocol", "srl_",
+                                               protocol_name_style::lower_snake);
+        open("if (" + active + ")");
+        line("if (srl_size_seen_" + std::to_string(f.id) + ") { in->status = srl_invalid; break; }");
+        line("srl_size_seen_" + std::to_string(f.id) + " = true;");
+        close();
+      }
+      if (f.wire_only) {
+        const auto active = omitted_condition(f.auto_size_formats, "in->protocol", "srl_",
+                                               protocol_name_style::lower_snake);
+        line("if (!(" + active + ")) { in->status = srl_invalid; break; }");
+        line("srl_size_value_" + std::to_string(f.id) + " = srl_read_integer(in, " +
+             std::to_string(width(f.type_name_list.front())) + ", true);");
+      } else {
+        read_versioned_member(value, f);
+      }
+      if (f.size_scope == auto_size_scope::payload) {
+        line("srl_size_field_bytes_" + std::to_string(f.id) + " = in->offset - srl_size_field_start;");
+      }
       line("break;");
       close();
     }
@@ -1277,6 +1376,19 @@ class c_emitter {
     close();
     close();
     line("srl_read_end(in);");
+    for (const auto* item : auto_size::fields(value)) {
+      const auto active = omitted_condition(item->auto_size_formats, "in->protocol", "srl_",
+                                             protocol_name_style::lower_snake);
+      open("if (in->status == srl_ok && (" + active + "))");
+      line("if (!srl_size_seen_" + std::to_string(item->id) +
+           ") { in->status = srl_invalid; return; }");
+      if (auto_size::verifies(value, model.class_auto_sizes)) {
+        line("if (" + (item->wire_only ? "srl_size_value_" + std::to_string(item->id) : "value->" + field(item->name)) +
+             " != in->offset - srl_size_start" + (item->size_scope == auto_size_scope::payload ? " - srl_size_field_bytes_" + std::to_string(item->id) : "") +
+             ") { in->status = srl_invalid; return; }");
+      }
+      close();
+    }
     if (magic_json) {
       line("if (in->status == srl_ok && in->protocol == srl_json && !magic_seen) "
            "{ in->status = srl_invalid; return; }");

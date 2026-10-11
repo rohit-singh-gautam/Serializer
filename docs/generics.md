@@ -249,6 +249,32 @@ distinguishes native Windows results, WSL results, and remaining limitations.
 See [portable fixed-array verification](verification-portable-fixed-arrays-2026-10-08.md)
 for the later C++/JavaScript/Python wire and cardinality checks.
 
+## Stateless type constraints
+
+Language `1.9.0` can constrain a type parameter and its default:
+
+```text
+class empty_token {}
+class counter<Reference: stateless = empty_token> {
+  public uint32 count(1);
+  public transient layout(empty) Reference reference;
+}
+```
+
+`stateless` accepts generated unmanaged owning records with no stored members, parents,
+managed identity, opaque hooks or polymorphic state. It checks defaults, concrete
+and named instantiations, nested applications and forwarded type parameters.
+Forwarding to a constrained parameter requires a matching stateless constraint.
+C++ additionally checks the actual native type with `std::is_empty_v`; other
+backends validate their generated concrete records. Physical overlap from
+`layout(empty)` remains compiler/ABI dependent. The public
+[stateless layout schema](../example/schemas/stateless_layout/model.serializer)
+contrasts constrained empty policies with ordinary active transient state.
+
+Older unconstrained generic `layout(empty)` declarations retain their accepted
+meaning and are checked when instantiated. The new constraint is an explicit
+proof across generic forwarding; it does not change durable IDs or wire bytes.
+
 ## Wire and compatibility behavior
 
 Generic parameters add no wire metadata. Fixed arrays retain the existing sequence

@@ -1,0 +1,24 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.9.0;
+
+namespace passive_layout {
+  class empty_token {}
+  class active_token {
+    public uint64 handle (1);
+  }
+  class empty_tag<T> {}
+  class counter<Reference: stateless = empty_token> stable_ids {
+    public uint32 count (1);
+    public transient layout(empty) Reference reference;
+  }
+  class relay<Reference: stateless = empty_token> stable_ids {
+    public counter<Reference> value (1);
+  }
+  instantiate compact_counter = counter<>;
+  instantiate routed_counter = relay<empty_tag<uint8>>;
+  class active_counter stable_ids {
+    public uint32 count (1);
+    public transient active_token reference;
+  }
+}

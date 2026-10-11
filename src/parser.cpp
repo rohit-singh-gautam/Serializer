@@ -19,6 +19,9 @@
 #include <rohit/version.hpp>
 
 #include "schema_generics.hpp"
+#include "schema_formats.hpp"
+#include "auto_size_writer.hpp"
+#include "conversion_contract.hpp"
 #include "schema_policy.hpp"
 #include "schema_scan.hpp"
 #include "schema_version.hpp"
@@ -907,18 +910,63 @@ std::vector<std::string> parse_omitted_formats(const rohit::type_check::schema_i
   parse_identifier_impl(input);
   skip_whitespace_and_comment(input);
   check_and_increase(input, '(');
+  skip_whitespace_and_comment(input);
+  const bool complement = next_keyword(input, "all_except");
+  if (complement) {
+    if (active_language_version < language_version{1u, 9u, 0u}) {
+      throw exception::bad_member_spec{input, "omit(all_except(...)) requires serializer version 1.9.0"};
+    }
+    parse_identifier_impl(input);
+    skip_whitespace_and_comment(input);
+    check_and_increase(input, '(');
+  }
   std::vector<std::string> result{};
   do {
     skip_whitespace_and_comment(input);
-    auto format = parse_identifier_impl(input);
-    if (format == "binary_positional") { format = "binary_none"; }
-    if (format == "protobuf_binary") { format = "protobuf"; }
-    if (format != "json" && format != "binary_none" && format != "binary_integer" &&
-        format != "binary_string" && format != "protobuf" && format != "protojson" && format != "textproto") {
+    auto format = schema_format::canonical(parse_identifier_impl(input));
+    if (!schema_format::supported(format)) {
       throw exception::bad_member_spec{input, "Unsupported omitted output format: " + format};
     }
     if (std::find(result.begin(), result.end(), format) != result.end()) {
       throw exception::bad_member_spec{input, "Repeated omitted output format"};
+    }
+    result.push_back(std::move(format));
+    skip_whitespace_and_comment(input);
+    if (*input != ',') { break; }
+    ++input;
+  } while (true);
+  check_and_increase(input, ')');
+  if (complement) {
+    skip_whitespace_and_comment(input);
+    check_and_increase(input, ')');
+    std::vector<std::string> excluded{};
+    for (const auto format : schema_format::names) {
+      if (std::find(result.begin(), result.end(), format) == result.end()) {
+        excluded.emplace_back(format);
+      }
+    }
+    return excluded;
+  }
+  return result;
+}
+
+// Select fixed-width native record lengths; textual and Protobuf sizes have no fixed-width mapping.
+std::vector<std::string> parse_auto_size_formats(const rohit::type_check::schema_input_buffer auto& input) {
+  if (active_language_version < language_version{1u, 9u, 0u}) {
+    throw exception::bad_member_spec{input, "auto_size requires serializer version 1.9.0"};
+  }
+  parse_identifier_impl(input);
+  skip_whitespace_and_comment(input);
+  check_and_increase(input, '(');
+  std::vector<std::string> result{};
+  do {
+    skip_whitespace_and_comment(input);
+    auto format = schema_format::canonical(parse_identifier_impl(input));
+    if (format != "binary_none" && format != "binary_integer" && format != "binary_string") {
+      throw exception::bad_member_spec{input, "auto_size supports only native binary output formats: " + format};
+    }
+    if (std::find(result.begin(), result.end(), format) != result.end()) {
+      throw exception::bad_member_spec{input, "Repeated auto_size output format"};
     }
     result.push_back(std::move(format));
     skip_whitespace_and_comment(input);
@@ -1336,6 +1384,15 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   }
   auto access = parse_access_type_impl(in_stream);
   skip_whitespace_and_comment(in_stream);
+  bool wire_only{};
+  if (behavior_modifier_head(in_stream, "wire_only")) {
+    if (active_language_version < language_version{1u, 9u, 0u}) {
+      throw exception::bad_member_spec{in_stream, "wire_only requires serializer version 1.9.0"};
+    }
+    parse_identifier_impl(in_stream);
+    skip_whitespace_and_comment(in_stream);
+    wire_only = true;
+  }
   bool transient{};
   bool empty_layout{};
   if (behavior_modifier_head(in_stream, "transient")) {
@@ -1385,6 +1442,9 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
     if (next_keyword(in_stream, "magic") || next_keyword(in_stream, "version")) {
       throw exception::bad_member_spec{in_stream, "Compact encoding requires an ordinary unsigned scalar field"};
     }
+  }
+  if (wire_only && next_keyword(in_stream, "magic")) {
+    throw exception::bad_member_spec{in_stream, "wire_only requires an ordinary auto_size scalar"};
   }
   if (next_keyword(in_stream, "magic")) {
     if (lifecycle.obsolete || !lifecycle.created_version.empty() ||
@@ -1551,6 +1611,10 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   std::optional<version_policy> policy{};
   std::vector<std::string> omitted{};
   ignored_simplicity_warnings ignored{};
+  bool parsed_omission{};
+  std::vector<std::string> auto_sizes{};
+  auto_size_scope size_scope{auto_size_scope::record};
+  bool parsed_size_scope{};
   while (true) {
     skip_whitespace_and_comment(in_stream);
     if (*in_stream == '(') {
@@ -1603,10 +1667,32 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
       parse_identifier_impl(in_stream);
       releases = parse_releases(in_stream);
     } else if (next_keyword(in_stream, "omit")) {
-      if (version || !omitted.empty()) {
+      if (version || parsed_omission) {
         throw exception::bad_member_spec{in_stream, "Version cannot omit formats; only one omit declaration is allowed"};
       }
+      parsed_omission = true;
       omitted = parse_omitted_formats(in_stream);
+    } else if (next_keyword(in_stream, "auto_size")) {
+      if (!auto_sizes.empty()) {
+        throw exception::bad_member_spec{in_stream, "Only one auto_size declaration is allowed"};
+      }
+      auto_sizes = parse_auto_size_formats(in_stream);
+    } else if (next_keyword(in_stream, "size_scope")) {
+      if (active_language_version < language_version{1u, 9u, 0u} || parsed_size_scope) {
+        throw exception::bad_member_spec{in_stream, "size_scope requires serializer version 1.9.0 and may appear once"};
+      }
+      parsed_size_scope = true;
+      parse_identifier_impl(in_stream);
+      skip_whitespace_and_comment(in_stream);
+      check_and_increase(in_stream, '(');
+      skip_whitespace_and_comment(in_stream);
+      const auto scope = parse_identifier_impl(in_stream);
+      if (scope != "record" && scope != "payload") {
+        throw exception::bad_member_spec{in_stream, "Expected size_scope(record) or size_scope(payload)"};
+      }
+      size_scope = scope == "payload" ? auto_size_scope::payload : auto_size_scope::record;
+      skip_whitespace_and_comment(in_stream);
+      check_and_increase(in_stream, ')');
     } else if (next_keyword(in_stream, "policy")) {
       if (!version || policy) {
         throw exception::bad_member_spec{in_stream, "Policy requires one version declaration"};
@@ -1626,9 +1712,23 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   }
   skip_whitespace_and_comment(in_stream);
   check_and_increase(in_stream, ';');
+  if ((wire_only || parsed_size_scope) && auto_sizes.empty()) {
+    throw exception::bad_member_spec{in_stream, "wire_only and size_scope require auto_size"};
+  }
+  if (wire_only && parsed_default_value) {
+    throw exception::bad_member_spec{in_stream, "wire_only has no stored default value"};
+  }
+  if (!auto_sizes.empty() && (version || transient || managed ||
+      compact != compact_encoding::none || member_modifier != member::modifier_type::none ||
+      type_name_list.size() != 1 || (type_name_list.front().name != "uint32" &&
+                                    type_name_list.front().name != "uint64") ||
+      lifecycle.obsolete || !lifecycle.created_version.empty() ||
+      !lifecycle.obsolete_version.empty() || !lifecycle.replaced_member.empty())) {
+    throw exception::bad_member_spec{in_stream, "auto_size requires an ordinary fixed-width uint32 or uint64 field without lifecycle modifiers"};
+  }
   if (transient) {
     if (parsed_member_spec || version || managed || compact != compact_encoding::none ||
-        !omitted.empty() || lifecycle.obsolete || !lifecycle.created_version.empty() ||
+        parsed_omission || lifecycle.obsolete || !lifecycle.created_version.empty() ||
         !lifecycle.obsolete_version.empty() || !lifecycle.replaced_member.empty()) {
       throw exception::bad_member_spec{in_stream, "Transient fields have no wire identity or durable metadata"};
     }
@@ -1672,6 +1772,9 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   }
   result.version = version;
   result.omitted_formats = std::move(omitted);
+  result.auto_size_formats = std::move(auto_sizes);
+  result.wire_only = wire_only;
+  result.size_scope = size_scope;
   result.compatibility_version = std::move(compatibility);
   result.releases = std::move(releases);
   result.policy = std::move(policy);
@@ -1765,6 +1868,7 @@ object_type parse_object_type(const rohit::type_check::schema_input_buffer auto&
 
 #include "behavior_parser.hpp"
 #include "construction_parser.hpp"
+#include "conversion_parser.hpp"
 
 // Parse class body from the schema input; malformed input throws.
 void parse_class_body_impl(const rohit::type_check::schema_input_buffer auto& in_stream,
@@ -1790,6 +1894,13 @@ void parse_class_body_impl(const rohit::type_check::schema_input_buffer auto& in
       parse_access_type_impl(in_stream);
       skip_whitespace_and_comment(in_stream);
       obj->constructions.push_back(parse_construction(in_stream, access, obj->parent_namespace));
+      skip_whitespace_and_comment(in_stream);
+      continue;
+    }
+    if (conversion_head(lookahead)) {
+      parse_access_type_impl(in_stream);
+      skip_whitespace_and_comment(in_stream);
+      obj->conversions.push_back(parse_conversion(in_stream, access, obj->parent_namespace));
       skip_whitespace_and_comment(in_stream);
       continue;
     }
@@ -1933,6 +2044,20 @@ parse_class_header(const rohit::type_check::schema_input_buffer auto& in_stream,
       spec.name = parameter;
       parameters.push_back(std::move(parameter));
       skip_whitespace_and_comment(in_stream);
+      if (!in_stream.full() && *in_stream == ':') {
+        if (active_language_version < language_version{1u, 9u, 0u}) {
+          throw exception::bad_class{in_stream,
+              "Stateless constraints require serializer version 1.9.0 or newer"};
+        }
+        ++in_stream;
+        skip_whitespace_and_comment(in_stream);
+        const auto constraint = parse_identifier_impl(in_stream);
+        if (spec.kind != generic_argument_kind::type || constraint != "stateless") {
+          throw exception::bad_class{in_stream, "Only type parameters support the stateless constraint"};
+        }
+        spec.stateless = true;
+        skip_whitespace_and_comment(in_stream);
+      }
       if (!in_stream.full() && *in_stream == '=') {
         ++in_stream;
         skip_whitespace_and_comment(in_stream);
@@ -2196,6 +2321,7 @@ parse_class(const rohit::type_check::schema_input_buffer auto& in_stream,
       throw exception::bad_member_spec{in_stream, "The magic constant conflicts with an ordinary field"};
     }
   }
+  writer::auto_size::validate_owner(*obj);
   validate_class_keys(in_stream, *obj);
   return obj;
 }
@@ -2740,15 +2866,25 @@ void validate_factory_default(const rohit::type_check::schema_input_buffer auto&
 
 // Check that an overlap hint cannot hide state, identity, or an active runtime reference.
 void validate_empty_layout(const rohit::type_check::schema_input_buffer auto& input,
-                           const member& field) {
+                           const class_node& owner, const member& field) {
   if (!field.empty_layout) { return; }
+  const auto& value_type = field.type_name_list.front();
+  if (field.transient && field.modifier == member::modifier_type::none &&
+      !value_type.resolved_node && !value_type.application) {
+    const auto parameter = std::find_if(owner.generic_parameters.begin(), owner.generic_parameters.end(),
+        [&](const auto& value) { return value.name == value_type.name; });
+    // Legacy generic layout hints defer validation to concrete binding; explicit stateless proof is separate.
+    if (parameter != owner.generic_parameters.end()) { return; }
+  }
   if (!field.transient || field.modifier != member::modifier_type::none ||
       field.type_name_list.size() != 1 || !field.type_name_list.front().resolved_node ||
       field.type_name_list.front().resolved_node->type != object_type::class_type) {
     throw exception::bad_member_spec{input, "layout(empty) requires a transient generated empty record"};
   }
   const auto& type = static_cast<const class_node&>(*field.type_name_list.front().resolved_node);
-  if (!type.member_list.empty() || !type.parents.empty() || type.supports_managed() ||
+  if (std::any_of(type.member_list.begin(), type.member_list.end(),
+          [](const auto& value) { return !value.wire_only; }) ||
+      !type.parents.empty() || type.supports_managed() ||
       !type.native_blocks.empty() || std::any_of(type.functions.begin(), type.functions.end(), [](const auto& method) {
         return method.dispatch != function_declaration::dispatch_type::ordinary;
       })) {
@@ -2880,7 +3016,7 @@ void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream
           validate_digest_member(in_stream, *class_ptr, member);
           validate_optional_member(in_stream, *class_ptr, member);
           validate_factory_default(in_stream, member, *class_ptr);
-          validate_empty_layout(in_stream, member);
+          validate_empty_layout(in_stream, *class_ptr, member);
           if (member.modifier == member::modifier_type::map) {
             type_name key{std::string{member.key}, member.type_name_list.front().declared_namespace};
             resolve_type(in_stream, key, variable_type_map);
@@ -2893,6 +3029,10 @@ void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream
         }
         std::unordered_set<std::string> signatures;
         validate_constructions(in_stream, *class_ptr, variable_type_map);
+        for (auto& conversion : class_ptr->conversions) {
+          resolve_type(in_stream, conversion.target, variable_type_map);
+        }
+        ::rohit::serializer::conversion::validate(*class_ptr);
         for (auto& method : class_ptr->functions) {
           if (method.return_type.name != "void") {
             resolve_type(in_stream, method.return_type, variable_type_map);

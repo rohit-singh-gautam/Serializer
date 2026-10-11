@@ -32,19 +32,31 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **1.13.0**. Bug fixes and minor updates
+The current compiler and runtime release is **1.14.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
-compatibility across major releases. The schema language version is **1.8.0**;
+compatibility across major releases. The schema language version is **1.9.0**;
 see [release and schema versions](docs/command_line.md).
 
-Use `serializer version 1.8.0;` for new schemas. Older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, and `1.7.0` schemas remain supported. The original
+Use `serializer version 1.9.0;` for new schemas. Older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, and `1.8.0` schemas remain supported. The original
 `serializer version 1;` is an exact compatibility alias for `1.0.0`, exclusive to
 version 1. Future versions require all three components; see the
 [schema language policy](docs/command_line.md#schema-language-version-policy).
 
 **Supported outputs:** C++, Java, JavaScript, TypeScript declarations, Go, C#,
 Rust, Python, Swift, Kotlin, and C. TypeScript uses the JavaScript runtime.
+
+Language `1.9.0` adds [derived native binary sizes](docs/derived_sizes.md), including
+`wire_only` headers and `size_scope(record|payload)`, comma-separated
+[`omit(all_except(...))`](docs/magic_and_omission.md), explicit
+[record conversions](docs/conversions.md), and generic
+[`stateless` constraints](docs/generics.md#stateless-type-constraints).
+All language outputs share these schema contracts. Decoder size validation can
+be configured per language and class. See [runnable examples](example/README.md)
+and the [qualification record](docs/verification-deferred-features-2026-10-11.md).
+C++ also derives positional size headers in its
+[compile-time and emission-only output](docs/constant_evaluation.md), producing
+the same schema byte image as normal runtime encoding.
 
 Language `1.8.0` adds [portable constructors, factories, structured defaults,
 and empty transient layout hints](docs/construction.md), owning generic
@@ -405,8 +417,8 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editor_extension.md) |
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
-Both extensions use source release version **1.1.35**, independent of compiler version
-**1.13.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
+Both extensions use source release version **1.1.36**, independent of compiler version
+**1.14.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
 for supported destinations and language-service prerequisites.
 VS Code also supports navigation from read-only Git index/history tabs, using
 the displayed snapshot and current workspace destinations.

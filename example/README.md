@@ -1,5 +1,40 @@
 # Serializer examples
 
+## Record conversions
+
+The [conversion schema](schemas/conversions/model.serializer) declares exact
+projections, inherited fields, nested owned record copies and a generic target.
+Every language folder contains a maintained `conversions` executable; C++ also
+checks explicit casts and C exercises failure cleanup. Run all eleven SDKs with:
+
+```powershell
+python example/run.py --compiler out/build/make-Release/Release/serializer.exe --cpp-library out/build/make-Release/Release/serializer_runtime.lib --example conversions --language all --wsl-languages c,rust,swift
+```
+
+On Linux use the corresponding compiler/runtime paths and omit the WSL option.
+See [conversion rules](../docs/conversions.md) for supported value shapes.
+
+## Derived sizes and stateless layout
+
+The [derived-size schema](schemas/derived_sizes/model.serializer) demonstrates
+stored and wire-only headers, total and payload scope, nested record spans,
+different headers per protocol, complement omission and magic framing.
+The [stateless schema](schemas/stateless_layout/model.serializer) demonstrates
+constrained generic defaults, forwarding, concrete empty types and ordinary
+active transient state. Both require schema language 1.9.0. Their runners generate,
+compile and execute fresh examples in every selected language:
+
+```powershell
+python test/auto_size_languages.py --compiler out/build/make-Release/Release/serializer.exe --cpp-library out/build/make-Release/Release/serializer_runtime.lib --build out/auto-size-examples --wsl-languages c,rust,swift
+python test/stateless_languages.py --compiler out/build/make-Release/Release/serializer.exe --cpp-library out/build/make-Release/Release/serializer_runtime.lib --build out/stateless-examples --wsl-languages c,rust,swift
+```
+
+The size runner executes both class-specific INI policies: `verify` and `retain`.
+It also checks source preservation, structural failures and bounded decoding.
+See [size controls](../docs/derived_sizes.md),
+[stateless constraints](../docs/generics.md#stateless-type-constraints), and
+[qualification](../docs/verification-deferred-features-2026-10-11.md).
+
 The [generic schema examples](generics/README.md) demonstrate `result<T>`, multiple
 parameters, nested applications, arrays/maps, named roots, and C++ template aliases.
 They include a CMake C++ executable, dedicated `generics` consumers in every

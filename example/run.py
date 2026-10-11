@@ -9,7 +9,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parent.parent
 LANGUAGES = ('cpp', 'java', 'javascript', 'typescript', 'go', 'csharp', 'rust', 'python', 'swift', 'kotlin', 'c')
-EXAMPLES = ('basic', 'collections', 'complex', 'interoperability', 'versioning', 'union_variant', 'document_collections', 'optional')
+EXAMPLES = ('basic', 'collections', 'complex', 'interoperability', 'versioning', 'union_variant', 'document_collections', 'optional', 'conversions')
 OUTPUTS = {'cpp': 'message.hpp', 'java': 'Schema.java', 'javascript': 'schema.mjs',
            'typescript': 'schema.d.mts', 'go': 'schema.go', 'csharp': 'Schema.cs',
            'rust': 'schema.rs', 'python': 'schema.py', 'swift': 'Schema.swift',

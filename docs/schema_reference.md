@@ -13,7 +13,14 @@ Start with [small schema examples](schema_examples.md) if you are new to the syn
 ## Schema structure
 
 Every `.serializer` file starts with a supported language header before declarations.
-Use `serializer version 1.8.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, and `1.7.0` remain supported.
+Use `serializer version 1.9.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, and `1.8.0` remain supported.
+
+Language 1.9 adds fixed unsigned [`auto_size(formats...)`](derived_sizes.md)
+field suffixes, optional `wire_only` storage prefixes and `size_scope(record)`
+or `size_scope(payload)` suffixes; [`omit(all_except(formats...))`](magic_and_omission.md);
+[`public conversion target as method { field = source.path; };`](conversions.md);
+and generic [`T: stateless = empty_type`](generics.md#stateless-type-constraints).
+Each declaring file, including dependencies, requires the new language header.
 
 Language 1.8 adds [typed value construction and structured defaults](construction.md):
 `public constructor(double input) { value = input; }`,

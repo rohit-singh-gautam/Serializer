@@ -577,7 +577,7 @@ std::string validate_behavior_expression(behavior_expression& value, const class
     if (parameter != method.parameters.end()) { return bind(parameter->type); }
     const auto field = std::find_if(owner.member_list.begin(), owner.member_list.end(),
         [&](const auto& item) { return item.name == value.value; });
-    if (field == owner.member_list.end() || (field->modifier != member::modifier_type::none && field->modifier != member::modifier_type::array)) {
+    if (field == owner.member_list.end() || field->wire_only || (field->modifier != member::modifier_type::none && field->modifier != member::modifier_type::array)) {
       throw std::invalid_argument{"Unknown or unsupported expression symbol: " + value.value};
     }
     return bind(field->type_name_list.front(), field->modifier, field->fixed_extent);
@@ -603,7 +603,7 @@ std::string validate_behavior_expression(behavior_expression& value, const class
       const member* selected{};
       const auto find = [&](const auto& self, const class_node& current, std::vector<std::size_t> path) -> void {
         for (const auto& field : current.member_list) {
-          if (field.name == value.value && field.access == access_type::public_access) {
+          if (field.name == value.value && field.access == access_type::public_access && !field.wire_only) {
             if (selected) { throw std::invalid_argument{"Ambiguous inherited expression member: " + value.value}; }
             selected = &field; value.member_base_path = path;
           }

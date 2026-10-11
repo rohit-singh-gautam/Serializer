@@ -346,6 +346,37 @@ public:
   // Borrow the sink for one complete traversal; neither protocol nor sink owns model storage.
   explicit constexpr constant_binary_out(Sink& sink) : sink_{sink} {}
 
+  // Return committed bytes so derived metadata can validate the completed counting traversal.
+  [[nodiscard]] constexpr std::size_t position_bytes() const noexcept { return sink_.position_bytes(); }
+
+  // Distinguish fixed count sinks and the emission writer's runtime count mode without rescanning.
+  [[nodiscard]] constexpr bool counting() const noexcept {
+    if constexpr (requires { sink_.counting(); }) { return sink_.counting(); }
+    else { return Sink::count_only; }
+  }
+
+  // Count one complete positional record with fixed-width placeholders, without recursive counting.
+  template <std::unsigned_integral Size, typename Value>
+  constexpr Size measure_record_size(const Value& value, std::size_t excluded_bytes = 0) {
+    static_assert(sizeof(Size) == sizeof(std::uint32_t) || sizeof(Size) == sizeof(std::uint64_t),
+                  "auto_size requires a fixed-width uint32 or uint64 value");
+    if constexpr (Sink::count_only) {
+      return Size{};
+    } else {
+      binary_count_sink count{};
+      constant_binary_out<binary_count_sink> counter{count};
+      counter.serialize_out(value);
+      if (excluded_bytes > count.position_bytes()) {
+        throw std::invalid_argument{"Invalid auto_size field span"};
+      }
+      const auto size = count.position_bytes() - excluded_bytes;
+      if (size > std::numeric_limits<Size>::max()) {
+        throw rohit::exception::stream_overflow_exception{};
+      }
+      return static_cast<Size>(size);
+    }
+  }
+
   // Append the schema's fixed magic without a count, terminator, or additional validation.
   constexpr void serialize_magic(std::string_view bytes) { sink_.append_chars(bytes); }
 
@@ -573,6 +604,26 @@ public:
 
   // Expose mode for callers that need to inspect a writer, without changing wire layout.
   [[nodiscard]] constexpr bool counting() const noexcept { return sink_.counting(); }
+
+  // Count a borrowed record independently; count mode emits fixed-width size placeholders.
+  template <std::unsigned_integral Size, typename Value>
+  constexpr Size measure_record_size(const Value& value, std::size_t excluded_bytes = 0) {
+    static_assert(sizeof(Size) == sizeof(std::uint32_t) || sizeof(Size) == sizeof(std::uint64_t),
+                  "auto_size requires a fixed-width uint32 or uint64 value");
+    if (counting()) {
+      return Size{};
+    }
+    binary_none_output counter{};
+    counter.serialize_out(value);
+    if (excluded_bytes > counter.position_bytes()) {
+      throw std::invalid_argument{"Invalid auto_size field span"};
+    }
+    const auto size = counter.position_bytes() - excluded_bytes;
+    if (size > std::numeric_limits<Size>::max()) {
+      throw rohit::exception::stream_overflow_exception{};
+    }
+    return static_cast<Size>(size);
+  }
 
   // Emit raw schema magic without an additional prefix or terminator.
   constexpr void serialize_magic(std::string_view bytes) { encoder_.serialize_magic(bytes); }

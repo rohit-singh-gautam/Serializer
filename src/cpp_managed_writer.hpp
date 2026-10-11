@@ -97,6 +97,7 @@ class managed_writer {
     target.member_list = source.member_list;
     target.functions = source.functions;
     target.constructions = source.constructions;
+    target.conversions = source.conversions;
     target.native_blocks = source.native_blocks;
     target.named_generic_source = source.named_generic_source;
     target.body_order = source.body_order;

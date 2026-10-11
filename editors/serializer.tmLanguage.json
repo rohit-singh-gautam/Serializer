@@ -13,6 +13,125 @@
       "include": "#native_code"
     },
     {
+      "begin": "\\b(conversion)\\s+",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.type.serializer"
+        }
+      },
+      "end": "\\b(as)\\s+([A-Za-z_][A-Za-z_0-9]*)|(?=[;{}])",
+      "endCaptures": {
+        "1": {
+          "name": "keyword.control.serializer"
+        },
+        "2": {
+          "name": "entity.name.function.serializer"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#generic_arguments"
+        },
+        {
+          "include": "#type_name"
+        }
+      ]
+    },
+    {
+      "match": "\\b(wire_only)\\s+(uint32|uint64)\\b",
+      "captures": {
+        "1": {
+          "name": "storage.modifier.serializer"
+        },
+        "2": {
+          "name": "support.type.serializer"
+        }
+      }
+    },
+    {
+      "match": "\\b(size_scope)\\s*(\\()\\s*(record|payload)\\s*(\\))",
+      "captures": {
+        "1": {
+          "name": "storage.modifier.serializer"
+        },
+        "2": {
+          "name": "punctuation.section.group.serializer"
+        },
+        "3": {
+          "name": "constant.other.layout.serializer"
+        },
+        "4": {
+          "name": "punctuation.section.group.serializer"
+        }
+      }
+    },
+    {
+      "begin": "\\b(auto_size)\\s*(\\()(?=\\s*(?:[A-Za-z_]|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.serializer"
+        },
+        "2": {
+          "name": "punctuation.section.group.serializer"
+        }
+      },
+      "end": "\\)|(?=[;{}])",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "name": "constant.other.format.serializer",
+          "match": "\\b(?:binary_none|binary_integer|binary_string|json|proto)\\b"
+        }
+      ]
+    },
+    {
+      "begin": "\\b(omit)\\s*(\\()(?=\\s*(?:[A-Za-z_]|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.serializer"
+        },
+        "2": {
+          "name": "punctuation.section.group.serializer"
+        }
+      },
+      "end": "\\)|(?=[;{}])",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "begin": "\\b(all_except)\\s*(\\()",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.serializer"
+            },
+            "2": {
+              "name": "punctuation.section.group.serializer"
+            }
+          },
+          "end": "\\)|(?=[;{}])",
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "name": "constant.other.format.serializer",
+              "match": "\\b(?:binary_none|binary_positional|binary_integer|binary_string|json|proto|cpp)\\b"
+            }
+          ]
+        },
+        {
+          "name": "constant.other.format.serializer",
+          "match": "\\b(?:binary_none|binary_positional|binary_integer|binary_string|json|proto|cpp)\\b"
+        }
+      ]
+    },
+    {
       "begin": "\\b(expression|predicate)\\s*(\\()",
       "beginCaptures": {
         "1": {
@@ -409,7 +528,7 @@
       }
     },
     {
-      "match": "\\b(public|protected|private|managed)\\s+((?!(?:(?:array|map|union|managed|transient|function|version|magic)\\b|variant\\s*\\(|constructor\\s*\\(|factory\\s+[A-Za-z_]\\w*\\s*\\())(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
+      "match": "\\b(public|protected|private|managed)\\s+((?!(?:(?:array|map|union|managed|transient|wire_only|conversion|function|version|magic)\\b|variant\\s*\\(|constructor\\s*\\(|factory\\s+[A-Za-z_]\\w*\\s*\\())(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
       "captures": {
         "1": {
           "name": "storage.modifier.serializer"
@@ -643,6 +762,17 @@
         }
       },
       "patterns": [
+        {
+          "match": "(?<!:)(:)(?!:)\\s*(stateless)\\b",
+          "captures": {
+            "1": {
+              "name": "keyword.operator.serializer"
+            },
+            "2": {
+              "name": "storage.modifier.serializer"
+            }
+          }
+        },
         {
           "name": "constant.numeric.serializer",
           "match": "\\b[0-9]+\\b"

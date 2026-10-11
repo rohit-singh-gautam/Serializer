@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: 0BSD
 // See LICENSE-RUNTIME for permission to use this runtime in proprietary applications.
 #pragma once
+#include <rohit/auto_size.hpp>
 #include <rohit/binary_count_stream.hpp>
 #include <rohit/binary_output_support.hpp>
 #include <rohit/compression.hpp>
@@ -1664,6 +1665,7 @@ template <serialize_key_type KeyType, std::endian WireEndian = std::endian::litt
 class binary_in_base : public detail::decoder_input<Stream> {
 protected:
   bool schema_values_{};
+  std::size_t auto_size_field_remaining_{};
   using base = detail::decoder_input<Stream>;
   using base::available_input;
   using base::can_read_batch;
@@ -1700,6 +1702,9 @@ public:
 
   // Inherit schema-native value context through nested generated objects.
   auto schema_values() noexcept { return detail::schema_value_scope{schema_values_}; }
+
+  // Expose the selected field's pre-key cursor only to synchronous derived metadata readers.
+  std::size_t auto_size_field_remaining() const noexcept { return auto_size_field_remaining_; }
 
 protected:
   // Strict decoding validates before replacing or borrowing text; unchecked removes the scan.
@@ -1998,6 +2003,9 @@ public:
     auto nesting = enter_object();
     std::size_t count{};
     while (true) {
+      if constexpr (requires { T::tracks_auto_sizes; }) {
+        auto_size_field_remaining_ = in_stream.remaining_buffer();
+      }
       if constexpr (KeyType == serialize_key_type::integer) {
         const auto key = serialize_in_variable();
         if (key == constants::binary_object_end_id) { break; }
@@ -2124,6 +2132,33 @@ public:
   // Borrow the protocol stream without transferring ownership.
   auto& get_stream() const {
     return out_stream;
+  }
+
+  // Measure one containing record with fixed-width placeholders; counters never recursively remeasure.
+  template <std::unsigned_integral Size, typename Value>
+  Size measure_record_size(const Value& value, std::size_t excluded_bytes = 0) {
+    static_assert(sizeof(Size) == sizeof(std::uint32_t) || sizeof(Size) == sizeof(std::uint64_t),
+                  "auto_size requires a fixed-width uint32 or uint64 value");
+    if constexpr (detail::binary_counting_stream<Stream>) {
+      return Size{};
+    } else {
+      auto maximum_bytes = rohit::detail::maximum_buffer_bytes;
+      if constexpr (std::numeric_limits<Size>::max() < rohit::detail::maximum_buffer_bytes) {
+        const auto maximum_size = static_cast<std::size_t>(std::numeric_limits<Size>::max());
+        maximum_bytes = excluded_bytes > maximum_bytes - maximum_size ? maximum_bytes : maximum_size + excluded_bytes;
+      }
+      binary_count_stream count{maximum_bytes};
+      binary_out_base<KeyType, WireEndian, binary_count_stream, TextValidation,
+                      ScalarNormalization> counter{count};
+      if (schema_values_) {
+        auto scope = counter.schema_values();
+        counter.serialize_out(value);
+      } else {
+        counter.serialize_out(value);
+      }
+      if (excluded_bytes > count.size()) { throw std::invalid_argument{"Invalid auto_size field span"}; }
+      return static_cast<Size>(count.size() - excluded_bytes);
+    }
   }
 
 protected:

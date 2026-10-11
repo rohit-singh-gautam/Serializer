@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.28)
 
-project(serializer VERSION 1.13.0 LANGUAGES CXX)
+project(serializer VERSION 1.14.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
-set(serializer_schema_language_version 1.8.0)
+set(serializer_schema_language_version 1.9.0)
 string(REPLACE "." ";" serializer_schema_language_version_components
   "${serializer_schema_language_version}")
 list(GET serializer_schema_language_version_components 0 serializer_schema_language_version_major)
@@ -81,6 +81,12 @@ add_library(serializer_lib
   src/parser.cpp
   src/construction_parser.hpp
   src/construction_writer.hpp
+  src/auto_size_writer.hpp
+  src/schema_formats.hpp
+  src/conversion_parser.hpp
+  src/conversion_contract.hpp
+  src/conversion_writer.hpp
+  src/stateless_constraint.hpp
   src/predicate_helpers.hpp
   src/typed_expression_writer.hpp
   src/statement_behavior_writer.hpp
@@ -343,7 +349,7 @@ if(SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
       --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_runtime>"
       --build "${PROJECT_BINARY_DIR}/generic_languages" --language all
       "--wsl-languages=${SERIALIZER_EXAMPLE_WSL_LANGUAGES}")
-  foreach(behavior_suite IN ITEMS behavior_languages native_behavior_languages optional_languages construction_languages record_comparison_languages)
+  foreach(behavior_suite IN ITEMS behavior_languages native_behavior_languages optional_languages construction_languages record_comparison_languages auto_size_languages conversion_languages stateless_languages)
     add_test(NAME "serializer_${behavior_suite}"
       COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/test/${behavior_suite}.py"
         --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_runtime>"

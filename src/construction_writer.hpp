@@ -68,7 +68,9 @@ inline void validate_names(const class_node& owner, std::string_view owner_name,
     symbols.insert({"toString", "hashCode", "equals", "getClass", "clone", "finalize",
                     "wait", "notify", "notifyAll"});
   }
-  for (const auto& field : owner.member_list) { symbols.insert(identifier(field.name, field.access)); }
+  for (const auto& field : owner.member_list) {
+    if (!field.wire_only) { symbols.insert(identifier(field.name, field.access)); }
+  }
   for (const auto& method : owner.functions) {
     symbols.insert(callable_identifier ? callable_identifier(method.name) : identifier(method.name, method.access));
   }

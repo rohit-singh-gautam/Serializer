@@ -1,14 +1,12 @@
 # Rohit Serializer for Visual Studio Code
 
-Version **1.1.35** adds schema language 1.8.0 constructors/factories,
-`default(factory)`, transient `layout(empty)`, checked math/boolean expressions,
-typed predicates with bounded reductions, digest return signatures, and owning
-generic bases. Qualified enum constants in predicates navigate to their type.
-Signature and base type navigation retains generic
-parameter scope and unsaved included schemas. Schema field definitions open
-their generated fields. Generated field declarations map
-back to their declaring schema, including inherited fields reached through the
-native language service. New schema snippets select language 1.8.0.
+Version **1.1.36** adds schema language 1.9.0 stateless generic constraints,
+computed `auto_size` fields, `wire_only` headers, `size_scope(record|payload)`,
+`omit(all_except(...))`, and portable record conversions. Conversion target types
+and target/source field projections navigate through included schemas and unsaved
+edits, including inherited fields. Existing constructor, predicate, generic and
+all-language generated navigation remains supported. New schema snippets select
+language 1.9.0.
 
 **Editor support for Serializer — State Framework**
 
@@ -329,7 +327,7 @@ Empty extents and element types receive fixed-array highlighting. Enum type
 operands and qualified enum defaults in typed magic retain declaration, definition,
 and type-definition navigation, including unsaved and transitive included schemas.
 VS Code includes `array_inferred` and `magic_typed` snippets; its schema snippet
-selects `serializer version 1.8.0;`. The original `1` header remains exactly
+selects `serializer version 1.9.0;`. The original `1` header remains exactly
 `1.0.0` and does not enable these features. See the
 [magic contract](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/magic_and_omission.md) and [fixed arrays](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/generics.md).
 

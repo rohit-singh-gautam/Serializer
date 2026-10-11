@@ -87,7 +87,20 @@ async function verify(entry, directory, options = [], selectedOutputs = outputs,
       }
     }
     if (memberDeclarations) {
+      for (const reference of schema.index.memberReferences ?? []) {
+        const declarations = await resolver.schema(schema.file, reference.start, false);
+        assert.equal(declarations.length, 1, 'conversion field resolves to one authored declaration');
+        for (let cursor = reference.start; cursor <= reference.end; ++cursor) {
+          assert.deepEqual(await resolver.schema(schema.file, cursor, false), declarations,
+            'conversion field cursor boundaries');
+          const definitions = await resolver.schema(schema.file, cursor, true);
+          assert.equal(new Set(definitions.map(item => item.file)).size, files.length,
+            'conversion field definitions in every language');
+          ++checks;
+        }
+      }
       for (const declaration of schema.index.members ?? []) {
+        if (declaration.wireOnly) { continue; }
         const definitions = await resolver.schema(schema.file, declaration.start, true);
         assert.equal(new Set(definitions.map(item => item.file)).size, files.length,
           `${declaration.owner}::${declaration.name}: generated field definitions in every language`);
@@ -146,6 +159,12 @@ async function main() {
     path.join(directory, 'compact-fields'));
   checks += await verify(path.join(repository, 'test/resources/digest_language.serializer'),
     path.join(directory, 'digests'));
+  checks += await verify(path.join(repository, 'example/schemas/conversions/model.serializer'),
+    path.join(directory, 'conversions'), [], outputs, true, true);
+  checks += await verify(path.join(repository, 'example/schemas/derived_sizes/model.serializer'),
+    path.join(directory, 'derived-sizes'), [], outputs, true, true);
+  checks += await verify(path.join(repository, 'example/schemas/stateless_layout/model.serializer'),
+    path.join(directory, 'stateless-layout'), [], outputs, true, true);
   checks += await verify(path.join(repository, 'test/resources/inferred_arrays.serializer'),
     path.join(directory, 'inferred-arrays'), [], { cpp: outputs.cpp }, true);
   const optionalInput = path.join(directory, 'optional.serializer');

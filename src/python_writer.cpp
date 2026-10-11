@@ -4,7 +4,9 @@
 #include "behavior_writer.hpp"
 #include "predicate_helpers.hpp"
 #include "statement_behavior_writer.hpp"
+#include "auto_size_writer.hpp"
 #include "construction_writer.hpp"
+#include "conversion_writer.hpp"
 #include "comparison_writer.hpp"
 
 #include <functional>
@@ -570,6 +572,7 @@ class python_emitter {
           {field("base" + std::to_string(i), base.access), {type_name, type_name + "()"}});
     }
     for (const auto& item : value.member_list) {
+      if (item.wire_only) { continue; }
       const auto f = field(item.name, item.access);
       const auto& t = item.type_name_list.front();
       if (item.modifier == member::modifier_type::variant) {
@@ -616,6 +619,9 @@ class python_emitter {
         [&](const auto& item) { return item.default_factory.empty() ?
             initial(item.type_name_list.front(), literal(item)) : construction::factory_call(
                 type(item.type_name_list.front()), field(item.default_factory), "python"); }), indent * 4);
+    output += behavior::python_block(conversion::methods(value, name, "python",
+        [&](const auto& item) { return type(item); },
+        [&](auto item, auto access) { return field(item, access); }), indent * 4);
     open("def encode(self, protocol: Protocol) -> bytes");
     line("\"\"\"Encode one complete message into independent bytes.\"\"\"");
     line("out = _Writer(protocol)");
@@ -632,6 +638,7 @@ class python_emitter {
     --indent;
     open("def _write(self, out)");
     line("\"\"\"Write typed fields in schema order.\"\"\"");
+    if (!auto_size::fields(value).empty()) { line("_srl_size_start = len(out.data)"); }
     if (value.has_magic()) {
       const auto omitted = omitted_condition(value.magic_omitted_formats, "out");
       open("if out.protocol != Protocol.JSON" + (omitted.empty() ? "" : " and not (" + omitted + ")"));
@@ -685,7 +692,22 @@ class python_emitter {
       }
       const auto omitted = omitted_condition(item.omitted_formats, "out");
       if (!omitted.empty()) { open("if not (" + omitted + ")"); }
-      write_member(item, first);
+      if (!item.auto_size_formats.empty()) {
+        line("_srl_size_key_" + std::to_string(item.id) + " = len(out.data)");
+        key(item.id, item.display_name, first);
+        const auto selected_size = omitted_condition(item.auto_size_formats, "out");
+        open("if " + selected_size);
+        line("_srl_size_pos_" + std::to_string(item.id) + " = len(out.data)");
+        line("out.integer(0, " + std::to_string(width(item.type_name_list.front())) + ", True)");
+        --indent;
+        if (!item.wire_only) {
+          open("else");
+          write(item.type_name_list.front(), "self." + field(item.name, item.access), false);
+          --indent;
+        }
+      } else {
+        write_member(item, first);
+      }
       if (!omitted.empty()) { --indent; }
       if (!active.empty()) {
         --indent;
@@ -693,10 +715,27 @@ class python_emitter {
       first = false;
     }
     line("out.end_object()");
+    for (const auto* item : auto_size::fields(value)) {
+      const auto active = omitted_condition(item->auto_size_formats, "out");
+      const auto bytes = std::to_string(width(item->type_name_list.front()));
+      const auto position = "_srl_size_pos_" + std::to_string(item->id);
+      open("if " + active);
+      line("out.data[" + position + ":" + position + " + " + bytes +
+           "] = (len(out.data) - _srl_size_start" +
+           (item->size_scope == auto_size_scope::payload ? " - (" + position + " - _srl_size_key_" + std::to_string(item->id) + " + " + bytes + ")" : "") +
+           ").to_bytes(" + bytes + ", 'little')");
+      --indent;
+    }
     --indent;
     line("@classmethod");
     open("def _read(cls, input, result=None)");
     line("\"\"\"Merge ordinary nested fields while preserving input order.\"\"\"");
+    if (!auto_size::fields(value).empty()) {
+      line("_srl_size_start = input.offset");
+      for (const auto* item : auto_size::fields(value)) {
+        line("_srl_size_seen_" + std::to_string(item->id) + " = False");
+      }
+    }
     if (value.has_magic()) {
       const auto omitted = omitted_condition(value.magic_omitted_formats, "input");
       open("if input.protocol != Protocol.JSON" + (omitted.empty() ? "" : " and not (" + omitted + ")"));
@@ -728,6 +767,7 @@ class python_emitter {
         if (!item.omits("binary_none")) { ids += std::to_string(item.id) + ","; }
       }
     }
+    if (!auto_size::fields(value).empty()) { line("_srl_size_field_start = input.offset"); }
     open("for key in input.fields(" + ids + "))");
     open("match key");
     if (json_magic) {
@@ -757,7 +797,21 @@ class python_emitter {
       open("case " + std::to_string(item.id) +
            (item.modifier == member::modifier_type::variant ? ""
                                                             : " | " + quote(item.display_name)));
-      read_versioned_member(value, item);
+      if (!item.auto_size_formats.empty()) {
+        open("if " + omitted_condition(item.auto_size_formats, "input"));
+        line("if _srl_size_seen_" + std::to_string(item.id) + ": raise ValueError('Duplicate auto_size field')");
+        line("_srl_size_seen_" + std::to_string(item.id) + " = True");
+        --indent;
+      }
+      if (item.wire_only) {
+        line("if not (" + omitted_condition(item.auto_size_formats, "input") + "): raise ValueError('Field omitted from selected format')");
+        line("_srl_size_value_" + std::to_string(item.id) + " = " + read(item.type_name_list.front(), false));
+      } else {
+        read_versioned_member(value, item);
+      }
+      if (item.size_scope == auto_size_scope::payload) {
+        line("_srl_size_field_bytes_" + std::to_string(item.id) + " = input.offset - _srl_size_field_start");
+      }
       --indent;
       if (item.modifier == member::modifier_type::variant) {
         for (std::size_t i = 0; i < item.type_name_list.size(); ++i) {
@@ -768,7 +822,9 @@ class python_emitter {
       }
     }
     line("case _: input.skip_value()");
-    indent -= 2;
+    --indent;
+    if (!auto_size::fields(value).empty()) { line("_srl_size_field_start = input.offset"); }
+    --indent;
     if (json_magic) {
       line("if input.protocol == Protocol.JSON and not _srl_magic_seen: raise ValueError('Missing magic header')");
     }
@@ -785,6 +841,17 @@ class python_emitter {
                "): raise ValueError('Field outside version lifecycle')");
         }
       }
+    }
+    for (const auto* item : auto_size::fields(value)) {
+      open("if " + omitted_condition(item->auto_size_formats, "input"));
+      line("if not _srl_size_seen_" + std::to_string(item->id) + ": raise ValueError('Missing auto_size field')");
+      if (auto_size::verifies(value, model.class_auto_sizes)) {
+        line("if " + (item->wire_only ? "_srl_size_value_" + std::to_string(item->id) : "result." + field(item->name, item->access)) +
+             " != input.offset - _srl_size_start" +
+             (item->size_scope == auto_size_scope::payload ? " - _srl_size_field_bytes_" + std::to_string(item->id) : "") +
+             ": raise ValueError('auto_size field does not match record bytes')");
+      }
+      --indent;
     }
     line("return result");
     indent -= 2;

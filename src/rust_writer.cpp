@@ -5,7 +5,9 @@
 #include "behavior_writer.hpp"
 #include "predicate_helpers.hpp"
 #include "statement_behavior_writer.hpp"
+#include "auto_size_writer.hpp"
 #include "construction_writer.hpp"
+#include "conversion_writer.hpp"
 #include "comparison_writer.hpp"
 
 #include <algorithm>
@@ -372,8 +374,25 @@ class rust_emitter {
       close();
       return;
     }
+    if (!value.auto_size_formats.empty()) {
+      line("let srl_size_key_" + std::to_string(value.id) + " = out.bytes.len();");
+    }
     key(value.id, value.display_name, first);
     if (value.modifier == member::modifier_type::none) {
+      if (!value.auto_size_formats.empty()) {
+        const auto active = omitted_condition(value.auto_size_formats, "out.protocol", "Protocol::",
+                                               protocol_name_style::pascal);
+        open("if " + active);
+        line("srl_size_pos_" + std::to_string(value.id) + " = Some((srl_size_key_" + std::to_string(value.id) + ", out.bytes.len()));");
+        line("out.integer(0, " + std::to_string(width(t)) + ", true)?;");
+        close();
+        if (!value.wire_only) {
+          open("else");
+          write(t, "(&" + src + ")", false);
+          close();
+        }
+        return;
+      }
       if (value.compact != compact_encoding::none) {
         line("out.compact_value(" + src + " as u64, " + std::to_string(width(t)) + ", " +
              (value.compact == compact_encoding::prefix ? "true" : "false") + ", " +
@@ -571,6 +590,7 @@ class rust_emitter {
                         base.access == access_type::public_access});
     }
     for (const auto& f : value.member_list) {
+      if (f.wire_only) { continue; }
       const auto id = field(f.name);
       const auto& t = f.type_name_list.front();
       const bool visible = f.access == access_type::public_access;
@@ -617,6 +637,9 @@ class rust_emitter {
         [&](const auto& item) { return item.default_factory.empty() ?
             initial(item.type_name_list.front(), literal(item)) : construction::factory_call(
                 type(item.type_name_list.front()), field(item.default_factory), "rust"); });
+    output += conversion::methods(value, name, "rust",
+        [&](const auto& item) { return type(item); },
+        [&](auto item, auto) { return field(item); });
     if (value.magic_field) {
       const auto& magic = *value.magic_field;
       line("/// Immutable scalar schema identity without per-instance storage.");
@@ -654,6 +677,12 @@ class rust_emitter {
     close();
     line("/// Write fields in schema order without reflection.");
     open("fn srl_write(&self, out: &mut SrlWriter) -> SrlResult<()>");
+    if (!auto_size::fields(value).empty()) {
+      line("let srl_size_start = out.bytes.len();");
+      for (const auto* item : auto_size::fields(value)) {
+        line("let mut srl_size_pos_" + std::to_string(item->id) + " = None;");
+      }
+    }
     if (value.version_member()) {
       check_version(value, false);
     }
@@ -730,10 +759,32 @@ class rust_emitter {
       line("let _ = first_field;");
     }
     variable_first = false;
-    line("out.end_object()");
+    if (auto_size::fields(value).empty()) {
+      line("out.end_object()");
+    } else {
+      line("out.end_object()?;");
+      for (const auto* item : auto_size::fields(value)) {
+        open("if let Some((srl_size_key, srl_size_position)) = srl_size_pos_" + std::to_string(item->id));
+        line("let _ = srl_size_key;");
+        line("let srl_size_bytes = out.bytes.len() - srl_size_start" +
+             (item->size_scope == auto_size_scope::payload ? " - (srl_size_position - srl_size_key + " + std::to_string(width(item->type_name_list.front())) + ")" : "") + ";");
+        line("let srl_size_scalar = " + type(item->type_name_list.front()) + "::try_from(srl_size_bytes).map_err(|_| Error(\"auto_size range\"))?.to_le_bytes();");
+        line("out.bytes[srl_size_position..srl_size_position + srl_size_scalar.len()].copy_from_slice(&srl_size_scalar);");
+        close();
+      }
+      line("Ok(())");
+    }
     close();
     line("/// Merge repeated nested objects while replacing collections.");
     open("fn srl_read(&mut self, input: &mut SrlReader<'_>) -> SrlResult<()>");
+    if (!auto_size::fields(value).empty()) {
+      line("let srl_size_start = input.offset; let _ = srl_size_start;");
+      for (const auto* item : auto_size::fields(value)) {
+        line("let mut srl_size_seen_" + std::to_string(item->id) + " = false;");
+        if (item->wire_only) { line("let mut srl_size_value_" + std::to_string(item->id) + " = 0u64;"); }
+        if (item->size_scope == auto_size_scope::payload) { line("let mut srl_size_field_bytes_" + std::to_string(item->id) + " = 0usize;"); }
+      }
+    }
     if (value.has_magic()) {
       const auto omitted = omitted_condition(value.magic_omitted_formats, "input.protocol",
                                               "Protocol::", protocol_name_style::pascal);
@@ -770,7 +821,13 @@ class rust_emitter {
       }
     }
     ids += "]";
-    open("while let Some(key) = input.key(" + ids + ", &mut cursor)?");
+    if (auto_size::fields(value).empty()) {
+      open("while let Some(key) = input.key(" + ids + ", &mut cursor)?");
+    } else {
+      open("loop");
+      line("let srl_size_field_start = input.offset; let _ = srl_size_field_start;");
+      line("let Some(key) = input.key(" + ids + ", &mut cursor)? else { break; };");
+    }
     line("let (id, alternative): (u32, Option<usize>) = match key {");
     ++indent;
     line("SrlKey::Id(value) => (value, None),");
@@ -817,13 +874,37 @@ class rust_emitter {
     }
     for (const auto& f : wire_members(value)) {
       open(std::to_string(f.id) + " =>");
-      read_versioned_member(value, f);
+      if (!f.auto_size_formats.empty()) {
+        open("if " + omitted_condition(f.auto_size_formats, "input.protocol", "Protocol::", protocol_name_style::pascal));
+        line("if srl_size_seen_" + std::to_string(f.id) + " { return Err(Error(\"Duplicate auto_size field\")); }");
+        line("srl_size_seen_" + std::to_string(f.id) + " = true;");
+        close();
+      }
+      if (f.wire_only) {
+        line("if !(" + omitted_condition(f.auto_size_formats, "input.protocol", "Protocol::", protocol_name_style::pascal) + ") { return Err(Error(\"Field omitted from selected format\")); }");
+        line("srl_size_value_" + std::to_string(f.id) + " = input.integer(" + std::to_string(width(f.type_name_list.front())) + ", true)?;");
+      } else {
+        read_versioned_member(value, f);
+      }
+      if (f.size_scope == auto_size_scope::payload) { line("srl_size_field_bytes_" + std::to_string(f.id) + " = input.offset - srl_size_field_start;"); }
       close();
     }
     line("_ => return Err(Error(\"Unknown field\")),");
     close();
     close();
     line("input.end_object();");
+    for (const auto* item : auto_size::fields(value)) {
+      if (item->wire_only) { line("let _ = srl_size_value_" + std::to_string(item->id) + ";"); }
+      if (item->size_scope == auto_size_scope::payload) { line("let _ = srl_size_field_bytes_" + std::to_string(item->id) + ";"); }
+      open("if " + omitted_condition(item->auto_size_formats, "input.protocol", "Protocol::", protocol_name_style::pascal));
+      line("if !srl_size_seen_" + std::to_string(item->id) + " { return Err(Error(\"Missing auto_size field\")); }");
+      if (auto_size::verifies(value, model.class_auto_sizes)) {
+        line("if " + (item->wire_only ? "srl_size_value_" + std::to_string(item->id) : "self." + field(item->name) + " as u64") +
+             " != (input.offset - srl_size_start" + (item->size_scope == auto_size_scope::payload ? " - srl_size_field_bytes_" + std::to_string(item->id) : "") +
+             ") as u64 { return Err(Error(\"auto_size field does not match record bytes\")); }");
+      }
+      close();
+    }
     if (magic_json) {
       line("if input.json() && !magic_seen { return Err(Error(\"Missing schema magic\")); }");
     }

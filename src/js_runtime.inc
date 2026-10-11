@@ -87,6 +87,14 @@ class SrlWriter {
   }
   // Return an independent exact-size message.
   bytes() { return this.buffer.slice(0, this.offset); }
+  // Observe the current byte position without copying output storage.
+  position() { return this.offset; }
+  // Replace an owned fixed-width size placeholder after the complete record is written.
+  patchInteger(position, value, width) {
+    if ((width !== 4 && width !== 8) || !Number.isInteger(position) || position < 0 || position > this.offset - width || !Number.isSafeInteger(value) || value < 0 || (width === 4 && value > 0xffffffff)) this.fail('Derived record size out of range');
+    if (width === 4) this.view.setUint32(position, value, true);
+    else this.view.setBigUint64(position, BigInt(value), true);
+  }
   // Encode Serializer's two-bit length tag, not a Protobuf varint.
   compact(value) {
     if (!Number.isInteger(value) || value < 0 || value > 0x3fffffff) throw new RangeError('Compact integer out of range');
@@ -240,6 +248,8 @@ class SrlReader {
   }
   // Report the failing byte position without disclosing the payload.
   fail(message) { throw new RangeError(`${message} at byte ${this.offset}`); }
+  // Observe consumed bytes without trusting any declared record size.
+  position() { return this.offset; }
   // Test the active protocol.
   json() { return this.protocol === Protocol.JSON; }
   // Check before reading or slicing input.

@@ -17,6 +17,7 @@ struct schema {
   std::map<std::string, std::size_t> keys{};
   std::vector<std::string> ordered_keys{"key", "value"};
   std::map<std::string, class_comparison_options> class_comparisons{};
+  std::map<std::string, class_auto_size_options> class_auto_sizes{};
 
   // Resolve flattened names and validate portable owning shapes and defaults.
   explicit schema(const std::vector<std::unique_ptr<syntax_node>>& statements);

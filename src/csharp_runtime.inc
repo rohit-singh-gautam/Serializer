@@ -58,6 +58,17 @@ R"serializer(
     }
     // Return independent output storage.
     internal byte[] bytes() { return buffer.WrittenSpan.ToArray(); }
+    // Observe written bytes without allocating an encoded copy.
+    internal int position() { return buffer.WrittenCount; }
+    // Patch this writer's owned fixed-width placeholder after record traversal.
+    internal void patchInteger(int position, ulong value, int width) {
+      if ((width != 4 && width != 8) || position < 0 || width > buffer.WrittenCount || position > buffer.WrittenCount - width || (width == 4 && value > uint.MaxValue)) fail("Derived record size out of range");
+      if (!System.Runtime.InteropServices.MemoryMarshal.TryGetArray(buffer.WrittenMemory, out System.ArraySegment<byte> storage) || storage.Array == null) fail("Output storage unavailable");
+      // ArrayBufferWriter owns this array; no borrowed source memory is modified.
+      var destination = System.MemoryExtensions.AsSpan(storage.Array!, storage.Offset + position, width);
+      if (width == 4) System.Buffers.Binary.BinaryPrimitives.WriteUInt32LittleEndian(destination, (uint)value);
+      else System.Buffers.Binary.BinaryPrimitives.WriteUInt64LittleEndian(destination, value);
+    }
     // Test the active protocol.
     internal bool json() { return protocol == Protocol.JSON; }
     // Append punctuation or numeric text.
@@ -200,6 +211,8 @@ R"serializer(  /// <summary>Bounded cursor shared by nested readers; failures ex
     }
     // Report the byte offset without embedding source contents.
     internal void fail(string message) { throw new System.FormatException(message + " at byte " + offset); }
+    // Observe consumed bytes independently of a declared size field.
+    internal int position() { return offset; }
     // Test the active protocol.
     internal bool json() { return protocol == Protocol.JSON; }
     // Validate lengths before taking spans or indexing.

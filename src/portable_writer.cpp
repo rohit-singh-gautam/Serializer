@@ -4,7 +4,9 @@
 #include "version_writer.hpp"
 #include "behavior_writer.hpp"
 #include "construction_writer.hpp"
+#include "conversion_writer.hpp"
 #include "comparison_writer.hpp"
+#include "auto_size_writer.hpp"
 #include <rohit/serializer_creator.hpp>
 
 #include <algorithm>
@@ -448,6 +450,7 @@ class emitter {
         add(field(std::string(language == target::go ? "Base" : "base") + std::to_string(i), value.parents[i].access));
       }
       for (const auto& item : value.member_list) {
+        if (item.wire_only) { continue; }
         const auto identifier = field(item.name, item.access);
         if (item.modifier != member::modifier_type::none && !item.default_value.empty()) {
           throw std::invalid_argument{"Collection and union defaults are unsupported"};
@@ -753,6 +756,7 @@ class emitter {
               choose("new ", "New", "new ") + base_type + "()", base.access);
     }
     for (const auto& item : value.member_list) {
+      if (item.wire_only) { continue; }
       const auto identifier = field(item.name, item.access);
       if (item.modifier == member::modifier_type::variant && tagged_variant(item)) {
         std::string alternatives{};
@@ -906,6 +910,23 @@ class emitter {
   void write_field(const member& value) {
     const auto expression = choose("this.", "value.", "this.") + field(value.name, value.access);
     const auto& item = value.type_name_list.front();
+    if (!value.auto_size_formats.empty()) {
+      condition(omitted_protocols(value.auto_size_formats, "output"));
+      statement("srlSizeOffset = output.position()");
+      statement("srlSizeWidth = " + std::to_string(width(item.name)));
+      write_value(item, choose(item.name == "uint64" ? "0n" : "0", "0", "0"), false);
+      if (value.size_scope == auto_size_scope::payload) {
+        statement("srlSizeExcludedBytes = output.position() - srlSizeFieldStart");
+      }
+      if (!value.wire_only) {
+        --level;
+        line("} else {");
+        ++level;
+        write_value(item, expression, false);
+      }
+      close();
+      return;
+    }
     if (value.modifier == member::modifier_type::none) {
       if (value.compact != compact_encoding::none) {
         const auto converted = language == target::go       ? "uint64(" + expression + ")"
@@ -1057,13 +1078,42 @@ class emitter {
       }
       close();
     }
+    if (!item.auto_size_formats.empty()) {
+      condition(omitted_protocols(item.auto_size_formats, "input"));
+      condition("srlSizeSeen");
+      statement("input.fail(\"Duplicate derived record size\")");
+      close();
+      statement("srlSizeSeen = true");
+      close();
+    }
     const auto* version = owner.version_member();
-    if (!version) {
-      if (alternative >= 0) {
+    const bool payload_size = item.size_scope == auto_size_scope::payload &&
+        auto_size::verifies(owner, options.class_auto_sizes);
+    if (payload_size) {
+      local("srlSizeFieldStart", positional ? "input.position()" : "srlKeyStart");
+    }
+    // Transport-only values are retained locally only when needed to verify their wire contract.
+    const auto read_selected = [&]() {
+      if (item.wire_only) {
+        const auto decoded = read_value(item.type_name_list.front(), false);
+        if (auto_size::verifies(owner, options.class_auto_sizes)) {
+          statement("srlWireSize" + std::to_string(item.id) + " = " + decoded);
+        } else {
+          statement(choose(decoded, "_ = " + decoded, "_ = " + decoded));
+        }
+      } else if (alternative >= 0) {
         read_union(item, alternative);
       } else {
         read_member(item);
       }
+      if (payload_size) {
+        condition(omitted_protocols(item.auto_size_formats, "input"));
+        statement("srlSizeExcludedBytes = input.position() - srlSizeFieldStart");
+        close();
+      }
+    };
+    if (!version) {
+      read_selected();
       return;
     }
     const auto slot = std::to_string(version_slot(owner, item));
@@ -1076,11 +1126,7 @@ class emitter {
     if (!active.empty()) {
       condition("input.protocol != " + protocol("BINARY_NONE") + " || (" + active + ")");
     }
-    if (alternative >= 0) {
-      read_union(item, alternative);
-    } else {
-      read_member(item);
-    }
+    read_selected();
     if (!active.empty()) {
       close();
     }
@@ -1188,6 +1234,18 @@ class emitter {
   }
   // Write every parent and member in declaration order.
   void write_object(const class_node& value) {
+    const bool derived_size = !auto_size::fields(value).empty();
+    const bool payload_size = std::any_of(value.member_list.begin(), value.member_list.end(),
+        [](const auto& item) { return item.size_scope == auto_size_scope::payload; });
+    if (derived_size) {
+      local("srlRecordStart", "output.position()");
+      local("srlSizeOffset", "-1");
+      local("srlSizeWidth", "0");
+      if (payload_size) {
+        local("srlSizeFieldStart", "0");
+        local("srlSizeExcludedBytes", "0");
+      }
+    }
     if (value.version_member()) {
       check_version(value, false);
     }
@@ -1295,6 +1353,9 @@ class emitter {
         --level;
         close();
       } else {
+        if (item.size_scope == auto_size_scope::payload) {
+          statement("srlSizeFieldStart = output.position()");
+        }
         statement("output.field(" + std::to_string(item.id) + ", " + wire_key(item.display_name) +
                   ", " + first_flag(first) + ")");
         write_field(item);
@@ -1312,6 +1373,14 @@ class emitter {
       first = false;
     }
     statement("output.endObject()");
+    if (derived_size) {
+      condition("srlSizeOffset >= 0");
+      const auto span = std::string{"output.position() - srlRecordStart"} +
+          (payload_size ? " - srlSizeExcludedBytes" : "");
+      const auto bytes = choose(span, "uint64(" + span + ")", "(ulong)(" + span + ")");
+      statement("output.patchInteger(srlSizeOffset, " + bytes + ", srlSizeWidth)");
+      close();
+    }
   }
   // Merge a composed parent's fields in input order.
   void read_parent(const parent& base, std::size_t index) {
@@ -1334,6 +1403,28 @@ class emitter {
   }
   // Dispatch known keys through native switches, avoiding linear field lookup.
   void read_object(const class_node& value) {
+    const auto derived_fields = auto_size::fields(value);
+    const bool verify_size = auto_size::verifies(value, options.class_auto_sizes);
+    const bool payload_size = verify_size && std::any_of(derived_fields.begin(), derived_fields.end(),
+        [](const auto* item) { return item->size_scope == auto_size_scope::payload; });
+    if (!derived_fields.empty()) {
+      local("srlSizeSeen", "false");
+      if (verify_size) { local("srlRecordStart", "input.position()"); }
+      if (payload_size) {
+        local("srlSizeExcludedBytes", "0");
+        local("srlKeyStart", "0");
+      }
+      if (verify_size) {
+        for (const auto* item : derived_fields) {
+          if (item->wire_only) {
+            const auto& scalar = item->type_name_list.front();
+            local("srlWireSize" + std::to_string(item->id), choose(
+                scalar.name == "uint64" ? "0n" : "0", type(scalar) + "(0)",
+                scalar.name == "uint64" ? "0UL" : "0U"));
+          }
+        }
+      }
+    }
     magic_prefix(value, true);
     const bool magic_json = value.has_magic() && !value.magic_omits("json");
     if (magic_json) {
@@ -1380,6 +1471,7 @@ class emitter {
         local("first", "true");
       }
       open(choose("while (true)", "for input.err == nil", "while (true)"));
+      if (payload_size) { statement("srlKeyStart = input.position()"); }
       if (numeric) {
         local("key", "input.compact()");
         condition("key == 0");
@@ -1478,6 +1570,24 @@ class emitter {
           close();
         }
       }
+    }
+    for (const auto* size_field : derived_fields) {
+      condition(omitted_protocols(size_field->auto_size_formats, "input"));
+      condition("!srlSizeSeen");
+      statement("input.fail(\"Missing derived record size\")");
+      close();
+      if (verify_size) {
+        const auto stored = size_field->wire_only ? "srlWireSize" + std::to_string(size_field->id)
+            : "result." + field(size_field->name, size_field->access);
+        const auto span = std::string{"input.position() - srlRecordStart"} +
+            (payload_size ? " - srlSizeExcludedBytes" : "");
+        const auto actual = choose(size_field->type_name_list.front().name == "uint64" ?
+            "BigInt(" + span + ")" : span, "uint64(" + span + ")", "(ulong)(" + span + ")");
+        condition(choose(stored, "uint64(" + stored + ")", "(ulong)" + stored) + " != " + actual);
+        statement("input.fail(\"Derived record size mismatch\")");
+        close();
+      }
+      close();
     }
     statement("return result");
   }
@@ -1981,7 +2091,7 @@ class emitter {
         }
       }
       for (const auto& item : value.member_list) {
-        if (item.access == access_type::public_access) {
+        if (item.wire_only || item.access == access_type::public_access) {
           continue;
         }
         const auto member_identifier = field(item.name, item.access);
@@ -2008,6 +2118,10 @@ class emitter {
           [&](const auto& item) { return type(item); },
           [&](auto item, auto access) { return field(item, access); },
           [&](const auto& item) { return default_value(item); });
+      source += conversion::methods(value, identifier,
+          language == target::csharp ? "csharp" : language == target::typescript ? "typescript" : "js",
+          [&](const auto& item) { return type(item); },
+          [&](auto item, auto access) { return field(item, access); });
       comparisons(value);
     }
     if (language == target::typescript) {
@@ -2057,6 +2171,9 @@ class emitter {
           [&](const auto& item) { return type(item); },
           [&](auto item, auto access) { return field(item, access); },
           [&](const auto& item) { return default_value(item); });
+      source += conversion::methods(value, identifier, "go",
+          [&](const auto& item) { return type(item); },
+          [&](auto item, auto access) { return field(item, access); });
       comparisons(value);
     }
     line("// Encode one complete message into independent storage.");
@@ -2248,11 +2365,13 @@ std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements
                      std::string_view language, std::string_view unit_name,
                      const portable_options& options) {
   require_unmanaged_backend(statements);
+  auto_size::validate(statements, options.class_auto_sizes);
   comparison::validate(statements, options.class_comparisons, true);
   if (language == "c" || language == "swift" || language == "kotlin" ||
       language == "rust" || language == "python") {
     native::schema comparison_schema{statements};
     comparison_schema.class_comparisons = options.class_comparisons;
+    comparison_schema.class_auto_sizes = options.class_auto_sizes;
     if (language == "c") {
       return behavior::finalize_mappings(generated_license_notice(statements) + native::c(comparison_schema));
     }
