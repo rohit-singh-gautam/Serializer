@@ -98,6 +98,20 @@ elseif(UNIX)
 endif()
 add_test(NAME authoring_construction_test COMMAND authoring_construction_test)
 
+# Compile explicit native/external exception contracts through the actual schema pipeline.
+add_executable(cpp_noexcept_test cpp_noexcept_test.cpp)
+serializer_generate(TARGET cpp_noexcept_test
+  SCHEMAS resources/cpp_noexcept.serializer
+  CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/authoring_construction.ini"
+  OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/cpp_noexcept")
+target_link_libraries(cpp_noexcept_test PRIVATE Serializer::serializer_lib GTest::gtest_main)
+if(MSVC)
+  target_compile_options(cpp_noexcept_test PRIVATE /W4 /WX)
+else()
+  target_compile_options(cpp_noexcept_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME cpp_noexcept_test COMMAND cpp_noexcept_test)
+
 # Qualify opt-in record comparisons through the same schema and INI pipeline as user builds.
 add_executable(record_comparison_test record_comparison_test.cpp)
 serializer_generate(TARGET record_comparison_test

@@ -1,0 +1,74 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.13.0;
+
+namespace cpp_noexcept_helpers {
+  function bool native_value(bool value) readonly noexcept(cpp) cpp {
+    return value;
+  };
+  function bool constant_value(bool value) readonly constexpr(cpp) noexcept(cpp) cpp {
+    return value;
+  };
+  function bool reversed_value(bool value) readonly noexcept(cpp) constexpr(cpp) cpp {
+    return value;
+  };
+  function bool external_value(bool value) readonly noexcept(cpp);
+}
+
+class cpp_noexcept_value stable_ids {
+  public uint32 completed (1);
+  public uint32 expected (2);
+  public function bool complete() readonly noexcept(cpp);
+  public function bool native_complete() readonly noexcept(cpp) cpp {
+    return completed == expected;
+  };
+  public function bool constant_complete() readonly constexpr(cpp) noexcept(cpp) cpp {
+    return completed == expected;
+  };
+  public function bool reversed_complete() readonly noexcept(cpp) constexpr(cpp) cpp {
+    return completed == expected;
+  };
+  public function Input echoed<Input: integral && !bool>(Input input) readonly noexcept(cpp) cpp {
+    return input;
+  };
+  public function bool plain_complete() readonly cpp {
+    return completed == expected;
+  };
+  public function bool forwarded() readonly expression(native_complete());
+}
+
+class cpp_noexcept_base stable_ids {
+  public bool enabled (1);
+  public function virtual bool complete() readonly noexcept(cpp) cpp {
+    return enabled;
+  };
+}
+
+class cpp_noexcept_derived stable_ids : public cpp_noexcept_base ("base", 1) {
+  public function override bool complete() readonly noexcept(cpp) cpp {
+    return !enabled;
+  };
+}
+
+class cpp_noexcept_contract stable_ids {
+  public bool enabled (1);
+  public function abstract bool complete() readonly noexcept(cpp);
+  public function abstract bool accepts(string label) readonly noexcept(cpp);
+}
+
+class cpp_noexcept_implementation stable_ids : public cpp_noexcept_contract ("base", 1) {
+  public function override bool complete() readonly noexcept(cpp);
+}
+
+class cpp_noexcept_generic_base<T: integral && !bool> stable_ids {
+  public T value (1);
+  public function virtual bool complete() readonly noexcept(cpp) cpp {
+    return value != 0;
+  };
+}
+
+class cpp_noexcept_generic_derived<U: integral && !bool> stable_ids : public cpp_noexcept_generic_base<U> ("base", 1) {
+  public function override bool complete() readonly noexcept(cpp) cpp {
+    return this->value == 0;
+  };
+}

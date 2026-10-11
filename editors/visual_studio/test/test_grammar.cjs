@@ -149,7 +149,9 @@ function checkConstructionContracts(grammar, label) {
     'public constructor(T input, Frame placement = default(identity)) { value = input;',
     'validate expression(input > 0); validate cpp { check_value(); }; initialize cpp { if (true) { register_value(); } }; }',
     'public function common_type<T, Input> scaled<Input: integral || floating_point>(Input factor) readonly expression(checked<common_type<T, Input>>(value) * factor);',
-    'public function T native_value() readonly constexpr(cpp) cpp { return value; };',
+    'public function T native_value() readonly constexpr(cpp) noexcept(cpp) cpp { return value; };',
+    'public function bool complete() readonly noexcept(cpp);',
+    'public function T reversed() readonly noexcept(cpp) constexpr(cpp) cpp { return value; };',
     'public uint32 after_native; }',
   ];
   const result = tokenize(grammar, lines);
@@ -163,8 +165,14 @@ function checkConstructionContracts(grammar, label) {
     [4, 'common_type<', 'support.type.serializer'],
     [4, 'scaled<', 'entity.name.function.serializer'],
     [5, 'constexpr(', 'storage.modifier.serializer'],
+    [5, 'noexcept(', 'storage.modifier.serializer'],
     [5, 'return', 'meta.embedded.block.cpp'],
-    [6, 'uint32', 'support.type.serializer']];
+    [6, 'noexcept(', 'storage.modifier.serializer'],
+    [6, 'cpp)', 'storage.modifier.language.serializer'],
+    [7, 'noexcept(', 'storage.modifier.serializer'],
+    [7, 'constexpr(', 'storage.modifier.serializer'],
+    [7, 'return', 'meta.embedded.block.cpp'],
+    [8, 'uint32', 'support.type.serializer']];
   for (const [line, word, scope] of expected) {
     assert.ok(scopesAt(lines, result, line, word).includes(scope), `${label}: ${word} lacks ${scope}`);
   }

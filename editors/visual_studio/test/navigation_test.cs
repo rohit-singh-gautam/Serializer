@@ -151,6 +151,35 @@ internal static class NavigationTest {
           "factory-constrained class defaults retain qualified selection boundaries");
         ++checks;
       }
+      var nonthrowingText = "serializer version 1.13.0; include sales/order; class holder<T> { " +
+        "public function demo::order complete(demo::order input) readonly noexcept(cpp); " +
+        "public function virtual demo::order dispatched(demo::order input) readonly noexcept(cpp); " +
+        "public function T native_value() readonly constexpr(cpp) noexcept(cpp) cpp { class NativeHidden {}; return {}; }; " +
+        "public function T reversed<Input: demo::order>(Input input) readonly noexcept(cpp) constexpr(cpp) cpp { return {}; }; " +
+        "public demo::order after; public noexcept ordinary; } class noexcept {} class cpp {}";
+      live[model] = nonthrowingText;
+      foreach (Match reference in Regex.Matches(nonthrowingText, "demo::order")) {
+        for (var cursor = reference.Index; cursor <= reference.Index + reference.Length; ++cursor) {
+          var destination = NavigationRunner.Resolve(model, cursor, false, generated, live, CancellationToken.None);
+          Require(destination.Length == 1 && Path.GetFileName(destination[0].file) == "order.serializer",
+            "nonthrowing native and external signatures retain qualified type boundaries");
+          ++checks;
+        }
+      }
+      foreach (Match metadata in Regex.Matches(nonthrowingText, @"noexcept\(cpp\)|constexpr\(cpp\)|NativeHidden")) {
+        for (var cursor = metadata.Index; cursor < metadata.Index + metadata.Length; ++cursor) {
+          Require(NavigationRunner.Resolve(model, cursor, false, generated, live, CancellationToken.None).Length == 0,
+            "C++ exception contract and opaque native body cannot claim unrelated schema symbols");
+          ++checks;
+        }
+      }
+      Require(NavigationRunner.Resolve(model, nonthrowingText.IndexOf("Input input", StringComparison.Ordinal), false,
+        generated, live, CancellationToken.None).Single().start == nonthrowingText.IndexOf("Input:", StringComparison.Ordinal),
+        "nonthrowing generic method preserves its independent input scope");
+      Require(NavigationRunner.Resolve(model, nonthrowingText.IndexOf("noexcept ordinary", StringComparison.Ordinal), false,
+        generated, live, CancellationToken.None).Single().start == nonthrowingText.IndexOf("noexcept {}", StringComparison.Ordinal),
+        "ordinary same-spelling schema types remain navigable beside C++ exception metadata");
+      checks += 2;
       var legacyCommonTypeText = "serializer version 1.11.0; class common_type<T> {} " +
         "class holder { public common_type<uint32> value; }";
       live[model] = legacyCommonTypeText;

@@ -375,7 +375,7 @@ TEST_F(schema_include_test, readonly_call_language_contract_is_per_file) {
       "function uint64 identity(uint64 value) readonly expression(value);");
   write("root.serializer", "serializer version 1; include common; class root { public uint32 value; }");
   EXPECT_NO_THROW(schema::parser::parse_file(directory / "root.serializer"));
-  write("common.serializer", "serializer version 1.13.0; class future {}");
+  write("common.serializer", "serializer version 1.14.0; class future {}");
   reject("Unsupported schema language version");
 }
 
@@ -391,6 +391,35 @@ TEST_F(schema_include_test, authoring_language_contract_is_per_file) {
       "public function uint32 read() readonly constexpr(cpp) cpp { return 1; }; }");
   write("root.serializer", "serializer version 1; include common; class root { public uint32 value; }");
   EXPECT_NO_THROW(schema::parser::parse_file(directory / "root.serializer"));
+}
+
+// A declaring dependency must opt into native exception contracts independently of its parent.
+TEST_F(schema_include_test, cpp_noexcept_language_contract_is_per_file) {
+  write("root.serializer", "serializer version 1.13.0; include common; class root {}");
+  write("common.serializer", "serializer version 1.12.0; class item { "
+      "public function bool complete() readonly noexcept(cpp); }");
+  reject("require serializer version 1.13.0");
+  write("common.serializer", "serializer version 1.13.0; class item { "
+      "public function bool complete() readonly noexcept(cpp); }");
+  write("root.serializer", "serializer version 1; include common; class root {}");
+  EXPECT_NO_THROW(schema::parser::parse_file(directory / "root.serializer"));
+}
+
+// Qualifiers in a transitive include use their own header and preserve qualified namespace lookup.
+TEST_F(schema_include_test, cpp_noexcept_transitive_include_and_qualified_names) {
+  write("root.serializer", "serializer version 1; include middle; "
+      "class root { public qualified::item value; }");
+  write("middle.serializer", "serializer version 1.12.0; include leaf;");
+  write("leaf.serializer", "serializer version 1.12.0; namespace qualified { class item { "
+      "public function bool complete() readonly noexcept(cpp); } }");
+  reject("require serializer version 1.13.0");
+  write("leaf.serializer", "serializer version 1.13.0; namespace qualified { class item { "
+      "public function bool complete() readonly noexcept(cpp); } }");
+  const auto parsed = schema::parser::parse_file(directory / "root.serializer");
+  EXPECT_EQ(parsed.dependencies.size(), 3u);
+  const auto& owner = static_cast<const schema::class_node&>(*parsed.statements.back());
+  ASSERT_EQ(owner.member_list.size(), 1u);
+  EXPECT_EQ(owner.member_list.front().type_name_list.front().get_full_name(), "qualified::item");
 }
 
 // Projected calls, record selection and map-key applications keep their declaring file's gate.

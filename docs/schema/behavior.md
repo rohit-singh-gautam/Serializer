@@ -74,6 +74,94 @@ C++ external definitions for editor templates must remain visible where those
 specializations are instantiated. The editor qualification method is called on a
 live transaction editor. C++ examples use exceptions and RTTI normally.
 
+## Explicit C++ noexcept contracts
+
+Prefer a portable schema body when it can express the method's complete logic.
+For a completion check based on two counters, declare
+`public function bool complete() readonly predicate(completed == expected);`.
+Serializer generates that check in C++, Java and the other selected targets,
+retaining the documented predicate failure behavior and inferred C++ guarantees.
+The explicit qualifier below serves native/external C++ signature requirements.
+
+Language `1.13.0` supports `noexcept(cpp)` after a function's `readonly` effect.
+It is a typed C++ exception qualifier for native and external C++ signatures,
+including namespace functions and member dispatch contracts:
+
+```text
+serializer version 1.13.0;
+class progress {
+  public uint32 completed;
+  public uint32 expected;
+  public function bool complete() readonly noexcept(cpp);
+  public function bool empty() readonly noexcept(cpp) cpp {
+    return completed == 0;
+  };
+}
+```
+
+The external member is declared as `bool complete() const noexcept;` in C++.
+Define it in application code using the matching exception specification:
+
+```cpp
+// Report whether all expected work is complete.
+bool progress::complete() const noexcept {
+  return completed == expected;
+}
+```
+
+This migrates a native class hook such as
+`public cpp storage(none) { bool complete() const noexcept; }` into a typed schema
+function. Serializer generates the signature and the external-definition check;
+the application still supplies its body. A function with bodies only for other
+targets also uses this external C++ contract. If additional outputs are selected,
+supply their normal native bodies or external attachments as well.
+
+Native and external function signatures emit unconditional C++ `noexcept`.
+It is an author promise, not a
+proof that native code is pure or contains no throwing operations. An exception
+escaping the C++ function invokes `std::terminate`; Serializer adds no catch or
+fallback. Other targets ignore this qualifier and retain their ordinary failure
+contracts, including Swift `throws` where otherwise generated. It does not mean
+that Rust or Go cannot panic, or that other languages cannot raise exceptions.
+The qualifier changes no wire values, model storage or codec behavior.
+
+`virtual`, `abstract` and `override` readonly member functions may declare it.
+An inherited explicitly qualified virtual/abstract signature requires the same
+`noexcept(cpp)` on the derived matching declaration, even when the `override`
+keyword is omitted.
+C++ behavior-interface implementations must also match the exception contract.
+The generated behavior adapter uses conditional `noexcept` for the complete
+forwarding call. Passing a by-value argument to the interface may require a
+throwing copy before entering its nonthrowing method, so an adapter accepting
+such arguments can remain potentially throwing even though the interface method
+itself is unconditionally `noexcept`.
+Portable `expression(...)` or `predicate(...)` overrides of such signatures are
+currently unavailable because those bodies reject an explicit qualifier.
+
+Open-generic dispatched C++ qualification covers parameterless signatures.
+Renamed or dependent parameter signatures inherited across open generic bases
+retain existing backend limitations in resolving inherited behavior contracts.
+The parser checks the explicit exception qualifier after generic argument
+substitution; that check does not establish full generated dispatch support for
+those signatures. Keep native adapters for affected models and compile the
+selected generated output before migrating them.
+
+Ordinary readonly native C++ functions may combine `constexpr(cpp)` and
+`noexcept(cpp)` in either order. The existing `constexpr(cpp)` restrictions still
+apply: dispatched and external declarations cannot use it. `noexcept(cpp)`
+rejects `edit` functions and portable expression/predicate bodies; their existing
+inferred guarantees remain unchanged. Native/external callees remain conservative
+inputs to caller exception inference even when explicitly qualified.
+Independently generic functions with their own input list, such as
+`complete<Input: integral>(Input value)`, require a native `cpp` body when declaring
+`noexcept(cpp)`: automatic external-definition checks cannot qualify every
+specialization. Bodyless external methods using only their class's generic
+parameters remain supported.
+Conditional specifications such as `noexcept(cpp, condition)`, bare `noexcept`,
+other target names and arbitrary C++ postfix blocks are unsupported. Each file
+declaring the qualifier, including an included file, requires language `1.13.0`
+or newer. See [verification status](../verification/verification-noexcept-2026-10-12.md).
+
 ## Virtual, abstract and override contracts
 
 ```text
@@ -378,7 +466,9 @@ constant evaluation. The qualifier requires an ordinary readonly function with a
 native `cpp` body; dispatched/edit methods, bodyless external declarations and
 portable expression bodies reject it. Portable expressions already use their
 inferred proof. The qualifier does not prove purity, make every input
-constant-evaluable, or infer `noexcept` for native callees/callers.
+constant-evaluable, or infer `noexcept` for native callees/callers. Language
+`1.13.0` permits an independent [explicit `noexcept(cpp)` promise](#explicit-c-noexcept-contracts)
+on an eligible native body.
 
 Unqualified native, external and dispatched callees retain their own runtime and
 exception contracts and suppress inferred `constexpr` for their caller. Calls do not

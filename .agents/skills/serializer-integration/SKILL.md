@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Use Serializer as a state framework when creating or changing schemas, generated behavior, checked numeric bindings, construction and authoring hooks, comparisons/conversions, derived wire sizes, generic type constraints, multi-language codecs, bounded decoding, revisions, C++ managed transactions, typed registries, external-provider leases, custom-key indexes, history, journals, collaboration, or persistence. Review the installed version's entire feature set and apply every feature relevant to the user's contract; preserve wire compatibility and qualify unsupported combinations."
+description: "Use Serializer as a state framework when creating or changing schemas, generated behavior and native C++ qualifiers, checked numeric bindings, construction and authoring hooks, comparisons/conversions, derived wire sizes, generic type constraints, multi-language codecs, bounded decoding, revisions, C++ managed transactions, typed registries, external-provider leases, custom-key indexes, history, journals, collaboration, or persistence. Prefer portable schema behavior, review the installed version's entire feature set and apply every feature relevant to the user's contract; preserve wire compatibility and qualify unsupported combinations."
 ---
 
 # Serializer Integration
@@ -18,16 +18,57 @@ Implement the user's requested Serializer integration using the version present
 in their project. Preserve established wire IDs, names, protocol choices, and
 application ownership requirements.
 
+Always try to express the complete behavior in language-independent Serializer
+features so the schema can generate code for Java and other future consumers,
+even when the initial application selects only C++. Prefer typed functions with
+`expression(...)` or `predicate(...)`, portable constructor/factory bindings and
+defaults, and portable generic constraints whenever they support the required
+contract. When migrating a method such as `complete()`, move its supported logic
+into the schema as well: `readonly predicate(completed == expected)` generates
+the Boolean check in every selected backend with the documented predicate failure
+behavior. Generate each language's implementation from that shared schema.
+
+Use target-specific native blocks or external per-backend implementations only
+when supported portable features cannot express the required contract. Explain
+the exact limitation and keep the native adaptation scoped to it. Authored C++
+bodies remain C++ implementations and require a separate implementation for other
+selected targets. A qualifier such as `noexcept(cpp)` is target-specific API
+metadata, not a portable nonthrowing guarantee; other outputs ignore it and retain
+their own error behavior. Prefer inferred guarantees for portable schema bodies.
+
 This is the canonical integration entry point linked from the repository's README
 and AGENTS.md. Apply it when loaded as a skill or read directly from a supplied
 checkout; direct use does not require copying the skill into the consuming project.
 
 ## Use the full framework
 
-Compiler/runtime 1.17.0 supports schema language 1.12.0. For new integrations,
+Compiler/runtime 1.18.0 supports schema language 1.13.0. For new integrations,
 review [derived wire sizes](../../../docs/schema/derived_sizes.md),
 [explicit value conversions](../../../docs/schema/conversions.md), and
 [stateless generic constraints](../../../docs/schema/generics.md#stateless-type-constraints).
+
+For language `1.13.0`, when the required contract needs a native/external C++
+signature, migrate readonly signatures requiring `noexcept` to
+`function ... readonly noexcept(cpp);` for external definitions or append a
+native `cpp { ... };` body. Use the typed qualifier on namespace/member functions
+and dispatched member contracts; keep external definitions and behavior
+overrides consistent with it. Other outputs ignore the C++ qualifier and retain
+their own error behavior. It does not prove purity or inspect native bodies;
+an escaping C++ exception terminates. Do not add it to `edit`, `expression(...)`
+or `predicate(...)` functions, whose generated guarantees remain inferred.
+For ordinary readonly native bodies, combine it with `constexpr(cpp)` in either
+order when both promises hold. Independently generic functions with their own
+input parameter list require a native `cpp` body for `noexcept(cpp)`; external
+declarations using only class generic parameters remain supported. Automatic
+external-definition checks cannot qualify every independent specialization.
+Open-generic dispatched C++ qualification covers parameterless signatures.
+Renamed/dependent parameter signatures inherited across open generic bases retain
+existing backend contract-resolution limitations; parser qualifier validation
+after substitution is not proof of generated dispatch support. Preserve native
+adapters for affected models and compile each selected generated model.
+Conditional `noexcept(...)` and arbitrary native
+postfix tokens are unavailable. See [behavior](../../../docs/schema/behavior.md#explicit-c-noexcept-contracts)
+and [verification status](../../../docs/verification/verification-noexcept-2026-10-12.md).
 
 For language `1.12.0`, review [authoring construction](../../../docs/schema/construction.md)
 before replacing native adapters. C++ supports overloaded checked constructors,
@@ -657,11 +698,11 @@ feature as a prerequisite without the user's request.
   generated replacement setters and the existing history/journal APIs.
   Consult [usage](../../../docs/guides/usage.md), [migration](../../../migration.md), and
   [qualification](../../../docs/verification/verification-dimensions-2026-10-04.md).
-- Use `.serializer` files beginning with `serializer version 1.12.0;`, before declarations
+- Use `.serializer` files beginning with `serializer version 1.13.0;`, before declarations
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
-  remains available through `parser::parse(input)`. Schema language version 1.12.0 is
-  independent of compiler release 1.17.0 and wire protocols. Bug fixes and minor
+  remains available through `parser::parse(input)`. Schema language version 1.13.0 is
+  independent of compiler release 1.18.0 and wire protocols. Bug fixes and minor
   updates increment the patch number; new features increment the minor number.
   Minor and patch releases preserve full compatibility. Developers change the
   major number manually, with best-effort compatibility across major releases.
@@ -1723,7 +1764,7 @@ Regenerate all relevant language and editor outputs when changing these contract
 
 Consult the [versioning verification record](../../../docs/verification/verification-versioning-2026-10-06.md) and [release-policy verification record](../../../docs/verification/verification-release-policies-2026-10-06.md) for completed language, compiler, codec, and editor checks. Release catalogs and nested allow policies are evaluated entirely during schema compilation; generated readers and writers contain only resolved version bounds.
 
-Use [payload versioning](../../../docs/schema/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the supported schema language header (`1.12.0`, older `1.11.0`/`1.10.0`/`1.9.0`/`1.8.0`/`1.7.0`/`1.6.0`/`1.5.0`/`1.4.0`/`1.3.0`/`1.2.0`/`1.1.0`/`1.0.0`, or the original `1` alias for `1.0.0`) from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.
+Use [payload versioning](../../../docs/schema/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the supported schema language header (`1.13.0`, older `1.12.0`/`1.11.0`/`1.10.0`/`1.9.0`/`1.8.0`/`1.7.0`/`1.6.0`/`1.5.0`/`1.4.0`/`1.3.0`/`1.2.0`/`1.1.0`/`1.0.0`, or the original `1` alias for `1.0.0`) from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.
 
 Declare payload revisions with Serializer's `version` member instead of an ordinary
 counter field. The paired `union_variant` examples declare

@@ -1,5 +1,44 @@
 # Migrating to the snake_case Serializer API
 
+## Explicit C++ noexcept functions (12 October 2026)
+
+Compiler/runtime **1.18.0** supports language **1.13.0**. Raise the header only
+in files declaring `noexcept(cpp)`, including included files; older contracts
+remain supported. To migrate an external native declaration:
+
+```text
+serializer version 1.13.0;
+class progress {
+  public uint32 completed;
+  public uint32 expected;
+  public function bool complete() readonly noexcept(cpp);
+}
+```
+
+Replace the native `cpp storage(none)` method declaration with this typed function
+and retain the matching application definition `bool progress::complete() const
+noexcept`. Or provide a native `cpp { ... };` function body. Regenerate selected
+outputs and rebuild consumers; C++ external definitions and matching inherited
+behavior contracts must preserve the exception specification. A derived matching
+declaration for an explicitly qualified virtual/abstract base requires the
+qualifier even without the `override` keyword.
+
+The qualifier also supports readonly namespace functions and dispatched member
+contracts. Eligible ordinary native bodies may combine it with `constexpr(cpp)`
+in either order. `edit` methods and portable expressions/predicates reject it;
+existing inference stays unchanged, including conservative caller guarantees
+around native/external calls. Portable expression/predicate overrides of an
+explicitly qualified base are currently unavailable. Conditional specifications
+and arbitrary native postfix tokens are not supported.
+
+This is an author promise: an escaping C++ exception terminates rather than
+propagating to the caller. Serializer neither proves native purity nor catches
+the exception. Other outputs ignore the qualifier and retain their normal failure
+contracts; supply their own bodies or external attachments when selected. No
+schema field, payload bytes, managed identity or runtime protocol changes. See
+[behavior](docs/schema/behavior.md#explicit-c-noexcept-contracts) and
+[verification status](docs/verification/verification-noexcept-2026-10-12.md).
+
 ## C++ constant evaluation and result contracts (11 October 2026)
 
 Compiler/runtime **1.15.0** supports schema language **1.10.0** and preserves existing wire

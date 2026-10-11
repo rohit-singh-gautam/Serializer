@@ -2,6 +2,21 @@
 
 [Documentation index](../README.md) · [Application and build guides](README.md)
 
+Language `1.13.0` adds [explicit C++ `noexcept(cpp)` function contracts](../schema/behavior.md#explicit-c-noexcept-contracts).
+Prefer portable schema behavior when migrating the full implementation:
+`public function bool complete() readonly predicate(completed == expected);`
+generates that Boolean check in every selected language, using the documented
+predicate failure behavior and inferred C++ guarantees. For a native/external
+C++ signature requiring `const noexcept`, use
+`public function bool complete() readonly noexcept(cpp);`, then supply its matching
+application definition. Use a native `cpp { ... };` body when generated inline
+implementation is appropriate. The qualifier also supports readonly namespace
+functions and dispatched member contracts; it has no effect on other targets'
+error behavior. Portable expressions/predicates keep their inferred guarantees.
+Generated behavior adapters derive conditional `noexcept` from the complete
+forwarding call, including argument copies; their interface method's explicit
+nonthrowing promise does not make a throwing argument copy safe.
+
 Language `1.12.0` adds [authoring construction](../schema/construction.md), C++ constructor
 overloads, qualified native constant evaluation, fresh generic factory defaults,
 and [constrained readonly numeric APIs](../schema/behavior.md). The C++ registry supports
@@ -407,7 +422,7 @@ class person stable_ids {
 ```
 
 - Use `class`, `enum`, and `namespace`; schema declarations are not C++ source.
-- Start every new `.serializer` file with `serializer version 1.12.0;` before declarations.
+- Start every new `.serializer` file with `serializer version 1.13.0;` before declarations.
   Older `1.0.0` files remain supported.
   The original `serializer version 1;` is an exact alias for `1.0.0`, exclusive to
   version 1. Future versions require three components. The language version is
@@ -471,7 +486,7 @@ namespace demo {
   spaces, backslashes, absolute paths, and other extensions are rejected.
   `./` and `../` are supported. Paths resolve from the including file, independently
   of the compiler's working directory. Comments may separate directive tokens.
-- Every file requires its own supported version header. `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, `1.11.0`, `1.12.0`, and the
+- Every file requires its own supported version header. `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, `1.11.0`, `1.12.0`, `1.13.0`, and the
   original `1` alias may coexist in an include graph. Typed magic and inferred
   arrays require `1.1.0`, compact scalars require `1.2.0`, and built-in digests
   require `1.3.0`; owning variants require `1.4.0` and warning suppression requires
@@ -480,6 +495,7 @@ namespace demo {
   layout, generic inheritance and the new checked expressions require `1.8.0`.
   Derived sizes/storage/scope, complement omissions, conversions and stateless
   generic constraints require `1.9.0` in their declaring file.
+  Explicit `noexcept(cpp)` requires `1.13.0` in its declaring file.
   Includes follow that
   header and precede all declarations, at file scope only.
 - Nested dependencies load before their includers. Repeated paths, normalized path

@@ -13,7 +13,17 @@ Start with [small schema examples](schema_examples.md) if you are new to the syn
 ## Schema structure
 
 Every `.serializer` file starts with a supported language header before declarations.
-Use `serializer version 1.12.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, and `1.11.0` remain supported.
+Use `serializer version 1.13.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, `1.11.0`, and `1.12.0` remain supported.
+
+Language `1.13.0` adds `readonly noexcept(cpp)` to native/external C++ signatures,
+including namespace functions and dispatched member contracts. It generates an
+unconditional C++ exception specification on native/interface signatures as an
+author promise; behavior adapters derive theirs from the complete forwarding
+call, including argument copies. Other outputs
+ignore it; their failures retain the normal backend contract. Eligible ordinary
+native bodies can combine it with `constexpr(cpp)` in either order. `edit`,
+portable expressions/predicates, bare/conditional `noexcept` and arbitrary native
+postfix tokens are unsupported. See [the behavior contract](behavior.md#explicit-c-noexcept-contracts).
 
 Language `1.12.0` adds opt-in C++ [authoring construction](construction.md#authoring-construction-in-language-112):
 overloads and independent record inputs, `factory(name)` generic defaults,

@@ -1,5 +1,11 @@
 # Wire format and decoding contract
 
+Language `1.13.0` `noexcept(cpp)` function qualifiers change generated C++
+exception signatures only. They introduce no wire fields or metadata and leave
+all codec bytes, payload revisions, managed fingerprints, journal records and
+collaboration protocols unchanged. Other outputs retain their own failure
+behavior. See [the behavior contract](../schema/behavior.md#explicit-c-noexcept-contracts).
+
 Language `1.12.0` constructor overloads, callable numeric result policies,
 native qualification, factory constraints and authoring hooks add no wire fields
 or encodings. Default construction and decode continue using schema field defaults

@@ -17,7 +17,7 @@
   "Schema": {
     "prefix": "schema",
     "body": [
-      "serializer version 1.12.0;",
+      "serializer version 1.13.0;",
       "",
       "namespace ${1:models} {",
       "class ${2:account} stable_ids {",
@@ -280,6 +280,11 @@
       "};$0"
     ],
     "description": "Qualify a native readonly C++ method for constant evaluation"
+  },
+  "Nonthrowing readonly C++ declaration": {
+    "prefix": "readonly-noexcept-cpp",
+    "body": "public function ${1:bool} ${2:complete}() readonly noexcept(cpp);$0",
+    "description": "Promise that a readonly C++ implementation will not let an exception escape"
   },
   "Constructor validation and initialization": {
     "prefix": "constructor-hooks",

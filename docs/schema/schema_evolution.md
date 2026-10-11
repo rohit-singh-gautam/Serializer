@@ -1,5 +1,13 @@
 # Schema compatibility checking
 
+Compiler/runtime `1.18.0` and language `1.13.0` add an opt-in C++ function
+`noexcept(cpp)` qualifier without changing durable identities, payload layouts,
+managed fingerprints or protocols. Existing schemas need no migration. Adding
+the qualifier changes an authored C++ signature and its exception behavior;
+update application definitions and matching inherited behavior contracts when
+opting in. Other output languages retain their normal failure behavior. See
+[explicit C++ exception contracts](behavior.md#explicit-c-noexcept-contracts).
+
 Compiler/runtime `1.17.0` and language `1.12.0` retain existing schema identities
 and codec formats. Numeric bindings, constructor overloads and readonly record
 expressions add generated APIs; older language headers keep their expression

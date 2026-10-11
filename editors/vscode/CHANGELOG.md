@@ -1,3 +1,11 @@
+# 1.1.42
+
+- Support schema language 1.13.0 C++ `noexcept(cpp)` function contracts.
+- Highlight external declarations and native methods with both C++ qualifier orders.
+- Preserve signature type navigation, generic input scopes and unrelated same-spelling symbols.
+- Add a readonly nonthrowing C++ declaration snippet and select language 1.13.0 in new schemas.
+- Keep both editor package versions synchronized.
+
 # 1.1.41
 
 - Update documentation links for the categorized repository guides and references.

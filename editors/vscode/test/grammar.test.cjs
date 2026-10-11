@@ -5,6 +5,40 @@ const { test } = require('node:test');
 const { Registry, INITIAL } = require('vscode-textmate');
 const onig = require('vscode-oniguruma');
 
+test('language 1.13 C++ exception contracts preserve qualifier and native body boundaries', async () => {
+  const grammar = await loadGrammar();
+  for (const suffix of ['noexcept(cpp);', 'noexcept ( cpp );',
+    'constexpr(cpp) noexcept(cpp) cpp { return 1; };',
+    'noexcept(cpp) constexpr(cpp) cpp { return 1; };']) {
+    const line = `class holder { public function bool complete() readonly ${suffix} public uint32 after; }`;
+    const result = grammar.tokenizeLine(line, INITIAL);
+    /** Inspect schema contract tokens without treating the qualifier as a native C++ body. */
+    const scopes = word => {
+      const offset = line.indexOf(word);
+      return result.tokens.find(token => token.startIndex <= offset && token.endIndex > offset).scopes;
+    };
+    assert.equal(scopes('complete').at(-1), 'entity.name.function.serializer');
+    assert.equal(scopes('readonly').at(-1), 'storage.modifier.serializer');
+    assert.equal(scopes('noexcept').at(-1), 'storage.modifier.serializer');
+    assert.equal(scopes('cpp').at(-1), 'storage.modifier.language.serializer');
+    assert.ok(!scopes('noexcept').includes('meta.embedded.block.cpp'));
+    if (line.includes('constexpr')) {
+      assert.equal(scopes('constexpr').at(-1), 'storage.modifier.serializer');
+      assert.ok(scopes('return').includes('meta.embedded.block.cpp'));
+    }
+    assert.equal(scopes('uint32').at(-1), 'support.type.serializer');
+    assert.equal(result.ruleStack.depth, 1, suffix);
+  }
+  const field = 'class holder { public uint32 noexcept; }';
+  const result = grammar.tokenizeLine(field, INITIAL);
+  const offset = field.indexOf('noexcept');
+  assert.equal(result.tokens.find(token => token.startIndex <= offset && token.endIndex > offset).scopes.at(-1),
+    'source.serializer');
+  const snippets = JSON.parse(fs.readFileSync(path.join(__dirname, '../snippets/serializer.json'), 'utf8'));
+  assert.equal(snippets['Nonthrowing readonly C++ declaration'].prefix, 'readonly-noexcept-cpp');
+  assert.match(snippets['Nonthrowing readonly C++ declaration'].body, /readonly noexcept\(cpp\);/);
+});
+
 test('language 1.12 construction contracts and generic readonly methods retain scopes', async () => {
   const grammar = await loadGrammar();
   const lines = [
@@ -107,7 +141,7 @@ test('optional and nested container generics highlight types without consuming f
   }
   assert.equal(result.ruleStack.depth, 1);
   const snippets = JSON.parse(fs.readFileSync(path.join(__dirname, '../snippets/serializer.json'), 'utf8'));
-  assert.equal(snippets.Schema.body[0], 'serializer version 1.12.0;');
+  assert.equal(snippets.Schema.body[0], 'serializer version 1.13.0;');
   assert.equal(snippets['Optional field'].prefix, 'optional');
   assert.match(snippets['Optional field'].body, /optional</);
 });

@@ -198,7 +198,7 @@
           "include": "#constructor_initialize"
         },
         {
-          "include": "#cpp_constexpr_contract"
+          "include": "#cpp_function_contract"
         },
         {
           "name": "keyword.control.serializer",
@@ -2001,7 +2001,7 @@
     },
     "native_methods": {
       "name": "meta.function.native.serializer",
-      "begin": "\\b(readonly|edit)\\b(?=\\s*(?:(?:constexpr|cpp|csharp|java|javascript|typescript|go|rust|python|swift|kotlin|c)\\b|/\\*|//|$))",
+      "begin": "\\b(readonly|edit)\\b(?=\\s*(?:(?:constexpr|noexcept|cpp|csharp|java|javascript|typescript|go|rust|python|swift|kotlin|c)\\b|/\\*|//|$))",
       "beginCaptures": {
         "1": {
           "name": "storage.modifier.serializer"
@@ -2013,7 +2013,7 @@
           "include": "#comments"
         },
         {
-          "include": "#cpp_constexpr_contract"
+          "include": "#cpp_function_contract"
         },
         {
           "include": "#native_cpp_method"
@@ -2487,8 +2487,8 @@
         }
       ]
     },
-    "cpp_constexpr_contract": {
-      "match": "\\b(constexpr)\\s*(\\()\\s*(cpp)\\s*(\\))",
+    "cpp_function_contract": {
+      "match": "\\b(constexpr|noexcept)\\s*(\\()\\s*(cpp)\\s*(\\))",
       "captures": {
         "1": {
           "name": "storage.modifier.serializer"

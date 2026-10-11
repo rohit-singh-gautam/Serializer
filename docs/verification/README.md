@@ -7,6 +7,12 @@ configurations, and toolchains named in each report. They retain historical
 release metadata and outstanding qualification limits; a result does not imply
 that later changes or untested backend combinations passed the same checks.
 
+## 12 October 2026
+
+| Record | Scope |
+| --- | --- |
+| [Explicit C++ noexcept qualification](verification-noexcept-2026-10-12.md) | Native and external function signatures, dispatch forwarding, portable-first integration, language compatibility, and editor support. |
+
 ## 11 October 2026
 
 | Record | Scope |

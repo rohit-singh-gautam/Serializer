@@ -812,7 +812,7 @@ public:
     }
     output.write(")");
     if (owner && !editor_receiver && method.effect == function_declaration::effect_type::readonly) { output.write(" const"); }
-    if (inferred_noexcept) { output.write(" noexcept"); }
+    if (inferred_noexcept || method.cpp_noexcept) { output.write(" noexcept"); }
     if (method.dispatch == dispatch::override_method && behavior::concrete_virtual_base(*owner, method)) { output.write(" override"); }
     if (editor_receiver) { output.write(" requires (!Access::is_runtime_access)"); }
     if (declaration_only) { output.write(";\n"); return; }
@@ -922,6 +922,7 @@ public:
         output.write(generic_default(method.parameters[argument].type));
       }
       output.write(")", ::std::string_view{!editor_receiver && method.effect == function_declaration::effect_type::readonly ? " const" : ""},
+          ::std::string_view{method.cpp_noexcept ? " noexcept" : ""},
           ";\n    SerializerMethod", std::to_string(index), " volatile required", std::to_string(index),
           " = static_cast<SerializerMethod", std::to_string(index), ">(&SerializerReceiver::", function_name(method.name),
           ");\n    (void)required", std::to_string(index), ";\n");
@@ -2785,7 +2786,7 @@ public:
       for (const auto& argument : method->parameters) {
         output.write(", ", generic_default(argument.type), " ", local_name(argument.name));
       }
-      output.write(") const = 0;\n");
+      output.write(") const", std::string_view{method->cpp_noexcept ? " noexcept" : ""}, " = 0;\n");
     }
     output.write("};\n", template_header, "class ", adapter_name, " {\n  ", model, "* receiver_;\n  const ", interface_type,
         "* implementation_;\npublic:\n  ", adapter_name, "(", model, "& receiver, const ", interface_type,
@@ -2798,8 +2799,14 @@ public:
         if (index) { output.write(", "); }
         output.write(generic_default(argument.type), " ", local_name(argument.name));
       }
-      output.write(")", std::string_view{method->effect == function_declaration::effect_type::readonly ? " const" : ""},
-          " { return implementation_->", function_name(method->name), "(*receiver_");
+      output.write(")", std::string_view{method->effect == function_declaration::effect_type::readonly ? " const" : ""});
+      if (method->cpp_noexcept) {
+        // Copying by-value arguments belongs to the wrapper's guarantee, not the native implementation's promise.
+        output.write(" noexcept(noexcept(implementation_->", function_name(method->name), "(*receiver_");
+        for (const auto& argument : method->parameters) { output.write(", ", local_name(argument.name)); }
+        output.write(")))");
+      }
+      output.write(" { return implementation_->", function_name(method->name), "(*receiver_");
       for (const auto& argument : method->parameters) { output.write(", ", local_name(argument.name)); }
       output.write("); }\n");
     }

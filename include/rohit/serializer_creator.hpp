@@ -520,6 +520,7 @@ struct function_declaration {
   bool predicate_body{false}; // Readonly bool: reached semantic failures return false.
   bool cpp_constexpr{false}; // Author-qualified ordinary readonly C++ native body.
   std::vector<generic_parameter> generic_parameters{}; // Appended to preserve existing aggregate initialization.
+  bool cpp_noexcept{false}; // Author-promised nonthrowing C++ readonly native/external callable.
 };
 
 // A namespace-owned readonly callable has no serialized identity or receiver storage.

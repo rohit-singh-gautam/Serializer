@@ -561,21 +561,29 @@ function_declaration parse_function(const rohit::type_check::schema_input_buffer
     throw exception::bad_member_spec{input, "Generic input types require ordinary readonly functions"};
   }
   skip_whitespace_and_comment(input);
-  if (next_keyword(input, "constexpr")) {
-    if (active_language_version < language_version{1u, 12u, 0u}) {
+  while (next_keyword(input, "constexpr") || next_keyword(input, "noexcept")) {
+    const auto qualifier = parse_identifier_impl(input);
+    const bool nonthrowing = qualifier == "noexcept";
+    if (nonthrowing && active_language_version < language_version{1u, 13u, 0u}) {
+      throw exception::bad_member_spec{input, "Native nonthrowing contracts require serializer version 1.13.0"};
+    }
+    if (!nonthrowing && active_language_version < language_version{1u, 12u, 0u}) {
       throw exception::bad_member_spec{input, "Native constant-evaluation contracts require serializer version 1.12.0"};
     }
-    parse_identifier_impl(input);
+    auto& specified = nonthrowing ? result.cpp_noexcept : result.cpp_constexpr;
+    if (specified) {
+      throw exception::bad_member_spec{input, "Repeated function qualifier: " + qualifier};
+    }
     skip_whitespace_and_comment(input);
     check_and_increase(input, '(');
     skip_whitespace_and_comment(input);
     if (parse_identifier_impl(input) != "cpp") {
-      throw exception::bad_member_spec{input, "Only constexpr(cpp) is supported"};
+      throw exception::bad_member_spec{input, "Only " + qualifier + "(cpp) is supported"};
     }
     skip_whitespace_and_comment(input);
     check_and_increase(input, ')');
     skip_whitespace_and_comment(input);
-    result.cpp_constexpr = true;
+    specified = true;
   }
   if (next_keyword(input, "expression") || next_keyword(input, "predicate")) {
     if (active_language_version < language_version{1u, 10u, 0u} &&
@@ -617,6 +625,13 @@ function_declaration parse_function(const rohit::type_check::schema_input_buffer
   }
   if (result.expression && result.effect != function_declaration::effect_type::readonly) {
     throw exception::bad_member_spec{input, "Portable expressions require readonly"};
+  }
+  if (result.cpp_noexcept && (result.effect != function_declaration::effect_type::readonly || result.expression)) {
+    throw exception::bad_member_spec{input, "noexcept(cpp) requires a readonly native or external function"};
+  }
+  if (result.cpp_noexcept && !result.generic_parameters.empty() &&
+      std::none_of(result.bodies.begin(), result.bodies.end(), [](const auto& body) { return body.language == "cpp"; })) {
+    throw exception::bad_member_spec{input, "Independently generic noexcept(cpp) functions require a native C++ body"};
   }
   if (result.cpp_constexpr && (result.effect != function_declaration::effect_type::readonly ||
       result.dispatch != function_declaration::dispatch_type::ordinary || result.expression ||
@@ -1219,13 +1234,113 @@ void validate_behavior_contracts(const rohit::type_check::schema_input_buffer au
     for (const auto& base : owner.parents) { self(self, *base.parent_class, result); }
     for (const auto& method : owner.functions) { result[behavior_signature(method)].push_back(&method); }
   };
+  using exception_type_bindings = std::map<std::string, std::string>;
+  // Retain dependent extents while composing the lexical arguments of each generic base path.
+  const auto dimension_key = [&](const auto& self, const dimension_expression& value,
+      const exception_type_bindings& bindings) -> std::string {
+    if (value.kind == dimension_expression::operation::literal) { return std::to_string(value.value); }
+    if (value.kind == dimension_expression::operation::parameter) {
+      const auto found = bindings.find(value.name);
+      return found == bindings.end() ? value.name : found->second;
+    }
+    return "(" + self(self, value.operands.at(0), bindings) +
+        (value.kind == dimension_expression::operation::add ? "+" : "*") +
+        self(self, value.operands.at(1), bindings) + ")";
+  };
+  // Compare nested type applications in the derived receiver's scope without mutating shared AST types.
+  const auto exception_type_key = [&](const auto& self, const type_name& value,
+      const exception_type_bindings& bindings) -> std::string {
+    if (value.kind == generic_argument_kind::dimension) {
+      return value.expression.empty() ? std::to_string(value.dimension) :
+          dimension_key(dimension_key, value.expression.front(), bindings);
+    }
+    if (!value.application) {
+      if (!value.resolved_node && value.type == object_type::unresolved) {
+        const auto found = bindings.find(value.name);
+        if (found != bindings.end()) { return found->second; }
+      }
+      return value.get_full_name();
+    }
+    auto name = value.name;
+    if (value.resolved_node) {
+      const auto* record = dynamic_cast<const class_node*>(value.resolved_node);
+      name = record && !record->generic_name.empty() ? record->generic_name :
+          value.resolved_node->get_full_name();
+    } else if (value.defined_namespace) {
+      name = get_full_name_for_namespace(value.defined_namespace) + "::" + name;
+    }
+    name += "<";
+    for (std::size_t index{}; index < value.arguments.size(); ++index) {
+      if (index) { name += ','; }
+      name += self(self, value.arguments[index], bindings);
+    }
+    return name + ">";
+  };
+  // Match the authored overload after inherited class arguments have been rebound to its receiver.
+  const auto exception_signature = [&](const function_declaration& method,
+      const exception_type_bindings& bindings) {
+    std::string key = method.name + "(";
+    for (const auto& parameter : method.parameters) {
+      key += exception_type_key(exception_type_key, parameter.type, bindings) + ",";
+    }
+    return key + ")";
+  };
+  // Compose renamed/defaulted/nested class arguments through transitive inherited exception contracts.
+  const auto inherited_exception_methods = [&](const auto& self, const parent& occurrence,
+      const exception_type_bindings& outer_bindings,
+      std::map<std::string, std::vector<const function_declaration*>>& result) -> void {
+    const auto& owner = *occurrence.parent_class;
+    exception_type_bindings bindings;
+    const auto* application = occurrence.type_expression.empty() ? nullptr :
+        &occurrence.type_expression.front();
+    for (std::size_t index{}; index < owner.generic_parameters.size(); ++index) {
+      const auto& parameter = owner.generic_parameters[index];
+      if (application && index < application->arguments.size()) {
+        bindings.emplace(parameter.name,
+            exception_type_key(exception_type_key, application->arguments[index], outer_bindings));
+      } else if (!parameter.default_argument.empty()) {
+        bindings.emplace(parameter.name,
+            exception_type_key(exception_type_key, parameter.default_argument.front(), bindings));
+      }
+    }
+    for (const auto& base : owner.parents) { self(self, base, bindings, result); }
+    for (const auto& method : owner.functions) {
+      if (method.cpp_noexcept && method.dispatch != function_declaration::dispatch_type::ordinary) {
+        result[exception_signature(method, bindings)].push_back(&method);
+      }
+    }
+  };
+  // Preserve an explicit C++ exception promise without widening existing dependent generic validation.
+  const auto require_cpp_exception_contract = [&](const function_declaration& method,
+      const std::vector<const function_declaration*>& matches, const std::string& key) {
+    for (const auto* base : matches) {
+      if (base->dispatch != function_declaration::dispatch_type::ordinary &&
+          base->cpp_noexcept && !method.cpp_noexcept) {
+        throw exception::bad_member_spec{input, "Inherited noexcept(cpp) behavior requires an explicit nonthrowing qualifier: " + key};
+      }
+    }
+  };
   for (const auto& node : nodes) {
     if (node->type == object_type::namespace_type) {
       validate_behavior_contracts(input, static_cast<const namespace_node&>(*node).statements);
-    } else if (node->type == object_type::class_type) {
+    } else if (node->type == object_type::class_type || node->type == object_type::generic_definition) {
       const auto& owner = static_cast<const class_node&>(*node);
       std::map<std::string, std::vector<const function_declaration*>> inherited;
       for (const auto& base : owner.parents) { inherited_methods(inherited_methods, *base.parent_class, inherited); }
+      std::map<std::string, std::vector<const function_declaration*>> inherited_exceptions;
+      for (const auto& base : owner.parents) {
+        inherited_exception_methods(inherited_exception_methods, base, {}, inherited_exceptions);
+      }
+      for (const auto& method : owner.functions) {
+        const auto key = exception_signature(method, {});
+        const auto matches = inherited_exceptions.find(key);
+        if (matches != inherited_exceptions.end()) {
+          require_cpp_exception_contract(method, matches->second, key);
+        }
+      }
+      if (node->type == object_type::generic_definition) {
+        continue;
+      }
       for (const auto& method : owner.functions) {
         if (owner.supports_managed() && method.effect == function_declaration::effect_type::edit &&
             method.dispatch != function_declaration::dispatch_type::ordinary) {
