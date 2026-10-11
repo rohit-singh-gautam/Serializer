@@ -174,6 +174,79 @@ public:
         generic_default(base.type_expression.front()) : storage_type_name(base.name, base.parent_class);
   }
 
+  // Lower bound readonly calls identically in method bodies and construction input bindings.
+  std::string readonly_call(const class_node* owner, const behavior_expression& node,
+                            const std::vector<std::string>& arguments) {
+    const auto& target = behavior::called_function(node);
+    if (node.call_target->type == object_type::function_type) {
+      return full_type_name(node.call_target) + "(" + behavior::call_arguments(arguments) + ")";
+    }
+    std::string receiver = node.call_receiver ? "&(" + arguments.at(0) + ")" : "this";
+    const auto* record = node.call_receiver ?
+        static_cast<const class_node*>(node.operands.front().resolved_type->resolved_node) : owner;
+    auto application = node.call_receiver ? *node.operands.front().resolved_type :
+        rohit::serializer::type_name{std::string{}, nullptr};
+    for (const auto index : node.call_base_path) {
+      const auto& base = record->parents.at(index);
+      auto parent_name = parent_type_name(base);
+      if (node.call_receiver && !base.type_expression.empty()) {
+        // Bind inherited receiver types to the caller's arguments rather than lexical parameters.
+        const auto substitute = [&](const auto& self, rohit::serializer::type_name type) -> rohit::serializer::type_name {
+          if (!type.application && type.arguments.empty()) {
+            for (std::size_t parameter{}; parameter < record->generic_parameters.size() &&
+                 parameter < application.arguments.size(); ++parameter) {
+              if (type.name == record->generic_parameters[parameter].name) { return application.arguments[parameter]; }
+            }
+          }
+          for (auto& argument : type.arguments) { argument = self(self, std::move(argument)); }
+          return type;
+        };
+        application = substitute(substitute, base.type_expression.front());
+        parent_name = generic_default(application);
+      }
+      receiver = "static_cast<const " + parent_name + "*>(" + receiver + ")";
+      record = base.parent_class;
+    }
+    return "(" + receiver + ")->" + function_name(target.name) + "(" +
+        behavior::call_arguments(arguments, node.call_receiver ? 1 : 0) + ")";
+  }
+
+  // Sequence reached construction calls/operands with the established checked statement lowerer.
+  std::string construction_expression(const class_node* owner, const behavior_expression& expression,
+      const std::function<std::string(std::string_view)>& symbol) {
+    std::string output{"([&]() { "};
+    behavior::statement_context context;
+    context.cpp = true;
+    context.prefix = "srl_construction_value_";
+    context.valid = "srl_construction_ok";
+    context.budget = "srl_construction_budget";
+    context.symbol = symbol;
+    context.native_type = [&](const auto& type) { return generic_default(type); };
+    context.enum_value = [&](const auto& type, auto name) { return full_type_name(type.resolved_node) + "::" + enum_name(name); };
+    context.member = [&](const behavior_expression& node, std::string base) {
+      const auto* record = static_cast<const class_node*>(node.operands.front().resolved_type->resolved_node);
+      for (const auto index : node.member_base_path) { record = record->parents.at(index).parent_class; }
+      const auto field = std::find_if(record->member_list.begin(), record->member_list.end(),
+          [&](const auto& item) { return item.name == node.value; });
+      return "(" + base + ")." + member_name(*field);
+    };
+    context.call = [&](const auto& node, const auto& arguments) { return readonly_call(owner, node, arguments); };
+    context.line = [&](const auto& text) { output += text + " "; };
+    context.open = [&](const auto& text) { context.line(text + " {"); };
+    context.close = [&]() { context.line("}"); };
+    context.fail = [&]() { context.line("throw ::std::domain_error{\"Invalid portable expression\"};"); };
+    context.line("bool " + context.valid + " = true;");
+    context.line("(void)" + context.valid + ";");
+    if (behavior::has_reduction(expression)) {
+      context.line("::std::size_t " + context.budget + " = " +
+          std::to_string(behavior_expression::maximum_reduction_visits) + ";");
+    }
+    behavior::statement_expression lower{context};
+    const auto result = lower.emit(expression);
+    context.line("return " + result + ";");
+    return output + "}())";
+  }
+
   // Preserve the parser's portable Boolean type contract on open native templates.
   std::string constraint_expression(const generic_constraint& constraint, std::string_view parameter) {
     using operation = generic_constraint::operation;
@@ -182,6 +255,8 @@ public:
     case operation::integral: return "::std::integral<" + type + ">";
     case operation::floating_point: return "::std::floating_point<" + type + ">";
     case operation::stateless: return "::std::is_empty_v<" + type + ">";
+    case operation::factory: return "requires { { " + type + "::" + function_name(constraint.factory_name) +
+        "() } -> ::std::same_as<" + type + ">; }";
     case operation::exact_type: return "::std::same_as<" + type + ", " + generic_default(*constraint.type) + ">";
     case operation::logical_not: return "!(" + constraint_expression(constraint.operands.at(0), parameter) + ")";
     case operation::logical_and:
@@ -697,6 +772,13 @@ public:
       write_access_type(output, method.access);
       output.write(":\n  ");
     }
+    if (!method.generic_parameters.empty()) {
+      construction_declaration inputs;
+      inputs.generic_parameters = method.generic_parameters;
+      output.write(construction::input_template(inputs,
+          [&](const auto& type) { return generic_default(type); },
+          [&](auto name) { return function_name(name); }), "  ");
+    }
     using dispatch = function_declaration::dispatch_type;
     const bool typed_body = method.expression && !body && !editor_receiver &&
         method.effect == function_declaration::effect_type::readonly;
@@ -718,7 +800,7 @@ public:
     if (method.dispatch == dispatch::virtual_method || method.dispatch == dispatch::override_method) {
       output.write("virtual ");
     }
-    if (inferred_constexpr) { output.write("constexpr "); }
+    if (inferred_constexpr || (body && method.cpp_constexpr && !editor_receiver)) { output.write("constexpr "); }
     else if (!owner && (body || method.expression)) { output.write("inline "); }
     output.write(method.return_type.name == "void" ? "void" : generic_default(method.return_type), " ",
                  function_name(method.name), "(");
@@ -790,37 +872,7 @@ public:
       return "(" + base + ")." + member_name(*field);
     };
     context.call = [&](const behavior_expression& node, const std::vector<std::string>& arguments) {
-      const auto& target = behavior::called_function(node);
-      if (node.call_target->type == object_type::function_type) {
-        return full_type_name(node.call_target) + "(" + behavior::call_arguments(arguments) + ")";
-      }
-      std::string receiver = node.call_receiver ? "&(" + arguments.at(0) + ")" : "this";
-      const auto* record = node.call_receiver ?
-          static_cast<const class_node*>(node.operands.front().resolved_type->resolved_node) : owner;
-      auto application = node.call_receiver ? *node.operands.front().resolved_type : rohit::serializer::type_name{std::string{}, nullptr};
-      for (const auto index : node.call_base_path) {
-        const auto& base = record->parents.at(index);
-        auto parent_name = parent_type_name(base);
-        if (node.call_receiver && !base.type_expression.empty()) {
-          // The receiver's arguments belong to its caller, not the base declaration's lexical parameters.
-          const auto substitute = [&](const auto& self, rohit::serializer::type_name type) -> rohit::serializer::type_name {
-            if (!type.application && type.arguments.empty()) {
-              for (std::size_t parameter{}; parameter < record->generic_parameters.size() &&
-                   parameter < application.arguments.size(); ++parameter) {
-                if (type.name == record->generic_parameters[parameter].name) { return application.arguments[parameter]; }
-              }
-            }
-            for (auto& argument : type.arguments) { argument = self(self, std::move(argument)); }
-            return type;
-          };
-          application = substitute(substitute, base.type_expression.front());
-          parent_name = generic_default(application);
-        }
-        receiver = "static_cast<const " + parent_name + "*>(" + receiver + ")";
-        record = base.parent_class;
-      }
-      return "(" + receiver + ")->" + function_name(target.name) + "(" +
-          behavior::call_arguments(arguments, node.call_receiver ? 1 : 0) + ")";
+      return readonly_call(owner, node, arguments);
     };
     std::size_t indentation = 4;
     context.line = [&](const auto& text) { output.write(std::string(indentation, ' '), text, "\n"); };
@@ -2661,7 +2713,19 @@ public:
         [&](const auto& value) { return generic_default(value); },
         [&](auto name, auto) { return field_name(name); },
         [&](const auto& value) { return default_value(value); },
-        [&](auto name) { return function_name(name); }));
+        [&](auto name) { return function_name(name); },
+        [&](const auto& node, const auto& arguments) {
+          // Bind in schema order before the host call, preserving each argument's value category.
+          std::string bindings;
+          std::vector<std::string> forwarded;
+          for (std::size_t index{}; index < arguments.size(); ++index) {
+            const auto name = "srl_call_argument_" + std::to_string(index);
+            bindings += "auto&& " + name + " = " + arguments[index] + "; ";
+            forwarded.push_back("::std::forward<decltype(" + name + ")>(" + name + ")");
+          }
+          return "([&]() { " + bindings + "return " + readonly_call(obj, node, forwarded) + "; }())";
+        },
+        [&](const auto& expression, const auto& symbol) { return construction_expression(obj, expression, symbol); }));
     if (emission_only && !obj->conversions.empty()) {
       throw std::invalid_argument{"Borrowed emission models cannot expose owning conversions"};
     }
@@ -3046,6 +3110,10 @@ public:
 
   // Retain earlier parameter references and declaration-scope type defaults in public aliases.
   std::string generic_default(const ::rohit::serializer::type_name& value) {
+    if (value.common_numeric) {
+      return "::std::common_type_t<" + generic_default(value.arguments.at(0)) + ", " +
+          generic_default(value.arguments.at(1)) + ">";
+    }
     if (value.is_optional() || value.is_sequence()) {
       return std::string{value.is_optional() ? "::std::optional<" : "::std::vector<"} +
              generic_default(value.arguments.front()) + ">";

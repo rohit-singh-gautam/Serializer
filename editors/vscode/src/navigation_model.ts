@@ -50,13 +50,17 @@ export function codeOnly(text: string): string {
 /** Read declarations and schema type positions, ignoring comments, literals and member names. */
 export function indexSource(text: string, schema: boolean, classScopes = false): SourceIndex {
   const code = codeOnly(text);
+  const language = code.match(/\bserializer\s+version\s+(\d+)(?:\.(\d+)\.(\d+))?\s*;/);
+  const commonTypeContract = language !== null && (Number(language[1]) > 1 ||
+    (Number(language[1]) === 1 && Number(language[2] ?? 0) >= 12));
   const tokens: Token[] = [...code.matchAll(/[A-Za-z_][A-Za-z_0-9]*|::|[^\s]/g)]
     .map(match => ({ text: match[0], start: match.index!, end: match.index! + match[0].length }));
   const result: SourceIndex = { symbols: [], includes: [], references: [], members: [], memberReferences: [] };
   const scopes: string[][] = [[]];
   const namespaceBodies = new Map<number, string[]>();
   let referenceScope: string[] | undefined;
-  const currentScope = (): string[] => referenceScope ?? scopes[scopes.length - 1];
+  let functionScope: { scope: string[]; end: number } | undefined;
+  const currentScope = (): string[] => referenceScope ?? functionScope?.scope ?? scopes[scopes.length - 1];
 
   /** Consume a qualified identifier and retain every component as one navigation range. */
   function qualified(start: number): { next: number; name: string; start: number; end: number } | undefined {
@@ -100,9 +104,12 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
       }
     }
     if (token === 'managed' || token === 'transient' || token === 'wire_only') { return typeReference(start + 1, depth + 1); }
-    if (['optional', 'array', 'map'].includes(token) && tokens[start + 1]?.text === '<') {
+    if ((['optional', 'array', 'map'].includes(token) || (token === 'common_type' && commonTypeContract)) &&
+        tokens[start + 1]?.text === '<') {
       // Only user-declared constructors have destinations; retain references for compatible schemas.
-      result.references.push({ ...qualified(start)!, scope: [...currentScope()] });
+      if (token !== 'common_type') {
+        result.references.push({ ...qualified(start)!, scope: [...currentScope()] });
+      }
       let next = start + 2;
       while (next < tokens.length && !['>', ';', '}'].includes(tokens[next].text)) {
         next = typeReference(next, depth + 1);
@@ -152,6 +159,76 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
     return next;
   }
 
+  /** Skip factory-contract metadata while preserving actual type operands in constraints. */
+  function constraintReference(start: number): number {
+    if (tokens[start]?.text === 'factory' && tokens[start + 1]?.text === '(') {
+      let next = start + 2;
+      while (next < tokens.length && ![')', ';', '}'].includes(tokens[next].text)) { ++next; }
+      return tokens[next]?.text === ')' ? next + 1 : next;
+    }
+    if (['stateless', 'integral', 'floating_point'].includes(tokens[start]?.text)) { return start + 1; }
+    return typeReference(start);
+  }
+
+  /** Declare independent input parameters in a scope shared by their signature and body. */
+  function inputParameters(start: number, scope: string[]): number {
+    let next = start;
+    let depth = 1;
+    let parameterStart = true;
+    let inConstraint = false;
+    while (++next < tokens.length && depth) {
+      const current = tokens[next].text;
+      if (current === '<') { ++depth; }
+      if (current === '>') { --depth; }
+      if (depth === 1 && current === ',') { parameterStart = true; inConstraint = false; }
+      if (depth === 1 && current === ':') { inConstraint = true; }
+      if (depth === 1 && parameterStart && /^[A-Za-z_]\w*$/.test(current)) {
+        const parameter = tokens[next], qualifiedName = [...scope, current].join('::');
+        result.symbols.push({ ...parameter, name: current, qualified: qualifiedName, kind: 'class',
+          body: parameter.start, declaration: parameter.start, definition: true, typeParameter: true });
+        result.references.push({ ...parameter, name: qualifiedName, scope: [] });
+        parameterStart = false;
+      } else if (depth === 1 && inConstraint && /^[A-Za-z_]\w*$/.test(current)) {
+        next = constraintReference(next) - 1;
+      }
+    }
+    return next;
+  }
+
+  /** Index generic readonly signatures without exposing method names or native implementations. */
+  function functionSignature(start: number): void {
+    let next = start + 1;
+    if (['virtual', 'abstract', 'override'].includes(tokens[next]?.text)) { ++next; }
+    const returnStart = result.references.length;
+    next = typeReference(next);
+    if (tokens[next + 1]?.text === '<') {
+      const scope = [...currentScope(), `$function_${tokens[start].start}`];
+      referenceScope = scope;
+      // The return type precedes the declarations of its independent input parameters.
+      for (const reference of result.references.slice(returnStart)) { reference.scope = [...scope]; }
+      next = inputParameters(next + 1, scope);
+      let end = next, depth = 0;
+      while (end < tokens.length) {
+        const current = tokens[end].text;
+        if (current === '{') { ++depth; }
+        if (current === '}') { --depth; }
+        if (current === ';' && depth === 0) { break; }
+        ++end;
+      }
+      functionScope = { scope, end };
+    } else {
+      ++next;
+    }
+    if (tokens[next]?.text === '(') {
+      ++next;
+      while (next < tokens.length && ![')', ';', '}'].includes(tokens[next].text)) {
+        next = typeReference(next) + 1;
+        if (tokens[next]?.text === ',') { ++next; }
+      }
+    }
+    referenceScope = undefined;
+  }
+
   /** Index enum type prefixes in field and magic defaults, excluding values and quoted text. */
   function defaultReference(member: number, metadata = false): void {
     if (!metadata && !/^[A-Za-z_]\w*$/.test(tokens[member]?.text ?? '')) { return; }
@@ -176,13 +253,20 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
   }
 
   for (let i = 0; i < tokens.length; ++i) {
+    if (functionScope && i >= functionScope.end) { functionScope = undefined; }
     const token = tokens[i];
     if (schema && ['cpp', 'csharp', 'java', 'javascript', 'typescript', 'go', 'rust',
       'python', 'swift', 'kotlin', 'c'].includes(token.text)
-      && (tokens[i + 1]?.text === '{' || tokens[i + 1]?.text === 'preamble')) {
+      && (tokens[i + 1]?.text === '{' || tokens[i + 1]?.text === 'preamble' ||
+          (token.text === 'cpp' && tokens[i + 1]?.text === 'storage' && tokens[i + 2]?.text === '('))) {
       // Native blocks are opaque; their declarations are owned by the language service.
       let start = i + 1;
       if (tokens[start]?.text === 'preamble') { ++start; }
+      if (tokens[start]?.text === 'storage' && tokens[start + 1]?.text === '(') {
+        start += 2;
+        while (start < tokens.length && ![')', '{', ';', '}'].includes(tokens[start].text)) { ++start; }
+        if (tokens[start]?.text === ')') { ++start; }
+      }
       if (tokens[start]?.text === '{') {
         let depth = 1;
         i = start;
@@ -256,16 +340,7 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
       }
     } else if (schema && token.text === 'function') {
       // Namespace functions expose the same signature type references as class methods.
-      let next = i + 1;
-      if (['virtual', 'abstract', 'override'].includes(tokens[next]?.text)) { ++next; }
-      next = typeReference(next);
-      if (tokens[next + 1]?.text === '(') {
-        next += 2;
-        while (next < tokens.length && ![')', ';', '}'].includes(tokens[next].text)) {
-          next = typeReference(next) + 1;
-          if (tokens[next]?.text === ',') { ++next; }
-        }
-      }
+      functionSignature(i);
     } else if (schema && ['public', 'private', 'protected'].includes(token.text)) {
       // Typed magic can reference an enum; legacy magic and payload versions have no type operand.
       if (tokens[i + 1]?.text === 'conversion') {
@@ -302,27 +377,7 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
         if (tokens[next - 1]?.text === '<') {
           const localScope = [...currentScope(), `$construction_${tokens[i].start}`];
           referenceScope = localScope;
-          --next;
-          let depth = 1;
-          let parameterStart = true;
-          let inConstraint = false;
-          while (++next < tokens.length && depth) {
-            const current = tokens[next].text;
-            if (current === '<') { ++depth; }
-            if (current === '>') { --depth; }
-            if (depth === 1 && current === ',') { parameterStart = true; inConstraint = false; }
-            if (depth === 1 && current === ':') { inConstraint = true; }
-            if (depth === 1 && parameterStart && /^[A-Za-z_]\w*$/.test(current)) {
-              const parameter = tokens[next], qualifiedName = [...localScope, current].join('::');
-              result.symbols.push({ ...parameter, name: current, qualified: qualifiedName, kind: 'class',
-                body: parameter.start, declaration: parameter.start, definition: true, typeParameter: true });
-              result.references.push({ ...parameter, name: qualifiedName, scope: [] });
-              parameterStart = false;
-            } else if (depth === 1 && inConstraint && /^[A-Za-z_]\w*$/.test(current) &&
-                !['stateless', 'integral', 'floating_point'].includes(current)) {
-              next = typeReference(next) - 1;
-            }
-          }
+          next = inputParameters(next - 1, localScope);
           if (tokens[next]?.text === '(') { ++next; }
         }
         while (next < tokens.length && ![')', ';', '}'].includes(tokens[next].text)) {
@@ -345,16 +400,7 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
         }
         i = next;
       } else if (tokens[i + 1]?.text === 'function') {
-        let next = i + 2;
-        if (['virtual', 'abstract', 'override'].includes(tokens[next]?.text)) { ++next; }
-        next = typeReference(next);
-        if (tokens[next + 1]?.text === '(') {
-          next += 2;
-          while (next < tokens.length && ![')', ';', '}'].includes(tokens[next].text)) {
-            next = typeReference(next) + 1;
-            if (tokens[next]?.text === ',') { ++next; }
-          }
-        }
+        functionSignature(i + 1);
         // The access-prefixed method signature was indexed here; skip its keyword.
         ++i;
       } else if (['cpp', 'csharp', 'java', 'javascript', 'typescript', 'go', 'rust',
@@ -399,10 +445,9 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
             if (depth === 1 && current === '=') { inDefault = true; inConstraint = false; }
             if (depth === 1 && parameterStart && /^[A-Za-z_]\w*$/.test(current)) {
               if (current !== 'uint64') { parameters.push(tokens[body]); parameterStart = false; }
-            } else if (inConstraint && /^[A-Za-z_]\w*$/.test(current) &&
-                       !['stateless', 'integral', 'floating_point'].includes(current)) {
+            } else if (inConstraint && /^[A-Za-z_]\w*$/.test(current)) {
               // Exact type alternatives retain declaration navigation inside constraints.
-              body = typeReference(body) - 1;
+              body = constraintReference(body) - 1;
             } else if (inDefault && current === 'digest' &&
                        ['(', '['].includes(tokens[body + 1]?.text ?? '')) {
               // Digest defaults may name an algorithm that also exists as an unrelated schema type.

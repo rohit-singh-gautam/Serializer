@@ -3,6 +3,9 @@
 #pragma once
 
 // This implementation is included after the schema scanner helpers, inside parser.
+// Share the checked constraint grammar with readonly callable inputs.
+generic_constraint parse_construction_constraint(const rohit::type_check::schema_input_buffer auto& input,
+                                                namespace_node* space);
 
 // Locate new API declarations in the original schema, independently of generated line wrapping.
 std::size_t behavior_source_offset(const rohit::type_check::schema_input_buffer auto& input) {
@@ -497,6 +500,33 @@ function_declaration parse_function(const rohit::type_check::schema_input_buffer
   skip_whitespace_and_comment(input);
   result.name = parse_identifier_impl(input);
   skip_whitespace_and_comment(input);
+  if (!input.full() && *input == '<') {
+    if (active_language_version < language_version{1u, 12u, 0u}) {
+      throw exception::bad_member_spec{input, "Generic readonly functions require serializer version 1.12.0"};
+    }
+    ++input;
+    do {
+      skip_whitespace_and_comment(input);
+      generic_parameter parameter;
+      parameter.name = parse_identifier_impl(input);
+      constexpr std::size_t maximum_input_types = 8;
+      if (result.generic_parameters.size() >= maximum_input_types ||
+          !serializer::get_cpp_type_or_empty(parameter.name).empty() ||
+          std::any_of(result.generic_parameters.begin(), result.generic_parameters.end(),
+              [&](const auto& item) { return item.name == parameter.name; })) {
+        throw exception::bad_member_spec{input, "Duplicate, reserved, or excessive readonly input types"};
+      }
+      skip_whitespace_and_comment(input);
+      check_and_increase(input, ':');
+      parameter.constraint = parse_construction_constraint(input, space);
+      result.generic_parameters.push_back(std::move(parameter));
+      skip_whitespace_and_comment(input);
+      if (input.full() || *input != ',') { break; }
+      ++input;
+    } while (true);
+    check_and_increase(input, '>');
+    skip_whitespace_and_comment(input);
+  }
   check_and_increase(input, '(');
   skip_whitespace_and_comment(input);
   std::unordered_set<std::string> parameters;
@@ -526,7 +556,27 @@ function_declaration parse_function(const rohit::type_check::schema_input_buffer
   }
   result.effect = effect == "edit" ? function_declaration::effect_type::edit :
                                    function_declaration::effect_type::readonly;
+  if (!result.generic_parameters.empty() && (result.effect != function_declaration::effect_type::readonly ||
+      result.dispatch != function_declaration::dispatch_type::ordinary)) {
+    throw exception::bad_member_spec{input, "Generic input types require ordinary readonly functions"};
+  }
   skip_whitespace_and_comment(input);
+  if (next_keyword(input, "constexpr")) {
+    if (active_language_version < language_version{1u, 12u, 0u}) {
+      throw exception::bad_member_spec{input, "Native constant-evaluation contracts require serializer version 1.12.0"};
+    }
+    parse_identifier_impl(input);
+    skip_whitespace_and_comment(input);
+    check_and_increase(input, '(');
+    skip_whitespace_and_comment(input);
+    if (parse_identifier_impl(input) != "cpp") {
+      throw exception::bad_member_spec{input, "Only constexpr(cpp) is supported"};
+    }
+    skip_whitespace_and_comment(input);
+    check_and_increase(input, ')');
+    skip_whitespace_and_comment(input);
+    result.cpp_constexpr = true;
+  }
   if (next_keyword(input, "expression") || next_keyword(input, "predicate")) {
     if (active_language_version < language_version{1u, 10u, 0u} &&
         result.return_type.name != "double" && result.return_type.name != "bool") {
@@ -567,6 +617,13 @@ function_declaration parse_function(const rohit::type_check::schema_input_buffer
   }
   if (result.expression && result.effect != function_declaration::effect_type::readonly) {
     throw exception::bad_member_spec{input, "Portable expressions require readonly"};
+  }
+  if (result.cpp_constexpr && (result.effect != function_declaration::effect_type::readonly ||
+      result.dispatch != function_declaration::dispatch_type::ordinary || result.expression ||
+      std::none_of(result.bodies.begin(), result.bodies.end(), [](const auto& body) {
+        return body.language == "cpp";
+      }))) {
+    throw exception::bad_member_spec{input, "constexpr(cpp) requires an ordinary readonly native C++ body"};
   }
   locate_behavior(result, source_begin, behavior_source_offset(input));
   return result;
@@ -660,7 +717,7 @@ std::string validate_behavior_expression(behavior_expression& value, const class
     return typed(modifier == member::modifier_type::array || type.is_sequence() ? "collection" :
                  type.type == object_type::enum_type ? "enum:" + type.get_full_name() :
                  type.type == object_type::class_type || type.type == object_type::generic_definition ?
-                     "record:" + type.get_full_name() : type.name);
+                     "record:" + type.get_full_name() : type.common_numeric ? type.get_full_name() : type.name);
   };
   const auto integer = [](std::string_view type) {
     return type == "char" || type == "int8" || type == "uint8" || type == "int16" ||
@@ -668,9 +725,10 @@ std::string validate_behavior_expression(behavior_expression& value, const class
   };
   // Category constraints must rule out records and other opaque values before generic arithmetic.
   const auto numeric_parameter = [&](std::string_view name) {
-    const auto parameter = std::find_if(owner.generic_parameters.begin(), owner.generic_parameters.end(),
-        [&](const auto& item) { return item.name == name; });
-    if (parameter == owner.generic_parameters.end() || !parameter->constraint) { return false; }
+    const generic_parameter* parameter{};
+    for (const auto& item : owner.generic_parameters) { if (item.name == name) { parameter = &item; } }
+    for (const auto& item : method.generic_parameters) { if (item.name == name) { parameter = &item; } }
+    if (!parameter || !parameter->constraint) { return false; }
     const auto numeric_constraint = [&](const auto& self, const generic_constraint& constraint) -> bool {
       using kind = generic_constraint::operation;
       if (constraint.kind == kind::integral || constraint.kind == kind::floating_point) { return true; }
@@ -691,10 +749,46 @@ std::string validate_behavior_expression(behavior_expression& value, const class
     return numeric_constraint(numeric_constraint, *parameter->constraint);
   };
   const auto numeric = [&](const std::string& type) {
-    return integer(type) || type == "float" || type == "double" || numeric_parameter(type);
+    return integer(type) || type == "float" || type == "double" || numeric_parameter(type) ||
+        type.starts_with("common_type<");
+  };
+  // The common numeric result policy requires a proof that each dependent input excludes bool.
+  const auto parameter_excludes_bool = [&](std::string_view name) {
+    const generic_parameter* parameter{};
+    for (const auto& item : owner.generic_parameters) { if (item.name == name) { parameter = &item; } }
+    for (const auto& item : method.generic_parameters) { if (item.name == name) { parameter = &item; } }
+    if (!parameter || !parameter->constraint) { return false; }
+    const auto accepts_bool = [&](const auto& self, const generic_constraint& constraint) -> std::optional<bool> {
+      using kind = generic_constraint::operation;
+      if (constraint.kind == kind::integral) { return true; }
+      if (constraint.kind == kind::floating_point || constraint.kind == kind::stateless ||
+          constraint.kind == kind::factory) { return false; }
+      if (constraint.kind == kind::exact_type) {
+        if (!constraint.type) { return std::nullopt; }
+        const auto& type = *constraint.type;
+        if (type.name == "bool") { return true; }
+        if (integer(type.name) || type.name == "float" || type.name == "double" ||
+            type.name == "string" || type.resolved_node) { return false; }
+        return std::nullopt;
+      }
+      if (constraint.kind == kind::logical_not) {
+        const auto operand = self(self, constraint.operands.at(0));
+        return operand ? std::optional<bool>{!*operand} : std::nullopt;
+      }
+      const bool conjunction = constraint.kind == kind::logical_and;
+      bool unknown{};
+      for (const auto& operand : constraint.operands) {
+        const auto accepted = self(self, operand);
+        if (!accepted) { unknown = true; }
+        else if (*accepted != conjunction) { return !conjunction; }
+      }
+      return unknown ? std::nullopt : std::optional<bool>{conjunction};
+    };
+    const auto accepted = accepts_bool(accepts_bool, *parameter->constraint);
+    return accepted && !*accepted;
   };
   const auto scalar = [&](const std::string& type) {
-    return integer(type) || type == "bool" || type == "float" || type == "double" || type.starts_with("enum:") ||
+    return numeric(type) || type == "bool" || type.starts_with("enum:") ||
         std::find(owner.type_parameters.begin(), owner.type_parameters.end(), type) != owner.type_parameters.end();
   };
   const auto literal = [&](behavior_expression& node, const std::string& target) {
@@ -840,9 +934,12 @@ std::string validate_behavior_expression(behavior_expression& value, const class
       return argument.result_type == parameter.name;
     };
     std::vector<candidate> matches;
+    const bool has_generic_candidate = std::any_of(candidates.begin(), candidates.end(),
+        [](const auto& candidate) { return !candidate.declaration->generic_parameters.empty(); });
     // Resolve exact arguments before binding an untyped numeric literal to a parameter width.
     for (const bool bind_literals : {false, true}) {
       for (auto candidate : candidates) {
+        if (!candidate.declaration->generic_parameters.empty()) { continue; }
         if (candidate.declaration->parameters.size() != value.operands.size() - argument_begin) { continue; }
         candidate.arguments = value.operands;
         bool matched = true;
@@ -861,7 +958,12 @@ std::string validate_behavior_expression(behavior_expression& value, const class
       }
       if (!matches.empty()) { break; }
     }
-    if (matches.empty()) { throw std::invalid_argument{"No matching readonly function: " + value.value}; }
+    if (matches.empty()) {
+      if (has_generic_candidate) {
+        throw std::invalid_argument{"Schema expression calls to independently generic functions are unsupported: " + value.value};
+      }
+      throw std::invalid_argument{"No matching readonly function: " + value.value};
+    }
     if (matches.size() != 1) { throw std::invalid_argument{"Ambiguous readonly function call: " + value.value}; }
     const auto& selected = matches.front();
     if (selected.declaration->effect != function_declaration::effect_type::readonly ||
@@ -931,7 +1033,30 @@ std::string validate_behavior_expression(behavior_expression& value, const class
       };
       find(find, record, {});
       if (selected && (selected->modifier == member::modifier_type::none || selected->modifier == member::modifier_type::array)) {
-        return bind(selected->type_name_list.front(), selected->modifier, selected->fixed_extent);
+        auto application = *base.resolved_type;
+        const class_node* current = &record;
+        std::unordered_map<std::string, type_name> bindings;
+        const auto substitute = [&](const auto& self, type_name type) -> type_name {
+          if (!type.application) {
+            if (const auto found = bindings.find(type.name); found != bindings.end()) { return found->second; }
+          }
+          for (auto& argument : type.arguments) { argument = self(self, argument); }
+          return type;
+        };
+        const auto bind_arguments = [&]() {
+          bindings.clear();
+          for (std::size_t index{}; index < current->generic_parameters.size() && index < application.arguments.size(); ++index) {
+            bindings.emplace(current->generic_parameters[index].name, application.arguments[index]);
+          }
+        };
+        bind_arguments();
+        for (const auto index : value.member_base_path) {
+          const auto& parent = current->parents.at(index);
+          if (!parent.type_expression.empty()) { application = substitute(substitute, parent.type_expression.front()); }
+          current = parent.parent_class;
+          bind_arguments();
+        }
+        return bind(substitute(substitute, selected->type_name_list.front()), selected->modifier, selected->fixed_extent);
       }
     }
     throw std::invalid_argument{"Member projection requires an accessible generated record field: " + value.value};
@@ -977,7 +1102,11 @@ std::string validate_behavior_expression(behavior_expression& value, const class
       throw std::invalid_argument{"Checked numeric binding requires serializer version 1.11.0"};
     }
     const auto target = *value.resolved_type;
-    if (!target.arguments.empty() || !numeric(target.name)) {
+    if (target.common_numeric ? (target.arguments.size() != 2 ||
+        !std::all_of(target.arguments.begin(), target.arguments.end(), [&](const auto& argument) {
+          return !argument.application && numeric(argument.name) && argument.name != "bool" &&
+              (!numeric_parameter(argument.name) || parameter_excludes_bool(argument.name));
+        })) : (!target.arguments.empty() || !numeric(target.name))) {
       throw std::invalid_argument{"Checked numeric binding requires a numeric result representation"};
     }
     auto& source = value.operands.at(0);

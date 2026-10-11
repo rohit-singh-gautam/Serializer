@@ -13,7 +13,17 @@ Start with [small schema examples](schema_examples.md) if you are new to the syn
 ## Schema structure
 
 Every `.serializer` file starts with a supported language header before declarations.
-Use `serializer version 1.11.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, and `1.10.0` remain supported.
+Use `serializer version 1.12.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, and `1.11.0` remain supported.
+
+Language `1.12.0` adds opt-in C++ [authoring construction](construction.md#authoring-construction-in-language-112):
+overloads and independent record inputs, `factory(name)` generic defaults,
+`validate expression(...)`, `validate cpp { ... };`, and `initialize cpp { ... };`.
+Native class hooks may declare `cpp storage(none)`, and ordinary readonly native
+C++ functions may declare `readonly constexpr(cpp) cpp { ... };`.
+Constrained readonly inputs and `common_type<T, Input>` select explicit scalar
+API representations; see [behavior](behavior.md#constrained-readonly-inputs-and-result-representation)
+and [generics](generics.md#independently-generic-c-callables). These additions
+change no field identity or encoded layout. Unsupported output backends diagnose.
 
 Language `1.11.0` extends [checked expressions](behavior.md) with lossless
 `checked<T>(value)` numeric bindings, exact integer arithmetic, projected readonly

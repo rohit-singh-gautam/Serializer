@@ -1,6 +1,6 @@
 # Schema compatibility checking
 
-Compiler/runtime `1.16.0` and language `1.11.0` retain existing schema identities
+Compiler/runtime `1.17.0` and language `1.12.0` retain existing schema identities
 and codec formats. Numeric bindings, constructor overloads and readonly record
 expressions add generated APIs; older language headers keep their expression
 contract. Opting an existing schema into new construction defaults can change
@@ -11,6 +11,18 @@ application-key field is a normal schema migration. Runtime uniqueness policies
 must be reinstalled before loading/recovering a fresh store or authority; they
 validate retained history as well as the accepted root. See
 [state registries](state_registry.md) for lifetimes and publication guarantees.
+
+Language `1.12.0` authoring hooks run only through their declared C++ constructor
+and `create` factory. Loading, default construction and ordinary copies retain
+their previous behavior; add host validation to loading separately when required.
+The `factory(name)` constructor default changes omitted authoring arguments,
+independently of field defaults and absent-field decoding. Native storage and
+constant-evaluation qualifications are explicit author assertions. Review each
+selected implementation before removing a native adapter. `common_type<T, Input>`
+selects a scalar API representation and introduces no new field or wire type.
+Borrowed provider leases carry no durable identity metadata. See
+[construction](construction.md#authoring-construction-in-language-112) and the
+[verification record](verification-authoring-2026-10-11.md) for supported scope.
 
 `stable_ids` validates one schema. The optional compatibility checker compares
 two resolved revisions and applies a persistent retirement policy. It is a

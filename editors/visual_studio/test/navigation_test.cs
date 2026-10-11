@@ -114,6 +114,54 @@ internal static class NavigationTest {
           "construction input and checked result types retain parameter navigation");
         ++checks;
       }
+      var qualifiedConstructionText = "serializer version 1.12.0; include sales/order; " +
+        "class holder<T, Frame: factory(identity) = demo::order> { " +
+        "public cpp storage(none) { class NativeHidden {}; } " +
+        "public constructor(T input, Frame placement = default(identity)) { value = input; " +
+        "validate expression(input > 0); initialize cpp { class HookHidden {}; }; } " +
+        "public constructor<Input: integral || floating_point>(optional<Input> input) explicit { value = checked<T>(input.value); } " +
+        "public function common_type<T, Input> scaled<Input: integral || floating_point>(Input factor) readonly " +
+        "expression(checked<common_type<T, Input>>(value) * factor); " +
+        "public function T native_value() readonly constexpr(cpp) cpp { return value; }; } " +
+        "class factory {} class identity {} class storage {} class none {} class common_type {} " +
+        "class validate {} class initialize {} class constexpr {}";
+      live[model] = qualifiedConstructionText;
+      var constructorInput = qualifiedConstructionText.IndexOf("Input: integral", StringComparison.Ordinal);
+      var methodInput = qualifiedConstructionText.IndexOf("Input: integral", constructorInput + 1, StringComparison.Ordinal);
+      foreach (Match input in Regex.Matches(qualifiedConstructionText, @"\bInput\b")) {
+        var target = input.Index < qualifiedConstructionText.IndexOf("public function common_type", StringComparison.Ordinal)
+          ? constructorInput : methodInput;
+        var destination = NavigationRunner.Resolve(model, input.Index, false, generated, live, CancellationToken.None);
+        Require(destination.Length == 1 && destination[0].start == target,
+          "generic readonly return/input signatures retain their independent declaration scopes");
+        ++checks;
+      }
+      foreach (var spelling in new[] { "factory(identity)", "identity)", "storage(none)", "none)",
+          "default(identity)", "validate expression", "initialize cpp", "constexpr(cpp)",
+          "common_type<T", "scaled<Input", "NativeHidden", "HookHidden" }) {
+        Require(NavigationRunner.Resolve(model, qualifiedConstructionText.IndexOf(spelling, StringComparison.Ordinal), false,
+          generated, live, CancellationToken.None).Length == 0,
+          "construction/native contract metadata cannot claim unrelated schema symbols");
+        ++checks;
+      }
+      var includedOrder = qualifiedConstructionText.IndexOf("demo::order", StringComparison.Ordinal);
+      for (var cursor = includedOrder; cursor <= includedOrder + "demo::order".Length; ++cursor) {
+        var destination = NavigationRunner.Resolve(model, cursor, false, generated, live, CancellationToken.None);
+        Require(destination.Length == 1 && Path.GetFileName(destination[0].file) == "order.serializer",
+          "factory-constrained class defaults retain qualified selection boundaries");
+        ++checks;
+      }
+      var legacyCommonTypeText = "serializer version 1.11.0; class common_type<T> {} " +
+        "class holder { public common_type<uint32> value; }";
+      live[model] = legacyCommonTypeText;
+      var legacyCommonType = legacyCommonTypeText.IndexOf("common_type<uint32>", StringComparison.Ordinal);
+      var legacyCommonTypeDeclaration = legacyCommonTypeText.IndexOf("common_type<T>", StringComparison.Ordinal);
+      for (var cursor = legacyCommonType; cursor <= legacyCommonType + "common_type".Length; ++cursor) {
+        var destination = NavigationRunner.Resolve(model, cursor, false, generated, live, CancellationToken.None);
+        Require(destination.Length == 1 && destination[0].start == legacyCommonTypeDeclaration,
+          "older user-defined common_type generic applications retain their language-selected meaning");
+        ++checks;
+      }
       var conversionText = "serializer version 1.9.0; class empty {} class passive<T: stateless = empty> { " +
         "public transient layout(empty) T reference; } class contact { public string street; } " +
         "class other { public string street; } class base { public uint32 rank; } class view { public string address; public uint32 rank; } " +

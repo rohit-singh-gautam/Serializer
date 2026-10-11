@@ -1,5 +1,12 @@
 # Wire format and decoding contract
 
+Language `1.12.0` constructor overloads, callable numeric result policies,
+native qualification, factory constraints and authoring hooks add no wire fields
+or encodings. Default construction and decode continue using schema field defaults
+without authoring validation or host initialization. Borrowed provider lease guards,
+versions and invalidation states remain runtime metadata; they do not change managed
+identity formats, journal records or collaboration protocols.
+
 Language `1.11.0` checked numeric bindings, owning-record expressions and extended
 construction introduce no new payload tags or encodings. Record map keys use
 the existing C++ owning map codecs. Managed registries and secondary indexes are

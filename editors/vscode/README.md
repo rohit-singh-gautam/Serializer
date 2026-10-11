@@ -1,6 +1,6 @@
 # Rohit Serializer for Visual Studio Code
 
-Version **1.1.39** supports schema language 1.11.0 projected readonly calls, exact record selection, checked numeric conversions, constrained construction input types, defaulted/fixed-array construction parameters and generic record map keys. New schema snippets select language 1.11.0. Type navigation includes checked result types and nested map keys.
+Version **1.1.40** supports schema language 1.12.0 overloaded constructors, nested constructor input types, factory-constrained owning parameter defaults, generic readonly method signatures and `common_type<T, Input>` result types. It highlights `cpp storage(none)`, `readonly constexpr(cpp)`, constructor `validate expression(...)` and `initialize cpp { ... };` contracts. Shared navigation retains independent input scopes and treats contract names as metadata. New VS Code schema snippets select language 1.12.0.
 
 Version **1.1.38** highlights embedded target source using available language
 grammars. `cpp { ... }`, `java { ... }`, and the other native tags select their
@@ -20,7 +20,7 @@ computed `auto_size` fields, `wire_only` headers, `size_scope(record|payload)`,
 and target/source field projections navigate through included schemas and unsaved
 edits, including inherited fields. Existing constructor, predicate, generic and
 all-language generated navigation remains supported. New schema snippets select
-language 1.11.0.
+language 1.12.0.
 
 **Editor support for Serializer — State Framework**
 
@@ -341,7 +341,7 @@ Empty extents and element types receive fixed-array highlighting. Enum type
 operands and qualified enum defaults in typed magic retain declaration, definition,
 and type-definition navigation, including unsaved and transitive included schemas.
 VS Code includes `array_inferred` and `magic_typed` snippets; its schema snippet
-selects `serializer version 1.11.0;`. The original `1` header remains exactly
+selects `serializer version 1.12.0;`. The original `1` header remains exactly
 `1.0.0` and does not enable these features. See the
 [magic contract](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/magic_and_omission.md) and [fixed arrays](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/generics.md).
 

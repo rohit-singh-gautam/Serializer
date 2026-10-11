@@ -595,6 +595,14 @@ type_name parse_type_expression(const rohit::type_check::schema_input_buffer aut
     check_and_increase(input, '>');
     skip_whitespace_and_comment(input);
   }
+  if (result.name == "common_type" && result.application &&
+      active_language_version >= language_version{1u, 12u, 0u}) {
+    if (result.arguments.size() != 2) {
+      throw exception::bad_member_type{input, "common_type requires two numeric types and serializer version 1.12.0"};
+    }
+    result.common_numeric = true;
+    result.type = object_type::primitive;
+  }
   if (!input.full() && (*input == '+' || *input == '*')) {
     dimension_expression parameter{};
     parameter.kind = dimension_expression::operation::parameter;
@@ -1791,6 +1799,15 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   result.releases = std::move(releases);
   result.policy = std::move(policy);
   result.key_type = std::move(key_type);
+  const auto callable_numeric_policy = [&](const auto& self, const type_name& type) -> bool {
+    return type.common_numeric || std::any_of(type.arguments.begin(), type.arguments.end(),
+        [&](const auto& argument) { return self(self, argument); });
+  };
+  if (std::any_of(result.type_name_list.begin(), result.type_name_list.end(),
+      [&](const auto& type) { return callable_numeric_policy(callable_numeric_policy, type); }) ||
+      (result.key_type && callable_numeric_policy(callable_numeric_policy, *result.key_type))) {
+    throw exception::bad_member_type{in_stream, "common_type is a callable numeric result policy and cannot define field storage"};
+  }
   result.obsolete = lifecycle.obsolete;
   result.created_version = std::move(lifecycle.created_version);
   result.obsolete_version = std::move(lifecycle.obsolete_version);
@@ -1884,6 +1901,26 @@ object_type parse_object_type(const rohit::type_check::schema_input_buffer auto&
 #include "construction_parser.hpp"
 #include "conversion_parser.hpp"
 
+// Recognize native bodies without claiming ordinary fields whose type or name matches a native tag.
+bool native_class_block_head(const rohit::type_check::schema_input_buffer auto& input) {
+  if (input.full()) { return false; }
+  if (*input == '{') { return true; }
+  const auto probe = make_constant_full_stream(input.curr(), input.remaining_buffer());
+  if (!next_keyword(probe, "storage")) { return false; }
+  static_cast<void>(parse_identifier_impl(probe));
+  skip_whitespace_and_comment(probe);
+  if (probe.full() || *probe != '(') { return false; }
+  ++probe;
+  skip_whitespace_and_comment(probe);
+  if (!next_keyword(probe, "none")) { return false; }
+  static_cast<void>(parse_identifier_impl(probe));
+  skip_whitespace_and_comment(probe);
+  if (probe.full() || *probe != ')') { return false; }
+  ++probe;
+  skip_whitespace_and_comment(probe);
+  return !probe.full() && *probe == '{';
+}
+
 // Parse class body from the schema input; malformed input throws.
 void parse_class_body_impl(const rohit::type_check::schema_input_buffer auto& in_stream,
                            class_node* obj, std::uint32_t& id) {
@@ -1930,13 +1967,34 @@ void parse_class_body_impl(const rohit::type_check::schema_input_buffer auto& in
     if (is_first_identifier(target)) {
       const auto name = parse_identifier_impl(target);
       skip_whitespace_and_comment(target);
-      if (is_behavior_language(name) && !target.full() && *target == '{') {
+      if (is_behavior_language(name) && native_class_block_head(target)) {
         require_behavior_language(in_stream);
         parse_access_type_impl(in_stream);
         skip_whitespace_and_comment(in_stream);
         parse_identifier_impl(in_stream);
+        skip_whitespace_and_comment(in_stream);
+        bool no_instance_storage{};
+        if (next_keyword(in_stream, "storage")) {
+          if (active_language_version < language_version{1u, 12u, 0u}) {
+            throw exception::bad_member_spec{in_stream, "Native storage contracts require serializer version 1.12.0"};
+          }
+          if (name != "cpp") {
+            throw exception::bad_member_spec{in_stream, "storage(none) is supported only on class C++ blocks"};
+          }
+          parse_identifier_impl(in_stream);
+          skip_whitespace_and_comment(in_stream);
+          check_and_increase(in_stream, '(');
+          skip_whitespace_and_comment(in_stream);
+          if (parse_identifier_impl(in_stream) != "none") {
+            throw exception::bad_member_spec{in_stream, "Only storage(none) is supported"};
+          }
+          skip_whitespace_and_comment(in_stream);
+          check_and_increase(in_stream, ')');
+          no_instance_storage = true;
+        }
         obj->body_order.push_back({class_body_item::kind_type::native_code, obj->native_blocks.size()});
         obj->native_blocks.push_back(parse_native_block(in_stream, name, access));
+        obj->native_blocks.back().no_instance_storage = no_instance_storage;
         skip_whitespace_and_comment(in_stream);
         continue;
       }
@@ -2067,7 +2125,19 @@ template <typename Input> struct generic_constraint_parser {
       const auto name = parse_identifier_impl(probe);
       skip_whitespace_and_comment(probe);
       const bool qualified = !probe.full() && (*probe == ':' || *probe == '<');
-      if (!qualified && (name == "integral" || name == "floating_point" || name == "stateless")) {
+      if (name == "factory" && !probe.full() && *probe == '(') {
+        if (active_language_version < language_version{1u, 12u, 0u}) {
+          throw exception::bad_class{input, "Factory constraints require serializer version 1.12.0"};
+        }
+        static_cast<void>(parse_identifier_impl(input));
+        skip_whitespace_and_comment(input);
+        check_and_increase(input, '(');
+        skip_whitespace_and_comment(input);
+        result = make(operation::factory);
+        result.factory_name = parse_identifier_impl(input);
+        skip_whitespace_and_comment(input);
+        check_and_increase(input, ')');
+      } else if (!qualified && (name == "integral" || name == "floating_point" || name == "stateless")) {
         static_cast<void>(parse_identifier_impl(input));
         result = make(name == "integral" ? operation::integral :
             name == "floating_point" ? operation::floating_point : operation::stateless);
@@ -3012,6 +3082,90 @@ void validate_empty_layout(const rohit::type_check::schema_input_buffer auto& in
   }
 }
 
+// Canonicalize input placeholders so renamed template parameters cannot create duplicate APIs.
+std::string construction_signature(const construction_declaration& construction, std::size_t arity) {
+  std::unordered_map<std::string, std::size_t> input_names;
+  const auto dimension_signature = [&](const auto& self, const dimension_expression& value) -> std::string {
+    using operation = dimension_expression::operation;
+    if (value.kind == operation::literal) { return std::to_string(value.value); }
+    if (value.kind == operation::parameter) { return value.name; }
+    return "(" + self(self, value.operands.at(0)) +
+        (value.kind == operation::add ? "+" : "*") + self(self, value.operands.at(1)) + ")";
+  };
+  const auto type_signature = [&](const auto& self, const type_name& type) -> std::string {
+    if (type.kind == generic_argument_kind::dimension) {
+      return "$dimension:" + (type.dimension ? std::to_string(type.dimension) :
+          type.expression.empty() ? type.name : dimension_signature(dimension_signature, type.expression.front()));
+    }
+    for (const auto& input_type : construction.generic_parameters) {
+      if (input_type.name == type.name && !type.application) {
+        // Deduction follows the parameter shape, regardless of template declaration order.
+        const auto [position, inserted] = input_names.emplace(type.name, input_names.size());
+        static_cast<void>(inserted);
+        return "$input" + std::to_string(position->second);
+      }
+    }
+    if (type.is_digest()) {
+      // Digest algorithms carry no native type tag; equal storage extents cannot overload in C++.
+      return type.digest_extent ? "$array<uint8," + std::to_string(type.digest_extent) + ">" :
+          "$sequence<uint8>";
+    }
+    if (type.is_sequence()) { return "$sequence<" + self(self, type.arguments.front()) + ">"; }
+    std::string result = type.get_full_name();
+    if (!type.application && type.resolved_node && type.resolved_node->type == object_type::class_type &&
+        !static_cast<const class_node&>(*type.resolved_node).generic_name.empty()) {
+      const auto& record = static_cast<const class_node&>(*type.resolved_node);
+      result = record.generic_name + '<';
+      for (const auto& argument : record.generic_arguments) { result += self(self, argument) + ','; }
+      result += '>';
+    } else if (type.application) {
+      result = type.resolved_node ? type.resolved_node->get_full_name() : type.name;
+      result += '<';
+      for (const auto& argument : type.arguments) { result += self(self, argument) + ','; }
+      result += '>';
+    }
+    return result;
+  };
+  std::string result;
+  for (std::size_t index{}; index < arity; ++index) {
+    const auto& parameter = construction.parameters[index];
+    auto parameter_signature = type_signature(type_signature, parameter.type);
+    if (parameter.modifier == member::modifier_type::array) {
+      const auto extent = parameter.fixed_extent ? std::to_string(parameter.fixed_extent) :
+          parameter.extent_expression.empty() ? std::string{} :
+          dimension_signature(dimension_signature, parameter.extent_expression.front());
+      parameter_signature = "$array<" + parameter_signature + "," + extent + ">";
+    }
+    result += parameter_signature + ',';
+  }
+  return result;
+}
+
+// Identify an independent input anywhere in a record application, including nested wrappers.
+bool contains_construction_input(const type_name& type, const construction_declaration& construction) {
+  if (std::any_of(construction.generic_parameters.begin(), construction.generic_parameters.end(),
+      [&](const auto& parameter) { return !type.application && parameter.name == type.name; })) {
+    return true;
+  }
+  return std::any_of(type.arguments.begin(), type.arguments.end(),
+      [&](const auto& argument) { return contains_construction_input(argument, construction); });
+}
+
+// Prove every branch of a generic contract promises the selected fresh owning factory.
+bool guarantees_factory(const generic_constraint& constraint, std::string_view name) {
+  using operation = generic_constraint::operation;
+  if (constraint.kind == operation::factory) { return constraint.factory_name == name; }
+  if (constraint.kind == operation::logical_and) {
+    return std::any_of(constraint.operands.begin(), constraint.operands.end(),
+        [&](const auto& operand) { return guarantees_factory(operand, name); });
+  }
+  if (constraint.kind == operation::logical_or) {
+    return std::all_of(constraint.operands.begin(), constraint.operands.end(),
+        [&](const auto& operand) { return guarantees_factory(operand, name); });
+  }
+  return false;
+}
+
 // Resolve owned initialization types and reject native expressions or ambiguous construction APIs.
 void validate_constructions(const rohit::type_check::schema_input_buffer auto& input,
                             class_node& owner, const std::unordered_map<std::string, syntax_node*>& symbols) {
@@ -3021,13 +3175,21 @@ void validate_constructions(const rohit::type_check::schema_input_buffer auto& i
     throw exception::bad_member_spec{input, "Portable construction requires an unpacked owning record"};
   }
   std::unordered_set<std::string> names;
-  bool constructor{};
+  std::vector<const construction_declaration*> constructors;
+  std::unordered_set<std::string> constructor_calls;
   for (auto& factory : owner.constructions) {
     if (factory.constructor && factory.parameters.empty()) {
       throw exception::bad_member_spec{input, "Portable constructors require parameters; use a zero-argument factory for structured defaults"};
     }
-    if (factory.constructor ? std::exchange(constructor, true) : !names.insert(factory.name).second) {
-      throw exception::bad_member_spec{input, "Only one portable constructor and unique factory names are supported"};
+    if (factory.constructor) {
+      if (!constructors.empty() && (!factory.overload_contract_enabled ||
+          std::any_of(constructors.begin(), constructors.end(),
+              [](const auto* previous) { return !previous->overload_contract_enabled; }))) {
+        throw exception::bad_member_spec{input, "Constructor overloads require serializer version 1.12.0"};
+      }
+      constructors.push_back(&factory);
+    } else if (!names.insert(factory.name).second) {
+      throw exception::bad_member_spec{input, "Portable factory names must be unique"};
     }
     const auto api_name = factory.constructor ? std::string{"create"} : factory.name;
     if ((!factory.constructor && (api_name == "create" || api_name == owner.name || api_name.starts_with("srl_"))) ||
@@ -3052,22 +3214,42 @@ void validate_constructions(const rohit::type_check::schema_input_buffer auto& i
         for (const auto& argument : type.arguments) { inspect(inspect, argument); }
       };
       validate_owned_type(validate_owned_type, parameter.type);
-      if (factory.constructor && parameter.type.resolved_node == &owner) {
+      if (parameter.type.application && contains_construction_input(parameter.type, factory) &&
+          !factory.overload_contract_enabled) {
+        throw exception::bad_member_spec{input, "Nested construction input types require serializer version 1.12.0"};
+      }
+      if (factory.constructor && parameter.type.resolved_node == &owner &&
+          !(parameter.type.application && contains_construction_input(parameter.type, factory))) {
         throw exception::bad_member_spec{input, "Portable constructors cannot take their owning record by value"};
       }
       if (!parameter.default_value.empty() || !parameter.default_factory.empty()) {
-        if (parameter.modifier != member::modifier_type::none || input_type || owner_type) {
+        const auto generic = std::find_if(owner.generic_parameters.begin(), owner.generic_parameters.end(),
+            [&](const auto& item) { return item.name == parameter.type.name; });
+        const bool factory_contract = owner_type && factory.overload_contract_enabled && !parameter.default_factory.empty() &&
+            generic != owner.generic_parameters.end() && generic->constraint &&
+            guarantees_factory(*generic->constraint, parameter.default_factory);
+        if (parameter.modifier != member::modifier_type::none || input_type || (owner_type && !factory_contract)) {
           throw exception::bad_member_spec{input, "Construction parameter defaults require a concrete scalar or owning record"};
         }
         member value{access_type::public_access, member::modifier_type::none, {parameter.type},
             parameter.name, parameter.name, 0, {}, parameter.default_value};
         value.default_factory = parameter.default_factory;
-        if (!value.default_factory.empty()) { validate_factory_default(input, value, owner); }
+        if (!value.default_factory.empty() && !factory_contract) { validate_factory_default(input, value, owner); }
+        else if (factory_contract) { continue; }
         else {
           if (parameter.type.name == "float" || parameter.type.name == "double") { validate_magic_constant(input, value); }
           if (writer::native::literal(value).empty()) {
             throw exception::bad_member_spec{input, "Construction parameter defaults require checked literals or default(factory)"};
           }
+        }
+      }
+    }
+    if (factory.constructor) {
+      for (std::size_t arity{}; arity <= factory.parameters.size(); ++arity) {
+        if (arity != factory.parameters.size() && factory.parameters[arity].default_value.empty() &&
+            factory.parameters[arity].default_factory.empty()) { continue; }
+        if (!constructor_calls.insert(construction_signature(factory, arity)).second) {
+          throw exception::bad_member_spec{input, "Duplicate constructor signature or ambiguous default argument list"};
         }
       }
     }
@@ -3191,12 +3373,19 @@ void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream
         }
         ::rohit::serializer::conversion::validate(*class_ptr);
         for (auto& method : class_ptr->functions) {
-          if (method.return_type.name != "void") {
+          const auto dependent = [&](const auto& self, const type_name& type) -> bool {
+            return std::any_of(method.generic_parameters.begin(), method.generic_parameters.end(),
+                [&](const auto& item) { return item.name == type.name; }) ||
+                std::any_of(type.arguments.begin(), type.arguments.end(), [&](const auto& argument) { return self(self, argument); });
+          };
+          if (method.return_type.name != "void" && !method.return_type.common_numeric && !dependent(dependent, method.return_type)) {
             resolve_type(in_stream, method.return_type, variable_type_map);
           }
           std::string signature = method.name + "(";
           for (auto& parameter : method.parameters) {
-            resolve_type(in_stream, parameter.type, variable_type_map);
+            if (!parameter.type.common_numeric && !dependent(dependent, parameter.type)) {
+              resolve_type(in_stream, parameter.type, variable_type_map);
+            }
             signature += parameter.type.get_full_name() + ",";
           }
           signature += ")";
@@ -3248,8 +3437,19 @@ void resolve_behavior_bodies(const rohit::type_check::schema_input_buffer auto& 
       if (symbols.contains(node->get_full_name())) {
         throw exception::bad_member_spec{input, "Namespace function collides with a type or namespace: " + node->get_full_name()};
       }
-      if (method.return_type.name != "void") { resolve_type(input, method.return_type, symbols); }
-      for (auto& parameter : method.parameters) { resolve_type(input, parameter.type, symbols); }
+      const auto dependent = [&](const auto& self, const type_name& type) -> bool {
+        return std::any_of(method.generic_parameters.begin(), method.generic_parameters.end(),
+            [&](const auto& parameter) { return parameter.name == type.name; }) ||
+            std::any_of(type.arguments.begin(), type.arguments.end(),
+                [&](const auto& argument) { return self(self, argument); });
+      };
+      if (method.return_type.name != "void" && !method.return_type.common_numeric &&
+          !dependent(dependent, method.return_type)) { resolve_type(input, method.return_type, symbols); }
+      for (auto& parameter : method.parameters) {
+        if (!parameter.type.common_numeric && !dependent(dependent, parameter.type)) {
+          resolve_type(input, parameter.type, symbols);
+        }
+      }
       const auto space = node->parent_namespace ? node->parent_namespace->get_full_name() + "::" : std::string{};
       if (!signatures.insert(space + behavior_signature(method)).second) {
         throw exception::bad_member_spec{input, "Duplicate namespace function signature: " + node->get_full_name()};
@@ -3266,7 +3466,32 @@ void resolve_behavior_bodies(const rohit::type_check::schema_input_buffer auto& 
     function_declaration* method{};
   };
   std::vector<callable> callables;
+  // Numeric policies describe a callable scalar representation, never nested record storage.
+  const auto contains_common_numeric = [&](const auto& self, const type_name& type) -> bool {
+    return type.common_numeric || std::any_of(type.arguments.begin(), type.arguments.end(),
+        [&](const auto& argument) { return self(self, argument); });
+  };
   const auto bind_body = [&](function_declaration& method, const class_node& owner) {
+    const auto validate_policy = [&](const type_name& type) {
+      if (!type.common_numeric) {
+        if (contains_common_numeric(contains_common_numeric, type)) {
+          throw std::invalid_argument{"Common numeric policies require a direct scalar callable type"};
+        }
+        return;
+      }
+      behavior_expression proof;
+      proof.kind = behavior_expression::operation::checked_cast;
+      proof.numeric_contract_enabled = true;
+      proof.resolved_type = type;
+      behavior_expression zero;
+      zero.kind = behavior_expression::operation::integer_literal;
+      zero.value = "0";
+      zero.result_type = "uint64";
+      proof.operands.push_back(std::move(zero));
+      static_cast<void>(validate_behavior_expression(proof, owner, method, symbols, {}, functions));
+    };
+    validate_policy(method.return_type);
+    for (const auto& parameter : method.parameters) { validate_policy(parameter.type); }
     if (!method.expression) { return; }
     auto& expression = *method.expression;
     const auto actual = validate_behavior_expression(expression, owner, method, symbols, {}, functions);
@@ -3292,7 +3517,7 @@ void resolve_behavior_bodies(const rohit::type_check::schema_input_buffer auto& 
     callables.push_back({node, 0, &node->function});
   }
   for (auto* owner : owners) {
-    bind_construction_expressions(input, *owner, symbols);
+    bind_construction_expressions(input, *owner, symbols, functions);
     std::set<std::string> member_signatures;
     for (std::size_t index{}; index < owner->functions.size(); ++index) {
       auto& method = owner->functions[index];
@@ -3322,13 +3547,17 @@ void resolve_behavior_bodies(const rohit::type_check::schema_input_buffer auto& 
                   return self(self, operand);
                 });
           };
+          const bool common_numeric_signature = contains_common_numeric(contains_common_numeric, method.return_type) ||
+              std::any_of(method.parameters.begin(), method.parameters.end(), [&](const auto& parameter) {
+                return contains_common_numeric(contains_common_numeric, parameter.type);
+              });
           try {
             bind_body(bound, *owner);
             method.expression = std::move(bound.expression);
           } catch (const std::invalid_argument&) {
-            if (contains_numeric_contract(contains_numeric_contract, *method.expression)) { throw; }
+            if (common_numeric_signature || contains_numeric_contract(contains_numeric_contract, *method.expression)) { throw; }
           } catch (const exception::bad_member_spec&) {
-            if (contains_numeric_contract(contains_numeric_contract, *method.expression)) { throw; }
+            if (common_numeric_signature || contains_numeric_contract(contains_numeric_contract, *method.expression)) { throw; }
           }
         } else {
           bind_body(method, *owner);

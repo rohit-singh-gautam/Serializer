@@ -156,13 +156,14 @@ it only after candidate initialization succeeds. Wrong cardinality fails rather
 than padding/truncating the field or changing its wire shape. This does not add
 modifier-based variable arrays, maps, or variants to construction bindings.
 
-Parameter defaults use `= literal` or `= default(factory_name)` on a concrete
+Language `1.11.0` parameter defaults use `= literal` or `= default(factory_name)` on a concrete
 owning record. All parameters after the first default must have defaults.
 Scalar/string/enum defaults use the existing checked literal rules; record
 defaults select an existing public zero-argument factory. Class type parameters,
 independent generic input parameters and fixed-array parameters cannot have
 defaults. A generic `Value input = {}` or `Value input = default(factory)` rejects
-even when `Value` has a class template default. Record defaults construct a fresh
+even when `Value` has a class template default. Language `1.12.0` adds the explicit
+generic factory contract below. Record defaults construct a fresh
 value on every invocation, including Python; no
 shared mutable default is introduced.
 
@@ -223,6 +224,193 @@ executed in C++, C, Java, JavaScript, TypeScript, Go, C#, Rust, Python, Swift,
 and Kotlin with the runner's strict SDK checks. The focused legacy/new C++
 construction suite also passed; full-repository qualification is recorded
 separately in the verification guide below.
+
+## Authoring construction in language 1.12
+
+Compiler/runtime `1.17.0` supports the following opt-in C++ contracts under
+`serializer version 1.12.0;`. Existing language headers retain their selected
+meaning. Constructor overloads, independently generic record inputs, generic
+factory parameter defaults and authoring hooks require C++ output; other outputs
+diagnose these declarations rather than approximate their semantics. These
+declarations add no field IDs, wire metadata, managed identities or codec hooks.
+
+### Qualified native methods and scalar calls
+
+```text
+serializer version 1.12.0;
+class sample {
+  public uint32 value;
+  public cpp storage(none) {
+    constexpr std::uint32_t doubled() const { return value * 2; }
+  }
+  public function uint32 read() readonly constexpr(cpp) cpp {
+    return value;
+  };
+  public constructor(uint32 input) {
+    value = input;
+  }
+  public factory from_other(sample input) {
+    value = input.read();
+  }
+}
+```
+
+`cpp storage(none) { ... }` is an author assertion that the block adds no
+nonstatic data members, constructors, destructor, copy/move special members,
+storage or lifetime hooks, or polymorphic behavior. Methods, static constants,
+type aliases and other declarations that preserve that contract may remain
+native. Serializer never infers the assertion by inspecting arbitrary C++ tokens.
+Every C++ class block in the relevant owner/base/contained-value graph must be
+qualified before it can pass the constant-construction proof. A native block for
+another output language does not add C++ storage. The selected C++ compiler checks
+the emitted declarations and each actual constant evaluation.
+
+Qualified native storage preserves eligible `constexpr` constructors, retained
+default constructors and factories. It does not prove `noexcept`: any native class
+block suppresses Serializer's inferred `noexcept` annotation. The C++ compiler
+still determines the implicit exception specification of a defaulted constructor.
+Managed values, maps, variants,
+recursive storage and dispatched behavior retain their existing restrictions.
+Open generic values defer their actual constant-evaluation requirements to the
+chosen specialization.
+
+Construction expressions may call declared readonly namespace functions or public
+readonly methods on input records and their accessible generated projections.
+Calls must return a scalar or enum; arbitrary constructors, undeclared calls,
+record-returning calls, collection indexing and reductions remain outside binding
+expressions. Bindings cannot access the destination's partially initialized fields
+or call its instance methods. Arguments and reached operands are evaluated once in
+schema order; conditional and Boolean branches remain lazy. Callee failures
+propagate, and bindings containing calls remain potentially throwing.
+
+Typed callees use the same C++ constant-evaluation proof as ordinary readonly
+methods. `constexpr(cpp)` qualifies an ordinary readonly native C++ body and emits
+its C++ `constexpr` declaration; it does not interpret that body or prove that every
+input is constant-evaluable. It cannot qualify edit/dispatched methods, portable
+expression bodies or bodyless external declarations. Unqualified native and
+external callees retain runtime construction. See [behavior](behavior.md) for the
+callee contract and [the generated fixture](../test/resources/hybrid_construction.serializer).
+
+### Overloaded checked inputs
+
+```text
+serializer version 1.12.0;
+class quantity<T: (integral || floating_point) && !bool = double> {
+  public T value;
+  public constructor<Input: (integral || floating_point) && !bool>(Input input) explicit {
+    value = checked<T>(input);
+  }
+  public constructor<Input: (integral || floating_point) && !bool>(quantity<Input> input) explicit {
+    value = checked<T>(input.value);
+  }
+}
+```
+
+Distinct schema constructor signatures generate native C++ overloads and matching
+`create` overloads. Their independent constrained input parameters may appear
+inside generated owning-record applications, so `quantity<Input>` resolves its
+public field projection using `Input`. Checked bindings preserve strong generated
+record types and reject lossy conversions; `explicit` preserves deliberate
+authoring calls. Default codec construction remains available. Duplicate signatures,
+including independent type parameters differing only in their names, and ambiguous
+shortened default signatures reject. Native implicit copy/move construction keeps
+its ordinary C++ behavior; this does not add an arbitrary own-record-by-value
+constructor declaration.
+
+### Fresh generic factory defaults
+
+```text
+serializer version 1.12.0;
+class basis_frame {
+  public double diagonal {1.0};
+  public factory identity() {
+    diagonal = 1.0;
+  }
+}
+class sampled_value<Frame: factory(identity) = basis_frame> {
+  public double size;
+  public uint32 count;
+  public Frame placement;
+  public constructor(double size_input, uint32 count_input = 32,
+                     Frame placement_input = default(identity)) {
+    size = size_input;
+    count = count_input;
+    placement = placement_input;
+  }
+}
+```
+
+The positive `factory(identity)` constraint declares the generic type's named
+factory contract. `default(identity)` is allowed on that class type parameter
+only when its constraint supplies the same factory. The parser checks each known
+generated concrete argument for an owning representation and a public zero-argument
+factory returning that exact owner. Open application C++ types satisfy the emitted
+`requires` check for an exact `Frame` result. This is independent of native host
+initialization or execution ownership.
+
+Each omitted argument invokes `Frame::identity()` afresh, so a nonzero identity
+basis can be supplied independently of default field initialization. Standard
+trailing-default rules still apply: `count` and `placement` are both optional in
+the example. A custom C++ frame must also satisfy the generated owner's ordinary
+default-construction, assignment and codec requirements. A factory constraint
+does not promise constant evaluation or `noexcept`; qualify the selected factory
+implementation when those guarantees matter. Literal defaults on open type
+parameters, independent input defaults, fixed-array defaults and `{}` parameter
+defaults retain their existing restrictions. See [generic constraints](generics.md).
+
+Other ordinary backends retain fresh factory defaults after an owning generic
+model is concretely specialized in the schema. They do not expose the open C++
+template API. Native authoring hooks require C++ output separately;
+a concrete model using only portable bindings/defaults keeps its portable API.
+
+### Validation and host initialization
+
+```text
+serializer version 1.12.0;
+class authoring_value {
+  public double radius;
+  public uint32 count;
+  public constructor(double radius_input, uint32 count_input = 32) {
+    radius = radius_input;
+    count = count_input;
+    validate expression(math.is_finite(radius) && radius > 0.0 && count >= 3);
+    validate cpp {
+      validate_placement(*this);
+    };
+    initialize cpp {
+      register_execution_reference(*this);
+    };
+  }
+}
+```
+
+`validate expression(...)`, `validate cpp { ... };` and `initialize cpp { ... };`
+belong only to a declared authoring constructor. Bindings precede validations,
+which precede host initialization. Typed validation reads the bound candidate's
+fields and must produce Boolean state; a false result throws `std::domain_error`.
+Reached expression/callee failures also propagate. The optional native validation
+block follows typed validations, and the optional initialization block runs last.
+Repeated or misordered native hooks reject. Keep the total typed validation count
+within the compiler's 64-check bound.
+
+Declare and implement the shown host functions in application C++, using a native
+preamble or the selected application's include configuration. Serializer does not
+define registration, session ownership, placement rules or callback implementations.
+Native bodies keep authored field names, so use `cpp.naming = preserve`. Generic
+host validation can require additional C++ representation operations; the compiler
+checks them independently of the generic factory contract.
+
+The generated authoring `create` factory invokes the native constructor once.
+Default construction, ordinary copies/moves and codec decoding do not run these
+validation or initialization hooks. A native hook suppresses constant construction
+for that authoring overload; it does not change the retained schema-default
+constructor. Host side effects are not rolled back automatically if a hook throws;
+the application must use RAII or its own transaction/session boundary. A successful
+hook does not turn a transient registration into a durable managed identity.
+
+See [authoring verification](verification-authoring-2026-10-11.md) for executed
+checks and platform limits; the examples above specify behavior, not a claim that
+every consuming application or SDK has been qualified.
 
 ## Stateless transient layout
 

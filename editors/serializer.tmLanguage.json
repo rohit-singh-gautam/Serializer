@@ -99,6 +99,10 @@
         },
         {
           "name": "support.type.serializer",
+          "match": "\\bcommon_type(?=\\s*<)"
+        },
+        {
+          "name": "support.type.serializer",
           "match": "\\b(version[234]|char|bool|string|float|double|u?int(?:8|16|32|64))\\b"
         },
         {
@@ -140,6 +144,9 @@
           "patterns": [
             {
               "include": "#comments"
+            },
+            {
+              "include": "#factory_contract"
             },
             {
               "name": "storage.modifier.serializer",
@@ -187,6 +194,20 @@
     },
     "schema_contents": {
       "patterns": [
+        {
+          "include": "#constructor_initialize"
+        },
+        {
+          "include": "#cpp_constexpr_contract"
+        },
+        {
+          "name": "keyword.control.serializer",
+          "match": "\\bvalidate\\b(?=\\s*expression\\s*\\()"
+        },
+        {
+          "name": "support.type.serializer",
+          "match": "\\bcommon_type(?=\\s*<)"
+        },
         {
           "begin": "\\b(conversion)\\s+",
           "beginCaptures": {
@@ -440,13 +461,16 @@
               ]
             }
           },
-          "end": "\\b([A-Za-z_][A-Za-z_0-9]*)\\s*(\\()|(?=[;{}])",
+          "end": "\\b([A-Za-z_][A-Za-z_0-9]*)\\s*(\\()|\\b([A-Za-z_][A-Za-z_0-9]*)(?=\\s*<\\s*[A-Za-z_][A-Za-z_0-9]*\\s*:(?!:))|(?=[;{}])",
           "endCaptures": {
             "1": {
               "name": "entity.name.function.serializer"
             },
             "2": {
               "name": "punctuation.section.group.serializer"
+            },
+            "3": {
+              "name": "entity.name.function.serializer"
             }
           },
           "patterns": [
@@ -886,7 +910,7 @@
     },
     "native_cpp": {
       "name": "meta.embedded.block.serializer",
-      "begin": "\\b(public|protected|private)(?:\\s|/\\*.*?\\*/)+(cpp)\\b(?=\\s*(?:\\{|/\\*|//|$))|\\b(cpp)\\b(?=\\s*(?:preamble\\b|/\\*|//|$))",
+      "begin": "\\b(public|protected|private)(?:\\s|/\\*.*?\\*/)+(cpp)\\b(?=\\s*(?:\\{|storage\\b|/\\*|//|$))|\\b(cpp)\\b(?=\\s*(?:preamble\\b|/\\*|//|$))",
       "beginCaptures": {
         "1": {
           "name": "storage.modifier.serializer"
@@ -902,6 +926,9 @@
       "patterns": [
         {
           "include": "#comments"
+        },
+        {
+          "include": "#native_storage_contract"
         },
         {
           "name": "keyword.control.serializer",
@@ -1974,7 +2001,7 @@
     },
     "native_methods": {
       "name": "meta.function.native.serializer",
-      "begin": "\\b(readonly|edit)\\b(?=\\s*(?:(?:cpp|csharp|java|javascript|typescript|go|rust|python|swift|kotlin|c)\\b|/\\*|//|$))",
+      "begin": "\\b(readonly|edit)\\b(?=\\s*(?:(?:constexpr|cpp|csharp|java|javascript|typescript|go|rust|python|swift|kotlin|c)\\b|/\\*|//|$))",
       "beginCaptures": {
         "1": {
           "name": "storage.modifier.serializer"
@@ -1984,6 +2011,9 @@
       "patterns": [
         {
           "include": "#comments"
+        },
+        {
+          "include": "#cpp_constexpr_contract"
         },
         {
           "include": "#native_cpp_method"
@@ -2454,6 +2484,75 @@
         },
         {
           "include": "#type_name"
+        }
+      ]
+    },
+    "cpp_constexpr_contract": {
+      "match": "\\b(constexpr)\\s*(\\()\\s*(cpp)\\s*(\\))",
+      "captures": {
+        "1": {
+          "name": "storage.modifier.serializer"
+        },
+        "2": {
+          "name": "punctuation.section.group.serializer"
+        },
+        "3": {
+          "name": "storage.modifier.language.serializer"
+        },
+        "4": {
+          "name": "punctuation.section.group.serializer"
+        }
+      }
+    },
+    "native_storage_contract": {
+      "match": "\\b(storage)\\s*(\\()\\s*(none)\\s*(\\))",
+      "captures": {
+        "1": {
+          "name": "storage.modifier.serializer"
+        },
+        "2": {
+          "name": "punctuation.section.group.serializer"
+        },
+        "3": {
+          "name": "constant.other.layout.serializer"
+        },
+        "4": {
+          "name": "punctuation.section.group.serializer"
+        }
+      }
+    },
+    "factory_contract": {
+      "match": "\\b(factory)\\s*(\\()\\s*([A-Za-z_][A-Za-z_0-9]*)\\s*(\\))",
+      "captures": {
+        "1": {
+          "name": "storage.modifier.serializer"
+        },
+        "2": {
+          "name": "punctuation.section.group.serializer"
+        },
+        "3": {
+          "name": "entity.name.function.serializer"
+        },
+        "4": {
+          "name": "punctuation.section.group.serializer"
+        }
+      }
+    },
+    "constructor_initialize": {
+      "name": "meta.function.native.serializer",
+      "begin": "\\b(initialize|validate)\\b(?=\\s*(?:cpp\\b|/\\*|//|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "keyword.control.serializer"
+        }
+      },
+      "end": ";|(?=[{}])",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#native_cpp_method"
         }
       ]
     }

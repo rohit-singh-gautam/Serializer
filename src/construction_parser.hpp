@@ -33,6 +33,7 @@ construction_declaration parse_construction(const rohit::type_check::schema_inpu
   }
   construction_declaration result;
   result.access = access;
+  result.overload_contract_enabled = active_language_version >= language_version{1u, 12u, 0u};
   result.constructor = parse_identifier_impl(input) == "constructor";
   skip_whitespace_and_comment(input);
   if (!result.constructor) {
@@ -149,6 +150,48 @@ construction_declaration parse_construction(const rohit::type_check::schema_inpu
   std::unordered_set<std::string> fields;
   constexpr std::size_t maximum_assignments = 1024;
   while (!input.full() && *input != '}') {
+    const auto directive = make_constant_full_stream(input.curr(), input.remaining_buffer());
+    const auto name = parse_identifier_impl(directive);
+    skip_whitespace_and_comment(directive);
+    if ((name == "validate" || name == "initialize") && !directive.full() && *directive != '=') {
+      if (!result.overload_contract_enabled) {
+        throw exception::bad_member_spec{input, "Authoring validation and initialization require serializer version 1.12.0"};
+      }
+      static_cast<void>(parse_identifier_impl(input));
+      skip_whitespace_and_comment(input);
+      if (name == "validate" && next_keyword(input, "expression")) {
+        if (!result.constructor || !result.native_validations.empty() || !result.initializers.empty()) {
+          throw exception::bad_member_spec{input, "Validation must precede host initialization"};
+        }
+        constexpr std::size_t maximum_validation_checks = 64;
+        if (result.validations.size() >= maximum_validation_checks) {
+          throw exception::bad_member_spec{input, "Construction exceeds 64 validation checks"};
+        }
+        static_cast<void>(parse_identifier_impl(input));
+        skip_whitespace_and_comment(input);
+        check_and_increase(input, '(');
+        result.validations.push_back(behavior_expression_parser{input, 0, 0, space}.conditional());
+        skip_whitespace_and_comment(input);
+        check_and_increase(input, ')');
+      } else {
+        const auto language = parse_identifier_impl(input);
+        if (language != "cpp" || !result.constructor) {
+          throw exception::bad_member_spec{input, "Authoring host hooks require a C++ constructor"};
+        }
+        auto& blocks = name == "initialize" ? result.initializers : result.native_validations;
+        if (!blocks.empty() || (name == "validate" && !result.initializers.empty())) {
+          throw exception::bad_member_spec{input, "Repeated or misordered authoring host hook"};
+        }
+        blocks.push_back(parse_native_block(input, language, access));
+      }
+      skip_whitespace_and_comment(input);
+      check_and_increase(input, ';');
+      skip_whitespace_and_comment(input);
+      continue;
+    }
+    if (!result.validations.empty() || !result.native_validations.empty() || !result.initializers.empty()) {
+      throw exception::bad_member_spec{input, "Construction bindings must precede validation and initialization"};
+    }
     construction_assignment assignment;
     assignment.field = parse_identifier_impl(input);
     if (!fields.insert(assignment.field).second || result.assignments.size() >= maximum_assignments) {
@@ -192,7 +235,8 @@ construction_declaration parse_construction(const rohit::type_check::schema_inpu
       assignment.parameter = parameters.contains(assignment.value);
       if (!assignment.parameter && active_language_version >= language_version{1u, 11u, 0u} &&
           !assignment.value.empty() && assignment.value.front() != '\'' && assignment.value.front() != '"' &&
-          assignment.value.find("::") == std::string::npos) {
+          (assignment.value.find("::") == std::string::npos ||
+           (result.overload_contract_enabled && assignment.value.find('(') != std::string::npos))) {
         const auto expression_input = make_constant_full_stream(begin,
             static_cast<std::size_t>(input.curr() - begin));
         assignment.expression = behavior_expression_parser{expression_input, 0, 0, space}.conditional();

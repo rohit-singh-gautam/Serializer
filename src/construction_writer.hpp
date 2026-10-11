@@ -4,6 +4,7 @@
 
 #include "native_schema.hpp"
 #include "behavior_writer.hpp"
+#include "construction_qualification.hpp"
 #include <rohit/serializer_creator.hpp>
 #include <algorithm>
 #include <functional>
@@ -47,33 +48,38 @@ inline std::string parameter_type(const function_parameter& parameter, std::stri
 
 // Preserve the same constraint categories and exact-type identities as class templates.
 inline std::string input_constraint(const generic_constraint& value, std::string_view parameter,
-    const std::function<std::string(const type_name&)>& type) {
+    const std::function<std::string(const type_name&)>& type,
+    const std::function<std::string(std::string_view)>& callable_identifier = {}) {
   using operation = generic_constraint::operation;
   const std::string name{parameter};
   switch (value.kind) {
   case operation::integral: return "::std::integral<" + name + ">";
   case operation::floating_point: return "::std::floating_point<" + name + ">";
   case operation::stateless: return "::std::is_empty_v<" + name + ">";
+  case operation::factory: return "requires { { " + name + "::" +
+      (callable_identifier ? callable_identifier(value.factory_name) : value.factory_name) +
+      "() } -> ::std::same_as<" + name + ">; }";
   case operation::exact_type: return "::std::same_as<" + name + ", " + type(*value.type) + ">";
-  case operation::logical_not: return "!(" + input_constraint(value.operands.at(0), parameter, type) + ")";
+  case operation::logical_not: return "!(" + input_constraint(value.operands.at(0), parameter, type, callable_identifier) + ")";
   case operation::logical_and:
   case operation::logical_or:
-    return "(" + input_constraint(value.operands.at(0), parameter, type) +
+    return "(" + input_constraint(value.operands.at(0), parameter, type, callable_identifier) +
         (value.kind == operation::logical_and ? " && " : " || ") +
-        input_constraint(value.operands.at(1), parameter, type) + ")";
+        input_constraint(value.operands.at(1), parameter, type, callable_identifier) + ")";
   }
   throw std::invalid_argument{"Unknown construction input constraint"};
 }
 
 // Emit only the method's independently constrained native C++ input parameters.
 inline std::string input_template(const construction_declaration& factory,
-    const std::function<std::string(const type_name&)>& type) {
+    const std::function<std::string(const type_name&)>& type,
+    const std::function<std::string(std::string_view)>& callable_identifier = {}) {
   if (factory.generic_parameters.empty()) { return {}; }
   std::string parameters, constraints;
   for (const auto& parameter : factory.generic_parameters) {
     if (!parameters.empty()) { parameters += ", "; constraints += " && "; }
     parameters += "typename " + parameter.name;
-    constraints += "(" + input_constraint(*parameter.constraint, parameter.name, type) + ")";
+    constraints += "(" + input_constraint(*parameter.constraint, parameter.name, type, callable_identifier) + ")";
   }
   return "  template <" + parameters + ">\n  requires (" + constraints + ")\n";
 }
@@ -88,7 +94,15 @@ inline member parameter_default(const function_parameter& parameter) {
 
 // Reject unsupported new output contracts explicitly while leaving existing construction available.
 inline void validate_extended_backend(const class_node& owner, std::string_view language) {
+  if (language != "cpp" && std::count_if(owner.constructions.begin(), owner.constructions.end(),
+      [](const auto& factory) { return factory.constructor; }) > 1) {
+    throw std::invalid_argument{std::string{language} + ": constructor overloads require C++ output"};
+  }
   for (const auto& factory : owner.constructions) {
+    if (language != "cpp" && (!factory.validations.empty() || !factory.native_validations.empty() ||
+        !factory.initializers.empty())) {
+      throw std::invalid_argument{std::string{language} + ": authoring validation and initialization require C++ output"};
+    }
     if (language != "cpp" && !factory.generic_parameters.empty()) {
       throw std::invalid_argument{std::string{language} + ": independently generic construction inputs require C++ output"};
     }
@@ -97,93 +111,6 @@ inline void validate_extended_backend(const class_node& owner, std::string_view 
       throw std::invalid_argument{std::string{language} + ": checked construction expressions require C++ output"};
     }
   }
-}
-
-// Prove bounded construction operations are constant-capable without importing callable emission.
-inline bool constexpr_binding(const behavior_expression& expression) {
-  using operation = behavior_expression::operation;
-  if (expression.kind == operation::square_root || expression.kind == operation::sine ||
-      expression.kind == operation::cosine || expression.kind == operation::call) { return false; }
-  return std::all_of(expression.operands.begin(), expression.operands.end(), constexpr_binding);
-}
-
-// Prove known storage supports C++20 construction; dependent generic values defer to specialization.
-inline bool constexpr_construction(const class_node& owner,
-    const std::vector<function_parameter>& parameters = {},
-    const std::vector<generic_parameter>& input_types = {}) {
-  std::set<const class_node*> active;
-  std::function<bool(const class_node&)> check_owner;
-  const auto check_type = [&](const type_name& value, const class_node& scope, const auto& recurse) -> bool {
-    if (value.is_associative()) { return false; }
-    if (value.is_optional() || value.is_sequence()) {
-      return std::all_of(value.arguments.begin(), value.arguments.end(),
-          [&](const auto& argument) { return recurse(argument, scope, recurse); });
-    }
-    if (value.type == object_type::primitive) { return true; }
-    if (value.type == object_type::enum_type) { return true; }
-    if (value.resolved_node && (value.resolved_node->type == object_type::class_type ||
-                               value.resolved_node->type == object_type::generic_definition)) {
-      return check_owner(static_cast<const class_node&>(*value.resolved_node));
-    }
-    return std::find(scope.type_parameters.begin(), scope.type_parameters.end(), value.name) != scope.type_parameters.end() ||
-        std::any_of(input_types.begin(), input_types.end(), [&](const auto& input) { return input.name == value.name; });
-  };
-  check_owner = [&](const class_node& value) {
-    if (value.supports_managed() || !value.native_blocks.empty() ||
-        value.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
-        std::any_of(value.functions.begin(), value.functions.end(), [](const auto& method) {
-          return method.dispatch != function_declaration::dispatch_type::ordinary;
-        }) || !active.insert(&value).second) { return false; }
-    // Cyclic storage needs a runtime lifetime contract even when an empty container breaks the cycle.
-    const bool result = std::all_of(value.parents.begin(), value.parents.end(), [&](const auto& base) {
-      return base.parent_class && check_owner(*base.parent_class);
-    }) && std::all_of(value.member_list.begin(), value.member_list.end(), [&](const auto& field) {
-      return field.modifier != member::modifier_type::map && field.modifier != member::modifier_type::variant &&
-          std::all_of(field.type_name_list.begin(), field.type_name_list.end(), [&](const auto& type) {
-            return check_type(type, value, check_type);
-          });
-    });
-    active.erase(&value);
-    return result;
-  };
-  return check_owner(owner) && std::all_of(parameters.begin(), parameters.end(), [&](const auto& parameter) {
-    return check_type(parameter.type, owner, check_type);
-  });
-}
-
-// Prove concrete scalar storage and checked defaults cannot throw during construction or copying.
-inline bool nothrow_construction(const class_node& owner,
-    const std::vector<function_parameter>& parameters = {}) {
-  if (!constexpr_construction(owner, parameters)) { return false; }
-  const auto check_type = [&](const type_name& value) -> bool {
-    if (value.is_optional() || value.is_sequence() || value.is_associative()) { return false; }
-    if (value.type == object_type::primitive) {
-      return value.name != "string" && (!value.is_digest() || value.digest_extent != 0);
-    }
-    if (value.type == object_type::enum_type) { return true; }
-    if (value.resolved_node && (value.resolved_node->type == object_type::class_type ||
-                               value.resolved_node->type == object_type::generic_definition)) {
-      return nothrow_construction(static_cast<const class_node&>(*value.resolved_node));
-    }
-    return false; // Concrete generic arguments must establish their own exception guarantees.
-  };
-  return std::all_of(owner.parents.begin(), owner.parents.end(), [&](const auto& base) {
-    return base.parent_class && nothrow_construction(*base.parent_class);
-  }) && std::all_of(owner.member_list.begin(), owner.member_list.end(), [&](const auto& field) {
-    if ((field.modifier != member::modifier_type::none &&
-         (field.modifier != member::modifier_type::array || field.fixed_extent == 0)) || field.type_name_list.size() != 1 ||
-        !check_type(field.type_name_list.front())) { return false; }
-    if (!field.default_value.empty()) {
-      try {
-        static_cast<void>(native::literal(field));
-      } catch (const std::invalid_argument&) {
-        return false; // Preserve native C++ initializers without promising their exception behavior.
-      }
-    }
-    return true;
-  }) && std::all_of(parameters.begin(), parameters.end(), [&](const auto& parameter) {
-    return check_type(parameter.type);
-  });
 }
 
 // Reject new factory symbols that collide after the backend's naming and visibility conversion.
@@ -206,18 +133,26 @@ inline void validate_names(const class_node& owner, std::string_view owner_name,
   for (const auto& method : owner.functions) {
     symbols.insert(callable_identifier ? callable_identifier(method.name) : identifier(method.name, method.access));
   }
+  std::set<std::string> constructor_names;
   for (const auto& factory : owner.constructions) {
     const auto source_name = factory.constructor ? std::string_view{"create"} : std::string_view{factory.name};
     const auto name = callable_identifier ? callable_identifier(source_name) : identifier(source_name, factory.access);
-    if (!symbols.insert(name).second) {
+    const bool constructor_overload = language == "cpp" && factory.constructor &&
+        factory.overload_contract_enabled && constructor_names.contains(name);
+    if (!constructor_overload && !symbols.insert(name).second) {
       throw std::invalid_argument{"Generated construction name collision: " + name};
     }
+    if (factory.constructor) { constructor_names.insert(name); }
     for (std::size_t arity{}; arity < factory.parameters.size(); ++arity) {
       const auto& parameter = factory.parameters[arity];
       if (parameter.default_value.empty() && parameter.default_factory.empty()) { continue; }
-      if (!symbols.insert(name + "_default_" + std::to_string(arity)).second) {
+      const auto default_name = name + "_default_" + std::to_string(arity);
+      const bool default_overload = language == "cpp" && factory.constructor &&
+          factory.overload_contract_enabled && constructor_names.contains(default_name);
+      if (!default_overload && !symbols.insert(default_name).second) {
         throw std::invalid_argument{"Generated construction default overload name collision"};
       }
+      if (factory.constructor) { constructor_names.insert(default_name); }
     }
     std::set<std::string> parameters;
     for (const auto& parameter : factory.parameters) {
@@ -240,9 +175,12 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
     std::string_view language, const std::function<std::string(const type_name&)>& type,
     const std::function<std::string(std::string_view, access_type)>& identifier,
     const std::function<std::string(const member&)>& initial,
-    const std::function<std::string(std::string_view)>& callable_identifier = {}) {
-  validate_names(owner, owner_name, identifier, callable_identifier, language);
+    const std::function<std::string(std::string_view)>& callable_identifier = {},
+    const std::function<std::string(const behavior_expression&, const std::vector<std::string>&)>& call = {},
+    const std::function<std::string(const behavior_expression&,
+        const std::function<std::string(std::string_view)>&)>& checked_expression = {}) {
   validate_extended_backend(owner, language);
+  validate_names(owner, owner_name, identifier, callable_identifier, language);
   std::string output;
   const std::string name{owner_name};
   const bool cpp = language == "cpp", python = language == "python", rust = language == "rust";
@@ -250,6 +188,15 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
   const bool typescript = language == "typescript", js = language == "js";
   const bool constexpr_owner = cpp && constexpr_construction(owner);
   const bool nothrow_owner = cpp && nothrow_construction(owner);
+  // Calls require ordered statement evaluation; retain existing lowering for other bindings.
+  const auto expression_text = [&](const behavior_expression& expression,
+      const std::function<std::string(std::string_view)>& symbol,
+      const behavior::expression_context& context) {
+    if (cpp && behavior::has_call(expression) && checked_expression) {
+      return checked_expression(expression, symbol);
+    }
+    return behavior::expression(expression, language, symbol, {}, context);
+  };
   bool explicit_constructor{};
   for (const auto& factory : owner.constructions) {
     const auto id = callable_identifier ? callable_identifier(factory.constructor ? "create" : factory.name) :
@@ -265,14 +212,17 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
             "protected " : "private ";
     const bool constexpr_bindings = std::all_of(factory.assignments.begin(), factory.assignments.end(),
         [](const auto& assignment) { return !assignment.expression || constexpr_binding(*assignment.expression); });
+    const bool authoring = !factory.validations.empty() || !factory.native_validations.empty() || !factory.initializers.empty();
     const std::string constant = cpp && constexpr_owner && constexpr_bindings &&
+        factory.native_validations.empty() && factory.initializers.empty() &&
+        std::all_of(factory.validations.begin(), factory.validations.end(), constexpr_binding) &&
         constexpr_construction(owner, factory.parameters, factory.generic_parameters) ? "constexpr " : "";
     const bool checked_binding = std::any_of(factory.assignments.begin(), factory.assignments.end(),
         [](const auto& assignment) { return assignment.expression.has_value(); });
     const bool default_factory = std::any_of(factory.parameters.begin(), factory.parameters.end(),
         [](const auto& parameter) { return !parameter.default_factory.empty(); });
-    const std::string exception = cpp && !checked_binding && !default_factory && nothrow_owner && nothrow_construction(owner, factory.parameters) ? " noexcept" : "";
-    const auto template_declaration = cpp ? input_template(factory, type) : std::string{};
+    const std::string exception = cpp && !authoring && !checked_binding && !default_factory && nothrow_owner && nothrow_construction(owner, factory.parameters) ? " noexcept" : "";
+    const auto template_declaration = cpp ? input_template(factory, type, callable_identifier) : std::string{};
     std::string parameters, constructor_parameters, arguments;
     std::vector<std::string> parameter_declarations, parameter_names, default_values;
     for (const auto& parameter : factory.parameters) {
@@ -306,12 +256,34 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
         value.default_value = assignment.value;
         value.default_factory = assignment.factory_default ? assignment.value : std::string{};
         behavior::expression_context context;
+        context.call = call;
         context.native_type = type;
         context.member_name = [&](auto field) { return identifier(field, access_type::public_access); };
-        const auto bound = assignment.expression ? behavior::expression(*assignment.expression, "cpp",
-            [&](auto symbol) { return "srl_arg_" + identifier(symbol, access_type::public_access); }, {}, context) :
+        const auto bound = assignment.expression ? expression_text(*assignment.expression,
+            [&](auto symbol) { return "srl_arg_" + identifier(symbol, access_type::public_access); }, context) :
             assignment.parameter ? "std::move(srl_arg_" + identifier(assignment.value, access_type::public_access) + ")" : initial(value);
         output += "    this->" + identifier(found->name, found->access) + " = " + bound + ";\n";
+      }
+      for (const auto& validation : factory.validations) {
+        behavior::expression_context context;
+        context.call = call;
+        context.native_type = type;
+        context.member_name = [&](auto field) { return identifier(field, access_type::public_access); };
+        const auto condition = expression_text(validation, [&](auto field) {
+          const auto found = std::find_if(owner.member_list.begin(), owner.member_list.end(),
+              [&](const auto& member) { return member.name == field; });
+          if (found == owner.member_list.end()) { throw std::invalid_argument{"Unbound authoring validation field"}; }
+          return "this->" + identifier(field, found->access);
+        }, context);
+        output += "    if (!(" + condition + ")) { throw ::std::domain_error{\"Construction validation failed\"}; }\n";
+      }
+      for (const auto& block : factory.native_validations) {
+        output += "// clang-format off\n" + behavior::line_directive(block, "cpp") + block.text +
+            behavior::reset_line("cpp") + "// clang-format on\n";
+      }
+      for (const auto& block : factory.initializers) {
+        output += "// clang-format off\n" + behavior::line_directive(block, "cpp") + block.text +
+            behavior::reset_line("cpp") + "// clang-format on\n";
       }
       output += "  }\n";
     }
@@ -351,41 +323,46 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
               (language == "java" ? "IllegalArgumentException" : language == "csharp" ? "System.ArgumentException" : "Error") +
               "(\"Construction fixed-array cardinality mismatch\"); }\n";
     }
-    output += python ? "    srl_result = " + name + "()\n" :
-        rust ? "    let " + std::string{factory.assignments.empty() ? "" : "mut "} + "srl_result = Self::default();\n" : go ? "  srl_result := New" + name + "()\n" :
-        swift ? "    " + std::string{factory.assignments.empty() ? "let" : "var"} + " srl_result = " + name + "()\n" : kotlin ? "    val srl_result = " + name + "()\n" :
-        js ? "    const srl_result = new " + name + "();\n" : cpp ? "    " + name + " srl_result{};\n" :
-        "    " + name + " srl_result = new " + name + "();\n";
-    for (const auto& assignment : factory.assignments) {
-      const auto found = std::find_if(owner.member_list.begin(), owner.member_list.end(), [&](const auto& field) { return field.name == assignment.field; });
-      if (found == owner.member_list.end()) { throw std::invalid_argument{"Unbound construction field"}; }
-      auto value = *found;
-      value.default_value = assignment.value;
-      value.default_factory = assignment.factory_default ? assignment.value : std::string{};
-      const auto parameter = assignment.parameter ?
-          (rust ? "_srl_arg_" : "srl_arg_") + identifier(assignment.value, access_type::public_access) : std::string{};
-      auto assigned_value = assignment.expression ? std::string{} : assignment.parameter ?
-          (cpp ? "std::move(" + parameter + ")" : parameter) : initial(value);
-      if (assignment.expression) {
-        behavior::expression_context context;
-        context.native_type = type;
-        context.member_name = [&](auto field) { return identifier(field, access_type::public_access); };
-        assigned_value = behavior::expression(*assignment.expression, language,
-            [&](auto symbol) { return "srl_arg_" + identifier(symbol, access_type::public_access); }, {}, context);
+    if (cpp && authoring) {
+      output += "    return " + name + "{" + arguments + "};\n  }\n";
+    } else {
+      output += python ? "    srl_result = " + name + "()\n" :
+          rust ? "    let " + std::string{factory.assignments.empty() ? "" : "mut "} + "srl_result = Self::default();\n" : go ? "  srl_result := New" + name + "()\n" :
+          swift ? "    " + std::string{factory.assignments.empty() ? "let" : "var"} + " srl_result = " + name + "()\n" : kotlin ? "    val srl_result = " + name + "()\n" :
+          js ? "    const srl_result = new " + name + "();\n" : cpp ? "    " + name + " srl_result{};\n" :
+          "    " + name + " srl_result = new " + name + "();\n";
+      for (const auto& assignment : factory.assignments) {
+        const auto found = std::find_if(owner.member_list.begin(), owner.member_list.end(), [&](const auto& field) { return field.name == assignment.field; });
+        if (found == owner.member_list.end()) { throw std::invalid_argument{"Unbound construction field"}; }
+        auto value = *found;
+        value.default_value = assignment.value;
+        value.default_factory = assignment.factory_default ? assignment.value : std::string{};
+        const auto parameter = assignment.parameter ?
+            (rust ? "_srl_arg_" : "srl_arg_") + identifier(assignment.value, access_type::public_access) : std::string{};
+        auto assigned_value = assignment.expression ? std::string{} : assignment.parameter ?
+            (cpp ? "std::move(" + parameter + ")" : parameter) : initial(value);
+        if (assignment.expression) {
+          behavior::expression_context context;
+          context.call = call;
+          context.native_type = type;
+          context.member_name = [&](auto field) { return identifier(field, access_type::public_access); };
+          assigned_value = expression_text(*assignment.expression,
+              [&](auto symbol) { return "srl_arg_" + identifier(symbol, access_type::public_access); }, context);
+        }
+        // Rust's float initializer casts need no grouping when they form the entire assignment RHS.
+        const auto& assigned_type = found->type_name_list.front();
+        if (rust && !assignment.parameter &&
+            (assigned_type.name == "float" || assigned_type.name == "double") &&
+            assigned_value.starts_with('(') && assigned_value.ends_with(')')) {
+          assigned_value = assigned_value.substr(1, assigned_value.size() - 2);
+        }
+        output += "    srl_result." + identifier(found->name, found->access) + " = " +
+            assigned_value +
+            (python || swift || kotlin || go ? "\n" : ";\n");
       }
-      // Rust's float initializer casts need no grouping when they form the entire assignment RHS.
-      const auto& assigned_type = found->type_name_list.front();
-      if (rust && !assignment.parameter &&
-          (assigned_type.name == "float" || assigned_type.name == "double") &&
-          assigned_value.starts_with('(') && assigned_value.ends_with(')')) {
-        assigned_value = assigned_value.substr(1, assigned_value.size() - 2);
-      }
-      output += "    srl_result." + identifier(found->name, found->access) + " = " +
-          assigned_value +
-          (python || swift || kotlin || go ? "\n" : ";\n");
+      output += python ? "    return srl_result\n" : go || swift || kotlin ? "    return srl_result\n  }\n" :
+          rust ? "    srl_result\n  }\n" : "    return srl_result;\n  }\n";
     }
-    output += python ? "    return srl_result\n" : go || swift || kotlin ? "    return srl_result\n  }\n" :
-        rust ? "    srl_result\n  }\n" : "    return srl_result;\n  }\n";
     if (!factory.generic_parameters.empty()) { continue; }
     for (std::size_t arity{}; arity < factory.parameters.size(); ++arity) {
       if (default_values[arity].empty()) { continue; }

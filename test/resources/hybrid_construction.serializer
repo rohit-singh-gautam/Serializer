@@ -1,0 +1,68 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.12.0;
+
+cpp preamble {
+  inline std::uint32_t hybrid_call_counter{};
+}
+
+namespace hybrid_helpers {
+  function uint32 forwarded(uint32 value) readonly expression(increment(value));
+  function uint32 increment(uint32 value) readonly constexpr(cpp) cpp {
+    return ::rohit::serializer::checked_add(value, ::std::uint32_t{1});
+  };
+  function uint32 observed(uint32 value) readonly cpp {
+    return value + hybrid_call_counter++;
+  };
+  function uint32 pair(uint32 left, uint32 right) readonly expression(left * 100 + right);
+}
+
+class hybrid_value stable_ids {
+  public uint32 value (1) {5};
+  public cpp storage(none) {
+    // Native methods keep their authored constant-evaluation contract.
+    constexpr std::uint32_t doubled() const { return value * 2; }
+  }
+  public constructor(uint32 input) explicit {
+    value = hybrid_helpers::forwarded(input);
+  }
+  public function uint32 read() readonly constexpr(cpp) cpp {
+    return value;
+  };
+  public function uint32 forwarded_read() readonly expression(read());
+  public function uint32 runtime_read() readonly cpp {
+    return value;
+  };
+  public function uint32 unqualified_read() readonly expression(runtime_read());
+  public factory from_other(hybrid_value input) {
+    value = input.read();
+  }
+}
+
+class hybrid_generic_source<T: (integral || floating_point) && !bool = uint32> {
+  public T value;
+  public function T read() readonly constexpr(cpp) cpp {
+    return value;
+  };
+}
+class hybrid_derived_source : public hybrid_generic_source<uint32> {}
+class hybrid_projection {
+  public uint32 value;
+  public constructor(hybrid_derived_source input) {
+    value = input.read();
+  }
+}
+
+class hybrid_call_sequence {
+  public uint32 value;
+  public constructor(uint32 input) {
+    value = hybrid_helpers::pair(hybrid_helpers::observed(input), hybrid_helpers::observed(input));
+  }
+}
+
+class hybrid_operand_sequence {
+  public uint32 value;
+  public constructor(uint32 input) {
+    value = hybrid_helpers::observed(input) * 100 + hybrid_helpers::observed(input);
+  }
+}

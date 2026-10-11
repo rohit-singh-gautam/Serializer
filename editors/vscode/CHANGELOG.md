@@ -1,3 +1,11 @@
+# 1.1.40
+
+- Support schema language 1.12.0 overloaded construction and generic readonly signatures.
+- Navigate nested constructor inputs, common-type operands and independent method type parameters.
+- Highlight native storage/constexpr contracts, factory constraints and authoring validation/initialization hooks.
+- Keep contract metadata separate from unrelated symbols and select language 1.12.0 in new schema snippets.
+- Keep both editor package versions synchronized.
+
 # 1.1.39
 
 - Support schema language 1.11.0 projected readonly calls and exact record conditional selection.

@@ -34,65 +34,6 @@ struct statement_context {
   std::function<void()> fail{};
 };
 
-// Identify bodies whose selected operations are valid during C++20 constant evaluation.
-inline bool constexpr_parameters(const class_node& owner, const function_declaration& method);
-
-// Inspect typed callees conservatively; native and dispatched bodies retain their authored contract.
-inline bool constexpr_expression(const behavior_expression& node,
-    std::set<const function_declaration*>& active) {
-  using operation = behavior_expression::operation;
-  switch (node.kind) {
-  case operation::square_root: case operation::sine: case operation::cosine: return false;
-  case operation::call: {
-    const auto& method = called_function(node);
-    if (method.dispatch != function_declaration::dispatch_type::ordinary ||
-        method.effect != function_declaration::effect_type::readonly || !method.expression ||
-        native_body(method, "cpp")) { return false; }
-    if (!active.insert(&method).second) { return false; }
-    static const class_node free_owner{object_type::class_type, std::string{}, nullptr,
-        class_attributes::none, {}};
-    const auto& owner = node.call_target->type == object_type::function_type ? free_owner :
-        static_cast<const class_node&>(*node.call_target);
-    const bool eligible = constexpr_parameters(owner, method) && constexpr_expression(*method.expression, active);
-    active.erase(&method);
-    if (!eligible) { return false; }
-    break;
-  }
-  default: break;
-  }
-  for (const auto& operand : node.operands) { if (!constexpr_expression(operand, active)) { return false; } }
-  return true;
-}
-
-// Start a fresh call-graph walk so repeated callees and recursive metadata are handled safely.
-inline bool constexpr_expression(const behavior_expression& node) {
-  std::set<const function_declaration*> active;
-  return constexpr_expression(node, active);
-}
-
-// Prove a known value type is C++20 constant-capable; dependent template types defer to specialization.
-inline bool constexpr_type(const class_node& owner, const type_name& value) {
-  const auto eligible = [&](const type_name& type, const auto& self) -> bool {
-    if (type.is_associative()) { return false; }
-    if (type.is_optional() || type.is_sequence()) { return self(type.arguments.front(), self); }
-    if (type.type == object_type::primitive) { return true; }
-    if (type.type == object_type::enum_type) { return true; }
-    if (type.resolved_node && (type.resolved_node->type == object_type::class_type ||
-                              type.resolved_node->type == object_type::generic_definition)) {
-      return construction::constexpr_construction(static_cast<const class_node&>(*type.resolved_node));
-    }
-    return std::find(owner.type_parameters.begin(), owner.type_parameters.end(), type.name) != owner.type_parameters.end();
-  };
-  return eligible(value, eligible);
-}
-
-// Check returned and parameter values without constraining unrelated borrowed receiver storage.
-inline bool constexpr_parameters(const class_node& owner, const function_declaration& method) {
-  return constexpr_type(owner, method.return_type) &&
-      std::all_of(method.parameters.begin(), method.parameters.end(),
-          [&](const auto& parameter) { return constexpr_type(owner, parameter.type); });
-}
-
 // Prove native operations use concrete scalar values rather than opaque conversions or comparators.
 inline bool native_scalar_expression(const behavior_expression& node) {
   if (node.kind == behavior_expression::operation::call) { return false; }

@@ -5,6 +5,51 @@ const { test } = require('node:test');
 const { Registry, INITIAL } = require('vscode-textmate');
 const onig = require('vscode-oniguruma');
 
+test('language 1.12 construction contracts and generic readonly methods retain scopes', async () => {
+  const grammar = await loadGrammar();
+  const lines = [
+    'serializer version 1.12.0; class holder<T, Frame: factory(identity) = lib::frame> {',
+    'public cpp storage(none) { constexpr int native_value() const { return 1; } }',
+    'public constructor(T input, Frame placement = default(identity)) { value = input;',
+    '  validate expression(input > 0); validate cpp { check_value(); }; initialize cpp { if (true) { register_value(); } }; }',
+    'public constructor<Input: integral || floating_point>(lib::number<Input> input) explicit { value = checked<T>(input.value); }',
+    'public function common_type<T, Input> scaled<Input: integral || floating_point>(Input factor) readonly expression(checked<common_type<T, Input>>(value) * factor);',
+    'public function T native_value() readonly constexpr(cpp) cpp { return value; };',
+    'public uint32 validate; public uint32 initialize; public uint32 storage; }',
+  ];
+  let state = INITIAL;
+  const tokens = lines.map(line => {
+    const result = grammar.tokenizeLine(line, state);
+    state = result.ruleStack;
+    return result.tokens;
+  });
+  /** Inspect a contract token without accepting an earlier same-spelling native token. */
+  const scopes = (line, word) => {
+    const offset = lines[line].indexOf(word);
+    return tokens[line].find(token => token.startIndex <= offset && token.endIndex > offset).scopes;
+  };
+  assert.equal(scopes(0, 'factory(').at(-1), 'storage.modifier.serializer');
+  assert.equal(scopes(0, 'identity)').at(-1), 'entity.name.function.serializer');
+  assert.equal(scopes(1, 'storage(').at(-1), 'storage.modifier.serializer');
+  assert.equal(scopes(1, 'none)').at(-1), 'constant.other.layout.serializer');
+  assert.ok(scopes(1, 'return').includes('meta.embedded.block.cpp'));
+  assert.equal(scopes(2, 'default(').at(-1), 'keyword.control.serializer');
+  assert.equal(scopes(3, 'validate').at(-1), 'keyword.control.serializer');
+  assert.equal(scopes(3, 'initialize').at(-1), 'keyword.control.serializer');
+  assert.ok(scopes(3, 'check_value').includes('meta.embedded.block.cpp'));
+  assert.ok(scopes(3, 'register_value').includes('meta.embedded.block.cpp'));
+  assert.equal(scopes(4, 'constructor').at(-1), 'storage.type.serializer');
+  assert.equal(scopes(5, 'common_type<').at(-1), 'support.type.serializer');
+  assert.equal(scopes(5, 'scaled<').at(-1), 'entity.name.function.serializer');
+  assert.equal(scopes(5, 'integral').at(-1), 'storage.modifier.serializer');
+  assert.equal(scopes(6, 'constexpr(').at(-1), 'storage.modifier.serializer');
+  assert.ok(scopes(6, 'return').includes('meta.embedded.block.cpp'));
+  for (const word of ['validate;', 'initialize;', 'storage;']) {
+    assert.equal(scopes(7, word).at(-1), 'source.serializer');
+  }
+  assert.equal(state.depth, 1);
+});
+
 test('language 1.11 checked construction and record selection retain exact type scopes', async () => {
   const grammar = await loadGrammar();
   const line = 'serializer version 1.11.0; class values<T> { ' +
@@ -62,7 +107,7 @@ test('optional and nested container generics highlight types without consuming f
   }
   assert.equal(result.ruleStack.depth, 1);
   const snippets = JSON.parse(fs.readFileSync(path.join(__dirname, '../snippets/serializer.json'), 'utf8'));
-  assert.equal(snippets.Schema.body[0], 'serializer version 1.11.0;');
+  assert.equal(snippets.Schema.body[0], 'serializer version 1.12.0;');
   assert.equal(snippets['Optional field'].prefix, 'optional');
   assert.match(snippets['Optional field'].body, /optional</);
 });

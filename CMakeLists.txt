@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.28)
 
-project(serializer VERSION 1.16.0 LANGUAGES CXX)
+project(serializer VERSION 1.17.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
-set(serializer_schema_language_version 1.11.0)
+set(serializer_schema_language_version 1.12.0)
 string(REPLACE "." ";" serializer_schema_language_version_components
   "${serializer_schema_language_version}")
 list(GET serializer_schema_language_version_components 0 serializer_schema_language_version_major)
@@ -83,6 +83,7 @@ add_library(serializer_lib
   src/construction_parser.hpp
   src/construction_writer.hpp
   src/construction_contract.hpp
+  src/construction_qualification.hpp
   src/numeric_expression_writer.hpp
   src/auto_size_writer.hpp
   src/schema_formats.hpp

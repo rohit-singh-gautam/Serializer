@@ -293,6 +293,16 @@ class generic_lowering {
       return argument.resolved_node && argument.resolved_node->type == object_type::class_type &&
           is_stateless_record(static_cast<const class_node&>(*argument.resolved_node));
     }
+    if (constraint.kind == operation::factory) {
+      if (!argument.resolved_node || (argument.resolved_node->type != object_type::class_type &&
+          argument.resolved_node->type != object_type::generic_definition)) { return false; }
+      const auto& record = static_cast<const class_node&>(*argument.resolved_node);
+      return record.storage_modes == static_cast<std::uint8_t>(storage_mode::owning) &&
+          !record.supports_managed() && std::any_of(record.constructions.begin(), record.constructions.end(),
+              [&](const auto& factory) { return !factory.constructor &&
+                  factory.name == constraint.factory_name && factory.parameters.empty() &&
+                  factory.access == access_type::public_access; });
+    }
     if (argument.type != object_type::primitive || argument.application) { return false; }
     if (constraint.kind == operation::floating_point) {
       return argument.name == "float" || argument.name == "double";
@@ -335,6 +345,9 @@ class generic_lowering {
 
   // Bind declaration-scope references and require proof for constrained forwarded arguments.
   void validate_expression(type_name& type, const class_node& owner) const {
+    if (type.common_numeric) {
+      throw exception::bad_member_type{input, "Common numeric policies cannot be stored types, generic arguments, constraints, or defaults"};
+    }
     if (type.kind == generic_argument_kind::dimension) {
       throw exception::bad_member_type{input, "Type/value kind mismatch: expected type"};
     }
@@ -419,6 +432,14 @@ class generic_lowering {
   // Resolve arguments, enforce the finite owning profile, and share each concrete expansion.
   void resolve(type_name& type, const std::unordered_map<std::string, type_name>& bindings,
                std::size_t depth) {
+    if (type.common_numeric) {
+      for (auto& argument : type.arguments) {
+        if (const auto found = bindings.find(argument.name); found != bindings.end() && !argument.application) {
+          argument = found->second;
+        }
+      }
+      return;
+    }
     if (depth >= maximum_expansion_depth) {
       throw exception::bad_class{input, "Maximum generic expansion depth (32) exceeded"};
     }
@@ -442,6 +463,9 @@ class generic_lowering {
     auto* node = find_declared_type(type.name, type.declared_namespace, visible);
     if (bind_builtin(type, node)) {
       for (auto& argument : type.arguments) {
+        if (argument.common_numeric) {
+          throw exception::bad_member_type{input, "Common numeric policies cannot be container arguments"};
+        }
         resolve(argument, bindings, depth + 1);
         if (argument.resolved_node && argument.type == object_type::class_type) {
           const auto& object = static_cast<const class_node&>(*argument.resolved_node);
@@ -487,6 +511,9 @@ class generic_lowering {
       if (parameter.kind == generic_argument_kind::dimension) {
         bind_dimension(argument, supplied ? bindings : substitutions);
       } else {
+        if (argument.common_numeric) {
+          throw exception::bad_member_type{input, "Common numeric policies cannot be record generic arguments"};
+        }
         resolve(argument, supplied ? bindings : substitutions, depth + 1);
         if (parameter.stateless) { validate_stateless_argument(argument); }
         if (parameter.constraint) {
@@ -621,15 +648,80 @@ class generic_lowering {
     }
   }
 
-  // Rebind explicit numeric result representations while other expression types are validated later.
-  void resolve_behavior_numeric_expression(behavior_expression& expression,
+  // Build a lexical input scope without treating API record arguments as recursive field storage.
+  class_node callable_scope(const class_node& owner,
+      const std::vector<generic_parameter>& input_types) const {
+    class_node scope{object_type::class_type, std::string{}, owner.parent_namespace,
+        class_attributes::none, {}};
+    scope.type_parameters = owner.type_parameters;
+    scope.generic_parameters = owner.generic_parameters;
+    for (const auto& parameter : input_types) {
+      if (parameter.name == owner.name || !parameter.constraint ||
+          std::find(scope.type_parameters.begin(), scope.type_parameters.end(), parameter.name) !=
+              scope.type_parameters.end()) {
+        throw exception::bad_member_type{input, "Callable input types cannot shadow their owner and require constraints"};
+      }
+      auto constraint = *parameter.constraint;
+      validate_constraint(constraint, scope);
+      scope.type_parameters.push_back(parameter.name);
+      scope.generic_parameters.push_back(parameter);
+    }
+    return scope;
+  }
+
+  // Recognize dependent input leaves before concrete lowering attempts to instantiate their record.
+  bool contains_callable_input(const type_name& type,
+      const std::vector<generic_parameter>& input_types) const {
+    if (!type.application && std::any_of(input_types.begin(), input_types.end(),
+        [&](const auto& parameter) { return parameter.name == type.name; })) { return true; }
+    return std::any_of(type.arguments.begin(), type.arguments.end(),
+        [&](const auto& argument) { return contains_callable_input(argument, input_types); });
+  }
+
+  // Validate nested independent inputs against the same class and input constraints as C++ templates.
+  void validate_callable_type(type_name& type, const class_node& owner,
+      const std::vector<generic_parameter>& input_types) const {
+    const auto scope = callable_scope(owner, input_types);
+    if (type.common_numeric) {
+      for (auto& argument : type.arguments) { validate_expression(argument, scope); }
+      return;
+    }
+    validate_expression(type, scope);
+  }
+
+  // Substitute class arguments while retaining method-dependent record applications for C++ deduction.
+  void resolve_callable_type(type_name& type, const class_node& owner,
+      const std::vector<generic_parameter>& input_types,
       const std::unordered_map<std::string, type_name>& bindings, std::size_t depth) {
-    if (expression.kind == behavior_expression::operation::checked_cast && expression.resolved_type) {
-      resolve(*expression.resolved_type, bindings, depth);
-      expression.value = expression.resolved_type->name;
+    const auto substitute = [&](const auto& self, type_name& value) -> void {
+      if (!value.application) {
+        if (const auto found = bindings.find(value.name); found != bindings.end()) {
+          value = found->second;
+          return;
+        }
+      }
+      for (auto& argument : value.arguments) { self(self, argument); }
+    };
+    substitute(substitute, type);
+    if (contains_callable_input(type, input_types)) {
+      validate_callable_type(type, owner, input_types);
+    } else {
+      resolve(type, bindings, depth);
+    }
+  }
+
+  // Rebind expression types in callable scope while retaining independent input leaves for C++.
+  void resolve_callable_expression(behavior_expression& expression, const class_node& owner,
+      const std::vector<generic_parameter>& input_types,
+      const std::unordered_map<std::string, type_name>& bindings, std::size_t depth) {
+    if (expression.resolved_type) {
+      resolve_callable_type(*expression.resolved_type, owner, input_types, bindings, depth);
+      if (expression.kind == behavior_expression::operation::checked_cast) {
+        expression.value = expression.resolved_type->name;
+      }
     }
     for (auto& operand : expression.operands) {
-      resolve_behavior_numeric_expression(operand, bindings, depth);
+      resolve_callable_expression(operand, owner, input_types, bindings, depth);
     }
   }
 
@@ -688,15 +780,23 @@ class generic_lowering {
       }
     }
     for (auto& method : object.functions) {
-      if (method.return_type.name != "void") { resolve(method.return_type, bindings, depth); }
-      for (auto& parameter : method.parameters) { resolve(parameter.type, bindings, depth); }
-      if (method.expression) { resolve_behavior_numeric_expression(*method.expression, bindings, depth); }
+      if (method.return_type.name != "void") {
+        resolve_callable_type(method.return_type, object, method.generic_parameters, bindings, depth);
+      }
+      for (auto& parameter : method.parameters) {
+        resolve_callable_type(parameter.type, object, method.generic_parameters, bindings, depth);
+      }
+      if (method.expression) {
+        resolve_callable_expression(*method.expression, object, method.generic_parameters, bindings, depth);
+      }
     }
     for (auto& construction : object.constructions) {
       for (auto& parameter : construction.parameters) {
-        const bool input_type = std::any_of(construction.generic_parameters.begin(), construction.generic_parameters.end(),
-            [&](const auto& item) { return item.name == parameter.type.name; });
-        if (!input_type) { resolve(parameter.type, bindings, depth); }
+        if (parameter.type.application && contains_callable_input(parameter.type, construction.generic_parameters) &&
+            !construction.overload_contract_enabled) {
+          throw exception::bad_member_type{input, "Nested construction input types require serializer version 1.12.0"};
+        }
+        resolve_callable_type(parameter.type, object, construction.generic_parameters, bindings, depth);
         if (!parameter.extent_expression.empty()) {
           constexpr std::uint64_t maximum_fixed_elements = 65536;
           const auto extent = evaluate(parameter.extent_expression.front(), bindings);
@@ -707,7 +807,9 @@ class generic_lowering {
         }
       }
       for (auto& assignment : construction.assignments) {
-        if (assignment.expression) { resolve_behavior_numeric_expression(*assignment.expression, bindings, depth); }
+        if (assignment.expression) {
+          resolve_callable_expression(*assignment.expression, object, construction.generic_parameters, bindings, depth);
+        }
       }
     }
     for (auto& method : object.conversions) { resolve(method.target, bindings, depth); }
@@ -818,14 +920,20 @@ class generic_lowering {
               }
             }
             for (auto& method : object.functions) {
-              if (method.return_type.name != "void") { validate_expression(method.return_type, object); }
-              for (auto& parameter : method.parameters) { validate_expression(parameter.type, object); }
+              if (method.return_type.name != "void") {
+                validate_callable_type(method.return_type, object, method.generic_parameters);
+              }
+              for (auto& parameter : method.parameters) {
+                validate_callable_type(parameter.type, object, method.generic_parameters);
+              }
             }
             for (auto& construction : object.constructions) {
               for (auto& parameter : construction.parameters) {
-                const bool input_type = std::any_of(construction.generic_parameters.begin(), construction.generic_parameters.end(),
-                    [&](const auto& item) { return item.name == parameter.type.name; });
-                if (!input_type) { validate_expression(parameter.type, object); }
+                if (parameter.type.application && contains_callable_input(parameter.type, construction.generic_parameters) &&
+                    !construction.overload_contract_enabled) {
+                  throw exception::bad_member_type{input, "Nested construction input types require serializer version 1.12.0"};
+                }
+                validate_callable_type(parameter.type, object, construction.generic_parameters);
               }
             }
             for (auto& method : object.conversions) { validate_expression(method.target, object); }
@@ -871,8 +979,16 @@ class generic_lowering {
           emit(std::move(node));
         } else if (raw->type == object_type::function_type) {
           auto& function = static_cast<function_node&>(*raw).function;
-          if (function.return_type.name != "void") { resolve(function.return_type, {}, 0); }
-          for (auto& parameter : function.parameters) { resolve(parameter.type, {}, 0); }
+          class_node scope{object_type::class_type, std::string{}, raw->parent_namespace, class_attributes::none, {}};
+          if (function.return_type.name != "void") {
+            resolve_callable_type(function.return_type, scope, function.generic_parameters, {}, 0);
+          }
+          for (auto& parameter : function.parameters) {
+            resolve_callable_type(parameter.type, scope, function.generic_parameters, {}, 0);
+          }
+          if (function.expression) {
+            resolve_callable_expression(*function.expression, scope, function.generic_parameters, {}, 0);
+          }
           emit(std::move(node));
         } else {
           emit(std::move(node));
@@ -910,6 +1026,7 @@ inline bool contains_generics(const std::vector<std::unique_ptr<syntax_node>>& n
       }
     } else if (node->type == object_type::function_type) {
       const auto& function = static_cast<const function_node&>(*node).function;
+      if (!function.generic_parameters.empty()) { return true; }
       if (function.return_type.application) { return true; }
       for (const auto& parameter : function.parameters) {
         if (parameter.type.application) { return true; }
@@ -931,12 +1048,14 @@ inline bool contains_generics(const std::vector<std::unique_ptr<syntax_node>>& n
         }
       }
       for (const auto& method : object.functions) {
+        if (!method.generic_parameters.empty()) { return true; }
         if (method.return_type.application) { return true; }
         for (const auto& parameter : method.parameters) {
           if (parameter.type.application) { return true; }
         }
       }
       for (const auto& construction : object.constructions) {
+        if (!construction.generic_parameters.empty()) { return true; }
         for (const auto& parameter : construction.parameters) {
           if (!parameter.extent_expression.empty()) { return true; }
           if (parameter.type.application) { return true; }

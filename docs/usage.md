@@ -1,5 +1,12 @@
 # Using Serializer in a C++ application
 
+Language `1.12.0` adds [authoring construction](construction.md), C++ constructor
+overloads, qualified native constant evaluation, fresh generic factory defaults,
+and [constrained readonly numeric APIs](behavior.md). The C++ registry supports
+[borrowed external-provider leases](state_registry.md#borrowed-external-provider-leases)
+with explicit ownership guards, versions, and invalidation. Existing payloads,
+codec default construction, and earlier language contracts remain supported.
+
 Language `1.11.0` adds lossless numeric bindings, exact integer expressions,
 projected readonly calls and lazy owning-record conditionals; see
 [behavior](behavior.md). Use [extended construction](construction.md) for fixed
@@ -25,8 +32,9 @@ structured defaults, and passive transient layout hints, follow the runnable
 [construction guide](construction.md). These declarations retain ordinary
 default decoding and add no serialized executable state. A schema constructor
 automatically retains the public C++ default constructor; default arguments to
-the parameterized constructor remain separate and cannot use class type
-parameters. See [the current qualification](verification-integration-enhancements-2026-10-11.md)
+the parameterized constructor remain separate. Language `1.12.0` permits class type
+parameters with an explicit owning factory constraint. See
+[the current qualification](verification-authoring-2026-10-11.md)
 for executed checks and backend limits.
 
 Serializer — **State Framework** provides generated serialization codecs and a
@@ -397,7 +405,7 @@ class person stable_ids {
 ```
 
 - Use `class`, `enum`, and `namespace`; schema declarations are not C++ source.
-- Start every new `.serializer` file with `serializer version 1.11.0;` before declarations.
+- Start every new `.serializer` file with `serializer version 1.12.0;` before declarations.
   Older `1.0.0` files remain supported.
   The original `serializer version 1;` is an exact alias for `1.0.0`, exclusive to
   version 1. Future versions require three components. The language version is
@@ -461,7 +469,7 @@ namespace demo {
   spaces, backslashes, absolute paths, and other extensions are rejected.
   `./` and `../` are supported. Paths resolve from the including file, independently
   of the compiler's working directory. Comments may separate directive tokens.
-- Every file requires its own supported version header. `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, `1.11.0`, and the
+- Every file requires its own supported version header. `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, `1.11.0`, `1.12.0`, and the
   original `1` alias may coexist in an include graph. Typed magic and inferred
   arrays require `1.1.0`, compact scalars require `1.2.0`, and built-in digests
   require `1.3.0`; owning variants require `1.4.0` and warning suppression requires

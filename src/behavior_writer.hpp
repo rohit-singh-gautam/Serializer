@@ -143,6 +143,16 @@ inline checked_helpers select_helpers(const std::vector<const syntax_node*>& nod
 
 // Select an authored implementation without interpreting or rewriting its native tokens.
 inline const native_code_block* native_body(const function_declaration& method, std::string_view language) {
+  const auto common_type = [&](const auto& self, const type_name& type) -> bool {
+    return type.common_numeric || std::any_of(type.arguments.begin(), type.arguments.end(),
+        [&](const auto& argument) { return self(self, argument); });
+  };
+  if (language != "cpp" && (!method.generic_parameters.empty() || common_type(common_type, method.return_type) ||
+      std::any_of(method.parameters.begin(), method.parameters.end(), [&](const auto& parameter) {
+        return common_type(common_type, parameter.type);
+      }))) {
+    throw std::invalid_argument{std::string{language} + ": generic readonly inputs and common_type require C++ output"};
+  }
   const auto found = std::find_if(method.bodies.begin(), method.bodies.end(),
       [&](const auto& code) { return code.language == language || (language == "js" && code.language == "javascript"); });
   return found == method.bodies.end() ? nullptr : &*found;
@@ -154,7 +164,12 @@ inline void require_native_names(const class_node& owner, std::string_view langu
       [&](const auto& code) { return code.language == language || (language == "js" && code.language == "javascript"); });
   const bool bodies = std::any_of(owner.functions.begin(), owner.functions.end(),
       [&](const auto& method) { return native_body(method, language) != nullptr; });
-  if (renamed && (blocks || bodies)) {
+  const bool hooks = std::any_of(owner.constructions.begin(), owner.constructions.end(),
+      [&](const auto& factory) { return std::any_of(factory.native_validations.begin(), factory.native_validations.end(),
+          [&](const auto& block) { return block.language == language; }) ||
+          std::any_of(factory.initializers.begin(), factory.initializers.end(),
+              [&](const auto& block) { return block.language == language; }); });
+  if (renamed && (blocks || bodies || hooks)) {
     throw std::invalid_argument{std::string{language} + ": opaque native code requires naming = preserve"};
   }
 }

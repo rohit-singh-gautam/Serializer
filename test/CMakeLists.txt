@@ -1,6 +1,6 @@
 set(schemas)
 foreach(fixture IN ITEMS enum person test1 array map variable assessment views storage_reuse
-    fixed_fields constant_names includes wire_compatibility generics dimensions versioning magic typed_magic inferred_arrays compact_fields digests owning_variants owning_variant_cpp optional_cpp native_output_policy reuse_first reuse_second construction extended_construction readonly_behavior derived_sizes conversion stateless_layout generic_constraints readonly_function_calls readonly_function_overloads numeric_values)
+    fixed_fields constant_names includes wire_compatibility generics dimensions versioning magic typed_magic inferred_arrays compact_fields digests owning_variants owning_variant_cpp optional_cpp native_output_policy reuse_first reuse_second construction extended_construction overloaded_construction readonly_behavior derived_sizes conversion stateless_layout generic_constraints readonly_function_calls readonly_function_overloads numeric_values)
   list(APPEND schemas "${CMAKE_CURRENT_SOURCE_DIR}/resources/${fixture}.serializer")
 endforeach()
 
@@ -12,6 +12,7 @@ add_executable(core_serializer_test
   readonly_function_calls_test.cpp
   construction_test.cpp
   extended_construction_test.cpp
+  overloaded_construction_test.cpp
   auto_size_test.cpp
   conversion_test.cpp
   stateless_constraints_test.cpp
@@ -79,6 +80,23 @@ elseif(UNIX)
 endif()
 
 add_test(NAME core_serializer_test COMMAND core_serializer_test)
+
+# Preserve authored C++ spellings while qualifying native construction and readonly calls.
+add_executable(authoring_construction_test
+  authoring_construction_test.cpp
+  hybrid_construction_test.cpp)
+serializer_generate(TARGET authoring_construction_test
+  SCHEMAS resources/authoring_construction.serializer resources/hybrid_construction.serializer
+  CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/authoring_construction.ini"
+  OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/authoring_construction")
+target_link_libraries(authoring_construction_test PRIVATE Serializer::serializer_lib GTest::gtest_main)
+target_compile_definitions(authoring_construction_test PRIVATE ROHIT_SERIALIZER_ENABLE_GTEST)
+if(MSVC)
+  target_compile_options(authoring_construction_test PRIVATE /W4 /WX)
+elseif(UNIX)
+  target_compile_options(authoring_construction_test PRIVATE -Wall -Werror -Wpedantic -Wextra -Weffc++ -Wsuggest-override)
+endif()
+add_test(NAME authoring_construction_test COMMAND authoring_construction_test)
 
 # Qualify opt-in record comparisons through the same schema and INI pipeline as user builds.
 add_executable(record_comparison_test record_comparison_test.cpp)

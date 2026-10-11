@@ -192,7 +192,8 @@ struct type_name {
         digest{rhs.digest}, digest_extent{rhs.digest_extent},
         digest_language_supported{rhs.digest_language_supported},
         optional_language_supported{rhs.optional_language_supported},
-        record_key_language_supported{rhs.record_key_language_supported} {}
+        record_key_language_supported{rhs.record_key_language_supported},
+        common_numeric{rhs.common_numeric} {}
   // Assign the documented view or value state from the source object.
   type_name& operator=(const type_name& rhs) {
     name = rhs.name;
@@ -212,6 +213,7 @@ struct type_name {
     digest_language_supported = rhs.digest_language_supported;
     optional_language_supported = rhs.optional_language_supported;
     record_key_language_supported = rhs.record_key_language_supported;
+    common_numeric = rhs.common_numeric;
     return *this;
   }
 
@@ -232,6 +234,7 @@ struct type_name {
   bool digest_language_supported{true}; // The source file's selected contract survives includes.
   bool optional_language_supported{true}; // Built-in generic types require language 1.7.
   bool record_key_language_supported{true}; // Record keys in generic maps require language 1.11.
+  bool common_numeric{false}; // Explicit C++ common representation, restricted to callable APIs.
 
   // Identify built-in owning presence without claiming user declarations with the same name.
   bool is_optional() const noexcept {
@@ -256,7 +259,7 @@ struct type_name {
   // Resolve this syntax node name relative to its containing namespace.
   std::string get_full_name() const {
     if (resolved_node) { return resolved_node->get_full_name(); }
-    if (is_optional() || is_sequence() || is_associative()) {
+    if (is_optional() || is_sequence() || is_associative() || common_numeric) {
       std::string result = name + "<";
       for (std::size_t index = 0; index < arguments.size(); ++index) {
         if (index != 0) { result += ","; }
@@ -284,10 +287,11 @@ struct type_name {
 
 // A portable type constraint combines categories and exact schema type identities.
 struct generic_constraint {
-  enum class operation { integral, floating_point, stateless, exact_type, logical_not, logical_and, logical_or };
+  enum class operation { integral, floating_point, stateless, exact_type, logical_not, logical_and, logical_or, factory };
   operation kind{operation::exact_type};
   std::optional<type_name> type{};
   std::vector<generic_constraint> operands{};
+  std::string factory_name{}; // Public zero-argument owning factory promised by this constraint.
 };
 
 // Parameter names remain separately available for existing type-only clients.
@@ -410,6 +414,7 @@ struct native_code_block {
   std::size_t source_line{1};
   std::size_t source_column{1};
   std::string source_path{};
+  bool no_instance_storage{false}; // Explicit C++ contract; native tokens never establish it.
 };
 
 // A typed, expression-only computation; durable field identities are not involved.
@@ -474,6 +479,10 @@ struct construction_declaration {
   std::vector<construction_assignment> assignments{};
   std::vector<generic_parameter> generic_parameters{}; // Independently constrained input types.
   bool explicit_constructor{false}; // Opt-in C++ converting-constructor control.
+  bool overload_contract_enabled{false}; // Preserve each file's language 1.12 constructor contract.
+  std::vector<behavior_expression> validations{}; // Checked after bindings and before host initialization.
+  std::vector<native_code_block> native_validations{}; // Explicit host validation of custom representations.
+  std::vector<native_code_block> initializers{}; // Authoring-only host initialization, never codec/copy hooks.
 };
 
 // A readonly source projection supplies one exactly typed target field.
@@ -509,6 +518,8 @@ struct function_declaration {
   std::size_t source_column{1};
   std::string source_path{};
   bool predicate_body{false}; // Readonly bool: reached semantic failures return false.
+  bool cpp_constexpr{false}; // Author-qualified ordinary readonly C++ native body.
+  std::vector<generic_parameter> generic_parameters{}; // Appended to preserve existing aggregate initialization.
 };
 
 // A namespace-owned readonly callable has no serialized identity or receiver storage.

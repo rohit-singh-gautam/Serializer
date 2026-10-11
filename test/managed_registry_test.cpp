@@ -9,10 +9,15 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <future>
 #include <memory>
+#include <mutex>
+#include <optional>
+#include <shared_mutex>
 #include <stdexcept>
 #include <string>
 #include <system_error>
+#include <type_traits>
 #include <utility>
 
 namespace {
@@ -65,6 +70,21 @@ struct journal_directory {
     std::error_code error;
     if (path.parent_path() == base) { std::filesystem::remove_all(path, error); }
   }
+};
+
+// A provider retains its payload separately from the shared read-lock token handed to leases.
+struct external_payload {
+  std::string value{"provider value"};
+  std::shared_mutex mutex{};
+};
+
+// Owning this token keeps the provider storage alive and excludes writes for the lease lifetime.
+struct external_read_guard {
+  std::shared_ptr<external_payload> owner;
+  std::shared_lock<std::shared_mutex> lock;
+  // Acquire synchronization before a resolver exposes any borrowed payload reference.
+  explicit external_read_guard(std::shared_ptr<external_payload> value)
+      : owner{std::move(value)}, lock{owner->mutex} {}
 };
 } // namespace
 
@@ -166,6 +186,135 @@ TEST(managed_registry, bounded_optional_catalog_and_external_lifetime) {
   external.reset();
   EXPECT_EQ(*pin, "provider value");
   EXPECT_THROW(provider.find(8), managed::registry_error);
+}
+
+// Rebinding selects a fresh version while held leases retain the old immutable payload.
+TEST(managed_registry, external_leases_rebinding_and_version_selection) {
+  auto payload = std::make_shared<const std::string>("first version");
+  auto state = std::make_shared<managed::external_lease_state>(1);
+  managed::leased_external_registry<int, std::string> provider{
+      [&](int key) -> std::optional<managed::external_lease<std::string>> {
+        if (key != 7) { return std::nullopt; }
+        return managed::external_lease<std::string>{*payload, payload, state};
+      }};
+  const auto held = provider.find(7, 1);
+  const auto copy = held;
+  const std::weak_ptr<const std::string> previous = payload;
+  store_type store{initial()};
+  store.execute_transaction([](auto& tx) { tx.root().set_title("changed"); }).throw_if_failed();
+  const auto saved = store.save();
+  payload = std::make_shared<const std::string>("second version");
+  state = std::make_shared<managed::external_lease_state>(2);
+  EXPECT_FALSE(previous.expired());
+  EXPECT_TRUE(held.is_valid());
+  EXPECT_EQ(held.version(), 1u);
+  EXPECT_EQ(copy.value(), "first version");
+  auto selected = provider.find(7, 2);
+  EXPECT_EQ(selected.value(), "second version");
+  EXPECT_EQ(store.save(), saved);
+  store.undo();
+  const auto after_undo = provider.find(7, 2);
+  EXPECT_EQ(after_undo.value(), "second version");
+  try {
+    static_cast<void>(provider.find(7, 1));
+    FAIL() << "A mismatched external provider version was accepted";
+  } catch (const managed::registry_error& error) {
+    EXPECT_EQ(error.code(), managed::registry_error_code::wrong_version);
+  }
+  try {
+    static_cast<void>(provider.find(8));
+    FAIL() << "A missing external key was accepted";
+  } catch (const managed::registry_error& error) {
+    EXPECT_EQ(error.code(), managed::registry_error_code::missing_id);
+  }
+}
+
+// Revocation denies checked access without reclaiming payloads guarded by an outstanding handle.
+TEST(managed_registry, external_leases_invalidation_and_guard_lifetime) {
+  auto payload = std::make_shared<const std::string>("retained value");
+  const std::weak_ptr<const std::string> retained = payload;
+  auto state = std::make_shared<managed::external_lease_state>(3);
+  std::optional<managed::external_lease<std::string>> held{
+      std::in_place, *payload, payload, state};
+  const auto& borrowed = held->value();
+  payload.reset();
+  state->invalidate();
+  state->invalidate();
+  EXPECT_FALSE(state->is_valid());
+  EXPECT_FALSE(held->is_valid());
+  EXPECT_EQ(held->version(), 3u);
+  EXPECT_FALSE(retained.expired());
+  EXPECT_EQ(borrowed, "retained value");
+  try {
+    static_cast<void>(held->value());
+    FAIL() << "An invalidated external lease remained readable";
+  } catch (const managed::registry_error& error) {
+    EXPECT_EQ(error.code(), managed::registry_error_code::expired_lease);
+  }
+  managed::leased_external_registry<int, std::string> provider{[&](int) { return held; }};
+  try {
+    static_cast<void>(provider.find(7));
+    FAIL() << "A resolver returned an invalidated external lease";
+  } catch (const managed::registry_error& error) {
+    EXPECT_EQ(error.code(), managed::registry_error_code::expired_lease);
+  }
+  held.reset();
+  EXPECT_TRUE(retained.expired());
+}
+
+// Shared synchronization tokens exclude provider writes until all borrowing handles are released.
+TEST(managed_registry, external_leases_synchronization_and_invalid_tokens) {
+  auto payload = std::make_shared<external_payload>();
+  auto state = std::make_shared<managed::external_lease_state>(4);
+  managed::leased_external_registry<int, std::string> provider{
+      [&](int) -> std::optional<managed::external_lease<std::string>> {
+        auto guard = std::make_shared<external_read_guard>(payload);
+        return managed::external_lease<std::string>{payload->value, std::move(guard), state};
+      }};
+  auto held = std::optional{provider.find(7)};
+  EXPECT_EQ(held->value(), "provider value");
+  state->invalidate();
+  const auto can_write = [&] {
+    return std::async(std::launch::async, [&] {
+      std::unique_lock<std::shared_mutex> lock{payload->mutex, std::try_to_lock};
+      return lock.owns_lock();
+    }).get();
+  };
+  EXPECT_FALSE(can_write());
+  held.reset();
+  EXPECT_TRUE(can_write());
+
+  using lease_type = managed::external_lease<std::string>;
+  const std::shared_ptr<const void> empty_guard;
+  const std::shared_ptr<const managed::external_lease_state> empty_state;
+  EXPECT_THROW((lease_type{payload->value, empty_guard, state}), std::invalid_argument);
+  EXPECT_THROW((lease_type{payload->value, payload, empty_state}), std::invalid_argument);
+  const std::shared_ptr<const void> ownerless_guard{empty_guard, payload.get()};
+  EXPECT_THROW((lease_type{payload->value, ownerless_guard, state}), std::invalid_argument);
+  const std::shared_ptr<const managed::external_lease_state> ownerless_state{
+      empty_state, state.get()};
+  EXPECT_THROW((lease_type{payload->value, payload, ownerless_state}), std::invalid_argument);
+  EXPECT_THROW(managed::external_lease_state{0}, std::invalid_argument);
+  EXPECT_THROW((managed::leased_external_registry<int, std::string>{nullptr}),
+               std::invalid_argument);
+  static_assert(!std::is_default_constructible_v<lease_type>);
+  static_assert(!std::is_constructible_v<lease_type, const std::string&>);
+  static_assert(!std::is_constructible_v<lease_type, std::string,
+                std::shared_ptr<const void>,
+                std::shared_ptr<const managed::external_lease_state>>);
+}
+
+// Moving transfers the tokens and prevents the source handle from exposing an unguarded reference.
+TEST(managed_registry, external_leases_moved_handles) {
+  const auto payload = std::make_shared<const std::string>("moved value");
+  const auto state = std::make_shared<managed::external_lease_state>(5);
+  managed::external_lease<std::string> source{*payload, payload, state};
+  const auto destination = std::move(source);
+  EXPECT_FALSE(source.is_valid());
+  EXPECT_THROW(source.value(), managed::registry_error);
+  EXPECT_THROW(source.version(), managed::registry_error);
+  EXPECT_TRUE(destination.is_valid());
+  EXPECT_EQ(destination.value(), "moved value");
 }
 
 // Stable field/base paths work across private ordinary projections and both storage layouts.

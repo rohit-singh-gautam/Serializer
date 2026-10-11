@@ -7,6 +7,7 @@
 #include <rohit/managed_resident.hpp>
 
 #include <algorithm>
+#include <atomic>
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
@@ -31,7 +32,8 @@ template <typename Plain> struct fields;
 // Ordinary nested values use their own field projection, including separate-value profiles.
 template <typename Plain> struct value_fields;
 enum class registry_error_code { missing_id, wrong_type, missing_member, wrong_member_type,
-                                 duplicate_key, invalid_identity, expired_editor };
+                                 duplicate_key, invalid_identity, expired_editor,
+                                 expired_lease, wrong_version };
 
 // Preserve a machine-readable failure without exposing a mutable catalog.
 class registry_error : public std::logic_error {
@@ -560,6 +562,102 @@ public:
   std::shared_ptr<const Value> find(const Key& key) const {
     auto result = resolve_(key);
     if (!result) { throw registry_error{registry_error_code::missing_id, "External registry key is missing"}; }
+    return result;
+  }
+};
+
+// A provider version admits immutable borrowed reads until explicitly invalidated.
+// Invalidation is thread-safe; it never releases the storage or synchronization guards in leases.
+class external_lease_state {
+  const std::uint64_t version_;
+  std::atomic_bool valid_{true};
+public:
+  // Reserve zero for absent versions; providers must not reuse a version for changed payloads.
+  explicit external_lease_state(std::uint64_t version) : version_{version} {
+    if (version_ == 0) {
+      throw std::invalid_argument{"External lease needs a nonzero provider version"};
+    }
+  }
+  // Inspect the immutable provider version, including after invalidation.
+  std::uint64_t version() const noexcept { return version_; }
+  // Observe whether this version still admits new checked reads.
+  bool is_valid() const noexcept { return valid_.load(std::memory_order_acquire); }
+  // Revoke future checked reads without reclaiming payloads retained by outstanding leases.
+  void invalidate() noexcept { valid_.store(false, std::memory_order_release); }
+};
+
+// A borrowed immutable value retains a provider-owned storage/synchronization token.
+// The provider must keep the referent alive and unchanged until the last guard is released,
+// including after invalidation. Native lock guards may impose thread-affinity requirements.
+template <typename Value>
+class external_lease {
+  const Value* value_;
+  std::shared_ptr<const void> guard_;
+  std::shared_ptr<const external_lease_state> state_;
+public:
+  // Bind a referent only with owning guard/state tokens; ownerless aliases cannot form a lease.
+  external_lease(const Value& value, std::shared_ptr<const void> guard,
+                 std::shared_ptr<const external_lease_state> state)
+      : value_{std::addressof(value)}, guard_{std::move(guard)}, state_{std::move(state)} {
+    if (!guard_ || guard_.use_count() == 0 || !state_ || state_.use_count() == 0) {
+      throw std::invalid_argument{"External lease needs owning guard and version tokens"};
+    }
+  }
+  // A temporary payload cannot remain alive merely because an unrelated guard is retained.
+  external_lease(const Value&& value, std::shared_ptr<const void> guard,
+                 std::shared_ptr<const external_lease_state> state) = delete;
+  // Inspect validity without borrowing the payload; moved-from handles are invalid.
+  bool is_valid() const noexcept { return guard_ && state_ && state_->is_valid(); }
+  // Keep version metadata available after invalidation; moved-from handles have no version.
+  std::uint64_t version() const {
+    if (!state_) {
+      throw registry_error{registry_error_code::expired_lease, "External lease is expired"};
+    }
+    return state_->version();
+  }
+  // Borrow only through a live handle; invalidation rejects subsequent checked access.
+  // References remain safe only while a guard-retaining copy of this lease remains alive.
+  const Value& value() const & {
+    if (!is_valid()) {
+      throw registry_error{registry_error_code::expired_lease, "External lease is expired"};
+    }
+    return *value_;
+  }
+  // Prevent a reference from immediately outliving a temporary lease's guard.
+  const Value& value() const && = delete;
+};
+
+// External borrowed lookup requires explicit immutable-version leases, never bare pointers.
+// Provider changes remain outside managed transactions, history, authorization and journals.
+template <typename Key, typename Value>
+class leased_external_registry {
+  std::function<std::optional<external_lease<Value>>(const Key&)> resolve_;
+public:
+  // The resolver must acquire its lifetime/synchronization guard before selecting the referent.
+  explicit leased_external_registry(
+      std::function<std::optional<external_lease<Value>>(const Key&)> resolve)
+      : resolve_{std::move(resolve)} {
+    if (!resolve_) {
+      throw std::invalid_argument{"Leased external registry needs a resolver"};
+    }
+  }
+  // Return a checked lease; absence and invalidated provider versions are distinct failures.
+  external_lease<Value> find(const Key& key) const {
+    auto result = resolve_(key);
+    if (!result) {
+      throw registry_error{registry_error_code::missing_id, "External registry key is missing"};
+    }
+    if (!result->is_valid()) {
+      throw registry_error{registry_error_code::expired_lease, "External lease is expired"};
+    }
+    return std::move(*result);
+  }
+  // Require the selected provider version; a mismatch cannot silently return a newer value.
+  external_lease<Value> find(const Key& key, std::uint64_t expected_version) const {
+    auto result = find(key);
+    if (result.version() != expected_version) {
+      throw registry_error{registry_error_code::wrong_version, "External provider version differs"};
+    }
     return result;
   }
 };

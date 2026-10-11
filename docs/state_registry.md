@@ -165,8 +165,63 @@ failure and successful owning handles outlive provider rebinding. Persist only a
 ordinary schema key when the binding itself is durable; callback pointers and
 external values are not automatically serialized, undoable or transactional.
 The provider owns synchronization, authentication, version selection and external
-transactions. Additional borrowed-provider APIs would need an explicit lease
-contract; a bare pointer is not accepted as an owning lookup result.
+transactions. A bare pointer is not accepted as an owning lookup result.
+
+### Borrowed external-provider leases
+
+`leased_external_registry<Key, Value>` offers a separate borrowed lookup contract.
+Its resolver returns `std::optional<external_lease<Value>>`; `std::nullopt` means
+the key is missing. Each lease requires all of the following:
+
+- A reference to an immutable provider value. Temporary values are rejected.
+- A nonnull owning `std::shared_ptr<const void>` guard that keeps that value alive
+  and unchanged until the final guard-retaining lease is released. The guard can
+  retain a provider snapshot or a provider storage owner plus its read lock.
+- An owning `external_lease_state` with a nonzero immutable `uint64` provider
+  version and one-way invalidation. Versions belong to the provider's declared
+  namespace; a changed payload must receive a fresh version in that namespace.
+
+The provider must acquire the guard before selecting the referenced value, and
+keep its lifetime and synchronization guarantees after invalidation. Serializer
+checks token ownership and validity; it cannot prove that a token protects the
+supplied reference. An ownerless `shared_ptr` alias and a bare-pointer resolver
+cannot supply this contract. The provider remains responsible for authentication,
+version selection, concurrency and any native lock thread-affinity rules.
+
+```cpp
+auto state = std::make_shared<rohit::managed::external_lease_state>(1);
+auto snapshot = std::make_shared<const std::string>("provider value");
+rohit::managed::leased_external_registry<int, std::string> provider{
+    [&](int key) -> std::optional<rohit::managed::external_lease<std::string>> {
+      if (key != 7) { return std::nullopt; }
+      return rohit::managed::external_lease<std::string>{*snapshot, snapshot, state};
+    }};
+auto lease = provider.find(7, 1);
+const auto& value = lease.value();
+```
+
+`find(key)` rejects an invalidated lease with `registry_error_code::expired_lease`.
+`find(key, expected_version)` additionally rejects a different selected version
+with `wrong_version`; it does not silently substitute a newer value. Missing keys
+use the existing `missing_id` failure. Handles can be copied to extend the guard
+lifetime; moving transfers the tokens and leaves the source invalid. `value()`
+checks validity before returning a reference and requires an lvalue handle.
+`version()` preserves the selected version even after invalidation.
+
+Rebinding a provider to a new snapshot/version leaves previously held leases
+valid unless the host explicitly calls their old state's `invalidate()`. That
+thread-safe operation rejects future checked access, including new lookups that
+return the old lease. Invalidation does not release guards or reclaim payload
+storage. A reference obtained before invalidation remains safe only while a
+guard-retaining copy of its lease exists; the provider must keep it immutable
+for that entire period. Invalidation racing with a checked read cannot revoke an
+already acquired reference. When native lock tokens are used, releasing every
+lease permits the provider to reclaim or mutate the protected storage.
+
+Provider versions, tokens and payloads are runtime state. A durable schema key
+does not make external edits transactional, undoable, journaled, authorized or
+part of managed recovery. The existing owning `external_registry` API remains
+available independently of leases.
 
 Customer-managed lookup and disk-backed paging are feasible future backends, but
 delegation must include the requested document/snapshot, exact type, generation,

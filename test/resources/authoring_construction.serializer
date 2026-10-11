@@ -1,0 +1,53 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.12.0;
+
+cpp preamble {
+  namespace authoring_host {
+    inline std::uint64_t registrations{};
+    // Register one successfully validated authoring value in the host session.
+    inline std::uint64_t register_value() { return ++registrations; }
+  }
+}
+
+class authoring_frame stable_ids {
+  public uint32 basis (1);
+  public string label (2);
+  public factory identity() {
+    basis = 1;
+    label = "identity";
+  }
+}
+
+class authoring_value<Frame: factory(identity)> stable_ids {
+  public double dimension (1);
+  public uint32 count (2) {7};
+  public Frame placement (3);
+  public transient uint64 execution;
+  public constructor(double input, uint32 count_input = 32, Frame placement_input = default(identity)) explicit {
+    dimension = input;
+    count = count_input;
+    placement = placement_input;
+    validate expression(math.is_finite(dimension) && dimension > 0.0 && count >= 3);
+    validate cpp {
+      if (placement.basis != 1) { throw std::domain_error{"Invalid placement"}; }
+    };
+    initialize cpp {
+      execution = authoring_host::register_value();
+    };
+  }
+}
+instantiate authoring_placed_value = authoring_value<authoring_frame>;
+
+class authoring_numeric<T: (integral || floating_point) && !bool> stable_ids {
+  public T value (1);
+  public constructor(T input) { value = input; }
+  public function common_type<T, Input> scaled<Input: (integral || floating_point) && !bool>(Input factor) readonly
+    expression(checked<common_type<T, Input>>(value) * checked<common_type<T, Input>>(factor));
+  public function common_type<T, Input> divided<Input: (integral || floating_point) && !bool>(Input divisor) readonly
+    expression(checked<common_type<T, Input>>(value) / checked<common_type<T, Input>>(divisor));
+  public function Input echo<Input: (integral || floating_point) && !bool>(Input input) readonly
+    expression(checked<Input>(input));
+}
+instantiate authoring_signed_numeric = authoring_numeric<int32>;
+instantiate authoring_wide_numeric = authoring_numeric<uint64>;

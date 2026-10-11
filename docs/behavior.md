@@ -136,6 +136,14 @@ fixed camelCase. Preambles must be valid at the documented file location, such a
 Kotlin imports before generated declarations. Native payloads are bounded to
 1 MiB and nesting to 128; comments and quoted/raw literal delimiters are scanned.
 
+Language `1.12.0` adds `cpp storage(none) { ... }` on class hooks. The author
+asserts that the block adds no instance storage, lifetime/storage hooks, special
+member implementations or polymorphic behavior. Methods, aliases and static
+constants may preserve this contract. Serializer keeps the payload opaque and
+does not infer that promise from arbitrary C++ tokens. It permits otherwise
+eligible C++ construction to remain `constexpr`; native blocks suppress
+Serializer's inferred `noexcept` annotation. See [construction qualification](construction.md#qualified-native-methods-and-scalar-calls).
+
 ## Portable arithmetic
 
 ```text
@@ -210,6 +218,48 @@ Application C++ code can use `<rohit/numeric.hpp>` directly. The `constexpr`
 `checked_negate` throw `std::domain_error` for invalid values. Their
 `try_numeric_cast<Result>` and `try_checked_*` counterparts are `noexcept` and
 return `std::optional` without allocation, including during constant evaluation.
+
+### Constrained readonly inputs and result representation
+
+Compiler/runtime `1.17.0` and language `1.12.0` add independent constrained input
+types on ordinary readonly C++ callables and the explicit numeric result policy
+`common_type<T, Input>`:
+
+```text
+serializer version 1.12.0;
+class amount<T: (integral || floating_point) && !bool = double> {
+  public T value;
+  public function common_type<T, Input> scaled<Input: (integral || floating_point) && !bool>(Input factor) readonly
+    expression(checked<common_type<T, Input>>(value) * checked<common_type<T, Input>>(factor));
+  public function common_type<T, Input> divided<Input: (integral || floating_point) && !bool>(Input divisor) readonly
+    expression(checked<common_type<T, Input>>(value) / checked<common_type<T, Input>>(divisor));
+}
+```
+
+C++ emits constrained function templates and lowers the result policy to
+`std::common_type_t<T, Input>`. Both representations must be checked numeric types
+excluding Boolean state. The two explicit `checked` bindings establish exact
+values in that selected representation before arithmetic. For example, mixing
+signed and unsigned input can select an unsigned result; a negative signed value
+then rejects instead of wrapping. A `uint64` value not exactly representable in
+the selected floating result rejects instead of rounding. Division retains exact
+integer quotients when the selected representation is integral.
+
+The result is a scalar representation. This policy does not implicitly convert
+strong generated record types or synthesize an owning record wrapper, and it
+cannot be used to change field/wire types. Preserve an application adapter when
+its result must wrap the scalar in a distinct quantity type. These independently
+generic callable APIs require C++ output; other backends diagnose them. Existing
+class generics still use their portable concrete-specialization workflow. Generic
+input constraints use the same [Boolean contract](generics.md#boolean-type-constraints)
+as class parameters, while actual constant evaluation defers to the chosen
+specialization. Eligible checked methods remain `constexpr` and potentially
+throwing.
+
+Independent generic methods and namespace helpers are callable through the
+generated C++ API from host code. Schema expressions cannot call those generic
+APIs; the compiler diagnoses such calls explicitly. Use a helper with a concrete
+parameter signature when another schema expression must call it.
 
 ## Declared function calls
 
@@ -304,9 +354,34 @@ separate `java { ... }` implementation when Java output is selected. Java execut
 these functions at runtime and has no `constexpr` qualifier.
 
 C++ uses `constexpr` for eligible ordinary typed functions, including calls to
-other eligible typed functions. Native, external and dispatched callees retain
-their own constant-evaluation and exception contracts. A call to such a function
-prevents automatic `constexpr`/`noexcept` inference for the caller. Calls do not
+other eligible typed functions. Language `1.12.0` can qualify an ordinary readonly
+native C++ body explicitly:
+
+```text
+serializer version 1.12.0;
+namespace native_values {
+  function uint32 identity(uint32 value) readonly constexpr(cpp) cpp {
+    return value;
+  };
+}
+class forwarded_value {
+  public uint32 value;
+  public function uint32 read() readonly expression(native_values::identity(value));
+}
+```
+
+`constexpr(cpp)` emits a C++ `constexpr` declaration and allows the callee to
+participate in the caller's constant-evaluation proof, including scalar
+[construction bindings](construction.md#qualified-native-methods-and-scalar-calls).
+The selected C++ compiler checks its native implementation and each actual
+constant evaluation. The qualifier requires an ordinary readonly function with a
+native `cpp` body; dispatched/edit methods, bodyless external declarations and
+portable expression bodies reject it. Portable expressions already use their
+inferred proof. The qualifier does not prove purity, make every input
+constant-evaluable, or infer `noexcept` for native callees/callers.
+
+Unqualified native, external and dispatched callees retain their own runtime and
+exception contracts and suppress inferred `constexpr` for their caller. Calls do not
 change wire layouts, field IDs or persisted state. See the
 [expression example](../example/cpp/expressions/README.md) and
 [constant evaluation guide](constant_evaluation.md#34-direct-generated-codecs-and-value-qualifiers).
@@ -388,7 +463,8 @@ sign operations and integer-to-double conversion in constant evaluation.
 Reached invalid input, arithmetic or indexing still throws for `expression` and
 returns false for `predicate`; checked expressions remain potentially throwing.
 Square root and trigonometry remain runtime under C++20; native/opaque bodies stay
-application-owned. `noexcept` is inferred independently of `constexpr`.
+application-owned, with the explicit language `1.12.0` qualification above when
+appropriate. `noexcept` is inferred independently of `constexpr`.
 
 Declared calls retain the callee's failure contract. In C++, an exception from a
 callee propagates through a predicate, so predicates containing such calls do

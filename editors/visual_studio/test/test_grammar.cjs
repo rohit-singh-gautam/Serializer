@@ -141,6 +141,37 @@ function checkLiterals(grammar, label) {
   return checks;
 }
 
+/** Keep new construction contracts around native blocks in both host and fallback grammars. */
+function checkConstructionContracts(grammar, label) {
+  const lines = [
+    'class holder<T, Frame: factory(identity)> {',
+    'public cpp storage(none) { constexpr int native_value() const { return 1; } }',
+    'public constructor(T input, Frame placement = default(identity)) { value = input;',
+    'validate expression(input > 0); validate cpp { check_value(); }; initialize cpp { if (true) { register_value(); } }; }',
+    'public function common_type<T, Input> scaled<Input: integral || floating_point>(Input factor) readonly expression(checked<common_type<T, Input>>(value) * factor);',
+    'public function T native_value() readonly constexpr(cpp) cpp { return value; };',
+    'public uint32 after_native; }',
+  ];
+  const result = tokenize(grammar, lines);
+  const expected = [[0, 'factory(', 'storage.modifier.serializer'],
+    [1, 'storage(', 'storage.modifier.serializer'],
+    [1, 'return', 'meta.embedded.block.cpp'],
+    [3, 'validate', 'keyword.control.serializer'],
+    [3, 'initialize', 'keyword.control.serializer'],
+    [3, 'check_value', 'meta.embedded.block.cpp'],
+    [3, 'register_value', 'meta.embedded.block.cpp'],
+    [4, 'common_type<', 'support.type.serializer'],
+    [4, 'scaled<', 'entity.name.function.serializer'],
+    [5, 'constexpr(', 'storage.modifier.serializer'],
+    [5, 'return', 'meta.embedded.block.cpp'],
+    [6, 'uint32', 'support.type.serializer']];
+  for (const [line, word, scope] of expected) {
+    assert.ok(scopesAt(lines, result, line, word).includes(scope), `${label}: ${word} lacks ${scope}`);
+  }
+  assert.equal(result.state.depth, 1, `${label}: construction contracts left an open grammar rule`);
+  return expected.length + 1;
+}
+
 /** Exercise real Visual Studio grammar assets and missing-provider fallback separately. */
 async function main() {
   const directory = process.argv[2];
@@ -155,7 +186,9 @@ async function main() {
   const checks = checkLanguages(host, 'installed host grammar', true) +
     checkLanguages(fallback, 'missing grammar fallback') +
     checkLiterals(host, 'installed host grammar') +
-    checkLiterals(fallback, 'missing grammar fallback');
+    checkLiterals(fallback, 'missing grammar fallback') +
+    checkConstructionContracts(host, 'installed host grammar') +
+    checkConstructionContracts(fallback, 'missing grammar fallback');
   console.log(`Installed grammar assets passed ${checks} embedded syntax/boundary checks across all ${nativeLanguages.length} tags.`);
   console.log(`Loaded ${grammars.size} installed grammar scopes; this validates assets with the TextMate tokenizer, not an editor-host UI run.`);
 }

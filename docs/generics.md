@@ -114,6 +114,98 @@ language or checking its schema evolution. Native application-side generic APIs
 in the other ten languages are not implemented. Unused generic declarations emit
 C++ templates but no other-language models.
 
+## Factory type constraints
+
+Compiler/runtime `1.17.0` and schema language `1.12.0` add the explicit owning
+factory constraint `factory(name)`:
+
+```text
+serializer version 1.12.0;
+class identity_frame {
+  public double diagonal {1.0};
+  public factory identity() {
+    diagonal = 1.0;
+  }
+}
+class positioned_value<Frame: factory(identity) = identity_frame> {
+  public uint32 count;
+  public Frame placement;
+  public constructor(uint32 count_input = 32, Frame placement_input = default(identity)) {
+    count = count_input;
+    placement = placement_input;
+  }
+}
+```
+
+For a known generated type, the constraint requires an owning record with a public
+zero-argument named factory returning that exact owner. It is checked on supplied
+and default concrete arguments, including nested applications. Factory predicates
+can participate in Boolean type constraints; a generic parameter default
+`default(identity)` requires a positive constraint that guarantees that specific
+factory. An unrelated factory, negated requirement or unrestricted alternative
+does not authorize the default.
+
+C++ open templates receive a `requires` expression equivalent to
+`{ Frame::identity() } -> std::same_as<Frame>`. Application C++ types can satisfy
+that signature, while their actual storage, assignment, codec and lifetime
+requirements remain independent. The factory returns a fresh value for each
+omitted constructor argument. This allows identity-valued defaults without
+assuming that arbitrary `Frame{}` has those semantics.
+
+Open generic constructor parameter defaults require C++ output. Concrete owning
+schema specializations retain portable fresh factory defaults. The factory predicate
+does not promise `constexpr`, `noexcept`, execution registration or a managed
+transaction. Check the selected implementation separately when those properties
+matter. See [fresh generic defaults](construction.md#fresh-generic-factory-defaults)
+and [authoring verification](verification-authoring-2026-10-11.md).
+
+## Independently generic C++ callables
+
+Language `1.11.0` introduced numeric input parameters on construction declarations.
+Language `1.12.0` allows those independent inputs inside an owning generated record
+argument and accepts distinct C++ constructor overloads:
+
+```text
+serializer version 1.12.0;
+class quantity<T: (integral || floating_point) && !bool = double> {
+  public T value;
+  public constructor<Input: (integral || floating_point) && !bool>(Input input) explicit {
+    value = checked<T>(input);
+  }
+  public constructor<Input: (integral || floating_point) && !bool>(quantity<Input> input) explicit {
+    value = checked<T>(input.value);
+  }
+  public function common_type<T, Input> scaled<Input: (integral || floating_point) && !bool>(Input factor) readonly
+    expression(checked<common_type<T, Input>>(value) * checked<common_type<T, Input>>(factor));
+}
+```
+
+Field projections substitute each record argument's independent input types.
+Renaming an input parameter does not establish a distinct overload; duplicate
+signatures and ambiguous shortened default signatures reject. Existing codec
+default construction and native implicit copy/move behavior remain available.
+These declarations preserve explicit strong-record conversion instead of weakening
+the record's numeric input constraint.
+
+Ordinary readonly C++ callables may also declare their own constrained input types.
+The explicit scalar policy `common_type<T, Input>` lowers to
+`std::common_type_t<T, Input>` for checked numeric representations. Both operands
+must be bound with `checked` before arithmetic to preserve the intended lossless
+mixed-representation contract. The policy adds no schema field type or automatic
+quantity-record wrapper. Eligible templates keep `constexpr`; the selected
+specialization and reached checked operations determine actual constant evaluation.
+See [numeric behavior](behavior.md#constrained-readonly-inputs-and-result-representation)
+for signed/unsigned, precision and division guarantees.
+
+Independently generic construction/readonly APIs require C++ output. They do not
+establish application-side generic methods in the other ten backends. Existing
+class templates remain portable through their ordinary concrete schema applications.
+Independent readonly inputs are deduced by host C++ callers; schema expression
+calls to those generic functions diagnose as unsupported. Calls to ordinary
+methods of a class-generic receiver retain their existing substitution contract.
+Parameter defaults on independent generic input types remain unsupported; the
+declared factory default above applies to class type parameters instead.
+
 ## Parameters, defaults, and fixed arrays
 
 ```text
@@ -299,6 +391,9 @@ and generated tests exercise these contracts.
 | Fixed arrays with initializers or direct Protobuf output | Initializers supported; Protobuf rejected | Explicit generation-time unsupported diagnostic | Explicit generation-time unsupported diagnostic |
 | Ordinary generic values in managed roots | Generated replacement setters/history/journals | Managed runtime remains unsupported | Managed runtime remains unsupported |
 | Named managed generic specialization | Concrete class, identity traversal and typed editor | Managed runtime remains unsupported | Managed runtime remains unsupported |
+| Constructor overloads and independent owning-record inputs, language 1.12 | Constrained native overloads | Explicit unsupported diagnostic | Explicit unsupported diagnostic |
+| Generic factory constructor defaults, language 1.12 | Open factory-constrained APIs and concrete specializations | Concrete owning specializations with fresh defaults | Concrete owning specializations with fresh defaults |
+| Constrained readonly inputs and common_type result, language 1.12 | Checked scalar native templates | Explicit unsupported diagnostic | Explicit unsupported diagnostic |
 
 Portable fixed arrays initialize each element independently, preserving nested
 class defaults without shared mutable values. Binary readers reject a count

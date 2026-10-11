@@ -517,8 +517,12 @@ void naming::validate_names(const std::vector<std::unique_ptr<syntax_node>>& sta
             insert_name(parameter_names, field_name(parameter.name));
           }
         }
+        bool constructor_name{};
         for (const auto& construction : object.constructions) {
-          insert_name(owning, function_name(construction.constructor ? "create" : construction.name));
+          if (!construction.constructor || !constructor_name) {
+            insert_name(owning, function_name(construction.constructor ? "create" : construction.name));
+          }
+          constructor_name = constructor_name || construction.constructor;
           std::set<std::string> parameter_names;
           for (const auto& parameter : construction.parameters) {
             insert_name(parameter_names, "srl_arg_" + field_name(parameter.name));

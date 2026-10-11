@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Use Serializer as a state framework when creating or changing schemas, generated behavior, checked numeric bindings, construction/comparisons/conversions, derived wire sizes, generic type constraints, multi-language codecs, bounded decoding, revisions, C++ managed transactions, typed registries, custom-key indexes, history, journals, collaboration, or persistence. Review the installed version's entire feature set and apply every feature relevant to the user's contract; preserve wire compatibility and qualify unsupported combinations."
+description: "Use Serializer as a state framework when creating or changing schemas, generated behavior, checked numeric bindings, construction and authoring hooks, comparisons/conversions, derived wire sizes, generic type constraints, multi-language codecs, bounded decoding, revisions, C++ managed transactions, typed registries, external-provider leases, custom-key indexes, history, journals, collaboration, or persistence. Review the installed version's entire feature set and apply every feature relevant to the user's contract; preserve wire compatibility and qualify unsupported combinations."
 ---
 
 # Serializer Integration
@@ -22,10 +22,35 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
-Compiler/runtime 1.16.0 supports schema language 1.11.0. For new integrations,
+Compiler/runtime 1.17.0 supports schema language 1.12.0. For new integrations,
 review [derived wire sizes](../../../docs/derived_sizes.md),
 [explicit value conversions](../../../docs/conversions.md), and
 [stateless generic constraints](../../../docs/generics.md#stateless-type-constraints).
+
+For language `1.12.0`, review [authoring construction](../../../docs/construction.md)
+before replacing native adapters. C++ supports overloaded checked constructors,
+record arguments containing independent input types, constrained readonly method
+inputs, and explicit `common_type<T, Input>` scalar result representations. Check
+both operands into that representation before arithmetic; preserve strong record
+identities. Generic readonly input deduction is available to host C++ callers;
+schema expression calls to independently generic functions diagnose as unsupported.
+Other backends diagnose these C++ API extensions. Qualify opaque
+method-only C++ blocks with `storage(none)` rather than interpreting their tokens;
+use `constexpr(cpp)` only for ordinary readonly native bodies that actually support
+constant evaluation. Keep native storage/lifetime hooks unqualified.
+Generic owning-record parameter defaults require a guaranteed `factory(name)`
+constraint and `default(name)`, creating a fresh value per call. Concrete owning
+schema specializations retain portable defaults; open native templates require C++.
+Bind fields before
+constructor validation, then run `initialize cpp { ... };` only for authoring;
+codec/default construction and copies do not repeat host registration. Host
+side effects and rollback remain application responsibilities. Preserve native
+adapters when their contract exceeds these declarations.
+Use leased external registries only with an owning lifetime/synchronization guard,
+immutable provider version, and one-way invalidation state; validate each access.
+Existing owning external registries retain their API. Leases do not make external
+state transactional, undoable, or journaled. See the
+[verification record](../../../docs/verification-authoring-2026-10-11.md).
 
 For language `1.11.0`, use `checked<T>(value)` for lossless numeric representation
 bindings and preserve exact integer arithmetic without promotion through double.
@@ -95,10 +120,11 @@ native `owner() = default;`.
 Default construction initializes fresh schema field defaults; it does not make
 arguments to a parameterized constructor optional. Language `1.11.0` supports
 trailing checked literal or `default(factory)` parameter defaults for concrete
-types, but rejects defaults on class type parameters, independent generic input
-types and fixed arrays. A generic `Value input = {}` or
-`Value input = default(factory)` is unsupported even when `Value` has a class
-template default. Keep native construction when the exact unsupported call
+types. Language `1.12.0` also allows class parameters with a guaranteed
+`factory(name)` contract. Unqualified class parameters, independent generic input
+types, and fixed arrays still reject defaults. A generic `Value input = {}` remains
+unsupported; `Value input = default(factory)` needs the explicit factory constraint.
+Keep native construction when the exact unsupported call
 signature is required. Generated C++ constructors default-construct the owner
 and then move-assign bound parameters, so verify the owner's default construction
 and bound-field assignment when migrating native member-initializer construction. Opaque
@@ -629,11 +655,11 @@ feature as a prerequisite without the user's request.
   generated replacement setters and the existing history/journal APIs.
   Consult [usage](../../../docs/usage.md), [migration](../../../migration.md), and
   [qualification](../../../docs/verification-dimensions-2026-10-04.md).
-- Use `.serializer` files beginning with `serializer version 1.11.0;`, before declarations
+- Use `.serializer` files beginning with `serializer version 1.12.0;`, before declarations
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
-  remains available through `parser::parse(input)`. Schema language version 1.11.0 is
-  independent of compiler release 1.16.0 and wire protocols. Bug fixes and minor
+  remains available through `parser::parse(input)`. Schema language version 1.12.0 is
+  independent of compiler release 1.17.0 and wire protocols. Bug fixes and minor
   updates increment the patch number; new features increment the minor number.
   Minor and patch releases preserve full compatibility. Developers change the
   major number manually, with best-effort compatibility across major releases.
@@ -1028,7 +1054,7 @@ versioned snippets, and invokes the same targets through CMake Tools. Run the ro
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 1.1.39 is shared with the Visual Studio extension and is independent of
+version 1.1.40 is shared with the Visual Studio extension and is independent of
 compiler and schema versions. Keep both editor extension versions equal.
 Embedded target blocks reuse available editor language grammars for highlighting;
 install a grammar provider for targets the host does not bundle. This does not
@@ -1695,7 +1721,7 @@ Regenerate all relevant language and editor outputs when changing these contract
 
 Consult the [versioning verification record](../../../docs/verification-versioning-2026-10-06.md) and [release-policy verification record](../../../docs/verification-release-policies-2026-10-06.md) for completed language, compiler, codec, and editor checks. Release catalogs and nested allow policies are evaluated entirely during schema compilation; generated readers and writers contain only resolved version bounds.
 
-Use [payload versioning](../../../docs/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the supported schema language header (`1.11.0`, older `1.10.0`/`1.9.0`/`1.8.0`/`1.7.0`/`1.6.0`/`1.5.0`/`1.4.0`/`1.3.0`/`1.2.0`/`1.1.0`/`1.0.0`, or the original `1` alias for `1.0.0`) from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.
+Use [payload versioning](../../../docs/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the supported schema language header (`1.12.0`, older `1.11.0`/`1.10.0`/`1.9.0`/`1.8.0`/`1.7.0`/`1.6.0`/`1.5.0`/`1.4.0`/`1.3.0`/`1.2.0`/`1.1.0`/`1.0.0`, or the original `1` alias for `1.0.0`) from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.
 
 Declare payload revisions with Serializer's `version` member instead of an ordinary
 counter field. The paired `union_variant` examples declare

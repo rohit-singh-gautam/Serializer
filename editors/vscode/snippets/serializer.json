@@ -17,7 +17,7 @@
   "Schema": {
     "prefix": "schema",
     "body": [
-      "serializer version 1.11.0;",
+      "serializer version 1.12.0;",
       "",
       "namespace ${1:models} {",
       "class ${2:account} stable_ids {",
@@ -262,5 +262,34 @@
       "};$0"
     ],
     "description": "Create a fresh owning record from exact public field projections; schema language 1.9.0"
+  },
+  "Native C++ block without storage": {
+    "prefix": "cpp-storage-none",
+    "body": [
+      "public cpp storage(none) {",
+      "  $0",
+      "}"
+    ],
+    "description": "Declare a native C++ block that adds no instance storage"
+  },
+  "Constant-evaluable readonly C++ method": {
+    "prefix": "readonly-constexpr-cpp",
+    "body": [
+      "public function ${1:double} ${2:value}() readonly constexpr(cpp) cpp {",
+      "  return ${3:0.0};",
+      "};$0"
+    ],
+    "description": "Qualify a native readonly C++ method for constant evaluation"
+  },
+  "Constructor validation and initialization": {
+    "prefix": "constructor-hooks",
+    "body": [
+      "public constructor(${1:double} ${2:input}) {",
+      "  ${3:value} = ${2:input};",
+      "  validate expression(${2:input} > 0);",
+      "  initialize cpp { ${4:on_construct}(); };",
+      "}$0"
+    ],
+    "description": "Validate bound authoring inputs before a C++ initialization hook"
   }
 }

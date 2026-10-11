@@ -375,8 +375,22 @@ TEST_F(schema_include_test, readonly_call_language_contract_is_per_file) {
       "function uint64 identity(uint64 value) readonly expression(value);");
   write("root.serializer", "serializer version 1; include common; class root { public uint32 value; }");
   EXPECT_NO_THROW(schema::parser::parse_file(directory / "root.serializer"));
-  write("common.serializer", "serializer version 1.12.0; class future {}");
+  write("common.serializer", "serializer version 1.13.0; class future {}");
   reject("Unsupported schema language version");
+}
+
+// Authoring and native qualification use each dependency's header, including older includers.
+TEST_F(schema_include_test, authoring_language_contract_is_per_file) {
+  write("root.serializer", "serializer version 1.12.0; include common; class root { public uint32 value; }");
+  write("common.serializer", "serializer version 1.11.0; class item { public cpp storage(none) {} }");
+  reject("require serializer version 1.12.0");
+  write("common.serializer", "serializer version 1.11.0; class item { public uint32 value; "
+      "public constructor(uint32 input) { value = input; validate expression(value > 0); } }");
+  reject("require serializer version 1.12.0");
+  write("common.serializer", "serializer version 1.12.0; class item { public cpp storage(none) {} "
+      "public function uint32 read() readonly constexpr(cpp) cpp { return 1; }; }");
+  write("root.serializer", "serializer version 1; include common; class root { public uint32 value; }");
+  EXPECT_NO_THROW(schema::parser::parse_file(directory / "root.serializer"));
 }
 
 // Projected calls, record selection and map-key applications keep their declaring file's gate.

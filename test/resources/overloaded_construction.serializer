@@ -1,0 +1,55 @@
+serializer version 1.12.0;
+
+class overloaded_quantity<T: (integral || floating_point) && !bool> stable_ids {
+  public T value (1);
+  public constructor<Input: (integral || floating_point) && !bool>(Input input) explicit {
+    value = checked<T>(input);
+  }
+  public constructor<Input: (integral || floating_point) && !bool>(overloaded_quantity<Input> input) explicit {
+    value = checked<T>(input.value);
+  }
+}
+instantiate overloaded_byte = overloaded_quantity<uint8>;
+instantiate overloaded_wide = overloaded_quantity<uint64>;
+
+class overloaded_angle<T: (integral || floating_point) && !bool> stable_ids {
+  public T value (1);
+  public constructor<Input: (integral || floating_point) && !bool>(Input input) explicit {
+    value = checked<T>(input);
+  }
+}
+
+class overloaded_options stable_ids {
+  public uint32 count (1) {1};
+  public string label (2) {"initial"};
+  public constructor(uint32 count_input, uint32 unused = 9) explicit {
+    count = count_input;
+  }
+  public constructor(string label_input, string unused = "suffix") explicit {
+    label = label_input;
+  }
+}
+
+class overloaded_sized_input<T, uint64 N> stable_ids {
+  public array[N] T values (1);
+}
+
+class overloaded_dimensions stable_ids {
+  public uint32 size (1);
+  public constructor<Input: integral && !bool>(overloaded_sized_input<Input, 3> input) explicit {
+    size = 3;
+  }
+  public constructor<Input: integral && !bool>(overloaded_sized_input<Input, 4> input) explicit {
+    size = 4;
+  }
+}
+
+class overloaded_digests stable_ids {
+  public uint32 size (1);
+  public constructor(digest[16] input) explicit {
+    size = 16;
+  }
+  public constructor(digest[32] input) explicit {
+    size = 32;
+  }
+}
