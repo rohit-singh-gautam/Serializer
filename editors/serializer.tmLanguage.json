@@ -156,6 +156,10 @@
           "match": "\\bmath\\.(sqrt|sin|cos|is_finite)\\b|\\b(?:to_double|size|all|any)(?=\\s*\\()"
         },
         {
+          "name": "entity.name.function.serializer",
+          "match": "(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*(?=\\s*\\()"
+        },
+        {
           "name": "constant.language.serializer",
           "match": "\\b(?:true|false)\\b|\\bmath\\.pi\\b"
         },
@@ -763,15 +767,21 @@
       },
       "patterns": [
         {
-          "match": "(?<!:)(:)(?!:)\\s*(stateless)\\b",
-          "captures": {
+          "begin": "(?<!:)(:)(?!:)",
+          "beginCaptures": {
             "1": {
               "name": "keyword.operator.serializer"
-            },
-            "2": {
-              "name": "storage.modifier.serializer"
             }
-          }
+          },
+          "end": "(?=[=,>])",
+          "patterns": [
+            { "include": "#comments" },
+            { "name": "storage.modifier.serializer", "match": "\\b(?:stateless|integral|floating_point)\\b" },
+            { "name": "keyword.operator.serializer", "match": "&&|\\|\\||!|::" },
+            { "name": "punctuation.section.group.serializer", "match": "[()]" },
+            { "include": "#generic_arguments" },
+            { "name": "entity.name.type.serializer", "match": "[A-Za-z_][A-Za-z_0-9]*" }
+          ]
         },
         {
           "name": "constant.numeric.serializer",

@@ -84,6 +84,17 @@ internal static class NavigationTest {
           generated, live, CancellationToken.None).Length == 0, "predicate values and digest algorithms are not type operands");
         ++checks;
       }
+      var functionText = "serializer version 1.10.0; include sales/order; namespace helpers { " +
+        "function demo::order identity(demo::order value) readonly expression(value); " +
+        "class choice<T: demo::order || demo::order_state> { public T value; } }";
+      live[model] = functionText;
+      foreach (var name in new[] { "demo::order identity", "demo::order value", "demo::order ||", "demo::order_state>" }) {
+        var start = functionText.IndexOf(name, StringComparison.Ordinal);
+        var destination = NavigationRunner.Resolve(model, start, false, generated, live, CancellationToken.None);
+        Require(destination.Length == 1 && Path.GetFileName(destination[0].file) == "order.serializer",
+          "namespace signatures and exact constraint types retain included navigation");
+        ++checks;
+      }
       var conversionText = "serializer version 1.9.0; class empty {} class passive<T: stateless = empty> { " +
         "public transient layout(empty) T reference; } class contact { public string street; } " +
         "class other { public string street; } class base { public uint32 rank; } class view { public string address; public uint32 rank; } " +

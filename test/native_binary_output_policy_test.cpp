@@ -66,7 +66,7 @@ void verify_policy() {
   value.serialize_out(normal);
   const auto bytes = normal_output.current_offset();
   EXPECT_EQ((codec::binary_size<Keys, Endian>(value, bytes)), bytes);
-  EXPECT_THROW((codec::binary_size<Keys, Endian>(value, bytes - 1)),
+  EXPECT_THROW((static_cast<void>(codec::binary_size<Keys, Endian>(value, bytes - 1))),
                rohit::exception::stream_overflow_exception);
 
   rohit::full_stream_auto_alloc normalized_output;
@@ -111,8 +111,8 @@ void verify_borrowed_equivalent(const Owned& owned, const Borrowed& borrowed) {
   EXPECT_EQ((codec::binary_size<Keys, Endian, codec::binary_text_validation::strict, Policy>(
       borrowed, bytes)), bytes);
   ASSERT_NE(bytes, 0u);
-  EXPECT_THROW((codec::binary_size<Keys, Endian, codec::binary_text_validation::strict, Policy>(
-      borrowed, bytes - 1)), rohit::exception::stream_overflow_exception);
+  EXPECT_THROW((static_cast<void>(codec::binary_size<Keys, Endian, codec::binary_text_validation::strict, Policy>(
+      borrowed, bytes - 1))), rohit::exception::stream_overflow_exception);
 }
 
 // Cover fixed/dynamic spans and transparent references throughout the native owning value graph.
@@ -224,7 +224,7 @@ TEST(native_binary_output_policy, counter_bounds_and_validation) {
   EXPECT_EQ(output.size(), 0u);
   auto invalid = sample();
   invalid.text = std::string{1, static_cast<char>(0xff)};
-  EXPECT_THROW(codec::binary_string_size(invalid), std::exception);
+  EXPECT_THROW(static_cast<void>(codec::binary_string_size(invalid)), std::exception);
 }
 
 // Retain a single payload reservation for a long normalized array and preserve nonzero bit patterns.
@@ -295,5 +295,5 @@ TEST(native_binary_output_policy, borrowed_lifetimes_and_bulk_paths) {
   EXPECT_EQ(codec::binary_size<keys::none>(std::span{zeros}), output.current_offset());
   EXPECT_EQ(std::bit_cast<std::uint64_t>(zeros.front()), std::uint64_t{1} << 63);
   const std::string invalid{1, static_cast<char>(0xff)};
-  EXPECT_THROW(codec::binary_string_size(std::cref(invalid)), std::exception);
+  EXPECT_THROW(static_cast<void>(codec::binary_string_size(std::cref(invalid))), std::exception);
 }

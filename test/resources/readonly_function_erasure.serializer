@@ -1,0 +1,8 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.10.0;
+
+namespace erased_helpers {
+  function int32 identity(int32 value) readonly expression(value);
+  function uint32 identity(uint32 value) readonly expression(value);
+}

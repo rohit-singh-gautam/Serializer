@@ -35,7 +35,7 @@ namespace exception {
 class stream_overflow_exception : public std::exception {
 public:
   // Return the exception message; the pointer remains valid for this exception lifetime.
-  const char* what() const noexcept override { return "Stream Overflow"; }
+  [[nodiscard]] const char* what() const noexcept override { return "Stream Overflow"; }
 }; // class stream_overflow_exception
 
 } // namespace exception

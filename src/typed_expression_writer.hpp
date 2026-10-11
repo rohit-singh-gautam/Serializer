@@ -11,6 +11,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace rohit::serializer::writer::behavior {
 
@@ -168,6 +169,20 @@ inline std::optional<std::string> typed_expression(const behavior_expression& no
     return value;
   };
   if (node.kind == operation::integer_literal) { return integral_literal(node, language, context); }
+  if (node.kind == operation::call) {
+    if (!context.call) { throw std::invalid_argument{"Missing portable function call lowering"}; }
+    std::vector<std::string> arguments;
+    for (std::size_t index{}; index < node.operands.size(); ++index) {
+      auto value = child(index);
+      const auto& operand = node.operands[index];
+      if (language == "rust" && (operand.result_type == "collection" || operand.result_type.starts_with("record:"))) {
+        value = "(" + value + ").clone()";
+      }
+      if (language == "rust") { value = ungroup_expression(std::move(value)); }
+      arguments.push_back(std::move(value));
+    }
+    return checked_leaf(context.call(node, arguments));
+  }
   if (node.kind == operation::literal && node.result_type == "float") {
     auto value = node.value.find_first_of(".eE") == std::string::npos ? node.value + ".0" : node.value;
     return language == "rust" ? value + "_f32" : language == "swift" ? "Float(" + value + ")" : language == "js" || language == "typescript" || language == "python" || language == "go" ? value : value + "f";
@@ -190,6 +205,13 @@ inline std::optional<std::string> typed_expression(const behavior_expression& no
   if (node.kind == operation::is_finite) {
     auto raw = context; raw.unchecked_leaf = true;
     const auto value = expression(node.operands.at(0), language, symbol, names, raw);
+    // Python and Go finite checks inspect a value repeatedly; reached calls must run once.
+    if (has_call(node.operands.front()) && language == "python") {
+      return "(lambda srl_observed: type(srl_observed) in (int, float) and -1.7976931348623157e308 <= srl_observed <= 1.7976931348623157e308)(" + value + ")";
+    }
+    if (has_call(node.operands.front()) && language == "go") {
+      return "func() bool { srlObserved := float64(" + value + "); return !math.IsNaN(srlObserved) && !math.IsInf(srlObserved, 0) }()";
+    }
     if (language == "java") { return "Double.isFinite(" + value + ")"; }
     if (language == "csharp") { return "double.IsFinite(" + value + ")"; }
     if (language == "python") { return "(type(" + value + ") in (int, float) and -1.7976931348623157e308 <= (" + value + ") <= 1.7976931348623157e308)"; }

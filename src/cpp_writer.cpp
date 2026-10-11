@@ -174,6 +174,36 @@ public:
         generic_default(base.type_expression.front()) : storage_type_name(base.name, base.parent_class);
   }
 
+  // Preserve the parser's portable Boolean type contract on open native templates.
+  std::string constraint_expression(const generic_constraint& constraint, std::string_view parameter) {
+    using operation = generic_constraint::operation;
+    const auto type = std::string{parameter};
+    switch (constraint.kind) {
+    case operation::integral: return "::std::integral<" + type + ">";
+    case operation::floating_point: return "::std::floating_point<" + type + ">";
+    case operation::stateless: return "::std::is_empty_v<" + type + ">";
+    case operation::exact_type: return "::std::same_as<" + type + ", " + generic_default(*constraint.type) + ">";
+    case operation::logical_not: return "!(" + constraint_expression(constraint.operands.at(0), parameter) + ")";
+    case operation::logical_and:
+    case operation::logical_or:
+      return "(" + constraint_expression(constraint.operands.at(0), parameter) +
+          (constraint.kind == operation::logical_and ? " && " : " || ") +
+          constraint_expression(constraint.operands.at(1), parameter) + ")";
+    }
+    throw std::invalid_argument{"Unknown generic constraint operation"};
+  }
+
+  // Emit one identical requires-clause for each declaration of a constrained template.
+  std::string template_constraints(const class_node& object) {
+    std::string result;
+    for (const auto& parameter : object.generic_parameters) {
+      if (!parameter.constraint) { continue; }
+      if (!result.empty()) { result += " && "; }
+      result += "(" + constraint_expression(*parameter.constraint, parameter.name) + ")";
+    }
+    return result.empty() ? result : "requires (" + result + ")\n";
+  }
+
   // Compare selected schema values without including wire headers or hidden runtime metadata.
   void write_comparisons(rohit::type_check::output_buffer auto& output,
                          const class_node* object) {
@@ -231,11 +261,39 @@ public:
     const auto right = parameter_name("right");
     const auto lhs = tuple(values("(*this)"));
     const auto rhs = tuple(values(other));
+    auto comparison_type = std::string{"ComparisonValue"};
+    for (std::size_t suffix{}; occupied.contains(comparison_type);) {
+      comparison_type = "ComparisonValue" + std::to_string(++suffix);
+    }
+    // Tuple operators omit noexcept on some libraries; prove their individual value operations.
+    const auto nothrow_components = [&](bool ordering) {
+      std::string condition;
+      for (const auto& value : values("(*this)")) {
+        if (!condition.empty()) { condition += " && "; }
+        const auto first = "::std::declval<const " + comparison_type + "&>()";
+        const auto second = first;
+        condition += "[]<class " + comparison_type + ">() constexpr { ";
+        if (ordering) {
+          // Match tuple's synthesized ordering: native comparison categories, otherwise two less-tests.
+          condition += "if constexpr (::std::three_way_comparable_with<" + comparison_type +
+              ", " + comparison_type + ">) { return noexcept(" + first + " <=> " + second +
+              "); } else if constexpr (requires { static_cast<bool>(" + first + " < " + second +
+              "); }) { return noexcept(static_cast<bool>(" + first + " < " + second + ")); } ";
+        } else {
+          condition += "if constexpr (requires { static_cast<bool>(" + first + " == " + second +
+              "); }) { return noexcept(static_cast<bool>(" + first + " == " + second + ")); } ";
+        }
+        condition += "else { return false; } }.template operator()<::std::remove_cvref_t<decltype(" +
+            value + ")>>()";
+      }
+      return condition.empty() ? std::string{"true"} : condition;
+    };
     const bool generic = object->type == object_type::generic_definition;
     output.write("\npublic:\n");
     if (comparison_settings->equality) {
       output.write("  // Test memberwise equality using the configured schema field selection.\n"
-                   "  constexpr bool operator==(const ", self, "& ", other, ") const");
+                   "  [[nodiscard]] constexpr bool operator==(const ", self, "& ", other, ") const"
+                   " noexcept(", nothrow_components(false), ")");
       const auto left_values = values(left);
       const auto right_values = values(right);
       if (generic && !left_values.empty()) {
@@ -255,7 +313,8 @@ public:
     }
     if (comparison_settings->ordering) {
       output.write("  // Preserve the members' comparison category in lexicographic order.\n"
-                   "  constexpr auto operator<=>(const ", self, "& ", other, ") const");
+                   "  [[nodiscard]] constexpr auto operator<=>(const ", self, "& ", other, ") const"
+                   " noexcept(", nothrow_components(true), ")");
       if (generic) {
         output.write("\n    requires requires(const ", self, "& ", left,
                      ", const ", self, "& ", right, ") {\n      ",
@@ -453,7 +512,7 @@ public:
     }
     result += ">;\n"
         "  // Derive the wire alternative from the owned active value.\n"
-        "  constexpr " + tag + " " + function_name("get_" + field.name + "_type") +
+        "  [[nodiscard]] constexpr " + tag + " " + function_name("get_" + field.name + "_type") +
         "() const {\n    if (this->" + payload + ".valueless_by_exception()) {\n"
         "      throw ::std::invalid_argument{\"Valueless variant payload\"};\n    }\n"
         "    return static_cast<" + tag + ">(this->" + payload + ".index());\n  }\n"
@@ -474,7 +533,7 @@ public:
           ");\n  }\n";
     }
     result += "  // Return the unchanged wire name of a generated alternative.\n"
-        "  static ::std::string to_string(" + tag + " " + value_name +
+        "  [[nodiscard]] static constexpr ::std::string to_string(" + tag + " " + value_name +
         ") {\n    switch (" + value_name + ") {\n";
     for (const auto& alternative : field.type_name_list) {
       result += "    case " + tag + "::" + enum_name(alternative.enum_name) +
@@ -483,7 +542,7 @@ public:
     result += "    default: throw ::std::invalid_argument{\"Invalid variant discriminator\"};\n"
         "    }\n  }\n"
         "  // Match complete schema names without relying on a hash alone.\n"
-        "  static " + tag + " " + function_name("to_e_" + field.name) +
+        "  [[nodiscard]] static constexpr " + tag + " " + function_name("to_e_" + field.name) +
         "(const auto& " + value_name + ") {\n    const ::std::string_view " +
         wire_name + "{" + value_name + "};\n";
     for (const auto& alternative : field.type_name_list) {
@@ -515,7 +574,7 @@ public:
     result += "  };\n  static_assert(::std::is_trivially_destructible_v<" + storage +
               ">, \"Raw union payloads must be trivially destructible\");\n"
               "  // Return the wire name for a valid union alternative.\n"
-              "  static ::std::string to_string(" +
+              "  [[nodiscard]] static constexpr ::std::string to_string(" +
               tag +
               (std::string{" "} + local_name("value") + ") {\n    switch (" + local_name("value") +
                ") {\n");
@@ -527,7 +586,7 @@ public:
         "    default:\n      throw ::std::invalid_argument{\"Invalid union discriminator\"};\n"
         "    }\n  }\n"
         "  // Match the full wire name, including when names share a hash.\n"
-        "  static " +
+        "  [[nodiscard]] static constexpr " +
         tag + " " + function_name("to_e_" + field.name) +
         (std::string{"(const auto& "} + local_name("value") + ") {\n    const ::std::string_view " +
          local_name("name") + "{" + local_name("value") + "};\n    const auto " +
@@ -620,36 +679,46 @@ public:
     }
   }
 
-  // Emit one method on the owning value or a transaction-bound editor receiver.
+  // Emit a readonly free function or one method on an owning/editor receiver.
   void write_behavior_method(rohit::type_check::output_buffer auto& output, const class_node* owner,
-                             const function_declaration& method, bool editor_receiver = false) {
+                             const function_declaration& method, bool editor_receiver = false,
+                             bool declaration_only = false) {
     if (method.dispatch == function_declaration::dispatch_type::abstract_method) { return; }
     const auto* body = behavior::native_body(method, "cpp");
     if (body && rename_behavior_identifiers) {
       throw std::invalid_argument{"cpp: opaque native bodies require naming = preserve"};
     }
-    if (!editor_receiver && owner->supports_managed() && method.effect == function_declaration::effect_type::edit) {
+    if (owner && !editor_receiver && owner->supports_managed() && method.effect == function_declaration::effect_type::edit) {
       return; // The corresponding generated editor owns this mutation contract.
     }
-    output.write(behavior::source_marker(method, "cpp"));
-    write_access_type(output, method.access);
-    output.write(":\n  ");
+    if (!declaration_only) { output.write(behavior::source_marker(method, "cpp")); }
+    if (owner) {
+      write_access_type(output, method.access);
+      output.write(":\n  ");
+    }
     using dispatch = function_declaration::dispatch_type;
     const bool typed_body = method.expression && !body && !editor_receiver &&
         method.effect == function_declaration::effect_type::readonly;
-    std::set<std::string> checked_float_inputs;
-    if (typed_body && !method.predicate_body) {
-      behavior::floating_symbols(*method.expression, checked_float_inputs);
-    }
+    static const class_node free_owner{object_type::class_type, std::string{}, nullptr,
+        class_attributes::none, {}};
     const bool inferred_constexpr = typed_body && method.dispatch == dispatch::ordinary &&
         behavior::constexpr_expression(*method.expression) &&
-        behavior::constexpr_parameters(*owner, method) && checked_float_inputs.empty();
-    const bool inferred_noexcept = typed_body &&
-        (method.predicate_body || behavior::noexcept_expression(*method.expression));
+        behavior::constexpr_parameters(owner ? *owner : free_owner, method);
+    const bool scalar_return = method.return_type.type == object_type::enum_type ||
+        (method.return_type.type == object_type::primitive && method.return_type.name != "string" &&
+         !method.return_type.is_digest());
+    const bool inferred_noexcept = typed_body && scalar_return &&
+        ((method.predicate_body && !behavior::has_call(*method.expression) &&
+          behavior::native_scalar_expression(*method.expression)) ||
+         behavior::noexcept_expression(*method.expression));
+    if (method.effect == function_declaration::effect_type::readonly && method.return_type.name != "void") {
+      output.write("[[nodiscard]] ");
+    }
     if (method.dispatch == dispatch::virtual_method || method.dispatch == dispatch::override_method) {
       output.write("virtual ");
     }
     if (inferred_constexpr) { output.write("constexpr "); }
+    else if (!owner && (body || method.expression)) { output.write("inline "); }
     output.write(method.return_type.name == "void" ? "void" : generic_default(method.return_type), " ",
                  function_name(method.name), "(");
     for (std::size_t index = 0; index < method.parameters.size(); ++index) {
@@ -659,10 +728,11 @@ public:
       output.write(generic_default(argument.type), " ", local_name(argument.name));
     }
     output.write(")");
-    if (!editor_receiver && method.effect == function_declaration::effect_type::readonly) { output.write(" const"); }
+    if (owner && !editor_receiver && method.effect == function_declaration::effect_type::readonly) { output.write(" const"); }
     if (inferred_noexcept) { output.write(" noexcept"); }
     if (method.dispatch == dispatch::override_method && behavior::concrete_virtual_base(*owner, method)) { output.write(" override"); }
     if (editor_receiver) { output.write(" requires (!Access::is_runtime_access)"); }
+    if (declaration_only) { output.write(";\n"); return; }
     if (method.dispatch == dispatch::abstract_method) { output.write(" = 0;\n"); return; }
     if (body) {
       if (editor_receiver) {
@@ -681,6 +751,7 @@ public:
       const auto argument = std::find_if(method.parameters.begin(), method.parameters.end(),
           [&](const auto& value) { return value.name == name; });
       if (argument != method.parameters.end()) { return local_name(argument->name); }
+      if (!owner) { throw std::invalid_argument{"Unbound free function behavior symbol"}; }
       const auto field = std::find_if(owner->member_list.begin(), owner->member_list.end(),
           [&](const auto& value) { return value.name == name; });
       if (field == owner->member_list.end()) { throw std::invalid_argument{"Unbound native behavior symbol"}; }
@@ -691,7 +762,10 @@ public:
       std::set<std::string> symbols;
       behavior::floating_symbols(*method.expression, symbols);
       for (const auto& name : symbols) {
-        output.write("    if (!::std::isfinite(static_cast<double>(", symbol(name),
+        const auto value = "static_cast<double>(" + symbol(name) + ")";
+        output.write("    if (!(::std::is_constant_evaluated() ? "
+            "::rohit::serializer::detail::srl_behavior_checked_predicate_finite(", value,
+            ") : ::std::isfinite(", value,
             "))) { throw ::std::domain_error{\"Portable expression requires finite inputs\"}; }\n");
       }
     }
@@ -713,6 +787,20 @@ public:
       const auto field = std::find_if(record->member_list.begin(), record->member_list.end(),
           [&](const auto& item) { return item.name == node.value; });
       return "(" + base + ")." + member_name(*field);
+    };
+    context.call = [&](const behavior_expression& node, const std::vector<std::string>& arguments) {
+      const auto& target = behavior::called_function(node);
+      if (node.call_target->type == object_type::function_type) {
+        return full_type_name(node.call_target) + "(" + behavior::call_arguments(arguments) + ")";
+      }
+      std::string receiver{"this"};
+      const auto* record = owner;
+      for (const auto index : node.call_base_path) {
+        const auto& base = record->parents.at(index);
+        receiver = "static_cast<const " + parent_type_name(base) + "*>(" + receiver + ")";
+        record = base.parent_class;
+      }
+      return receiver + "->" + function_name(target.name) + "(" + behavior::call_arguments(arguments) + ")";
     };
     std::size_t indentation = 4;
     context.line = [&](const auto& text) { output.write(std::string(indentation, ' '), text, "\n"); };
@@ -1269,7 +1357,7 @@ public:
                  "    requires(SerializeOutProtocol::key_type == ::rohit::serializer::serialize_key_type::none &&\n"
                  "             ::rohit::serializer::detail::protocol_wire_format<SerializeOutProtocol>() ==\n"
                  "                 ::rohit::serializer::wire_format::binary_none)\n  ",
-                 std::string_view{constant_output ? "constexpr " : ""}, "void ",
+                 "constexpr void ",
                  std::string_view{constant_output ? "serialize_constant_out" : "serialize_out"},
                  "(SerializeOutProtocol& ", local_name("serializer_protocol"), ") const {\n");
     }
@@ -1291,7 +1379,7 @@ public:
       output.write("  // Encode to a buffer or byte sink satisfying the output stream concept.\n"
                        "  template <template <::rohit::serializer::serialize_type> class Protocol,\n"
                        "            ::rohit::type_check::output_stream SerializerStream>\n"
-                       "  void serialize_out(SerializerStream& ",
+                       "  constexpr void serialize_out(SerializerStream& ",
                        local_name("stream"),
                        ") const {\n"
                        "    ::rohit::serializer::serialize_to<Protocol>(",
@@ -1318,7 +1406,7 @@ public:
     out_stream.write(
         (std::string{
              "  // Encode fields directly using the protocol's compile-time key mode.\n  template "
-             "<typename SerializeOutProtocol>\n  void serialize_out(SerializeOutProtocol& "} +
+             "<typename SerializeOutProtocol>\n  constexpr void serialize_out(SerializeOutProtocol& "} +
          local_name("serializer_protocol") +
          ") const {\n    static_assert(\n        SerializeOutProtocol::key_type == "
          "::rohit::serializer::serialize_key_type::none ||\n        SerializeOutProtocol::key_type "
@@ -1361,7 +1449,7 @@ public:
     out_stream.write("  // Encode to a buffer or byte sink satisfying the output stream concept.\n"
                      "  template <template <::rohit::serializer::serialize_type> class Protocol,\n"
                      "            ::rohit::type_check::output_stream SerializerStream>\n"
-                     "  void serialize_out(SerializerStream& ",
+                     "  constexpr void serialize_out(SerializerStream& ",
                      local_name("stream"),
                      ") const {\n"
                      "    ::rohit::serializer::serialize_to<Protocol>(",
@@ -1636,7 +1724,7 @@ public:
         "      if (seen[index]) { throw ::std::invalid_argument{\"Duplicate versioned field\"}; }\n"
         "      seen[index] = true;\n    }\n"
         "    // Match retained numeric identities without allocating a dispatch table.\n"
-        "    void serialize_in_member_by_identifier(SerializeInProtocol& protocol, ::std::uint32_t "
+        "    constexpr void serialize_in_member_by_identifier(SerializeInProtocol& protocol, ::std::uint32_t "
         "key) {\n"
         "      switch (key) {\n");
     std::size_t index{};
@@ -1649,7 +1737,7 @@ public:
     output.write("      default: break;\n      }\n"
                  "      target.serialize_in_member_by_identifier(protocol, key, donor);\n    }\n"
                  "    // Match wire names, including union-expanded identities.\n"
-                 "    void serialize_in_member_by_name(SerializeInProtocol& protocol, "
+                 "    constexpr void serialize_in_member_by_name(SerializeInProtocol& protocol, "
                  "::std::string_view key) {\n");
     index = 0;
     for (const auto& base : object.parents) {
@@ -1709,7 +1797,7 @@ public:
     const std::string_view key_type = by_name ? "::std::string_view" : "::std::uint32_t";
     const auto key = local_name(by_name ? "name" : "identifier");
     output.write("  // Decode one selected field without an external storage donor.\n"
-                 "  template <typename SerializeInProtocol>\n  void ",
+                 "  template <typename SerializeInProtocol>\n  constexpr void ",
                  method, "(SerializeInProtocol& ", local_name("serializer_protocol"), ", ",
                  key_type, " ", key, ") {\n    ", method, "(", local_name("serializer_protocol"),
                  ", ", key, ", nullptr);\n  }\n\n");
@@ -1723,7 +1811,7 @@ public:
       // Empty managed payloads are valid; omit a default-only switch that warns under /W4.
       out_stream.write("  // Reject every numeric field in an empty schema.\n"
                        "  template <typename SerializeInProtocol, typename StorageSource>\n"
-                       "  void serialize_in_member_by_identifier(SerializeInProtocol& ",
+                       "  constexpr void serialize_in_member_by_identifier(SerializeInProtocol& ",
                        local_name("serializer_protocol"),
                        ", ::std::uint32_t, [[maybe_unused]] StorageSource ", local_name("storage_donor"),
                        ") {\n    throw ::rohit::serializer::exception::key_not_found{",
@@ -1734,7 +1822,7 @@ public:
         (std::string{"  // Decode the member selected by its numeric wire "
                      "identifier.\n  template <typename SerializeInProtocol, typename "
                      "StorageSource>\n"
-                     "  void serialize_in_member_by_identifier(SerializeInProtocol& "} +
+                     "  constexpr void serialize_in_member_by_identifier(SerializeInProtocol& "} +
          local_name("serializer_protocol") +
          (std::string{", const ::std::uint32_t "} + local_name("identifier") +
           ", [[maybe_unused]] StorageSource " + local_name("storage_donor") + ") {\n    switch (" +
@@ -1775,7 +1863,7 @@ public:
       out_stream.write(
           "  // Delegate unknown names to protocols that support compatible input.\n"
           "  template <typename SerializeInProtocol, typename StorageSource>\n"
-          "  void serialize_in_member_by_name(SerializeInProtocol& ",
+          "  constexpr void serialize_in_member_by_name(SerializeInProtocol& ",
           local_name("serializer_protocol"), ", ::std::string_view ", local_name("name"),
           ", [[maybe_unused]] StorageSource ", local_name("storage_donor"),
           ") {\n"
@@ -1907,7 +1995,7 @@ public:
     write_serializer_in_body_with_key_string(out_stream, obj);
     out_stream.write("  // Decode this object using the protocol's compile-time key mode.\n"
                      "  template <typename SerializeInProtocol>\n"
-                     "  void serialize_in(SerializeInProtocol& ",
+                     "  constexpr void serialize_in(SerializeInProtocol& ",
                      local_name("serializer_protocol"), ") {\n    serialize_in(",
                      local_name("serializer_protocol"), ", nullptr);\n  }\n\n");
     out_stream.write((
@@ -1915,7 +2003,7 @@ public:
             "  // Decode fields; an internal donor supplies storage only for present fields.\n"
             "  // A supplied donor must be a distinct, non-null object and may be consumed.\n"
             "  template <typename SerializeInProtocol, typename StorageSource>\n"
-            "  void serialize_in(SerializeInProtocol& "} +
+            "  constexpr void serialize_in(SerializeInProtocol& "} +
         local_name("serializer_protocol") + ", [[maybe_unused]] StorageSource " +
         local_name("storage_donor") +
         ") {\n    static_assert(\n        SerializeInProtocol::key_type == "
@@ -1973,7 +2061,7 @@ public:
         "  }\n\n  // Decode from a buffer or bounded EOF-delimited byte source.\n"
         "  template <template <::rohit::serializer::serialize_type> class Protocol,\n"
         "            ::rohit::type_check::input_stream SerializerStream>\n"
-        "  void serialize_in(SerializerStream&& ",
+        "  constexpr void serialize_in(SerializerStream&& ",
         local_name("stream"),
         ") {\n"
         "    ::rohit::serializer::serialize_from<Protocol>(",
@@ -1981,7 +2069,7 @@ public:
         "  // Decode with explicit resource limits; byte sources receive exact-message validation.\n"
         "  template <template <::rohit::serializer::serialize_type> class Protocol,\n"
         "            ::rohit::type_check::input_stream SerializerStream>\n"
-        "  void serialize_in(SerializerStream&& ",
+        "  constexpr void serialize_in(SerializerStream&& ",
         local_name("stream"), ", ::rohit::serializer::decode_limits ", local_name("limits"),
         ") {\n    ::rohit::serializer::serialize_from<Protocol>(",
         local_name("stream"), ", *this, ", local_name("limits"), ");\n  }\n");
@@ -2007,7 +2095,7 @@ public:
         "\n  // Encode a borrowed value; the caller owns the destination and any flush/close.\n"
         "  template <template <::rohit::serializer::serialize_type> class Protocol,\n"
         "            ::rohit::type_check::output_stream SerializerStream>\n"
-        "  static void serialize(SerializerStream& ", stream, ", const ", name, "& ", value,
+        "  static constexpr void serialize(SerializerStream& ", stream, ", const ", name, "& ", value,
         ") {\n    ::rohit::serializer::serialize_to<Protocol>(", stream, ", ", value, ");\n  }\n");
     const auto compression = local_name("compression");
     output.write(
@@ -2033,7 +2121,7 @@ public:
           "  // Input may be consumed; byte sources receive exact-message validation.\n"
           "  template <template <::rohit::serializer::serialize_type> class Protocol,\n"
           "            ::rohit::type_check::input_stream SerializerStream>\n"
-          "  [[nodiscard]] static ", name, " deserialize(SerializerStream&& ", stream);
+          "  [[nodiscard]] static constexpr ", name, " deserialize(SerializerStream&& ", stream);
       if (explicit_limits) {
         output.write(", ::rohit::serializer::decode_limits ", limits);
       }
@@ -2062,7 +2150,7 @@ public:
                  "    requires(SerializeInProtocol::key_type == ::rohit::serializer::serialize_key_type::none &&\n"
                  "             ::rohit::serializer::detail::protocol_wire_format<SerializeInProtocol>() ==\n"
                  "                 ::rohit::serializer::wire_format::binary_none)\n"
-                 "  void serialize_in(SerializeInProtocol& ", local_name("serializer_protocol"),
+                 "  constexpr void serialize_in(SerializeInProtocol& ", local_name("serializer_protocol"),
                  ", [[maybe_unused]] StorageSource ", local_name("storage_donor"), " = nullptr) {\n");
     write_auto_size_input_start(output, *object);
     if (object->has_magic()) {
@@ -2082,7 +2170,7 @@ public:
         "\n  // Decode from a buffer or bounded EOF-delimited byte source.\n"
         "  template <template <::rohit::serializer::serialize_type> class Protocol,\n"
         "            ::rohit::type_check::input_stream SerializerStream>\n"
-        "  void serialize_in(SerializerStream&& ",
+        "  constexpr void serialize_in(SerializerStream&& ",
         local_name("stream"),
         ") {\n"
         "    ::rohit::serializer::serialize_from<Protocol>(",
@@ -2090,7 +2178,7 @@ public:
         "  // Decode with explicit resource limits; byte sources receive exact-message validation.\n"
         "  template <template <::rohit::serializer::serialize_type> class Protocol,\n"
         "            ::rohit::type_check::input_stream SerializerStream>\n"
-        "  void serialize_in(SerializerStream&& ",
+        "  constexpr void serialize_in(SerializerStream&& ",
         local_name("stream"), ", ::rohit::serializer::decode_limits ", local_name("limits"),
         ") {\n    ::rohit::serializer::serialize_from<Protocol>(",
         local_name("stream"), ", *this, ", local_name("limits"), ");\n  }\n");
@@ -2371,7 +2459,7 @@ public:
                          std::size_t index, access_type access) {
     write_access_type(output, access);
     output.write(":\n  // Read this field or borrow its nested view from the mapped buffer.\n"
-                 "  auto ",
+                 "  [[nodiscard]] auto ",
                  function_name(name),
                  "() const {\n"
                  "    return ",
@@ -2416,7 +2504,7 @@ public:
          type_name("view_base") +
          (std::string{"{"} + local_name("bytes") + ", " + local_name("limits") +
           ", serializer_scan} {}\npublic:\n  // Borrow an exact little-endian positional message; "
-          "its storage must outlive all views.\n  static ")),
+          "its storage must outlive all views.\n  [[nodiscard]] static ")),
         type_name(obj->name),
         (std::string{" map(::std::span<"} + type_name("view_byte") +
          (std::string{"> "} + local_name("bytes") +
@@ -2453,7 +2541,7 @@ public:
         }
         output.write("  };\n"
                      "  // Return the active alternative using the schema's symbolic names.\n"
-                     "  ",
+                     "  [[nodiscard]] ",
                      union_enum_name(field), " ", function_name("get_" + field.name + "_type"),
                      "() const {\n    return static_cast<", union_enum_name(field), ">(",
                      function_name("get_" + field.name), "().index());\n  }\n");
@@ -2492,6 +2580,7 @@ public:
         }
       }
       out_stream.write(">\n");
+      out_stream.write(template_constraints(*obj));
     }
     if (obj->multiple_modes()) {
       out_stream.write("template <>\n");
@@ -2597,7 +2686,7 @@ public:
         template_arguments += parameter.name;
         if (!parameter.default_argument.empty()) { template_header += " = " + generic_default(parameter.default_argument.front()); }
       }
-      template_header += ">\n"; template_arguments += ">";
+      template_header += ">\n" + template_constraints(*owner); template_arguments += ">";
     }
     const auto model = type_name(owner->name) + template_arguments +
         (owner->multiple_modes() ? "<::rohit::serializer::storage_mode::owning>" : "");
@@ -2690,7 +2779,7 @@ public:
     }
     out_stream.write("};\n\n"
                      "// Validate numeric input against the declared enum alternatives.\n"
-                     "constexpr bool serializer_enum_valid(",
+                     "[[nodiscard]] constexpr bool serializer_enum_valid(",
                      type_name(enum_ptr->name),
                      (std::string{" "} + local_name("value") + ") noexcept {\n  switch (" +
                       local_name("value") + ") {\n"));
@@ -2704,7 +2793,7 @@ public:
     }
     out_stream.write("    default: return false;\n  }\n}\n\n"
                      "// Borrow the unchanged wire spelling for this enum.\n"
-                     "constexpr ::std::string_view serializer_enum_name(",
+                     "[[nodiscard]] constexpr ::std::string_view serializer_enum_name(",
                      type_name(enum_ptr->name),
                      (std::string{" "} + local_name("value") + ") {\n  switch (" +
                       local_name("value") + ") {\n"));
@@ -2715,11 +2804,11 @@ public:
     out_stream.write(
         "    default: throw ::std::invalid_argument{\"Unknown enum value\"};\n  }\n}\n\n"
         "// Preserve the owning-string API for callers that need a copy.\n"
-        "constexpr ::std::string to_string(",
+        "[[nodiscard]] constexpr ::std::string to_string(",
         type_name(enum_ptr->name),
         (std::string{" "} + local_name("value") +
          ") {\n  return ::std::string{serializer_enum_name(" + local_name("value") +
-         ")};\n}\n\n// Resolve only a complete matching wire spelling.\nconstexpr "),
+         ")};\n}\n\n// Resolve only a complete matching wire spelling.\n[[nodiscard]] constexpr "),
         type_name(enum_ptr->name), " ", function_name("to_" + enum_ptr->name),
         (std::string{"(const auto& "} + local_name("value") + ") {\n  const ::std::string_view " +
          local_name("name") + "{" + local_name("value") +
@@ -2743,7 +2832,7 @@ public:
     out_stream.write("    default: break;\n  }\n"
                      "  throw ::std::invalid_argument{\"Unknown enum name\"};\n}\n\n"
                      "// Decode a name when this enum appears in a collection.\n"
-                     "inline void serializer_enum_from_name(",
+                     "constexpr void serializer_enum_from_name(",
                      type_name(enum_ptr->name),
                      (std::string{"& "} + local_name("value") + ", ::std::string_view " +
                       local_name("name") + ") { " + local_name("value") + " = "),
@@ -2763,6 +2852,75 @@ public:
     out_stream.write("namespace ", full_name, " {\n");
     write_statement_list(out_stream, namespace_ptr->statements);
     out_stream.write("} // namespace ", full_name, "\n\n");
+  }
+
+  // Declare callable signature types before bodies so qualified and forward calls remain valid.
+  void write_function_inventory(rohit::type_check::output_buffer auto& output,
+                                const std::vector<std::unique_ptr<syntax_node>>& statements,
+                                unsigned phase) {
+    for (const auto& statement : statements) {
+      if (statement->type == object_type::namespace_type) {
+        output.write("namespace ", namespace_name(statement->name), " {\n");
+        write_function_inventory(output, static_cast<const namespace_node&>(*statement).statements, phase);
+        output.write("}\n");
+        continue;
+      }
+      full_stream_auto_alloc unit;
+      if (phase == 0 && statement->type == object_type::enum_type) {
+        unit.write("enum class ", type_name(statement->name), ";\n");
+      } else if (phase == 0 && (statement->type == object_type::class_type ||
+                               statement->type == object_type::generic_definition)) {
+        const auto& object = static_cast<const class_node&>(*statement);
+        if (!object.generic_name.empty() && !object.supports_managed()) { continue; }
+        if (object.type == object_type::generic_definition) {
+          unit.write("template <");
+          for (std::size_t index{}; index < object.generic_parameters.size(); ++index) {
+            if (index) { unit.write(", "); }
+            const auto& parameter = object.generic_parameters[index];
+            unit.write(std::string_view{parameter.kind == generic_argument_kind::dimension ?
+                "::std::uint64_t " : "typename "}, parameter.name);
+          }
+          unit.write(">\n");
+          unit.write(template_constraints(object));
+        } else if (object.multiple_modes()) {
+          unit.write("template <::rohit::serializer::storage_mode Mode>\n");
+        }
+        unit.write("class ", type_name(object.name), ";\n");
+      } else if (phase == 1 && statement->type == object_type::class_type) {
+        const auto& object = static_cast<const class_node&>(*statement);
+        if (object.generic_name.empty() || object.supports_managed()) { continue; }
+        const auto* definition = generic_definitions.at(object.generic_name);
+        unit.write("using ", type_name(object.name), " = ", full_type_name(definition), "<");
+        for (std::size_t index{}; index < object.generic_arguments.size(); ++index) {
+          if (index) { unit.write(", "); }
+          unit.write(generic_default(object.generic_arguments[index]));
+        }
+        unit.write(">;\n");
+      } else if (phase == 2 && statement->type == object_type::function_type) {
+        write_behavior_method(unit, nullptr, static_cast<const function_node&>(*statement).function, false, true);
+      } else { continue; }
+      const std::string_view source{reinterpret_cast<const char*>(unit.begin()), unit.current_offset()};
+      std::string identity = "forward:" + full_type_name(statement.get());
+      if (statement->type == object_type::function_type) {
+        const auto& function = static_cast<const function_node&>(*statement).function;
+        for (const auto& parameter : function.parameters) { identity += ":" + generic_default(parameter.type); }
+      }
+      write_reusable_unit(output, identity, source);
+    }
+  }
+
+  // Find free functions while collecting template definitions needed by their signature aliases.
+  bool contains_functions(const std::vector<std::unique_ptr<syntax_node>>& statements) {
+    bool found = false;
+    for (const auto& statement : statements) {
+      if (statement->type == object_type::namespace_type) {
+        found = contains_functions(static_cast<const namespace_node&>(*statement).statements) || found;
+      } else if (statement->type == object_type::function_type) { found = true; }
+      else if (statement->type == object_type::generic_definition) {
+        generic_definitions.emplace(statement->get_full_name(), static_cast<const class_node*>(statement.get()));
+      }
+    }
+    return found;
   }
 
   // Emit C++ statement list for the parsed schema.
@@ -2835,12 +2993,22 @@ public:
         write_enum(unit_output, dynamic_cast<const enum_node*>(statement.get()));
         break;
 
+      case object_type::function_type:
+        write_behavior_method(unit_output, nullptr, static_cast<const function_node&>(*statement).function);
+        break;
+
       default:
         break;
       }
       const std::string_view unit_source{reinterpret_cast<const char*>(unit_output.begin()),
                                         unit_output.current_offset()};
-      write_reusable_unit(out_stream, full_type_name(statement.get()), unit_source);
+      std::string identity = full_type_name(statement.get());
+      if (statement->type == object_type::function_type) {
+        for (const auto& parameter : static_cast<const function_node&>(*statement).function.parameters) {
+          identity += ":" + generic_default(parameter.type);
+        }
+      }
+      write_reusable_unit(out_stream, identity, unit_source);
     }
     if (emission_namespace_open) { out_stream.write("} // namespace emission\n\n"); }
   }
@@ -2891,6 +3059,8 @@ public:
       }
       if (statement->type == object_type::namespace_type) {
         validate_positional_profile(static_cast<const namespace_node&>(*statement).statements);
+      } else if (emission_only && statement->type == object_type::function_type) {
+        throw std::invalid_argument{"cpp.emission_only does not support namespace functions"};
       } else if (statement->type == object_type::class_type ||
                  statement->type == object_type::generic_definition) {
         const auto& object = static_cast<const class_node&>(*statement);
@@ -2953,7 +3123,7 @@ public:
                        "#pragma once\n\n"
                        "#include <rohit/constant_binary_output.hpp>\n"
                        "#include <rohit/digest.hpp>\n\n"
-                       "#include <array>\n#include <cstddef>\n#include <cstdint>\n#include <memory>\n"
+                       "#include <array>\n#include <concepts>\n#include <cstddef>\n#include <cstdint>\n#include <memory>\n"
                        "#include <span>\n#include <stdexcept>\n#include <string_view>\n"
                        "#include <type_traits>\n\n");
       std::map<std::string, const class_node*> size_owners;
@@ -2978,8 +3148,8 @@ public:
       out_stream.write("#include <rohit/binary_view.hpp>\n");
     }
     if (has_variants) { out_stream.write("#include <variant>\n"); }
-    out_stream.write("\n#include <array>\n#include <cstddef>\n");
-    if (has_comparisons) { out_stream.write("#include <compare>\n#include <concepts>\n"); }
+    out_stream.write("\n#include <array>\n#include <concepts>\n#include <cstddef>\n");
+    if (has_comparisons) { out_stream.write("#include <compare>\n"); }
     if (has_views) {
       out_stream.write("#include <span>\n");
     }
@@ -3006,6 +3176,9 @@ public:
           "\n// clang-format on\n";
       const auto identity = "preamble:" + code.source_path + ":" + std::to_string(code.source_offset);
       write_reusable_unit(out_stream, identity, native_hook);
+    }
+    if (contains_functions(statements)) {
+      for (unsigned phase{}; phase < 3; ++phase) { write_function_inventory(out_stream, statements, phase); }
     }
     write_statement_list(out_stream, statements);
     std::set<std::string> optional_applications;

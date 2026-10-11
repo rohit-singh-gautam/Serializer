@@ -2,6 +2,11 @@ import java.io.File
 
 // Read an owning model, update a typed field, and check all four protocols.
 fun main(args: Array<String>) {
+    val integer = IntegerNumber()
+    val floating = FloatingNumber()
+    integer.value = -7
+    floating.value = 12.5
+    check(integer.value == -7 && floating.value == 12.5)
     val value = ExampleModel.decode(File(args[0]).readBytes(), Protocol.JSON)
     value.revision += 1u
     // Edit the uint32 key inside envelope<box<pair<uint32, string>>>.

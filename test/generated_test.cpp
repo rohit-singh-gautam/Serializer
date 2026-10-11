@@ -24,6 +24,16 @@
 #include <test1.hpp>
 #include <variable.hpp>
 
+// Resolve a generated enum through the same assignment hook used by codecs.
+constexpr bool enum_name_assignment() {
+  auto value = enumtest::testenum::test1;
+  enumtest::serializer_enum_from_name(value, "test3");
+  return value == enumtest::testenum::test3;
+}
+
+static_assert(enum_name_assignment());
+static_assert(noexcept(enumtest::serializer_enum_valid(enumtest::testenum::test3)));
+
 TEST(generated_test, serialize_in) {
   const std::string personstr{"{\"fullname\":\"Rohit Jairaj Singh\",\"ID\":322}"};
   auto fullstream = rohit::make_constant_full_stream(personstr);

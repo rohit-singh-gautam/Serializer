@@ -40,6 +40,7 @@
 #include <memory>
 #include <queue>
 #include <regex>
+#include <set>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -1856,6 +1857,7 @@ object_type parse_object_type(const rohit::type_check::schema_input_buffer auto&
   if (object_type == "instantiate") {
     return object_type::instantiation;
   }
+  if (object_type == "function") { return object_type::function_type; }
   if (object_type == "include") {
     throw exception::bad_object_type{
         in_stream, "Includes require parse_file and must precede all declarations at file scope"};
@@ -2008,6 +2010,87 @@ std::vector<parent> parse_parent_list(const rohit::type_check::schema_input_buff
   return ret;
 }
 
+// Parse bounded Boolean constraints using exact type leaves and conventional precedence.
+template <typename Input> struct generic_constraint_parser {
+  const Input& input;
+  namespace_node* space{};
+  std::size_t nodes{};
+  std::size_t depth{};
+  // Consume a complete Boolean operator without advancing on a mismatch.
+  bool consume(std::string_view token) {
+    skip_whitespace_and_comment(input);
+    const std::string_view remaining{reinterpret_cast<const char*>(input.curr()), input.remaining_buffer()};
+    if (!remaining.starts_with(token)) { return false; }
+    input += token.size();
+    return true;
+  }
+  // Bound AST growth independently of nested generic type parsing.
+  generic_constraint make(generic_constraint::operation kind) {
+    constexpr std::size_t maximum_constraint_nodes = 256;
+    if (++nodes > maximum_constraint_nodes) {
+      throw exception::bad_class{input, "Generic constraint exceeds 256 nodes"};
+    }
+    generic_constraint result;
+    result.kind = kind;
+    return result;
+  }
+  // Parentheses and negation bind before conjunction and disjunction.
+  generic_constraint primary() {
+    using operation = generic_constraint::operation;
+    skip_whitespace_and_comment(input);
+    constexpr std::size_t maximum_constraint_depth = 64;
+    if (++depth > maximum_constraint_depth) {
+      throw exception::bad_class{input, "Generic constraint nesting exceeds 64"};
+    }
+    generic_constraint result;
+    if (consume("!")) {
+      result = make(operation::logical_not);
+      result.operands.push_back(primary());
+    } else if (consume("(")) {
+      result = expression();
+      skip_whitespace_and_comment(input);
+      check_and_increase(input, ')');
+    } else {
+      const auto probe = rohit::make_constant_full_stream(input.curr(), input.remaining_buffer());
+      const auto name = parse_identifier_impl(probe);
+      skip_whitespace_and_comment(probe);
+      const bool qualified = !probe.full() && (*probe == ':' || *probe == '<');
+      if (!qualified && (name == "integral" || name == "floating_point" || name == "stateless")) {
+        static_cast<void>(parse_identifier_impl(input));
+        result = make(name == "integral" ? operation::integral :
+            name == "floating_point" ? operation::floating_point : operation::stateless);
+      } else {
+        result = make(operation::exact_type);
+        result.type = parse_type_expression(input, space);
+      }
+    }
+    --depth;
+    return result;
+  }
+  // Conjunction binds more tightly than disjunction.
+  generic_constraint conjunction() {
+    auto result = primary();
+    while (consume("&&")) {
+      auto next = make(generic_constraint::operation::logical_and);
+      next.operands.push_back(std::move(result));
+      next.operands.push_back(primary());
+      result = std::move(next);
+    }
+    return result;
+  }
+  // Preserve authored Boolean grouping without evaluating unresolved type parameters.
+  generic_constraint expression() {
+    auto result = conjunction();
+    while (consume("||")) {
+      auto next = make(generic_constraint::operation::logical_or);
+      next.operands.push_back(std::move(result));
+      next.operands.push_back(conjunction());
+      result = std::move(next);
+    }
+    return result;
+  }
+};
+
 // Parse class header from the schema input; malformed input throws.
 std::unique_ptr<class_node>
 parse_class_header(const rohit::type_check::schema_input_buffer auto& in_stream,
@@ -2051,11 +2134,18 @@ parse_class_header(const rohit::type_check::schema_input_buffer auto& in_stream,
         }
         ++in_stream;
         skip_whitespace_and_comment(in_stream);
-        const auto constraint = parse_identifier_impl(in_stream);
-        if (spec.kind != generic_argument_kind::type || constraint != "stateless") {
-          throw exception::bad_class{in_stream, "Only type parameters support the stateless constraint"};
+        auto constraint = generic_constraint_parser{in_stream, current_namespace}.expression();
+        if (spec.kind != generic_argument_kind::type) {
+          throw exception::bad_class{in_stream, "Only type parameters support type constraints"};
         }
-        spec.stateless = true;
+        if (constraint.kind == generic_constraint::operation::stateless) {
+          spec.stateless = true;
+        } else {
+          if (active_language_version < language_version{1u, 10u, 0u}) {
+            throw exception::bad_class{in_stream, "Boolean type constraints require serializer version 1.10.0"};
+          }
+          spec.constraint = std::move(constraint);
+        }
         skip_whitespace_and_comment(in_stream);
       }
       if (!in_stream.full() && *in_stream == '=') {
@@ -2395,6 +2485,18 @@ parse_statement_list(const rohit::type_check::schema_input_buffer auto& in_strea
     if (is_first_identifier(lookahead)) {
       const auto target = parse_identifier_impl(lookahead);
       skip_whitespace_and_comment(lookahead);
+      if (target == "function") {
+        if (active_language_version < language_version{1u, 10u, 0u}) {
+          throw exception::bad_object_type{in_stream, "Namespace functions require serializer version 1.10.0"};
+        }
+        auto function = parse_function(in_stream, access_type::public_access, parent_namespace);
+        if (function.effect != function_declaration::effect_type::readonly ||
+            function.dispatch != function_declaration::dispatch_type::ordinary) {
+          throw exception::bad_member_spec{in_stream, "Namespace functions require ordinary readonly behavior"};
+        }
+        statements.push_back(std::make_unique<function_node>(std::move(function), parent_namespace));
+        continue;
+      }
       if (is_behavior_language(target) && next_keyword(lookahead, "preamble")) {
         require_behavior_language(in_stream);
         if (parent_namespace) {
@@ -3048,10 +3150,6 @@ void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream
                   [&](const auto& field) { return field.name == method.name; })) {
             throw exception::bad_member_spec{in_stream, "Duplicate function signature or field collision"};
           }
-          if (method.expression && ((method.return_type.name != "double" && method.return_type.name != "bool") ||
-              validate_behavior_expression(*method.expression, *class_ptr, method, variable_type_map) != method.return_type.name)) {
-            throw exception::bad_member_spec{in_stream, "Portable expression result must match its declared double/bool return type"};
-          }
         }
         validate_view_names(in_stream, *class_ptr);
       } break;
@@ -3067,6 +3165,147 @@ void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream
       if (statement->source_path.empty()) { throw; }
       throw std::invalid_argument{statement->source_path + ": " + error.what()};
     }
+  }
+}
+
+// Resolve every callable signature before binding bodies, so calls can reference later declarations.
+void resolve_behavior_bodies(const rohit::type_check::schema_input_buffer auto& input,
+    std::vector<std::unique_ptr<syntax_node>>& statements,
+    const std::unordered_map<std::string, syntax_node*>& symbols) {
+  std::vector<function_node*> standalone;
+  std::vector<class_node*> owners;
+  const auto collect = [&](const auto& self, auto& nodes) -> void {
+    for (auto& node : nodes) {
+      if (node->type == object_type::namespace_type) {
+        self(self, static_cast<namespace_node&>(*node).statements);
+      } else if (node->type == object_type::function_type) {
+        standalone.push_back(static_cast<function_node*>(node.get()));
+      } else if (node->type == object_type::class_type || node->type == object_type::generic_definition) {
+        owners.push_back(static_cast<class_node*>(node.get()));
+      }
+    }
+  };
+  collect(collect, statements);
+  std::set<std::string> signatures;
+  for (auto* node : standalone) {
+    try {
+      auto& method = node->function;
+      if (symbols.contains(node->get_full_name())) {
+        throw exception::bad_member_spec{input, "Namespace function collides with a type or namespace: " + node->get_full_name()};
+      }
+      if (method.return_type.name != "void") { resolve_type(input, method.return_type, symbols); }
+      for (auto& parameter : method.parameters) { resolve_type(input, parameter.type, symbols); }
+      const auto space = node->parent_namespace ? node->parent_namespace->get_full_name() + "::" : std::string{};
+      if (!signatures.insert(space + behavior_signature(method)).second) {
+        throw exception::bad_member_spec{input, "Duplicate namespace function signature: " + node->get_full_name()};
+      }
+    } catch (const std::exception& error) {
+      if (node->source_path.empty()) { throw; }
+      throw std::invalid_argument{node->source_path + ": " + error.what()};
+    }
+  }
+  const std::vector<const function_node*> functions{standalone.begin(), standalone.end()};
+  struct callable {
+    const syntax_node* target{};
+    std::size_t method_index{};
+    function_declaration* method{};
+  };
+  std::vector<callable> callables;
+  const auto bind_body = [&](function_declaration& method, const class_node& owner) {
+    if (!method.expression) { return; }
+    auto& expression = *method.expression;
+    const auto actual = validate_behavior_expression(expression, owner, method, symbols, {}, functions);
+    bind_behavior_literal(expression, method.return_type.name, owner.parent_namespace);
+    const auto expected = method.return_type.type == object_type::enum_type ? "enum:" + method.return_type.get_full_name() :
+        method.return_type.type == object_type::class_type || method.return_type.type == object_type::generic_definition ?
+            "record:" + method.return_type.get_full_name() : method.return_type.is_sequence() ? "collection" : method.return_type.name;
+    const bool matching = expression.resolved_type ?
+        expression.collection_modifier == member::modifier_type::none &&
+            matching_behavior_type(*expression.resolved_type, method.return_type) :
+        actual == expected;
+    if (method.return_type.name == "void" || !matching) {
+      throw exception::bad_member_spec{input, "Portable expression result must match its exact declared return type"};
+    }
+  };
+  for (auto* node : standalone) {
+    class_node scope{object_type::class_type, std::string{}, node->parent_namespace, class_attributes::none, {}};
+    try { bind_body(node->function, scope); }
+    catch (const std::exception& error) {
+      if (node->source_path.empty()) { throw; }
+      throw std::invalid_argument{node->source_path + ": " + error.what()};
+    }
+    callables.push_back({node, 0, &node->function});
+  }
+  for (auto* owner : owners) {
+    std::set<std::string> member_signatures;
+    for (std::size_t index{}; index < owner->functions.size(); ++index) {
+      auto& method = owner->functions[index];
+      try {
+        if (!member_signatures.insert(behavior_signature(method)).second) {
+          throw exception::bad_member_spec{input, "Duplicate function signature"};
+        }
+        const auto contains_call = [&](const auto& self, const behavior_expression& expression) -> bool {
+          return expression.kind == behavior_expression::operation::call ||
+              std::any_of(expression.operands.begin(), expression.operands.end(), [&](const auto& operand) {
+                return self(self, operand);
+              });
+        };
+        if (owner->type == object_type::generic_definition && method.expression &&
+            !contains_call(contains_call, *method.expression)) {
+          // Existing generic arithmetic is checked after substitution; retain useful source binding
+          // only when it succeeds, without rejecting previously valid dependent template bodies.
+          auto bound = method;
+          try {
+            bind_body(bound, *owner);
+            method.expression = std::move(bound.expression);
+          } catch (const std::invalid_argument&) {
+          } catch (const exception::bad_member_spec&) {
+          }
+        } else {
+          bind_body(method, *owner);
+        }
+      } catch (const std::exception& error) {
+        if (owner->source_path.empty()) { throw; }
+        throw std::invalid_argument{owner->source_path + ": " + error.what()};
+      }
+      callables.push_back({owner, index, &method});
+    }
+  }
+  // A topological traversal rejects portable recursion without recursively following the call graph.
+  std::vector<std::vector<std::size_t>> edges(callables.size());
+  std::vector<std::size_t> incoming(callables.size());
+  for (std::size_t index{}; index < callables.size(); ++index) {
+    if (!callables[index].method->expression) { continue; }
+    const auto visit = [&](const auto& self, const behavior_expression& expression) -> void {
+      if (expression.kind == behavior_expression::operation::call) {
+        const auto found = std::find_if(callables.begin(), callables.end(), [&](const auto& candidate) {
+          return candidate.target == expression.call_target && candidate.method_index == expression.call_method_index;
+        });
+        if (found != callables.end() && found->method->expression) {
+          const auto target = static_cast<std::size_t>(found - callables.begin());
+          edges[index].push_back(target);
+          ++incoming[target];
+        }
+      }
+      for (const auto& operand : expression.operands) { self(self, operand); }
+    };
+    visit(visit, *callables[index].method->expression);
+  }
+  std::queue<std::size_t> ready;
+  for (std::size_t index{}; index < incoming.size(); ++index) {
+    if (incoming[index] == 0) { ready.push(index); }
+  }
+  std::size_t visited{};
+  while (!ready.empty()) {
+    const auto index = ready.front();
+    ready.pop();
+    ++visited;
+    for (const auto target : edges[index]) {
+      if (--incoming[target] == 0) { ready.push(target); }
+    }
+  }
+  if (visited != callables.size()) {
+    throw exception::bad_member_spec{input, "Portable readonly function calls cannot be recursive"};
   }
 }
 
@@ -3351,6 +3590,7 @@ public:
       schema_policy::resolve(result.statements, options);
       lower_generics(input, result.statements);
       resolve_member(input, result.statements, types);
+      resolve_behavior_bodies(input, result.statements, types);
       validate_behavior_contracts(input, result.statements);
       result.source_notices = retain_source_notices(result.statements, source_notices);
       report_simplicity_warnings(simplicity_warnings, options);
@@ -3391,6 +3631,7 @@ parse_schema(const rohit::type_check::schema_input_buffer auto& in_stream, bool 
   schema_policy::resolve(statements, options);
   lower_generics(in_stream, statements);
   resolve_member(in_stream, statements, variable_type_map);
+  resolve_behavior_bodies(in_stream, statements, variable_type_map);
   validate_behavior_contracts(in_stream, statements);
   retain_source_notices(statements, source_notices);
   report_simplicity_warnings(simplicity_warnings, options);

@@ -1,5 +1,30 @@
 # Migrating to the snake_case Serializer API
 
+## C++ constant evaluation and result contracts (11 October 2026)
+
+Compiler/runtime **1.15.0** supports schema language **1.10.0** and preserves existing wire
+formats. Regenerate C++ headers to obtain `constexpr` ordinary codec templates,
+checked arithmetic, dotted-version constructors and union/variant name conversions.
+Use constexpr-safe protocols and streams for compile-time calls; runtime calls
+retain their validation and optimized byte paths. See the
+[direct-codec contract](docs/constant_evaluation.md#34-direct-generated-codecs-and-value-qualifiers).
+
+Value-returning factories, conversions, readonly typed methods and observers now
+use `[[nodiscard]]`. Use the result or explicitly discard it with
+`static_cast<void>(call())`, including deliberate failure probes. Proven
+nonthrowing value operations gain `noexcept`; fallible validation/allocation stays
+throwing, and generic observers/comparisons use their actual exception guarantees.
+No ordinary model API becomes `consteval`; dynamic runtime inputs remain valid.
+
+Raise the schema header to `1.10.0` in files declaring namespace functions or
+calling declared readonly functions in expressions. Existing `1.9.0` and older
+schemas keep their meaning. These behavior declarations add no wire fields.
+See [function calls and Java mapping](docs/behavior.md#declared-function-calls).
+Boolean category/type constraints also require language `1.10.0`; existing
+atomic `T: stateless` schemas keep their language `1.9.0` contract. The parser
+checks concrete arguments and C++ emits equivalent `requires` clauses. See
+[type constraints](docs/generics.md#boolean-type-constraints).
+
 ## Derived sizes and portable conversions (11 October 2026)
 
 Compiler/runtime **1.14.0** supports language **1.9.0**, preserving earlier

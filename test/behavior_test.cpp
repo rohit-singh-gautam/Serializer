@@ -21,7 +21,8 @@ namespace rohit::serializer::parser {
 // Exercise binding of an in-memory expression AST before source offsets or aliases exist.
 std::string validate_behavior_expression(behavior_expression&, const class_node&,
     const function_declaration&, const std::unordered_map<std::string, syntax_node*>&,
-    const std::map<std::string, behavior_expression>&);
+    const std::map<std::string, behavior_expression>&,
+    const std::vector<const function_node*>& = {});
 }
 
 namespace {
@@ -460,4 +461,142 @@ TEST(behavior, in_memory_nested_binder_aliases) {
   EXPECT_NE(outer.value, outer.operands[1].value);
   EXPECT_EQ(outer.operands[1].operands[1].operands[1].operands[0].value, outer.value);
   EXPECT_EQ(outer.operands[1].operands[1].operands[0].value, outer.operands[1].value);
+}
+
+// Calls bind complete signatures after all declarations and retain exact scalar results.
+TEST(behavior, readonly_calls_bind_forward_overloads_and_namespace_functions) {
+  const auto parsed = parse_schema(R"SCHEMA(serializer version 1.10.0;
+namespace helpers {
+  function uint64 forward(uint64 value) readonly expression(identity(value));
+  function uint64 identity(uint64 value) readonly expression(value);
+  function uint64 maximum() readonly expression(18446744073709551615);
+}
+class sample {
+  public uint64 token;
+  public function uint64 value() readonly expression(later(token));
+  public function uint64 later(uint64 input) readonly expression(helpers::forward(input));
+  public function double later(double input) readonly expression(input);
+  public function double exact() readonly expression(later(1));
+  public function uint64 bound() readonly expression(helpers::identity(18446744073709551615));
+})SCHEMA");
+  const auto& space = static_cast<const codec::namespace_node&>(*parsed.statements.front());
+  const auto& forward = static_cast<const codec::function_node&>(*space.statements.front());
+  EXPECT_EQ(forward.function.expression->call_target, space.statements[1].get());
+  const auto& maximum = static_cast<const codec::function_node&>(*space.statements[2]);
+  EXPECT_EQ(maximum.function.expression->kind, codec::behavior_expression::operation::integer_literal);
+  EXPECT_EQ(maximum.function.expression->value, "18446744073709551615");
+  const auto& owner = static_cast<const codec::class_node&>(*parsed.statements.back());
+  EXPECT_EQ(owner.functions[0].expression->call_target, &owner);
+  EXPECT_EQ(owner.functions[0].expression->call_method_index, 1U);
+  EXPECT_EQ(owner.functions[3].expression->call_method_index, 2U);
+  const auto& bound = *owner.functions[4].expression;
+  EXPECT_EQ(bound.result_type, "uint64");
+  EXPECT_EQ(bound.operands.front().kind, codec::behavior_expression::operation::integer_literal);
+  EXPECT_EQ(bound.operands.front().result_type, "uint64");
+  const auto floating = parse_schema("serializer version 1.10.0; "
+      "function float identity(float value) readonly expression(value); "
+      "function float negative() readonly expression(identity(-1.0));");
+  const auto& negative = static_cast<const codec::function_node&>(*floating.statements.back());
+  EXPECT_EQ(negative.function.expression->operands.front().result_type, "float");
+  EXPECT_EQ(negative.function.expression->operands.front().value, "-1.0");
+}
+
+// Readonly calls preserve inherited dispatch and dependent value identity without body inlining.
+TEST(behavior, readonly_calls_accept_inherited_native_and_generic_contracts) {
+  const auto parsed = parse_schema(R"SCHEMA(serializer version 1.10.0;
+class base {
+  protected function virtual double native_value(double value) readonly cpp { return value; };
+  public function double external_value(double value) readonly;
+}
+class derived : public base {
+  public function double value(double input) readonly expression(native_value(input) + external_value(input));
+}
+class identity<T> {
+  public T item;
+  private function T echo(T value) readonly expression(value);
+  public function T result() readonly expression(echo(item));
+}
+instantiate uint64_identity = identity<uint64>;
+)SCHEMA");
+  const auto& owner = static_cast<const codec::class_node&>(*parsed.statements[1]);
+  for (const auto& call : owner.functions.front().expression->operands) {
+    EXPECT_EQ(call.call_target, parsed.statements[0].get());
+    EXPECT_EQ(call.call_base_path, std::vector<std::size_t>{0});
+  }
+  const auto found = std::find_if(parsed.statements.begin(), parsed.statements.end(), [](const auto& node) {
+    return node->type == codec::object_type::generic_definition;
+  });
+  ASSERT_NE(found, parsed.statements.end());
+  const auto& generic = static_cast<const codec::class_node&>(**found);
+  EXPECT_EQ(generic.functions.back().expression->call_target, &generic);
+  EXPECT_EQ(generic.functions.back().expression->result_type, "T");
+  EXPECT_NO_THROW(parse_schema("serializer version 1.10.0; "
+      "class base { public function double value() readonly; } "
+      "class derived : private base { public function double result() readonly expression(value()); }"));
+}
+
+// Unknown, mutating, mismatched, ambiguous and recursive contracts fail before generation.
+TEST(behavior, readonly_calls_reject_invalid_effects_signatures_and_cycles) {
+  const auto document = [](std::string_view body, std::string_view version = "1.10.0") {
+    return "serializer version " + std::string{version} + "; class sample { " + std::string{body} + " }";
+  };
+  for (const auto body : {
+      "public function double caller() readonly expression(unknown());",
+      "public function double target() edit; public function double caller() readonly expression(target());",
+      "public function void target() readonly; public function double caller() readonly expression(target());",
+      "public function uint8 target(uint8 value) readonly; public function uint8 caller() readonly expression(target(256));",
+      "public function int32 target(int32 value) readonly; public function int32 caller(uint32 value) readonly expression(target(value));",
+      "public function uint8 target(uint8 value) readonly; public function uint16 target(uint16 value) readonly; public function uint8 caller() readonly expression(target(1));",
+      "public function double caller() readonly expression(caller());",
+      "public function double first() readonly expression(second()); public function double second() readonly expression(first());",
+      "public function double target(double value) readonly; public function double caller() readonly expression(target(1.0,));",
+      "public function double target(double value) readonly; public function double caller() readonly expression(target());"}) {
+    SCOPED_TRACE(body);
+    EXPECT_THROW(parse_schema(document(body)), std::exception);
+  }
+  EXPECT_THROW(parse_schema(document("public function double target() readonly; public function double caller() readonly expression(target());", "1.9.0")), std::exception);
+  EXPECT_THROW(parse_schema("serializer version 1.9.0; function double value() readonly expression(1.0);"), std::exception);
+  EXPECT_THROW(parse_schema("serializer version 1.10.0; function double value() edit;"), std::exception);
+  EXPECT_THROW(parse_schema("serializer version 1.10.0; function double value() readonly expression(1.0); function double value() readonly expression(2.0);"), std::exception);
+  EXPECT_THROW(parse_schema("serializer version 1.10.0; function double first() readonly expression(second()); function double second() readonly expression(first());"), std::exception);
+  EXPECT_THROW(parse_schema("serializer version 1.10.0; class base { private function double hidden() readonly; } class derived : public base { public function double value() readonly expression(hidden()); }"), std::exception);
+  EXPECT_THROW(parse_schema("serializer version 1.10.0; "
+      "class base { public function double hidden() readonly; } "
+      "class middle : private base {} class derived : public middle { "
+      "public function double value() readonly expression(hidden()); }"), std::exception);
+}
+
+// Source templates retain dependent expressions while every concrete specialization is checked.
+TEST(behavior, existing_generic_expression_validation_defers_substitution) {
+  constexpr std::string_view arithmetic = "serializer version 1.6.0; class sample<T> { "
+      "public T value; public function double scale() readonly expression(value * 2.0); } ";
+  EXPECT_NO_THROW(parse_schema(std::string{arithmetic} + "instantiate accepted = sample<double>;"));
+  EXPECT_THROW(parse_schema(std::string{arithmetic} + "instantiate rejected = sample<string>;"), std::exception);
+  constexpr std::string_view converted = "serializer version 1.6.0; class sample<T> { "
+      "public T value; public function double converted() readonly expression(to_double(value)); } ";
+  EXPECT_NO_THROW(parse_schema(std::string{converted} + "instantiate accepted = sample<int32>;"));
+  EXPECT_THROW(parse_schema(std::string{converted} + "instantiate rejected = sample<uint64>;"), std::exception);
+  const auto open = parse_schema(arithmetic);
+  codec::writer::cpp_options options;
+  options.format = false;
+  EXPECT_NO_THROW(codec::writer::cpp::generate(open.statements, options));
+}
+
+// Finite inspection observes a reached readonly call once even when a backend needs several checks.
+TEST(behavior, finite_inspection_evaluates_readonly_calls_once) {
+  const auto parsed = parse_schema("serializer version 1.10.0; "
+      "function double observe_value() readonly expression(1.0); class sample { "
+      "public function bool valid() readonly predicate(math.is_finite(observe_value())); }");
+  const auto& owner = static_cast<const codec::class_node&>(*parsed.statements.back());
+  codec::writer::behavior::expression_context context;
+  context.predicate = true;
+  context.call = [](const auto&, const auto&) { return std::string{"observe_value()"}; };
+  for (const auto language : {"python", "go"}) {
+    SCOPED_TRACE(language);
+    const auto source = codec::writer::behavior::expression(*owner.functions.front().expression,
+        language, [](auto value) { return std::string{value}; }, {}, context);
+    const auto first = source.find("observe_value()");
+    ASSERT_NE(first, std::string::npos);
+    EXPECT_EQ(source.find("observe_value()", first + 1), std::string::npos);
+  }
 }

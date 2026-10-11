@@ -43,6 +43,44 @@ These optional contracts tell the shared compiler which concrete types to emit f
 Java, JavaScript, TypeScript, Go, C#, Rust, Python, Swift, Kotlin, and C. C++ may also
 use them. `count_result` remains a distinct named class with the same fields and
 bytes as `result<std::uint32_t>`; ordinary fields use the native C++ specialization.
+
+## Boolean type constraints
+
+Language `1.10.0` supports category and exact-type predicates with `!`, `&&`,
+`||`, and parentheses:
+
+```text
+serializer version 1.10.0;
+class numeric_value<T: (integral || floating_point) && !bool = int32> {
+  public T value;
+}
+class selected<T: int32 || double = int32> {
+  public T value;
+}
+instantiate integer_value = numeric_value<int32>;
+instantiate real_value = numeric_value<double>;
+```
+
+`integral` matches `bool`, `char`, and the supported signed/unsigned integer
+types. `floating_point` matches `float` and `double`. A type name matches that
+exact schema type, so `!bool` excludes booleans and `int32 || double` is an
+allowed type list. Qualified generated records and enums can be exact-type
+alternatives. `stateless` can also participate in Boolean constraints. `!`
+binds before `&&`, which binds before `||`.
+
+The parser checks known supplied/default arguments and concrete nested
+applications for every selected output. A dependent category argument is checked
+after its concrete substitution. Constraints belong to type parameters, not
+dimension parameters, and add no wire metadata. The original atomic
+`T: stateless` form retains its language `1.9.0` contract.
+
+C++ open templates receive equivalent `requires` clauses. The numeric example
+emits `(std::integral<T> || std::floating_point<T>) && !std::same_as<T, bool>`;
+application uses with `bool` or `std::string` fail constraint checking. Other
+languages receive the already checked concrete applications, as in the existing
+generic workflow. Select only C++ in the output configuration when a schema is
+intended for C++ alone; arbitrary native C++ concept names are not portable
+constraint atoms. See the runnable [generic example](../example/generics/README.md).
 The named declaration ends with a semicolon; class declarations do not.
 
 An application-only C++ specialization is invisible to other generators and to

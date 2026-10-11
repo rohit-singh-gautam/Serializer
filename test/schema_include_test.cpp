@@ -360,3 +360,21 @@ TEST_F(schema_include_test, optional_language_contract_is_per_file) {
   write("root.serializer", "serializer version 1; include common; class root { public item value; }");
   EXPECT_NO_THROW(schema::parser::parse_file(directory / "root.serializer"));
 }
+
+// Readonly calls and namespace declarations use the dependency's selected language contract.
+TEST_F(schema_include_test, readonly_call_language_contract_is_per_file) {
+  write("common.serializer", "serializer version 1.9.0; class item { "
+      "public function double helper() readonly; "
+      "public function double result() readonly expression(helper()); }");
+  write("root.serializer", "serializer version 1.10.0; include common; class root { public item value; }");
+  reject("Readonly function calls require serializer version 1.10.0");
+  write("common.serializer", "serializer version 1.9.0; "
+      "function double helper() readonly expression(1.0);");
+  reject("Namespace functions require serializer version 1.10.0");
+  write("common.serializer", "serializer version 1.10.0; "
+      "function uint64 identity(uint64 value) readonly expression(value);");
+  write("root.serializer", "serializer version 1; include common; class root { public uint32 value; }");
+  EXPECT_NO_THROW(schema::parser::parse_file(directory / "root.serializer"));
+  write("common.serializer", "serializer version 1.11.0; class future {}");
+  reject("Unsupported schema language version");
+}

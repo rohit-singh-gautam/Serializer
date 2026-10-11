@@ -71,13 +71,13 @@ protected:
   }
 
   // Bound a local scan by both the live input range and the remaining budgets.
-  std::span<const std::uint8_t> available_input() const {
+  [[nodiscard]] constexpr std::span<const std::uint8_t> available_input() const {
     return {in_stream.curr(), std::min({in_stream.remaining_buffer(),
         limits.max_input_bytes - input_bytes, limits.max_work_units - work_units})};
   }
 
   // Ensure a complete range can be consumed; report budgets separately from truncation.
-  void require_input(std::size_t size) const {
+  constexpr void require_input(std::size_t size) const {
     if (size > limits.max_input_bytes - input_bytes ||
         size > limits.max_work_units - work_units) {
       fail_limit("Input or work limit exceeded");
@@ -88,7 +88,7 @@ protected:
   }
 
   // Consume a previously inspected span with one cursor update and charge its byte work.
-  const std::uint8_t* read_bytes(std::size_t size) {
+  constexpr const std::uint8_t* read_bytes(std::size_t size) {
     require_input(size);
     input_bytes += size;
     work_units += size;
@@ -96,19 +96,20 @@ protected:
   }
 
   // Check a batch's byte and value work without overflow or committing any charges.
-  bool has_work_budget(std::size_t byte_count, std::size_t value_count) const noexcept {
+  [[nodiscard]] constexpr bool has_work_budget(
+      std::size_t byte_count, std::size_t value_count) const noexcept {
     const auto remaining_work = limits.max_work_units - work_units;
     return byte_count <= remaining_work && value_count <= remaining_work - byte_count;
   }
 
   // Probe a fixed-field batch without changing state; the scalar fallback owns failure diagnostics.
-  bool can_read_batch(std::size_t byte_count, std::size_t value_count) const {
+  [[nodiscard]] constexpr bool can_read_batch(std::size_t byte_count, std::size_t value_count) const {
     return byte_count <= limits.max_input_bytes - input_bytes &&
            has_work_budget(byte_count, value_count) && byte_count <= in_stream.remaining_buffer();
   }
 
   // Commit a batch only after can_read_batch and all value validation succeed, with no intervening reads.
-  const std::uint8_t* read_batch_unchecked(std::size_t byte_count,
+  constexpr const std::uint8_t* read_batch_unchecked(std::size_t byte_count,
                                            std::size_t value_count) noexcept {
     input_bytes += byte_count;
     work_units += byte_count + value_count;
@@ -116,7 +117,7 @@ protected:
   }
 
   // Charge operations that may consume no bytes, such as empty positional objects.
-  void charge_work(std::size_t count = 1) {
+  constexpr void charge_work(std::size_t count = 1) {
     if (count > limits.max_work_units - work_units) {
       fail_limit("Work limit exceeded");
     }
@@ -124,7 +125,7 @@ protected:
   }
 
   // Charge conservative requested storage even when the destination reuses its capacity.
-  void charge_allocation(std::size_t count, std::size_t element_bytes = 1) {
+  constexpr void charge_allocation(std::size_t count, std::size_t element_bytes = 1) {
     if (element_bytes != 0 && count > (limits.max_allocation_bytes - allocation_bytes) / element_bytes) {
       fail_limit("Allocation limit exceeded");
     }
@@ -132,7 +133,7 @@ protected:
   }
 
   // Validate a collection count before reserving or traversing its elements.
-  void check_collection(std::size_t count, std::size_t element_bytes) {
+  constexpr void check_collection(std::size_t count, std::size_t element_bytes) {
     if (count > limits.max_collection_elements) {
       fail_limit("Collection element limit exceeded");
     }
@@ -141,7 +142,7 @@ protected:
   }
 
   // Validate decoded string storage before changing the destination.
-  void check_string(std::size_t size, bool allocate = true) {
+  constexpr void check_string(std::size_t size, bool allocate = true) {
     if (size > limits.max_string_bytes) {
       fail_limit("String length limit exceeded");
     }
@@ -152,7 +153,7 @@ protected:
 
 public:
   // Borrow a fixed input range and snapshot the limits for this decoding session.
-  decoder_input(const Stream& input, decode_limits input_limits = {})
+  constexpr decoder_input(const Stream& input, decode_limits input_limits = {}) noexcept
       : in_stream{input}, limits{input_limits} {}
 
   // A decoding session owns its accounting; nested readers must share it by reference.
@@ -161,7 +162,7 @@ public:
   decoder_input& operator=(const decoder_input&) = delete;
 
   // Borrow the same cursor used by nested generated serializers.
-  const Stream& get_stream() const noexcept {
+  [[nodiscard]] constexpr const Stream& get_stream() const noexcept {
     return in_stream;
   }
 
@@ -170,7 +171,7 @@ public:
     decoder_input& input;
   public:
     // Account for one aggregate before any recursive work begins.
-    explicit scope(decoder_input& input) : input{input} {
+    explicit constexpr scope(decoder_input& input) : input{input} {
       if (input.nesting_depth >= input.limits.max_nesting_depth) {
         input.fail_limit("Nesting depth limit exceeded");
       }
@@ -182,13 +183,13 @@ public:
     // Each scope has exactly one owner.
     scope& operator=(const scope&) = delete;
     // Restore depth even when an inner decoder throws.
-    ~scope() {
+    constexpr ~scope() {
       --input.nesting_depth;
     }
   };
 
   // Start an aggregate scope; the returned guard must outlive its nested values.
-  [[nodiscard]] scope enter_object() {
+  [[nodiscard]] constexpr scope enter_object() {
     return scope{*this};
   }
 };
@@ -197,7 +198,7 @@ struct empty_decode_scope {};
 
 // Preserve custom protocols while enabling nesting limits in generated positional readers.
 template <typename Protocol>
-auto enter_decode_object(Protocol& protocol) {
+[[nodiscard]] constexpr auto enter_decode_object(Protocol& protocol) {
   if constexpr (requires { protocol.enter_object(); }) {
     return protocol.enter_object();
   } else {

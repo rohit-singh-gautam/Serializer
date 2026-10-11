@@ -3,7 +3,8 @@
 [Back to the project overview](../README.md)
 
 Status: implemented in compiler/runtime release **1.4.0**; derived-size support
-added in **1.14.0**. Updated: 2026-10-11.
+added in **1.14.0**, with direct codec and value qualifier support in **1.15.0**.
+Updated: 2026-10-11.
 
 This document describes C++20 constant-evaluation support for Serializer's
 binary_none protocol. The public APIs, default-off generator option, and independent
@@ -95,10 +96,11 @@ profiles are qualified with exact byte assertions and runtime parity in
 [the derived-size constant test](../test/auto_size_constant_test.cpp); see
 [derived-size controls](derived_sizes.md) for scope and decoder policies.
 
-Compile-time deserialization, JSON, keyed binary, Protobuf, compression, file I/O,
-managed stores, and constexpr support for every standard container are outside
-this initial feature. Existing runtime support for those features shall remain.
-The ordinary runtime reader is the required consumer of constant-produced bytes.
+The original exact-array profile does not provide a complete constant decoder.
+Release 1.15.0 separately supports direct native positional/integer-key scalar
+decoding with constexpr-safe streams, as described in section 3.4. JSON, Protobuf,
+compression, file I/O, managed stores and every standard container are not promised
+constant evaluation. The ordinary runtime reader remains the compatibility reference.
 
 ## 3. C++ function selection
 
@@ -205,6 +207,60 @@ fixed-memory API deliberately requires independent source/destination ranges.
 
 No compiler option, constant-evaluation branch, or standard-algorithm preference
 may relax the runtime CPU, memory, or encoded-size requirements in section 12.
+
+### 3.4 Direct generated codecs and value qualifiers
+
+Compiler/runtime **1.15.0** declares ordinary generated protocol-level
+`serialize_out`, `serialize_in`, their field-dispatch helpers, and uncompressed
+member/static stream wrappers `constexpr`. This does not require
+`constant_evaluation = true`, does not add a second traversal and does not make
+each possible specialization constant-evaluable. A call needs constexpr-safe
+construction, protocol methods, streams, and all operations reached on its values.
+
+Native positional and integer-key binary codecs support direct constant
+evaluation of fixed-width scalars, compact integers, fixed scalar arrays, enums
+and nested records through typed borrowed byte buffers. Reservations, Boolean
+validation, collection cardinality, resource accounting and nesting checks stay
+active. The constant scalar path uses typed byte arrays and `bit_cast`; runtime
+calls retain their existing `memcpy`, bulk and SIMD paths. Ordinary `rohit::stream`
+objects and external I/O are not newly promised constexpr-safe.
+
+Native `binary_size`, `binary_integer_size` and `binary_string_size` can also
+constant-evaluate eligible generated traversals through `binary_count_stream`.
+String-key input still borrows names through a cast unavailable in C++20 constant
+evaluation. Owning string/vector/map decode, mapped views, Protobuf, compression,
+and runtime customizations remain outside this direct decoder subset. Use the
+existing opt-in positional output profile for its broader transient string/vector
+and exact-array support; its profile and factory contracts remain separate.
+
+The [default-generated codec test](../test/constexpr_codecs_test.cpp) supplies a
+small application-style typed buffer, independent expected bytes and direct
+`value.serialize_out(encoder)` / `value.serialize_in(decoder)` calls. It also
+tests generated member/static stream entrypoints and ordinary runtime failures.
+See the [1.15.0 verification record](verification-functions-constraints-2026-10-11.md)
+for the executed native, language SDK and editor checks.
+
+Generated scalar predicates, eligible checked arithmetic, enum/union/variant
+name conversion, dotted-version construction and value conversions support
+constant evaluation while retaining runtime calls. C++20 square root and
+trigonometry, opaque bodies and unproven nonliteral shapes stay runtime.
+An invalid reached operation cannot produce a constant expression; at runtime,
+checked expressions retain their exceptions and built-in predicate operations
+their false result. Declared callees retain their own exception contract; see
+[function calls](behavior.md#declared-function-calls).
+
+Value-returning factories, conversions, typed readonly methods, comparisons and
+observers use `[[nodiscard]]`. Explicitly discard an intentionally unused result
+with `static_cast<void>(call())`. `noexcept` is independent of `constexpr`:
+scalar construction/conversions and simple observers may be nonthrowing, generic
+comparisons/observers use their actual operations' exception guarantees, while
+validation and allocation stay potentially throwing. Codec methods are not
+unconditionally `noexcept` because stream failures and malformed input must propagate.
+
+Keep ordinary model constructors and methods `constexpr`. Making them `consteval`
+would reject their intended dynamic runtime inputs. The existing `consteval`
+exact-array factory and checked schema-dimension helpers deliberately enforce
+translation-time results; no additional immediate model API is needed.
 
 ## 4. Meaning of existing constant-evaluation memory
 
@@ -946,9 +1002,10 @@ support from one successful compiler or language-only toy example.
 
 ## 15. Runtime compatibility and implementation boundaries
 
-The ordinary `binary_out_base` constructor and output methods in
-[serializer.hpp](../include/rohit/serializer.hpp) remain nonconstexpr. Its fixed-scalar,
-native-array, bulk-copy, and SIMD paths retain their established runtime behavior.
+Release 1.15.0 makes the ordinary `binary_out_base` constructor and eligible
+output methods in [serializer.hpp](../include/rohit/serializer.hpp) `constexpr`,
+with the supported direct-codec subset described in section 3.4. Its runtime
+fixed-scalar, native-array, bulk-copy, and SIMD paths retain their established behavior.
 [stream.hpp](../include/rohit/stream.hpp) continues to provide the existing general
 runtime streams, including their pointer, alias/rebasing, and copying operations.
 

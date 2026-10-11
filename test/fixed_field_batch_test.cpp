@@ -20,6 +20,29 @@
 namespace {
 namespace codec = rohit::serializer;
 
+// Verify constant-evaluated fixed helpers preserve big-endian signed, floating and Boolean bytes.
+[[nodiscard]] constexpr bool constant_fixed_scalars() {
+  constexpr auto expected = std::to_array<std::uint8_t>({0xff, 0xfe, 0x3f, 0x80, 0, 0, 1});
+  std::array<std::uint8_t, expected.size()> bytes{};
+  auto* output = bytes.data();
+  codec::detail::write_fixed_scalar<std::endian::big>(output, std::int16_t{-2});
+  codec::detail::write_fixed_scalar<std::endian::big>(output, 1.0f);
+  codec::detail::write_fixed_scalar<std::endian::big>(output, true);
+  if (bytes != expected || output != bytes.data() + bytes.size()) {
+    return false;
+  }
+  const auto* input = bytes.data();
+  std::int16_t integer{};
+  float floating{};
+  bool boolean{};
+  codec::detail::read_fixed_scalar<std::endian::big>(input, integer);
+  codec::detail::read_fixed_scalar<std::endian::big>(input, floating);
+  codec::detail::read_fixed_scalar<std::endian::big>(input, boolean);
+  return integer == -2 && floating == 1.0f && boolean &&
+         input == bytes.data() + bytes.size();
+}
+static_assert(constant_fixed_scalars());
+
 // Read exactly the committed bytes, independent of spare output capacity.
 std::string_view written(const rohit::full_stream& output) {
   return {reinterpret_cast<const char*>(output.begin()), output.current_offset()};

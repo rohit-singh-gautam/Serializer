@@ -38,7 +38,7 @@ inline constexpr bool is_json_protocol = [] {
 }();
 
 // Retain custom protocol compatibility by deriving native formats from their existing key marker.
-template <typename Protocol> consteval wire_format protocol_wire_format() {
+template <typename Protocol> [[nodiscard]] consteval wire_format protocol_wire_format() {
   if constexpr (requires { Protocol::format; }) {
     return Protocol::format;
   } else if constexpr (is_json_protocol<Protocol>) {
@@ -58,7 +58,7 @@ struct dotted_version {
   std::array<std::uint16_t, N> components{};
 
   // Initialize all components to zero.
-  constexpr dotted_version() = default;
+  constexpr dotted_version() noexcept = default;
   // Initialize integer components, rejecting narrowing rather than wrapping their values.
   template <typename... Components>
     requires(sizeof...(Components) == N && (std::integral<Components> && ...))
@@ -69,10 +69,10 @@ struct dotted_version {
     }
   }
   // Compare components numerically, never as decimal strings or floating point.
-  constexpr auto operator<=>(const dotted_version&) const = default;
+  [[nodiscard]] constexpr auto operator<=>(const dotted_version&) const noexcept = default;
 
   // Parse exactly N canonical decimal components; invalid input throws before returning a value.
-  static dotted_version parse(std::string_view text) {
+  [[nodiscard]] static dotted_version parse(std::string_view text) {
     dotted_version result{};
     for (std::size_t index = 0; index < N; ++index) {
       const auto separator = text.find('.');
@@ -95,7 +95,7 @@ struct dotted_version {
   }
 
   // Return the canonical JSON spelling, with no leading zeros.
-  std::string to_string() const {
+  [[nodiscard]] std::string to_string() const {
     std::string result{};
     for (const auto component : components) {
       if (!result.empty()) {
@@ -138,7 +138,7 @@ using version4 = dotted_version<4>;
 namespace detail {
 // Custom protocols without a policy retain strict revision checking.
 template <typename Protocol>
-constexpr read_policy protocol_read_policy() {
+[[nodiscard]] constexpr read_policy protocol_read_policy() {
   if constexpr (requires { Protocol::policy; }) {
     return Protocol::policy;
   } else {
@@ -148,7 +148,7 @@ constexpr read_policy protocol_read_policy() {
 
 // Floating revisions exclude nonfinite and negative values in every policy.
 template <typename Version>
-constexpr bool valid_version(const Version& value) {
+[[nodiscard]] constexpr bool valid_version(const Version& value) noexcept {
   if constexpr (std::is_floating_point_v<Version>) {
     if (std::is_constant_evaluated()) {
       return value >= 0 && value <= std::numeric_limits<Version>::max();

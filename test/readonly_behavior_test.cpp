@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 #include <limits>
+#include <stdexcept>
 #include <string_view>
 #include <utility>
 
@@ -27,7 +28,43 @@ static_assert(noexcept(std::declval<const readonly_identity&>().ready()));
 static_assert(noexcept(std::declval<const readonly_identity&>().indexed(0, 0)));
 static_assert(noexcept(std::declval<const readonly_identity&>().guarded(false, 0)));
 static_assert(noexcept(std::declval<const readonly_nonliteral&>().matches(0)));
+
+// Qualify generated checked arithmetic and total predicates using the C++20 evaluation rules.
+constexpr bool qualify_readonly_arithmetic() {
+  readonly_arithmetic value{};
+  readonly_identity predicate{};
+  return value.sum(3.0) == 15.0 && value.difference(3.0) == 9.0 &&
+      value.scaled(2.0) == 24.0 && value.divided(3.0) == 4.0 &&
+      value.signed_value(true) == 12.0 && value.signed_value(false) == -12.0 &&
+      value.converted(42) == 42.0 && value.scaled_positive(2.0) &&
+      !value.scaled_positive(-2.0) && predicate.ratio(1.0) && !predicate.ratio(0.0) &&
+      !predicate.ratio(-0.0) && !predicate.ratio(std::numeric_limits<double>::infinity()) &&
+      predicate.finite(std::numeric_limits<double>::max()) &&
+      !predicate.finite(std::numeric_limits<double>::infinity()) &&
+      !predicate.finite(std::numeric_limits<double>::quiet_NaN());
+}
+static_assert(qualify_readonly_arithmetic());
+static_assert(!noexcept(std::declval<const readonly_arithmetic&>().sum(0.0)));
+static_assert(!noexcept(std::declval<const readonly_arithmetic&>().divided(0.0)));
+static_assert(noexcept(std::declval<const readonly_arithmetic&>().converted(0)));
+static_assert(noexcept(std::declval<const readonly_arithmetic&>().scaled_positive(0.0)));
 } // namespace
+
+// The same generated methods retain runtime checks for nonfinite input, overflow and signed zero.
+TEST(readonly_behavior, checked_runtime_arithmetic) {
+  readonly_arithmetic value{};
+  EXPECT_EQ(value.sum(3.0), 15.0);
+  EXPECT_EQ(value.difference(3.0), 9.0);
+  EXPECT_EQ(value.scaled(2.0), 24.0);
+  EXPECT_EQ(value.divided(3.0), 4.0);
+  EXPECT_THROW(static_cast<void>(value.divided(0.0)), std::domain_error);
+  EXPECT_THROW(static_cast<void>(value.divided(-0.0)), std::domain_error);
+  EXPECT_THROW(static_cast<void>(value.sum(std::numeric_limits<double>::quiet_NaN())), std::domain_error);
+  EXPECT_THROW(static_cast<void>(value.scaled(std::numeric_limits<double>::infinity())), std::domain_error);
+  EXPECT_THROW(static_cast<void>(value.scaled(std::numeric_limits<double>::max())), std::domain_error);
+  EXPECT_FALSE(value.scaled_positive(std::numeric_limits<double>::infinity()));
+  EXPECT_FALSE(value.scaled_positive(std::numeric_limits<double>::max()));
+}
 
 // Runtime-only C++20 math predicates report reached domain failure through false without exceptions.
 TEST(readonly_behavior, total_runtime_predicates) {

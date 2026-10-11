@@ -21,6 +21,8 @@ def main():
     args = parser.parse_args()
     args.compiler = args.compiler.resolve()
     args.build = args.build.resolve()
+    if args.cpp_library:
+        args.cpp_library = args.cpp_library.resolve()
     args.sanitize = False
     languages = examples.LANGUAGES if args.language == 'all' else args.language.split(',')
     if any(language not in examples.LANGUAGES for language in languages):

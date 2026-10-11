@@ -12,6 +12,20 @@ in their guide.
 
 [Back to the project overview](../README.md)
 
+Current compiler/runtime **1.15.0** supports language **1.10.0** and adds
+`constexpr` ordinary C++ codec templates and a native positional/integer-key
+scalar decoder subset for constexpr-safe typed streams. Eligible checked
+arithmetic and dotted-value construction/conversions also constant-evaluate.
+Useful value results are `[[nodiscard]]`; proven nonthrowing value operations use
+`noexcept`, with conditional guarantees for generic comparisons/observers.
+See [direct codecs and qualifiers](constant_evaluation.md#34-direct-generated-codecs-and-value-qualifiers)
+for limitations and executed qualification.
+
+Language `1.10.0` adds [namespace functions and declared readonly calls](behavior.md#declared-function-calls)
+in expressions, with exact argument/result types and forward signature lookup.
+It also adds [Boolean generic constraints](generics.md#boolean-type-constraints)
+checked on concrete schema applications and emitted as C++ `requires` clauses.
+
 Serializer — **State Framework** combines schema-driven data exchange with C++
 application-state management. Generated codecs cover multiple languages; native
 transactions, history, journals, and collaboration currently run in C++.
@@ -129,7 +143,7 @@ Compiler/runtime 1.4.0 implements `binary_none_size`,
 `<rohit/constant_binary.hpp>`. Enable generated owning models with
 `--cpp.constant_evaluation true` (default false). The generator adds a separate
 constexpr `serialize_constant_out` traversal and static capability metadata;
-existing runtime `serialize_out` remains unchanged. Runtime existing-memory
+ordinary runtime traversal remains unchanged. Runtime existing-memory
 writes for ordinary owning models delegate to the established optimized binary encoder.
 
 The independent `--cpp.protocols binary_none` profile removes JSON/keyed output;
@@ -196,7 +210,7 @@ behavior remain unchanged.
 
 Language-specific output profiles select layouts and naming conventions. Schemas use
 `.serializer` and begin with a supported language header; new schemas use
-`serializer version 1.9.0;`. Older `1.8.0`, `1.7.0`, `1.6.0`, `1.5.0`, `1.4.0`, `1.3.0`, `1.2.0`, `1.1.0`, `1.0.0` and the original `1` alias remain supported.
+`serializer version 1.10.0;`. Older `1.9.0`, `1.8.0`, `1.7.0`, `1.6.0`, `1.5.0`, `1.4.0`, `1.3.0`, `1.2.0`, `1.1.0`, `1.0.0` and the original `1` alias remain supported.
 Schema language and compiler versions are independent.
 Future versions require all three components. Share declarations with `include
 common;` before any declarations. Paths are unquoted and relative to the including file;
@@ -208,7 +222,7 @@ Namespace scopes are reused during parsing; duplicate types and namespace/type c
 are rejected. See [schema includes](usage.md#share-declarations-with-includes) and the
 [paired C++/Java examples](../example/includes/README.md). Quoted defaults preserve
 literal spaces, for example `public string label { "schema default" };`; escaping the
-space is unnecessary. Run `serializer --version` for compiler version **1.14.0** and
+space is unnecessary. Run `serializer --version` for compiler version **1.15.0** and
 supported schema versions. See [command-line options](command_line.md) for
 multi-language generation and overrides.
 

@@ -1,0 +1,28 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.9.0;
+
+namespace constexpr_codecs {
+  enum phase {
+    idle,
+    active
+  }
+
+  class leaf stable_ids {
+    public uint16 value (1);
+    public bool enabled (2);
+  }
+
+  class packet stable_ids {
+    public uint8 marker (1);
+    public int16 delta (2);
+    public uint32 sequence (3);
+    public float ratio (4);
+    public bool enabled (5);
+    public array[2] uint16 samples (6);
+    public compact_prefix strict uint32 prefix (7);
+    public compact_varint uint32 variable (8);
+    public phase state (9);
+    public leaf nested (10);
+  }
+}

@@ -766,6 +766,13 @@ class mobile_emitter {
         context.enum_value = [&](const type_name& expression_type, std::string_view name) {
           return type(expression_type) + "." + pascal(name);
         };
+        context.call = [&](const behavior_expression& node, const std::vector<std::string>& arguments) {
+          const auto& target = behavior::called_function(node);
+          std::string receiver = select("self", "this");
+          for (const auto base : node.call_base_path) { receiver += ".base" + std::to_string(base); }
+          const auto callable = node.call_target->type == object_type::function_type ? field(model.names.at(node.call_target)) : receiver + "." + field(target.name);
+          return callable + "(" + behavior::call_arguments(arguments) + ")";
+        };
         context.predicate = method.predicate_body;
         if (behavior::expression_has_reduction(*method.expression)) {
           while (std::any_of(method.parameters.begin(), method.parameters.end(),
@@ -797,7 +804,7 @@ class mobile_emitter {
         line(select("let ", "val ") + "srlBehaviorResult = " +
             (swift && behavior::expression_can_fail(*method.expression, method.predicate_body) ? "try " : "") +
             behavior::expression(*method.expression, language, symbol, arithmetic_helpers, context));
-        if (method.return_type.name != "bool") {
+        if (method.return_type.name == "float" || method.return_type.name == "double") {
           line(select("if !srlBehaviorResult.isFinite { throw SerializerError.invalid(\"Non-finite portable result\") }",
               "if (!srlBehaviorResult.isFinite()) { throw SerializerException(\"Non-finite portable result\") }"));
         }
@@ -812,6 +819,36 @@ class mobile_emitter {
       }
       close();
     }
+  }
+
+  // Emit flattened readonly namespace functions in native Swift or Kotlin syntax.
+  void free_function(const function_node& node) {
+    const auto& method = node.function;
+    const auto language = select("swift", "kotlin");
+    std::string parameters;
+    for (const auto& parameter : method.parameters) {
+      if (!parameters.empty()) { parameters += ", "; }
+      parameters += (swift ? "_ " : "") + field(parameter.name) + ": " + type(parameter.type);
+    }
+    const auto result_type = method.return_type.name == "void" ? select("Void", "Unit") : type(method.return_type);
+    line(behavior::source_marker(method, language));
+    open("public " + select("func ", "fun ") + field(model.names.at(&node)) + "(" + parameters + ")" +
+        (swift && method.expression && !method.predicate_body ? " throws" : "") + select(" -> ", ": ") + result_type);
+    if (const auto* native = behavior::native_body(method, language)) {
+      output += behavior::source_marker(*native, language) + native->text + "\n";
+    } else if (method.expression) {
+      behavior::expression_context context;
+      context.member_name = [&](auto value) { return field(value); };
+      context.native_type = [&](const auto& value) { return type(value); };
+      context.enum_value = [&](const auto& value, auto name) { return type(value) + "." + pascal(name); };
+      context.call = [&](const behavior_expression& call, const std::vector<std::string>& arguments) {
+        return field(model.names.at(call.call_target)) + "(" + behavior::call_arguments(arguments) + ")";
+      };
+      behavior::free_expression_body(method, language, result_type, [&](auto value) { return field(value); },
+          arithmetic_helpers, context, [&](const auto& text) { line(text); },
+          [&](const auto& text) { open(text); }, [&]() { close(); });
+    } else { throw std::invalid_argument{language + ": standalone functions require an expression or selected native body"}; }
+    close();
   }
 
   // Swift protocols and value adapters separate dispatch requirements from data construction.
@@ -1383,6 +1420,9 @@ public:
   }
   // Emit the runtime, immutable schema key table, enums, and owning models.
   std::string generate() {
+    behavior::require_unique_free_names(model.nodes, select("swift", "kotlin"),
+        [&](const auto& node) { return field(model.names.at(&node)); },
+        [&](const auto& value) { return type(value); });
     line(select("private let srlFields: [SrlField] = [", "private val srlFields = arrayOf("));
     ++indent;
     for (const auto& key : model.ordered_keys) {
@@ -1391,6 +1431,7 @@ public:
     --indent;
     line(select("]", ")"));
     for (const auto* node : model.nodes) {
+      if (node->type == object_type::function_type) { free_function(static_cast<const function_node&>(*node)); continue; }
       validate_identifier(
           model.names.at(node),
           " UInt8 UInt16 UInt32 UInt64 Int8 Int16 Int32 Int64 UByte UShort UInt ULong Byte Short "

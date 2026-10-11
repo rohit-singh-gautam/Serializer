@@ -38,6 +38,13 @@ void verify(const example_model& value) {
 // Read JSON, edit a typed field, and exercise all four native protocols.
 int main(int argc, char** argv) {
   try {
+    integer_number integer{};
+    floating_number floating{};
+    integer.value = -7;
+    floating.value = 12.5;
+    if (integer.value != -7 || floating.value != 12.5) {
+      throw std::runtime_error{"Constrained generic changed its value"};
+    }
     if (argc != 3) {
       throw std::invalid_argument{"Usage: main <input.json> <output.json>"};
     }

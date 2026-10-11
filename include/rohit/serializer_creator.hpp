@@ -108,7 +108,7 @@ enum class access_type { error, private_access, protected_access, public_access 
 enum class compact_encoding { none, prefix, varint };
 
 enum class object_type { unresolved, namespace_type, class_type, enum_type, primitive, instantiation,
-                         generic_definition, native_code };
+                         generic_definition, native_code, function_type };
 
 enum class class_attributes : std::uint8_t {
   none = 0x00, packed = 0x01, stable_ids = 0x02, managed = 0x04
@@ -279,12 +279,21 @@ struct type_name {
   }
 };
 
+// A portable type constraint combines categories and exact schema type identities.
+struct generic_constraint {
+  enum class operation { integral, floating_point, stateless, exact_type, logical_not, logical_and, logical_or };
+  operation kind{operation::exact_type};
+  std::optional<type_name> type{};
+  std::vector<generic_constraint> operands{};
+};
+
 // Parameter names remain separately available for existing type-only clients.
 struct generic_parameter {
   generic_argument_kind kind{generic_argument_kind::type};
   std::string name{};
   std::vector<type_name> default_argument{};
   bool stateless{false}; // Require an owning generated record with no instance storage or hooks.
+  std::optional<generic_constraint> constraint{}; // Boolean category/type expression, enforced on concrete arguments.
 };
 
 // Compile-time release metadata is owned by the schema AST, never the payload runtime.
@@ -407,7 +416,7 @@ struct behavior_expression {
     boolean, divide, square_root, sine, cosine, less, less_equal, greater, greater_equal,
     equal, not_equal, logical_not, logical_and, logical_or, conditional,
     integer_literal, member_access, index_access, enum_constant, collection_size,
-    is_finite, all, any
+    is_finite, all, any, call
   };
   operation kind{operation::literal};
   std::string value{};
@@ -424,6 +433,9 @@ struct behavior_expression {
   bool local_symbol{false}; // Reduction binders resolve lexically instead of against the receiver.
   std::uint64_t fixed_extent{}; // Fixed authored arrays need no runtime length member.
   std::vector<std::size_t> member_base_path{}; // Composed portable bases used by inherited projections.
+  const syntax_node* call_target{}; // Stable declaration owner, rebound after generic lowering.
+  std::size_t call_method_index{}; // Member index; standalone function nodes use zero.
+  std::vector<std::size_t> call_base_path{}; // Receiver path to an inherited member declaration.
 };
 
 // A named argument with the schema's owned value type.
@@ -482,6 +494,15 @@ struct function_declaration {
   std::size_t source_column{1};
   std::string source_path{};
   bool predicate_body{false}; // Readonly bool: reached semantic failures return false.
+};
+
+// A namespace-owned readonly callable has no serialized identity or receiver storage.
+struct function_node : syntax_node {
+  function_declaration function;
+  // Retain one callable declaration under its lexical namespace and stable node ownership.
+  function_node(function_declaration declaration, namespace_node* space)
+      : syntax_node{object_type::function_type, std::string{declaration.name}, space},
+        function{std::move(declaration)} {}
 };
 
 // Keep declaration order separate from the field-only persistence traversal.

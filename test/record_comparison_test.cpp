@@ -27,9 +27,48 @@ namespace values = comparison_demo;
 struct fallback_value {
   std::uint32_t value{};
   // Compare the represented value for equality.
-  constexpr bool operator==(const fallback_value& other) const { return value == other.value; }
+  constexpr bool operator==(const fallback_value& other) const noexcept { return value == other.value; }
   // Compare the represented value using a strict weak ordering.
-  constexpr bool operator<(const fallback_value& other) const { return value < other.value; }
+  constexpr bool operator<(const fallback_value& other) const noexcept { return value < other.value; }
+};
+
+// Supply a native nonthrowing spaceship for generic record comparison inference.
+struct native_comparison_value {
+  std::uint32_t value{};
+  // Compare the represented scalar through the standard strong-ordering category.
+  constexpr auto operator<=>(const native_comparison_value&) const noexcept = default;
+};
+
+// A generic native comparator must retain its throwing contract through tuple synthesis.
+struct throwing_comparison_value {
+  // Exercise reached equality failure through the generated owning record.
+  bool operator==(const throwing_comparison_value&) const {
+    throw std::domain_error{"Comparison failed"};
+  }
+  // Exercise reached native ordering failure without an implicit terminate boundary.
+  std::strong_ordering operator<=>(const throwing_comparison_value&) const {
+    throw std::domain_error{"Comparison failed"};
+  }
+};
+
+// The fallback path must account for throwing less-than even when equality cannot throw.
+struct throwing_fallback_value {
+  // Equality succeeds independently of the fallible ordering operation.
+  constexpr bool operator==(const throwing_fallback_value&) const noexcept { return true; }
+  // Exercise the less-than path selected for values without a native spaceship.
+  bool operator<(const throwing_fallback_value&) const {
+    throw std::domain_error{"Fallback comparison failed"};
+  }
+};
+
+// Equality may be nonthrowing while its result's required Boolean conversion still throws.
+struct throwing_boolean_result {
+  // Exercise conversion failure after a successful component equality call.
+  operator bool() const { throw std::domain_error{"Comparison conversion failed"}; }
+};
+struct throwing_conversion_value {
+  // Produce a fallible Boolean-like result without throwing in the equality operator itself.
+  throwing_boolean_result operator==(const throwing_conversion_value&) const noexcept { return {}; }
 };
 
 // Exercise native generic instantiation without imposing serialization on application types.
@@ -58,6 +97,50 @@ static_assert(equality_available<values::equality_only>);
 static_assert(!ordering_available<values::equality_only>);
 static_assert(!equality_available<values::order_only>);
 static_assert(ordering_available<values::order_only>);
+static_assert(noexcept(std::declval<const values::shipment_key&>() ==
+                       std::declval<const values::shipment_key&>()));
+static_assert(noexcept(std::declval<const values::shipment_key&>() <=>
+                       std::declval<const values::shipment_key&>()));
+static_assert(noexcept(std::declval<const values::derived_record&>() <=>
+                       std::declval<const values::derived_record&>()));
+static_assert(noexcept(std::declval<const values::generic_record<fallback_value>&>() <=>
+                       std::declval<const values::generic_record<fallback_value>&>()));
+static_assert(noexcept(std::declval<const values::generic_record<native_comparison_value>&>() <=>
+                       std::declval<const values::generic_record<native_comparison_value>&>()));
+static_assert(!noexcept(std::declval<const values::generic_record<throwing_comparison_value>&>() ==
+                        std::declval<const values::generic_record<throwing_comparison_value>&>()));
+static_assert(!noexcept(std::declval<const values::generic_record<throwing_comparison_value>&>() <=>
+                        std::declval<const values::generic_record<throwing_comparison_value>&>()));
+static_assert(!noexcept(std::declval<const values::generic_record<throwing_fallback_value>&>() <=>
+                        std::declval<const values::generic_record<throwing_fallback_value>&>()));
+static_assert(!noexcept(std::declval<const values::generic_record<throwing_conversion_value>&>() ==
+                        std::declval<const values::generic_record<throwing_conversion_value>&>()));
+
+// Compare actual generated scalar, inherited and generic values during C++20 constant evaluation.
+constexpr bool qualify_constant_comparisons() {
+  values::shipment_key first{};
+  first.warehouse = 1;
+  first.parcel = 4;
+  auto second = first;
+  second.cache = 9;
+  if (!(first == second) || (first <=> second) != std::strong_ordering::equal) { return false; }
+  ++second.parcel;
+  values::generic_record<fallback_value> generic{};
+  generic.value.value = 1;
+  auto other_generic = generic;
+  other_generic.value.value = 2;
+  values::derived_record inherited{};
+  inherited.value = 1;
+  auto other_inherited = inherited;
+  other_inherited.value = 2;
+  return first < second && generic < other_generic && inherited < other_inherited;
+}
+static_assert(qualify_constant_comparisons());
+static_assert([] {
+  values::float_record nonfinite{};
+  nonfinite.value = std::numeric_limits<double>::quiet_NaN();
+  return !(nonfinite == nonfinite);
+}());
 
 // Generate configured output without invoking a formatter or mutating the parsed schema.
 std::string generate(std::string_view source, writer::cpp_options options = {}) {
@@ -169,6 +252,17 @@ TEST(record_comparison, category_and_generic_contract) {
   constexpr values::empty_record empty{};
   static_assert(empty == empty);
   static_assert((empty <=> empty) == std::strong_ordering::equal);
+}
+
+// Native, fallback and Boolean-conversion exceptions propagate through conditional record qualifiers.
+TEST(record_comparison, throwing_generic_comparisons) {
+  values::generic_record<throwing_comparison_value> native{};
+  EXPECT_THROW(static_cast<void>(native == native), std::domain_error);
+  EXPECT_THROW(static_cast<void>(native <=> native), std::domain_error);
+  values::generic_record<throwing_fallback_value> fallback{};
+  EXPECT_THROW(static_cast<void>(fallback <=> fallback), std::domain_error);
+  values::generic_record<throwing_conversion_value> conversion{};
+  EXPECT_THROW(static_cast<void>(conversion == conversion), std::domain_error);
 }
 
 // Comparing a value cannot change its serialized fields, storage or any output protocol.

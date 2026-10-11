@@ -198,7 +198,7 @@ TEST(binary_text, unchecked_generated_streams) {
   using view = view_test::record<codec::storage_mode::read_only_view>;
   const auto span = std::span<const std::uint8_t>{
       reinterpret_cast<const std::uint8_t*>(bytes.data()), bytes.size()};
-  EXPECT_THROW(view::map(span), codec::exception::bad_input_data);
+  EXPECT_THROW(static_cast<void>(view::map(span)), codec::exception::bad_input_data);
   stream_test::output_buffer json_output{};
   EXPECT_THROW(value.serialize_out<codec::json>(json_output), std::invalid_argument);
 }
@@ -243,7 +243,7 @@ TEST(binary_text, mapped_strings_validate_before_mutation) {
   mapped.set_label("\xc3\xa9");
   EXPECT_EQ(mapped.get_label(), "\xc3\xa9");
   bytes.back() = 0xff;
-  EXPECT_THROW(view::map(bytes), rohit::exception::base_parser);
+  EXPECT_THROW(static_cast<void>(view::map(bytes)), rohit::exception::base_parser);
 }
 
 // Dynamic batched field names must obey the same UTF-8 rules as ordinary field names.

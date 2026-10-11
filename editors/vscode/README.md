@@ -1,6 +1,8 @@
 # Rohit Serializer for Visual Studio Code
 
-Version **1.1.36** adds schema language 1.9.0 stateless generic constraints,
+Version **1.1.37** adds language 1.10.0 namespace functions, declared readonly calls,
+and Boolean generic type constraints. Shared navigation indexes namespace function
+signature types and exact type alternatives. Language 1.9.0 features include stateless generic constraints,
 computed `auto_size` fields, `wire_only` headers, `size_scope(record|payload)`,
 `omit(all_except(...))`, and portable record conversions. Conversion target types
 and target/source field projections navigate through included schemas and unsaved
@@ -327,7 +329,7 @@ Empty extents and element types receive fixed-array highlighting. Enum type
 operands and qualified enum defaults in typed magic retain declaration, definition,
 and type-definition navigation, including unsaved and transitive included schemas.
 VS Code includes `array_inferred` and `magic_typed` snippets; its schema snippet
-selects `serializer version 1.9.0;`. The original `1` header remains exactly
+selects `serializer version 1.10.0;`. The original `1` header remains exactly
 `1.0.0` and does not enable these features. See the
 [magic contract](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/magic_and_omission.md) and [fixed arrays](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/generics.md).
 

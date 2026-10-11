@@ -209,7 +209,8 @@ std::string naming::namespace_name(std::string_view name) const {
 
 // Follow resolved declaration ownership, avoiding a second ambiguous type-name lookup.
 std::string naming::full_type_name(const syntax_node* node) const {
-  std::string result = (options.emission_only ? "emission::" : "") + type_name(node->name);
+  std::string result = (options.emission_only ? "emission::" : "") +
+      (node->type == object_type::function_type ? function_name(node->name) : type_name(node->name));
   for (auto* parent = node->parent_namespace; parent; parent = parent->parent_namespace) {
     result = namespace_name(parent->name) + "::" + result;
   }
@@ -364,18 +365,25 @@ void naming::validate_names(const std::vector<std::unique_ptr<syntax_node>>& sta
       const auto& node = *pointer;
       if (node.type == object_type::native_code) { continue; }
       const bool is_namespace = node.type == object_type::namespace_type;
-      const auto name = is_namespace ? namespace_name(node.name) : type_name(node.name);
+      const auto name = is_namespace ? namespace_name(node.name) :
+          node.type == object_type::function_type ? function_name(node.name) : type_name(node.name);
       validate_identifier(name);
       if (name.starts_with('_')) {
         throw std::invalid_argument{"Reserved namespace-scope identifier: " + name};
       }
       const auto [position, inserted] =
           namespace_symbols[scope].emplace(name, node.get_full_name());
-      if (!inserted && (!is_namespace || position->second != node.get_full_name())) {
+      if (!inserted && ((!is_namespace && node.type != object_type::function_type) ||
+                       position->second != node.get_full_name())) {
         throw std::invalid_argument{"Generated C++ name collision: " + scope + "::" + name};
       }
       if (is_namespace) {
         self(self, static_cast<const namespace_node&>(node).statements, scope + "::" + name);
+      } else if (node.type == object_type::function_type) {
+        std::set<std::string> parameters;
+        for (const auto& parameter : static_cast<const function_node&>(node).function.parameters) {
+          insert_name(parameters, local_name(parameter.name));
+        }
       } else if (node.type == object_type::enum_type) {
         auto& symbols = namespace_symbols[scope];
         for (const auto& helper :

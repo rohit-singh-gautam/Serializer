@@ -32,19 +32,27 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **1.14.0**. Bug fixes and minor updates
+The current compiler and runtime release is **1.15.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
-compatibility across major releases. The schema language version is **1.9.0**;
+compatibility across major releases. The schema language version is **1.10.0**;
 see [release and schema versions](docs/command_line.md).
 
-Use `serializer version 1.9.0;` for new schemas. Older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, and `1.8.0` schemas remain supported. The original
+Use `serializer version 1.10.0;` for new schemas. Older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, and `1.9.0` schemas remain supported. The original
 `serializer version 1;` is an exact compatibility alias for `1.0.0`, exclusive to
 version 1. Future versions require all three components; see the
 [schema language policy](docs/command_line.md#schema-language-version-policy).
 
 **Supported outputs:** C++, Java, JavaScript, TypeScript declarations, Go, C#,
 Rust, Python, Swift, Kotlin, and C. TypeScript uses the JavaScript runtime.
+
+Language `1.10.0` adds [namespace functions and declared readonly calls](docs/behavior.md#declared-function-calls)
+inside portable expressions and [Boolean generic type constraints](docs/generics.md#boolean-type-constraints),
+such as `T: (integral || floating_point) && !bool`. See the runnable [expression example](example/cpp/expressions/README.md).
+C++ emits eligible functions and codecs as `constexpr`, useful results as
+`[[nodiscard]]`, and proven nonthrowing operations as `noexcept`.
+See the [verification record](docs/verification-functions-constraints-2026-10-11.md)
+for the native, all-language and editor checks completed for these additions.
 
 Language `1.9.0` adds [derived native binary sizes](docs/derived_sizes.md), including
 `wire_only` headers and `size_scope(record|payload)`, comma-separated
@@ -145,6 +153,14 @@ The independent `--cpp.protocols binary_none` profile restricts C++ output to
 positional codecs; the default remains `all`. Add `--cpp.emission_only true` with
 those settings for borrowed string/span DTOs exposing only one concrete positional
 `serialize_out(binary_none_output&)` method.
+
+Release **1.15.0** also makes ordinary generated `serialize_out`, `serialize_in`,
+and their uncompressed stream entrypoints `constexpr`, independently of that option.
+Constant evaluation depends on the chosen protocol, stream, and value operations;
+the direct native binary scalar subset is described in the
+[C++ qualifier guide](docs/constant_evaluation.md#34-direct-generated-codecs-and-value-qualifiers).
+Eligible checked arithmetic and dotted-version construction retain runtime calls.
+Value results use `[[nodiscard]]`; proven nonthrowing operations use `noexcept`.
 
 ## Proprietary applications and licensing
 
@@ -417,8 +433,8 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editor_extension.md) |
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
-Both extensions use source release version **1.1.36**, independent of compiler version
-**1.14.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
+Both extensions use source release version **1.1.37**, independent of compiler version
+**1.15.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
 for supported destinations and language-service prerequisites.
 VS Code also supports navigation from read-only Git index/history tabs, using
 the displayed snapshot and current workspace destinations.

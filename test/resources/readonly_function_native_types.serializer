@@ -1,0 +1,22 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.10.0;
+
+class generic_probe<T> {
+  public function bool expression_equal(T left, T right) readonly expression(left == right);
+  public function bool predicate_equal(T left, T right) readonly predicate(left == right);
+}
+
+class string_probe {
+  public string text;
+  public function string get() readonly expression(text);
+}
+
+class record_value {
+  public string text;
+}
+
+class record_probe {
+  public record_value value;
+  public function record_value get() readonly expression(value);
+}

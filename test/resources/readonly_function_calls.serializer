@@ -1,0 +1,27 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.10.0;
+
+namespace readonly_helpers {
+  function double forwarded(double value) readonly expression(increment(value));
+  function double add(double left, double right) readonly expression(left + right);
+  function double divide(double left, double right) readonly expression(left / right);
+  function uint64 identity(uint64 value) readonly expression(value);
+  function bool equal(uint64 left, uint64 right) readonly expression(left == right);
+  function double increment(double value) readonly expression(value + 1.0);
+}
+
+class call_probe stable_ids {
+  public double amount (1) {12.0};
+  public uint64 token (2) {18446744073709551615};
+  public function double sum(double extra) readonly
+    expression(readonly_helpers::add(amount, extra));
+  public function double composed(double extra) readonly expression(sum(extra) + 1.0);
+  public function double forwarded() readonly expression(readonly_helpers::forwarded(amount));
+  public function uint64 echoed(uint64 value) readonly expression(readonly_helpers::identity(value));
+  public function bool matches(uint64 value) readonly expression(readonly_helpers::equal(token, value));
+  public function double divided(double divisor) readonly expression(readonly_helpers::divide(amount, divisor));
+  public function bool positive(double divisor) readonly predicate(readonly_helpers::divide(amount, divisor) > 0.0);
+  public function bool guarded(bool inspect, double divisor) readonly
+    predicate(!inspect || readonly_helpers::divide(amount, divisor) > 0.0);
+}

@@ -1,3 +1,10 @@
+# 1.1.37
+
+- Support schema language 1.10.0 readonly function calls and namespace functions.
+- Highlight declared calls in expressions and index namespace function signature types.
+- Add a namespace function snippet and update the current schema header.
+- Highlight Boolean generic type constraints and navigate exact type alternatives.
+
 # 1.1.36
 
 - Support schema language 1.9.0 stateless generic constraints and defaults.

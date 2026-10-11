@@ -1,0 +1,15 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.10.0;
+
+namespace overloaded_helpers {
+  function double identity(double value) readonly expression(value + 1.0);
+  function uint64 identity(uint64 value) readonly expression(value);
+}
+
+class overload_probe stable_ids {
+  public double amount (1) {12.0};
+  public uint64 token (2) {18446744073709551615};
+  public function double scalar() readonly expression(overloaded_helpers::identity(amount));
+  public function uint64 exact() readonly expression(overloaded_helpers::identity(token));
+}

@@ -5,6 +5,23 @@ const { test } = require('node:test');
 const { Registry, INITIAL } = require('vscode-textmate');
 const onig = require('vscode-oniguruma');
 
+test('language 1.10 namespace calls and Boolean type constraints have distinct scopes', async () => {
+  const grammar = await loadGrammar();
+  const line = 'serializer version 1.10.0; namespace math_values { ' +
+    'function double total(double left, double right) readonly expression(left + right); ' +
+    'class number<T: (integral || floating_point) && !bool> { public T value; ' +
+    'public function double added(double other) readonly expression(math_values::total(value, other)); } }';
+  const result = grammar.tokenizeLine(line, INITIAL);
+  const scope = word => result.tokens.find(token => token.startIndex <= line.indexOf(word) &&
+    token.endIndex > line.indexOf(word)).scopes.at(-1);
+  assert.equal(scope('total('), 'entity.name.function.serializer');
+  assert.equal(scope('math_values::total'), 'entity.name.function.serializer');
+  for (const word of ['integral', 'floating_point']) { assert.equal(scope(word), 'storage.modifier.serializer'); }
+  for (const word of ['||', '&&', '!bool']) { assert.equal(scope(word), 'keyword.operator.serializer'); }
+  assert.equal(scope('bool>'), 'entity.name.type.serializer');
+  assert.equal(result.ruleStack.depth, 1);
+});
+
 test('optional and nested container generics highlight types without consuming fields or method names', async () => {
   const grammar = await loadGrammar();
   const line = 'serializer version 1.7.0; class box<T = optional<lib::person>> { ' +
@@ -26,7 +43,7 @@ test('optional and nested container generics highlight types without consuming f
   }
   assert.equal(result.ruleStack.depth, 1);
   const snippets = JSON.parse(fs.readFileSync(path.join(__dirname, '../snippets/serializer.json'), 'utf8'));
-  assert.equal(snippets.Schema.body[0], 'serializer version 1.9.0;');
+  assert.equal(snippets.Schema.body[0], 'serializer version 1.10.0;');
   assert.equal(snippets['Optional field'].prefix, 'optional');
   assert.match(snippets['Optional field'].body, /optional</);
 });

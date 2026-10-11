@@ -1,5 +1,9 @@
 # Wire format and decoding contract
 
+Language `1.10.0` readonly calls, namespace functions and Boolean type constraints
+add no wire fields or metadata. Existing schemas and payload encodings retain
+their earlier identities and bytes.
+
 Language `1.9.0` adds [derived size fields](derived_sizes.md) to the native binary
 protocols only. `size_scope(record)` counts from before record magic through the
 record's own end marker, including its size field key/value. `size_scope(payload)`

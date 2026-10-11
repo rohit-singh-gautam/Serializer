@@ -17,7 +17,7 @@
   "Schema": {
     "prefix": "schema",
     "body": [
-      "serializer version 1.9.0;",
+      "serializer version 1.10.0;",
       "",
       "namespace ${1:models} {",
       "class ${2:account} stable_ids {",
@@ -177,6 +177,14 @@
       "  expression(${2:amount} * ${3:rate});"
     ],
     "description": "Declare binary64 behavior in schema language 1.6"
+  },
+  "Namespace function": {
+    "prefix": "function-free",
+    "body": [
+      "function double ${1:total}(double ${2:left}, double ${3:right}) readonly",
+      "  expression($2 + $3);"
+    ],
+    "description": "Declare a portable namespace function; requires schema language 1.10.0"
   },
   "Transient member": {
     "prefix": "transient",

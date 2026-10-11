@@ -44,7 +44,9 @@ readonly cpp { return payload; };` returns the supplied bytes. These signatures
 use each target's existing digest storage type; they add no wire fields and do
 not compute a hash. Native code remains responsible for its byte ownership and
 length contract, including the lifetime of a returned C `srl_buffer`. Digest
-values are outside the portable expression profile. See [digest storage](digest.md).
+arithmetic and comparisons are outside the portable expression profile. Language
+`1.10.0` can forward exact digest types through declared readonly calls. See
+[digest storage](digest.md).
 
 | Target | External definition or attachment |
 |---|---|
@@ -138,9 +140,79 @@ public function double average(double copies) readonly
 The portable form supports finite binary64 literals, declared scalar symbols,
 `math.pi`, unary `+`/`-`, binary `+`/`-`/`*`, grouping and explicit
 `to_double(int32_or_uint32)`. Arithmetic operands and the result are `double`;
-implicit integer arithmetic, arbitrary loops, assignment and general calls are rejected.
+implicit integer arithmetic, arbitrary loops, assignment and undeclared calls are rejected.
 Bounds are 1024 expression nodes and depth 64. This bounded language leaves
 application-specific logic in native code.
+
+## Declared function calls
+
+Language `1.10.0` lets expressions call schema-declared `readonly` functions and
+adds namespace-level function declarations. A free function uses `function`
+without an access prefix; class methods retain their existing access prefixes.
+
+```text
+serializer version 1.10.0;
+namespace geometry {
+  function double coordinate_add(double left, double right) readonly
+    expression(left + right);
+  class coordinate {
+    public double value;
+    public function double added(double other) readonly
+      expression(geometry::coordinate_add(value, other));
+    public function double doubled() readonly expression(added(value));
+  }
+}
+```
+
+Calls bind to declared signatures, including declarations appearing later in the
+same schema. Arguments and return values keep their exact declared types; the
+parser requires a matching overload and a non-void `readonly` result. It rejects
+unknown functions, mutating callees, mismatched arguments and ambiguous overloads.
+Unqualified member calls use the current receiver; free functions use lexical
+namespace lookup or an explicitly qualified name. Existing builtins retain their
+meaning. Typed call cycles are rejected. Conditional and boolean branches remain
+lazy, and call arguments evaluate once, from left to right.
+
+Standalone overloads are supported in C++, Java, C#, Swift and Kotlin when their
+generated signatures remain distinct. Other outputs require unique standalone
+function names. Signatures that collide after target type erasure are rejected.
+
+A readonly callee can use a portable expression, a target-specific native body,
+or a supported external implementation contract. Serializer checks the declared
+effect and signature; the selected language compiler checks native bodies.
+`readonly` does not prove that opaque native code has no side effects.
+
+Compound arguments/results follow the target's normal value/reference rules;
+readonly does not imply a deep clone. C record, sequence and digest projections
+borrow their existing storage, so the receiver/argument owner must outlive the
+borrowed result and that copy must not be released as a new owner. Use an explicit
+[record conversion](conversions.md) when a fresh owning copy is required.
+
+Standalone external functions are supported by C++ definitions, C definitions,
+Go package functions and C# static partial methods. Other executable outputs
+currently require a portable expression or a native body for a standalone
+function and report a generation error otherwise. TypeScript can declare the
+signature, but executable JavaScript still needs an implementation. Existing
+external class-method attachments remain available. C cannot call an abstract
+method from a portable data-model expression because that receiver has no behavior
+adapter; concrete readonly implementations are callable.
+
+Java emits namespace functions as static methods on the generated namespace
+class and class functions as instance methods. With Java naming enabled, the
+example calls `Geometry.coordinateAdd(value, other)` and `added(value)`.
+Portable expressions work in both C++ and Java; a `cpp { ... }` body requires a
+separate `java { ... }` implementation when Java output is selected. Java executes
+these functions at runtime and has no `constexpr` qualifier.
+
+C++ uses `constexpr` for eligible ordinary typed functions, including calls to
+other eligible typed functions. Native, external and dispatched callees retain
+their own constant-evaluation and exception contracts. A call to such a function
+prevents automatic `constexpr`/`noexcept` inference for the caller. Calls do not
+change wire layouts, field IDs or persisted state. See the
+[expression example](../example/cpp/expressions/README.md) and
+[constant evaluation guide](constant_evaluation.md#34-direct-generated-codecs-and-value-qualifiers).
+The borrowed `cpp.emission_only` profile currently rejects namespace functions;
+ordinary owning C++ output supports them.
 
 Language `1.8.0` adds binary64 division, `math.sqrt(value)`, `math.sin(value)` and
 `math.cos(value)`, numeric comparisons `<`, `<=`, `>`, `>=`, matching scalar/enum
@@ -180,7 +252,7 @@ the new operators and boolean results.
 
 Readonly boolean methods can instead declare `predicate(...)`. Reached invalid
 arithmetic, projections or bounded traversal return false; skipped branches perform
-no validation. This API does not throw or panic for semantic failure. C checked
+no validation. These built-in predicate operations do not throw or panic for semantic failure. C checked
 predicate calls publish false with `srl_ok`; null receiver/result arguments still
 return `srl_invalid`. `math.is_finite(float_or_double)` observes NaN/infinity and
 returns false in either form, allowing explicit finite guards. Bounds and arithmetic
@@ -205,12 +277,23 @@ is true and empty `any` is false. Every invocation shares a 1,000,000 visited-it
 budget across nested reductions, charged once per visited item. Exhaustion fails
 the expression or returns false for a predicate. Binder names cannot shadow fields,
 parameters or outer binders. Maps, optional/variant projection, integer arithmetic,
-mutation and arbitrary calls are outside this profile.
+mutation and undeclared calls are outside this profile.
 
 C++ emits `constexpr`/`noexcept` for eligible readonly typed methods, including
 exact scalar predicates and bounded projections/reductions whose operations permit
-constant evaluation. Runtime math and throwing checked expression operations retain
-their appropriate runtime qualifiers; native/opaque bodies remain application-owned.
+constant evaluation. Compiler/runtime 1.15.0 also marks eligible readonly results
+`[[nodiscard]]` and allows checked addition, subtraction, multiplication, division,
+sign operations and integer-to-double conversion in constant evaluation.
+Reached invalid input, arithmetic or indexing still throws for `expression` and
+returns false for `predicate`; checked expressions remain potentially throwing.
+Square root and trigonometry remain runtime under C++20; native/opaque bodies stay
+application-owned. `noexcept` is inferred independently of `constexpr`.
+
+Declared calls retain the callee's failure contract. In C++, an exception from a
+callee propagates through a predicate, so predicates containing such calls do
+not automatically receive `noexcept`. Rust likewise preserves callee panics.
+Backends with existing predicate exception guards retain those guards. Keep
+native callees total when the predicate must always return a boolean.
 
 Evaluation preserves the parsed order. Python floating arithmetic inputs are
 converted to binary64 after validation, even when application code assigns Python

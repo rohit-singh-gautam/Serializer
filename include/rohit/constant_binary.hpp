@@ -15,7 +15,7 @@ namespace rohit::serializer {
 namespace detail {
 // Use the unchanged optimized runtime protocol for existing-memory output.
 template <class Value>
-std::size_t serialize_constant_binary_runtime(std::span<std::uint8_t> destination,
+[[nodiscard]] std::size_t serialize_constant_binary_runtime(std::span<std::uint8_t> destination,
                                               const Value& value) {
   rohit::full_stream output{destination.data(), destination.size()};
   binary_none<serialize_type::out> encoder{output};

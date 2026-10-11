@@ -23,6 +23,15 @@ static srl_buffer read_file(const char* name) {
 
 /* Read JSON, edit a typed field, and free every temporary owning value. */
 int main(int argc, char** argv) {
+  integer_number integer = {0};
+  floating_number floating = {0};
+  require(integer_number_init(&integer) == srl_ok && floating_number_init(&floating) == srl_ok,
+          "Constrained generic initialization failed");
+  integer.value = -7;
+  floating.value = 12.5;
+  require(integer.value == -7 && floating.value == 12.5, "Constrained generic mismatch");
+  integer_number_free(&integer);
+  floating_number_free(&floating);
   require(argc == 3, "Usage: main <input.json> <output.json>");
   srl_buffer input = read_file(argv[1]), canonical = {0}, json = {0};
   example_model value = {0};

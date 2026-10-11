@@ -7,6 +7,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <utility>
 
 namespace {
 // Resolve isolated conversion declarations against the supported schema contract.
@@ -25,6 +26,17 @@ std::string encoded(const shipment_ticket& value) {
 TEST(conversion, explicit_owned_values_and_generic_binding) {
   constexpr auto ticket = [] { short_ticket value{}; value.value = 17; return value.to_view(); }();
   static_assert(ticket.value == 17 && ticket.revision == 3);
+  constexpr auto revisioned = [] {
+    conversion_versioned_source value{};
+    value.value = 29;
+    return static_cast<conversion_versioned_target>(value);
+  }();
+  static_assert(revisioned.value == 29);
+  static_assert(revisioned.revision == rohit::serializer::version3{1, 2, 3});
+  static_assert(noexcept(std::declval<const conversion_versioned_source&>().converted()));
+  static_assert(noexcept(static_cast<conversion_versioned_target>(
+      std::declval<const conversion_versioned_source&>())));
+  static_assert(!noexcept(std::declval<const shipment_ticket&>().to_notice()));
   static_assert(!std::is_convertible_v<shipment_ticket, postal_address>);
   static_assert(!std::is_convertible_v<short_ticket, ticket_view<std::uint16_t>>);
   shipment_ticket source{};

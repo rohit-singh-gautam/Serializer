@@ -6,6 +6,11 @@ import java.util.Arrays;
 public final class Main {
   /** Edit a typed field and check every decoded field through canonical binary bytes. */
   public static void main(String[] args) throws Exception {
+    var integer = new Schema.IntegerNumber();
+    var floating = new Schema.FloatingNumber();
+    integer.value = -7;
+    floating.value = 12.5;
+    if (integer.value != -7 || floating.value != 12.5) throw new AssertionError("Constrained generic mismatch");
     var value = Schema.ExampleModel.decode(Files.readAllBytes(Path.of(args[0])), Schema.Protocol.JSON);
     value.revision += 1;
     // Edit the uint32 key inside envelope<box<pair<uint32, string>>>.

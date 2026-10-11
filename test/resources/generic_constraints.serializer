@@ -1,0 +1,42 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.10.0;
+
+namespace constrained_generics {
+  class number<T: (integral || floating_point) && !bool = int32> stable_ids {
+    public T value (1);
+  }
+
+  class nested<T: (integral || floating_point) && !bool = double> stable_ids {
+    public number<T> value (1);
+  }
+
+  class allowed<T: int32 || double = int32> stable_ids {
+    public T value (1);
+  }
+
+  class plain_number stable_ids {
+    public int32 value (1);
+  }
+
+  class empty {
+  }
+
+  class marker stable_ids {
+    public uint32 id (1);
+  }
+
+  enum state {
+    idle,
+    active
+  }
+
+  class selected<T: (empty || marker || state) = empty> stable_ids {
+    public T value (1);
+  }
+
+  instantiate integer_number = number<int32>;
+  instantiate floating_number = number<double>;
+  instantiate nested_number = nested<double>;
+  instantiate selected_marker = selected<marker>;
+}

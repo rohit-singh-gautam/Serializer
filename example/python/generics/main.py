@@ -1,11 +1,14 @@
 """Import a JSON document, edit its typed model, and round-trip four protocols."""
 from pathlib import Path
 import sys
-from schema import ExampleModel, Protocol
+from schema import ExampleModel, IntegerNumber, FloatingNumber, Protocol
 
 
 def main():
     """Check complete positional bytes after each protocol round trip."""
+    integer, floating = IntegerNumber(), FloatingNumber()
+    integer.value, floating.value = -7, 12.5
+    assert integer.value == -7 and floating.value == 12.5
     value = ExampleModel.decode(Path(sys.argv[1]).read_bytes(), Protocol.JSON)
     value.revision += 1
     # Edit the uint32 key inside envelope<box<pair<uint32, string>>>.

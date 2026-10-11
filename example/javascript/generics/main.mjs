@@ -1,8 +1,14 @@
 import {readFileSync, writeFileSync} from 'node:fs';
 import assert from 'node:assert/strict';
-import {ExampleModel, Protocol} from './schema.mjs';
+import {ExampleModel, IntegerNumber, FloatingNumber, Protocol} from './schema.mjs';
 
 // Edit a typed owning model and verify every field through canonical binary bytes.
+const integer = new IntegerNumber();
+const floating = new FloatingNumber();
+integer.value = -7;
+floating.value = 12.5;
+assert.deepEqual(integer.value, -7);
+assert.deepEqual(floating.value, 12.5);
 const value = ExampleModel.decode(readFileSync(process.argv[2]), Protocol.JSON);
 value.revision += 1;
 // Edit the uint32 key inside envelope<box<pair<uint32, string>>>.

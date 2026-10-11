@@ -17,18 +17,20 @@ Serializer provides separate packages for VS Code and Visual Studio. Both use
 to the VS Code extension. For the Visual Studio VSIX, see
 [Visual Studio](#visual-studio-extension) below.
 
-Both extensions use release version **1.1.36**. Keep their versions equal and
+Both extensions use release version **1.1.37**. Keep their versions equal and
 increment them together for future changes, including changes to only one package.
 Their release number is independent of the compiler/runtime release and the schema
 language version; only the two editor packages are synchronized.
 
-Version **1.1.36** adds schema language 1.9.0 stateless generic constraints,
+Version **1.1.37** adds language 1.10.0 namespace functions, declared readonly calls,
+and Boolean generic type constraints. Shared navigation indexes namespace function
+signature types and exact type alternatives. Language 1.9.0 features include stateless generic constraints,
 computed `auto_size` fields, `wire_only` headers, `size_scope(record|payload)`,
 `omit(all_except(...))`, and portable record conversions. Conversion target types
 and target/source field projections navigate through included schemas and unsaved
 edits, including inherited fields. Existing constructor, predicate, generic and
 all-language generated navigation remains supported. New schema snippets select
-language 1.9.0.
+language 1.10.0.
 
 Version **1.1.31** highlights schema language `1.5.0` field suffixes such as
 `ignore(warning magic, version)`. Warning rules are metadata; qualified types
@@ -45,7 +47,7 @@ Version **1.1.28** recognizes language `1.3.0` digest fields: bare `digest`,
 algorithm names and decimal extents. The shared resolver skips those operands
 while retaining neighboring qualified/generic references and legacy declared
 types named `digest`. VS Code adds `digest`, `digest-opaque`, and `digest-fixed`
-snippets; the current schema snippet selects `1.9.0`. See [digest usage](digest.md).
+snippets; the current schema snippet selects `1.10.0`. See [digest usage](digest.md).
 
 Version 1.1.27 directs generated applications to `Serializer::runtime`, the 0BSD
 application target introduced by compiler/runtime 1.7.0. `serializer_generate`
@@ -74,9 +76,9 @@ Both resolve either spelling for navigation; VS Code also supplies a shorthand
 
 ## VS Code
 
-The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.36**, provides `.serializer`
+The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.37**, provides `.serializer`
 syntax highlighting, snippets, declaration/definition navigation, and CMake generated-header commands. Schemas use
-the current `serializer version 1.9.0;` header, older compatible headers, and the original
+the current `serializer version 1.10.0;` header, older compatible headers, and the original
 `1` alias for language `1.0.0`. Schema
 language versions are independent of compiler releases, and future versions
 require all three components. Legacy `.def` and `.struct` names are
@@ -132,13 +134,13 @@ Packaging compiles and bundles TypeScript, copies the canonical grammar, logo,
 and repository license into the extension, and writes:
 
 ```text
-out/extensions/serializer-vscode-1.1.36.vsix
+out/extensions/serializer-vscode-1.1.37.vsix
 ```
 
 From the repository root, install it with:
 
 ```sh
-code --install-extension out/extensions/serializer-vscode-1.1.36.vsix
+code --install-extension out/extensions/serializer-vscode-1.1.37.vsix
 ```
 
 Alternatively run **Extensions: Install from VSIX** and select the file. The
@@ -581,7 +583,7 @@ npm ci --prefix editors/vscode
 ```
 
 The script restores locked NuGet dependencies, rebuilds package intermediates, and writes
-`out/extensions/serializer-visual-studio-1.1.36.vsix`. Close Visual Studio,
+`out/extensions/serializer-visual-studio-1.1.37.vsix`. Close Visual Studio,
 double-click this VSIX, install into the desired instance, and restart Visual
 Studio. The root `install_extension.ps1` remains the VS Code installer.
 
@@ -685,7 +687,7 @@ Empty extents and element types receive fixed-array highlighting. Enum type
 operands and qualified enum defaults in typed magic retain declaration, definition,
 and type-definition navigation, including unsaved and transitive included schemas.
 VS Code includes `array_inferred` and `magic_typed` snippets; its schema snippet
-selects `serializer version 1.9.0;`. The original `1` header remains exactly
+selects `serializer version 1.10.0;`. The original `1` header remains exactly
 `1.0.0` and does not enable these features. See the
 [magic contract](magic_and_omission.md) and [fixed arrays](generics.md).
 

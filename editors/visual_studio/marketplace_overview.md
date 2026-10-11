@@ -14,6 +14,7 @@ navigation for projects using Serializer — State Framework.
 - Schema language 1.5.0 warning suppression such as `ignore(warning magic, version)`,
   with type navigation preserved beside field metadata and unnamed payload revisions.
 - Schema language 1.9.0 stateless constraints, computed size headers and portable conversions.
+- Language 1.10.0 namespace functions, declared readonly calls and Boolean generic type constraints.
 - Schema language 1.8.0 constructors/factories, structured defaults, empty transient layout, checked math/boolean guards and generic bases.
 - Generated field declarations map back to their declaring schema, including inherited members reached through native language services.
 - Schema language 1.7.0 `optional<T>` and nested generic containers, with

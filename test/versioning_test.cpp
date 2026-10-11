@@ -144,8 +144,8 @@ TEST(Versioning, DottedVersionsRoundTrip) {
   EXPECT_EQ(decoded.ver, original.ver);
   EXPECT_EQ(decoded.old_value, 9);
   EXPECT_EQ(decoded.value, 42);
-  EXPECT_THROW(codec::version3::parse("1.02.3"), std::invalid_argument);
-  EXPECT_THROW(codec::version3::parse("1.2.65536"), std::invalid_argument);
+  EXPECT_THROW(static_cast<void>(codec::version3::parse("1.02.3")), std::invalid_argument);
+  EXPECT_THROW(static_cast<void>(codec::version3::parse("1.2.65536")), std::invalid_argument);
 }
 
 // Floating discriminators exclude nonfinite revisions independently of the policy.

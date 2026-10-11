@@ -422,6 +422,13 @@ class python_emitter {
         context.member_name = [&](auto member) { return field(member); };
         context.native_type = [&](const auto& value_type) { return type(value_type); };
         context.enum_value = [&](const auto& value_type, auto enumerator) { return type(value_type) + "." + pascal(enumerator); };
+        context.call = [&](const behavior_expression& node, const std::vector<std::string>& arguments) {
+          const auto& target = behavior::called_function(node);
+          std::string receiver = "self";
+          for (const auto base : node.call_base_path) { receiver += "." + field("base" + std::to_string(base)); }
+          const auto callable = node.call_target->type == object_type::function_type ? snake(model.names.at(node.call_target)) : receiver + "." + field(target.name, target.access);
+          return callable + "(" + behavior::call_arguments(arguments) + ")";
+        };
         while (std::any_of(method.parameters.begin(), method.parameters.end(), [&](const auto& parameter) {
           return field(parameter.name) == context.budget_name;
         })) { context.budget_name += '_'; }
@@ -429,7 +436,7 @@ class python_emitter {
           line(context.budget_name + " = [" + std::to_string(behavior_expression::maximum_reduction_visits) + "]");
         }
         line("_srl_result = " + behavior::expression(*method.expression, "python", symbol, arithmetic_helpers, context));
-        if (method.return_type.name != "bool") {
+        if (method.return_type.name == "float" || method.return_type.name == "double") {
           open("if not _math.isfinite(_srl_result)");
           line("raise ValueError('Non-finite portable result')"); --indent;
         }
@@ -446,6 +453,33 @@ class python_emitter {
       }
       --indent;
     }
+  }
+
+  // Emit flattened namespace functions with the same checked expression contract as methods.
+  void free_function(const function_node& node) {
+    const auto& method = node.function;
+    std::string parameters;
+    for (const auto& parameter : method.parameters) {
+      if (!parameters.empty()) { parameters += ", "; }
+      parameters += field(parameter.name);
+    }
+    line(behavior::source_marker(method, "python"));
+    open("def " + snake(model.names.at(&node)) + "(" + parameters + ")");
+    if (const auto* native = behavior::native_body(method, "python")) {
+      output += behavior::source_marker(*native, "python") + behavior::python_block(native->text, indent * 4);
+    } else if (method.expression) {
+      behavior::expression_context context;
+      context.member_name = [&](auto value) { return field(value); };
+      context.native_type = [&](const auto& value) { return type(value); };
+      context.enum_value = [&](const auto& value, auto name) { return type(value) + "." + pascal(name); };
+      context.call = [&](const behavior_expression& call, const std::vector<std::string>& arguments) {
+        return snake(model.names.at(call.call_target)) + "(" + behavior::call_arguments(arguments) + ")";
+      };
+      behavior::free_expression_body(method, "python", type(method.return_type), [&](auto value) { return field(value); },
+          arithmetic_helpers, context, [&](const auto& text) { line(text); },
+          [&](const auto& text) { open(text); }, [&]() { --indent; });
+    } else { throw std::invalid_argument{"python: standalone functions require an expression or selected native body"}; }
+    --indent;
   }
 
   // An ABC checks abstract completeness; adapters retain explicit data and implementation objects.
@@ -866,6 +900,7 @@ public:
   }
   // Generate a complete module with pre-encoded field keys and typed models.
   std::string generate() {
+    behavior::require_unique_free_names(model.nodes, "python", [&](const auto& node) { return snake(model.names.at(&node)); });
     line("from abc import ABC as _ABC, abstractmethod as _abstractmethod");
     output += behavior::helpers("python", arithmetic_helpers);
     output += behavior::helpers_predicate("python", arithmetic_helpers);
@@ -881,6 +916,7 @@ public:
     --indent;
     line(")");
     for (const auto* node : model.nodes) {
+      if (node->type == object_type::function_type) { free_function(static_cast<const function_node&>(*node)); continue; }
       validate_identifier(
           model.names.at(node),
           " ValueError TypeError OverflowError RuntimeError RecursionError MemoryError "

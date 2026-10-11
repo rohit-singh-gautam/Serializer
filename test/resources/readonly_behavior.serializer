@@ -24,3 +24,15 @@ class readonly_nonliteral {
   public map<uint64, uint64> cache;
   public function bool matches(uint64 candidate) readonly expression(identity == candidate);
 }
+
+// Checked arithmetic can run with runtime values or inside C++20 constant evaluation.
+class readonly_arithmetic {
+  public double amount {12.0};
+  public function double sum(double extra) readonly expression(amount + extra);
+  public function double difference(double extra) readonly expression(amount - extra);
+  public function double scaled(double factor) readonly expression(amount * factor);
+  public function double divided(double denominator) readonly expression(amount / denominator);
+  public function double signed_value(bool positive) readonly expression(positive ? +amount : -amount);
+  public function double converted(uint32 input) readonly expression(to_double(input));
+  public function bool scaled_positive(double factor) readonly predicate(amount * factor > 0.0);
+}

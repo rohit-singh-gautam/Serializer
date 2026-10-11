@@ -1,10 +1,11 @@
 # C++ examples
 
-Four standard examples and a generic example live directly under `example/cpp`:
+The following maintained examples live directly under `example/cpp`:
 
 | Folder | What it demonstrates |
 | --- | --- |
 | [generics](generics/) | Nested schema applications, typed payload edits, and all four protocols |
+| [expressions](expressions/README.md) | Declared namespace/member calls, checked arithmetic and predicates at compile time and runtime, exact integer comparison, bounded reductions and indexing |
 | [basic](basic/) | Scalars, full-width IDs, a wire-name override, defaults, and payload version validation |
 | [collections](collections/) | Typed arrays, maps, enums, Unicode, embedded NUL, and integer boundaries |
 | [complex](complex/) | An order archive spanning 13 shared schema files, nested/diamond includes, parent composition, orders, customers, inventory, payments, shipments, audit unions, and aggregate maps |

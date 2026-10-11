@@ -6,6 +6,8 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <utility>
+#include <vector>
 
 namespace {
 // Resolve each review fixture with the current supported language contract.
@@ -53,7 +55,26 @@ TEST(construction, constexpr_owned_construction) {
   static_assert(construction_record::positioned(point).position.x == 5.0);
   static_assert(construction_byte_identity::create(std::uint8_t{42}).value == 42);
   static_assert(construction_identity<std::uint8_t>::from_value(std::uint8_t{11}).value == 11);
+  constexpr construction_versioned revisioned{7.0};
+  static_assert(revisioned.value == 7.0);
+  static_assert(revisioned.revision == rohit::serializer::version3{1, 2, 3});
+  static_assert(construction_versioned::origin().value == 2.0);
+  static_assert(noexcept(construction_point{5.0, 7.0}));
+  static_assert(noexcept(construction_point::create(8.0, 9.0)));
+  static_assert(noexcept(construction_record::positioned(point)));
+  static_assert(noexcept(construction_versioned::origin()));
+  constexpr bool transient_owned = [] {
+    const auto payload = construction_owned_payload::make(
+        std::string(80, 'x'), std::vector<std::uint32_t>{1, 2, 3});
+    return payload.label.size() == 80 && payload.values.size() == 3 && payload.values[2] == 3;
+  }();
+  static_assert(transient_owned);
+  static_assert(!noexcept(construction_owned_payload::make(
+      std::declval<std::string>(), std::declval<std::vector<std::uint32_t>>())));
   EXPECT_EQ(point.y, 7.0);
+  const auto payload = construction_owned_payload::make("runtime", {1, 2, 3});
+  EXPECT_EQ(payload.label, "runtime");
+  EXPECT_EQ(payload.values.back(), 3U);
 }
 
 // Known nonconstexpr storage retains ordinary APIs rather than introducing invalid declarations.

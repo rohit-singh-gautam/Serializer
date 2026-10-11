@@ -28,6 +28,9 @@ numeric narrowing and user code calls are not inserted. Every call creates a
 fresh target with its schema defaults, applies assignments, and leaves the source
 unchanged. Strings and supported nested records copy their owned values; mutable
 results do not alias source records. Eligible C++ methods are `constexpr`.
+Compiler/runtime 1.15.0 includes dotted revisions in that subset, marks conversion
+results `[[nodiscard]]`, and emits `noexcept` for proven nonthrowing scalar value
+copies/defaults. Allocating or unproven generic conversions remain potentially throwing.
 C builds an initialized candidate, releases it on failure and publishes only
 success, including allocation failure during string copies.
 

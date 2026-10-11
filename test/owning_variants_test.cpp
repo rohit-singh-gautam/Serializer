@@ -25,6 +25,15 @@ namespace {
 namespace codec = rohit::serializer;
 namespace samples = owning_variants_samples;
 
+static_assert(owning_variants::raw_record::to_string(
+    owning_variants::raw_record::e_payload::measure) == "measure");
+static_assert(owning_variants::raw_record::to_e_payload("code") ==
+    owning_variants::raw_record::e_payload::code);
+static_assert(owning_variants::primitive_record::to_string(
+    owning_variants::primitive_record::e_payload::code) == "code");
+static_assert(owning_variants::primitive_record::to_e_payload("measure") ==
+    owning_variants::primitive_record::e_payload::measure);
+
 // Resolve an in-memory schema through the production parser including its language contract.
 codec::parser::parsed_schema schema(std::string_view source) {
   const auto input = rohit::make_constant_full_stream(source.data(), source.size());

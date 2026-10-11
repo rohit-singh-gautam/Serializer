@@ -31,11 +31,52 @@ struct expression_context {
   std::function<std::string(std::string_view)> member_name;
   std::function<std::string(const type_name&)> native_type;
   std::function<std::string(const type_name&, std::string_view)> enum_value;
+  std::function<std::string(const behavior_expression&, const std::vector<std::string>&)> call;
   bool predicate{};
   bool unchecked_leaf{};
   std::string valid_name{"srl_behavior_ok"};
   std::string budget_name{"srl_behavior_budget"};
 };
+
+// Recover the exact readonly declaration bound by validation rather than resolving names again.
+inline const function_declaration& called_function(const behavior_expression& node) {
+  if (!node.call_target) { throw std::invalid_argument{"Missing portable function call binding"}; }
+  if (node.call_target->type == object_type::function_type) {
+    return static_cast<const function_node&>(*node.call_target).function;
+  }
+  return static_cast<const class_node&>(*node.call_target).functions.at(node.call_method_index);
+}
+
+// Detect calls whose native implementation determines exception and constant-evaluation behavior.
+inline bool has_call(const behavior_expression& node) {
+  return node.kind == behavior_expression::operation::call ||
+      std::any_of(node.operands.begin(), node.operands.end(), has_call);
+}
+
+// Assemble arguments already lowered in source order without changing their evaluation.
+inline std::string call_arguments(const std::vector<std::string>& arguments) {
+  std::string result;
+  for (const auto& argument : arguments) {
+    if (!result.empty()) { result += ", "; }
+    result += argument;
+  }
+  return result;
+}
+
+// Remove complete outer groups when a Rust assignment or call argument already delimits a value.
+inline std::string ungroup_expression(std::string value) {
+  while (value.starts_with('(') && value.ends_with(')')) {
+    std::size_t depth{};
+    bool complete = true;
+    for (std::size_t index{}; index < value.size(); ++index) {
+      if (value[index] == '(') { ++depth; }
+      if (value[index] == ')' && --depth == 0 && index + 1 != value.size()) { complete = false; break; }
+    }
+    if (!complete) { break; }
+    value = value.substr(1, value.size() - 2);
+  }
+  return value;
+}
 
 // Lower typed operations before the legacy binary64 operation cases.
 inline std::optional<std::string> typed_expression(const behavior_expression& node, std::string_view language,
@@ -54,6 +95,11 @@ inline checked_helpers select_helpers(const std::vector<const syntax_node*>& nod
   std::set<std::string> symbols;
   for (const auto* node : nodes) {
     symbols.insert(declaration(*node));
+    if (node->type == object_type::function_type) {
+      for (const auto& parameter : static_cast<const function_node&>(*node).function.parameters) {
+        symbols.insert(identifier(parameter.name));
+      }
+    }
     if (node->type != object_type::class_type) { continue; }
     const auto& owner = static_cast<const class_node&>(*node);
     for (const auto& field : owner.member_list) { symbols.insert(identifier(field.name)); }
@@ -221,12 +267,15 @@ inline std::string helpers(std::string_view language, const checked_helpers& nam
 #define SERIALIZER_CPP_BEHAVIOR_HELPERS_INCLUDED
 namespace rohit::serializer::detail {
 // Reject invalid intermediate values before a comparison can conceal arithmetic failure.
-inline double srl_behavior_checked(double value) {
-  if (!::std::isfinite(value)) { throw ::std::domain_error{"Non-finite portable expression"}; }
+constexpr double srl_behavior_checked(double value) {
+  constexpr auto maximum = ::std::numeric_limits<double>::max();
+  const bool finite = ::std::is_constant_evaluated() ?
+      value >= -maximum && value <= maximum : ::std::isfinite(value);
+  if (!finite) { throw ::std::domain_error{"Non-finite portable expression"}; }
   return value;
 }
 // Both signed zero divisors are outside the portable division domain.
-inline double srl_behavior_divide(double left, double right) {
+constexpr double srl_behavior_divide(double left, double right) {
   if (right == 0.0) { throw ::std::domain_error{"Portable division by zero"}; }
   return srl_behavior_checked(left / right);
 }
@@ -364,6 +413,15 @@ inline bool expression_can_fail(const behavior_expression& node, bool predicate 
   case operation::square_root:
   case operation::sine:
   case operation::cosine: return true;
+  case operation::call: {
+    const auto& method = called_function(node);
+    if (method.expression && !method.predicate_body) { return true; }
+    if (!unchecked_leaf && (predicate || node.result_type == "float") &&
+        (node.result_type == "float" || node.result_type == "double")) { return true; }
+    return std::any_of(node.operands.begin(), node.operands.end(), [&](const auto& child) {
+      return expression_can_fail(child, predicate, unchecked_leaf);
+    });
+  }
   case operation::index_access:
   case operation::all:
   case operation::any: return true;
@@ -384,6 +442,88 @@ inline bool expression_has_reduction(const behavior_expression& node) {
   using operation = behavior_expression::operation;
   return node.kind == operation::all || node.kind == operation::any ||
       std::any_of(node.operands.begin(), node.operands.end(), expression_has_reduction);
+}
+
+// Emit the shared checked body of a standalone function using the selected language's scopes.
+inline void free_expression_body(const function_declaration& method, std::string_view language,
+    const std::string& result_type, const std::function<std::string(std::string_view)>& symbol,
+    const checked_helpers& helpers, expression_context context,
+    const std::function<void(const std::string&)>& line,
+    const std::function<void(const std::string&)>& open, const std::function<void()>& close) {
+  const bool predicate = method.predicate_body;
+  context.predicate = predicate;
+  while (std::any_of(method.parameters.begin(), method.parameters.end(), [&](const auto& parameter) {
+    return symbol(parameter.name) == context.valid_name || symbol(parameter.name) == context.budget_name;
+  })) { context.valid_name += '_'; context.budget_name += '_'; }
+  const auto suffix = language == "python" || language == "go" || language == "swift" || language == "kotlin" ? "" : ";";
+  const auto statement = [&](const std::string& text) { line(text + suffix); };
+  if (predicate && language == "rust") {
+    statement("let mut " + context.valid_name + " = true");
+    statement("let _ = &mut " + context.valid_name);
+  }
+  if (expression_has_reduction(*method.expression)) {
+    const auto budget = std::to_string(behavior_expression::maximum_reduction_visits);
+    statement(language == "python" ? context.budget_name + " = [" + budget + "]" :
+        language == "java" ? "long[] " + context.budget_name + " = {" + budget + "}" :
+        language == "rust" ? "let mut " + context.budget_name + ": usize = " + budget :
+        language == "go" ? context.budget_name + " := " + budget :
+        language == "swift" || language == "kotlin" ? "var " + context.budget_name + " = " + budget :
+        language == "csharp" ? "int " + context.budget_name + " = " + budget :
+        "let " + context.budget_name + " = " + budget);
+  }
+  if (!predicate) {
+    std::set<std::string> inputs;
+    const auto collect = [&](const behavior_expression& node, const auto& self) -> void {
+      if (node.kind == behavior_expression::operation::is_finite) { return; }
+      if (node.kind == behavior_expression::operation::symbol && !node.local_symbol &&
+          (node.result_type == "float" || node.result_type == "double")) { inputs.insert(node.value); }
+      for (const auto& operand : node.operands) { self(operand, self); }
+    };
+    collect(*method.expression, collect);
+    for (const auto& input : inputs) {
+      const auto value = symbol(input);
+      const auto parameter = std::find_if(method.parameters.begin(), method.parameters.end(),
+          [&](const auto& argument) { return argument.name == input; });
+      const bool single_precision = parameter != method.parameters.end() && parameter->type.name == "float";
+      statement(language == "python" ? helpers.checked + "(" + value + ")" :
+          language == "rust" ? "assert!((" + value + " as f64).is_finite(), \"Non-finite portable input\")" :
+          language == "go" ? helpers.checked + "(float64(" + value + "))" :
+          language == "swift" ? "_ = try " + helpers.checked + "(Double(" + value + "))" :
+          language == "kotlin" ? helpers.checked + "(" + (single_precision ? "(" + value + ").toDouble()" : value) + ")" :
+          helpers.checked + "(" + value + ")");
+    }
+  }
+  if (predicate && language == "go") {
+    line("defer func() { if recover() != nil { srlPredicateResult = false } }()");
+  }
+  const bool catches = predicate && language != "rust" && language != "go";
+  if (catches) { open(language == "swift" ? "do" : "try"); }
+  auto value = expression(*method.expression, language, symbol, helpers, context);
+  if (language == "rust") { value = ungroup_expression(std::move(value)); }
+  const std::string result = language == "python" ? "_srl_result" : language == "rust" ? "srl_behavior_result" : "srlBehaviorResult";
+  statement((language == "python" ? std::string{} : language == "rust" ? "let " :
+      language == "go" ? "" : language == "swift" ? "let " : language == "kotlin" ? "val " :
+      language == "js" ? "const " : result_type + " ") + result +
+      (language == "rust" ? ": " + result_type : "") +
+      (language == "go" ? " := " : " = ") +
+      (language == "swift" && expression_can_fail(*method.expression, predicate) ? "try " : "") + value);
+  const bool floating = method.return_type.name == "float" || method.return_type.name == "double";
+  if (floating) {
+    statement(language == "rust" ? "assert!(" + result + ".is_finite(), \"Non-finite portable result\")" :
+        language == "swift" ? "_ = try " + helpers.checked + "(Double(" + result + "))" :
+        language == "kotlin" ? helpers.checked + "(" + (method.return_type.name == "float" ? "(" + result + ").toDouble()" : result) + ")" :
+        language == "go" ? helpers.checked + "(float64(" + result + "))" : helpers.checked + "(" + result + ")");
+  }
+  if (language == "rust") { line((predicate ? context.valid_name + " && " : "") + result); }
+  else { statement("return " + result); }
+  if (catches) {
+    close();
+    open(language == "python" ? "except (ArithmeticError, ValueError, TypeError, AttributeError, IndexError)" :
+          language == "java" ? "catch (RuntimeException srlFailure)" :
+          language == "csharp" ? "catch (System.Exception srlFailure) when (srlFailure is System.ArithmeticException || srlFailure is System.NullReferenceException || srlFailure is System.ArgumentException || srlFailure is System.IndexOutOfRangeException)" :
+          language == "swift" ? "catch" : language == "kotlin" ? "catch (_: SerializerException)" : "catch (srlFailure)");
+    statement(language == "python" ? "return False" : "return false"); close();
+  }
 }
 
 // Quote source metadata safely inside a comment or a native #line string literal.
@@ -593,6 +733,27 @@ inline void require_unique_callable_names(const class_node& owner, std::string_v
       throw std::invalid_argument{std::string{language} + ": behavior overload/name erasure collision: " + key};
     }
     static_cast<void>(position);
+  }
+}
+
+// Reject overloads that lose parameter identity or collide after target naming conversion.
+inline void require_unique_free_names(const std::vector<const syntax_node*>& nodes,
+    std::string_view language, const std::function<std::string(const syntax_node&)>& spelling,
+    const std::function<std::string(const type_name&)>& parameter_type = {}) {
+  std::set<std::string> names;
+  for (const auto* node : nodes) {
+    if (node->type != object_type::function_type) { continue; }
+    auto key = spelling(*node);
+    if (parameter_type) {
+      key += "(";
+      for (const auto& parameter : static_cast<const function_node&>(*node).function.parameters) {
+        key += parameter_type(parameter.type) + ",";
+      }
+      key += ")";
+    }
+    if (!names.insert(key).second) {
+      throw std::invalid_argument{std::string{language} + ": standalone overload/name erasure collision: " + key};
+    }
   }
 }
 

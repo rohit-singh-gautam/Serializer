@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
+#include "native_schema.hpp"
 #include <rohit/serializer_creator.hpp>
 #include <algorithm>
 #include <functional>
@@ -23,7 +24,7 @@ inline bool constexpr_construction(const class_node& owner,
       return std::all_of(value.arguments.begin(), value.arguments.end(),
           [&](const auto& argument) { return recurse(argument, scope, recurse); });
     }
-    if (value.type == object_type::primitive) { return !value.name.starts_with("version"); }
+    if (value.type == object_type::primitive) { return true; }
     if (value.type == object_type::enum_type) { return true; }
     if (value.resolved_node && (value.resolved_node->type == object_type::class_type ||
                                value.resolved_node->type == object_type::generic_definition)) {
@@ -51,6 +52,40 @@ inline bool constexpr_construction(const class_node& owner,
   };
   return check_owner(owner) && std::all_of(parameters.begin(), parameters.end(), [&](const auto& parameter) {
     return check_type(parameter.type, owner, check_type);
+  });
+}
+
+// Prove concrete scalar storage and checked defaults cannot throw during construction or copying.
+inline bool nothrow_construction(const class_node& owner,
+    const std::vector<function_parameter>& parameters = {}) {
+  if (!constexpr_construction(owner, parameters)) { return false; }
+  const auto check_type = [&](const type_name& value) -> bool {
+    if (value.is_optional() || value.is_sequence() || value.is_associative()) { return false; }
+    if (value.type == object_type::primitive) {
+      return value.name != "string" && (!value.is_digest() || value.digest_extent != 0);
+    }
+    if (value.type == object_type::enum_type) { return true; }
+    if (value.resolved_node && (value.resolved_node->type == object_type::class_type ||
+                               value.resolved_node->type == object_type::generic_definition)) {
+      return nothrow_construction(static_cast<const class_node&>(*value.resolved_node));
+    }
+    return false; // Concrete generic arguments must establish their own exception guarantees.
+  };
+  return std::all_of(owner.parents.begin(), owner.parents.end(), [&](const auto& base) {
+    return base.parent_class && nothrow_construction(*base.parent_class);
+  }) && std::all_of(owner.member_list.begin(), owner.member_list.end(), [&](const auto& field) {
+    if (field.modifier != member::modifier_type::none || field.type_name_list.size() != 1 ||
+        !check_type(field.type_name_list.front())) { return false; }
+    if (!field.default_value.empty()) {
+      try {
+        static_cast<void>(native::literal(field));
+      } catch (const std::invalid_argument&) {
+        return false; // Preserve native C++ initializers without promising their exception behavior.
+      }
+    }
+    return true;
+  }) && std::all_of(parameters.begin(), parameters.end(), [&](const auto& parameter) {
+    return check_type(parameter.type);
   });
 }
 
@@ -109,6 +144,7 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
   const bool go = language == "go", swift = language == "swift", kotlin = language == "kotlin";
   const bool typescript = language == "typescript", js = language == "js";
   const bool constexpr_owner = cpp && constexpr_construction(owner);
+  const bool nothrow_owner = cpp && nothrow_construction(owner);
   bool explicit_constructor{};
   for (const auto& factory : owner.constructions) {
     const auto id = callable_identifier ? callable_identifier(factory.constructor ? "create" : factory.name) :
@@ -123,6 +159,7 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
         factory.access == access_type::protected_access && (cpp || language == "java" || language == "csharp") ?
             "protected " : "private ";
     const std::string constant = cpp && constexpr_owner && constexpr_construction(owner, factory.parameters) ? "constexpr " : "";
+    const std::string exception = cpp && nothrow_owner && nothrow_construction(owner, factory.parameters) ? " noexcept" : "";
     std::string parameters, arguments;
     for (const auto& parameter : factory.parameters) {
       const auto parameter_name = (rust ? "_srl_arg_" : "srl_arg_") + identifier(parameter.name, access_type::public_access);
@@ -135,7 +172,7 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
     }
     if (cpp && factory.constructor) {
       explicit_constructor = true;
-      output += std::string{visibility} + ":\n  // Construct owned fields from checked schema bindings.\n  " + constant + name + "(" + parameters + ") : " + name + "() {\n";
+      output += std::string{visibility} + ":\n  // Construct owned fields from checked schema bindings.\n  " + constant + name + "(" + parameters + ")" + exception + " : " + name + "() {\n";
       for (const auto& assignment : factory.assignments) {
         const auto found = std::find_if(owner.member_list.begin(), owner.member_list.end(), [&](const auto& field) { return field.name == assignment.field; });
         auto value = *found;
@@ -152,7 +189,7 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
         kotlin ? "  // Construct a fresh owned schema value.\n  @Suppress(\"UNUSED_PARAMETER\")\n  " + std::string{visibility} + "fun " + id + "(" + parameters + "): " + name + " {\n" :
         typescript ? "  " + std::string{visibility} + "static " + id + "(" + parameters + "): " + name + ";\n" :
         js ? "  // Construct a fresh owned schema value.\n  static " + id + "(" + parameters + ") {\n" :
-        cpp ? std::string{visibility} + ":\n  // Construct a fresh owned schema value.\n  static " + constant + name + " " + id + "(" + parameters + ") {\n" :
+        cpp ? std::string{visibility} + ":\n  // Construct a fresh owned schema value.\n  [[nodiscard]] static " + constant + name + " " + id + "(" + parameters + ")" + exception + " {\n" :
         "  // Construct a fresh owned schema value.\n  " + std::string{visibility} + "static " + name + " " + id + "(" + parameters + ") {\n";
     if (typescript) { continue; }
     output += python ? "    srl_result = " + name + "()\n" :
@@ -184,7 +221,7 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
     output += python ? "    return srl_result\n" : go || swift || kotlin ? "    return srl_result\n  }\n" :
         rust ? "    srl_result\n  }\n" : "    return srl_result;\n  }\n";
   }
-  if (explicit_constructor) { output += "public:\n  // Preserve default construction for codecs and containers.\n  " + std::string{constexpr_owner ? "constexpr " : ""} + name + "() = default;\n"; }
+  if (explicit_constructor) { output += "public:\n  // Preserve default construction for codecs and containers.\n  " + std::string{constexpr_owner ? "constexpr " : ""} + name + "()" + std::string{nothrow_owner ? " noexcept" : ""} + " = default;\n"; }
   return output;
 }
 

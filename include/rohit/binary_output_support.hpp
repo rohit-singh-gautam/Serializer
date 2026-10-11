@@ -62,7 +62,7 @@ static_assert((variable_tag_mask & variable_payload_mask) == 0);
 namespace detail {
 // Normalize floating zero at the wire boundary while retaining every other scalar's exact bits.
 template <binary_scalar_normalization Policy, typename T>
-constexpr T normalize_binary_scalar(T value) noexcept {
+[[nodiscard]] constexpr T normalize_binary_scalar(T value) noexcept {
   static_assert(Policy == binary_scalar_normalization::preserve ||
                 Policy == binary_scalar_normalization::positive_zero);
   if constexpr (Policy == binary_scalar_normalization::positive_zero && std::floating_point<T>) {
@@ -100,7 +100,7 @@ template <binary_fixed_scalar T>
 inline constexpr std::size_t binary_fixed_bytes = std::same_as<T, bool> ? 1 : sizeof(T);
 
 // Return the canonical prefix width for an already validated 30-bit value.
-constexpr std::size_t fixed_prefix_bytes(std::uint32_t value) noexcept {
+[[nodiscard]] constexpr std::size_t fixed_prefix_bytes(std::uint32_t value) noexcept {
   return value <= constants::variable_one_byte_max     ? 1
          : value <= constants::variable_two_byte_max   ? 2
          : value <= constants::variable_three_byte_max ? 3
@@ -122,7 +122,7 @@ constexpr void write_fixed_prefix(std::uint8_t*& output, std::uint32_t value) no
 }
 
 // Keep named-enum lookup visible to the shared typed-magic template; the runtime header defines it.
-template <typename T> constexpr std::string_view enum_name(T value);
+template <typename T> [[nodiscard]] constexpr std::string_view enum_name(T value);
 
 // Emit a typed header through the same scalar or named-enum codec as payload fields.
 template <typename Protocol, typename T>
@@ -135,7 +135,7 @@ constexpr void write_typed_magic(Protocol& protocol, const T& expected) {
 }
 
 // Evaluate schema dimension arithmetic at compile time without unsigned wraparound.
-consteval std::uint64_t dimension_add(std::uint64_t left, std::uint64_t right) {
+[[nodiscard]] consteval std::uint64_t dimension_add(std::uint64_t left, std::uint64_t right) {
   if (right > std::numeric_limits<std::uint64_t>::max() - left) {
     throw "Dimension addition overflow";
   }
@@ -143,7 +143,7 @@ consteval std::uint64_t dimension_add(std::uint64_t left, std::uint64_t right) {
 }
 
 // Reject intermediate overflow before multiplying a dependent fixed-array extent.
-consteval std::uint64_t dimension_multiply(std::uint64_t left, std::uint64_t right) {
+[[nodiscard]] consteval std::uint64_t dimension_multiply(std::uint64_t left, std::uint64_t right) {
   if (left != 0 && right > std::numeric_limits<std::uint64_t>::max() / left) {
     throw "Dimension multiplication overflow";
   }
@@ -151,7 +151,7 @@ consteval std::uint64_t dimension_multiply(std::uint64_t left, std::uint64_t rig
 }
 
 // Bound native template storage before instantiating std::array.
-consteval std::size_t fixed_extent(std::uint64_t value) {
+[[nodiscard]] consteval std::size_t fixed_extent(std::uint64_t value) {
   constexpr std::uint64_t maximum_fixed_elements = 65536;
   if (value == 0 || value > maximum_fixed_elements || value > std::numeric_limits<std::size_t>::max()) {
     throw "Invalid or excessive fixed array extent (1..65536)";

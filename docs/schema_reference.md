@@ -13,7 +13,15 @@ Start with [small schema examples](schema_examples.md) if you are new to the syn
 ## Schema structure
 
 Every `.serializer` file starts with a supported language header before declarations.
-Use `serializer version 1.9.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, and `1.8.0` remain supported.
+Use `serializer version 1.10.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, and `1.9.0` remain supported.
+
+Language 1.10 adds [namespace functions and declared readonly calls](behavior.md#declared-function-calls).
+For example, `function double total(double left, double right) readonly
+expression(left + right);` declares a free function, and a class expression can
+call `total(value, other)` or its qualified namespace name.
+It also adds [Boolean type constraints](generics.md#boolean-type-constraints),
+including `T: (integral || floating_point) && !bool` and exact type lists
+such as `T: int32 || double`.
 
 Language 1.9 adds fixed unsigned [`auto_size(formats...)`](derived_sizes.md)
 field suffixes, optional `wire_only` storage prefixes and `size_scope(record)`

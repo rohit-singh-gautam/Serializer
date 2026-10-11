@@ -1,0 +1,23 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.10.0;
+
+python preamble {
+observation_count = 0
+observation_value = 1.0
+}
+function double Observe() readonly
+  python {
+    global observation_count
+    observation_count += 1
+    return observation_value
+  }
+  go {
+    observationCount++
+    return observationValue
+  };
+
+class ObservationProbe {
+  public function bool Valid() readonly predicate(math.is_finite(Observe()));
+  public function bool Guarded(bool skip) readonly predicate(skip || math.is_finite(Observe()));
+}

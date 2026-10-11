@@ -44,11 +44,11 @@ namespace rohit::serializer {
 namespace detail {
 // Borrow a supported value without extending its lifetime or copying its storage.
 template <typename T>
-constexpr const T& binary_referent(const T& value) noexcept { return value; }
+[[nodiscard]] constexpr const T& binary_referent(const T& value) noexcept { return value; }
 
 // Remove reference wrappers recursively while retaining a const borrow of the ultimate value.
 template <typename T>
-constexpr decltype(auto) binary_referent(const std::reference_wrapper<T>& value) noexcept {
+[[nodiscard]] constexpr decltype(auto) binary_referent(const std::reference_wrapper<T>& value) noexcept {
   return binary_referent(value.get());
 }
 
@@ -60,7 +60,7 @@ inline constexpr bool binary_span<std::span<Element, Extent>> = true;
 
 // Decode through the binary compact hook, preserving all other protocol mappings.
 template <bool Prefix, typename Protocol, std::unsigned_integral T>
-void read_compact(Protocol& protocol, T& value) {
+constexpr void read_compact(Protocol& protocol, T& value) {
   if constexpr (requires { protocol.template serialize_in_compact<Prefix>(value); }) {
     protocol.template serialize_in_compact<Prefix>(value);
   } else {
@@ -79,20 +79,25 @@ using binary_fixed_word =
 
 // Store one scalar in a reserved span and advance its local cursor, without copying object padding.
 template <std::endian WireEndian, binary_fixed_scalar T>
-void write_fixed_scalar(std::uint8_t*& output, T value) noexcept {
+constexpr void write_fixed_scalar(std::uint8_t*& output, T value) noexcept {
   if constexpr (std::same_as<T, bool>) {
     *output = static_cast<std::uint8_t>(value);
   } else {
     const auto bits = std::bit_cast<binary_fixed_word<T>>(value);
     const auto wire = change_endian<std::endian::native, WireEndian>(bits);
-    std::memcpy(output, &wire, sizeof(wire));
+    if (std::is_constant_evaluated()) {
+      const auto bytes = std::bit_cast<std::array<std::uint8_t, sizeof(wire)>>(wire);
+      std::copy(bytes.begin(), bytes.end(), output);
+    } else {
+      std::memcpy(output, &wire, sizeof(wire));
+    }
   }
   output += binary_fixed_bytes<T>;
 }
 
 // Check Boolean representations before committing any batch state; the full span is already bounded.
 template <binary_fixed_scalar T>
-bool valid_fixed_scalar(const std::uint8_t*& input) noexcept {
+[[nodiscard]] constexpr bool valid_fixed_scalar(const std::uint8_t*& input) noexcept {
   bool valid = true;
   if constexpr (std::same_as<T, bool>) {
     valid = *input <= 1;
@@ -103,12 +108,18 @@ bool valid_fixed_scalar(const std::uint8_t*& input) noexcept {
 
 // Load one prevalidated scalar without alignment assumptions and advance the local cursor.
 template <std::endian WireEndian, binary_fixed_scalar T>
-void read_fixed_scalar(const std::uint8_t*& input, T& value) noexcept {
+constexpr void read_fixed_scalar(const std::uint8_t*& input, T& value) noexcept {
   if constexpr (std::same_as<T, bool>) {
     value = *input != 0;
   } else {
-    binary_fixed_word<T> bits;
-    std::memcpy(&bits, input, sizeof(bits));
+    binary_fixed_word<T> bits{};
+    if (std::is_constant_evaluated()) {
+      std::array<std::uint8_t, sizeof(bits)> bytes{};
+      std::copy_n(input, bytes.size(), bytes.begin());
+      bits = std::bit_cast<binary_fixed_word<T>>(bytes);
+    } else {
+      std::memcpy(&bits, input, sizeof(bits));
+    }
     value = std::bit_cast<T>(change_endian<WireEndian, std::endian::native>(bits));
   }
   input += binary_fixed_bytes<T>;
@@ -134,7 +145,7 @@ struct field_name_literal {
   }
 
   // Borrow the text without the literal terminator; the owning template object remains alive.
-  constexpr std::string_view view() const noexcept {
+  [[nodiscard]] constexpr std::string_view view() const noexcept {
     return {text, N - 1};
   }
 };
@@ -186,7 +197,7 @@ struct binary_field_name {
 
 // Select an optional protocol token at compile time; custom protocols still receive string_view.
 template <typename Protocol, field_name_literal Name>
-constexpr auto constant_field_name() {
+[[nodiscard]] constexpr auto constant_field_name() {
   if constexpr (requires { Protocol::template encoded_field_name<Name>(); }) {
     return Protocol::template encoded_field_name<Name>();
   } else {
@@ -195,7 +206,7 @@ constexpr auto constant_field_name() {
 }
 
 // Validate an object field identifier before reserving or writing any part of a batch.
-constexpr std::size_t fixed_identifier_bytes(std::uint32_t identifier) {
+[[nodiscard]] constexpr std::size_t fixed_identifier_bytes(std::uint32_t identifier) {
   if (identifier == constants::binary_object_end_id) {
     throw std::invalid_argument{"Binary field ID zero is reserved for object termination"};
   }
@@ -206,7 +217,7 @@ constexpr std::size_t fixed_identifier_bytes(std::uint32_t identifier) {
 }
 
 // Validate a borrowed wire name and accumulate its field size without overflowing a stream extent.
-inline void add_fixed_named_bytes(std::size_t& total, std::string_view name,
+constexpr void add_fixed_named_bytes(std::size_t& total, std::string_view name,
                                   std::size_t value_bytes) {
   if (name.empty()) {
     throw std::invalid_argument{"An empty binary field name is reserved for object termination"};
@@ -224,7 +235,7 @@ inline void add_fixed_named_bytes(std::size_t& total, std::string_view name,
 }
 
 // Use a fixed-width hash for generated lookup groups, followed by exact name equality.
-constexpr std::uint64_t field_name_hash(std::string_view name) noexcept {
+[[nodiscard]] constexpr std::uint64_t field_name_hash(std::string_view name) noexcept {
   constexpr std::uint64_t hash_seed = 100000000003ULL;
   constexpr unsigned hash_shift_bits = 9;
   auto result = hash_seed;
@@ -236,13 +247,13 @@ constexpr std::uint64_t field_name_hash(std::string_view name) noexcept {
 
 // Find a generated enum's borrowed wire spelling through argument-dependent lookup.
 template <typename T>
-constexpr std::string_view enum_name(T value) {
+[[nodiscard]] constexpr std::string_view enum_name(T value) {
   return serializer_enum_name(value);
 }
 
 // Decode a generated named enum through its namespace's mapping, preserving custom protocols.
 template <typename Protocol, typename T>
-void read_named_enum(Protocol& protocol, T& value) {
+constexpr void read_named_enum(Protocol& protocol, T& value) {
   if constexpr (requires { protocol.serialize_in_named_enum(value); }) {
     protocol.serialize_in_named_enum(value);
   } else {
@@ -320,7 +331,7 @@ template <typename Reader, typename Expected = std::string_view> struct json_mag
   bool seen{};
   // Validate the fixed value without introducing per-object magic storage.
   template <typename Protocol>
-  void serialize_in_member_by_name(Protocol& protocol, std::string_view name) {
+  constexpr void serialize_in_member_by_name(Protocol& protocol, std::string_view name) {
     if (name == "magic") {
       if (seen) { throw std::invalid_argument{"Duplicate magic header"}; }
       // Legacy byte literals decode as strings; typed headers retain their scalar type.
@@ -334,11 +345,11 @@ template <typename Reader, typename Expected = std::string_view> struct json_mag
   }
   // Preserve the generated handler concept for numeric field identities.
   template <typename Protocol>
-  void serialize_in_member_by_identifier(Protocol& protocol, std::uint32_t id) {
+  constexpr void serialize_in_member_by_identifier(Protocol& protocol, std::uint32_t id) {
     target.serialize_in_member_by_identifier(protocol, id);
   }
   // Reject a missing header even when ordinary omitted fields retain defaults.
-  void finish() const {
+  constexpr void finish() const {
     if (!seen) { throw std::invalid_argument{"Missing magic header"}; }
   }
 };
@@ -351,7 +362,7 @@ json_magic_reader(Reader&, Expected, bool = false)
 
 // Add fixed JSON identity validation without changing native binary keyed dispatch.
 template <typename Protocol, typename Reader, typename Expected>
-void read_magic_object(Protocol& protocol, Reader& reader, const Expected& expected) {
+constexpr void read_magic_object(Protocol& protocol, Reader& reader, const Expected& expected) {
   if constexpr (is_json_protocol<Protocol>) {
     using expected_type = std::conditional_t<std::convertible_to<Expected, std::string_view>,
                                              std::string_view, Expected>;
@@ -365,7 +376,7 @@ void read_magic_object(Protocol& protocol, Reader& reader, const Expected& expec
 
 // Validate and discard a typed binary prefix before decoding mutable payload fields.
 template <typename Protocol, typename T>
-void validate_typed_magic(Protocol& protocol, const T& expected) {
+constexpr void validate_typed_magic(Protocol& protocol, const T& expected) {
   T actual{};
   if constexpr (std::is_enum_v<T> && Protocol::key_type == decltype(Protocol::key_type)::string) {
     read_named_enum(protocol, actual);
@@ -672,7 +683,7 @@ struct schema_named_value {
   const T& value;
   // Encode schema-native optional enums by name when the protocol supports that field context.
   template <typename Protocol>
-  void serialize_out(Protocol& protocol) const {
+  constexpr void serialize_out(Protocol& protocol) const {
     if constexpr (requires { protocol.serialize_out_named_optional(value); }) {
       protocol.serialize_out_named_optional(value);
     } else {
@@ -683,7 +694,7 @@ struct schema_named_value {
 
 // Retain scalar field context for schema-native optional enums and custom protocol fallbacks.
 template <typename Protocol, typename T>
-void read_schema_named(Protocol& protocol, T& value) {
+constexpr void read_schema_named(Protocol& protocol, T& value) {
   if constexpr (requires { protocol.serialize_in_named_optional(value); }) {
     protocol.serialize_in_named_optional(value);
   } else {
@@ -701,16 +712,16 @@ class schema_value_scope {
   bool previous_;
 public:
   // Borrow the protocol flag for this synchronous encoding or decoding call.
-  explicit schema_value_scope(bool& enabled) noexcept
+  explicit constexpr schema_value_scope(bool& enabled) noexcept
       : enabled_{&enabled}, previous_{std::exchange(enabled, true)} {}
   schema_value_scope(const schema_value_scope&) = delete;
   // Reinstate the enclosing value contract without throwing during stack unwinding.
-  ~schema_value_scope() { *enabled_ = previous_; }
+  constexpr ~schema_value_scope() { *enabled_ = previous_; }
 };
 
 // Enable canonical schema values on supporting protocols; custom codecs keep their hooks.
 template <bool Enabled = true, typename Protocol>
-auto enter_schema_values(Protocol& protocol) {
+[[nodiscard]] constexpr auto enter_schema_values(Protocol& protocol) {
   if constexpr (Enabled && requires { protocol.schema_values(); }) {
     return protocol.schema_values();
   } else {
@@ -1701,14 +1712,18 @@ public:
   using base::enter_object;
 
   // Inherit schema-native value context through nested generated objects.
-  auto schema_values() noexcept { return detail::schema_value_scope{schema_values_}; }
+  [[nodiscard]] constexpr auto schema_values() noexcept {
+    return detail::schema_value_scope{schema_values_};
+  }
 
   // Expose the selected field's pre-key cursor only to synchronous derived metadata readers.
-  std::size_t auto_size_field_remaining() const noexcept { return auto_size_field_remaining_; }
+  [[nodiscard]] constexpr std::size_t auto_size_field_remaining() const noexcept {
+    return auto_size_field_remaining_;
+  }
 
 protected:
   // Strict decoding validates before replacing or borrowing text; unchecked removes the scan.
-  void validate_string(std::span<const std::uint8_t> bytes) const {
+  constexpr void validate_string(std::span<const std::uint8_t> bytes) const {
     if constexpr (TextValidation == binary_text_validation::strict) {
       try {
         detail::validate_utf8(bytes);
@@ -1720,15 +1735,21 @@ protected:
 
 public:
   // Consume and validate a schema-owned fixed binary prefix before decoding payload fields.
-  void validate_magic(std::string_view expected) {
+  constexpr void validate_magic(std::string_view expected) {
     const auto* bytes = read_bytes(expected.size());
-    if (std::memcmp(bytes, expected.data(), expected.size()) != 0) {
+    const auto matches = std::is_constant_evaluated()
+        ? std::equal(expected.begin(), expected.end(), bytes,
+                     [](char text, std::uint8_t byte) {
+                       return static_cast<std::uint8_t>(text) == byte;
+                     })
+        : std::memcmp(bytes, expected.data(), expected.size()) == 0;
+    if (!matches) {
       throw exception::bad_input_data{in_stream, "Binary magic header mismatch", limits.diagnostics};
     }
   }
 
   // Decode a complete one-to-four-byte compact integer with one cursor update.
-  std::uint32_t serialize_in_variable() {
+  [[nodiscard]] constexpr std::uint32_t serialize_in_variable() {
     require_input(1);
     const auto first = *in_stream.curr();
     const auto size = static_cast<std::size_t>((first & constants::variable_tag_mask) >>
@@ -1744,7 +1765,7 @@ public:
 
   // Decode an unsigned compact field without publishing a partial scalar on failure.
   template <bool Prefix, std::unsigned_integral T>
-  void serialize_in_compact(T& value) {
+  constexpr void serialize_in_compact(T& value) {
     static_assert(!std::same_as<T, bool> && std::numeric_limits<T>::digits <= 64);
     charge_work();
     if constexpr (Prefix) {
@@ -1791,7 +1812,7 @@ public:
 
   // Decode a string-key enum field without allocating an owning name.
   template <typename T>
-  void serialize_in_named_enum(T& value) {
+  constexpr void serialize_in_named_enum(T& value) {
     static_assert(KeyType == serialize_key_type::string && std::is_enum_v<T>);
     charge_work();
     const auto name = serialize_in_name();
@@ -1804,7 +1825,7 @@ public:
 
   // Stage every optional level while retaining a scalar enum's string-key spelling.
   template <typename T>
-  void serialize_in_named_optional(T& value) {
+  constexpr void serialize_in_named_optional(T& value) {
     if constexpr (detail::optional_enum<T>) {
       if (schema_values_) {
         charge_work();
@@ -1836,7 +1857,7 @@ public:
   template <detail::binary_fixed_scalar... Values>
     requires(KeyType == serialize_key_type::none && sizeof...(Values) > 1 &&
              sizeof...(Values) <= constants::maximum_fixed_batch_fields)
-  void serialize_in_fixed(Values&... values) {
+  constexpr void serialize_in_fixed(Values&... values) {
     constexpr auto bytes = (detail::binary_fixed_bytes<Values> + ...);
     if (can_read_batch(bytes, sizeof...(Values))) {
       const auto* inspected = in_stream.curr();
@@ -1852,7 +1873,7 @@ public:
 
   // Decode a scalar without unaligned typed access, or replace a validated collection.
   template <typename T>
-  void serialize_in(T& value) {
+  constexpr void serialize_in(T& value) {
     charge_work();
     if constexpr (detail::json_optional<T>) {
       auto nesting = enter_object();
@@ -1891,19 +1912,13 @@ public:
       value = candidate;
     } else if constexpr (std::integral<T>) {
       static_assert(rohit::detail::endian_integer<T>, "Binary integers must have no padding bits");
-      using wire_type = std::make_unsigned_t<T>;
-      wire_type source;
-      const auto* bytes = read_bytes(sizeof(source));
-      std::memcpy(&source, bytes, sizeof(source));
-      source = change_endian<WireEndian, std::endian::native>(source);
-      value = std::bit_cast<T>(source);
+      const auto* bytes = read_bytes(sizeof(T));
+      detail::read_fixed_scalar<WireEndian>(bytes, value);
     } else if constexpr (std::floating_point<T>) {
       static_assert(rohit::detail::endian_floating_point<T>,
                     "Binary floats require 32-bit or 64-bit binary IEC 559 storage");
-      using wire_type = std::conditional_t<sizeof(T) == sizeof(std::uint32_t), std::uint32_t, std::uint64_t>;
-      wire_type source;
-      std::memcpy(&source, read_bytes(sizeof(source)), sizeof(source));
-      value = std::bit_cast<T>(change_endian<WireEndian, std::endian::native>(source));
+      const auto* bytes = read_bytes(sizeof(T));
+      detail::read_fixed_scalar<WireEndian>(bytes, value);
     } else if constexpr (std::same_as<T, std::string>) {
       const auto size = serialize_in_variable();
       require_input(size);
@@ -1997,7 +2012,7 @@ public:
 
   // Dispatch keyed fields without owning names; unknown fields are rejected by the generated schema.
   template <typename T>
-  void struct_serialize_in(T* obj) {
+  constexpr void struct_serialize_in(T* obj) {
     static_assert(KeyType != serialize_key_type::none,
                   "Positional objects must read their fields in schema order");
     auto nesting = enter_object();
@@ -2025,7 +2040,7 @@ public:
   }
 
   // Require an exact binary message after decoding.
-  void finish() const {
+  constexpr void finish() const {
     if (!in_stream.full()) {
       throw exception::bad_input_data{in_stream, "Trailing binary data", limits.diagnostics};
     }
@@ -2087,22 +2102,37 @@ protected:
   Stream& out_stream;
   bool schema_values_{};
 
+  // Copy typed bytes during constant evaluation; runtime output keeps the stream's append policy.
+  constexpr void append_octets(std::span<const std::uint8_t> bytes) {
+    if constexpr (!detail::binary_counting_stream<Stream>) {
+      if (std::is_constant_evaluated()) {
+        out_stream.reserve(bytes.size());
+        auto* output = out_stream.get_curr_and_increase_unchecked(bytes.size());
+        std::copy(bytes.begin(), bytes.end(), output);
+        return;
+      }
+    }
+    out_stream.append_external(bytes.data(), bytes.size());
+  }
+
 public:
   // Initialize this object from the supplied storage or value state.
-  binary_out_base(Stream& out_stream) : out_stream{out_stream} {}
+  constexpr binary_out_base(Stream& out_stream) noexcept : out_stream{out_stream} {}
 
   // Inherit schema-native value context through nested generated objects.
-  auto schema_values() noexcept { return detail::schema_value_scope{schema_values_}; }
+  [[nodiscard]] constexpr auto schema_values() noexcept {
+    return detail::schema_value_scope{schema_values_};
+  }
 
   // Borrow an optional referent for this call while retaining its schema-native enum mapping.
   template <typename T>
-  void serialize_out_named_optional(const std::reference_wrapper<T>& value) {
+  constexpr void serialize_out_named_optional(const std::reference_wrapper<T>& value) {
     serialize_out_named_optional(value.get());
   }
 
   // Preserve named scalar enum payloads through optionals; collection payloads remain ordinal.
   template <typename T>
-  void serialize_out_named_optional(const T& value) {
+  constexpr void serialize_out_named_optional(const T& value) {
     if constexpr (detail::json_optional<T>) {
       if (schema_values_) {
         out_stream.append(static_cast<std::uint8_t>(value.has_value()));
@@ -2121,22 +2151,30 @@ public:
   }
 
   // Write the schema's exact fixed prefix without adding a string length or terminator.
-  void serialize_magic(std::string_view bytes) {
+  constexpr void serialize_magic(std::string_view bytes) {
+    if constexpr (!detail::binary_counting_stream<Stream>) {
+      if (std::is_constant_evaluated()) {
+        out_stream.reserve(bytes.size());
+        auto* output = out_stream.get_curr_and_increase_unchecked(bytes.size());
+        std::copy(bytes.begin(), bytes.end(), output);
+        return;
+      }
+    }
     out_stream.append_external(bytes.data(), bytes.size());
   }
 
   // Borrow writable output storage without transferring ownership.
-  auto& get_stream() {
+  [[nodiscard]] constexpr auto& get_stream() noexcept {
     return out_stream;
   }
   // Borrow the protocol stream without transferring ownership.
-  auto& get_stream() const {
+  [[nodiscard]] constexpr auto& get_stream() const noexcept {
     return out_stream;
   }
 
   // Measure one containing record with fixed-width placeholders; counters never recursively remeasure.
   template <std::unsigned_integral Size, typename Value>
-  Size measure_record_size(const Value& value, std::size_t excluded_bytes = 0) {
+  [[nodiscard]] constexpr Size measure_record_size(const Value& value, std::size_t excluded_bytes = 0) {
     static_assert(sizeof(Size) == sizeof(std::uint32_t) || sizeof(Size) == sizeof(std::uint64_t),
                   "auto_size requires a fixed-width uint32 or uint64 value");
     if constexpr (detail::binary_counting_stream<Stream>) {
@@ -2164,17 +2202,17 @@ public:
 protected:
   // Copy the constant prefix and name with one reservation, then encode the field normally.
   template <detail::field_name_literal Name, typename T>
-  void serialize_out(detail::binary_field_name<Name>, const T& value) {
+  constexpr void serialize_out(detail::binary_field_name<Name>, const T& value) {
     static_assert(KeyType == serialize_key_type::string,
                   "Named binary fields require string-key mode");
     const auto& bytes = detail::binary_field_name<Name>::bytes;
-    out_stream.append_external(bytes.data(), bytes.size());
+    append_octets(bytes);
     serialize_out(value);
   }
 
   // Encode a field ID or a positional union discriminator, followed by its value.
   template <typename T>
-  void serialize_out(const std::integral auto& id, const T& value) {
+  constexpr void serialize_out(const std::integral auto& id, const T& value) {
     static_assert(KeyType == serialize_key_type::none || KeyType == serialize_key_type::integer,
                   "Numeric binary keys require positional or integer-key mode");
     if constexpr (KeyType == serialize_key_type::integer) {
@@ -2188,13 +2226,13 @@ protected:
 
   // Borrow the field name and encode it before the field value.
   template <typename T>
-  void serialize_out(const std::string& name, const T& value) {
+  constexpr void serialize_out(const std::string& name, const T& value) {
     serialize_out(std::string_view{name}, value);
   }
 
   // Preserve a nonempty wire name; an empty name is reserved for object termination.
   template <typename T>
-  void serialize_out(const std::string_view& name, const T& value) {
+  constexpr void serialize_out(const std::string_view& name, const T& value) {
     static_assert(KeyType == serialize_key_type::string,
                   "Named binary fields require string-key mode");
     if (name.empty()) {
@@ -2206,13 +2244,13 @@ protected:
 
   // Encode a supported value or field through this protocol and advance the output cursor.
   template <typename T, typename U>
-  void serialize_out(const std::pair<T, U>& value) {
+  constexpr void serialize_out(const std::pair<T, U>& value) {
     serialize_out(value.first, value.second);
   }
 
   // Encode an integer-key union as its field ID, alternative index, and payload.
   template <typename T>
-  void serialize_out(const std::integral auto& id, const std::integral auto& index,
+  constexpr void serialize_out(const std::integral auto& id, const std::integral auto& index,
                      const T& value) {
     static_assert(KeyType == serialize_key_type::integer,
                   "Binary field ID and union index require integer-key mode");
@@ -2226,7 +2264,7 @@ protected:
 
   template <typename T, typename U, typename V>
   // Encode a supported value or field through this protocol and advance the output cursor.
-  void serialize_out(const std::tuple<T, U, V>& value) {
+  constexpr void serialize_out(const std::tuple<T, U, V>& value) {
     serialize_out(std::get<0>(value), std::get<1>(value), std::get<2>(value));
   }
 
@@ -2236,7 +2274,7 @@ public:
   template <detail::binary_fixed_scalar... Values>
     requires(KeyType == serialize_key_type::none && sizeof...(Values) > 1 &&
              sizeof...(Values) <= constants::maximum_fixed_batch_fields)
-  void struct_serialize_out_fixed(Values... values) {
+  constexpr void struct_serialize_out_fixed(Values... values) {
     constexpr auto bytes = (detail::binary_fixed_bytes<Values> + ...);
     out_stream.reserve(bytes);
     if constexpr (detail::binary_counting_stream<Stream>) {
@@ -2252,7 +2290,7 @@ public:
   template <detail::binary_fixed_scalar... Values>
     requires(KeyType == serialize_key_type::integer && sizeof...(Values) > 1 &&
              sizeof...(Values) <= constants::maximum_fixed_batch_fields)
-  void struct_serialize_out_fixed(std::pair<std::uint32_t, Values>... fields) {
+  constexpr void struct_serialize_out_fixed(std::pair<std::uint32_t, Values>... fields) {
     std::size_t bytes{};
     ((bytes += detail::fixed_identifier_bytes(fields.first) + detail::binary_fixed_bytes<Values>),
      ...);
@@ -2275,7 +2313,7 @@ public:
   template <detail::binary_fixed_scalar... Values>
     requires(KeyType == serialize_key_type::string && sizeof...(Values) > 1 &&
              sizeof...(Values) <= constants::maximum_fixed_batch_fields)
-  void struct_serialize_out_fixed(std::pair<std::string_view, Values>... fields) {
+  constexpr void struct_serialize_out_fixed(std::pair<std::string_view, Values>... fields) {
     std::size_t bytes{};
     (detail::add_fixed_named_bytes(bytes, fields.first, detail::binary_fixed_bytes<Values>), ...);
     if constexpr (TextValidation == binary_text_validation::strict) {
@@ -2302,7 +2340,7 @@ public:
   template <detail::field_name_literal... Names, detail::binary_fixed_scalar... Values>
     requires(KeyType == serialize_key_type::string && sizeof...(Values) > 1 &&
              sizeof...(Values) <= constants::maximum_fixed_batch_fields)
-  void struct_serialize_out_fixed(std::pair<detail::binary_field_name<Names>, Values>... fields) {
+  constexpr void struct_serialize_out_fixed(std::pair<detail::binary_field_name<Names>, Values>... fields) {
     constexpr auto bytes = [] {
       std::size_t total{};
       for (const auto size : {detail::binary_field_name<Names>::bytes.size() +
@@ -2322,7 +2360,11 @@ public:
       // Constant key bytes are disjoint from output, and each captured scalar survives stream growth.
       const auto write = [&output](const auto& field) noexcept {
         const auto& name = field.first.bytes;
-        std::memcpy(output, name.data(), name.size());
+        if (std::is_constant_evaluated()) {
+          std::copy(name.begin(), name.end(), output);
+        } else {
+          std::memcpy(output, name.data(), name.size());
+        }
         output += name.size();
         detail::write_fixed_scalar<WireEndian>(
             output, detail::normalize_binary_scalar<ScalarNormalization>(field.second));
@@ -2332,7 +2374,7 @@ public:
   }
 
   // Encode a nonnegative 30-bit integer in one to four bytes; reject invalid values before writing.
-  void serialize_out_variable(const std::integral auto id) {
+  constexpr void serialize_out_variable(const std::integral auto id) {
     if constexpr (std::is_signed_v<decltype(id)>) {
       if (id < 0) {
         throw std::out_of_range{"Binary variable integers must be nonnegative"};
@@ -2366,7 +2408,7 @@ public:
   // Stage one compact scalar before a single output reservation.
   // Strict overflow leaves this payload unwritten; lenient prefix keeps the low 30 bits.
   template <bool Prefix, bool Strict, std::unsigned_integral T>
-  void serialize_out_compact(T value) {
+  constexpr void serialize_out_compact(T value) {
     static_assert(!std::same_as<T, bool> && std::numeric_limits<T>::digits <= 64);
     if constexpr (Prefix) {
       if constexpr (Strict && std::numeric_limits<T>::digits > 30) {
@@ -2379,7 +2421,8 @@ public:
       std::array<std::uint8_t, maximum_prefix_bytes> bytes{};
       auto* cursor = bytes.data();
       detail::write_fixed_prefix(cursor, candidate);
-      out_stream.append_external(bytes.data(), static_cast<std::size_t>(cursor - bytes.data()));
+      append_octets(std::span<const std::uint8_t>{bytes}.first(
+          static_cast<std::size_t>(cursor - bytes.data())));
     } else {
       constexpr auto maximum_bytes =
           (std::numeric_limits<T>::digits + constants::varint_payload_bits - 1) /
@@ -2392,20 +2435,20 @@ public:
         if (value != 0) { byte |= constants::varint_continuation_mask; }
         bytes[size++] = byte;
       } while (value != 0);
-      out_stream.append_external(bytes.data(), size);
+      append_octets(std::span<const std::uint8_t>{bytes}.first(size));
     }
   }
 
   // Borrow the wrapped value synchronously; callers retain ownership and keep it alive for this call.
   template <typename T>
-  void serialize_out(const std::reference_wrapper<T>& value) {
+  constexpr void serialize_out(const std::reference_wrapper<T>& value) {
     serialize_out(value.get());
   }
 
   // Append encoded fields to the contiguous stream; never copy an aggregate object layout.
   // Byte writes follow the stream reservation policy; later failures can leave prior output.
   template <typename T>
-  void serialize_out(const T& value) {
+  constexpr void serialize_out(const T& value) {
     if constexpr (detail::json_optional<T>) {
       out_stream.append(static_cast<std::uint8_t>(value.has_value()));
       if (value) { serialize_out(*value); }
@@ -2423,6 +2466,14 @@ public:
       using wire_type = std::make_unsigned_t<T>;
       const auto wire_value = change_endian<std::endian::native, WireEndian>(
           static_cast<wire_type>(value));
+      if constexpr (!detail::binary_counting_stream<Stream>) {
+        if (std::is_constant_evaluated()) {
+          out_stream.reserve(sizeof(T));
+          auto* output = out_stream.get_curr_and_increase_unchecked(sizeof(T));
+          detail::write_fixed_scalar<WireEndian>(output, value);
+          return;
+        }
+      }
       // Byte copying does not require the stream cursor to be aligned for wire_type.
       out_stream.append_external(&wire_value, sizeof(wire_value));
     } else if constexpr (std::is_same_v<std::string, T> || std::is_same_v<std::string_view, T>) {
@@ -2459,6 +2510,13 @@ public:
                       "Mixed-endian scalars are unsupported");
         if (value.size() > rohit::detail::maximum_buffer_bytes / sizeof(element_type)) {
           throw rohit::exception::stream_overflow_exception{};
+        }
+        if (std::is_constant_evaluated()) {
+          // Constant evaluation cannot copy through void pointers; retain the same scalar encoding.
+          for (const auto& item : value) {
+            serialize_out(item);
+          }
+          return;
         }
         const auto bytes = value.size() * sizeof(element_type);
         if constexpr (ScalarNormalization == binary_scalar_normalization::positive_zero &&
@@ -2503,29 +2561,29 @@ public:
   // Encode a supported value or field through this protocol and advance the output cursor.
   template <typename T>
     requires type_check::functions<T, Stream>
-  void serialize_out(const T& value) {
+  constexpr void serialize_out(const T& value) {
     value(out_stream);
   }
 
   // Write the first object member with the protocol opening delimiter.
-  void struct_serialize_out_start(const auto& value) {
+  constexpr void struct_serialize_out_start(const auto& value) {
     struct_serialize_out(value);
   }
 
   // Write a subsequent object member with the required separation.
-  void struct_serialize_out(const auto& value) {
+  constexpr void struct_serialize_out(const auto& value) {
     serialize_out(value);
   }
 
   // Positional objects need no terminator; keyed objects end with a zero ID or name length.
-  void struct_serialize_out_end() {
+  constexpr void struct_serialize_out_end() {
     if constexpr (KeyType == serialize_key_type::integer || KeyType == serialize_key_type::string) {
       serialize_out_variable(constants::binary_object_end_id);
     }
   }
 
   // Empty binary objects use the same terminator as any other object in their mode.
-  void struct_serialize_out_empty() {
+  constexpr void struct_serialize_out_empty() {
     struct_serialize_out_end();
   }
 }; // class binary_out_base
@@ -2583,7 +2641,7 @@ template <serialize_key_type KeyType, std::endian WireEndian = std::endian::litt
           binary_text_validation TextValidation = binary_text_validation::strict,
           binary_scalar_normalization ScalarNormalization = binary_scalar_normalization::preserve,
           typename Value>
-std::size_t binary_size(const Value& value,
+[[nodiscard]] constexpr std::size_t binary_size(const Value& value,
                         std::size_t maximum_bytes = rohit::detail::maximum_buffer_bytes) {
   binary_count_stream output{maximum_bytes};
   binary_out_base<KeyType, WireEndian, binary_count_stream, TextValidation,
@@ -2594,14 +2652,14 @@ std::size_t binary_size(const Value& value,
 
 // Count integer field keys, nested records, and terminators using the production native codec.
 template <typename Value>
-std::size_t binary_integer_size(
+[[nodiscard]] constexpr std::size_t binary_integer_size(
     const Value& value, std::size_t maximum_bytes = rohit::detail::maximum_buffer_bytes) {
   return binary_size<serialize_key_type::integer>(value, maximum_bytes);
 }
 
 // Count UTF-8 field names and payloads with the same validation as string-key binary output.
 template <typename Value>
-std::size_t binary_string_size(
+[[nodiscard]] constexpr std::size_t binary_string_size(
     const Value& value, std::size_t maximum_bytes = rohit::detail::maximum_buffer_bytes) {
   return binary_size<serialize_key_type::string>(value, maximum_bytes);
 }
@@ -2631,7 +2689,7 @@ using stream_protocol_t = typename stream_protocol<Protocol, Stream>::type;
 // The caller owns the stream; external I/O failure may leave a written prefix.
 template <template <serialize_type> class Protocol, rohit::type_check::output_stream Stream,
           typename Value>
-void serialize_to(Stream& output, const Value& value) {
+constexpr void serialize_to(Stream& output, const Value& value) {
   if constexpr (rohit::type_check::output_buffer<Stream>) {
     detail::stream_protocol_t<Protocol<serialize_type::out>, Stream> encoder{output};
     value.serialize_out(encoder);
@@ -2646,7 +2704,7 @@ void serialize_to(Stream& output, const Value& value) {
 // Byte sources contain one EOF-delimited message and receive an exact-message check.
 template <template <serialize_type> class Protocol, rohit::type_check::input_stream Stream,
           typename Value>
-void serialize_from(Stream&& input, Value& value, decode_limits limits) {
+constexpr void serialize_from(Stream&& input, Value& value, decode_limits limits) {
   if constexpr (rohit::type_check::input_buffer<Stream>) {
     detail::stream_protocol_t<Protocol<serialize_type::in>, std::remove_cvref_t<Stream>> decoder{
         input, limits};
@@ -2668,7 +2726,7 @@ void serialize_from(Stream&& input, Value& value, decode_limits limits) {
 // Preserve default-constructor behavior for existing custom protocols and buffer callers.
 template <template <serialize_type> class Protocol, rohit::type_check::input_stream Stream,
           typename Value>
-void serialize_from(Stream&& input, Value& value) {
+constexpr void serialize_from(Stream&& input, Value& value) {
   if constexpr (rohit::type_check::input_buffer<Stream>) {
     detail::stream_protocol_t<Protocol<serialize_type::in>, std::remove_cvref_t<Stream>> decoder{
         input};
@@ -2684,7 +2742,7 @@ void serialize_from(Stream&& input, Value& value) {
 // Custom protocols must accept (input, limits) and provide serialize_in(value) and finish().
 template <typename Value, template <serialize_type> class Protocol,
           rohit::type_check::input_stream Stream>
-[[nodiscard]] Value deserialize_exact(Stream&& input, decode_limits limits = {}) {
+[[nodiscard]] constexpr Value deserialize_exact(Stream&& input, decode_limits limits = {}) {
   if constexpr (rohit::type_check::input_buffer<Stream>) {
     Value value{};
     detail::stream_protocol_t<Protocol<serialize_type::in>, std::remove_cvref_t<Stream>> decoder{

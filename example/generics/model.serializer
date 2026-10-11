@@ -1,8 +1,12 @@
-serializer version 1;
+serializer version 1.10.0;
 
 // A reusable pair, a collection wrapper, and an application envelope.
 
 namespace shared {
+  // Accept arithmetic schema types while excluding Boolean values explicitly.
+  class number<T: (integral || floating_point) && !bool = int32> stable_ids {
+    public T value (1);
+  }
   class pair<Key, Value> stable_ids {
     public Key key (1);
     public Value value (2);
@@ -12,10 +16,12 @@ namespace shared {
     public array T items (2);
   }
   class envelope<T> stable_ids {
-    public uint32 revision (1);
+    public uint32 revision (1) ignore(warning version);
     public T payload (2);
     public map(uint32) T lookup (3);
   }
 }
 
 instantiate example_model = shared::envelope<shared::box<shared::pair<uint32, string>>>;
+instantiate integer_number = shared::number<int32>;
+instantiate floating_number = shared::number<double>;

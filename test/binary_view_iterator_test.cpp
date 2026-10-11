@@ -28,6 +28,35 @@ using mutable_array = view::binary_array_view<uint_codec, std::uint8_t>;
 using readonly_map = view::binary_map_view<string_codec, string_codec, const std::uint8_t>;
 using mutable_map = view::binary_map_view<string_codec, string_codec, std::uint8_t>;
 
+// Decode every canonical prefix-width boundary and retain accepted overlong prefixes at compile time.
+constexpr bool constant_compact_prefixes() {
+  constexpr std::uint32_t values[]{0, 63, 64, 16383, 16384, 4194303, 4194304, 1073741823};
+  for (const auto value : values) {
+    std::array<std::uint8_t, sizeof(std::uint32_t)> bytes{};
+    auto* output = bytes.data();
+    view::write_fixed_prefix(output, value);
+    const auto [decoded, size] = view::view_compact(bytes);
+    if (decoded != value || size != view::fixed_prefix_bytes(value)) {
+      return false;
+    }
+  }
+  constexpr std::array<std::uint8_t, 4> overlong{0xc0, 0, 0, 1};
+  const auto [value, size] = view::view_compact(overlong);
+  return value == 1 && size == overlong.size();
+}
+static_assert(constant_compact_prefixes());
+static_assert(noexcept(view::view_compact(std::span<const std::uint8_t>{})));
+static_assert(noexcept(uint_codec::read(
+    std::span<const std::uint8_t>{}, std::declval<const codec::decode_limits&>())));
+static_assert(noexcept(string_codec::read(
+    std::span<const std::uint8_t>{}, std::declval<const codec::decode_limits&>())));
+static_assert(noexcept(std::declval<const readonly_array&>().size()));
+static_assert(noexcept(std::declval<const readonly_map&>().size()));
+static_assert(noexcept(std::declval<const readonly_array&>().end()));
+static_assert(noexcept(std::declval<const readonly_map&>().end()));
+static_assert(!noexcept(std::declval<const readonly_array&>().at(0)));
+static_assert(!noexcept(std::declval<const readonly_map&>().value_at(0)));
+
 // Detect array mutation without requiring an invalid expression in a concrete test.
 template <typename Iterator, typename Value>
 concept has_element_setter =
@@ -208,7 +237,7 @@ TEST(binary_view_iterator, empty_and_zero_byte_elements_have_correct_end_positio
   EXPECT_EQ(array.begin(), array.end());
   EXPECT_EQ(map.begin(), map.end());
   auto end = array.end();
-  EXPECT_THROW(*end, std::out_of_range);
+  EXPECT_THROW(static_cast<void>(*end), std::out_of_range);
   EXPECT_THROW(++end, std::out_of_range);
   EXPECT_EQ(end, array.end());
   EXPECT_EQ(decltype(end){}, decltype(end){});

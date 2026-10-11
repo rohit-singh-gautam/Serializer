@@ -8,6 +8,11 @@ import (
 
 // run edits one owning model and checks complete values using every wire protocol.
 func run() error {
+	integer, floating := NewIntegerNumber(), NewFloatingNumber()
+	integer.Value, floating.Value = -7, 12.5
+	if integer.Value != -7 || floating.Value != 12.5 {
+		return fmt.Errorf("Constrained generic mismatch")
+	}
 	input, err := os.ReadFile(os.Args[1])
 	if err != nil {
 		return err

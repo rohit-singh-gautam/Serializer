@@ -13,10 +13,43 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
 namespace detail = rohit::serializer::detail;
+
+// Compose Unicode escape decoding and UTF-8 emission entirely in a C++20 constant expression.
+constexpr bool constant_unicode_escapes() {
+  constexpr std::array<std::uint8_t, 4> hex{'a', 'B', '0', 'F'};
+  if (detail::read_hex_quad(hex) != 0xab0f) {
+    return false;
+  }
+  constexpr std::array<std::uint8_t, 11> surrogate{
+      'u', 'D', '8', '3', 'D', '\\', 'u', 'D', 'E', '0', '0'};
+  std::size_t index{};
+  const auto point = detail::read_json_escape(surrogate, index);
+  if (point != 0x1f600 || index != surrogate.size()) {
+    return false;
+  }
+  std::string output;
+  detail::append_utf8(output, point);
+  return output == "\xf0\x9f\x98\x80" &&
+         output.size() == detail::utf8_code_point_size(point);
+}
+static_assert(constant_unicode_escapes());
+static_assert(detail::utf8_code_point_size(0x7f) == 1);
+static_assert(detail::utf8_code_point_size(0x80) == 2);
+static_assert(detail::utf8_code_point_size(0x7ff) == 2);
+static_assert(detail::utf8_code_point_size(0x800) == 3);
+static_assert(detail::utf8_code_point_size(0xffff) == 3);
+static_assert(detail::utf8_code_point_size(0x10000) == 4);
+static_assert(detail::utf8_code_point_size(0x10ffff) == 4);
+static_assert(noexcept(detail::utf8_code_point_size(0)));
+static_assert(!noexcept(detail::read_hex_quad(std::span<const std::uint8_t>{})));
+static_assert(!noexcept(detail::read_json_escape(
+    std::span<const std::uint8_t>{}, std::declval<std::size_t&>())));
+static_assert(!noexcept(detail::append_utf8(std::declval<std::string&>(), 0)));
 
 // Decode code points independently of the production sequence and vector-mask algorithms.
 bool reference_utf8(std::span<const std::uint8_t> bytes) {

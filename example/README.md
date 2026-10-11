@@ -148,6 +148,10 @@ Each example lives in its own folder with its inputs and consumer sources.
 Generated output stays in the build tree.
 
 - [Configuration schema](config/README.md): a small C++ schema with inheritance.
+- [C++ expressions](cpp/expressions/README.md): schema-declared checked arithmetic
+  and predicates called at compile time and runtime, declared namespace/member
+  calls, exact integer equality,
+  bounded array reductions and indexing.
 - [C++ coding styles](coding_styles/README.md): nine independently selectable profiles.
 - [Iostream examples](iostream/README.md): seven memory, file, buffered, and custom
   stream examples sharing a large 52-class telemetry schema.

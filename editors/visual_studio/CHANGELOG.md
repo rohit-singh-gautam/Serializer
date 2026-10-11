@@ -1,3 +1,10 @@
+# 1.1.37
+
+- Synchronize language 1.10.0 syntax and expression call highlighting with VS Code.
+- Index namespace function signature types through the shared navigation implementation.
+- Keep the package version synchronized with the VS Code extension.
+- Share Boolean generic constraint highlighting and exact type navigation.
+
 # 1.1.36
 
 - Support schema language 1.9.0 stateless generic constraints and defaults.

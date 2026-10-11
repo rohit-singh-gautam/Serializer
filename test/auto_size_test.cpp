@@ -65,7 +65,7 @@ void verify_records() {
   EXPECT_EQ(source.encoded_size, 123u);
   EXPECT_EQ(source.payload.encoded_size, 456u);
   EXPECT_EQ((codec::binary_size<Keys>(source)), bytes.size());
-  EXPECT_THROW((codec::binary_size<Keys>(source, bytes.size() - 1)),
+  EXPECT_THROW((static_cast<void>(codec::binary_size<Keys>(source, bytes.size() - 1))),
                rohit::exception::stream_overflow_exception);
   auto truncated = bytes;
   truncated.pop_back();

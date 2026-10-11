@@ -1,6 +1,8 @@
 # Using Serializer in a C++ application
 
-For language `1.9.0`, use [derived sizes](derived_sizes.md) for computed binary
+For language `1.10.0`, use [declared readonly calls](behavior.md#declared-function-calls)
+and [Boolean type constraints](generics.md#boolean-type-constraints). Language
+`1.9.0` adds [derived sizes](derived_sizes.md) for computed binary
 headers, `wire_only` storage and record/payload counting controls;
 [`omit(all_except(...))`](magic_and_omission.md) for protocol inclusion lists;
 [record conversions](conversions.md) for explicit portable value mappings; and
@@ -20,6 +22,25 @@ C++ managed runtime. This guide starts with data exchange; serialization-only
 applications can use ordinary generated models. For transactional editing,
 history, recovery, and collaboration, follow the
 [managed-state quick start](managed/getting_started.md).
+
+Schema expressions also define readonly behavior alongside the serialized fields:
+
+```text
+serializer version 1.6.0;
+
+class rectangle {
+  public double width;
+  public double height;
+  public function double area() readonly expression(width * height);
+}
+```
+
+With compiler/runtime 1.15.0, the generated C++ supports both
+`static_assert(rectangle{3.0, 4.0}.area() == 12.0);` and ordinary runtime
+`value.area()` calls. Invalid floating inputs/results throw at runtime; `area`
+is `constexpr` and `[[nodiscard]]`, and remains potentially throwing. See the
+[expression example](../example/cpp/expressions/README.md) and
+[behavior guide](behavior.md) for checked arithmetic and Boolean predicates.
 
 Generated models may be distributed under your application's license, including
 proprietary terms, subject to the input schemas' copyright and license conditions.
@@ -352,7 +373,7 @@ class person stable_ids {
 ```
 
 - Use `class`, `enum`, and `namespace`; schema declarations are not C++ source.
-- Start every new `.serializer` file with `serializer version 1.9.0;` before declarations.
+- Start every new `.serializer` file with `serializer version 1.10.0;` before declarations.
   Older `1.0.0` files remain supported.
   The original `serializer version 1;` is an exact alias for `1.0.0`, exclusive to
   version 1. Future versions require three components. The language version is
@@ -416,7 +437,7 @@ namespace demo {
   spaces, backslashes, absolute paths, and other extensions are rejected.
   `./` and `../` are supported. Paths resolve from the including file, independently
   of the compiler's working directory. Comments may separate directive tokens.
-- Every file requires its own supported version header. `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, and the
+- Every file requires its own supported version header. `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, and the
   original `1` alias may coexist in an include graph. Typed magic and inferred
   arrays require `1.1.0`, compact scalars require `1.2.0`, and built-in digests
   require `1.3.0`; owning variants require `1.4.0` and warning suppression requires
@@ -1144,8 +1165,12 @@ An ordinary consteval function parameter cannot become an array template extent.
 Use the factory instead of persisting a heap-owning model as a constexpr variable.
 
 Decode `person_bytes` with the existing `binary_none` reader, the same schema,
-explicit limits, and `finish()`, as in the exact-message example. This feature
-adds no constexpr reader. Maps, managed operations, views, I/O, compression, and
+explicit limits, and `finish()`, as in the exact-message example. Release 1.15.0
+also makes ordinary generated codec templates and uncompressed stream entrypoints
+`constexpr`, independently of this option. Direct positional/integer-key scalar
+decoding requires constexpr-safe typed streams; see the
+[direct-codec subset](constant_evaluation.md#34-direct-generated-codecs-and-value-qualifiers).
+Maps, managed operations, views, I/O, compression, and
 other protocols are outside its C++20 constant subset; raw unions require a valid
 initialized active alternative. The optional positional-only generation profile
 rejects Protobuf, managed and view combinations. See the [full support and failure

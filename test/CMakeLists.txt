@@ -1,6 +1,6 @@
 set(schemas)
 foreach(fixture IN ITEMS enum person test1 array map variable assessment views storage_reuse
-    fixed_fields constant_names includes wire_compatibility generics dimensions versioning magic typed_magic inferred_arrays compact_fields digests owning_variants owning_variant_cpp optional_cpp native_output_policy reuse_first reuse_second construction readonly_behavior derived_sizes conversion stateless_layout)
+    fixed_fields constant_names includes wire_compatibility generics dimensions versioning magic typed_magic inferred_arrays compact_fields digests owning_variants owning_variant_cpp optional_cpp native_output_policy reuse_first reuse_second construction readonly_behavior derived_sizes conversion stateless_layout generic_constraints readonly_function_calls readonly_function_overloads)
   list(APPEND schemas "${CMAKE_CURRENT_SOURCE_DIR}/resources/${fixture}.serializer")
 endforeach()
 
@@ -8,10 +8,12 @@ add_executable(core_serializer_test
   core_serializer_test.cpp
   behavior_test.cpp
   readonly_behavior_test.cpp
+  readonly_function_calls_test.cpp
   construction_test.cpp
   auto_size_test.cpp
   conversion_test.cpp
   stateless_constraints_test.cpp
+  generic_constraints_test.cpp
   native_binary_output_policy_test.cpp
   digest_test.cpp
   digest_schema_test.cpp
@@ -133,6 +135,19 @@ elseif(UNIX)
   target_compile_options(constant_binary_test PRIVATE -Wall -Werror -Wpedantic -Wextra -Weffc++)
 endif()
 add_test(NAME constant_binary_test COMMAND constant_binary_test)
+
+# Qualify ordinary generated native codecs with a typed borrowed constexpr stream.
+add_executable(constexpr_codecs_test constexpr_codecs_test.cpp)
+serializer_generate(TARGET constexpr_codecs_test
+  SCHEMAS resources/constexpr_codecs.serializer
+  OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/constexpr_codecs")
+target_link_libraries(constexpr_codecs_test PRIVATE Serializer::runtime GTest::gtest_main)
+if(MSVC)
+  target_compile_options(constexpr_codecs_test PRIVATE /W4 /WX)
+else()
+  target_compile_options(constexpr_codecs_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME constexpr_codecs_test COMMAND constexpr_codecs_test)
 
 # Derive nested size headers through the same owning and borrowed compile-time output pipeline.
 add_executable(auto_size_constant_test auto_size_constant_test.cpp)

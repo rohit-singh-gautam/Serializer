@@ -167,7 +167,8 @@ TEST(decoder_qualification, binary_scalars_and_exact_boundaries) {
     for (std::size_t size = 0; size < output.current_offset(); ++size) {
       const auto truncated = rohit::make_constant_full_stream(output.begin(), size);
       binary_in partial{truncated};
-      EXPECT_THROW(partial.serialize_in_variable(), rohit::serializer::exception::bad_input_data);
+      EXPECT_THROW(static_cast<void>(partial.serialize_in_variable()),
+          rohit::serializer::exception::bad_input_data);
       EXPECT_EQ(truncated.current_offset(), 0);
     }
   }

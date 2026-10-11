@@ -1,9 +1,15 @@
 mod schema;
-use schema::{ExampleModel, Protocol};
+use schema::{ExampleModel, IntegerNumber, FloatingNumber, Protocol};
 use std::{env, fs};
 
 /// Edit an owned model and check complete values after every protocol round trip.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut integer = IntegerNumber::default();
+    let mut floating = FloatingNumber::default();
+    integer.value = -7;
+    floating.value = 12.5;
+    assert_eq!(integer.value, -7);
+    assert_eq!(floating.value, 12.5);
     let args: Vec<String> = env::args().collect();
     let mut value = ExampleModel::decode(&fs::read(&args[1])?, Protocol::Json)?;
     value.revision += 1;

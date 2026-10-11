@@ -41,8 +41,10 @@ class c_emitter {
   std::set<std::string> defined_generic_types;
   std::set<const class_node*> defined_classes;
   std::set<const class_node*> defining_classes;
+  std::size_t next_behavior_call{};
   // Reserve generated global symbols before emitting C's shared typedef/function namespace.
   void validate_symbols() const {
+    behavior::require_unique_free_names(model.nodes, "c", [&](const auto& node) { return name(&node); });
     std::set<std::string> symbols{"size_t",   "ptrdiff_t", "int8_t",   "int16_t",    "int32_t",
                                   "int64_t",  "uint8_t",   "uint16_t", "uint32_t",   "uint64_t",
                                   "intptr_t", "uintptr_t", "intmax_t", "uintmax_t",  "malloc",
@@ -62,6 +64,10 @@ class c_emitter {
     for (const auto* node : model.nodes) {
       const auto n = name(node);
       add(n);
+      if (node->type == object_type::function_type) {
+        if (static_cast<const function_node&>(*node).function.expression) { add(n + "_checked"); }
+        continue;
+      }
       if (node->type == object_type::enum_type) {
         add(n + "_srl_names");
         for (const auto& item : static_cast<const enum_node&>(*node).enum_name_list) {
@@ -833,6 +839,98 @@ class c_emitter {
     }
   }
 
+  // Propagate checked callee status while leaving native calls under their declared C contract.
+  std::string behavior_call(const behavior_expression& node, const std::vector<std::string>& arguments) {
+    const auto& method = behavior::called_function(node);
+    if (method.dispatch == function_declaration::dispatch_type::abstract_method) {
+      throw std::invalid_argument{"c: abstract readonly calls require a behavior adapter receiver"};
+    }
+    const bool free = node.call_target->type == object_type::function_type;
+    const auto identifier = name(node.call_target) + (free ? "" : "_" + field(method.name));
+    auto calls = behavior::call_arguments(arguments);
+    if (!free) {
+      std::string receiver = "(*value)";
+      for (const auto base : node.call_base_path) { receiver = "(" + receiver + ").base" + std::to_string(base); }
+      calls = "&(" + receiver + ")" + (calls.empty() ? "" : ", " + calls);
+    }
+    if (!method.expression) { return identifier + "(" + calls + ")"; }
+    const auto local = "srl_behavior_call_" + std::to_string(next_behavior_call++);
+    line(type(*node.resolved_type) + " " + local + " = {0};");
+    line("srl_status " + local + "_status = " + identifier + "_checked(" + calls +
+        (calls.empty() ? "" : ", ") + "&" + local + ");");
+    line("if (" + local + "_status != srl_ok) { return " + local + "_status; }");
+    return local;
+  }
+
+  // Declare checked and public functions before bodies so forward readonly calls are valid C11.
+  void behavior_declarations(const syntax_node& node, const function_declaration& method) {
+    const bool free = node.type == object_type::function_type;
+    if (method.dispatch == function_declaration::dispatch_type::abstract_method) { return; }
+    const auto identifier = name(&node) + (free ? "" : "_" + field(method.name));
+    const auto result_type = method.return_type.name == "void" ? "void" : type(method.return_type);
+    std::string parameters = free ? "" : std::string{method.effect == function_declaration::effect_type::readonly ? "const " : ""} + name(&node) + "*";
+    for (const auto& parameter : method.parameters) {
+      if (!parameters.empty()) { parameters += ", "; }
+      parameters += type(parameter.type);
+    }
+    const bool defined = method.expression || behavior::native_body(method, "c");
+    if (method.expression) {
+      line("static inline srl_status " + identifier + "_checked(" + parameters +
+          (parameters.empty() ? "" : ", ") + result_type + "*);");
+    }
+    line(std::string{defined ? "static inline " : ""} + result_type + " " + identifier +
+        "(" + (parameters.empty() ? "void" : parameters) + ");");
+  }
+
+  // Emit standalone namespace functions and their checked status-returning entry points.
+  void free_function(const function_node& node) {
+    const auto& method = node.function;
+    const auto identifier = name(&node), result_type = method.return_type.name == "void" ? "void" : type(method.return_type);
+    std::string parameters, arguments;
+    for (const auto& parameter : method.parameters) {
+      if (!parameters.empty()) { parameters += ", "; arguments += ", "; }
+      const auto n = (method.expression ? "srl_arg_" : "") + field(parameter.name);
+      parameters += type(parameter.type) + " " + n; arguments += n;
+    }
+    line(behavior::source_marker(method, "c"));
+    if (!method.expression) {
+      if (const auto* native = behavior::native_body(method, "c")) {
+        open("static inline " + result_type + " " + identifier + "(" + (parameters.empty() ? "void" : parameters) + ")");
+        output += behavior::source_marker(*native, "c") + native->text + "\n"; close();
+      }
+      return;
+    }
+    open("static inline srl_status " + identifier + "_checked(" + parameters +
+        (parameters.empty() ? "" : ", ") + result_type + "* result)");
+    line("if (!result) { return srl_invalid; }");
+    for (const auto& parameter : method.parameters) { line("(void)srl_arg_" + field(parameter.name) + ";"); }
+    line("bool srl_behavior_ok = true; (void)srl_behavior_ok;");
+    behavior::statement_context context;
+    context.predicate = method.predicate_body; context.helpers = arithmetic_helpers;
+    context.symbol = [&](auto value) { return "srl_arg_" + field(value); };
+    context.native_type = [&](const auto& value) { return type(value); };
+    context.enum_value = [&](const auto& value, auto constant) { return type(value) + "_" + field(constant); };
+    context.member = [&](const behavior_expression& member, std::string base) {
+      for (const auto index : member.member_base_path) { base = "(" + base + ").base" + std::to_string(index); }
+      return "(" + base + ")." + field(member.value);
+    };
+    context.call = [&](const auto& call, const auto& args) { return behavior_call(call, args); };
+    context.line = [&](const auto& text) { line(text); }; context.open = [&](const auto& text) { open(text); };
+    context.close = [&]() { close(); };
+    context.fail = [&]() { line(method.predicate_body ? "*result = false; return srl_ok;" : "return srl_range;"); };
+    if (behavior::has_reduction(*method.expression)) { line("size_t srl_behavior_budget = " + std::to_string(behavior_expression::maximum_reduction_visits) + ";"); }
+    behavior::statement_expression lower{context};
+    const auto result = lower.emit(*method.expression);
+    line("*result = " + result + "; return srl_ok;"); close();
+    open("static inline " + result_type + " " + identifier + "(" + (parameters.empty() ? "void" : parameters) + ")");
+    line(result_type + " result;");
+    line("srl_status status = " + identifier + "_checked(" + arguments + (arguments.empty() ? "" : ", ") + "&result);");
+    const auto invalid = method.return_type.name == "bool" ? "false" :
+        method.return_type.name == "float" || method.return_type.name == "double" ? "NAN" : "0";
+    line("if (status != srl_ok) { errno = status == srl_invalid ? EINVAL : ERANGE; return " + std::string{invalid} + "; }");
+    line("return result;"); close();
+  }
+
   // Emit receiver functions and status-returning checked portable computations.
   void behaviors(const class_node& value) {
     const auto model_name = name(&value);
@@ -884,6 +982,7 @@ class c_emitter {
           for (const auto index : node.member_base_path) { base = "(" + base + ").base" + std::to_string(index); }
           return "(" + base + ")." + field(node.value);
         };
+        context.call = [&](const auto& call, const auto& args) { return behavior_call(call, args); };
         context.line = [&](const auto& text) { line(text); };
         context.open = [&](const auto& text) { open(text); };
         context.close = [&]() { close(); };
@@ -897,7 +996,7 @@ class c_emitter {
         open("static inline " + result_type + " " + identifier + "(" + parameters + ")");
         line(result_type + " result;");
         line("srl_status status = " + identifier + "_checked(" + arguments + ", &result);");
-        line("if (status != srl_ok) { errno = status == srl_invalid ? EINVAL : ERANGE; return " + std::string{method.return_type.name == "bool" ? "false" : "NAN"} + "; }");
+        line("if (status != srl_ok) { errno = status == srl_invalid ? EINVAL : ERANGE; return " + std::string{method.return_type.name == "bool" ? "false" : method.return_type.name == "float" || method.return_type.name == "double" ? "NAN" : "0"} + "; }");
         line("return result;"); close();
       } else {
         open("static inline " + result_type + " " + identifier + "(" + parameters + ")");
@@ -1510,7 +1609,7 @@ public:
       validate_identifier(name(node), keywords);
       if (node->type == object_type::class_type) {
         line("typedef struct " + name(node) + " " + name(node) + ";");
-      } else {
+      } else if (node->type == object_type::enum_type) {
         const auto& e = static_cast<const enum_node&>(*node);
         open("typedef enum " + name(node));
         for (std::size_t i = 0; i < e.enum_name_list.size(); ++i) {
@@ -1530,6 +1629,16 @@ public:
     }
     for (const auto& [n, value] : generic_types) { (void)n; define_type(value); }
     generic_map_declarations();
+    for (const auto* node : model.nodes) {
+      if (node->type == object_type::function_type) {
+        behavior_declarations(*node, static_cast<const function_node&>(*node).function);
+      } else if (node->type == object_type::class_type) {
+        for (const auto& method : static_cast<const class_node&>(*node).functions) { behavior_declarations(*node, method); }
+      }
+    }
+    for (const auto* node : model.nodes) {
+      if (node->type == object_type::function_type) { free_function(static_cast<const function_node&>(*node)); }
+    }
     for (const auto* node : model.nodes) {
       if (node->type == object_type::class_type) { map_declarations(static_cast<const class_node&>(*node)); }
     }

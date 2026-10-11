@@ -17,7 +17,7 @@ namespace rohit::serializer::detail {
 
 // Identify real count sinks without treating ordinary output capacity as a computed record size.
 template <typename Protocol>
-constexpr bool auto_size_counting(const Protocol& protocol) {
+[[nodiscard]] constexpr bool auto_size_counting(const Protocol& protocol) {
   if constexpr (requires { protocol.counting(); }) {
     return protocol.counting();
   } else if constexpr (requires { protocol.get_stream(); }) {
@@ -31,7 +31,7 @@ constexpr bool auto_size_counting(const Protocol& protocol) {
 
 // Observe committed bytes from a counting protocol while preserving its borrowed sink lifetime.
 template <typename Protocol>
-constexpr std::size_t auto_size_count_position(const Protocol& protocol) {
+[[nodiscard]] constexpr std::size_t auto_size_count_position(const Protocol& protocol) {
   if constexpr (requires { protocol.position_bytes(); }) {
     return protocol.position_bytes();
   } else if constexpr (requires { protocol.get_stream().size(); }) {
@@ -72,14 +72,14 @@ public:
 
 // Keep the count-only width check local to one generated record and its selected native protocol.
 template <std::unsigned_integral Size, typename Protocol>
-constexpr auto make_auto_size_count_guard(const Protocol& protocol, bool selected,
-                                         std::size_t excluded_bytes = 0) {
+[[nodiscard]] constexpr auto make_auto_size_count_guard(
+    const Protocol& protocol, bool selected, std::size_t excluded_bytes = 0) {
   return auto_size_count_guard<Size, Protocol>{protocol, selected, excluded_bytes};
 }
 
 // Observe record-local native bytes without allowing a declared size to control resource bounds.
 template <typename Protocol>
-std::size_t auto_size_remaining(const Protocol& protocol) {
+[[nodiscard]] constexpr std::size_t auto_size_remaining(const Protocol& protocol) {
   constexpr auto format = protocol_wire_format<Protocol>();
   if constexpr (format == wire_format::binary_none || format == wire_format::binary_integer ||
                 format == wire_format::binary_string) {
@@ -105,7 +105,7 @@ struct auto_size_reader {
 
   // Capture the actual accepted key and scalar span, including noncanonical compact keys.
   template <typename Protocol>
-  void finish_field(Protocol& protocol, bool selected) {
+  constexpr void finish_field(Protocol& protocol, bool selected) {
     if (id != 0 && selected && field_bytes) {
       if constexpr (requires { protocol.auto_size_field_remaining(); }) {
         *field_bytes = protocol.auto_size_field_remaining() - auto_size_remaining(protocol);
@@ -115,7 +115,7 @@ struct auto_size_reader {
 
   // Decode transport-only metadata into scoped scratch without creating object storage.
   template <typename Protocol>
-  void read_discarded(Protocol& protocol) {
+  constexpr void read_discarded(Protocol& protocol) {
     if (width_bytes == sizeof(std::uint32_t)) {
       std::uint32_t actual{};
       protocol.serialize_in(actual);
@@ -126,7 +126,7 @@ struct auto_size_reader {
   }
 
   // Reject a duplicate selected header before decoding its scalar; an inactive adapter has id zero.
-  void observe(bool selected) {
+  constexpr void observe(bool selected) {
     if (id != 0 && selected) {
       if (seen) { throw std::invalid_argument{"Duplicate auto_size field"}; }
       seen = true;
@@ -135,7 +135,7 @@ struct auto_size_reader {
 
   // Forward the numeric key to the same generated reader and shared input session.
   template <typename Protocol>
-  void serialize_in_member_by_identifier(Protocol& protocol, std::uint32_t key) {
+  constexpr void serialize_in_member_by_identifier(Protocol& protocol, std::uint32_t key) {
     observe(key == id);
     if (id != 0 && key == id && discarded) { read_discarded(protocol); }
     else { value.serialize_in_member_by_identifier(protocol, key); }
@@ -144,7 +144,7 @@ struct auto_size_reader {
 
   // Forward the exact wire name without changing unknown-field or storage reuse behavior.
   template <typename Protocol>
-  void serialize_in_member_by_name(Protocol& protocol, std::string_view key) {
+  constexpr void serialize_in_member_by_name(Protocol& protocol, std::string_view key) {
     observe(key == name);
     if (id != 0 && key == name && discarded) { read_discarded(protocol); }
     else { value.serialize_in_member_by_name(protocol, key); }
@@ -154,9 +154,10 @@ struct auto_size_reader {
 
 // Keep a stack-local adapter; reader, seen state, and literal name must outlive synchronous decoding.
 template <typename Reader>
-auto make_auto_size_reader(Reader& value, bool& seen, std::uint32_t id, std::string_view name,
-                          std::uint64_t* discarded = nullptr, std::size_t width_bytes = 0,
-                          std::size_t* field_bytes = nullptr) {
+[[nodiscard]] constexpr auto make_auto_size_reader(
+    Reader& value, bool& seen, std::uint32_t id, std::string_view name,
+    std::uint64_t* discarded = nullptr, std::size_t width_bytes = 0,
+    std::size_t* field_bytes = nullptr) noexcept {
   return auto_size_reader<Reader>{value, seen, id, name, discarded, width_bytes, field_bytes};
 }
 

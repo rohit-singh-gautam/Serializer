@@ -5,6 +5,11 @@ using static SerializerGenerated.Schema;
 internal static class Program {
   // Edit an owning model and compare complete values after each protocol round trip.
   private static void Main(string[] args) {
+    var integer = new IntegerNumber();
+    var floating = new FloatingNumber();
+    integer.Value = -7;
+    floating.Value = 12.5;
+    if (integer.Value != -7 || floating.Value != 12.5) throw new Exception("Constrained generic mismatch");
     var value = ExampleModel.Decode(File.ReadAllBytes(args[0]), Protocol.JSON);
     value.Revision += 1;
     // Edit the uint32 key inside envelope<box<pair<uint32, string>>>.

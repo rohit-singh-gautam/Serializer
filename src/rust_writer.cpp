@@ -470,6 +470,13 @@ class rust_emitter {
         context.member_name = [&](auto member) { return field(member); };
         context.native_type = [&](const auto& value_type) { return type(value_type); };
         context.enum_value = [&](const auto& value_type, auto enumerator) { return type(value_type) + "::" + pascal(enumerator); };
+        context.call = [&](const behavior_expression& node, const std::vector<std::string>& arguments) {
+          const auto& target = behavior::called_function(node);
+          std::string receiver = "self";
+          for (const auto base : node.call_base_path) { receiver += ".base" + std::to_string(base); }
+          const auto callable = node.call_target->type == object_type::function_type ? snake(model.names.at(node.call_target)) : receiver + "." + field(target.name);
+          return callable + "(" + behavior::call_arguments(arguments) + ")";
+        };
         while (std::any_of(method.parameters.begin(), method.parameters.end(), [&](const auto& parameter) {
           return field(parameter.name) == context.valid_name || field(parameter.name) == context.budget_name;
         })) { context.valid_name += '_'; context.budget_name += '_'; }
@@ -495,12 +502,41 @@ class rust_emitter {
           }
           if (enclosing) { arithmetic = arithmetic.substr(1, arithmetic.size() - 2); }
         }
-        line("let srl_behavior_result: " + std::string{method.return_type.name == "bool" ? "bool" : "f64"} + " = " + arithmetic + ";");
-        if (method.return_type.name != "bool") { line("assert!(srl_behavior_result.is_finite(), \"Non-finite portable result\");"); }
+        line("let srl_behavior_result: " + result_type + " = " + arithmetic + ";");
+        if (method.return_type.name == "float" || method.return_type.name == "double") { line("assert!(srl_behavior_result.is_finite(), \"Non-finite portable result\");"); }
         line(method.predicate_body ? context.valid_name + " && srl_behavior_result" : "srl_behavior_result");
       }
       close();
     }
+  }
+
+  // Emit flattened namespace functions with exact scalar arguments and checked portable bodies.
+  void free_function(const function_node& node) {
+    const auto& method = node.function;
+    std::string parameters;
+    for (const auto& parameter : method.parameters) {
+      if (!parameters.empty()) { parameters += ", "; }
+      parameters += field(parameter.name) + ": " + type(parameter.type);
+    }
+    const auto result_type = method.return_type.name == "void" ? "()" : type(method.return_type);
+    line(behavior::source_marker(method, "rust"));
+    open("pub fn " + snake(model.names.at(&node)) + "(" + parameters + ") -> " + result_type);
+    if (const auto* native = behavior::native_body(method, "rust")) {
+      output += behavior::source_marker(*native, "rust") + native->text + "\n";
+    } else if (method.expression) {
+      for (const auto& parameter : method.parameters) { line("let _ = &" + field(parameter.name) + ";"); }
+      behavior::expression_context context;
+      context.member_name = [&](auto value) { return field(value); };
+      context.native_type = [&](const auto& value) { return type(value); };
+      context.enum_value = [&](const auto& value, auto name) { return type(value) + "::" + pascal(name); };
+      context.call = [&](const behavior_expression& call, const std::vector<std::string>& arguments) {
+        return snake(model.names.at(call.call_target)) + "(" + behavior::call_arguments(arguments) + ")";
+      };
+      behavior::free_expression_body(method, "rust", result_type, [&](auto value) { return field(value); },
+          arithmetic_helpers, context, [&](const auto& text) { line(text); },
+          [&](const auto& text) { open(text); }, [&]() { close(); });
+    } else { throw std::invalid_argument{"rust: standalone functions require an expression or selected native body"}; }
+    close();
   }
 
   // Traits and borrowed adapters attach dispatch without changing owning data's value traits.
@@ -947,6 +983,7 @@ public:
   }
   // Emit reusable runtime declarations and direct typed model codecs.
   std::string generate() {
+    behavior::require_unique_free_names(model.nodes, "rust", [&](const auto& node) { return snake(model.names.at(&node)); });
     for (const auto& code : model.preambles) {
       if (code.language == "rust") { output += behavior::source_marker(code, "rust") + code.text + "\n"; }
     }
@@ -966,6 +1003,7 @@ public:
     --indent;
     line("];");
     for (const auto* node : model.nodes) {
+      if (node->type == object_type::function_type) { free_function(static_cast<const function_node&>(*node)); continue; }
       validate_identifier(model.names.at(node), std::string{keywords} + " BTreeMap ");
       if (node->type == object_type::class_type) {
         object(static_cast<const class_node&>(*node));

@@ -245,6 +245,18 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
         result.references.push({ ...name, name: qualifiedName, scope: [] });
         typeReference(i + 3);
       }
+    } else if (schema && token.text === 'function') {
+      // Namespace functions expose the same signature type references as class methods.
+      let next = i + 1;
+      if (['virtual', 'abstract', 'override'].includes(tokens[next]?.text)) { ++next; }
+      next = typeReference(next);
+      if (tokens[next + 1]?.text === '(') {
+        next += 2;
+        while (next < tokens.length && ![')', ';', '}'].includes(tokens[next].text)) {
+          next = typeReference(next) + 1;
+          if (tokens[next]?.text === ',') { ++next; }
+        }
+      }
     } else if (schema && ['public', 'private', 'protected'].includes(token.text)) {
       // Typed magic can reference an enum; legacy magic and payload versions have no type operand.
       if (tokens[i + 1]?.text === 'conversion') {
@@ -293,6 +305,8 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
             if (tokens[next]?.text === ',') { ++next; }
           }
         }
+        // The access-prefixed method signature was indexed here; skip its keyword.
+        ++i;
       } else if (['cpp', 'csharp', 'java', 'javascript', 'typescript', 'go', 'rust',
         'python', 'swift', 'kotlin', 'c'].includes(tokens[i + 1]?.text)) {
         // Native blocks are skipped by the next iteration.
@@ -324,15 +338,21 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
         let depth = 0;
         let parameterStart = true;
         let inDefault = false;
+        let inConstraint = false;
         do {
           if (tokens[body].text === '<') { ++depth; }
           if (tokens[body].text === '>') { --depth; }
           if (schema) {
             const current = tokens[body].text;
-            if (depth === 1 && current === ',') { parameterStart = true; inDefault = false; }
-            if (depth === 1 && current === '=') { inDefault = true; }
+            if (depth === 1 && current === ',') { parameterStart = true; inDefault = false; inConstraint = false; }
+            if (depth === 1 && current === ':') { inConstraint = true; }
+            if (depth === 1 && current === '=') { inDefault = true; inConstraint = false; }
             if (depth === 1 && parameterStart && /^[A-Za-z_]\w*$/.test(current)) {
               if (current !== 'uint64') { parameters.push(tokens[body]); parameterStart = false; }
+            } else if (inConstraint && /^[A-Za-z_]\w*$/.test(current) &&
+                       !['stateless', 'integral', 'floating_point'].includes(current)) {
+              // Exact type alternatives retain declaration navigation inside constraints.
+              body = typeReference(body) - 1;
             } else if (inDefault && current === 'digest' &&
                        ['(', '['].includes(tokens[body + 1]?.text ?? '')) {
               // Digest defaults may name an algorithm that also exists as an unrelated schema type.

@@ -239,6 +239,96 @@ class generic_lowering {
     }
   }
 
+  // Bind exact-type leaves in declaration scope, including earlier generic parameters.
+  void validate_constraint(generic_constraint& constraint, const class_node& owner) const {
+    if (constraint.type) { validate_expression(*constraint.type, owner); }
+    for (auto& operand : constraint.operands) { validate_constraint(operand, owner); }
+  }
+
+  // Identify type identities whose truth value must wait for a concrete specialization.
+  bool dependent_constraint_type(const type_name& type, const class_node* owner) const {
+    if (!owner) { return false; }
+    if (std::find(owner->type_parameters.begin(), owner->type_parameters.end(), type.name) !=
+        owner->type_parameters.end()) { return true; }
+    return std::any_of(type.arguments.begin(), type.arguments.end(), [&](const auto& argument) {
+      return dependent_constraint_type(argument, owner);
+    });
+  }
+
+  // Evaluate Boolean constraints with three-valued logic while dependent arguments remain unknown.
+  std::optional<bool> evaluate_constraint(const generic_constraint& constraint, const type_name& argument,
+                                          const class_node* owner = nullptr) const {
+    using operation = generic_constraint::operation;
+    if (constraint.kind == operation::logical_not) {
+      const auto result = evaluate_constraint(constraint.operands.at(0), argument, owner);
+      return result ? std::optional<bool>{!*result} : std::nullopt;
+    }
+    if (constraint.kind == operation::logical_and || constraint.kind == operation::logical_or) {
+      const auto left = evaluate_constraint(constraint.operands.at(0), argument, owner);
+      const auto right = evaluate_constraint(constraint.operands.at(1), argument, owner);
+      if (constraint.kind == operation::logical_and) {
+        if ((left && !*left) || (right && !*right)) { return false; }
+        return left && right ? std::optional<bool>{*left && *right} : std::nullopt;
+      }
+      if ((left && *left) || (right && *right)) { return true; }
+      return left && right ? std::optional<bool>{*left || *right} : std::nullopt;
+    }
+    if (dependent_constraint_type(argument, owner)) {
+      if (constraint.kind == operation::stateless) {
+        const auto parameter = std::find_if(owner->generic_parameters.begin(), owner->generic_parameters.end(),
+            [&](const auto& value) { return value.name == argument.name; });
+        if (parameter != owner->generic_parameters.end() && parameter->stateless) { return true; }
+      }
+      return std::nullopt;
+    }
+    if (constraint.kind == operation::exact_type) {
+      if (dependent_constraint_type(*constraint.type, owner)) { return std::nullopt; }
+      return identity(argument) == identity(*constraint.type);
+    }
+    if (constraint.kind == operation::stateless) {
+      return argument.resolved_node && argument.resolved_node->type == object_type::class_type &&
+          is_stateless_record(static_cast<const class_node&>(*argument.resolved_node));
+    }
+    if (argument.type != object_type::primitive || argument.application) { return false; }
+    if (constraint.kind == operation::floating_point) {
+      return argument.name == "float" || argument.name == "double";
+    }
+    return argument.name == "bool" || argument.name == "char" || argument.name == "int8" ||
+        argument.name == "uint8" || argument.name == "int16" || argument.name == "uint16" ||
+        argument.name == "int32" || argument.name == "uint32" || argument.name == "int64" ||
+        argument.name == "uint64";
+  }
+
+  // Reject known failures while allowing category constraints to defer dependent forwarding.
+  void validate_constraint_argument(const generic_constraint& constraint, const type_name& argument,
+                                    const class_node* owner = nullptr) const {
+    const auto result = evaluate_constraint(constraint, argument, owner);
+    if (result && !*result) {
+      throw exception::bad_member_type{input, "Generic argument does not satisfy its type constraint: " + argument.get_full_name()};
+    }
+  }
+
+  // Substitute earlier arguments in exact-type leaves before checking a concrete application.
+  void resolve_constraint(generic_constraint& constraint,
+      const std::unordered_map<std::string, type_name>& bindings, std::size_t depth) {
+    if (constraint.type) { resolve(*constraint.type, bindings, depth); }
+    for (auto& operand : constraint.operands) { resolve_constraint(operand, bindings, depth); }
+  }
+
+  // Forward already bound argument identities into dependent exact-type leaves without instantiation.
+  void substitute_constraint(generic_constraint& constraint,
+      const std::unordered_map<std::string, type_name>& bindings) const {
+    const auto substitute = [&](const auto& self, type_name& type) -> void {
+      if (const auto found = bindings.find(type.name); found != bindings.end() && !type.application) {
+        type = found->second;
+      } else {
+        for (auto& argument : type.arguments) { self(self, argument); }
+      }
+    };
+    if (constraint.type) { substitute(substitute, *constraint.type); }
+    for (auto& operand : constraint.operands) { substitute_constraint(operand, bindings); }
+  }
+
   // Bind declaration-scope references and require proof for constrained forwarded arguments.
   void validate_expression(type_name& type, const class_node& owner) const {
     if (type.kind == generic_argument_kind::dimension) {
@@ -290,6 +380,7 @@ class generic_lowering {
       throw exception::bad_member_type{input, "Unknown type or incorrect generic argument count: " +
                                                   type.name};
     }
+    std::unordered_map<std::string, type_name> constrained_arguments;
     for (std::size_t index = 0; index < type.arguments.size(); ++index) {
       auto& argument = type.arguments[index];
       if (object->generic_parameters[index].kind == generic_argument_kind::dimension) {
@@ -299,7 +390,13 @@ class generic_lowering {
         if (object->generic_parameters[index].stateless) {
           validate_stateless_argument(argument, &owner);
         }
+        if (object->generic_parameters[index].constraint) {
+          auto constraint = *object->generic_parameters[index].constraint;
+          substitute_constraint(constraint, constrained_arguments);
+          validate_constraint_argument(constraint, argument, &owner);
+        }
       }
+      constrained_arguments.emplace(object->generic_parameters[index].name, argument);
     }
     if (node) {
       type.name = node->get_full_name();
@@ -388,6 +485,11 @@ class generic_lowering {
       } else {
         resolve(argument, supplied ? bindings : substitutions, depth + 1);
         if (parameter.stateless) { validate_stateless_argument(argument); }
+        if (parameter.constraint) {
+          auto constraint = *parameter.constraint;
+          resolve_constraint(constraint, substitutions, depth + 1);
+          validate_constraint_argument(constraint, argument);
+        }
       }
       if (argument.resolved_node && argument.type == object_type::class_type) {
         const auto& value = static_cast<const class_node&>(*argument.resolved_node);
@@ -596,7 +698,7 @@ class generic_lowering {
       const auto source_path = node->source_path;
       try {
         auto* raw = node.get();
-        visible.emplace(raw->get_full_name(), raw);
+        if (raw->type != object_type::function_type) { visible.emplace(raw->get_full_name(), raw); }
         if (raw->type == object_type::namespace_type) {
           auto children = std::move(static_cast<namespace_node*>(raw)->statements);
           emit(std::move(node));
@@ -614,6 +716,7 @@ class generic_lowering {
                                object.parent_namespace, class_attributes::none, {}};
             for (auto& parameter : object.generic_parameters) {
               try {
+                if (parameter.constraint) { validate_constraint(*parameter.constraint, earlier); }
                 if (!parameter.default_argument.empty()) {
                   auto& argument = parameter.default_argument.front();
                   if (parameter.kind == generic_argument_kind::dimension) {
@@ -621,6 +724,7 @@ class generic_lowering {
                   } else {
                     validate_expression(argument, earlier);
                     if (parameter.stateless) { validate_stateless_argument(argument, &earlier); }
+                    if (parameter.constraint) { validate_constraint_argument(*parameter.constraint, argument, &earlier); }
                   }
                 }
               } catch (const std::exception& error) {
@@ -729,6 +833,11 @@ class generic_lowering {
             incomplete.erase(object.get_full_name());
           }
           emit(std::move(node));
+        } else if (raw->type == object_type::function_type) {
+          auto& function = static_cast<function_node&>(*raw).function;
+          if (function.return_type.name != "void") { resolve(function.return_type, {}, 0); }
+          for (auto& parameter : function.parameters) { resolve(parameter.type, {}, 0); }
+          emit(std::move(node));
         } else {
           emit(std::move(node));
         }
@@ -762,6 +871,12 @@ inline bool contains_generics(const std::vector<std::unique_ptr<syntax_node>>& n
     if (node->type == object_type::namespace_type) {
       if (contains_generics(static_cast<const namespace_node&>(*node).statements)) {
         return true;
+      }
+    } else if (node->type == object_type::function_type) {
+      const auto& function = static_cast<const function_node&>(*node).function;
+      if (function.return_type.application) { return true; }
+      for (const auto& parameter : function.parameters) {
+        if (parameter.type.application) { return true; }
       }
     } else if (node->type == object_type::class_type) {
       const auto& object = static_cast<const class_node&>(*node);

@@ -35,7 +35,7 @@ public:
   basic_view_scanner(const Stream& input, decode_limits input_limits)
       : base{input, input_limits}, initial_size{input.remaining_buffer()} {}
   // Return a byte offset without subtracting potentially null pointers.
-  std::size_t position() const {
+  [[nodiscard]] std::size_t position() const {
     return initial_size - get_stream().remaining_buffer();
   }
   // Bound traversal of borrowed elements; no owning collection allocation is charged.
@@ -53,7 +53,8 @@ public:
 using view_scanner = basic_view_scanner<>;
 
 // Read a compact prefix from bytes already validated by a view scanner.
-inline std::pair<std::uint32_t, std::size_t> view_compact(std::span<const std::uint8_t> bytes) {
+[[nodiscard]] constexpr std::pair<std::uint32_t, std::size_t> view_compact(
+    std::span<const std::uint8_t> bytes) noexcept {
   constexpr auto length_tag_shift = std::bit_width(constants::variable_payload_mask);
   const auto size = static_cast<std::size_t>(bytes[0] >> length_tag_shift) + 1;
   std::uint32_t value = bytes[0] & constants::variable_payload_mask;
@@ -74,7 +75,8 @@ struct scalar_view_codec {
     scanner.serialize_in(value);
   }
   // Copy only the scalar bits and convert the fixed little-endian wire representation.
-  static Value read(std::span<const std::uint8_t> bytes, const decode_limits&) {
+  [[nodiscard]] static Value read(
+      std::span<const std::uint8_t> bytes, const decode_limits&) noexcept {
     if constexpr (std::is_enum_v<Value>) {
       return static_cast<Value>(view_compact(bytes).first);
     } else if constexpr (std::is_same_v<Value, bool>) {
@@ -94,7 +96,7 @@ struct scalar_view_codec {
     }
   }
   // Encode before touching the destination; reject compact-width changes atomically.
-  static void write(std::span<std::uint8_t> bytes, Value value) {
+  static void write(std::span<std::uint8_t> bytes, Value value) noexcept(!std::is_enum_v<Value>) {
     if constexpr (std::is_enum_v<Value>) {
       std::array<std::uint8_t, sizeof(std::uint32_t)> scratch{};
       full_stream output{scratch.data(), scratch.size()};
@@ -127,7 +129,8 @@ struct string_view_codec {
     scanner.serialize_in_name();
   }
   // Borrow the validated string payload; the original buffer retains ownership.
-  static std::string_view read(std::span<const std::uint8_t> bytes, const decode_limits&) {
+  [[nodiscard]] static std::string_view read(
+      std::span<const std::uint8_t> bytes, const decode_limits&) noexcept {
     const auto [size, prefix] = view_compact(bytes);
     return size == 0 ? std::string_view{} :
         std::string_view{reinterpret_cast<const char*>(bytes.data() + prefix), size};
@@ -154,7 +157,7 @@ struct object_view_codec {
   }
   // Return a nested borrowed object, validating its independent offset cache.
   template <typename Byte>
-  static View read(std::span<Byte> bytes, const decode_limits& limits) {
+  [[nodiscard]] static View read(std::span<Byte> bytes, const decode_limits& limits) {
     return View::map(bytes, limits);
   }
 };
@@ -192,7 +195,7 @@ class binary_collection_iterator {
   friend class binary_map_view;
 
   // Discover only the current entry; mapping has already validated the whole collection and limits.
-  entry_offsets locate(std::size_t start) const {
+  [[nodiscard]] entry_offsets locate(std::size_t start) const {
     entry_offsets result{};
     result[0] = start;
     std::size_t component{};
@@ -232,7 +235,7 @@ class binary_collection_iterator {
 
   // Borrow one cached component; callers must first require a dereferenceable iterator.
   template <std::size_t Index>
-  std::span<Byte> component_bytes() const {
+  [[nodiscard]] std::span<Byte> component_bytes() const noexcept {
     return storage.subspan(offsets[Index], offsets[Index + 1] - offsets[Index]);
   }
 
@@ -250,7 +253,7 @@ public:
   binary_collection_iterator() = default;
 
   // Return a scalar/string/nested view, or a pair containing an immutable key and its value.
-  value_type operator*() const {
+  [[nodiscard]] value_type operator*() const {
     require_element();
     // Read values on demand so size-preserving edits through another alias remain observable.
     if constexpr (!is_map_entry) {
@@ -281,7 +284,7 @@ public:
   }
 
   // Compare positions in the same encoded collection, including zero-byte object elements.
-  bool operator==(const binary_collection_iterator& other) const noexcept {
+  [[nodiscard]] bool operator==(const binary_collection_iterator& other) const noexcept {
     return storage.data() == other.storage.data() && storage.size() == other.storage.size() &&
            index == other.index;
   }
@@ -312,10 +315,10 @@ class binary_array_view {
   decode_limits limits;
   friend struct array_view_codec<Element>;
   // Only the validated codec may create a sequence over existing bytes.
-  binary_array_view(std::span<Byte> bytes, const decode_limits& input_limits)
+  binary_array_view(std::span<Byte> bytes, const decode_limits& input_limits) noexcept
       : storage{bytes}, limits{input_limits} {}
   // Locate an element using bounded traversal, retaining the original writable span type.
-  std::span<Byte> element_bytes(std::size_t index) const {
+  [[nodiscard]] std::span<Byte> element_bytes(std::size_t index) const {
     if constexpr (Element::fixed_size != 0) {
       const auto [count, prefix] = view_compact(storage);
       if (index >= count) { throw std::out_of_range{"View array index"}; }
@@ -335,17 +338,19 @@ class binary_array_view {
 public:
   using iterator = binary_collection_iterator<Byte, Element>;
   // Start an independent traversal; its storage and limits outlive a temporary collection wrapper.
-  iterator begin() const {
+  [[nodiscard]] iterator begin() const {
     return iterator{storage, limits, false};
   }
   // Return the past-the-end position without traversing the collection.
-  iterator end() const {
+  [[nodiscard]] iterator end() const noexcept {
     return iterator{storage, limits, true};
   }
   // Return the validated element count, with no traversal or allocation.
-  std::size_t size() const { return view_compact(storage).first; }
+  [[nodiscard]] std::size_t size() const noexcept { return view_compact(storage).first; }
   // Read a scalar/string or return a nested view of an existing element.
-  auto at(std::size_t index) const { return Element::read(element_bytes(index), limits); }
+  [[nodiscard]] auto at(std::size_t index) const {
+    return Element::read(element_bytes(index), limits);
+  }
   // Replace a scalar/string element while preserving the enclosing layout.
   template <typename Value>
   void set(std::size_t index, const Value& value)
@@ -367,7 +372,7 @@ struct array_view_codec {
   }
   // Construct a lightweight sequence over already validated bytes.
   template <typename Byte>
-  static auto read(std::span<Byte> bytes, const decode_limits& limits) {
+  [[nodiscard]] static auto read(std::span<Byte> bytes, const decode_limits& limits) noexcept {
     return binary_array_view<Element, Byte>{bytes, limits};
   }
 };
@@ -379,10 +384,11 @@ class binary_map_view {
   decode_limits limits;
   friend struct map_view_codec<Key, Value>;
   // Only the validated codec may construct a map view.
-  binary_map_view(std::span<Byte> bytes, const decode_limits& input_limits)
+  binary_map_view(std::span<Byte> bytes, const decode_limits& input_limits) noexcept
       : storage{bytes}, limits{input_limits} {}
   // Locate both halves of a wire entry with the original mapping limits.
-  std::pair<std::span<Byte>, std::span<Byte>> entry_bytes(std::size_t index) const {
+  [[nodiscard]] std::pair<std::span<Byte>, std::span<Byte>> entry_bytes(
+      std::size_t index) const {
     if constexpr (Key::fixed_size != 0 && Value::fixed_size != 0) {
       const auto [count, prefix] = view_compact(storage);
       if (index >= count) { throw std::out_of_range{"View map index"}; }
@@ -409,21 +415,23 @@ class binary_map_view {
 public:
   using iterator = binary_collection_iterator<Byte, Key, Value>;
   // Traverse pairs in wire order; key views remain read-only even when values are mutable.
-  iterator begin() const {
+  [[nodiscard]] iterator begin() const {
     return iterator{storage, limits, false};
   }
   // Return the past-the-end position without traversing the collection.
-  iterator end() const {
+  [[nodiscard]] iterator end() const noexcept {
     return iterator{storage, limits, true};
   }
   // Return the encoded entry count; duplicate keys remain visible in wire order.
-  std::size_t size() const { return view_compact(storage).first; }
+  [[nodiscard]] std::size_t size() const noexcept { return view_compact(storage).first; }
   // Borrow or read a key with immutable access even from a mutable map view.
-  auto key_at(std::size_t index) const {
+  [[nodiscard]] auto key_at(std::size_t index) const {
     return Key::read(std::span<const std::uint8_t>{entry_bytes(index).first}, limits);
   }
   // Borrow or read an entry's value; nested mutable values can be edited through their views.
-  auto value_at(std::size_t index) const { return Value::read(entry_bytes(index).second, limits); }
+  [[nodiscard]] auto value_at(std::size_t index) const {
+    return Value::read(entry_bytes(index).second, limits);
+  }
   // Replace a scalar/string value without changing keys, entry count, or byte extents.
   template <typename Replacement>
   void set_value(std::size_t index, const Replacement& value)
@@ -448,7 +456,7 @@ struct map_view_codec {
   }
   // Borrow the validated entry sequence without constructing a std::map.
   template <typename Byte>
-  static auto read(std::span<Byte> bytes, const decode_limits& limits) {
+  [[nodiscard]] static auto read(std::span<Byte> bytes, const decode_limits& limits) noexcept {
     return binary_map_view<Key, Value, Byte>{bytes, limits};
   }
 };
@@ -459,20 +467,20 @@ class binary_variant_view {
   decode_limits limits;
   friend struct variant_view_codec<Alternatives...>;
   // Only the validated codec may create an active-alternative view.
-  binary_variant_view(std::span<Byte> bytes, const decode_limits& input_limits)
+  binary_variant_view(std::span<Byte> bytes, const decode_limits& input_limits) noexcept
       : storage{bytes}, limits{input_limits} {}
   // Require the requested alternative before exposing its payload.
-  std::span<Byte> payload(std::size_t requested) const {
+  [[nodiscard]] std::span<Byte> payload(std::size_t requested) const {
     const auto [active, prefix] = view_compact(storage);
     if (active != requested) { throw std::invalid_argument{"Inactive view union alternative"}; }
     return storage.subspan(prefix);
   }
 public:
   // Return the active zero-based wire discriminator.
-  std::size_t index() const { return view_compact(storage).first; }
+  [[nodiscard]] std::size_t index() const noexcept { return view_compact(storage).first; }
   // Access the active alternative as a scalar/string or a nested borrowed view.
   template <std::size_t Index>
-  auto get() const {
+  [[nodiscard]] auto get() const {
     using codec = std::tuple_element_t<Index, std::tuple<Alternatives...>>;
     return codec::read(payload(Index), limits);
   }
@@ -510,7 +518,7 @@ struct variant_view_codec {
   }
   // Borrow the existing alternative without constructing native union storage.
   template <typename Byte>
-  static auto read(std::span<Byte> bytes, const decode_limits& limits) {
+  [[nodiscard]] static auto read(std::span<Byte> bytes, const decode_limits& limits) noexcept {
     return binary_variant_view<Byte, Alternatives...>{bytes, limits};
   }
 };
@@ -533,7 +541,7 @@ protected:
   }
   // Select a generated constant field slot without a key search or repeated full scan.
   template <std::size_t Index>
-  std::span<Byte> field_bytes() const {
+  [[nodiscard]] std::span<Byte> field_bytes() const noexcept {
     static_assert(Index < FieldCount);
     return storage.subspan(offsets[Index], offsets[Index + 1] - offsets[Index]);
   }
@@ -541,7 +549,7 @@ public:
   static constexpr std::endian wire_endian = std::endian::little;
   static constexpr serialize_key_type key_type = serialize_key_type::none;
   // Borrow the exact serialized message; raw mutation must not invalidate mapped layouts.
-  std::span<const std::uint8_t> serialized_bytes() const { return storage; }
+  [[nodiscard]] std::span<const std::uint8_t> serialized_bytes() const noexcept { return storage; }
   // Copy the existing positional message into a stream using its normal reservation policy.
   void serialize_out(rohit::type_check::output_stream auto& output) const {
     if constexpr (rohit::type_check::output_buffer<std::remove_reference_t<decltype(output)>>) {

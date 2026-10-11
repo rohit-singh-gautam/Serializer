@@ -13,7 +13,7 @@
 
 namespace rohit::serializer::detail {
 // Return a complete UTF-8 sequence length, rejecting overlong encodings and surrogate code points.
-constexpr std::size_t utf8_sequence_size(std::span<const std::uint8_t> bytes) {
+[[nodiscard]] constexpr std::size_t utf8_sequence_size(std::span<const std::uint8_t> bytes) {
   if (bytes.empty()) {
     throw std::invalid_argument{"Truncated UTF-8"};
   }

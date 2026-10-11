@@ -1,2 +1,14 @@
 serializer version 1.9.0;
 include ../../example/schemas/conversions/model;
+
+class conversion_versioned_target stable_ids {
+  public version version3 revision (1) {"1.2.3"};
+  public uint32 value (2);
+}
+class conversion_versioned_source stable_ids {
+  public version version3 revision (1) {"1.2.3"};
+  public uint32 value (2);
+  public conversion conversion_versioned_target as converted {
+    value = value;
+  };
+}

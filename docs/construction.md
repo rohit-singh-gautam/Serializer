@@ -61,7 +61,7 @@ construction preserves both destination and inputs.
 
 C++ marks eligible constructors, retained default constructors and factories
 `constexpr` under its C++20 baseline. Scalars, enums, ordinary owning records,
-strings, vectors, optionals and fixed arrays support this declaration when their
+strings, vectors, optionals, fixed arrays and dotted revisions support this declaration when their
 contained values do. Literal bindings and `default(factory)` retain constant
 construction. Open type parameters defer constant evaluation to the chosen C++
 specialization; named schema instantiations use their resolved types. Allocating
@@ -69,6 +69,12 @@ standard-library values still follow C++ constant-evaluation lifetime rules.
 Maps, variants, recursive storage, managed records, polymorphic behavior and
 opaque class storage retain ordinary construction. No constant evaluation is
 promised for those shapes, and their runtime APIs remain available.
+
+In compiler/runtime 1.15.0, factories are `[[nodiscard]]` and construction with
+proven scalar/enum/dotted defaults and bindings is `noexcept`. Allocating storage,
+opaque defaults and unproven generic arguments retain potentially throwing APIs.
+Constructors and factories remain callable with runtime inputs; `consteval`
+would prevent that intended use.
 
 C++ managed records retain scalar and ordinary owned field bindings in both
 direct and separate-value representations. Separate generated payloads also

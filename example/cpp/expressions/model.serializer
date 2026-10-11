@@ -1,0 +1,35 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.10.0;
+
+namespace expression_math {
+  function double total(double unit_price, uint32 count) readonly
+    expression(unit_price * to_double(count));
+}
+
+namespace expressions {
+  class metrics stable_ids {
+    public double unit_price (1) {12.5};
+    public uint32 count (2) {4};
+    public uint64 identity (3) {42};
+    public bool enabled (4) {true};
+    public array[3] double readings (5);
+
+    public function double subtotal() readonly
+      expression(expression_math::total(unit_price, count));
+    public function double adjusted(double discount, double fee) readonly
+      expression(subtotal() - discount + fee);
+    public function double unit_ratio(double divisor) readonly
+      expression(unit_price / divisor);
+    public function bool matches(uint64 expected) readonly
+      expression(identity == expected);
+    public function bool within_budget(double budget) readonly
+      predicate(enabled && unit_price * to_double(count) <= budget);
+    public function bool ratio_within(double divisor, double maximum) readonly
+      predicate(unit_price / divisor <= maximum);
+    public function bool all_nonnegative() readonly
+      predicate(all(readings, 3, item => item >= 0.0));
+    public function bool reading_matches(uint32 index, double expected) readonly
+      predicate(readings[index] == expected);
+  }
+}

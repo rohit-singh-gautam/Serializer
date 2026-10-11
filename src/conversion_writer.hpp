@@ -58,6 +58,8 @@ inline std::string methods(const class_node& owner, std::string_view owner_name,
     const auto& target_owner = ::rohit::serializer::conversion::record(method.target);
     const bool constant = cpp && construction::constexpr_construction(owner) &&
         construction::constexpr_construction(target_owner);
+    const bool nothrow = cpp && construction::nothrow_construction(owner) &&
+        construction::nothrow_construction(target_owner);
     const std::string visibility = method.access == access_type::public_access ? "public " :
         method.access == access_type::protected_access ? "protected " : "private ";
     if (c) {
@@ -68,7 +70,7 @@ inline std::string methods(const class_node& owner, std::string_view owner_name,
     }
     if (cpp) { output += std::string{visibility}.substr(0, visibility.size() - 1) + ":\n"; }
     output += python ? "  def " + name + "(self) -> " + target + ":\n" :
-        cpp ? "  // Copy public projections into fresh independent target defaults.\n  " + std::string{constant ? "constexpr " : ""} + target + " " + name + "() const {\n" :
+        cpp ? "  // Copy public projections into fresh independent target defaults.\n  [[nodiscard]] " + std::string{constant ? "constexpr " : ""} + target + " " + name + "() const" + std::string{nothrow ? " noexcept" : ""} + " {\n" :
         c ? "/* Copy borrowed source into initialized/zeroed result. Failure preserves both; ownership must be disjoint. */\nstatic inline srl_status " + std::string{owner_name} + "_" + name + "(" + target + "* result, const " + std::string{owner_name} + "* source) {\n" :
         rust ? "  /// Copy public projections without consuming the receiver.\n  " + std::string{method.access == access_type::public_access ? "pub " : ""} + "fn " + name + "(&self) -> " + target + " {\n" :
         go ? "// " + name + " copies into independent target defaults.\nfunc (value *" + std::string{owner_name} + ") " + name + "() " + target + " {\n" :
@@ -140,8 +142,9 @@ inline std::string methods(const class_node& owner, std::string_view owner_name,
     if (cpp && std::count_if(owner.conversions.begin(), owner.conversions.end(), [&](const auto& candidate) {
         return candidate.target == method.target;
       }) == 1) {
-      output += "  // Explicit casts use the sole declared conversion to this target.\n  explicit " +
-          std::string{constant ? "constexpr " : ""} + "operator " + target + "() const { return " + name + "(); }\n";
+      output += "  // Explicit casts use the sole declared conversion to this target.\n  [[nodiscard]] explicit " +
+          std::string{constant ? "constexpr " : ""} + "operator " + target + "() const" +
+          std::string{nothrow ? " noexcept" : ""} + " { return " + name + "(); }\n";
     }
   }
   return output;

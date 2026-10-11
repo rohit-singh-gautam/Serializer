@@ -108,6 +108,6 @@ TEST(auto_size_constant, emission_count_and_destination_bounds) {
   codec::binary_none_output counter{};
   EXPECT_EQ(counter.measure_record_size<std::uint32_t>(value), 0u);
   codec::binary_none_output writer{output};
-  EXPECT_THROW(writer.measure_record_size<std::uint32_t>(value, envelope_bytes + 1),
+  EXPECT_THROW(static_cast<void>(writer.measure_record_size<std::uint32_t>(value, envelope_bytes + 1)),
                std::invalid_argument);
 }

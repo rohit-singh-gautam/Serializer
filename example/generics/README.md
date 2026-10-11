@@ -15,7 +15,7 @@ class box<T> stable_ids {
 }
 
 class envelope<T> stable_ids {
-  public uint32 revision (1);
+  public uint32 revision (1) ignore(warning version);
   public T payload (2);
   public map(uint32) T lookup (3);
 }
@@ -27,12 +27,35 @@ The complete schema includes the required version header and puts these three
 generic declarations in `namespace shared`. Type arguments are schema types.
 All generators share the same concrete expansion and field IDs.
 
+The schema language `1.10.0` example also declares a constrained numeric value:
+
+```text
+class number<T: (integral || floating_point) && !bool = int32> stable_ids {
+  public T value (1);
+}
+
+instantiate integer_number = shared::number<int32>;
+instantiate floating_number = shared::number<double>;
+```
+
+Both `int32` and `double` satisfy the constraint. `bool` and `string` are rejected
+when checking schema applications and native C++ template arguments. Constraints
+combine categories or exact schema type names with `&&`, `||`, `!`, and grouping;
+an exact-type disjunction such as `int32 || double` expresses an allowed type list.
+They add no encoded fields. Defaults and nested generic arguments must satisfy
+the same predicate. Dependent type arguments are checked after substitution into
+each concrete application; the original `stateless` constraint retains its
+declaration-time forwarding proof requirement.
+
 ## Native C++ templates
 
 [main.cpp](main.cpp) uses `shared::pair<std::uint32_t, std::string>`,
 `shared::box<item_type>`, and `shared::envelope<batch_type>` alongside the named
 `example_model` root. It encodes the named root and decodes the bytes into the
 equivalent native template specialization, checking the nested payload and map contents.
+It also checks constrained `shared::number<std::int32_t>` and
+`shared::number<double>` values, including compile-time rejection probes for
+Boolean and string specializations.
 
 The target is included when building this repository with tests enabled:
 
@@ -59,6 +82,8 @@ four native protocols, and verifies its
 complete positional representation. The runner also checks every output field
 against the fixture, including nested collections, UTF-8, embedded NUL, and a
 maximum-width `uint32` value.
+Each consumer also uses the accepted constrained `integer_number` and
+`floating_number` roots with signed integer and floating-point values.
 
 | Language | Dedicated example |
 | --- | --- |
@@ -103,7 +128,7 @@ The smaller [result.serializer](result.serializer) shows `result<person>` and
 checks wire equivalence in all four protocols. See the
 [schema guide](../../docs/generics.md) for syntax and limitations.
 
-Both editor extensions 1.1.13 highlight these examples and navigate generic
+Both editor extensions highlight these examples and navigate generic
 parameters, nested arguments, named roots, and generated implementations.
 
 C++ also permits application-only specializations with no `instantiate` declaration

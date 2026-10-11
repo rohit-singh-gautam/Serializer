@@ -19,7 +19,7 @@
 namespace rohit::serializer::detail {
 
 // Read exactly four ASCII hexadecimal digits without locale-dependent conversion.
-inline std::uint32_t read_hex_quad(std::span<const std::uint8_t> bytes) {
+[[nodiscard]] constexpr std::uint32_t read_hex_quad(std::span<const std::uint8_t> bytes) {
   constexpr std::size_t hex_quad_digits = 4;
   if (bytes.size() < hex_quad_digits) {
     throw std::invalid_argument{"Truncated Unicode escape"};
@@ -38,7 +38,7 @@ inline std::uint32_t read_hex_quad(std::span<const std::uint8_t> bytes) {
 }
 
 // Decode one escape starting after its backslash; advance past an entire surrogate pair.
-inline std::uint32_t read_json_escape(std::span<const std::uint8_t> bytes, std::size_t& index) {
+[[nodiscard]] constexpr std::uint32_t read_json_escape(std::span<const std::uint8_t> bytes, std::size_t& index) {
   if (index == bytes.size()) {
     throw std::invalid_argument{"Truncated JSON escape"};
   }
@@ -74,12 +74,12 @@ inline std::uint32_t read_json_escape(std::span<const std::uint8_t> bytes, std::
 }
 
 // Measure the UTF-8 representation of a validated Unicode scalar value.
-inline std::size_t utf8_code_point_size(std::uint32_t value) {
+[[nodiscard]] constexpr std::size_t utf8_code_point_size(std::uint32_t value) noexcept {
   return value <= 0x7f ? 1 : value <= 0x7ff ? 2 : value <= 0xffff ? 3 : 4;
 }
 
 // Append a validated scalar without temporary owning text.
-inline void append_utf8(std::string& output, std::uint32_t value) {
+constexpr void append_utf8(std::string& output, std::uint32_t value) {
   const auto size = utf8_code_point_size(value);
   if (size == 1) {
     output.push_back(static_cast<char>(value));
@@ -102,7 +102,7 @@ struct json_string_range {
 };
 
 // Validate one quoted string in a bounded span, including its Unicode and escape grammar.
-inline json_string_range scan_json_string(std::span<const std::uint8_t> bytes) {
+[[nodiscard]] inline json_string_range scan_json_string(std::span<const std::uint8_t> bytes) {
   if (bytes.empty() || bytes[0] != '"') {
     throw std::invalid_argument{"Expected a JSON string"};
   }
@@ -177,7 +177,7 @@ struct json_escape_analysis {
 };
 
 // Validate the whole UTF-8 string and retain escape boundaries alongside its exact encoded size.
-inline json_escape_analysis analyze_json_escaping(std::string_view text) {
+[[nodiscard]] inline json_escape_analysis analyze_json_escaping(std::string_view text) {
   const auto bytes = std::span{reinterpret_cast<const std::uint8_t*>(text.data()), text.size()};
   json_escape_analysis result{text.size(), text.size(), text.size()};
   for (std::size_t index = 0; index < bytes.size();) {
@@ -206,7 +206,7 @@ inline json_escape_analysis analyze_json_escaping(std::string_view text) {
 }
 
 // Retain size-only callers and their validation/errors without requiring them to keep scan metadata.
-inline std::size_t json_escaped_size(std::string_view text) {
+[[nodiscard]] inline std::size_t json_escaped_size(std::string_view text) {
   return analyze_json_escaping(text).encoded_bytes;
 }
 
@@ -259,7 +259,7 @@ inline void write_json_escaped(std::uint8_t* output, const std::uint8_t* input, 
 }
 
 // Retain the owning helper; treat the supplied size as a reservation hint, never as a write bound.
-inline std::string escape_json_string(std::string_view text, std::size_t encoded_size) {
+[[nodiscard]] inline std::string escape_json_string(std::string_view text, std::size_t encoded_size) {
   std::string result;
   result.reserve(encoded_size);
   const auto analysis = analyze_json_escaping(text);

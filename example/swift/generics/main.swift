@@ -1,6 +1,11 @@
 import Foundation
 
 // Read a fresh value, edit a typed field, and verify complete protocol round trips.
+var integer = IntegerNumber()
+var floating = FloatingNumber()
+integer.value = -7
+floating.value = 12.5
+precondition(integer.value == -7 && floating.value == 12.5)
 let args = CommandLine.arguments
 var value = try ExampleModel.decode(Array(Data(contentsOf: URL(fileURLWithPath: args[1]))), .JSON)
 value.revision += 1

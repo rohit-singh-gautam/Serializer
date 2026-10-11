@@ -213,13 +213,16 @@ class emitter {
                       const std::string& prefix, std::set<std::string> enclosing) {
     for (const auto& node : nodes) {
       if (node->type == object_type::generic_definition || node->type == object_type::native_code) { continue; }
-      const auto name = type_name(node->name);
+      const auto name = node->type == object_type::function_type ? field(node->name) : type_name(node->name);
       const auto qualified = prefix + "." + name;
       const auto [previous, inserted] = declarations.emplace(qualified, node.get());
       const bool reopened_namespace = !inserted && node->type == object_type::namespace_type &&
                                       previous->second->type == object_type::namespace_type &&
                                       previous->second->get_full_name() == node->get_full_name();
-      if ((!inserted && !reopened_namespace) || enclosing.contains(name)) {
+      const bool overload = !inserted && node->type == object_type::function_type &&
+          previous->second->type == object_type::function_type &&
+          previous->second->get_full_name() == node->get_full_name();
+      if ((!inserted && !reopened_namespace && !overload) || enclosing.contains(name)) {
         throw std::invalid_argument{"Java type name collision: " + name};
       }
       names.emplace(node.get(), qualified);
@@ -937,14 +940,21 @@ class emitter {
         context.member_name = [&](std::string_view name) { return field(name); };
         context.native_type = [&](const auto& item) { return type(item); };
         context.enum_value = [&](const auto& item, std::string_view name) { return type(item) + "." + constant(name); };
+        context.call = [&](const behavior_expression& node, const std::vector<std::string>& arguments) {
+          const auto& target = behavior::called_function(node);
+          std::string receiver = "this";
+          for (const auto base : node.call_base_path) { receiver += ".base" + std::to_string(base); }
+          const auto callable = node.call_target->type == object_type::function_type ? names.at(node.call_target) : receiver + "." + field(target.name);
+          return callable + "(" + behavior::call_arguments(arguments) + ")";
+        };
         context.predicate = method.predicate_body;
         while (std::any_of(method.parameters.begin(), method.parameters.end(), [&](const auto& parameter) {
           return field(parameter.name) == context.budget_name;
         })) { context.budget_name += '_'; }
         if (behavior::expression_has_reduction(*method.expression)) { line("long[] " + context.budget_name + " = {" + std::to_string(behavior_expression::maximum_reduction_visits) + "};"); }
         if (method.predicate_body) { line("try {"); ++level; }
-        line(std::string{method.return_type.name == "bool" ? "boolean" : "double"} + " srlBehaviorResult = " + behavior::expression(*method.expression, "java", symbol, arithmetic_helpers, context) + ";");
-        if (method.return_type.name != "bool") { line("if (!Double.isFinite(srlBehaviorResult)) { throw new ArithmeticException(\"Non-finite result\"); }"); }
+        line(return_type + " srlBehaviorResult = " + behavior::expression(*method.expression, "java", symbol, arithmetic_helpers, context) + ";");
+        if (method.return_type.name == "float" || method.return_type.name == "double") { line("if (!Double.isFinite(srlBehaviorResult)) { throw new ArithmeticException(\"Non-finite result\"); }"); }
         line("return srlBehaviorResult;");
         if (method.predicate_body) { --level; line("} catch (RuntimeException srlFailure) { return false; }"); }
       } else {
@@ -1511,6 +1521,35 @@ class emitter {
     line("}");
   }
 
+  // Publish readonly namespace functions as static methods on their namespace container.
+  void free_function(const function_node& node) {
+    const auto& method = node.function;
+    const auto result_type = method.return_type.name == "void" ? "void" : type(method.return_type);
+    std::string parameters;
+    for (const auto& parameter : method.parameters) {
+      if (!parameters.empty()) { parameters += ", "; }
+      parameters += type(parameter.type) + " " + field(parameter.name);
+    }
+    line(behavior::source_marker(method, "java"));
+    line("public static " + result_type + " " + field(method.name) + "(" + parameters + ") {"); ++level;
+    if (const auto* native = behavior::native_body(method, "java")) {
+      if (options.rename_identifiers) { throw std::invalid_argument{"java: opaque native functions require naming = preserve"}; }
+      source += behavior::source_marker(*native, "java") + native->text + "\n";
+    } else if (method.expression) {
+      behavior::expression_context context;
+      context.member_name = [&](auto value) { return field(value); };
+      context.native_type = [&](const auto& value) { return type(value); };
+      context.enum_value = [&](const auto& value, auto name) { return type(value) + "." + constant(name); };
+      context.call = [&](const behavior_expression& call, const std::vector<std::string>& arguments) {
+        return names.at(call.call_target) + "(" + behavior::call_arguments(arguments) + ")";
+      };
+      behavior::free_expression_body(method, "java", result_type, [&](auto value) { return field(value); },
+          arithmetic_helpers, context, [&](const auto& text) { line(text); },
+          [&](const auto& text) { line(text + " {"); ++level; }, [&]() { --level; line("}"); });
+    } else { throw std::invalid_argument{"java: standalone functions require an expression or selected native body"}; }
+    --level; line("}");
+  }
+
   // Combine reopened namespaces into one Java container without changing the source AST order.
   void nodes(const std::vector<const syntax_node*>& values) {
     std::map<std::string, std::vector<const syntax_node*>> namespace_children{};
@@ -1539,6 +1578,8 @@ class emitter {
         enumeration(static_cast<const enum_node&>(*value));
       } else if (value->type == object_type::class_type) {
         object(static_cast<const class_node&>(*value));
+      } else if (value->type == object_type::function_type) {
+        free_function(static_cast<const function_node&>(*value));
       }
     }
   }
@@ -1560,8 +1601,10 @@ public:
     register_nodes(values, outer, reserved);
     std::vector<const syntax_node*> helper_nodes;
     for (const auto& [node, name] : names) { static_cast<void>(name); helper_nodes.push_back(node); }
+    behavior::require_unique_free_names(helper_nodes, "java", [&](const auto& node) { return names.at(&node); },
+        [&](const auto& value) { return type(value); });
     arithmetic_helpers = behavior::select_helpers(helper_nodes,
-        [&](const auto& node) { return type_name(node.name); },
+        [&](const auto& node) { return node.type == object_type::function_type ? field(node.name) : type_name(node.name); },
         [&](const auto name) { return field(name); });
     source = generated_license_notice(values, "//", true) +
              "// Generated by Serializer. Requires Java 17 or newer.\n";

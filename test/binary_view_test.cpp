@@ -129,19 +129,19 @@ TEST(binary_view, mapping_limits_and_single_mode_classes) {
   editor.set_value(0xabcdef01);
   EXPECT_EQ(view_test::readonly_record::map(bytes).get_value(), 0xabcdef01U);
   EXPECT_EQ(global_view::map(bytes).get_child().get_value(), 0xabcdef01U);
-  EXPECT_THROW(view_test::readonly_record::map(std::span{bytes}.first(3)),
+  EXPECT_THROW(static_cast<void>(view_test::readonly_record::map(std::span{bytes}.first(3))),
                rohit::serializer::exception::bad_input_data);
   std::array<std::uint8_t, 5> extra{};
-  EXPECT_THROW(view_test::readonly_record::map(extra), rohit::serializer::exception::bad_input_data);
+  EXPECT_THROW(static_cast<void>(view_test::readonly_record::map(extra)), rohit::serializer::exception::bad_input_data);
   rohit::serializer::decode_limits limits{};
   limits.max_input_bytes = 3;
-  EXPECT_THROW(view_test::readonly_record::map(bytes, limits), rohit::serializer::exception::resource_limit);
+  EXPECT_THROW(static_cast<void>(view_test::readonly_record::map(bytes, limits)), rohit::serializer::exception::resource_limit);
   EXPECT_TRUE(view_test::empty::map({}).serialized_bytes().empty());
   std::array<std::uint8_t, 2> recursive{1, 0};
   EXPECT_EQ(view_test::recursive::map(recursive).get_children().at(0).get_children().size(), 0U);
   limits = {};
   limits.max_nesting_depth = 1;
-  EXPECT_THROW(view_test::recursive::map(recursive, limits), rohit::serializer::exception::resource_limit);
+  EXPECT_THROW(static_cast<void>(view_test::recursive::map(recursive, limits)), rohit::serializer::exception::resource_limit);
 }
 
 // Attribute permutations and defaults must produce identical selected representations.

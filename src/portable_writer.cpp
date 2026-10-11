@@ -389,7 +389,16 @@ class emitter {
         continue;
       }
       validate_name(generated, language);
-      if (!globals.insert(generated).second || (language == target::csharp && generated == unit) ||
+      const bool same_free_name = value->type == object_type::function_type &&
+          std::any_of(names.begin(), names.end(), [&](const auto& item) {
+            return item.second == generated && item.first->type == object_type::function_type &&
+                item.first->get_full_name() == value->get_full_name();
+          });
+      if (same_free_name && language != target::csharp) {
+        throw std::invalid_argument{choose("js", "go", "csharp") + ": standalone overload/name erasure collision: " + generated};
+      }
+      const bool overload = language == target::csharp && same_free_name;
+      if ((!globals.insert(generated).second && !overload) || (language == target::csharp && generated == unit) ||
           generated.starts_with("srl")) {
         throw std::invalid_argument{"Generated type name collision: " + generated};
       }
@@ -400,6 +409,7 @@ class emitter {
   // Validate native names, default construction, and the supported owning subset.
   void validate() {
     for (const auto* node : nodes) {
+      if (node->type == object_type::function_type) { continue; }
       if (!globals.insert(names.at(node) + "Names").second) {
         throw std::invalid_argument{"Generated helper name collision"};
       }
@@ -1844,6 +1854,13 @@ class emitter {
         context.member_name = [&](std::string_view item) { return field(item, access_type::public_access); };
         context.native_type = [&](const auto& item) { return type(item); };
         context.enum_value = [&](const auto& item, std::string_view name) { return enum_constant(item, name); };
+        context.call = [&](const behavior_expression& node, const std::vector<std::string>& arguments) {
+          const auto& callee = behavior::called_function(node);
+          std::string receiver = language == target::go ? receiver_name : "this";
+          for (const auto base : node.call_base_path) { receiver += "." + field("base" + std::to_string(base)); }
+          const auto callable = node.call_target->type == object_type::function_type ? names.at(node.call_target) : receiver + "." + field(callee.name, callee.access);
+          return callable + "(" + behavior::call_arguments(arguments) + ")";
+        };
         context.predicate = method.predicate_body;
         while (std::any_of(method.parameters.begin(), method.parameters.end(), [&](const auto& parameter) {
           return name(parameter.name, false, options.rename_identifiers) == context.budget_name;
@@ -1856,9 +1873,9 @@ class emitter {
           open("return func() (srlPredicateResult bool)");
           line("defer func() { if recover() != nil { srlPredicateResult = false } }()");
         } else if (method.predicate_body) { open("try"); }
-        statement(choose("const ", "", method.return_type.name == "bool" ? "bool " : "double ") + std::string{"srlBehaviorResult"} +
+        statement(choose("const ", "", return_type + " ") + std::string{"srlBehaviorResult"} +
             choose(" = ", " := ", " = ") + behavior::expression(*method.expression, selected, symbol, arithmetic_helpers, context));
-        if (method.return_type.name != "bool") {
+        if (method.return_type.name == "float" || method.return_type.name == "double") {
           condition("!" + (language == target::csharp ? std::string{"double.IsFinite(srlBehaviorResult)"} : behavior::finite("srlBehaviorResult")));
           statement(error); close();
         }
@@ -1871,6 +1888,59 @@ class emitter {
       }
       close();
     }
+  }
+
+  // Emit flattened namespace functions at module scope or as static C# container methods.
+  void free_function(const function_node& node) {
+    const auto& method = node.function;
+    const auto selected = choose("js", "go", "csharp");
+    const auto identifier = names.at(&node);
+    const auto result_type = method.return_type.name == "void" ? choose("void", "", "void") : type(method.return_type);
+    std::string parameters;
+    for (const auto& parameter : method.parameters) {
+      if (!parameters.empty()) { parameters += ", "; }
+      const auto n = name(parameter.name, false, options.rename_identifiers);
+      parameters += language == target::go ? n + " " + type(parameter.type) :
+          language == target::csharp ? type(parameter.type) + " " + n :
+          language == target::typescript ? n + ": " + type(parameter.type) : n;
+    }
+    line(behavior::source_marker(method, selected));
+    if (language == target::typescript) {
+      line("export declare function " + identifier + "(" + parameters + "): " + result_type + ";"); return;
+    }
+    const auto* native = behavior::native_body(method, selected);
+    if (!native && !method.expression) {
+      if (language == target::go) {
+        std::string required;
+        for (const auto& parameter : method.parameters) { required += (required.empty() ? "" : ", ") + type(parameter.type); }
+        line("var _ func(" + required + ") " + result_type + " = " + identifier); return;
+      }
+      if (language == target::csharp) {
+        line("public static partial " + result_type + " " + identifier + "(" + parameters + ");"); return;
+      }
+      throw std::invalid_argument{"js: standalone functions require an expression or selected native body"};
+    }
+    open(language == target::go ? "func " + identifier + "(" + parameters + ") " +
+        (method.predicate_body ? "(srlPredicateResult bool)" : result_type) :
+        language == target::csharp ? "public static " + result_type + " " + identifier + "(" + parameters + ")" :
+        "export function " + identifier + "(" + parameters + ")");
+    if (native) {
+      if (options.rename_identifiers) { throw std::invalid_argument{selected + ": opaque native functions require naming = preserve"}; }
+      source += behavior::source_marker(*native, selected) + behavior::line_directive(*native, selected) +
+          native->text + behavior::reset_line(selected) + "\n";
+    } else {
+      behavior::expression_context context;
+      context.member_name = [&](auto value) { return field(value); };
+      context.native_type = [&](const auto& value) { return type(value); };
+      context.enum_value = [&](const auto& value, auto constant) { return enum_constant(value, constant); };
+      context.call = [&](const behavior_expression& call, const std::vector<std::string>& arguments) {
+        return names.at(call.call_target) + "(" + behavior::call_arguments(arguments) + ")";
+      };
+      behavior::free_expression_body(method, selected, result_type,
+          [&](auto value) { return name(value, false, options.rename_identifiers); }, arithmetic_helpers, context,
+          [&](const auto& text) { line(text); }, [&](const auto& text) { open(text); }, [&]() { close(); });
+    }
+    close();
   }
 
   // Dispatch adapters expose interfaces without imposing abstract construction on codec data.
@@ -2287,6 +2357,9 @@ public:
       }
     }
     register_nodes(values);
+    behavior::require_unique_free_names(nodes, choose("js", "go", "csharp"), [&](const auto& node) { return names.at(&node); },
+        language == target::csharp ? std::function<std::string(const type_name&)>{[&](const auto& value) { return type(value); }} :
+        std::function<std::string(const type_name&)>{});
     validate();
     arithmetic_helpers = behavior::select_helpers(nodes,
         [&](const auto& node) { return names.at(&node); },
@@ -2345,6 +2418,8 @@ public:
     for (const auto* node : nodes) {
       if (node->type == object_type::enum_type) {
         enumeration(static_cast<const enum_node&>(*node));
+      } else if (node->type == object_type::function_type) {
+        free_function(static_cast<const function_node&>(*node));
       } else {
         object(static_cast<const class_node&>(*node));
       }

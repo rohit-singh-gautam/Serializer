@@ -134,7 +134,7 @@ public:
   static constexpr bool count_only = false;
 
   // Start a pure counting traversal associated with the enclosing concrete protocol.
-  explicit constexpr binary_dual_sink(binary_none_output& protocol) : protocol_{&protocol} {}
+  explicit constexpr binary_dual_sink(binary_none_output& protocol) noexcept : protocol_{&protocol} {}
 
   // Borrow caller memory and reject extents beyond the established stream ceiling.
   constexpr binary_dual_sink(binary_none_output& protocol, std::span<std::uint8_t> storage)
@@ -245,7 +245,7 @@ constexpr void validate_constant_binary_text(std::string_view text) {
 }
 
 // Distinguish a generated type's own opt-in helper from one inherited by a custom derived codec.
-template <class Value> constexpr bool has_direct_constant_binary_support() {
+template <class Value> [[nodiscard]] constexpr bool has_direct_constant_binary_support() noexcept {
   if constexpr (requires { typename Value::serializer_constant_evaluation_type; }) {
     return std::same_as<Value, typename Value::serializer_constant_evaluation_type>;
   } else {
@@ -254,7 +254,7 @@ template <class Value> constexpr bool has_direct_constant_binary_support() {
 }
 
 // Require an exact-type emission marker so inherited metadata cannot discard derived fields.
-template <class Value> constexpr bool has_emission_binary_support() {
+template <class Value> [[nodiscard]] constexpr bool has_emission_binary_support() {
   if constexpr (has_direct_constant_binary_support<Value>() &&
                 requires { Value::serializer_emission_only; }) {
     return Value::serializer_emission_only;
@@ -264,7 +264,7 @@ template <class Value> constexpr bool has_emission_binary_support() {
 }
 
 // Identify opt-in generated models without restricting standalone custom constexpr codecs.
-template <class Value> constexpr bool has_constant_binary_support() {
+template <class Value> [[nodiscard]] constexpr bool has_constant_binary_support() {
   if constexpr (requires { Value::serializer_reuses_storage; }) {
     if constexpr (requires { typename Value::serializer_constant_evaluation_type; }) {
       if constexpr (!has_direct_constant_binary_support<Value>()) {
@@ -286,7 +286,7 @@ template <binary_constant_sink Sink> class constant_binary_out {
   Sink& sink_;
 
   // Count fixed payloads directly, including the concrete writer's runtime-selected count mode.
-  constexpr bool count_fixed_bytes(std::size_t bytes) {
+  [[nodiscard]] constexpr bool count_fixed_bytes(std::size_t bytes) {
     if constexpr (Sink::count_only) {
       sink_.commit_counted_bytes(bytes);
       return true;
@@ -344,20 +344,27 @@ public:
   static constexpr binary_text_validation text_validation = binary_text_validation::strict;
 
   // Borrow the sink for one complete traversal; neither protocol nor sink owns model storage.
-  explicit constexpr constant_binary_out(Sink& sink) : sink_{sink} {}
+  explicit constexpr constant_binary_out(Sink& sink) noexcept : sink_{sink} {}
 
   // Return committed bytes so derived metadata can validate the completed counting traversal.
-  [[nodiscard]] constexpr std::size_t position_bytes() const noexcept { return sink_.position_bytes(); }
+  [[nodiscard]] constexpr std::size_t position_bytes() const
+      noexcept(noexcept(sink_.position_bytes())) { return sink_.position_bytes(); }
 
   // Distinguish fixed count sinks and the emission writer's runtime count mode without rescanning.
-  [[nodiscard]] constexpr bool counting() const noexcept {
+  [[nodiscard]] constexpr bool counting() const noexcept([] {
+    if constexpr (requires(Sink& sink) { sink.counting(); }) {
+      return noexcept(static_cast<bool>(std::declval<Sink&>().counting()));
+    } else {
+      return noexcept(static_cast<bool>(Sink::count_only));
+    }
+  }()) {
     if constexpr (requires { sink_.counting(); }) { return sink_.counting(); }
     else { return Sink::count_only; }
   }
 
   // Count one complete positional record with fixed-width placeholders, without recursive counting.
   template <std::unsigned_integral Size, typename Value>
-  constexpr Size measure_record_size(const Value& value, std::size_t excluded_bytes = 0) {
+  [[nodiscard]] constexpr Size measure_record_size(const Value& value, std::size_t excluded_bytes = 0) {
     static_assert(sizeof(Size) == sizeof(std::uint32_t) || sizeof(Size) == sizeof(std::uint64_t),
                   "auto_size requires a fixed-width uint32 or uint64 value");
     if constexpr (Sink::count_only) {
@@ -582,7 +589,7 @@ public:
   static constexpr binary_text_validation text_validation = binary_text_validation::strict;
 
   // Count validated bytes without allocating output or requiring a destination.
-  constexpr binary_none_output() : sink_{*this}, encoder_{sink_} {}
+  constexpr binary_none_output() noexcept : sink_{*this}, encoder_{sink_} {}
 
   // Borrow independent caller memory for one writing traversal starting at offset zero.
   explicit constexpr binary_none_output(std::span<std::uint8_t> destination)
@@ -607,7 +614,7 @@ public:
 
   // Count a borrowed record independently; count mode emits fixed-width size placeholders.
   template <std::unsigned_integral Size, typename Value>
-  constexpr Size measure_record_size(const Value& value, std::size_t excluded_bytes = 0) {
+  [[nodiscard]] constexpr Size measure_record_size(const Value& value, std::size_t excluded_bytes = 0) {
     static_assert(sizeof(Size) == sizeof(std::uint32_t) || sizeof(Size) == sizeof(std::uint64_t),
                   "auto_size requires a fixed-width uint32 or uint64 value");
     if (counting()) {
@@ -667,7 +674,7 @@ namespace detail {
 
 // Encode explicit constant/emission output without requiring the owning runtime stream headers.
 template <class Value>
-constexpr std::size_t serialize_constant_binary_to(std::span<std::uint8_t> destination,
+[[nodiscard]] constexpr std::size_t serialize_constant_binary_to(std::span<std::uint8_t> destination,
                                                    const Value& value) {
   if constexpr (has_emission_binary_support<Value>() || constant_binary_span<Value>) {
     binary_none_output encoder{destination};

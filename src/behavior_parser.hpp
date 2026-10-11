@@ -202,6 +202,12 @@ template <typename Input> struct behavior_expression_parser {
       throw exception::bad_member_spec{input, "Checked guards and math require serializer version 1.8.0"};
     }
   }
+  // Callable composition belongs to the declaring file's independent language contract.
+  void require_call_language() {
+    if (active_language_version < language_version{1u, 10u, 0u}) {
+      throw exception::bad_member_spec{input, "Readonly function calls require serializer version 1.10.0"};
+    }
+  }
   // Consume an exact operator without advancing on a mismatch.
   bool consume(std::string_view token) {
     skip_whitespace_and_comment(input);
@@ -217,6 +223,28 @@ template <typename Input> struct behavior_expression_parser {
       throw exception::bad_member_spec{input, "Expression exceeds 1024 nodes"};
     }
     return {kind, std::move(value), {}, behavior_source_offset(input)};
+  }
+  // Parse bounded positional arguments while preserving their left-to-right source order.
+  behavior_expression call(std::string name) {
+    require_call_language();
+    auto result = make(behavior_expression::operation::call, std::move(name));
+    check_and_increase(input, '(');
+    skip_whitespace_and_comment(input);
+    constexpr std::size_t maximum_call_arguments = 64;
+    while (!input.full() && *input != ')') {
+      if (result.operands.size() == maximum_call_arguments) {
+        throw exception::bad_member_spec{input, "Function call exceeds 64 arguments"};
+      }
+      result.operands.push_back(conditional());
+      skip_whitespace_and_comment(input);
+      if (!consume(",")) { break; }
+      skip_whitespace_and_comment(input);
+      if (!input.full() && *input == ')') {
+        throw exception::bad_member_spec{input, "Trailing function call argument comma"};
+      }
+    }
+    check_and_increase(input, ')');
+    return result;
   }
   // Parse constants, bound symbols, explicit conversions and parenthesized subexpressions.
   behavior_expression primary() {
@@ -292,6 +320,8 @@ template <typename Input> struct behavior_expression_parser {
         result.operands.push_back(conditional());
         skip_whitespace_and_comment(input);
         check_and_increase(input, ')');
+      } else if (*input == '(') {
+        result = call(std::move(name));
       } else if ((name == "true" || name == "false") && active_language_version >= language_version{1u, 8u, 0u}) {
         result = make(operation::boolean, std::move(name));
       } else if (consume("::")) {
@@ -299,7 +329,8 @@ template <typename Input> struct behavior_expression_parser {
         std::string qualified{name};
         qualified += "::" + parse_identifier_impl(input);
         while (consume("::")) { qualified += "::" + parse_identifier_impl(input); }
-        result = make(operation::enum_constant, std::move(qualified));
+        result = !input.full() && *input == '(' ? call(std::move(qualified)) :
+            make(operation::enum_constant, std::move(qualified));
       } else {
         result = make(operation::symbol, std::move(name));
       }
@@ -465,6 +496,10 @@ function_declaration parse_function(const rohit::type_check::schema_input_buffer
                                    function_declaration::effect_type::readonly;
   skip_whitespace_and_comment(input);
   if (next_keyword(input, "expression") || next_keyword(input, "predicate")) {
+    if (active_language_version < language_version{1u, 10u, 0u} &&
+        result.return_type.name != "double" && result.return_type.name != "bool") {
+      throw exception::bad_member_spec{input, "Typed portable results require serializer version 1.10.0"};
+    }
     result.predicate_body = next_keyword(input, "predicate");
     if (result.predicate_body) {
       if (active_language_version < language_version{1u, 8u, 0u} || result.return_type.name != "bool") {
@@ -505,11 +540,86 @@ function_declaration parse_function(const rohit::type_check::schema_input_buffer
   return result;
 }
 
+// Bind numeric literals to one exact scalar width without runtime narrowing or rounding.
+bool bind_behavior_literal(behavior_expression& node, const std::string& target,
+                           namespace_node* space) {
+  using operation = behavior_expression::operation;
+  if (target == "float") {
+    std::string text;
+    if (node.kind == operation::literal) { text = node.value; }
+    else if ((node.kind == operation::positive || node.kind == operation::negative) &&
+        node.operands.size() == 1 && node.operands.front().kind == operation::literal) {
+      text = (node.kind == operation::negative ? "-" : "") + node.operands.front().value;
+    } else { return false; }
+    float number{};
+    const auto parsed = std::from_chars(text.data(), text.data() + text.size(), number);
+    if (parsed.ec != std::errc{} || parsed.ptr != text.data() + text.size() || !std::isfinite(number)) {
+      throw std::invalid_argument{"Expression literal is outside float"};
+    }
+    node.kind = operation::literal;
+    node.value = std::move(text);
+    node.operands.clear();
+    node.result_type = "float";
+    node.resolved_type = type_name{std::string{"float"}, space};
+    node.resolved_type->type = object_type::primitive;
+    return true;
+  }
+  const bool integer = target == "char" || target == "int8" || target == "uint8" ||
+      target == "int16" || target == "uint16" || target == "int32" || target == "uint32" ||
+      target == "int64" || target == "uint64";
+  if (!integer) { return false; }
+  std::string text;
+  if (node.kind == operation::literal && node.value.find_first_of(".eE") == std::string::npos) {
+    text = node.value;
+  } else if ((node.kind == operation::negative || node.kind == operation::positive) &&
+      node.operands.size() == 1 && node.operands.front().kind == operation::literal &&
+      node.operands.front().value.find_first_of(".eE") == std::string::npos) {
+    text = (node.kind == operation::negative ? "-" : "") + node.operands.front().value;
+  } else { return false; }
+  const bool signed_value = target.starts_with("int");
+  const unsigned width = target == "char" || target.ends_with("8") ? 8 :
+      target.ends_with("16") ? 16 : target.ends_with("32") ? 32 : 64;
+  bool valid{};
+  if (signed_value) {
+    std::int64_t number{};
+    const auto parsed = std::from_chars(text.data(), text.data() + text.size(), number);
+    valid = parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size() &&
+        (width == 64 || (number >= -(std::int64_t{1} << (width - 1)) &&
+                        number < (std::int64_t{1} << (width - 1))));
+  } else {
+    std::uint64_t number{};
+    const auto parsed = std::from_chars(text.data(), text.data() + text.size(), number);
+    valid = parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size() &&
+        (width == 64 || number < (std::uint64_t{1} << width));
+  }
+  if (!valid) { throw std::invalid_argument{"Integral expression literal is outside " + target}; }
+  node.kind = operation::integer_literal;
+  node.value = std::move(text);
+  node.operands.clear();
+  node.result_type = target;
+  node.resolved_type = type_name{std::string{target}, space};
+  node.resolved_type->type = object_type::primitive;
+  return true;
+}
+
+// Compare complete resolved storage types, including digest identity and extent.
+bool matching_behavior_type(const type_name& left, const type_name& right) {
+  if (left.get_full_name() != right.get_full_name() || left.digest != right.digest ||
+      left.digest_extent != right.digest_extent || left.arguments.size() != right.arguments.size()) {
+    return false;
+  }
+  for (std::size_t index{}; index < left.arguments.size(); ++index) {
+    if (!matching_behavior_type(left.arguments[index], right.arguments[index])) { return false; }
+  }
+  return true;
+}
+
 // Bind scalar identities, lexical reduction items and readonly projections without numeric narrowing.
 std::string validate_behavior_expression(behavior_expression& value, const class_node& owner,
     const function_declaration& method,
     const std::unordered_map<std::string, syntax_node*>& symbols = {},
-    const std::map<std::string, behavior_expression>& locals = {}) {
+    const std::map<std::string, behavior_expression>& locals = {},
+    const std::vector<const function_node*>& functions = {}) {
   using operation = behavior_expression::operation;
   const auto typed = [&](std::string type) { value.result_type = type; return type; };
   const auto bind = [&](const type_name& type, member::modifier_type modifier = member::modifier_type::none,
@@ -517,51 +627,121 @@ std::string validate_behavior_expression(behavior_expression& value, const class
     value.resolved_type = type; value.collection_modifier = modifier; value.fixed_extent = extent;
     return typed(modifier == member::modifier_type::array || type.is_sequence() ? "collection" :
                  type.type == object_type::enum_type ? "enum:" + type.get_full_name() :
-                 type.type == object_type::class_type ? "record:" + type.get_full_name() : type.name);
+                 type.type == object_type::class_type || type.type == object_type::generic_definition ?
+                     "record:" + type.get_full_name() : type.name);
   };
   const auto integer = [](std::string_view type) {
     return type == "char" || type == "int8" || type == "uint8" || type == "int16" ||
         type == "uint16" || type == "int32" || type == "uint32" || type == "int64" || type == "uint64";
   };
   const auto scalar = [&](const std::string& type) {
-    return integer(type) || type == "bool" || type == "float" || type == "double" || type.starts_with("enum:");
+    return integer(type) || type == "bool" || type == "float" || type == "double" || type.starts_with("enum:") ||
+        std::find(owner.type_parameters.begin(), owner.type_parameters.end(), type) != owner.type_parameters.end();
   };
   const auto literal = [&](behavior_expression& node, const std::string& target) {
-    if (target == "float" && node.kind == operation::literal) {
-      float number{}; const auto parsed = std::from_chars(node.value.data(), node.value.data() + node.value.size(), number);
-      if (parsed.ec != std::errc{} || !std::isfinite(number)) { throw std::invalid_argument{"Expression literal is outside float"}; }
-      node.result_type = "float"; node.resolved_type = type_name{std::string{"float"}, owner.parent_namespace};
-      node.resolved_type->type = object_type::primitive; return true;
-    }
-    if (!integer(target)) { return false; }
-    std::string text;
-    if (node.kind == operation::literal && node.value.find_first_of(".eE") == std::string::npos) { text = node.value; }
-    else if ((node.kind == operation::negative || node.kind == operation::positive) &&
-             node.operands.size() == 1 && node.operands.front().kind == operation::literal &&
-             node.operands.front().value.find_first_of(".eE") == std::string::npos) {
-      text = (node.kind == operation::negative ? "-" : "") + node.operands.front().value;
-    } else { return false; }
-    const bool signed_value = target.starts_with("int");
-    const unsigned width = target == "char" || target.ends_with("8") ? 8 : target.ends_with("16") ? 16 : target.ends_with("32") ? 32 : 64;
-    bool valid{};
-    if (signed_value) {
-      std::int64_t number{}; const auto parsed = std::from_chars(text.data(), text.data() + text.size(), number);
-      valid = parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size() &&
-          (width == 64 || (number >= -(std::int64_t{1} << (width - 1)) && number < (std::int64_t{1} << (width - 1))));
-    } else {
-      std::uint64_t number{}; const auto parsed = std::from_chars(text.data(), text.data() + text.size(), number);
-      valid = parsed.ec == std::errc{} && parsed.ptr == text.data() + text.size() &&
-          (width == 64 || number < (std::uint64_t{1} << width));
-    }
-    if (!valid) { throw std::invalid_argument{"Integral expression literal is outside " + target}; }
-    node.kind = operation::integer_literal; node.value = std::move(text); node.operands.clear();
-    node.result_type = target; node.resolved_type = type_name{std::string{target}, owner.parent_namespace};
-    node.resolved_type->type = object_type::primitive;
-    return true;
+    return bind_behavior_literal(node, target, owner.parent_namespace);
   };
   const auto validate = [&](behavior_expression& node, const auto& scope) {
-    return validate_behavior_expression(node, owner, method, symbols, scope);
+    return validate_behavior_expression(node, owner, method, symbols, scope, functions);
   };
+  if (value.kind == operation::call) {
+    value.call_target = nullptr;
+    value.call_base_path.clear();
+    for (auto& argument : value.operands) { validate(argument, locals); }
+    struct candidate {
+      const syntax_node* target{};
+      const function_declaration* declaration{};
+      std::size_t index{};
+      std::vector<std::size_t> base_path{};
+      std::vector<behavior_expression> arguments{};
+    };
+    std::vector<candidate> candidates;
+    const auto collect_members = [&](const auto& self, const class_node& scope,
+        std::vector<std::size_t> path, std::set<std::string> hidden) -> void {
+      for (std::size_t index{}; index < scope.functions.size(); ++index) {
+        const auto& declaration = scope.functions[index];
+        std::string signature = declaration.name + "(";
+        for (const auto& parameter : declaration.parameters) {
+          signature += parameter.type.get_full_name() + ",";
+        }
+        signature += ')';
+        if (declaration.name == value.value && !hidden.contains(signature) &&
+            (&scope == &owner || declaration.access != access_type::private_access)) {
+          candidates.push_back({&scope, &declaration, index, path, {}});
+        }
+      }
+      for (const auto& declaration : scope.functions) {
+        std::string signature = declaration.name + "(";
+        for (const auto& parameter : declaration.parameters) {
+          signature += parameter.type.get_full_name() + ",";
+        }
+        hidden.insert(signature + ')');
+      }
+      for (std::size_t index{}; index < scope.parents.size(); ++index) {
+        if (!scope.parents[index].parent_class ||
+            (&scope != &owner && scope.parents[index].access == access_type::private_access)) { continue; }
+        auto next = path;
+        next.push_back(index);
+        self(self, *scope.parents[index].parent_class, std::move(next), hidden);
+      }
+    };
+    if (value.value.find("::") == std::string::npos) { collect_members(collect_members, owner, {}, {}); }
+    if (candidates.empty()) {
+      auto scope = owner.parent_namespace ? owner.parent_namespace->get_full_name() : std::string{};
+      for (;;) {
+        const auto name = scope.empty() ? value.value : scope + "::" + value.value;
+        for (const auto* function : functions) {
+          if (function->get_full_name() == name) {
+            candidates.push_back({function, &function->function, 0, {}, {}});
+          }
+        }
+        if (!candidates.empty() || scope.empty()) { break; }
+        const auto separator = scope.rfind("::");
+        scope = separator == std::string::npos ? std::string{} : scope.substr(0, separator);
+      }
+    }
+    const auto exact = [&](const behavior_expression& argument, const type_name& parameter) {
+      if (argument.resolved_type) {
+        return argument.collection_modifier == member::modifier_type::none &&
+            matching_behavior_type(*argument.resolved_type, parameter);
+      }
+      return argument.result_type == parameter.name;
+    };
+    std::vector<candidate> matches;
+    // Resolve exact arguments before binding an untyped numeric literal to a parameter width.
+    for (const bool bind_literals : {false, true}) {
+      for (auto candidate : candidates) {
+        if (candidate.declaration->parameters.size() != value.operands.size()) { continue; }
+        candidate.arguments = value.operands;
+        bool matched = true;
+        for (std::size_t index{}; index < candidate.arguments.size(); ++index) {
+          auto& argument = candidate.arguments[index];
+          const auto& parameter = candidate.declaration->parameters[index].type;
+          if (exact(argument, parameter)) { continue; }
+          try {
+            if (!bind_literals || !literal(argument, parameter.name)) { matched = false; break; }
+          } catch (const std::invalid_argument&) {
+            matched = false;
+            break;
+          }
+        }
+        if (matched) { matches.push_back(std::move(candidate)); }
+      }
+      if (!matches.empty()) { break; }
+    }
+    if (matches.empty()) { throw std::invalid_argument{"No matching readonly function: " + value.value}; }
+    if (matches.size() != 1) { throw std::invalid_argument{"Ambiguous readonly function call: " + value.value}; }
+    const auto& selected = matches.front();
+    if (selected.declaration->effect != function_declaration::effect_type::readonly ||
+        selected.declaration->return_type.name == "void") {
+      throw std::invalid_argument{"Expression calls require a nonvoid readonly function: " + value.value};
+    }
+    value.call_target = selected.target;
+    value.call_method_index = selected.index;
+    value.call_base_path = selected.base_path;
+    value.operands = selected.arguments;
+    return bind(selected.declaration->return_type);
+  }
   if (value.kind == operation::literal || value.kind == operation::pi) {
     return typed(value.result_type == "float" ? "float" : "double");
   }
@@ -681,6 +861,7 @@ std::string validate_behavior_expression(behavior_expression& value, const class
       throw std::invalid_argument{"Portable guard requires a boolean condition and matching scalar branches"};
     }
     value.resolved_type = value.operands[1].resolved_type;
+    value.resolved_type = value.operands.at(1).resolved_type;
     return typed(types.at(1));
   }
   if (value.kind == operation::logical_not || value.kind == operation::logical_and || value.kind == operation::logical_or) {

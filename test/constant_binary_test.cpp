@@ -16,11 +16,47 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace {
 namespace codec = rohit::serializer;
 namespace models = constant_binary_models;
+
+using counting_encoder = codec::detail::constant_binary_out<codec::detail::binary_count_sink>;
+static_assert(std::is_nothrow_default_constructible_v<codec::binary_none_output>);
+static_assert(std::is_nothrow_constructible_v<counting_encoder, codec::detail::binary_count_sink&>);
+static_assert(noexcept(std::declval<const counting_encoder&>().position_bytes()));
+static_assert(noexcept(std::declval<const counting_encoder&>().counting()));
+static_assert(!std::is_nothrow_constructible_v<codec::binary_none_output, std::span<std::uint8_t>>);
+
+// Keep custom sink observer failures observable rather than terminating a borrowed encoder.
+class throwing_observer_sink : public codec::detail::binary_count_sink {
+public:
+  // Report a custom observer failure without changing the counted state.
+  [[nodiscard]] std::size_t position_bytes() const {
+    throw std::logic_error{"Custom sink position failure"};
+  }
+
+  // Report a custom mode observer failure without changing the counted state.
+  [[nodiscard]] bool counting() const { throw std::logic_error{"Custom sink mode failure"}; }
+};
+
+using throwing_encoder = codec::detail::constant_binary_out<throwing_observer_sink>;
+static_assert(!noexcept(std::declval<const throwing_encoder&>().position_bytes()));
+static_assert(!noexcept(std::declval<const throwing_encoder&>().counting()));
+
+// Preserve both the concrete writer's nothrow setup and a custom sink's throwing observers.
+TEST(constant_binary, observer_exception_specifications) {
+  codec::binary_none_output writer{};
+  EXPECT_TRUE(writer.counting());
+  EXPECT_EQ(writer.position_bytes(), 0);
+  throwing_observer_sink sink{};
+  throwing_encoder encoder{sink};
+  EXPECT_THROW(static_cast<void>(encoder.position_bytes()), std::logic_error);
+  EXPECT_THROW(static_cast<void>(encoder.counting()), std::logic_error);
+}
 
 // Build a transient generated model whose string necessarily exceeds usual SSO storage.
 constexpr auto make_payload = [] {

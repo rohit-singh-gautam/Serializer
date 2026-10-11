@@ -207,8 +207,12 @@ void schema::collect(const std::vector<std::unique_ptr<syntax_node>>& values,
     validate_identifier(name, " ReadPolicy Protocol Limits Error Result String Int Float Double "
                               "Bool Data Vec Option Default "
                               "Self None Some Ok Err List Map Set Array ByteArray Unit Any ");
-    if (std::any_of(names.begin(), names.end(),
-                    [&](const auto& item) { return item.second == name; })) {
+    if (std::any_of(names.begin(), names.end(), [&](const auto& item) {
+          const bool overload = value->type == object_type::function_type &&
+              item.first->type == object_type::function_type &&
+              item.first->get_full_name() == value->get_full_name();
+          return item.second == name && !overload;
+        })) {
       throw std::invalid_argument{"Native type name collision: " + name};
     }
     names.emplace(value.get(), name);
@@ -236,6 +240,12 @@ schema::schema(const std::vector<std::unique_ptr<syntax_node>>& statements) {
   keys.emplace("value", 1);
   collect(statements);
   for (const auto* node : nodes) {
+    if (node->type == object_type::function_type) {
+      const auto& method = static_cast<const function_node&>(*node).function;
+      validate_generic_shape(method.return_type);
+      for (const auto& parameter : method.parameters) { validate_generic_shape(parameter.type); }
+      continue;
+    }
     if (node->type == object_type::enum_type) {
       if (static_cast<const enum_node&>(*node).enum_name_list.empty()) {
         throw std::invalid_argument{"Native enums require at least one value"};

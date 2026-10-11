@@ -44,3 +44,25 @@ class construction_generic_derived<T> : public construction_generic_base<T> ("ba
   public uint32 count (2);
 }
 instantiate construction_byte_derived = construction_generic_derived<uint8>;
+
+// Dotted revision defaults remain part of fresh value construction.
+class construction_versioned stable_ids {
+  public version version3 revision (1) {"1.2.3"};
+  public double value (2);
+  public constructor(double input) {
+    value = input;
+  }
+  public factory origin() {
+    value = 2.0;
+  }
+}
+
+// Owning allocations are permitted when they are released within constant evaluation.
+class construction_owned_payload {
+  public string label;
+  public array<uint32> values;
+  public factory make(string input, array<uint32> entries) {
+    label = input;
+    values = entries;
+  }
+}
