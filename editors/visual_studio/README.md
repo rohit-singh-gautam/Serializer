@@ -1,5 +1,14 @@
 # Rohit Serializer for Visual Studio
 
+Version **1.1.38** highlights embedded target source using available TextMate
+language grammars. `cpp { ... }`, `java { ... }`, and the other native tags select
+their language's syntax inside method bodies, class declarations, and preambles.
+Install a grammar provider for targets the Visual Studio instance does not bundle.
+See [embedded source highlighting](../../docs/editor_extension.md#embedded-source-highlighting)
+and the [custom C++ example](../../example/cpp/custom_code/README.md).
+This adds syntax coloring; IntelliSense and semantic diagnostics inside schema
+blocks remain unavailable.
+
 Version **1.1.37** adds language 1.10.0 namespace functions, declared readonly calls,
 and Boolean generic type constraints. Shared navigation indexes namespace function
 signature types and exact type alternatives. Language 1.9.0 features include stateless generic constraints,
@@ -8,7 +17,7 @@ computed `auto_size` fields, `wire_only` headers, `size_scope(record|payload)`,
 and target/source field projections navigate through included schemas and unsaved
 edits, including inherited fields. Existing constructor, predicate, generic and
 all-language generated navigation remains supported. New schema snippets select
-language 1.9.0.
+language 1.10.0.
 
 **Editor support for Serializer — State Framework**
 
@@ -133,7 +142,7 @@ installation. It uses full-framework MSBuild with locked dependencies, bundles
 the current shared resolver, rebuilds and validates:
 
 ```text
-out/extensions/serializer-visual-studio-1.1.37.vsix
+out/extensions/serializer-visual-studio-1.1.38.vsix
 ```
 
 Close Visual Studio, double-click the VSIX, select the installation and restart
@@ -182,6 +191,11 @@ Commit both lockfiles when intentionally updating dependencies.
 
 Run `build.ps1` to rebuild/validate the VSIX or `test_package.ps1` to recheck it.
 The shared grammar and resolver tests run with `npm test` in `../vscode`.
+Run `./editors/visual_studio/test/test_grammar.ps1` from the repository root to
+check embedded source against the installed Visual Studio TextMate grammar assets
+and the missing-provider fallback. It uses the locked TextMate tokenizer from
+`editors/vscode/node_modules`; restore those dependencies first. This checks grammar
+assets and block boundaries, rather than native editor UI colors.
 After `npm run test:navigation:generated` produces real compiler output, build
 `test/navigation_test.csproj` with MSBuild and run
 `out/extension-tests/visual-studio/SerializerNavigationTest.exe <repository> <generated-complex-directory> [generated-generic-directory] [generated-inheritance-directory]`.

@@ -22,7 +22,7 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
-Compiler/runtime 1.15.0 supports schema language 1.10.0. For new integrations,
+Compiler/runtime 1.15.1 supports schema language 1.10.0. For new integrations,
 review [derived wire sizes](../../../docs/derived_sizes.md),
 [explicit value conversions](../../../docs/conversions.md), and
 [stateless generic constraints](../../../docs/generics.md#stateless-type-constraints).
@@ -109,6 +109,10 @@ only a codec generator or manually duplicate capabilities it already supplies.
   arithmetic, backend bodies for language-specific implementations, and external
   declaration hooks for application-owned code. Preserve access/order and check
   generated definitions with each selected language's compiler.
+  Use the focused [custom C++ example](../../../example/cpp/custom_code/README.md)
+  for preambles, access-qualified native declarations, inline methods, and external
+  `.cpp` definitions. Select `cpp.naming = preserve` for authored native identifiers;
+  keep durable data in schema fields rather than injecting opaque storage.
 - Use generics, dimensioned/fixed arrays, owning variants, digests, compact fields,
   magic/omit and lifecycle metadata whenever the model requires their semantics.
   Select owning/view/packed representations and naming/output profiles deliberately.
@@ -581,7 +585,7 @@ feature as a prerequisite without the user's request.
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
   remains available through `parser::parse(input)`. Schema language version 1.10.0 is
-  independent of compiler release 1.15.0 and wire protocols. Bug fixes and minor
+  independent of compiler release 1.15.1 and wire protocols. Bug fixes and minor
   updates increment the patch number; new features increment the minor number.
   Minor and patch releases preserve full compatibility. Developers change the
   major number manually, with best-effort compatibility across major releases.
@@ -976,8 +980,12 @@ versioned snippets, and invokes the same targets through CMake Tools. Run the ro
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 1.1.37 is shared with the Visual Studio extension and is independent of
+version 1.1.38 is shared with the Visual Studio extension and is independent of
 compiler and schema versions. Keep both editor extension versions equal.
+Embedded target blocks reuse available editor language grammars for highlighting;
+install a grammar provider for targets the host does not bundle. This does not
+provide IntelliSense or semantic diagnostics inside native blocks. Follow
+[embedded source highlighting](../../../docs/editor_extension.md#embedded-source-highlighting).
 Both package descriptions and READMEs identify the
 [Serializer repository](https://github.com/rohit-singh-gautam/Serializer). Configure
 the consumer first, then use `Serializer: Generate Headers` or `Serializer:

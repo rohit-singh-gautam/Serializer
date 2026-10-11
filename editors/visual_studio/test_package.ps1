@@ -81,6 +81,31 @@ try {
       @($grammar.fileTypes).Count -ne 1 -or $grammar.fileTypes[0] -cne 'serializer') {
     throw 'The grammar must associate only .serializer files with source.serializer.'
   }
+  # Native scopes must survive packaging so Visual Studio can resolve its installed grammars.
+  $nativeScopes = @{
+    cpp = 'source.cpp'; c = 'source.c'; csharp = 'source.cs'; java = 'source.java'
+    javascript = 'source.js'; typescript = 'source.ts'; go = 'source.go'; rust = 'source.rust'
+    python = 'source.python'; swift = 'source.swift'; kotlin = 'source.kotlin'
+  }
+  $repositoryRules = @($grammar.repository.PSObject.Properties | ForEach-Object { $_.Value })
+  foreach ($language in $nativeScopes.Keys) {
+    $embeddedScope = "meta.embedded.block.$language"
+    if (@($repositoryRules | Where-Object {
+          $_.PSObject.Properties.Name -contains 'contentName' -and
+          ($_.contentName -split ' ') -ccontains $embeddedScope
+        }).Count -eq 0) {
+      throw "Missing embedded language content scope: $embeddedScope"
+    }
+    if (@($repositoryRules | Where-Object {
+          $_.PSObject.Properties.Name -contains 'patterns' -and
+          @($_.patterns | Where-Object {
+              $_.PSObject.Properties.Name -contains 'include' -and
+              $_.include -ceq $nativeScopes[$language]
+            }).Count -gt 0
+        }).Count -eq 0) {
+      throw "Missing installed native grammar include: $($nativeScopes[$language])"
+    }
+  }
   $registration = Read-PackageText $archive 'serializer.pkgdef'
   foreach ($required in @(
       '[$RootKey$\TextMate\Repositories]',

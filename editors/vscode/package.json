@@ -3,7 +3,7 @@
   "displayName": "Rohit Serializer",
   "icon": "dist/serializer_logo.png",
   "description": "Editor support for Serializer — State Framework: schema highlighting, snippets, schema/generated-code navigation, and CMake assistance.",
-  "version": "1.1.37",
+  "version": "1.1.38",
   "publisher": "rohitjairajsingh",
   "author": {
     "name": "Rohit Jairaj Singh",
@@ -86,7 +86,20 @@
       {
         "language": "serializer",
         "scopeName": "source.serializer",
-        "path": "./syntaxes/serializer.tmLanguage.json"
+        "path": "./syntaxes/serializer.tmLanguage.json",
+        "embeddedLanguages": {
+          "meta.embedded.block.cpp": "cpp",
+          "meta.embedded.block.c": "c",
+          "meta.embedded.block.csharp": "csharp",
+          "meta.embedded.block.java": "java",
+          "meta.embedded.block.javascript": "javascript",
+          "meta.embedded.block.typescript": "typescript",
+          "meta.embedded.block.go": "go",
+          "meta.embedded.block.rust": "rust",
+          "meta.embedded.block.python": "python",
+          "meta.embedded.block.swift": "swift",
+          "meta.embedded.block.kotlin": "kotlin"
+        }
       }
     ],
     "snippets": [
@@ -183,7 +196,7 @@
     "test:navigation": "npm run build && node test/run_navigation.cjs",
     "test:navigation:project": "npm run build && node test/run_navigation_project.cjs",
     "vscode:prepublish": "npm run build",
-    "package": "vsce package --no-dependencies --out ../../out/extensions/serializer-vscode-1.1.37.vsix",
+    "package": "vsce package --no-dependencies --out ../../out/extensions/serializer-vscode-1.1.38.vsix",
     "test:navigation:generated": "npm run compile && node test/generated_navigation.cjs"
   },
   "devDependencies": {

@@ -32,7 +32,7 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **1.15.0**. Bug fixes and minor updates
+The current compiler and runtime release is **1.15.1**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.10.0**;
@@ -304,6 +304,10 @@ specializations and payload lifecycle metadata. Runtime APIs add guarded cache
 updates, explicit reset clones, notifications, navigation, complete-history
 migration and bounded snapshot patches.
 
+The [custom C++ example](example/cpp/custom_code/README.md) demonstrates native
+preambles, class declarations, inline method bodies, and an application-owned
+method definition alongside generated codecs.
+
 Read [concrete state framework examples](docs/state_enhancements.md) and
 [method generation](docs/behavior.md) before choosing a combination. The
 [integration skill](.agents/skills/serializer-integration/SKILL.md#use-the-full-framework)
@@ -433,11 +437,17 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editor_extension.md) |
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
-Both extensions use source release version **1.1.37**, independent of compiler version
-**1.15.0**. See the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
+Both extensions use source release version **1.1.38**, independent of compiler version
+**1.15.1**. Embedded `cpp { ... }`, `java { ... }`, and other target blocks reuse
+available language grammars for syntax highlighting. Install the language's grammar
+provider where the editor does not bundle it; this does not add embedded IntelliSense.
+See [embedded source highlighting](docs/editor_extension.md#embedded-source-highlighting)
+and the [navigation coverage matrix](docs/editor_navigation.md#navigation-coverage-matrix)
 for supported destinations and language-service prerequisites.
 VS Code also supports navigation from read-only Git index/history tabs, using
 the displayed snapshot and current workspace destinations.
+See the [custom code and highlighting verification](docs/verification-custom-code-2026-10-11.md)
+for the completed native, editor, grammar-provider, and package checks.
 
 ## Explore advanced features
 

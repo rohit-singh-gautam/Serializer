@@ -1,5 +1,14 @@
 # Serializer examples
 
+## Custom C++ code
+
+The [custom C++ example](cpp/custom_code/README.md) demonstrates a `cpp preamble`,
+access-qualified native class declarations, inline `readonly` and `edit` bodies,
+and a method defined in an application `.cpp` file. It builds through CMake and
+exercises all four generated native protocols, exact-message decoding, and
+overflow rejection. See [schema behavior](../docs/behavior.md) for target tags
+and external-definition contracts.
+
 ## Record conversions
 
 The [conversion schema](schemas/conversions/model.serializer) declares exact

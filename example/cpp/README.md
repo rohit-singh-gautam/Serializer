@@ -4,6 +4,7 @@ The following maintained examples live directly under `example/cpp`:
 
 | Folder | What it demonstrates |
 | --- | --- |
+| [custom_code](custom_code/README.md) | C++ preambles, access-qualified native declarations, inline methods, external definitions, and exact-message roundtrips |
 | [generics](generics/) | Nested schema applications, typed payload edits, and all four protocols |
 | [expressions](expressions/README.md) | Declared namespace/member calls, checked arithmetic and predicates at compile time and runtime, exact integer comparison, bounded reductions and indexing |
 | [basic](basic/) | Scalars, full-width IDs, a wire-name override, defaults, and payload version validation |

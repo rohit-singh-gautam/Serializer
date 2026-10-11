@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.28)
 
-project(serializer VERSION 1.15.0 LANGUAGES CXX)
+project(serializer VERSION 1.15.1 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
 set(serializer_schema_language_version 1.10.0)
@@ -310,6 +310,7 @@ endif()
 if(SERIALIZER_BUILD_TESTS OR SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
   add_subdirectory(example/generics)
   add_subdirectory(example/cpp/expressions)
+  add_subdirectory(example/cpp/custom_code)
 endif()
 
 if(SERIALIZER_BUILD_INTEROP_EXAMPLES)

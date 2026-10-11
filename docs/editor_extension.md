@@ -17,10 +17,15 @@ Serializer provides separate packages for VS Code and Visual Studio. Both use
 to the VS Code extension. For the Visual Studio VSIX, see
 [Visual Studio](#visual-studio-extension) below.
 
-Both extensions use release version **1.1.37**. Keep their versions equal and
+Both extensions use release version **1.1.38**. Keep their versions equal and
 increment them together for future changes, including changes to only one package.
 Their release number is independent of the compiler/runtime release and the schema
 language version; only the two editor packages are synchronized.
+
+Version **1.1.38** reuses available native language grammars inside target method
+bodies, class declarations, and preambles. VS Code also maps each embedded scope
+to its language ID. See [embedded source highlighting](#embedded-source-highlighting)
+and the [custom C++ example](../example/cpp/custom_code/README.md).
 
 Version **1.1.37** adds language 1.10.0 namespace functions, declared readonly calls,
 and Boolean generic type constraints. Shared navigation indexes namespace function
@@ -31,6 +36,60 @@ and target/source field projections navigate through included schemas and unsave
 edits, including inherited fields. Existing constructor, predicate, generic and
 all-language generated navigation remains supported. New schema snippets select
 language 1.10.0.
+
+## Embedded source highlighting
+
+Both packages use the shared TextMate grammar to select native syntax inside
+`target { ... }` method bodies, `public`/`protected`/`private target { ... }` class
+declarations, and `target preamble { ... }` file hooks. For example:
+
+```text
+cpp preamble {
+  #include <stdexcept>
+}
+class counter stable_ids {
+  public uint32 count (1);
+  public function void reset(uint32 next) edit cpp {
+    count = next;
+  };
+}
+```
+
+`cpp` selects C++ syntax; `java` selects Java syntax. The same mechanism supports
+`c`, `csharp`, `javascript`, `typescript`, `go`, `rust`, `python`, `swift`, and
+`kotlin`. Colors follow the active theme and the available language grammar.
+C and Go support file preambles and method bodies; their generators reject class
+hooks. TypeScript output is declaration-only: use `javascript` bodies for executable
+methods and ambient declarations in TypeScript hooks. Highlighting does not expand
+these [generation contracts](behavior.md#target-specific-source-and-ordering).
+The target tag and outer braces remain Serializer syntax; native comments,
+strings, and nested blocks stay inside the native region. Adjacent schema fields
+return to Serializer highlighting.
+
+The language grammar must be registered in the editor. VS Code bundles many
+grammars; install a language extension where a provider is missing, such as Swift
+or Kotlin. Visual Studio uses its registered TextMate repositories, including the
+grammars supplied by the installed IDE components and extensions. A grammar
+provider is sufficient for syntax coloring; a full language SDK is not required.
+Without a matching grammar, fallback highlighting still handles comments, quoted
+literals, and block boundaries.
+
+VS Code's `embeddedLanguages` contribution assigns the native language ID inside
+each block so basic editing operations can use that language's configuration.
+This follows the [VS Code embedded syntax guide](https://code.visualstudio.com/api/language-extensions/syntax-highlight-guide#embedded-languages).
+Reusing a grammar does not connect IntelliSense, semantic tokens, compiler
+diagnostics, formatting, or native symbol navigation to schema blocks. Those
+features require language service integration and are not implemented here.
+Use the generated output or application-owned source files with their normal
+language services for those features.
+
+Build the [custom C++ example](../example/cpp/custom_code/README.md) to exercise
+preambles, native class declarations, inline methods, and an external `.cpp`
+definition. Generation preserves native tokens; use `cpp.naming = preserve` when
+the authored C++ refers to generated field or method names. The executable is
+independent of either editor extension.
+
+## Earlier syntax releases
 
 Version **1.1.31** highlights schema language `1.5.0` field suffixes such as
 `ignore(warning magic, version)`. Warning rules are metadata; qualified types
@@ -76,7 +135,7 @@ Both resolve either spelling for navigation; VS Code also supplies a shorthand
 
 ## VS Code
 
-The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.37**, provides `.serializer`
+The [Rohit Serializer extension](../editors/vscode/README.md), version **1.1.38**, provides `.serializer`
 syntax highlighting, snippets, declaration/definition navigation, and CMake generated-header commands. Schemas use
 the current `serializer version 1.10.0;` header, older compatible headers, and the original
 `1` alias for language `1.0.0`. Schema
@@ -134,13 +193,13 @@ Packaging compiles and bundles TypeScript, copies the canonical grammar, logo,
 and repository license into the extension, and writes:
 
 ```text
-out/extensions/serializer-vscode-1.1.37.vsix
+out/extensions/serializer-vscode-1.1.38.vsix
 ```
 
 From the repository root, install it with:
 
 ```sh
-code --install-extension out/extensions/serializer-vscode-1.1.37.vsix
+code --install-extension out/extensions/serializer-vscode-1.1.38.vsix
 ```
 
 Alternatively run **Extensions: Install from VSIX** and select the file. The
@@ -302,6 +361,14 @@ It also covers navigation through include graphs, namespace/name resolution,
 storage-mode classes, dependency paths, naming profiles, missing/changed files,
 Restricted Mode and passive CMake integration.
 
+Embedded grammar tests verify every target's native delegation and VS Code language
+identity, nested blocks and literals, missing-provider fallback, commented headers,
+and ordinary schema fields named after target languages. Run
+`./editors/visual_studio/test/test_grammar.ps1` from the repository root to test real
+installed Visual Studio grammar assets with the locked TextMate tokenizer. Restore
+the VS Code npm dependencies first. This is an asset integration check; it does not
+launch an editor host or visually inspect theme colors.
+
 `npm run test:navigation` launches an isolated VS Code host with existing source
 and header fixtures, without CMake or a compiler. It checks the standard provider
 commands, explicit schema/header commands, ignored build directories and unsaved
@@ -340,6 +407,14 @@ consumer compilation, and a malformed schema leaving the prior header intact.
 The fixture disables generated-output formatting so it does not need clang-format.
 
 ### Verification performed
+
+Version **1.1.38** passed 119 editor unit tests and 34,105 fresh-compiler navigation
+checks. Installed VS Code and Visual Studio grammar assets each passed 308
+embedded syntax/boundary checks, including real C++/Java providers and absent-provider
+fallback. Both VSIX packages rebuilt and passed version, identity, grammar, and
+embedded-language mapping checks. These tests do not visually verify native editor
+UI colors. See the [custom code verification record](verification-custom-code-2026-10-11.md)
+for native tests, exact commands, and retained artifacts.
 
 Version **1.1.31** passed all 93 editor unit/grammar/provider tests and 19,260
 fresh-compiler navigation checks using compiler/runtime `1.10.0` and schema
@@ -570,7 +645,7 @@ outside this extension's implementation.
 ## Visual Studio extension
 
 The separate [Visual Studio package](../editors/visual_studio/README.md), version
-**1.1.29**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
+**1.1.38**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
 grammar, editing configuration and a native MEF navigation component using the
 same resolver as VS Code. The grammar's `fileTypes` associates `.serializer` files;
 a `.pkgdef` registers its grammar and editing configuration.
@@ -583,7 +658,7 @@ npm ci --prefix editors/vscode
 ```
 
 The script restores locked NuGet dependencies, rebuilds package intermediates, and writes
-`out/extensions/serializer-visual-studio-1.1.37.vsix`. Close Visual Studio,
+`out/extensions/serializer-visual-studio-1.1.38.vsix`. Close Visual Studio,
 double-click this VSIX, install into the desired instance, and restart Visual
 Studio. The root `install_extension.ps1` remains the VS Code installer.
 

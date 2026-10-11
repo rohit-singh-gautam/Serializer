@@ -1,3 +1,11 @@
+# 1.1.38
+
+- Reuse available TextMate language grammars inside target method bodies, class hooks, and preambles.
+- Share embedded source scopes and safe native block boundaries with VS Code.
+- Validate embedded highlighting against installed Visual Studio grammar providers.
+- Document grammar prerequisites and link the focused custom C++ example.
+- Keep both editor package versions synchronized.
+
 # 1.1.37
 
 - Synchronize language 1.10.0 syntax and expression call highlighting with VS Code.

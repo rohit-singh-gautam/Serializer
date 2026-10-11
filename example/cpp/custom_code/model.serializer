@@ -1,0 +1,45 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.6.0;
+
+// Preamble source appears before generated declarations in the C++ header.
+cpp preamble {
+  #include <cstdint>
+  #include <limits>
+  #include <stdexcept>
+}
+
+namespace custom_code {
+  class inventory_item stable_ids {
+    public string description (1) {"notebook"};
+    public uint32 unit_price_cents (2) {250};
+    public uint32 quantity (3) {2};
+
+    // Class hooks add native declarations without adding serialized fields.
+    public cpp {
+      using quantity_type = std::uint32_t;
+    }
+    private cpp {
+      // Reject an overflowing addition before the caller changes quantity.
+      static void validate_addition(quantity_type current, quantity_type amount) {
+        if (amount > std::numeric_limits<quantity_type>::max() - current) {
+          throw std::overflow_error{"Inventory quantity would overflow"};
+        }
+      }
+    }
+
+    // Calculate an exact integer total; two uint32 values fit in uint64.
+    public function uint64 total_cents() readonly cpp {
+      return static_cast<std::uint64_t>(unit_price_cents) * quantity;
+    };
+
+    // Validate first so a rejected edit leaves the ordinary value unchanged.
+    public function void add_units(uint32 amount) edit cpp {
+      validate_addition(quantity, amount);
+      quantity += amount;
+    };
+
+    // The application supplies this definition in behavior.cpp.
+    public function string summary() readonly;
+  }
+}

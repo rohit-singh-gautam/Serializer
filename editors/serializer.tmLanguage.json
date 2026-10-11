@@ -10,656 +10,19 @@
       "include": "#comments"
     },
     {
+      "include": "#native_methods"
+    },
+    {
       "include": "#native_code"
     },
     {
-      "begin": "\\b(conversion)\\s+",
-      "beginCaptures": {
-        "1": {
-          "name": "storage.type.serializer"
-        }
-      },
-      "end": "\\b(as)\\s+([A-Za-z_][A-Za-z_0-9]*)|(?=[;{}])",
-      "endCaptures": {
-        "1": {
-          "name": "keyword.control.serializer"
-        },
-        "2": {
-          "name": "entity.name.function.serializer"
-        }
-      },
-      "patterns": [
-        {
-          "include": "#comments"
-        },
-        {
-          "include": "#generic_arguments"
-        },
-        {
-          "include": "#type_name"
-        }
-      ]
+      "include": "#native_member_prefix"
     },
     {
-      "match": "\\b(wire_only)\\s+(uint32|uint64)\\b",
-      "captures": {
-        "1": {
-          "name": "storage.modifier.serializer"
-        },
-        "2": {
-          "name": "support.type.serializer"
-        }
-      }
+      "include": "#native_field_prefix"
     },
     {
-      "match": "\\b(size_scope)\\s*(\\()\\s*(record|payload)\\s*(\\))",
-      "captures": {
-        "1": {
-          "name": "storage.modifier.serializer"
-        },
-        "2": {
-          "name": "punctuation.section.group.serializer"
-        },
-        "3": {
-          "name": "constant.other.layout.serializer"
-        },
-        "4": {
-          "name": "punctuation.section.group.serializer"
-        }
-      }
-    },
-    {
-      "begin": "\\b(auto_size)\\s*(\\()(?=\\s*(?:[A-Za-z_]|$))",
-      "beginCaptures": {
-        "1": {
-          "name": "storage.modifier.serializer"
-        },
-        "2": {
-          "name": "punctuation.section.group.serializer"
-        }
-      },
-      "end": "\\)|(?=[;{}])",
-      "patterns": [
-        {
-          "include": "#comments"
-        },
-        {
-          "name": "constant.other.format.serializer",
-          "match": "\\b(?:binary_none|binary_integer|binary_string|json|proto)\\b"
-        }
-      ]
-    },
-    {
-      "begin": "\\b(omit)\\s*(\\()(?=\\s*(?:[A-Za-z_]|$))",
-      "beginCaptures": {
-        "1": {
-          "name": "keyword.control.serializer"
-        },
-        "2": {
-          "name": "punctuation.section.group.serializer"
-        }
-      },
-      "end": "\\)|(?=[;{}])",
-      "patterns": [
-        {
-          "include": "#comments"
-        },
-        {
-          "begin": "\\b(all_except)\\s*(\\()",
-          "beginCaptures": {
-            "1": {
-              "name": "keyword.control.serializer"
-            },
-            "2": {
-              "name": "punctuation.section.group.serializer"
-            }
-          },
-          "end": "\\)|(?=[;{}])",
-          "patterns": [
-            {
-              "include": "#comments"
-            },
-            {
-              "name": "constant.other.format.serializer",
-              "match": "\\b(?:binary_none|binary_positional|binary_integer|binary_string|json|proto|cpp)\\b"
-            }
-          ]
-        },
-        {
-          "name": "constant.other.format.serializer",
-          "match": "\\b(?:binary_none|binary_positional|binary_integer|binary_string|json|proto|cpp)\\b"
-        }
-      ]
-    },
-    {
-      "begin": "\\b(expression|predicate)\\s*(\\()",
-      "beginCaptures": {
-        "1": {
-          "name": "keyword.control.serializer"
-        },
-        "2": {
-          "name": "punctuation.section.group.serializer"
-        }
-      },
-      "end": "\\)(?=\\s*;)",
-      "endCaptures": {
-        "0": {
-          "name": "punctuation.section.group.serializer"
-        }
-      },
-      "patterns": [
-        {
-          "include": "#comments"
-        },
-        {
-          "name": "support.function.serializer",
-          "match": "\\bmath\\.(sqrt|sin|cos|is_finite)\\b|\\b(?:to_double|size|all|any)(?=\\s*\\()"
-        },
-        {
-          "name": "entity.name.function.serializer",
-          "match": "(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*(?=\\s*\\()"
-        },
-        {
-          "name": "constant.language.serializer",
-          "match": "\\b(?:true|false)\\b|\\bmath\\.pi\\b"
-        },
-        {
-          "name": "constant.numeric.serializer",
-          "match": "(?<![\\w.])(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?"
-        },
-        {
-          "name": "keyword.operator.serializer",
-          "match": "=>|==|!=|<=|>=|&&|\\|\\||[-+*/=<>!?:]"
-        },
-        {
-          "name": "punctuation.section.group.serializer",
-          "match": "[()\\[\\]]"
-        },
-        {
-          "name": "entity.name.type.serializer",
-          "match": "(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*(?=::[A-Za-z_][A-Za-z_0-9]*)"
-        }
-      ]
-    },
-    {
-      "match": "\\b(constructor)(?=\\s*\\()",
-      "captures": {
-        "1": {
-          "name": "storage.type.serializer"
-        }
-      }
-    },
-    {
-      "match": "\\b(factory)\\s+([A-Za-z_][A-Za-z_0-9]*)(?=\\s*\\()",
-      "captures": {
-        "1": {
-          "name": "storage.type.serializer"
-        },
-        "2": {
-          "name": "entity.name.function.serializer"
-        }
-      }
-    },
-    {
-      "match": "\\b(layout)\\s*(\\()\\s*(empty)\\s*(\\))",
-      "captures": {
-        "1": {
-          "name": "storage.modifier.serializer"
-        },
-        "2": {
-          "name": "punctuation.section.group.serializer"
-        },
-        "3": {
-          "name": "constant.other.layout.serializer"
-        },
-        "4": {
-          "name": "punctuation.section.group.serializer"
-        }
-      }
-    },
-    {
-      "match": "\\b(default)\\s*(\\()\\s*([A-Za-z_][A-Za-z_0-9]*)\\s*(\\))",
-      "captures": {
-        "1": {
-          "name": "keyword.control.serializer"
-        },
-        "2": {
-          "name": "punctuation.section.group.serializer"
-        },
-        "3": {
-          "name": "entity.name.function.serializer"
-        },
-        "4": {
-          "name": "punctuation.section.group.serializer"
-        }
-      }
-    },
-    {
-      "match": "\\bmath\\.(sqrt|sin|cos|is_finite)\\b|\\b(?:to_double|size|all|any)(?=\\s*\\()",
-      "name": "support.function.serializer"
-    },
-    {
-      "match": "\\bmath\\.pi\\b",
-      "name": "constant.language.serializer"
-    },
-    {
-      "begin": "\\b(function)\\s+(?:(virtual|abstract|override)\\s+)?(?:(digest\\s*(?:\\([^)]*\\)|\\[[^\\]]*\\]))\\s+)?",
-      "beginCaptures": {
-        "1": {
-          "name": "storage.type.serializer"
-        },
-        "2": {
-          "name": "storage.modifier.serializer"
-        },
-        "3": {
-          "patterns": [
-            {
-              "include": "#digest_spec"
-            }
-          ]
-        }
-      },
-      "end": "\\b([A-Za-z_][A-Za-z_0-9]*)\\s*(\\()|(?=[;{}])",
-      "endCaptures": {
-        "1": {
-          "name": "entity.name.function.serializer"
-        },
-        "2": {
-          "name": "punctuation.section.group.serializer"
-        }
-      },
-      "patterns": [
-        {
-          "include": "#comments"
-        },
-        {
-          "include": "#generic_arguments"
-        },
-        {
-          "include": "#type_name"
-        }
-      ]
-    },
-    {
-      "name": "meta.include.serializer",
-      "begin": "\\binclude\\b",
-      "beginCaptures": {
-        "0": {
-          "name": "keyword.control.import.serializer"
-        }
-      },
-      "end": ";|(?=[{}])",
-      "endCaptures": {
-        "0": {
-          "name": "punctuation.separator.serializer"
-        }
-      },
-      "patterns": [
-        {
-          "include": "#comments"
-        },
-        {
-          "name": "string.unquoted.path.serializer",
-          "match": "(?:[A-Za-z0-9_.-]+/)*(?:[A-Za-z0-9_.-]+\\.serializer|\\.?[A-Za-z0-9_-]+)(?=[\\s;]|/\\*|//|$)"
-        },
-        {
-          "name": "invalid.illegal.include.serializer",
-          "match": "[^\\s;{}]+"
-        }
-      ]
-    },
-    {
-      "include": "#strings"
-    },
-    {
-      "name": "meta.ignore-warning.serializer",
-      "begin": "\\b(ignore)(?:\\s|/\\*.*?\\*/)*(\\()(?=(?:\\s|/\\*.*?\\*/)*(?:warning\\b|$))",
-      "beginCaptures": {
-        "1": {
-          "name": "keyword.control.serializer"
-        },
-        "2": {
-          "name": "punctuation.section.group.serializer"
-        }
-      },
-      "end": "\\)|(?=[;{}])",
-      "endCaptures": {
-        "0": {
-          "name": "punctuation.section.group.serializer"
-        }
-      },
-      "patterns": [
-        {
-          "include": "#comments"
-        },
-        {
-          "name": "keyword.control.serializer",
-          "match": "\\bwarning\\b"
-        },
-        {
-          "name": "constant.other.warning.serializer",
-          "match": "\\b(?:magic|version)\\b"
-        },
-        {
-          "name": "punctuation.separator.serializer",
-          "match": ","
-        }
-      ]
-    },
-    {
-      "match": "\\b(namespace|class|enum|instantiate)\\s+([A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
-      "captures": {
-        "1": {
-          "name": "storage.type.serializer"
-        },
-        "2": {
-          "name": "entity.name.type.serializer"
-        }
-      }
-    },
-    {
-      "match": "\\b[A-Za-z_][A-Za-z_0-9]*(?=\\s*<)",
-      "name": "entity.name.type.serializer"
-    },
-    {
-      "match": "\\b(public|protected|private|managed)\\s+(?:(?:array(?:\\s*\\[[^\\]]*\\])?|map\\s*\\([^)]*\\))\\s+)?(digest\\s*(?:\\([^)]*\\)|\\[[^\\]]*\\]))(?=\\s+[A-Za-z_])",
-      "captures": {
-        "1": {
-          "name": "storage.modifier.serializer"
-        },
-        "2": {
-          "patterns": [
-            {
-              "include": "#digest_spec"
-            }
-          ]
-        }
-      }
-    },
-    {
-      "name": "meta.fixed-array.serializer",
-      "begin": "\\b(array)\\s*(\\[)",
-      "beginCaptures": {
-        "1": {
-          "name": "storage.type.serializer"
-        },
-        "2": {
-          "name": "punctuation.section.group.serializer"
-        }
-      },
-      "end": "(\\])(?:\\s+((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*))?",
-      "patterns": [
-        {
-          "include": "#comments"
-        },
-        {
-          "name": "constant.numeric.serializer",
-          "match": "\\b[0-9]+\\b"
-        },
-        {
-          "name": "keyword.operator.serializer",
-          "match": "[+*()]"
-        },
-        {
-          "include": "#type_name"
-        }
-      ],
-      "endCaptures": {
-        "1": {
-          "name": "punctuation.section.group.serializer"
-        },
-        "2": {
-          "patterns": [
-            {
-              "include": "#type_name"
-            }
-          ]
-        }
-      }
-    },
-    {
-      "include": "#generic_arguments"
-    },
-    {
-      "match": "(?<=[{,])\\s*((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)(::)([A-Za-z_][A-Za-z_0-9]*)(?=\\s*[,}])",
-      "captures": {
-        "1": {
-          "patterns": [
-            {
-              "include": "#type_name"
-            }
-          ]
-        },
-        "2": {
-          "name": "keyword.operator.serializer"
-        },
-        "3": {
-          "name": "constant.other.enum.serializer"
-        }
-      }
-    },
-    {
-      "match": "\\b(map)\\s*(\\()\\s*((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)\\s*(\\))\\s*((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
-      "captures": {
-        "1": {
-          "name": "storage.type.serializer"
-        },
-        "2": {
-          "name": "punctuation.section.group.serializer"
-        },
-        "3": {
-          "patterns": [
-            {
-              "include": "#type_name"
-            }
-          ]
-        },
-        "4": {
-          "name": "punctuation.section.group.serializer"
-        },
-        "5": {
-          "patterns": [
-            {
-              "include": "#type_name"
-            }
-          ]
-        }
-      }
-    },
-    {
-      "match": "\\b(array)\\s+((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
-      "captures": {
-        "1": {
-          "name": "storage.type.serializer"
-        },
-        "2": {
-          "patterns": [
-            {
-              "include": "#type_name"
-            }
-          ]
-        }
-      }
-    },
-    {
-      "match": "\\b(?:(public|protected|private)\\s+)?(compact_prefix|compact_varint)\\b(?:\\s+(strict|lenient)\\b)?\\s+((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)(?=\\s+(?!omit\\b(?:\\s|/\\*.*?\\*/)*\\((?:\\s|/\\*.*?\\*/)*[A-Za-z_])[A-Za-z_][A-Za-z_0-9]*\\b)",
-      "captures": {
-        "1": {
-          "name": "storage.modifier.serializer"
-        },
-        "2": {
-          "name": "storage.modifier.serializer"
-        },
-        "3": {
-          "name": "storage.modifier.serializer"
-        },
-        "4": {
-          "patterns": [
-            {
-              "include": "#type_name"
-            }
-          ]
-        }
-      }
-    },
-    {
-      "match": "\\b(public|protected|private)\\s+(magic)\\s+((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
-      "captures": {
-        "1": {
-          "name": "storage.modifier.serializer"
-        },
-        "2": {
-          "name": "keyword.control.serializer"
-        },
-        "3": {
-          "patterns": [
-            {
-              "include": "#type_name"
-            }
-          ]
-        }
-      }
-    },
-    {
-      "match": "\\b(public|protected|private)\\s+(version|magic)\\b",
-      "captures": {
-        "1": {
-          "name": "storage.modifier.serializer"
-        },
-        "2": {
-          "name": "keyword.control.serializer"
-        }
-      }
-    },
-    {
-      "match": "\\b(public|protected|private|managed)\\s+((?!(?:(?:array|map|union|managed|transient|wire_only|conversion|function|version|magic)\\b|variant\\s*\\(|constructor\\s*\\(|factory\\s+[A-Za-z_]\\w*\\s*\\())(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
-      "captures": {
-        "1": {
-          "name": "storage.modifier.serializer"
-        },
-        "2": {
-          "patterns": [
-            {
-              "include": "#type_name"
-            }
-          ]
-        }
-      }
-    },
-    {
-      "begin": "\\b(union|variant)\\s*(\\()",
-      "beginCaptures": {
-        "1": {
-          "name": "storage.type.serializer"
-        },
-        "2": {
-          "name": "punctuation.section.group.serializer"
-        }
-      },
-      "end": "\\)",
-      "endCaptures": {
-        "0": {
-          "name": "punctuation.section.group.serializer"
-        }
-      },
-      "patterns": [
-        {
-          "include": "#comments"
-        },
-        {
-          "match": "(digest\\s*(?:\\([^)]*\\)|\\[[^\\]]*\\])|(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)\\s*(=)\\s*([A-Za-z_][A-Za-z_0-9]*)",
-          "captures": {
-            "1": {
-              "patterns": [
-                {
-                  "include": "#type_name"
-                }
-              ]
-            },
-            "2": {
-              "name": "keyword.operator.serializer"
-            },
-            "3": {
-              "name": "variable.other.member.serializer"
-            }
-          }
-        },
-        {
-          "include": "#digest_spec"
-        },
-        {
-          "match": "(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*",
-          "captures": {
-            "0": {
-              "patterns": [
-                {
-                  "include": "#type_name"
-                }
-              ]
-            }
-          }
-        },
-        {
-          "name": "punctuation.separator.serializer",
-          "match": ","
-        }
-      ]
-    },
-    {
-      "match": "(?<!\\w)(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)+",
-      "captures": {
-        "0": {
-          "patterns": [
-            {
-              "include": "#type_name"
-            }
-          ]
-        }
-      }
-    },
-    {
-      "name": "keyword.control.serializer",
-      "match": "\\b(serializer|expression|predicate|preamble|version|magic|omit|compatibility|created|obsolete|replaced|reserve|releases|policy|any|all|max_age|keep_last|released_since|expires_on)\\b"
-    },
-    {
-      "name": "storage.type.serializer",
-      "match": "\\b(namespace|class|enum|instantiate|array|map|union|variant)\\b"
-    },
-    {
-      "name": "storage.modifier.serializer",
-      "match": "\\b(public|protected|private|transient|edit|virtual|abstract|override|stable_ids|managed|owning|view|readonly|mutable|packed|compact_prefix|compact_varint|strict|lenient)\\b"
-    },
-    {
-      "name": "support.type.serializer",
-      "match": "\\b(version[234]|char|bool|string|float|double|u?int(?:8|16|32|64))\\b"
-    },
-    {
-      "name": "constant.language.serializer",
-      "match": "\\b(true|false)\\b"
-    },
-    {
-      "name": "constant.numeric.serializer",
-      "match": "(?<![\\w.])[0-9]+(?:\\.[0-9]+){2}(?![\\w.])"
-    },
-    {
-      "name": "constant.numeric.serializer",
-      "match": "(?<![\\w.])(?:0[xX][0-9a-fA-F]+|(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?)(?:[uUlLfF]*)\\b"
-    },
-    {
-      "name": "keyword.operator.serializer",
-      "match": "::|==|!=|<=|>=|&&|\\|\\||[-+*/=<>!?]"
-    },
-    {
-      "name": "punctuation.section.block.serializer",
-      "match": "[{}]"
-    },
-    {
-      "name": "punctuation.section.group.serializer",
-      "match": "[()]"
-    },
-    {
-      "name": "punctuation.separator.serializer",
-      "match": "[;,:]"
+      "include": "#schema_contents"
     }
   ],
   "repository": {
@@ -806,9 +169,699 @@
         }
       ]
     },
+    "schema_contents": {
+      "patterns": [
+        {
+          "begin": "\\b(conversion)\\s+",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.type.serializer"
+            }
+          },
+          "end": "\\b(as)\\s+([A-Za-z_][A-Za-z_0-9]*)|(?=[;{}])",
+          "endCaptures": {
+            "1": {
+              "name": "keyword.control.serializer"
+            },
+            "2": {
+              "name": "entity.name.function.serializer"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "include": "#generic_arguments"
+            },
+            {
+              "include": "#type_name"
+            }
+          ]
+        },
+        {
+          "match": "\\b(wire_only)\\s+(uint32|uint64)\\b",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.serializer"
+            },
+            "2": {
+              "name": "support.type.serializer"
+            }
+          }
+        },
+        {
+          "match": "\\b(size_scope)\\s*(\\()\\s*(record|payload)\\s*(\\))",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.serializer"
+            },
+            "2": {
+              "name": "punctuation.section.group.serializer"
+            },
+            "3": {
+              "name": "constant.other.layout.serializer"
+            },
+            "4": {
+              "name": "punctuation.section.group.serializer"
+            }
+          }
+        },
+        {
+          "begin": "\\b(auto_size)\\s*(\\()(?=\\s*(?:[A-Za-z_]|$))",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.modifier.serializer"
+            },
+            "2": {
+              "name": "punctuation.section.group.serializer"
+            }
+          },
+          "end": "\\)|(?=[;{}])",
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "name": "constant.other.format.serializer",
+              "match": "\\b(?:binary_none|binary_integer|binary_string|json|proto)\\b"
+            }
+          ]
+        },
+        {
+          "begin": "\\b(omit)\\s*(\\()(?=\\s*(?:[A-Za-z_]|$))",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.serializer"
+            },
+            "2": {
+              "name": "punctuation.section.group.serializer"
+            }
+          },
+          "end": "\\)|(?=[;{}])",
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "begin": "\\b(all_except)\\s*(\\()",
+              "beginCaptures": {
+                "1": {
+                  "name": "keyword.control.serializer"
+                },
+                "2": {
+                  "name": "punctuation.section.group.serializer"
+                }
+              },
+              "end": "\\)|(?=[;{}])",
+              "patterns": [
+                {
+                  "include": "#comments"
+                },
+                {
+                  "name": "constant.other.format.serializer",
+                  "match": "\\b(?:binary_none|binary_positional|binary_integer|binary_string|json|proto|cpp)\\b"
+                }
+              ]
+            },
+            {
+              "name": "constant.other.format.serializer",
+              "match": "\\b(?:binary_none|binary_positional|binary_integer|binary_string|json|proto|cpp)\\b"
+            }
+          ]
+        },
+        {
+          "begin": "\\b(expression|predicate)\\s*(\\()",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.serializer"
+            },
+            "2": {
+              "name": "punctuation.section.group.serializer"
+            }
+          },
+          "end": "\\)(?=\\s*;)",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.section.group.serializer"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "name": "support.function.serializer",
+              "match": "\\bmath\\.(sqrt|sin|cos|is_finite)\\b|\\b(?:to_double|size|all|any)(?=\\s*\\()"
+            },
+            {
+              "name": "entity.name.function.serializer",
+              "match": "(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*(?=\\s*\\()"
+            },
+            {
+              "name": "constant.language.serializer",
+              "match": "\\b(?:true|false)\\b|\\bmath\\.pi\\b"
+            },
+            {
+              "name": "constant.numeric.serializer",
+              "match": "(?<![\\w.])(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?"
+            },
+            {
+              "name": "keyword.operator.serializer",
+              "match": "=>|==|!=|<=|>=|&&|\\|\\||[-+*/=<>!?:]"
+            },
+            {
+              "name": "punctuation.section.group.serializer",
+              "match": "[()\\[\\]]"
+            },
+            {
+              "name": "entity.name.type.serializer",
+              "match": "(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*(?=::[A-Za-z_][A-Za-z_0-9]*)"
+            }
+          ]
+        },
+        {
+          "match": "\\b(constructor)(?=\\s*\\()",
+          "captures": {
+            "1": {
+              "name": "storage.type.serializer"
+            }
+          }
+        },
+        {
+          "match": "\\b(factory)\\s+([A-Za-z_][A-Za-z_0-9]*)(?=\\s*\\()",
+          "captures": {
+            "1": {
+              "name": "storage.type.serializer"
+            },
+            "2": {
+              "name": "entity.name.function.serializer"
+            }
+          }
+        },
+        {
+          "match": "\\b(layout)\\s*(\\()\\s*(empty)\\s*(\\))",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.serializer"
+            },
+            "2": {
+              "name": "punctuation.section.group.serializer"
+            },
+            "3": {
+              "name": "constant.other.layout.serializer"
+            },
+            "4": {
+              "name": "punctuation.section.group.serializer"
+            }
+          }
+        },
+        {
+          "match": "\\b(default)\\s*(\\()\\s*([A-Za-z_][A-Za-z_0-9]*)\\s*(\\))",
+          "captures": {
+            "1": {
+              "name": "keyword.control.serializer"
+            },
+            "2": {
+              "name": "punctuation.section.group.serializer"
+            },
+            "3": {
+              "name": "entity.name.function.serializer"
+            },
+            "4": {
+              "name": "punctuation.section.group.serializer"
+            }
+          }
+        },
+        {
+          "match": "\\bmath\\.(sqrt|sin|cos|is_finite)\\b|\\b(?:to_double|size|all|any)(?=\\s*\\()",
+          "name": "support.function.serializer"
+        },
+        {
+          "match": "\\bmath\\.pi\\b",
+          "name": "constant.language.serializer"
+        },
+        {
+          "begin": "\\b(function)\\s+(?:(virtual|abstract|override)\\s+)?(?:(digest\\s*(?:\\([^)]*\\)|\\[[^\\]]*\\]))\\s+)?",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.type.serializer"
+            },
+            "2": {
+              "name": "storage.modifier.serializer"
+            },
+            "3": {
+              "patterns": [
+                {
+                  "include": "#digest_spec"
+                }
+              ]
+            }
+          },
+          "end": "\\b([A-Za-z_][A-Za-z_0-9]*)\\s*(\\()|(?=[;{}])",
+          "endCaptures": {
+            "1": {
+              "name": "entity.name.function.serializer"
+            },
+            "2": {
+              "name": "punctuation.section.group.serializer"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "include": "#generic_arguments"
+            },
+            {
+              "include": "#type_name"
+            }
+          ]
+        },
+        {
+          "name": "meta.include.serializer",
+          "begin": "\\binclude\\b",
+          "beginCaptures": {
+            "0": {
+              "name": "keyword.control.import.serializer"
+            }
+          },
+          "end": ";|(?=[{}])",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.separator.serializer"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "name": "string.unquoted.path.serializer",
+              "match": "(?:[A-Za-z0-9_.-]+/)*(?:[A-Za-z0-9_.-]+\\.serializer|\\.?[A-Za-z0-9_-]+)(?=[\\s;]|/\\*|//|$)"
+            },
+            {
+              "name": "invalid.illegal.include.serializer",
+              "match": "[^\\s;{}]+"
+            }
+          ]
+        },
+        {
+          "include": "#strings"
+        },
+        {
+          "name": "meta.ignore-warning.serializer",
+          "begin": "\\b(ignore)(?:\\s|/\\*.*?\\*/)*(\\()(?=(?:\\s|/\\*.*?\\*/)*(?:warning\\b|$))",
+          "beginCaptures": {
+            "1": {
+              "name": "keyword.control.serializer"
+            },
+            "2": {
+              "name": "punctuation.section.group.serializer"
+            }
+          },
+          "end": "\\)|(?=[;{}])",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.section.group.serializer"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "name": "keyword.control.serializer",
+              "match": "\\bwarning\\b"
+            },
+            {
+              "name": "constant.other.warning.serializer",
+              "match": "\\b(?:magic|version)\\b"
+            },
+            {
+              "name": "punctuation.separator.serializer",
+              "match": ","
+            }
+          ]
+        },
+        {
+          "match": "\\b(namespace|class|enum|instantiate)\\s+([A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.serializer"
+            },
+            "2": {
+              "name": "entity.name.type.serializer"
+            }
+          }
+        },
+        {
+          "match": "\\b[A-Za-z_][A-Za-z_0-9]*(?=\\s*<)",
+          "name": "entity.name.type.serializer"
+        },
+        {
+          "match": "\\b(public|protected|private|managed)\\s+(?:(?:array(?:\\s*\\[[^\\]]*\\])?|map\\s*\\([^)]*\\))\\s+)?(digest\\s*(?:\\([^)]*\\)|\\[[^\\]]*\\]))(?=\\s+[A-Za-z_])",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.serializer"
+            },
+            "2": {
+              "patterns": [
+                {
+                  "include": "#digest_spec"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "meta.fixed-array.serializer",
+          "begin": "\\b(array)\\s*(\\[)",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.type.serializer"
+            },
+            "2": {
+              "name": "punctuation.section.group.serializer"
+            }
+          },
+          "end": "(\\])(?:\\s+((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*))?",
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "name": "constant.numeric.serializer",
+              "match": "\\b[0-9]+\\b"
+            },
+            {
+              "name": "keyword.operator.serializer",
+              "match": "[+*()]"
+            },
+            {
+              "include": "#type_name"
+            }
+          ],
+          "endCaptures": {
+            "1": {
+              "name": "punctuation.section.group.serializer"
+            },
+            "2": {
+              "patterns": [
+                {
+                  "include": "#type_name"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "include": "#generic_arguments"
+        },
+        {
+          "match": "(?<=[{,])\\s*((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)(::)([A-Za-z_][A-Za-z_0-9]*)(?=\\s*[,}])",
+          "captures": {
+            "1": {
+              "patterns": [
+                {
+                  "include": "#type_name"
+                }
+              ]
+            },
+            "2": {
+              "name": "keyword.operator.serializer"
+            },
+            "3": {
+              "name": "constant.other.enum.serializer"
+            }
+          }
+        },
+        {
+          "match": "\\b(map)\\s*(\\()\\s*((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)\\s*(\\))\\s*((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.serializer"
+            },
+            "2": {
+              "name": "punctuation.section.group.serializer"
+            },
+            "3": {
+              "patterns": [
+                {
+                  "include": "#type_name"
+                }
+              ]
+            },
+            "4": {
+              "name": "punctuation.section.group.serializer"
+            },
+            "5": {
+              "patterns": [
+                {
+                  "include": "#type_name"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "match": "\\b(array)\\s+((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
+          "captures": {
+            "1": {
+              "name": "storage.type.serializer"
+            },
+            "2": {
+              "patterns": [
+                {
+                  "include": "#type_name"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "match": "\\b(?:(public|protected|private)\\s+)?(compact_prefix|compact_varint)\\b(?:\\s+(strict|lenient)\\b)?\\s+((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)(?=\\s+(?!omit\\b(?:\\s|/\\*.*?\\*/)*\\((?:\\s|/\\*.*?\\*/)*[A-Za-z_])[A-Za-z_][A-Za-z_0-9]*\\b)",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.serializer"
+            },
+            "2": {
+              "name": "storage.modifier.serializer"
+            },
+            "3": {
+              "name": "storage.modifier.serializer"
+            },
+            "4": {
+              "patterns": [
+                {
+                  "include": "#type_name"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "match": "\\b(public|protected|private)\\s+(magic)\\s+((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.serializer"
+            },
+            "2": {
+              "name": "keyword.control.serializer"
+            },
+            "3": {
+              "patterns": [
+                {
+                  "include": "#type_name"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "match": "\\b(public|protected|private)\\s+(version|magic)\\b",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.serializer"
+            },
+            "2": {
+              "name": "keyword.control.serializer"
+            }
+          }
+        },
+        {
+          "match": "\\b(public|protected|private|managed)\\s+((?!(?:(?:array|map|union|managed|transient|wire_only|conversion|function|version|magic)\\b|variant\\s*\\(|constructor\\s*\\(|factory\\s+[A-Za-z_]\\w*\\s*\\())(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
+          "captures": {
+            "1": {
+              "name": "storage.modifier.serializer"
+            },
+            "2": {
+              "patterns": [
+                {
+                  "include": "#type_name"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "begin": "\\b(union|variant)\\s*(\\()",
+          "beginCaptures": {
+            "1": {
+              "name": "storage.type.serializer"
+            },
+            "2": {
+              "name": "punctuation.section.group.serializer"
+            }
+          },
+          "end": "\\)",
+          "endCaptures": {
+            "0": {
+              "name": "punctuation.section.group.serializer"
+            }
+          },
+          "patterns": [
+            {
+              "include": "#comments"
+            },
+            {
+              "match": "(digest\\s*(?:\\([^)]*\\)|\\[[^\\]]*\\])|(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)\\s*(=)\\s*([A-Za-z_][A-Za-z_0-9]*)",
+              "captures": {
+                "1": {
+                  "patterns": [
+                    {
+                      "include": "#type_name"
+                    }
+                  ]
+                },
+                "2": {
+                  "name": "keyword.operator.serializer"
+                },
+                "3": {
+                  "name": "variable.other.member.serializer"
+                }
+              }
+            },
+            {
+              "include": "#digest_spec"
+            },
+            {
+              "match": "(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*",
+              "captures": {
+                "0": {
+                  "patterns": [
+                    {
+                      "include": "#type_name"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "punctuation.separator.serializer",
+              "match": ","
+            }
+          ]
+        },
+        {
+          "match": "(?<!\\w)(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)+",
+          "captures": {
+            "0": {
+              "patterns": [
+                {
+                  "include": "#type_name"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "keyword.control.serializer",
+          "match": "\\b(serializer|expression|predicate|preamble|version|magic|omit|compatibility|created|obsolete|replaced|reserve|releases|policy|any|all|max_age|keep_last|released_since|expires_on)\\b"
+        },
+        {
+          "name": "storage.type.serializer",
+          "match": "\\b(namespace|class|enum|instantiate|array|map|union|variant)\\b"
+        },
+        {
+          "name": "storage.modifier.serializer",
+          "match": "\\b(public|protected|private|transient|edit|virtual|abstract|override|stable_ids|managed|owning|view|readonly|mutable|packed|compact_prefix|compact_varint|strict|lenient)\\b"
+        },
+        {
+          "name": "support.type.serializer",
+          "match": "\\b(version[234]|char|bool|string|float|double|u?int(?:8|16|32|64))\\b"
+        },
+        {
+          "name": "constant.language.serializer",
+          "match": "\\b(true|false)\\b"
+        },
+        {
+          "name": "constant.numeric.serializer",
+          "match": "(?<![\\w.])[0-9]+(?:\\.[0-9]+){2}(?![\\w.])"
+        },
+        {
+          "name": "constant.numeric.serializer",
+          "match": "(?<![\\w.])(?:0[xX][0-9a-fA-F]+|(?:[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?)(?:[uUlLfF]*)\\b"
+        },
+        {
+          "name": "keyword.operator.serializer",
+          "match": "::|==|!=|<=|>=|&&|\\|\\||[-+*/=<>!?]"
+        },
+        {
+          "name": "punctuation.section.block.serializer",
+          "match": "[{}]"
+        },
+        {
+          "name": "punctuation.section.group.serializer",
+          "match": "[()]"
+        },
+        {
+          "name": "punctuation.separator.serializer",
+          "match": "[;,:]"
+        }
+      ]
+    },
     "native_code": {
+      "patterns": [
+        {
+          "include": "#native_cpp"
+        },
+        {
+          "include": "#native_csharp"
+        },
+        {
+          "include": "#native_java"
+        },
+        {
+          "include": "#native_javascript"
+        },
+        {
+          "include": "#native_typescript"
+        },
+        {
+          "include": "#native_go"
+        },
+        {
+          "include": "#native_rust"
+        },
+        {
+          "include": "#native_python"
+        },
+        {
+          "include": "#native_swift"
+        },
+        {
+          "include": "#native_kotlin"
+        },
+        {
+          "include": "#native_c"
+        }
+      ]
+    },
+    "native_cpp": {
       "name": "meta.embedded.block.serializer",
-      "begin": "\\b(?:(public|protected|private)\\s+)?(cpp|csharp|java|javascript|typescript|go|rust|python|swift|kotlin|c)\\s+(?:(preamble)\\s*)?(\\{)",
+      "begin": "\\b(public|protected|private)(?:\\s|/\\*.*?\\*/)+(cpp)\\b(?=\\s*(?:\\{|/\\*|//|$))|\\b(cpp)\\b(?=\\s*(?:preamble\\b|/\\*|//|$))",
       "beginCaptures": {
         "1": {
           "name": "storage.modifier.serializer"
@@ -817,13 +870,32 @@
           "name": "storage.modifier.language.serializer"
         },
         "3": {
-          "name": "keyword.control.serializer"
+          "name": "storage.modifier.language.serializer"
+        }
+      },
+      "end": "(?<=\\})|(?=;)",
+      "patterns": [
+        {
+          "include": "#comments"
         },
-        "4": {
+        {
+          "name": "keyword.control.serializer",
+          "match": "\\bpreamble\\b"
+        },
+        {
+          "include": "#native_cpp_body"
+        }
+      ]
+    },
+    "native_cpp_body": {
+      "begin": "\\{",
+      "end": "\\}",
+      "contentName": "meta.embedded.block.cpp source.cpp",
+      "beginCaptures": {
+        "0": {
           "name": "punctuation.section.block.serializer"
         }
       },
-      "end": "\\}",
       "endCaptures": {
         "0": {
           "name": "punctuation.section.block.serializer"
@@ -831,19 +903,1014 @@
       },
       "patterns": [
         {
-          "include": "#comments"
-        },
-        {
-          "include": "#strings"
-        },
-        {
-          "include": "#native_braces"
+          "include": "#native_cpp_content"
         }
       ]
     },
-    "native_braces": {
+    "native_cpp_content": {
+      "patterns": [
+        {
+          "include": "#native_cpp_braces"
+        },
+        {
+          "include": "source.cpp"
+        },
+        {
+          "include": "#native_cpp_fallback"
+        }
+      ]
+    },
+    "native_cpp_braces": {
       "begin": "\\{",
       "end": "\\}",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.block.cpp"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.block.cpp"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#native_cpp_content"
+        }
+      ]
+    },
+    "native_cpp_fallback": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.raw.cpp",
+          "begin": "(?:u8|u|U|L)?R\"([^\\s()\\\\]{0,16})\\(",
+          "end": "\\)\\1\""
+        },
+        {
+          "include": "#native_fallback"
+        }
+      ]
+    },
+    "native_csharp": {
+      "name": "meta.embedded.block.serializer",
+      "begin": "\\b(public|protected|private)(?:\\s|/\\*.*?\\*/)+(csharp)\\b(?=\\s*(?:\\{|/\\*|//|$))|\\b(csharp)\\b(?=\\s*(?:preamble\\b|/\\*|//|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.serializer"
+        },
+        "2": {
+          "name": "storage.modifier.language.serializer"
+        },
+        "3": {
+          "name": "storage.modifier.language.serializer"
+        }
+      },
+      "end": "(?<=\\})|(?=;)",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "name": "keyword.control.serializer",
+          "match": "\\bpreamble\\b"
+        },
+        {
+          "include": "#native_csharp_body"
+        }
+      ]
+    },
+    "native_csharp_body": {
+      "begin": "\\{",
+      "end": "\\}",
+      "contentName": "meta.embedded.block.csharp source.cs",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.block.serializer"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.block.serializer"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#native_csharp_content"
+        }
+      ]
+    },
+    "native_csharp_content": {
+      "patterns": [
+        {
+          "include": "#native_csharp_braces"
+        },
+        {
+          "include": "source.cs"
+        },
+        {
+          "include": "#native_csharp_fallback"
+        }
+      ]
+    },
+    "native_csharp_braces": {
+      "begin": "\\{",
+      "end": "\\}",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.block.cs"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.block.cs"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#native_csharp_content"
+        }
+      ]
+    },
+    "native_csharp_fallback": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.raw.cs",
+          "begin": "\\$*(\"{3,})",
+          "end": "\\1"
+        },
+        {
+          "name": "string.quoted.double.interpolated.verbatim.cs",
+          "begin": "(?:\\$@|@\\$)\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.cs",
+              "match": "\"\""
+            },
+            {
+              "name": "constant.character.escape.cs",
+              "match": "\\{\\{|\\}\\}"
+            },
+            {
+              "include": "#native_csharp_interpolation"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.double.interpolated.cs",
+          "begin": "\\$\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.cs",
+              "match": "\\\\."
+            },
+            {
+              "name": "constant.character.escape.cs",
+              "match": "\\{\\{|\\}\\}"
+            },
+            {
+              "include": "#native_csharp_interpolation"
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.double.verbatim.cs",
+          "begin": "@\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.cs",
+              "match": "\"\""
+            }
+          ]
+        },
+        {
+          "include": "#native_fallback"
+        }
+      ]
+    },
+    "native_java": {
+      "name": "meta.embedded.block.serializer",
+      "begin": "\\b(public|protected|private)(?:\\s|/\\*.*?\\*/)+(java)\\b(?=\\s*(?:\\{|/\\*|//|$))|\\b(java)\\b(?=\\s*(?:preamble\\b|/\\*|//|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.serializer"
+        },
+        "2": {
+          "name": "storage.modifier.language.serializer"
+        },
+        "3": {
+          "name": "storage.modifier.language.serializer"
+        }
+      },
+      "end": "(?<=\\})|(?=;)",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "name": "keyword.control.serializer",
+          "match": "\\bpreamble\\b"
+        },
+        {
+          "include": "#native_java_body"
+        }
+      ]
+    },
+    "native_java_body": {
+      "begin": "\\{",
+      "end": "\\}",
+      "contentName": "meta.embedded.block.java source.java",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.block.serializer"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.block.serializer"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#native_java_content"
+        }
+      ]
+    },
+    "native_java_content": {
+      "patterns": [
+        {
+          "include": "#native_java_braces"
+        },
+        {
+          "include": "source.java"
+        },
+        {
+          "include": "#native_java_fallback"
+        }
+      ]
+    },
+    "native_java_braces": {
+      "begin": "\\{",
+      "end": "\\}",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.block.java"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.block.java"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#native_java_content"
+        }
+      ]
+    },
+    "native_java_fallback": {
+      "patterns": [
+        {
+          "name": "string.quoted.multi.native.serializer",
+          "begin": "(\"{3,}|\\'{3,})",
+          "end": "\\1"
+        },
+        {
+          "include": "#native_fallback"
+        }
+      ]
+    },
+    "native_javascript": {
+      "name": "meta.embedded.block.serializer",
+      "begin": "\\b(public|protected|private)(?:\\s|/\\*.*?\\*/)+(javascript)\\b(?=\\s*(?:\\{|/\\*|//|$))|\\b(javascript)\\b(?=\\s*(?:preamble\\b|/\\*|//|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.serializer"
+        },
+        "2": {
+          "name": "storage.modifier.language.serializer"
+        },
+        "3": {
+          "name": "storage.modifier.language.serializer"
+        }
+      },
+      "end": "(?<=\\})|(?=;)",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "name": "keyword.control.serializer",
+          "match": "\\bpreamble\\b"
+        },
+        {
+          "include": "#native_javascript_body"
+        }
+      ]
+    },
+    "native_javascript_body": {
+      "begin": "\\{",
+      "end": "\\}",
+      "contentName": "meta.embedded.block.javascript source.js",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.block.serializer"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.block.serializer"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#native_javascript_content"
+        }
+      ]
+    },
+    "native_javascript_content": {
+      "patterns": [
+        {
+          "include": "#native_javascript_braces"
+        },
+        {
+          "include": "source.js"
+        },
+        {
+          "include": "source.ts"
+        },
+        {
+          "include": "#native_javascript_fallback"
+        }
+      ]
+    },
+    "native_javascript_braces": {
+      "begin": "\\{",
+      "end": "\\}",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.block.js"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.block.js"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#native_javascript_content"
+        }
+      ]
+    },
+    "native_javascript_fallback": {
+      "patterns": [
+        {
+          "include": "#native_fallback"
+        }
+      ]
+    },
+    "native_typescript": {
+      "name": "meta.embedded.block.serializer",
+      "begin": "\\b(public|protected|private)(?:\\s|/\\*.*?\\*/)+(typescript)\\b(?=\\s*(?:\\{|/\\*|//|$))|\\b(typescript)\\b(?=\\s*(?:preamble\\b|/\\*|//|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.serializer"
+        },
+        "2": {
+          "name": "storage.modifier.language.serializer"
+        },
+        "3": {
+          "name": "storage.modifier.language.serializer"
+        }
+      },
+      "end": "(?<=\\})|(?=;)",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "name": "keyword.control.serializer",
+          "match": "\\bpreamble\\b"
+        },
+        {
+          "include": "#native_typescript_body"
+        }
+      ]
+    },
+    "native_typescript_body": {
+      "begin": "\\{",
+      "end": "\\}",
+      "contentName": "meta.embedded.block.typescript source.ts",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.block.serializer"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.block.serializer"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#native_typescript_content"
+        }
+      ]
+    },
+    "native_typescript_content": {
+      "patterns": [
+        {
+          "include": "#native_typescript_braces"
+        },
+        {
+          "include": "source.ts"
+        },
+        {
+          "include": "#native_typescript_fallback"
+        }
+      ]
+    },
+    "native_typescript_braces": {
+      "begin": "\\{",
+      "end": "\\}",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.block.ts"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.block.ts"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#native_typescript_content"
+        }
+      ]
+    },
+    "native_typescript_fallback": {
+      "patterns": [
+        {
+          "include": "#native_fallback"
+        }
+      ]
+    },
+    "native_go": {
+      "name": "meta.embedded.block.serializer",
+      "begin": "\\b(public|protected|private)(?:\\s|/\\*.*?\\*/)+(go)\\b(?=\\s*(?:\\{|/\\*|//|$))|\\b(go)\\b(?=\\s*(?:preamble\\b|/\\*|//|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.serializer"
+        },
+        "2": {
+          "name": "storage.modifier.language.serializer"
+        },
+        "3": {
+          "name": "storage.modifier.language.serializer"
+        }
+      },
+      "end": "(?<=\\})|(?=;)",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "name": "keyword.control.serializer",
+          "match": "\\bpreamble\\b"
+        },
+        {
+          "include": "#native_go_body"
+        }
+      ]
+    },
+    "native_go_body": {
+      "begin": "\\{",
+      "end": "\\}",
+      "contentName": "meta.embedded.block.go source.go",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.block.serializer"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.block.serializer"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#native_go_content"
+        }
+      ]
+    },
+    "native_go_content": {
+      "patterns": [
+        {
+          "include": "#native_go_braces"
+        },
+        {
+          "include": "source.go"
+        },
+        {
+          "include": "#native_go_fallback"
+        }
+      ]
+    },
+    "native_go_braces": {
+      "begin": "\\{",
+      "end": "\\}",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.block.go"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.block.go"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#native_go_content"
+        }
+      ]
+    },
+    "native_go_fallback": {
+      "patterns": [
+        {
+          "include": "#native_fallback"
+        }
+      ]
+    },
+    "native_rust": {
+      "name": "meta.embedded.block.serializer",
+      "begin": "\\b(public|protected|private)(?:\\s|/\\*.*?\\*/)+(rust)\\b(?=\\s*(?:\\{|/\\*|//|$))|\\b(rust)\\b(?=\\s*(?:preamble\\b|/\\*|//|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.serializer"
+        },
+        "2": {
+          "name": "storage.modifier.language.serializer"
+        },
+        "3": {
+          "name": "storage.modifier.language.serializer"
+        }
+      },
+      "end": "(?<=\\})|(?=;)",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "name": "keyword.control.serializer",
+          "match": "\\bpreamble\\b"
+        },
+        {
+          "include": "#native_rust_body"
+        }
+      ]
+    },
+    "native_rust_body": {
+      "begin": "\\{",
+      "end": "\\}",
+      "contentName": "meta.embedded.block.rust source.rust",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.block.serializer"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.block.serializer"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#native_rust_content"
+        }
+      ]
+    },
+    "native_rust_content": {
+      "patterns": [
+        {
+          "include": "#native_rust_braces"
+        },
+        {
+          "include": "source.rust"
+        },
+        {
+          "include": "#native_rust_fallback"
+        }
+      ]
+    },
+    "native_rust_braces": {
+      "begin": "\\{",
+      "end": "\\}",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.block.rust"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.block.rust"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#native_rust_content"
+        }
+      ]
+    },
+    "native_rust_fallback": {
+      "patterns": [
+        {
+          "name": "storage.modifier.lifetime.rust",
+          "match": "'[A-Za-z_][A-Za-z_0-9]*\\b(?!')"
+        },
+        {
+          "name": "string.quoted.double.raw.rust",
+          "begin": "(?:b|c)?r(#{0,255})\"",
+          "end": "\"\\1"
+        },
+        {
+          "include": "#native_fallback"
+        }
+      ]
+    },
+    "native_python": {
+      "name": "meta.embedded.block.serializer",
+      "begin": "\\b(public|protected|private)(?:\\s|/\\*.*?\\*/)+(python)\\b(?=\\s*(?:\\{|/\\*|//|$))|\\b(python)\\b(?=\\s*(?:preamble\\b|/\\*|//|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.serializer"
+        },
+        "2": {
+          "name": "storage.modifier.language.serializer"
+        },
+        "3": {
+          "name": "storage.modifier.language.serializer"
+        }
+      },
+      "end": "(?<=\\})|(?=;)",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "name": "keyword.control.serializer",
+          "match": "\\bpreamble\\b"
+        },
+        {
+          "include": "#native_python_body"
+        }
+      ]
+    },
+    "native_python_body": {
+      "begin": "\\{",
+      "end": "\\}",
+      "contentName": "meta.embedded.block.python source.python",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.block.serializer"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.block.serializer"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#native_python_content"
+        }
+      ]
+    },
+    "native_python_content": {
+      "patterns": [
+        {
+          "include": "#native_python_braces"
+        },
+        {
+          "include": "source.python"
+        },
+        {
+          "include": "#native_python_fallback"
+        }
+      ]
+    },
+    "native_python_braces": {
+      "begin": "\\{",
+      "end": "\\}",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.block.python"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.block.python"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#native_python_content"
+        }
+      ]
+    },
+    "native_python_fallback": {
+      "patterns": [
+        {
+          "name": "string.quoted.multi.native.serializer",
+          "begin": "(\"{3,}|\\'{3,})",
+          "end": "\\1"
+        },
+        {
+          "name": "comment.line.number-sign.python",
+          "begin": "#",
+          "end": "$"
+        },
+        {
+          "include": "#native_fallback"
+        }
+      ]
+    },
+    "native_swift": {
+      "name": "meta.embedded.block.serializer",
+      "begin": "\\b(public|protected|private)(?:\\s|/\\*.*?\\*/)+(swift)\\b(?=\\s*(?:\\{|/\\*|//|$))|\\b(swift)\\b(?=\\s*(?:preamble\\b|/\\*|//|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.serializer"
+        },
+        "2": {
+          "name": "storage.modifier.language.serializer"
+        },
+        "3": {
+          "name": "storage.modifier.language.serializer"
+        }
+      },
+      "end": "(?<=\\})|(?=;)",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "name": "keyword.control.serializer",
+          "match": "\\bpreamble\\b"
+        },
+        {
+          "include": "#native_swift_body"
+        }
+      ]
+    },
+    "native_swift_body": {
+      "begin": "\\{",
+      "end": "\\}",
+      "contentName": "meta.embedded.block.swift source.swift",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.block.serializer"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.block.serializer"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#native_swift_content"
+        }
+      ]
+    },
+    "native_swift_content": {
+      "patterns": [
+        {
+          "include": "#native_swift_braces"
+        },
+        {
+          "include": "source.swift"
+        },
+        {
+          "include": "#native_swift_fallback"
+        }
+      ]
+    },
+    "native_swift_braces": {
+      "begin": "\\{",
+      "end": "\\}",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.block.swift"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.block.swift"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#native_swift_content"
+        }
+      ]
+    },
+    "native_swift_fallback": {
+      "patterns": [
+        {
+          "name": "string.quoted.multi.native.serializer",
+          "begin": "(\"{3,}|\\'{3,})",
+          "end": "\\1"
+        },
+        {
+          "include": "#native_fallback"
+        }
+      ]
+    },
+    "native_kotlin": {
+      "name": "meta.embedded.block.serializer",
+      "begin": "\\b(public|protected|private)(?:\\s|/\\*.*?\\*/)+(kotlin)\\b(?=\\s*(?:\\{|/\\*|//|$))|\\b(kotlin)\\b(?=\\s*(?:preamble\\b|/\\*|//|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.serializer"
+        },
+        "2": {
+          "name": "storage.modifier.language.serializer"
+        },
+        "3": {
+          "name": "storage.modifier.language.serializer"
+        }
+      },
+      "end": "(?<=\\})|(?=;)",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "name": "keyword.control.serializer",
+          "match": "\\bpreamble\\b"
+        },
+        {
+          "include": "#native_kotlin_body"
+        }
+      ]
+    },
+    "native_kotlin_body": {
+      "begin": "\\{",
+      "end": "\\}",
+      "contentName": "meta.embedded.block.kotlin source.kotlin",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.block.serializer"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.block.serializer"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#native_kotlin_content"
+        }
+      ]
+    },
+    "native_kotlin_content": {
+      "patterns": [
+        {
+          "include": "#native_kotlin_braces"
+        },
+        {
+          "include": "source.kotlin"
+        },
+        {
+          "include": "#native_kotlin_fallback"
+        }
+      ]
+    },
+    "native_kotlin_braces": {
+      "begin": "\\{",
+      "end": "\\}",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.block.kotlin"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.block.kotlin"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#native_kotlin_content"
+        }
+      ]
+    },
+    "native_kotlin_fallback": {
+      "patterns": [
+        {
+          "name": "string.quoted.multi.native.serializer",
+          "begin": "(\"{3,}|\\'{3,})",
+          "end": "\\1"
+        },
+        {
+          "include": "#native_fallback"
+        }
+      ]
+    },
+    "native_c": {
+      "name": "meta.embedded.block.serializer",
+      "begin": "\\b(public|protected|private)(?:\\s|/\\*.*?\\*/)+(c)\\b(?=\\s*(?:\\{|/\\*|//|$))|\\b(c)\\b(?=\\s*(?:preamble\\b|/\\*|//|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.serializer"
+        },
+        "2": {
+          "name": "storage.modifier.language.serializer"
+        },
+        "3": {
+          "name": "storage.modifier.language.serializer"
+        }
+      },
+      "end": "(?<=\\})|(?=;)",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "name": "keyword.control.serializer",
+          "match": "\\bpreamble\\b"
+        },
+        {
+          "include": "#native_c_body"
+        }
+      ]
+    },
+    "native_c_body": {
+      "begin": "\\{",
+      "end": "\\}",
+      "contentName": "meta.embedded.block.c source.c",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.block.serializer"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.block.serializer"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#native_c_content"
+        }
+      ]
+    },
+    "native_c_content": {
+      "patterns": [
+        {
+          "include": "#native_c_braces"
+        },
+        {
+          "include": "source.c"
+        },
+        {
+          "include": "#native_c_fallback"
+        }
+      ]
+    },
+    "native_c_braces": {
+      "begin": "\\{",
+      "end": "\\}",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.block.c"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.block.c"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#native_c_content"
+        }
+      ]
+    },
+    "native_c_fallback": {
+      "patterns": [
+        {
+          "include": "#native_fallback"
+        }
+      ]
+    },
+    "native_fallback": {
       "patterns": [
         {
           "include": "#comments"
@@ -852,7 +1919,453 @@
           "include": "#strings"
         },
         {
-          "include": "#native_braces"
+          "name": "string.quoted.other.native.serializer",
+          "begin": "`",
+          "end": "`",
+          "patterns": [
+            {
+              "name": "constant.character.escape.native.serializer",
+              "match": "\\\\."
+            }
+          ]
+        },
+        {
+          "name": "keyword.control.native.serializer",
+          "match": "\\b(?:return|if|else|for|while|do|switch|case|break|continue|throw|try|catch|finally|new|class|struct|enum|interface|extends|implements|import|package|namespace|using|const|let|var|func|fn|def|val|fun|in|is|as|match|yield|await|async)\\b"
+        },
+        {
+          "name": "constant.language.native.serializer",
+          "match": "\\b(?:true|false|null|nullptr|nil|None|True|False)\\b"
+        },
+        {
+          "name": "constant.numeric.native.serializer",
+          "match": "(?<![\\w.])(?:0[xX][0-9a-fA-F]+|[0-9]+(?:\\.[0-9]*)?|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?"
+        },
+        {
+          "name": "keyword.operator.native.serializer",
+          "match": "[-+*/%=<>!&|^~?:]+"
+        }
+      ]
+    },
+    "native_methods": {
+      "name": "meta.function.native.serializer",
+      "begin": "\\b(readonly|edit)\\b(?=\\s*(?:(?:cpp|csharp|java|javascript|typescript|go|rust|python|swift|kotlin|c)\\b|/\\*|//|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.serializer"
+        }
+      },
+      "end": ";|(?=[{}])",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#native_cpp_method"
+        },
+        {
+          "include": "#native_csharp_method"
+        },
+        {
+          "include": "#native_java_method"
+        },
+        {
+          "include": "#native_javascript_method"
+        },
+        {
+          "include": "#native_typescript_method"
+        },
+        {
+          "include": "#native_go_method"
+        },
+        {
+          "include": "#native_rust_method"
+        },
+        {
+          "include": "#native_python_method"
+        },
+        {
+          "include": "#native_swift_method"
+        },
+        {
+          "include": "#native_kotlin_method"
+        },
+        {
+          "include": "#native_c_method"
+        }
+      ]
+    },
+    "native_cpp_method": {
+      "name": "meta.embedded.block.serializer",
+      "begin": "\\b(cpp)\\b(?=\\s*(?:\\{|/\\*|//|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.language.serializer"
+        }
+      },
+      "end": "(?<=\\})|(?=;)",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "name": "keyword.control.serializer",
+          "match": "\\bpreamble\\b"
+        },
+        {
+          "include": "#native_cpp_body"
+        }
+      ]
+    },
+    "native_csharp_method": {
+      "name": "meta.embedded.block.serializer",
+      "begin": "\\b(csharp)\\b(?=\\s*(?:\\{|/\\*|//|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.language.serializer"
+        }
+      },
+      "end": "(?<=\\})|(?=;)",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "name": "keyword.control.serializer",
+          "match": "\\bpreamble\\b"
+        },
+        {
+          "include": "#native_csharp_body"
+        }
+      ]
+    },
+    "native_java_method": {
+      "name": "meta.embedded.block.serializer",
+      "begin": "\\b(java)\\b(?=\\s*(?:\\{|/\\*|//|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.language.serializer"
+        }
+      },
+      "end": "(?<=\\})|(?=;)",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "name": "keyword.control.serializer",
+          "match": "\\bpreamble\\b"
+        },
+        {
+          "include": "#native_java_body"
+        }
+      ]
+    },
+    "native_javascript_method": {
+      "name": "meta.embedded.block.serializer",
+      "begin": "\\b(javascript)\\b(?=\\s*(?:\\{|/\\*|//|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.language.serializer"
+        }
+      },
+      "end": "(?<=\\})|(?=;)",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "name": "keyword.control.serializer",
+          "match": "\\bpreamble\\b"
+        },
+        {
+          "include": "#native_javascript_body"
+        }
+      ]
+    },
+    "native_typescript_method": {
+      "name": "meta.embedded.block.serializer",
+      "begin": "\\b(typescript)\\b(?=\\s*(?:\\{|/\\*|//|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.language.serializer"
+        }
+      },
+      "end": "(?<=\\})|(?=;)",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "name": "keyword.control.serializer",
+          "match": "\\bpreamble\\b"
+        },
+        {
+          "include": "#native_typescript_body"
+        }
+      ]
+    },
+    "native_go_method": {
+      "name": "meta.embedded.block.serializer",
+      "begin": "\\b(go)\\b(?=\\s*(?:\\{|/\\*|//|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.language.serializer"
+        }
+      },
+      "end": "(?<=\\})|(?=;)",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "name": "keyword.control.serializer",
+          "match": "\\bpreamble\\b"
+        },
+        {
+          "include": "#native_go_body"
+        }
+      ]
+    },
+    "native_rust_method": {
+      "name": "meta.embedded.block.serializer",
+      "begin": "\\b(rust)\\b(?=\\s*(?:\\{|/\\*|//|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.language.serializer"
+        }
+      },
+      "end": "(?<=\\})|(?=;)",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "name": "keyword.control.serializer",
+          "match": "\\bpreamble\\b"
+        },
+        {
+          "include": "#native_rust_body"
+        }
+      ]
+    },
+    "native_python_method": {
+      "name": "meta.embedded.block.serializer",
+      "begin": "\\b(python)\\b(?=\\s*(?:\\{|/\\*|//|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.language.serializer"
+        }
+      },
+      "end": "(?<=\\})|(?=;)",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "name": "keyword.control.serializer",
+          "match": "\\bpreamble\\b"
+        },
+        {
+          "include": "#native_python_body"
+        }
+      ]
+    },
+    "native_swift_method": {
+      "name": "meta.embedded.block.serializer",
+      "begin": "\\b(swift)\\b(?=\\s*(?:\\{|/\\*|//|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.language.serializer"
+        }
+      },
+      "end": "(?<=\\})|(?=;)",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "name": "keyword.control.serializer",
+          "match": "\\bpreamble\\b"
+        },
+        {
+          "include": "#native_swift_body"
+        }
+      ]
+    },
+    "native_kotlin_method": {
+      "name": "meta.embedded.block.serializer",
+      "begin": "\\b(kotlin)\\b(?=\\s*(?:\\{|/\\*|//|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.language.serializer"
+        }
+      },
+      "end": "(?<=\\})|(?=;)",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "name": "keyword.control.serializer",
+          "match": "\\bpreamble\\b"
+        },
+        {
+          "include": "#native_kotlin_body"
+        }
+      ]
+    },
+    "native_c_method": {
+      "name": "meta.embedded.block.serializer",
+      "begin": "\\b(c)\\b(?=\\s*(?:\\{|/\\*|//|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.language.serializer"
+        }
+      },
+      "end": "(?<=\\})|(?=;)",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "name": "keyword.control.serializer",
+          "match": "\\bpreamble\\b"
+        },
+        {
+          "include": "#native_c_body"
+        }
+      ]
+    },
+    "native_csharp_interpolation": {
+      "begin": "\\{",
+      "end": "\\}",
+      "contentName": "meta.embedded.inline.csharp source.cs",
+      "beginCaptures": {
+        "0": {
+          "name": "punctuation.section.interpolation.begin.cs"
+        }
+      },
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.interpolation.end.cs"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#native_csharp_content"
+        }
+      ]
+    },
+    "native_member_prefix": {
+      "begin": "\\b(public|protected|private)\\b(?=\\s*(?:/\\*|//|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.serializer"
+        }
+      },
+      "end": "(?<=[;}])|(?=[{};])",
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#native_cpp_method"
+        },
+        {
+          "include": "#native_csharp_method"
+        },
+        {
+          "include": "#native_java_method"
+        },
+        {
+          "include": "#native_javascript_method"
+        },
+        {
+          "include": "#native_typescript_method"
+        },
+        {
+          "include": "#native_go_method"
+        },
+        {
+          "include": "#native_rust_method"
+        },
+        {
+          "include": "#native_python_method"
+        },
+        {
+          "include": "#native_swift_method"
+        },
+        {
+          "include": "#native_kotlin_method"
+        },
+        {
+          "include": "#native_c_method"
+        },
+        {
+          "include": "#native_member_body"
+        }
+      ]
+    },
+    "native_member_body": {
+      "begin": "(?=\\b(?:function|constructor|factory|conversion|array|map|union|variant|digest|wire_only|managed|transient|version|magic|compact_prefix|compact_varint)\\b)|((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
+      "beginCaptures": {
+        "1": {
+          "patterns": [
+            {
+              "include": "#type_name"
+            }
+          ]
+        }
+      },
+      "end": ";|(?<=;)|(?=[{}])",
+      "patterns": [
+        {
+          "include": "#digest_spec"
+        },
+        {
+          "include": "#native_member_contents"
+        }
+      ]
+    },
+    "native_member_contents": {
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#native_methods"
+        },
+        {
+          "include": "#schema_contents"
+        }
+      ]
+    },
+    "native_field_prefix": {
+      "begin": "\\b(public|protected|private)\\s+(?:(?:array(?:\\s*\\[[^\\]]*\\])?|map\\s*\\([^)]*\\))\\s+)?((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)(\\s*<[^;{}]*>)?(?:\\s+[A-Za-z_][A-Za-z_0-9]*)?(?=\\s*(?:/\\*|//|$))",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.modifier.serializer"
+        },
+        "2": {
+          "patterns": [
+            {
+              "include": "#type_name"
+            }
+          ]
+        },
+        "3": {
+          "patterns": [
+            {
+              "include": "#generic_arguments"
+            }
+          ]
+        }
+      },
+      "end": ";|(?=[{}])",
+      "patterns": [
+        {
+          "include": "#native_member_contents"
         }
       ]
     }

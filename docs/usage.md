@@ -42,6 +42,13 @@ is `constexpr` and `[[nodiscard]]`, and remains potentially throwing. See the
 [expression example](../example/cpp/expressions/README.md) and
 [behavior guide](behavior.md) for checked arithmetic and Boolean predicates.
 
+For authored C++ bodies, follow the [custom C++ example](../example/cpp/custom_code/README.md).
+It demonstrates `cpp preamble`, access-qualified native declarations, inline methods,
+and an external application definition, with `cpp.naming = preserve` so native
+identifiers match generated members. Native bodies are compiled as C++ and do not
+add wire fields. Both editor extensions can reuse available native language grammars
+for [embedded source highlighting](editor_extension.md#embedded-source-highlighting).
+
 Generated models may be distributed under your application's license, including
 proprietary terms, subject to the input schemas' copyright and license conditions.
 Serializer's own generated support code is covered by

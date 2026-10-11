@@ -253,7 +253,8 @@ async function loadGrammar() {
   const registry = new Registry({
     onigLib: Promise.resolve({ createOnigScanner: patterns => new onig.OnigScanner(patterns),
       createOnigString: value => new onig.OnigString(value) }),
-    loadGrammar: async () => JSON.parse(fs.readFileSync(path.join(__dirname, '../../serializer.tmLanguage.json'), 'utf8'))
+    loadGrammar: async scope => scope === 'source.serializer' ?
+      JSON.parse(fs.readFileSync(path.join(__dirname, '../../serializer.tmLanguage.json'), 'utf8')) : null
   });
   return registry.loadGrammar('source.serializer');
 }
@@ -478,8 +479,8 @@ test('inferred arrays and typed magic preserve element and enum scopes', async (
   assert.equal(grammar.tokenizeLine(line, INITIAL).ruleStack.depth, 1);
 });
 
-// New behavior grammar must not classify declarations inside a native body as schema types.
-test('language 1.6 methods and opaque native braces retain the outer schema state', async () => {
+// Native declarations must not inherit Serializer's schema type classifications.
+test('language 1.6 methods and native braces retain the outer schema state', async () => {
   const grammar = await loadGrammar();
   const line = 'class document { public function double estimate(double rate) readonly expression(rate * 2); public transient uint64 cache {0}; public cpp { if (true) { class NativeOnly {}; } } public uint32 pages (1); }';
   const result = grammar.tokenizeLine(line, INITIAL);

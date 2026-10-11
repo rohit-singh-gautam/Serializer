@@ -5,6 +5,12 @@ have no wire IDs and do not enter codecs, managed fingerprints, history comparis
 or collaboration patches. [Runnable native schema](../test/resources/document_native_behavior.serializer)
 and [SDK consumers](../test/native_behavior_languages.py) cover every target.
 
+For a focused C++ walkthrough, build the [custom code example](../example/cpp/custom_code/README.md).
+Its preamble, native class declarations, inline methods, and external `.cpp`
+definition operate on ordinary schema-owned fields and use the generated codecs.
+The editor extensions reuse available native language grammars for
+[embedded syntax highlighting](editor_extension.md#embedded-source-highlighting).
+
 ## Three implementation forms
 
 ```text

@@ -1,3 +1,11 @@
+# 1.1.38
+
+- Reuse available native language grammars inside target method bodies, class hooks, and preambles.
+- Map embedded scopes to VS Code language IDs for basic language editing features.
+- Preserve native block boundaries across nested braces, comments, and quoted literals.
+- Document grammar prerequisites and link the focused custom C++ example.
+- Keep both editor package versions synchronized.
+
 # 1.1.37
 
 - Support schema language 1.10.0 readonly function calls and namespace functions.

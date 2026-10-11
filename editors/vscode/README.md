@@ -1,5 +1,15 @@
 # Rohit Serializer for Visual Studio Code
 
+Version **1.1.38** highlights embedded target source using available language
+grammars. `cpp { ... }`, `java { ... }`, and the other native tags select their
+language's syntax inside method bodies, class declarations, and preambles. VS Code
+also receives the embedded language identity for basic editing operations.
+Install a grammar provider for languages the editor does not bundle. See
+[embedded source highlighting](../../docs/editor_extension.md#embedded-source-highlighting)
+and the [custom C++ example](../../example/cpp/custom_code/README.md).
+This adds syntax coloring; IntelliSense and semantic diagnostics inside schema
+blocks remain unavailable.
+
 Version **1.1.37** adds language 1.10.0 namespace functions, declared readonly calls,
 and Boolean generic type constraints. Shared navigation indexes namespace function
 signature types and exact type alternatives. Language 1.9.0 features include stateless generic constraints,
@@ -8,7 +18,7 @@ computed `auto_size` fields, `wire_only` headers, `size_scope(record|payload)`,
 and target/source field projections navigate through included schemas and unsaved
 edits, including inherited fields. Existing constructor, predicate, generic and
 all-language generated navigation remains supported. New schema snippets select
-language 1.9.0.
+language 1.10.0.
 
 **Editor support for Serializer — State Framework**
 
