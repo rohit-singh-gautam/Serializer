@@ -191,7 +191,8 @@ struct type_name {
         dimension{rhs.dimension}, application{rhs.application}, source_offset{rhs.source_offset},
         digest{rhs.digest}, digest_extent{rhs.digest_extent},
         digest_language_supported{rhs.digest_language_supported},
-        optional_language_supported{rhs.optional_language_supported} {}
+        optional_language_supported{rhs.optional_language_supported},
+        record_key_language_supported{rhs.record_key_language_supported} {}
   // Assign the documented view or value state from the source object.
   type_name& operator=(const type_name& rhs) {
     name = rhs.name;
@@ -210,6 +211,7 @@ struct type_name {
     digest_extent = rhs.digest_extent;
     digest_language_supported = rhs.digest_language_supported;
     optional_language_supported = rhs.optional_language_supported;
+    record_key_language_supported = rhs.record_key_language_supported;
     return *this;
   }
 
@@ -229,6 +231,7 @@ struct type_name {
   std::uint32_t digest_extent{}; // Zero denotes caller-provided variable-length bytes.
   bool digest_language_supported{true}; // The source file's selected contract survives includes.
   bool optional_language_supported{true}; // Built-in generic types require language 1.7.
+  bool record_key_language_supported{true}; // Record keys in generic maps require language 1.11.
 
   // Identify built-in owning presence without claiming user declarations with the same name.
   bool is_optional() const noexcept {
@@ -368,6 +371,7 @@ struct member {
   std::vector<std::string> auto_size_formats{}; // Selected native formats derive the containing record's byte length.
   bool wire_only{false}; // Computed auto-size metadata has no per-instance storage.
   auto_size_scope size_scope{auto_size_scope::record}; // Payload excludes this complete field key and scalar.
+  std::optional<type_name> key_type{}; // Preserve nested legacy map-key applications through lowering.
 
   // Select a computed fixed-width size without storing per-instance codec policy.
   bool auto_sizes(std::string_view format) const {
@@ -416,7 +420,7 @@ struct behavior_expression {
     boolean, divide, square_root, sine, cosine, less, less_equal, greater, greater_equal,
     equal, not_equal, logical_not, logical_and, logical_or, conditional,
     integer_literal, member_access, index_access, enum_constant, collection_size,
-    is_finite, all, any, call
+    is_finite, all, any, call, checked_cast
   };
   operation kind{operation::literal};
   std::string value{};
@@ -436,12 +440,20 @@ struct behavior_expression {
   const syntax_node* call_target{}; // Stable declaration owner, rebound after generic lowering.
   std::size_t call_method_index{}; // Member index; standalone function nodes use zero.
   std::vector<std::size_t> call_base_path{}; // Receiver path to an inherited member declaration.
+  bool call_receiver{false}; // Operand zero is an explicitly projected generated record receiver.
+  bool record_selection_enabled{true}; // Preserve the declaring file's language 1.11 contract.
+  bool numeric_contract_enabled{false}; // New arithmetic retains its declaring file's contract.
 };
 
 // A named argument with the schema's owned value type.
 struct function_parameter {
   type_name type{std::string{"double"}, nullptr};
   std::string name{};
+  member::modifier_type modifier{member::modifier_type::none};
+  std::vector<dimension_expression> extent_expression{};
+  std::uint64_t fixed_extent{};
+  std::string default_value{}; // Construction-only typed literal or default(factory) binding.
+  std::string default_factory{};
 };
 
 // One owned field initialization, bound to a parameter, literal, or typed default factory.
@@ -450,6 +462,7 @@ struct construction_assignment {
   std::string value{};
   bool parameter{false};
   bool factory_default{false};
+  std::optional<behavior_expression> expression{}; // Bounded checked scalar/projection binding.
 };
 
 // Portable value construction binds the generated owner instead of opaque self-type tokens.
@@ -459,6 +472,8 @@ struct construction_declaration {
   std::string name{};
   std::vector<function_parameter> parameters{};
   std::vector<construction_assignment> assignments{};
+  std::vector<generic_parameter> generic_parameters{}; // Independently constrained input types.
+  bool explicit_constructor{false}; // Opt-in C++ converting-constructor control.
 };
 
 // A readonly source projection supplies one exactly typed target field.

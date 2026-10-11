@@ -259,7 +259,7 @@ class emitter {
     if (value.is_optional()) { return "java.util.Optional.empty()"; }
     if (value.is_sequence()) { return "new java.util.ArrayList<>()"; }
     if (value.is_associative()) {
-      member map;
+      member map{};
       map.key = value.arguments[0].name;
       map.key_node = value.arguments[0].resolved_node;
       return map_initializer(map);
@@ -942,10 +942,10 @@ class emitter {
         context.enum_value = [&](const auto& item, std::string_view name) { return type(item) + "." + constant(name); };
         context.call = [&](const behavior_expression& node, const std::vector<std::string>& arguments) {
           const auto& target = behavior::called_function(node);
-          std::string receiver = "this";
+          std::string receiver = node.call_receiver ? "(" + arguments.at(0) + ")" : "this";
           for (const auto base : node.call_base_path) { receiver += ".base" + std::to_string(base); }
           const auto callable = node.call_target->type == object_type::function_type ? names.at(node.call_target) : receiver + "." + field(target.name);
-          return callable + "(" + behavior::call_arguments(arguments) + ")";
+          return callable + "(" + behavior::call_arguments(arguments, node.call_receiver ? 1 : 0) + ")";
         };
         context.predicate = method.predicate_body;
         while (std::any_of(method.parameters.begin(), method.parameters.end(), [&](const auto& parameter) {
@@ -1541,6 +1541,12 @@ class emitter {
       context.native_type = [&](const auto& value) { return type(value); };
       context.enum_value = [&](const auto& value, auto name) { return type(value) + "." + constant(name); };
       context.call = [&](const behavior_expression& call, const std::vector<std::string>& arguments) {
+        if (call.call_receiver) {
+          std::string receiver = "(" + arguments.at(0) + ")";
+          for (const auto base : call.call_base_path) { receiver += ".base" + std::to_string(base); }
+          return receiver + "." + field(behavior::called_function(call).name) + "(" +
+              behavior::call_arguments(arguments, 1) + ")";
+        }
         return names.at(call.call_target) + "(" + behavior::call_arguments(arguments) + ")";
       };
       behavior::free_expression_body(method, "java", result_type, [&](auto value) { return field(value); },

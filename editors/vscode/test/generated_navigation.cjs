@@ -245,7 +245,12 @@ namespace Names_ { class Value_Type {} }
     checks += await verify(input, path.join(directory, `java-${profile}`),
       ['--java.coding_standard', profile, '--java.package', 'example.models'], { java: outputs.java });
   }
-  console.log(`Fresh compiler navigation passed: ${checks} bidirectional type/field checks across all 11 output languages, owning generic inheritance and inherited declarations, nested optionals and generic containers, unnamed revisions and warning suppression, unions and variants, digest fields, compact fields, typed magic and inferred arrays, identical codecs for legacy/dotted headers, transitive includes, acronyms, preserved names, and direct/separated managed classes across all C++ profiles.`);
+  checks += await verify(path.join(repository, 'test/resources/projected_records.serializer'),
+    path.join(directory, 'projected-records'), [], outputs, true, true);
+  checks += await verify(path.join(repository, 'test/resources/record_maps.serializer'),
+    path.join(directory, 'record-map-keys'), ['--config', path.join(repository, 'test/resources/record_maps.ini')],
+    { cpp: outputs.cpp }, true, true);
+  console.log(`Fresh compiler navigation passed: ${checks} bidirectional type/field checks across all 11 output languages, projected readonly record calls, generic record map keys, owning generic inheritance and inherited declarations, nested optionals and generic containers, unnamed revisions and warning suppression, unions and variants, digest fields, compact fields, typed magic and inferred arrays, identical codecs for legacy/dotted headers, transitive includes, acronyms, preserved names, and direct/separated managed classes across all C++ profiles.`);
 }
 
 main().catch(error => { console.error(error.stderr?.toString() || error); process.exitCode = 1; });

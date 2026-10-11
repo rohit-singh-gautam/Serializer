@@ -5,6 +5,7 @@
 #include <rohit/managed_memory.hpp>
 #include <rohit/managed_changes.hpp>
 #include <rohit/managed_resident.hpp>
+#include <rohit/managed_registry.hpp>
 
 #include <rohit/managed_collaboration_hooks.hpp>
 #include <rohit/managed_editor.hpp>
@@ -103,12 +104,6 @@ struct transaction_outcome {
 // Tree transactions additionally identify the committed or unchanged revision.
 struct tree_transaction_outcome : transaction_outcome {
   std::uint64_t revision{};
-};
-
-// Stable document namespace, separate from the dense document-local object IDs.
-struct document_id {
-  std::uint64_t high{};
-  std::uint64_t low{};
 };
 
 // Generate a new document namespace using the platform random source; entropy failures propagate.
@@ -456,6 +451,8 @@ private:
   std::exception_ptr notification_error_{};
   const std::thread::id thread_{std::this_thread::get_id()};
   std::function<void(const storage_type&)> validate_{};
+  // Opt-in index invariants are schema-state checks, distinct from host authorization policy.
+  std::shared_ptr<const std::function<void(const storage_type&)>> registry_validate_{};
   SERIALIZER_MANAGED_EMPTY_MEMBER detail::history_storage<Mode, Labels> history_{};
   SERIALIZER_MANAGED_EMPTY_MEMBER detail::store_journal_storage<has_journal> journal_state_{};
 
@@ -973,6 +970,7 @@ private:
     callback_active_ = true;
     try {
       Traits::validate(value);
+      if (registry_validate_) { (*registry_validate_)(value); }
       if (application_policy && validate_) {
         validate_(value);
       }
@@ -1091,6 +1089,9 @@ public:
     auto root() {
       return owner_.root();
     }
+
+    // Resolve typed entities through this callback's existing transaction channel.
+    auto registry() { return owner_.registry(); }
 
     // Reserve a persistent ID for a newly inserted generated storage record.
     id_type create_id() {
@@ -1245,6 +1246,12 @@ public:
                                                                                      resolve});
     }
 
+    // Reuse editor lifetime and failure boundaries for generated typed entity lookup.
+    auto registry() {
+      static_cast<void>(root());
+      return registry_edit<Root, Traits>{channel_};
+    }
+
     // Mutate only the private candidate; failure closes the entire action even if caught by the caller.
     template <typename Callable>
       requires std::same_as<std::invoke_result_t<Callable, storage_type&>, void>
@@ -1256,6 +1263,16 @@ public:
       editing_ = true;
       try {
         std::invoke(std::forward<Callable>(callback), *candidate_);
+        if constexpr (requires { Traits::type_key; }) {
+          if (channel_ && channel_->registry_reservations && !channel_->registry_reservations->empty()) {
+            // A trusted raw insertion also consumes the reservation once, even if later erased.
+            auto& reservations = *channel_->registry_reservations;
+            detail::visit_registry_entities<Traits>(*candidate_, [&]<typename Plain>(const auto& node) {
+              static_cast<void>(sizeof(Plain));
+              std::erase(reservations, node.persistent_id);
+            });
+          }
+        }
         editing_ = false;
         candidate_charge_->resize(store_->estimate_storage(*candidate_));
         outcome_->throw_if_failed();
@@ -1643,6 +1660,59 @@ public:
     return current_;
   }
 
+  // Build an opt-in derived catalog pinned to this document's selected immutable snapshot.
+  auto registry(registry_options options = {}) const {
+    check_thread();
+    return registry_view<Root, Traits>{current_, options, resident_ledger_, document_};
+  }
+
+  // Enforce a declared scoped/composite key at every existing validation/publication boundary.
+  // The descriptor key remains ordinary durable model data and never replaces persistent_id.
+  template <typename Descriptor, typename Key = typename Descriptor::value_type,
+            typename Compare = std::less<Key>>
+  void declare_unique_key(Descriptor descriptor, Compare compare = {}) {
+    require_idle();
+    using Plain = typename Descriptor::plain_type;
+    static_assert(std::same_as<typename Descriptor::storage_type, typename model_traits<Plain>::storage_type>,
+                  "Registry descriptors must match the generated entity storage");
+    auto invariant = [descriptor, compare = std::move(compare)](const storage_type& root) {
+      std::map<Key, id_type, Compare> keys{compare};
+      detail::visit_registry_entities<Traits>(root, [&]<typename Actual>(const auto& storage) {
+        if constexpr (std::same_as<Plain, Actual>) {
+          if (!keys.emplace(descriptor.read(storage), storage.persistent_id).second) {
+            throw registry_error{registry_error_code::duplicate_key, "Duplicate registry key"};
+          }
+        }
+      });
+    };
+    callback_active_ = true;
+    try {
+      invariant(*current_);
+      // User comparison functions cannot navigate or publish while a snapshot is being traversed.
+      // A new invariant must permit every retained future/past before it becomes active.
+      if constexpr (Mode == history_mode::linear) {
+        for (const auto& entry : history_.entries) {
+          invariant(detail::decode<storage_type>(entry.snapshot, options_.decode));
+        }
+      } else if constexpr (Mode == history_mode::tree) {
+        for (const auto& [number, revision] : history_.revisions) {
+          static_cast<void>(number);
+          invariant(detail::decode<storage_type>(revision->snapshot, options_.decode));
+        }
+      }
+      callback_active_ = false;
+    } catch (...) {
+      callback_active_ = false;
+      throw;
+    }
+    auto previous = registry_validate_;
+    registry_validate_ = std::make_shared<const std::function<void(const storage_type&)>>(
+        [previous = std::move(previous), invariant = std::move(invariant)](const storage_type& root) {
+      if (previous) { (*previous)(root); }
+      invariant(root);
+    });
+  }
+
   // Report conservative admitted model/metadata storage; this is not a process peak-memory meter.
   std::size_t resident_bytes() const noexcept { return resident_ledger_->bytes(); }
 
@@ -1983,6 +2053,7 @@ public:
     }
     // Intermediate replay validates schema invariants; application validation runs once on the result.
     model_store recovered{recovery_tag{}, options_, {}, resident_ledger_};
+    recovered.registry_validate_ = registry_validate_;
     std::vector<std::uint8_t> saved;
     event_type event;
     journal_operation([&] {
@@ -2171,6 +2242,7 @@ public:
       source_store source{typename source_store::recovery_tag{}, options_, {}, resident_ledger_};
       source.recover_journal(source_path, options);
       model_store migrated{recovery_tag{}, options_, validate_, resident_ledger_};
+      migrated.registry_validate_ = registry_validate_;
       migrated.template load_migrated<SourceRoot, SourceTraits>(source.save(),
                                                                std::forward<Callable>(converter));
       const bool same_document = document_.high == migrated.document_.high &&

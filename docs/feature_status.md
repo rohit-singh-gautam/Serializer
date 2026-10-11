@@ -12,7 +12,7 @@ in their guide.
 
 [Back to the project overview](../README.md)
 
-Current compiler/runtime **1.15.1** supports language **1.10.0** and includes
+Current compiler/runtime **1.16.0** supports language **1.11.0** and includes
 `constexpr` ordinary C++ codec templates and a native positional/integer-key
 scalar decoder subset for constexpr-safe typed streams. Eligible checked
 arithmetic and dotted-value construction/conversions also constant-evaluate.
@@ -20,6 +20,13 @@ Useful value results are `[[nodiscard]]`; proven nonthrowing value operations us
 `noexcept`, with conditional guarantees for generic comparisons/observers.
 See [direct codecs and qualifiers](constant_evaluation.md#34-direct-generated-codecs-and-value-qualifiers)
 for limitations and executed qualification.
+
+Language `1.11.0` adds lossless numeric bindings and exact integer expressions,
+projected readonly record calls and lazy owning-record conditionals,
+[extended construction](construction.md), and [generic record map keys](generics.md).
+The C++ [state registry](state_registry.md) is opt-in derived snapshot data;
+it preserves scalar persistent identity and existing managed protocols.
+[Paged indexing](paged_indexing.md) remains a proposal.
 
 Language `1.10.0` adds [namespace functions and declared readonly calls](behavior.md#declared-function-calls)
 in expressions, with exact argument/result types and forward signature lookup.
@@ -210,7 +217,7 @@ behavior remain unchanged.
 
 Language-specific output profiles select layouts and naming conventions. Schemas use
 `.serializer` and begin with a supported language header; new schemas use
-`serializer version 1.10.0;`. Older `1.9.0`, `1.8.0`, `1.7.0`, `1.6.0`, `1.5.0`, `1.4.0`, `1.3.0`, `1.2.0`, `1.1.0`, `1.0.0` and the original `1` alias remain supported.
+`serializer version 1.11.0;`. Older `1.10.0`, `1.9.0`, `1.8.0`, `1.7.0`, `1.6.0`, `1.5.0`, `1.4.0`, `1.3.0`, `1.2.0`, `1.1.0`, `1.0.0` and the original `1` alias remain supported.
 Schema language and compiler versions are independent.
 Future versions require all three components. Share declarations with `include
 common;` before any declarations. Paths are unquoted and relative to the including file;
@@ -222,7 +229,7 @@ Namespace scopes are reused during parsing; duplicate types and namespace/type c
 are rejected. See [schema includes](usage.md#share-declarations-with-includes) and the
 [paired C++/Java examples](../example/includes/README.md). Quoted defaults preserve
 literal spaces, for example `public string label { "schema default" };`; escaping the
-space is unnecessary. Run `serializer --version` for compiler version **1.15.1** and
+space is unnecessary. Run `serializer --version` for compiler version **1.16.0** and
 supported schema versions. See [command-line options](command_line.md) for
 multi-language generation and overrides.
 
@@ -267,6 +274,11 @@ compares document databases, SQL JSON columns, and opaque binary storage, includ
 MongoDB, Firebase, PostgreSQL, SQLite, and other targets. It describes required
 type mappings and a proposed sink boundary; database adapters are not implemented
 or qualified in this repository.
+
+[Paged indexing](paged_indexing.md) researches disk indexes and proposes a bounded
+page-cache sidecar followed by optional lazy model/history storage. Neither is
+implemented. Current identity tables and whole-root history remain in memory;
+resident admission accounting does not provide a hard process-memory ceiling.
 
 ## Implemented C++ managed features
 

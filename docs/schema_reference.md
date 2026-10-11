@@ -13,7 +13,15 @@ Start with [small schema examples](schema_examples.md) if you are new to the syn
 ## Schema structure
 
 Every `.serializer` file starts with a supported language header before declarations.
-Use `serializer version 1.10.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, and `1.9.0` remain supported.
+Use `serializer version 1.11.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, and `1.10.0` remain supported.
+
+Language `1.11.0` extends [checked expressions](behavior.md) with lossless
+`checked<T>(value)` numeric bindings, exact integer arithmetic, projected readonly
+calls and lazy same-type owning-record conditionals. It adds
+[construction](construction.md) defaults, dimensioned array bindings and C++
+constrained input parameters, and [generic record map keys](generics.md).
+These are generated value operations; [C++ state registries](state_registry.md)
+use existing schema field/base IDs without introducing another wire identity.
 
 Language 1.10 adds [namespace functions and declared readonly calls](behavior.md#declared-function-calls).
 For example, `function double total(double left, double right) readonly

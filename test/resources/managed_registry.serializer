@@ -1,0 +1,33 @@
+serializer version 1.11.0;
+
+namespace registry_example {
+  class labels stable_ids {
+    public string note (1);
+  }
+  class metadata stable_ids {
+    private int32 rank (1);
+    public string text (2);
+  }
+  class scope stable_ids {
+    public uint64 namespace_key (1);
+  }
+  class entry_tag {}
+  class registry_key<Scope, Kind> stable_ids {
+    public Scope scope (1);
+    public uint64 number (2);
+  }
+  instantiate entry_key = registry_key<scope, entry_tag>;
+
+  class entry managed stable_ids : public labels ("labels", 5) {
+    public string key (1);
+    public int64 count (2);
+    public uint32 group (3);
+    public entry_key application_id (4);
+    public metadata info (6);
+  }
+
+  class document stable_ids {
+    public managed array entry entries (1);
+    public string title (2);
+  }
+}

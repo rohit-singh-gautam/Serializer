@@ -1,0 +1,21 @@
+serializer version 1.11.0;
+
+namespace custom_ids_managed {
+  class scope stable_ids {
+    public uint64 customer (1);
+  }
+  class book_tag {}
+  class application_id<Scope, Kind> stable_ids {
+    public Scope scope (1);
+    public uint64 number (2);
+  }
+  instantiate book_id = application_id<scope, book_tag>;
+
+  class book managed stable_ids {
+    public book_id key (1);
+    public string title (2);
+  }
+  class library stable_ids {
+    public managed array book books (1);
+  }
+}

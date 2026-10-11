@@ -28,10 +28,10 @@ struct checked_helpers {
 
 // Bind typed projections and the per-invocation predicate validity and reduction budget.
 struct expression_context {
-  std::function<std::string(std::string_view)> member_name;
-  std::function<std::string(const type_name&)> native_type;
-  std::function<std::string(const type_name&, std::string_view)> enum_value;
-  std::function<std::string(const behavior_expression&, const std::vector<std::string>&)> call;
+  std::function<std::string(std::string_view)> member_name{};
+  std::function<std::string(const type_name&)> native_type{};
+  std::function<std::string(const type_name&, std::string_view)> enum_value{};
+  std::function<std::string(const behavior_expression&, const std::vector<std::string>&)> call{};
   bool predicate{};
   bool unchecked_leaf{};
   std::string valid_name{"srl_behavior_ok"};
@@ -54,11 +54,11 @@ inline bool has_call(const behavior_expression& node) {
 }
 
 // Assemble arguments already lowered in source order without changing their evaluation.
-inline std::string call_arguments(const std::vector<std::string>& arguments) {
+inline std::string call_arguments(const std::vector<std::string>& arguments, std::size_t begin = 0) {
   std::string result;
-  for (const auto& argument : arguments) {
+  for (std::size_t index{begin}; index < arguments.size(); ++index) {
     if (!result.empty()) { result += ", "; }
-    result += argument;
+    result += arguments[index];
   }
   return result;
 }
@@ -82,6 +82,14 @@ inline std::string ungroup_expression(std::string value) {
 inline std::optional<std::string> typed_expression(const behavior_expression& node, std::string_view language,
     const std::function<std::string(std::string_view)>& symbol, const checked_helpers& names,
     const expression_context& context);
+
+// Lower exact numeric operations independently of the older binary64 expression contract.
+inline std::optional<std::string> numeric_expression(const behavior_expression& node, std::string_view language,
+    const std::function<std::string(std::string_view)>& symbol, const checked_helpers& names,
+    const expression_context& context);
+
+// Emit target-native exact numeric helpers without changing model storage or codecs.
+inline std::string numeric_helpers(std::string_view language, const checked_helpers& names);
 
 // Lower a resolved expression using backend names and explicit evaluation state.
 inline std::string expression(const behavior_expression& node, std::string_view language,
@@ -120,7 +128,12 @@ inline checked_helpers select_helpers(const std::vector<const syntax_node*>& nod
   const auto collides = [&](const auto& helper) {
     return symbols.contains(helper) || symbols.contains(helper + "_predicate") ||
         symbols.contains(helper + "_integer") || symbols.contains(helper + "_boolean") ||
-        symbols.contains(helper + "_index") || symbols.contains(helper + "_reduce");
+        symbols.contains(helper + "_index") || symbols.contains(helper + "_reduce") ||
+        symbols.contains(helper + "_numeric_range") || symbols.contains(helper + "_numeric_integer") ||
+        symbols.contains(helper + "_numeric_cast") || symbols.contains(helper + "_numeric_integral") ||
+        symbols.contains(helper + "_numeric_floating") || symbols.contains(helper + "_numeric_float") ||
+        symbols.contains(helper + "_numeric_nonzero") || symbols.contains(helper + "_numeric_divide") ||
+        symbols.contains(helper + "_numeric_single");
   };
   while (collides(result.checked) || collides(result.divide) || collides(result.square_root)) {
     result.checked += '_'; result.divide += '_'; result.square_root += '_';
@@ -151,6 +164,7 @@ inline std::string expression(const behavior_expression& node, std::string_view 
                               const std::function<std::string(std::string_view)>& symbol,
                               const checked_helpers& names, const expression_context& context) {
   using operation = behavior_expression::operation;
+  if (const auto numeric = numeric_expression(node, language, symbol, names, context)) { return *numeric; }
   if (const auto typed = typed_expression(node, language, symbol, names, context)) { return *typed; }
   const auto argument = [&](std::string value) {
     // Native Rust rejects redundant grouping around helper arguments and condition values.
@@ -238,9 +252,9 @@ inline std::string expression(const behavior_expression& node, std::string_view 
 }
 
 // Checked helper calls preserve branch laziness and reject invalid numeric intermediate values.
-inline std::string helpers(std::string_view language, const checked_helpers& names = {}) {
+inline std::string helpers_base(std::string_view language, const checked_helpers& names = {}) {
   if (names != checked_helpers{}) {
-    auto source = helpers(language);
+    auto source = helpers_base(language);
     const std::array<std::pair<std::string_view, std::string>, 3> replacements{{
         {"srl_behavior_checked", names.checked}, {"srl_behavior_divide", names.divide},
         {"srl_behavior_sqrt", names.square_root}}};
@@ -402,6 +416,11 @@ function srl_behavior_sqrt(value) { if (value < 0) { throw new RangeError('Porta
   return {};
 }
 
+// Include exact numeric support with the existing private helper-name collision policy.
+inline std::string helpers(std::string_view language, const checked_helpers& names = {}) {
+  return helpers_base(language, names) + numeric_helpers(language, names);
+}
+
 // Swift requires try only when an evaluated subtree contains a throwing numeric helper.
 inline bool expression_can_fail(const behavior_expression& node, bool predicate = false, bool unchecked_leaf = false) {
   using operation = behavior_expression::operation;
@@ -413,6 +432,13 @@ inline bool expression_can_fail(const behavior_expression& node, bool predicate 
   case operation::square_root:
   case operation::sine:
   case operation::cosine: return true;
+  case operation::checked_cast: return true;
+  case operation::positive:
+  case operation::negative:
+    if (node.numeric_contract_enabled && node.result_type != "double") { return true; }
+    return std::any_of(node.operands.begin(), node.operands.end(), [&](const auto& child) {
+      return expression_can_fail(child, predicate, unchecked_leaf);
+    });
   case operation::call: {
     const auto& method = called_function(node);
     if (method.expression && !method.predicate_body) { return true; }
@@ -763,3 +789,4 @@ inline void require_ordinary_dispatch(const function_declaration&, std::string_v
 } // namespace rohit::serializer::writer::behavior
 
 #include "typed_expression_writer.hpp"
+#include "numeric_expression_writer.hpp"

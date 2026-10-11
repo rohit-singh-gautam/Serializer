@@ -37,10 +37,10 @@ class c_emitter {
   std::size_t indent{};
   bool variable_first{};
   std::string fields_name;
-  std::map<std::string, type_name> generic_types;
-  std::set<std::string> defined_generic_types;
-  std::set<const class_node*> defined_classes;
-  std::set<const class_node*> defining_classes;
+  std::map<std::string, type_name> generic_types{};
+  std::set<std::string> defined_generic_types{};
+  std::set<const class_node*> defined_classes{};
+  std::set<const class_node*> defining_classes{};
   std::size_t next_behavior_call{};
   // Reserve generated global symbols before emitting C's shared typedef/function namespace.
   void validate_symbols() const {
@@ -74,6 +74,16 @@ class c_emitter {
           add(n + "_" + field(item));
         }
       } else {
+        for (const auto& factory : static_cast<const class_node&>(*node).constructions) {
+          const auto method = n + "_" + field(factory.constructor ? "create" : factory.name);
+          add(method);
+          for (std::size_t arity{}; arity < factory.parameters.size(); ++arity) {
+            const auto& parameter = factory.parameters[arity];
+            if (!parameter.default_value.empty() || !parameter.default_factory.empty()) {
+              add(method + "_default_" + std::to_string(arity));
+            }
+          }
+        }
         for (const auto& conversion : static_cast<const class_node&>(*node).conversions) {
           const auto method = n + "_" + field(conversion.name);
           add(method);
@@ -847,9 +857,9 @@ class c_emitter {
     }
     const bool free = node.call_target->type == object_type::function_type;
     const auto identifier = name(node.call_target) + (free ? "" : "_" + field(method.name));
-    auto calls = behavior::call_arguments(arguments);
+    auto calls = behavior::call_arguments(arguments, node.call_receiver ? 1 : 0);
     if (!free) {
-      std::string receiver = "(*value)";
+      std::string receiver = node.call_receiver ? arguments.at(0) : "(*value)";
       for (const auto base : node.call_base_path) { receiver = "(" + receiver + ").base" + std::to_string(base); }
       calls = "&(" + receiver + ")" + (calls.empty() ? "" : ", " + calls);
     }
@@ -864,6 +874,18 @@ class c_emitter {
 
   // Declare checked and public functions before bodies so forward readonly calls are valid C11.
   void behavior_declarations(const syntax_node& node, const function_declaration& method) {
+    const auto record_selection = [&](const auto& self, const behavior_expression& expression) -> bool {
+      return (expression.kind == behavior_expression::operation::conditional &&
+              expression.result_type.starts_with("record:")) ||
+          std::any_of(expression.operands.begin(), expression.operands.end(), [&](const auto& operand) {
+            return self(self, operand);
+          });
+    };
+    if (method.expression && method.return_type.type == object_type::class_type &&
+        record_selection(record_selection, *method.expression) &&
+        !plain_record_result(static_cast<const class_node&>(*method.return_type.resolved_node))) {
+      throw std::invalid_argument{"c: portable record-valued expressions require records without dynamic owned storage"};
+    }
     const bool free = node.type == object_type::function_type;
     if (method.dispatch == function_declaration::dispatch_type::abstract_method) { return; }
     const auto identifier = name(&node) + (free ? "" : "_" + field(method.name));
@@ -925,7 +947,8 @@ class c_emitter {
     open("static inline " + result_type + " " + identifier + "(" + (parameters.empty() ? "void" : parameters) + ")");
     line(result_type + " result;");
     line("srl_status status = " + identifier + "_checked(" + arguments + (arguments.empty() ? "" : ", ") + "&result);");
-    const auto invalid = method.return_type.name == "bool" ? "false" :
+    const auto invalid = method.return_type.type == object_type::class_type ? "(" + result_type + "){0}" :
+        method.return_type.name == "bool" ? "false" :
         method.return_type.name == "float" || method.return_type.name == "double" ? "NAN" : "0";
     line("if (status != srl_ok) { errno = status == srl_invalid ? EINVAL : ERANGE; return " + std::string{invalid} + "; }");
     line("return result;"); close();
@@ -996,7 +1019,10 @@ class c_emitter {
         open("static inline " + result_type + " " + identifier + "(" + parameters + ")");
         line(result_type + " result;");
         line("srl_status status = " + identifier + "_checked(" + arguments + ", &result);");
-        line("if (status != srl_ok) { errno = status == srl_invalid ? EINVAL : ERANGE; return " + std::string{method.return_type.name == "bool" ? "false" : method.return_type.name == "float" || method.return_type.name == "double" ? "NAN" : "0"} + "; }");
+        const auto invalid = method.return_type.type == object_type::class_type ? "(" + result_type + "){0}" :
+            method.return_type.name == "bool" ? "false" :
+            method.return_type.name == "float" || method.return_type.name == "double" ? "NAN" : "0";
+        line("if (status != srl_ok) { errno = status == srl_invalid ? EINVAL : ERANGE; return " + std::string{invalid} + "; }");
         line("return result;"); close();
       } else {
         open("static inline " + result_type + " " + identifier + "(" + parameters + ")");
@@ -1023,18 +1049,53 @@ class c_emitter {
     }
   }
 
+  // Prove a returned C record can be copied by value without aliasing dynamic owned storage.
+  bool plain_record_result(const class_node& value) const {
+    const auto plain_type = [&](const auto& self, const type_name& item) -> bool {
+      if (item.is_optional()) { return self(self, item.arguments.front()); }
+      if (item.name == "string" || item.is_sequence() || item.is_associative() || item.is_digest()) { return false; }
+      if (item.type == object_type::class_type) {
+        return plain_record_result(static_cast<const class_node&>(*item.resolved_node));
+      }
+      return item.type == object_type::primitive || item.type == object_type::enum_type;
+    };
+    return std::all_of(value.parents.begin(), value.parents.end(), [&](const auto& base) {
+      return base.parent_class && plain_record_result(*base.parent_class);
+    }) && std::all_of(value.member_list.begin(), value.member_list.end(), [&](const auto& item) {
+      if (item.modifier == member::modifier_type::map ||
+          (item.modifier == member::modifier_type::array && item.fixed_extent == 0)) { return false; }
+      return std::all_of(item.type_name_list.begin(), item.type_name_list.end(), [&](const auto& type) {
+        return plain_type(plain_type, type);
+      });
+    });
+  }
+
   // Describe an owned parameter moved on success; scalar inputs remain passed by value.
   bool construction_owned(const type_name& value) const {
     return value.type == object_type::class_type || value.name == "string" || value.is_optional() ||
         value.is_sequence() || value.is_associative() || value.is_digest();
   }
   // Compose the portable constructor/factory C signature with explicit destination ownership.
-  std::string construction_signature(const class_node& value, const construction_declaration& factory) const {
+  std::string construction_signature(const class_node& value, const construction_declaration& factory,
+      std::optional<std::size_t> arity = {}) const {
     const auto n = name(&value);
     std::string result = "static inline srl_status " + n + "_" +
-        field(factory.constructor ? "create" : factory.name) + "(" + n + "* result";
-    for (const auto& argument : factory.parameters) {
-      result += ", " + type(argument.type) + (construction_owned(argument.type) ? "* " : " ") +
+        field(factory.constructor ? "create" : factory.name) +
+        (arity ? "_default_" + std::to_string(*arity) : "") + "(" + n + "* result";
+    for (std::size_t index{}; index < arity.value_or(factory.parameters.size()); ++index) {
+      const auto& argument = factory.parameters[index];
+      std::string argument_type = type(argument.type);
+      if (argument.modifier == member::modifier_type::array) {
+        const auto assignment = std::find_if(factory.assignments.begin(), factory.assignments.end(),
+            [&](const auto& item) { return item.parameter && item.value == argument.name; });
+        if (assignment == factory.assignments.end()) {
+          throw std::invalid_argument{"c: fixed-array construction input must bind an owned field"};
+        }
+        const auto bound = std::find_if(value.member_list.begin(), value.member_list.end(),
+            [&](const auto& item) { return item.name == assignment->field; });
+        argument_type = collection(value, *bound);
+      }
+      result += ", " + argument_type + (argument.modifier == member::modifier_type::array || construction_owned(argument.type) ? "* " : " ") +
           "srl_arg_" + field(argument.name);
     }
     return result + ")";
@@ -1043,13 +1104,19 @@ class c_emitter {
   void constructions(const class_node& value) {
     const auto n = name(&value);
     construction::validate_names(value, n, [&](auto identifier, auto) { return field(identifier); });
+    construction::validate_extended_backend(value, "c");
     for (const auto& factory : value.constructions) {
       line("/* Construct into initialized/zeroed result; move inputs must be disjoint from result and each other. Failure preserves both. */");
       open(construction_signature(value, factory));
       line("if (!result) { return srl_invalid; }");
       for (const auto& argument : factory.parameters) {
-        if (construction_owned(argument.type)) {
+        if (argument.modifier == member::modifier_type::array || construction_owned(argument.type)) {
           line("if (!srl_arg_" + field(argument.name) + ") { return srl_invalid; }");
+          if (argument.modifier == member::modifier_type::array) {
+            const auto input = "srl_arg_" + field(argument.name);
+            line("if (" + input + "->size != " + std::to_string(argument.fixed_extent) +
+                " || !" + input + "->data || " + input + "->capacity < " + input + "->size) { return srl_invalid; }");
+          }
         } else {
           line("(void)srl_arg_" + field(argument.name) + ";");
         }
@@ -1061,7 +1128,7 @@ class c_emitter {
         const auto& t = found->type_name_list.front();
         const auto dst = "srl_candidate." + field(found->name);
         if (assignment.parameter) {
-          if (!construction_owned(t)) { line(dst + " = srl_arg_" + field(assignment.value) + ";"); }
+          if (found->modifier != member::modifier_type::array && !construction_owned(t)) { line(dst + " = srl_arg_" + field(assignment.value) + ";"); }
         } else if (assignment.factory_default) {
           line("if (status == srl_ok) { status = " + type(t) + "_" + field(assignment.value) + "(&" + dst + "); }");
         } else {
@@ -1075,14 +1142,48 @@ class c_emitter {
       for (const auto& assignment : factory.assignments) {
         const auto found = std::find_if(value.member_list.begin(), value.member_list.end(),
             [&](const auto& item) { return item.name == assignment.field; });
-        if (!assignment.parameter || !construction_owned(found->type_name_list.front())) { continue; }
+        if (!assignment.parameter || (found->modifier != member::modifier_type::array &&
+            !construction_owned(found->type_name_list.front()))) { continue; }
         const auto dst = "srl_candidate." + field(found->name);
         const auto argument = "srl_arg_" + field(assignment.value);
-        free_value(found->type_name_list.front(), dst);
+        if (found->modifier == member::modifier_type::array) {
+          line(collection(value, *found) + "_clear(&" + dst + ");");
+        } else { free_value(found->type_name_list.front(), dst); }
         line(dst + " = *" + argument + "; memset(" + argument + ", 0, sizeof(*" + argument + "));");
       }
       line(n + "_free(result); *result = srl_candidate; return srl_ok;");
       close();
+      for (std::size_t arity{}; arity < factory.parameters.size(); ++arity) {
+        if (factory.parameters[arity].default_value.empty() && factory.parameters[arity].default_factory.empty()) { continue; }
+        line("/* Construct with fresh defaults; failure preserves destination and supplied owned inputs. */");
+        open(construction_signature(value, factory, arity));
+        line("if (!result) { return srl_invalid; }");
+        line("srl_status status = srl_ok;");
+        for (std::size_t index = arity; index < factory.parameters.size(); ++index) {
+          const auto& parameter = factory.parameters[index];
+          const auto argument = "srl_arg_" + field(parameter.name);
+          line(type(parameter.type) + " " + argument + " = {0};");
+          auto default_field = construction::parameter_default(parameter);
+          init_value(parameter.type, argument, literal(default_field), "status");
+          if (!parameter.default_factory.empty()) {
+            line("if (status == srl_ok) { status = " + type(parameter.type) + "_" +
+                field(parameter.default_factory) + "(&" + argument + "); }");
+          }
+        }
+        std::string arguments{"result"};
+        for (std::size_t index{}; index < factory.parameters.size(); ++index) {
+          const auto& parameter = factory.parameters[index];
+          arguments += ", " + std::string(index >= arity && construction_owned(parameter.type) ? "&" : "") +
+              "srl_arg_" + field(parameter.name);
+        }
+        line("if (status == srl_ok) { status = " + n + "_" + field(factory.constructor ? "create" : factory.name) +
+            "(" + arguments + "); }");
+        for (std::size_t index = arity; index < factory.parameters.size(); ++index) {
+          free_value(factory.parameters[index].type, "srl_arg_" + field(factory.parameters[index].name));
+        }
+        line("return status;");
+        close();
+      }
     }
   }
 
@@ -1565,6 +1666,7 @@ public:
     for (const auto* node : model.nodes) {
       if (node->type != object_type::class_type) { continue; }
       const auto& object_value = static_cast<const class_node&>(*node);
+      construction::validate_extended_backend(object_value, "c");
       for (const auto& field_value : object_value.member_list) {
         for (const auto& alternative : field_value.type_name_list) { collect_generic_types(alternative); }
       }
@@ -1663,6 +1765,11 @@ public:
       }
       for (const auto& factory : static_cast<const class_node&>(*node).constructions) {
         line(construction_signature(static_cast<const class_node&>(*node), factory) + ";");
+        for (std::size_t arity{}; arity < factory.parameters.size(); ++arity) {
+          if (!factory.parameters[arity].default_value.empty() || !factory.parameters[arity].default_factory.empty()) {
+            line(construction_signature(static_cast<const class_node&>(*node), factory, arity) + ";");
+          }
+        }
       }
     }
     for (const auto& [n, value] : generic_types) {

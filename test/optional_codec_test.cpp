@@ -214,7 +214,7 @@ TEST(optional_codec, optional_enum_field_context) {
   optional_cpp::enum_record destination{};
   decode<codec::binary_string>(expected, destination);
   EXPECT_EQ(encode<codec::binary_string>(destination), expected);
-  for (const bytes malformed : {bytes{1, 3, 'b', 'a', 'd'}, bytes{1, 5, 'g'}, bytes{2}}) {
+  for (const bytes& malformed : {bytes{1, 3, 'b', 'a', 'd'}, bytes{1, 5, 'g'}, bytes{2}}) {
     const auto input = rohit::make_constant_full_stream(malformed.data(), malformed.size());
     codec::binary_string<codec::serialize_type::in> reader{input};
     [[maybe_unused]] auto input_scope = reader.schema_values();

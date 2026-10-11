@@ -517,6 +517,7 @@ type_name parse_type_expression(const rohit::type_check::schema_input_buffer aut
   const auto source_offset = input.current_offset();
   type_name result{parse_hierarchical_identifier_impl(input), scope};
   result.source_offset = source_offset;
+  result.record_key_language_supported = active_language_version >= language_version{1u, 11u, 0u};
   skip_whitespace_and_comment(input);
   if (result.name == "digest") {
     result.digest_language_supported = active_language_version >= language_version{1u, 3u, 0u};
@@ -689,11 +690,20 @@ void parse_member_type_union(const rohit::type_check::schema_input_buffer auto& 
 // Parse member type map from the schema input; malformed input throws.
 void parse_member_type_map(const rohit::type_check::schema_input_buffer auto& in_stream,
                            namespace_node* declared_namespace,
-                           std::vector<type_name>& type_name_list, std::string& key) {
+                           std::vector<type_name>& type_name_list, std::string& key,
+                           std::optional<type_name>& key_type) {
   skip_whitespace_and_comment(in_stream);
   check_and_increase(in_stream, '(');
   skip_whitespace_and_comment(in_stream);
-  key = parse_hierarchical_identifier_impl(in_stream);
+  key_type = parse_type_expression(in_stream, declared_namespace);
+  if (key_type->application && active_language_version < language_version{1u, 11u, 0u}) {
+    throw exception::bad_member_type{in_stream, "Generic legacy map keys require serializer version 1.11.0"};
+  }
+  if (key_type->application && (key_type->name == "optional" || key_type->name == "array" ||
+                               key_type->name == "map" || key_type->name == "digest")) {
+    throw exception::bad_member_type{in_stream, "Generic legacy map keys require generated owning records"};
+  }
+  key = key_type->name;
   check_and_increase(in_stream, ')');
   skip_whitespace_and_comment(in_stream);
   type_name_list.push_back(parse_type_expression(in_stream, declared_namespace));
@@ -1571,6 +1581,7 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
     throw exception::bad_member_type{in_stream, "Collection modifiers do not accept type arguments"};
   }
   std::string key{};
+  std::optional<type_name> key_type{};
   std::vector<dimension_expression> extent{};
   bool infer_extent{};
   if (member_modifier == member::modifier_type::none) {
@@ -1591,7 +1602,7 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
     }
     type_name_list.push_back(parse_type_expression(in_stream, declared_namespace));
   } else if (member_modifier == member::modifier_type::map) {
-    parse_member_type_map(in_stream, declared_namespace, type_name_list, key);
+    parse_member_type_map(in_stream, declared_namespace, type_name_list, key, key_type);
   } else if (member_modifier == member::modifier_type::variant) {
     parse_member_type_union(in_stream, declared_namespace, type_name_list);
   }
@@ -1779,6 +1790,7 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   result.compatibility_version = std::move(compatibility);
   result.releases = std::move(releases);
   result.policy = std::move(policy);
+  result.key_type = std::move(key_type);
   result.obsolete = lifecycle.obsolete;
   result.created_version = std::move(lifecycle.created_version);
   result.obsolete_version = std::move(lifecycle.obsolete_version);
@@ -2090,6 +2102,12 @@ template <typename Input> struct generic_constraint_parser {
     return result;
   }
 };
+
+// Share the bounded Boolean grammar with independent construction input constraints.
+generic_constraint parse_construction_constraint(const rohit::type_check::schema_input_buffer auto& input,
+                                                namespace_node* space) {
+  return generic_constraint_parser{input, space}.expression();
+}
 
 // Parse class header from the schema input; malformed input throws.
 std::unique_ptr<class_node>
@@ -2996,7 +3014,7 @@ void validate_empty_layout(const rohit::type_check::schema_input_buffer auto& in
 
 // Resolve owned initialization types and reject native expressions or ambiguous construction APIs.
 void validate_constructions(const rohit::type_check::schema_input_buffer auto& input,
-                            class_node& owner, std::unordered_map<std::string, syntax_node*>& symbols) {
+                            class_node& owner, const std::unordered_map<std::string, syntax_node*>& symbols) {
   if (!owner.constructions.empty() &&
       (owner.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
        (owner.attributes & class_attributes::packed) != class_attributes::none)) {
@@ -3017,8 +3035,17 @@ void validate_constructions(const rohit::type_check::schema_input_buffer auto& i
         std::any_of(owner.functions.begin(), owner.functions.end(), [&](const auto& method) { return method.name == api_name; })) {
       throw exception::bad_member_spec{input, "Construction name collides with generated or declared API"};
     }
+    for (const auto& parameter : factory.generic_parameters) {
+      if (std::find(owner.type_parameters.begin(), owner.type_parameters.end(), parameter.name) != owner.type_parameters.end() ||
+          parameter.name == owner.name || !parameter.constraint) {
+        throw exception::bad_member_spec{input, "Construction input types must be independently constrained and cannot shadow their owner"};
+      }
+    }
     for (auto& parameter : factory.parameters) {
-      resolve_type(input, parameter.type, symbols);
+      const bool input_type = std::any_of(factory.generic_parameters.begin(), factory.generic_parameters.end(),
+          [&](const auto& item) { return item.name == parameter.type.name; });
+      const bool owner_type = std::find(owner.type_parameters.begin(), owner.type_parameters.end(), parameter.type.name) != owner.type_parameters.end();
+      if (!input_type && !owner_type) { resolve_type(input, parameter.type, symbols); }
       // Every wrapped record parameter must provide storage independent of borrowed wire bytes.
       const auto validate_owned_type = [&](auto&& inspect, const type_name& type) -> void {
         validate_nested_modes(input, owner, type.resolved_node);
@@ -3028,14 +3055,34 @@ void validate_constructions(const rohit::type_check::schema_input_buffer auto& i
       if (factory.constructor && parameter.type.resolved_node == &owner) {
         throw exception::bad_member_spec{input, "Portable constructors cannot take their owning record by value"};
       }
+      if (!parameter.default_value.empty() || !parameter.default_factory.empty()) {
+        if (parameter.modifier != member::modifier_type::none || input_type || owner_type) {
+          throw exception::bad_member_spec{input, "Construction parameter defaults require a concrete scalar or owning record"};
+        }
+        member value{access_type::public_access, member::modifier_type::none, {parameter.type},
+            parameter.name, parameter.name, 0, {}, parameter.default_value};
+        value.default_factory = parameter.default_factory;
+        if (!value.default_factory.empty()) { validate_factory_default(input, value, owner); }
+        else {
+          if (parameter.type.name == "float" || parameter.type.name == "double") { validate_magic_constant(input, value); }
+          if (writer::native::literal(value).empty()) {
+            throw exception::bad_member_spec{input, "Construction parameter defaults require checked literals or default(factory)"};
+          }
+        }
+      }
     }
     std::unordered_set<std::string> assigned_parameters;
     for (auto& assignment : factory.assignments) {
       const auto found = std::find_if(owner.member_list.begin(), owner.member_list.end(),
           [&](const auto& field) { return field.name == assignment.field; });
-      if (found == owner.member_list.end() || found->modifier != member::modifier_type::none ||
+      if (found == owner.member_list.end() ||
+          (found->modifier != member::modifier_type::none &&
+           (found->modifier != member::modifier_type::array || found->extent_expression.empty())) ||
           found->managed || found->version) {
         throw exception::bad_member_spec{input, "Construction requires an ordinary owned field declared by its owner: " + assignment.field};
+      }
+      if (found->modifier == member::modifier_type::array && !assignment.parameter) {
+        throw exception::bad_member_spec{input, "Fixed-array construction fields require an exactly matching owned parameter"};
       }
       if (assignment.parameter) {
         if (!assigned_parameters.insert(assignment.value).second) {
@@ -3043,10 +3090,15 @@ void validate_constructions(const rohit::type_check::schema_input_buffer auto& i
         }
         const auto parameter = std::find_if(factory.parameters.begin(), factory.parameters.end(),
             [&](const auto& item) { return item.name == assignment.value; });
-        if (parameter == factory.parameters.end() || parameter->type.get_full_name() != found->type_name_list.front().get_full_name()) {
+        if (parameter == factory.parameters.end() ||
+            parameter->modifier != found->modifier ||
+            (parameter->modifier == member::modifier_type::array &&
+             (parameter->fixed_extent != found->fixed_extent ||
+              (!parameter->fixed_extent && parameter->extent_expression != found->extent_expression))) ||
+            parameter->type.get_full_name() != found->type_name_list.front().get_full_name()) {
           throw exception::bad_member_spec{input, "Construction assignment requires exactly matching owned types"};
         }
-      } else {
+      } else if (!assignment.expression) {
         auto value = *found;
         value.default_value = assignment.factory_default ? std::string{} : assignment.value;
         value.default_factory = assignment.factory_default ? assignment.value : std::string{};
@@ -3064,6 +3116,8 @@ void validate_constructions(const rohit::type_check::schema_input_buffer auto& i
     }
   }
 }
+
+#include "construction_contract.hpp"
 
 // Resolve member types against the discovered namespace and type declarations.
 void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream,
@@ -3120,12 +3174,13 @@ void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream
           validate_factory_default(in_stream, member, *class_ptr);
           validate_empty_layout(in_stream, *class_ptr, member);
           if (member.modifier == member::modifier_type::map) {
-            type_name key{std::string{member.key}, member.type_name_list.front().declared_namespace};
+            auto key = member.key_type.value_or(type_name{std::string{member.key}, member.type_name_list.front().declared_namespace});
             resolve_type(in_stream, key, variable_type_map);
             if (key.is_digest()) {
               throw exception::bad_member_type{in_stream, "Digest types cannot be map keys"};
             }
             member.key_node = key.resolved_node;
+            member.key_type = key;
             validate_nested_modes(in_stream, *class_ptr, member.key_node, true);
           }
         }
@@ -3237,6 +3292,7 @@ void resolve_behavior_bodies(const rohit::type_check::schema_input_buffer auto& 
     callables.push_back({node, 0, &node->function});
   }
   for (auto* owner : owners) {
+    bind_construction_expressions(input, *owner, symbols);
     std::set<std::string> member_signatures;
     for (std::size_t index{}; index < owner->functions.size(); ++index) {
       auto& method = owner->functions[index];
@@ -3255,11 +3311,24 @@ void resolve_behavior_bodies(const rohit::type_check::schema_input_buffer auto& 
           // Existing generic arithmetic is checked after substitution; retain useful source binding
           // only when it succeeds, without rejecting previously valid dependent template bodies.
           auto bound = method;
+          const auto contains_numeric_contract = [&](const auto& self, const behavior_expression& expression) -> bool {
+            using operation = behavior_expression::operation;
+            const bool numeric_operation = expression.kind == operation::checked_cast ||
+                expression.kind == operation::positive || expression.kind == operation::negative ||
+                expression.kind == operation::add || expression.kind == operation::subtract ||
+                expression.kind == operation::multiply || expression.kind == operation::divide;
+            return (expression.numeric_contract_enabled && numeric_operation) ||
+                std::any_of(expression.operands.begin(), expression.operands.end(), [&](const auto& operand) {
+                  return self(self, operand);
+                });
+          };
           try {
             bind_body(bound, *owner);
             method.expression = std::move(bound.expression);
           } catch (const std::invalid_argument&) {
+            if (contains_numeric_contract(contains_numeric_contract, *method.expression)) { throw; }
           } catch (const exception::bad_member_spec&) {
+            if (contains_numeric_contract(contains_numeric_contract, *method.expression)) { throw; }
           }
         } else {
           bind_body(method, *owner);

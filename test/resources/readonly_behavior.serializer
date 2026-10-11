@@ -1,6 +1,6 @@
 // Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
 // SPDX-License-Identifier: GPL-3.0-or-later
-serializer version 1.8.0;
+serializer version 1.11.0;
 
 enum readonly_phase { idle, ready }
 class readonly_identity {
@@ -35,4 +35,42 @@ class readonly_arithmetic {
   public function double signed_value(bool positive) readonly expression(positive ? +amount : -amount);
   public function double converted(uint32 input) readonly expression(to_double(input));
   public function bool scaled_positive(double factor) readonly predicate(amount * factor > 0.0);
+}
+
+class projected_identity {
+  public uint64 value;
+  public string label;
+  public function bool valid() readonly expression(value != 0);
+  public function bool matches(uint64 expected) readonly expression(value == expected);
+}
+class projected_child : public projected_identity ("base", 1) {
+  public uint64 detail;
+}
+class projected_identity_probe {
+  public projected_identity preferred;
+  public projected_identity fallback;
+  public projected_child child;
+  public array projected_identity items;
+  public function projected_identity selected() readonly
+    expression(preferred.valid() ? preferred : fallback);
+  public function projected_identity guarded(bool use_preferred) readonly
+    expression(use_preferred ? preferred : items[0]);
+  public function bool matches(uint64 expected) readonly
+    expression(selected().matches(expected));
+  public function bool inherited() readonly expression(child.valid());
+  public function bool items_valid() readonly predicate(all(items, 8, item => item.valid()));
+}
+
+class projected_generic_identity<T> {
+  public T value;
+  public function T read() readonly expression(value);
+  public function bool matches(T expected) readonly expression(value == expected);
+}
+class projected_generic_child<V> : public projected_generic_identity<V> {}
+class projected_generic_probe<U> {
+  public projected_generic_identity<U> item;
+  public projected_generic_child<U> child;
+  public function U read() readonly expression(item.read());
+  public function bool matches(U expected) readonly expression(item.matches(expected));
+  public function U inherited_read() readonly expression(child.read());
 }

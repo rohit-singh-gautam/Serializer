@@ -213,14 +213,18 @@ class generic_lowering {
     return true;
   }
 
-  // Restrict map keys to the same portable scalar and enum contract as ordinary maps.
+  // Preserve owning C++ record keys while portable backends enforce their narrower key contract.
   void validate_builtin_key(const type_name& type, bool dependent) const {
     if (!type.is_associative()) { return; }
     const auto& key = type.arguments.front();
     if (dependent && key.type == object_type::unresolved) { return; }
     if (key.is_optional() || key.is_sequence() || key.is_associative() || key.is_digest() ||
-        key.type == object_type::class_type || key.name == "float" || key.name == "double") {
-      throw exception::bad_member_type{input, "Generic map keys require a portable scalar or enum"};
+        key.name == "float" || key.name == "double") {
+      throw exception::bad_member_type{input, "Generic map keys require a scalar, enum, or owning record"};
+    }
+    if ((key.type == object_type::class_type || key.type == object_type::generic_definition) &&
+        !type.record_key_language_supported) {
+      throw exception::bad_member_type{input, "Generic record map keys require serializer version 1.11.0"};
     }
   }
 
@@ -617,6 +621,18 @@ class generic_lowering {
     }
   }
 
+  // Rebind explicit numeric result representations while other expression types are validated later.
+  void resolve_behavior_numeric_expression(behavior_expression& expression,
+      const std::unordered_map<std::string, type_name>& bindings, std::size_t depth) {
+    if (expression.kind == behavior_expression::operation::checked_cast && expression.resolved_type) {
+      resolve(*expression.resolved_type, bindings, depth);
+      expression.value = expression.resolved_type->name;
+    }
+    for (auto& operand : expression.operands) {
+      resolve_behavior_numeric_expression(operand, bindings, depth);
+    }
+  }
+
   // Substitute bases, fields and map keys without changing wire IDs, order, names or defaults.
   void resolve_fields(class_node& object,
                       const std::unordered_map<std::string, type_name>& bindings,
@@ -659,7 +675,7 @@ class generic_lowering {
       validate_digest_member(input, object, field);
       validate_optional_member(input, object, field);
       if (field.modifier == member::modifier_type::map) {
-        type_name key{std::string{field.key}, field.type_name_list.front().declared_namespace};
+        auto key = field.key_type.value_or(type_name{std::string{field.key}, field.type_name_list.front().declared_namespace});
         // Generic bodies were bound lexically at declaration, including qualified map keys.
         key.declared_namespace = object.generic_name.empty() ? object.parent_namespace : nullptr;
         resolve(key, bindings, depth);
@@ -668,14 +684,31 @@ class generic_lowering {
         }
         field.key = key.get_full_name();
         field.key_node = key.resolved_node;
+        field.key_type = key;
       }
     }
     for (auto& method : object.functions) {
       if (method.return_type.name != "void") { resolve(method.return_type, bindings, depth); }
       for (auto& parameter : method.parameters) { resolve(parameter.type, bindings, depth); }
+      if (method.expression) { resolve_behavior_numeric_expression(*method.expression, bindings, depth); }
     }
     for (auto& construction : object.constructions) {
-      for (auto& parameter : construction.parameters) { resolve(parameter.type, bindings, depth); }
+      for (auto& parameter : construction.parameters) {
+        const bool input_type = std::any_of(construction.generic_parameters.begin(), construction.generic_parameters.end(),
+            [&](const auto& item) { return item.name == parameter.type.name; });
+        if (!input_type) { resolve(parameter.type, bindings, depth); }
+        if (!parameter.extent_expression.empty()) {
+          constexpr std::uint64_t maximum_fixed_elements = 65536;
+          const auto extent = evaluate(parameter.extent_expression.front(), bindings);
+          if (!extent || *extent == 0 || *extent > maximum_fixed_elements) {
+            throw exception::bad_member_type{input, "Construction array extent must be in 1..65536"};
+          }
+          parameter.fixed_extent = *extent;
+        }
+      }
+      for (auto& assignment : construction.assignments) {
+        if (assignment.expression) { resolve_behavior_numeric_expression(*assignment.expression, bindings, depth); }
+      }
     }
     for (auto& method : object.conversions) { resolve(method.target, bindings, depth); }
     conversion::validate(object);
@@ -774,13 +807,14 @@ class generic_lowering {
               validate_optional_member(input, object, field);
               validate_empty_layout(input, object, field);
               if (field.modifier == member::modifier_type::map) {
-                type_name key{std::string{field.key}, object.parent_namespace};
+                auto key = field.key_type.value_or(type_name{std::string{field.key}, object.parent_namespace});
                 validate_expression(key, object);
                 if (key.is_digest()) {
                   throw exception::bad_member_type{input, "Digest types cannot be map keys"};
                 }
                 field.key = key.name;
                 field.key_node = key.resolved_node;
+                field.key_type = key;
               }
             }
             for (auto& method : object.functions) {
@@ -789,7 +823,9 @@ class generic_lowering {
             }
             for (auto& construction : object.constructions) {
               for (auto& parameter : construction.parameters) {
-                validate_expression(parameter.type, object);
+                const bool input_type = std::any_of(construction.generic_parameters.begin(), construction.generic_parameters.end(),
+                    [&](const auto& item) { return item.name == parameter.type.name; });
+                if (!input_type) { validate_expression(parameter.type, object); }
               }
             }
             for (auto& method : object.conversions) { validate_expression(method.target, object); }
@@ -902,6 +938,7 @@ inline bool contains_generics(const std::vector<std::unique_ptr<syntax_node>>& n
       }
       for (const auto& construction : object.constructions) {
         for (const auto& parameter : construction.parameters) {
+          if (!parameter.extent_expression.empty()) { return true; }
           if (parameter.type.application) { return true; }
         }
       }

@@ -1,5 +1,7 @@
 # Rohit Serializer for Visual Studio
 
+Version **1.1.39** supports schema language 1.11.0 projected readonly calls, exact record selection, checked numeric conversions, constrained construction input types, defaulted/fixed-array construction parameters and generic record map keys. New schema snippets select language 1.11.0. Type navigation includes checked result types and nested map keys.
+
 Version **1.1.38** highlights embedded target source using available TextMate
 language grammars. `cpp { ... }`, `java { ... }`, and the other native tags select
 their language's syntax inside method bodies, class declarations, and preambles.
@@ -17,7 +19,7 @@ computed `auto_size` fields, `wire_only` headers, `size_scope(record|payload)`,
 and target/source field projections navigate through included schemas and unsaved
 edits, including inherited fields. Existing constructor, predicate, generic and
 all-language generated navigation remains supported. New schema snippets select
-language 1.10.0.
+language 1.11.0.
 
 **Editor support for Serializer — State Framework**
 
@@ -142,7 +144,7 @@ installation. It uses full-framework MSBuild with locked dependencies, bundles
 the current shared resolver, rebuilds and validates:
 
 ```text
-out/extensions/serializer-visual-studio-1.1.38.vsix
+out/extensions/serializer-visual-studio-1.1.39.vsix
 ```
 
 Close Visual Studio, double-click the VSIX, select the installation and restart
@@ -264,7 +266,7 @@ Empty extents and element types receive fixed-array highlighting. Enum type
 operands and qualified enum defaults in typed magic retain declaration, definition,
 and type-definition navigation, including unsaved and transitive included schemas.
 VS Code includes `array_inferred` and `magic_typed` snippets; its schema snippet
-selects `serializer version 1.10.0;`. The original `1` header remains exactly
+selects `serializer version 1.11.0;`. The original `1` header remains exactly
 `1.0.0` and does not enable these features. See the
 [magic contract](../../docs/magic_and_omission.md) and [fixed arrays](../../docs/generics.md).
 

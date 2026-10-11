@@ -1,0 +1,44 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.11.0;
+
+namespace numeric_values {
+  class quantity<Rep: (integral || floating_point) && !bool> {
+    public Rep value;
+    public function Rep added(Rep other) readonly expression(value + other);
+    public function Rep subtracted(Rep other) readonly expression(value - other);
+    public function Rep scaled(Rep factor) readonly expression(value * factor);
+    public function Rep divided(Rep divisor) readonly expression(value / divisor);
+    public function Rep half() readonly expression(value / 2);
+    public function Rep bound(uint64 other) readonly expression(checked<Rep>(other));
+  }
+  instantiate signed_quantity = quantity<int64>;
+  instantiate unsigned_quantity = quantity<uint64>;
+  instantiate floating_quantity = quantity<float>;
+
+  class scalar {
+    public function int64 add(int64 left, int64 right) readonly expression(left + right);
+    public function int64 subtract(int64 left, int64 right) readonly expression(left - right);
+    public function int64 multiply(int64 left, int64 right) readonly expression(left * right);
+    public function int64 divide(int64 left, int64 right) readonly expression(left / right);
+    public function int64 negate(int64 value) readonly expression(-value);
+    public function uint64 unsigned_add(uint64 left, uint64 right) readonly expression(left + right);
+    public function uint64 unsigned_subtract(uint64 left, uint64 right) readonly expression(left - right);
+    public function uint64 unsigned_multiply(uint64 left, uint64 right) readonly expression(left * right);
+    public function uint64 unsigned_divide(uint64 left, uint64 right) readonly expression(left / right);
+    public function uint64 bind_unsigned(int64 value) readonly expression(checked<uint64>(value));
+    public function int64 bind_signed(uint64 value) readonly expression(checked<int64>(value));
+    public function double floating_unsigned(uint64 value) readonly expression(checked<double>(value));
+    public function double floating_signed(int64 value) readonly expression(checked<double>(value));
+    public function uint64 unsigned_floating(double value) readonly expression(checked<uint64>(value));
+    public function int64 signed_floating(double value) readonly expression(checked<int64>(value));
+    public function float narrow(double value) readonly expression(checked<float>(value));
+    public function double widen(float value) readonly expression(checked<double>(value));
+    public function float inexact_float_literal(float value) readonly expression(value + 16777217);
+    public function double inexact_double_literal(double value) readonly expression(value + 18446744073709551615);
+    public function bool exact_half(int64 value) readonly predicate(value / 2 >= 0);
+    public function bool exact_unsigned(double value) readonly predicate(checked<uint64>(value) != 18446744073709551615);
+    public function bool float_equal(float value) readonly predicate(value == 16777216);
+    public function bool float_nonfinite(float value) readonly predicate(!math.is_finite(value));
+  }
+}

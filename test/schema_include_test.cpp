@@ -375,6 +375,27 @@ TEST_F(schema_include_test, readonly_call_language_contract_is_per_file) {
       "function uint64 identity(uint64 value) readonly expression(value);");
   write("root.serializer", "serializer version 1; include common; class root { public uint32 value; }");
   EXPECT_NO_THROW(schema::parser::parse_file(directory / "root.serializer"));
-  write("common.serializer", "serializer version 1.11.0; class future {}");
+  write("common.serializer", "serializer version 1.12.0; class future {}");
   reject("Unsupported schema language version");
+}
+
+// Projected calls, record selection and map-key applications keep their declaring file's gate.
+TEST_F(schema_include_test, projected_record_language_contract_is_per_file) {
+  write("root.serializer", "serializer version 1.11.0; include common; class root { public uint32 value; }");
+  const std::string key = "class key { public uint64 value; public function bool valid() readonly expression(value != 0); } ";
+  write("common.serializer", "serializer version 1.10.0; " + key +
+      "class probe { public key value; public function bool valid() readonly expression(value.valid()); }");
+  reject("Projected readonly calls require serializer version 1.11.0");
+  write("common.serializer", "serializer version 1.10.0; " + key +
+      "class probe { public key first; public key second; public function key selected(bool choose) readonly expression(choose ? first : second); }");
+  reject("Record conditional selection requires serializer version 1.11.0");
+  write("common.serializer", "serializer version 1.10.0; class key {} class table { public map<key, uint64> values; }");
+  reject("Generic record map keys require serializer version 1.11.0");
+  write("common.serializer", "serializer version 1.10.0; class key<T> {} class table { public map(key<uint64>) uint64 values; }");
+  reject("Generic legacy map keys require serializer version 1.11.0");
+  write("common.serializer", "serializer version 1.11.0; " + key +
+      "class probe { public key first; public key second; public function key selected() readonly expression(first.valid() ? first : second); } "
+      "class table { public map<key, uint64> values; }");
+  write("root.serializer", "serializer version 1; include common; class root { public uint32 value; }");
+  EXPECT_NO_THROW(schema::parser::parse_file(directory / "root.serializer"));
 }

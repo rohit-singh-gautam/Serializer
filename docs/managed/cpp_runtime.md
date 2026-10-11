@@ -1,5 +1,12 @@
 # C++ managed interface
 
+Compiler/runtime `1.16.0` adds optional [typed state registries](../state_registry.md):
+snapshot-pinned ID/type lookup, generated exact field/base descriptors, transactional
+application-key bindings and imports, uniqueness invariants, and ordered/hash
+secondary indexes. They preserve existing scalar identity and managed protocols.
+Indexes are rebuilt from a selected snapshot on request; disk paging and replacing
+internal identity validation tables with customer indexes remain proposals.
+
 Compiler/runtime 1.11.0 implements C++ schema generation, snapshot history,
 native-file journaling/recovery, checked runtime fields and publication callbacks.
 Schema language 1.6.0 adds behavior and runtime-field declarations. `managed`

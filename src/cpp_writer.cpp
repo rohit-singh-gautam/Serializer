@@ -635,7 +635,8 @@ public:
                      dimension_default(member.extent_expression.front())) + ")" : "") +
              ">";
     case member::modifier_type::map:
-      return std::string("::std::map<") + storage_type_name(member.key, member.key_node) + "," +
+      return std::string("::std::map<") +
+             (member.key_type ? generic_default(*member.key_type) : storage_type_name(member.key, member.key_node)) + "," +
              generic_default(member.type_name_list[0]) +
              ">";
     case member::modifier_type::variant:
@@ -793,14 +794,33 @@ public:
       if (node.call_target->type == object_type::function_type) {
         return full_type_name(node.call_target) + "(" + behavior::call_arguments(arguments) + ")";
       }
-      std::string receiver{"this"};
-      const auto* record = owner;
+      std::string receiver = node.call_receiver ? "&(" + arguments.at(0) + ")" : "this";
+      const auto* record = node.call_receiver ?
+          static_cast<const class_node*>(node.operands.front().resolved_type->resolved_node) : owner;
+      auto application = node.call_receiver ? *node.operands.front().resolved_type : rohit::serializer::type_name{std::string{}, nullptr};
       for (const auto index : node.call_base_path) {
         const auto& base = record->parents.at(index);
-        receiver = "static_cast<const " + parent_type_name(base) + "*>(" + receiver + ")";
+        auto parent_name = parent_type_name(base);
+        if (node.call_receiver && !base.type_expression.empty()) {
+          // The receiver's arguments belong to its caller, not the base declaration's lexical parameters.
+          const auto substitute = [&](const auto& self, rohit::serializer::type_name type) -> rohit::serializer::type_name {
+            if (!type.application && type.arguments.empty()) {
+              for (std::size_t parameter{}; parameter < record->generic_parameters.size() &&
+                   parameter < application.arguments.size(); ++parameter) {
+                if (type.name == record->generic_parameters[parameter].name) { return application.arguments[parameter]; }
+              }
+            }
+            for (auto& argument : type.arguments) { argument = self(self, std::move(argument)); }
+            return type;
+          };
+          application = substitute(substitute, base.type_expression.front());
+          parent_name = generic_default(application);
+        }
+        receiver = "static_cast<const " + parent_name + "*>(" + receiver + ")";
         record = base.parent_class;
       }
-      return receiver + "->" + function_name(target.name) + "(" + behavior::call_arguments(arguments) + ")";
+      return "(" + receiver + ")->" + function_name(target.name) + "(" +
+          behavior::call_arguments(arguments, node.call_receiver ? 1 : 0) + ")";
     };
     std::size_t indentation = 4;
     context.line = [&](const auto& text) { output.write(std::string(indentation, ' '), text, "\n"); };
@@ -3141,6 +3161,7 @@ public:
                      "// https://github.com/rohit-singh-gautam/Serializer\n\n"
                      "#pragma once\n\n"
                      "#include <rohit/serializer.hpp>\n"
+                     "#include <rohit/numeric.hpp>\n"
                      "#include <rohit/digest.hpp>\n");
     if (!managed_.empty()) { out_stream.write("#include <rohit/managed.hpp>\n#include <optional>\n"); }
     if (protobuf_enabled) { out_stream.write("#include <rohit/protobuf.hpp>\n"); }

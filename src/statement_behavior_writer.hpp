@@ -23,15 +23,15 @@ struct statement_context {
   std::string prefix{"srl_behavior_value_"};
   std::string valid{"srl_behavior_ok"};
   std::string budget{"srl_behavior_budget"};
-  std::function<std::string(std::string_view)> symbol;
-  std::function<std::string(const behavior_expression&, std::string)> member;
-  std::function<std::string(const type_name&)> native_type;
-  std::function<std::string(const type_name&, std::string_view)> enum_value;
-  std::function<std::string(const behavior_expression&, const std::vector<std::string>&)> call;
-  std::function<void(const std::string&)> line;
-  std::function<void(const std::string&)> open;
-  std::function<void()> close;
-  std::function<void()> fail;
+  std::function<std::string(std::string_view)> symbol{};
+  std::function<std::string(const behavior_expression&, std::string)> member{};
+  std::function<std::string(const type_name&)> native_type{};
+  std::function<std::string(const type_name&, std::string_view)> enum_value{};
+  std::function<std::string(const behavior_expression&, const std::vector<std::string>&)> call{};
+  std::function<void(const std::string&)> line{};
+  std::function<void(const std::string&)> open{};
+  std::function<void()> close{};
+  std::function<void()> fail{};
 };
 
 // Identify bodies whose selected operations are valid during C++20 constant evaluation.
@@ -118,11 +118,14 @@ inline bool native_scalar_expression(const behavior_expression& node) {
 // Exact scalar conversions/comparisons cannot fail on C++ values; checked indexing remains fallible.
 inline bool noexcept_expression(const behavior_expression& node, bool unchecked = false) {
   using operation = behavior_expression::operation;
+  // Owning record selection can allocate while copying the selected branch.
+  if (node.kind == operation::conditional && node.result_type.starts_with("record:")) { return false; }
   if (!native_scalar_expression(node)) { return false; }
   // Constant-capable arithmetic still reports runtime domain failures through exceptions.
   if (node.kind == operation::add || node.kind == operation::subtract ||
       node.kind == operation::multiply || node.kind == operation::divide ||
-      node.kind == operation::positive || node.kind == operation::negative) { return false; }
+      node.kind == operation::positive || node.kind == operation::negative ||
+      node.kind == operation::checked_cast) { return false; }
   if (node.kind == operation::to_double) {
     return std::all_of(node.operands.begin(), node.operands.end(), [&](const auto& operand) {
       return noexcept_expression(operand, unchecked);
@@ -210,6 +213,77 @@ class statement_expression {
     return size;
   }
 
+  // Emit C numeric checks before a cast, overflowing operation or invalid integral remainder.
+  std::string numeric_c(const behavior_expression& node, const std::string& left,
+                        const std::string& right = {}) {
+    using operation = behavior_expression::operation;
+    const bool integral = numeric_integer_type(node.result_type);
+    const auto wire_literal = [](const std::string& value) {
+      return value == "-9223372036854775808" ? std::string{"(-9223372036854775807LL - 1LL)"} :
+          value + (value == "18446744073709551615" ? "ULL" : "LL");
+    };
+    const auto [low, high] = integral ? integer_range(node.result_type) : std::pair<std::string, std::string>{"0", "0"};
+    const auto minimum = wire_literal(low), maximum = wire_literal(high);
+    const bool signed_value = node.result_type.starts_with("int");
+    const auto cast = [&](const std::string& native, const std::string& value) {
+      return "((" + native + ")(" + value + "))";
+    };
+    if (node.kind == operation::checked_cast) {
+      const auto& source = node.operands.front();
+      const bool source_integral = numeric_integer_type(source.result_type);
+      if (integral && source_integral) {
+        auto condition = cast("uint64_t", left) + " > " + maximum;
+        if (source.result_type.starts_with("int")) {
+          condition = "(" + left + " < 0 && " + (signed_value ? cast("int64_t", left) + " < " + minimum : "true") +
+              ") || (" + left + " >= 0 && " + condition + ")";
+        }
+        reject(condition);
+        return cast(type(node), left);
+      }
+      if (integral) {
+        const auto [lower, upper] = numeric_float_endpoints(node.result_type);
+        reject("!isfinite(" + left + ") || " + left + " < " + lower + " || " + left + " >= " + upper);
+      } else if (node.result_type == "float" && source.result_type == "double") {
+        // C requires a representable floating result before performing a narrowing conversion.
+        constexpr std::string_view single_maximum{"3.4028234663852885981170418348451692544e38"};
+        reject("!isfinite(" + left + ") || " + left + " < -" + std::string{single_maximum} +
+            " || " + left + " > " + std::string{single_maximum});
+      }
+      const auto result = temporary();
+      context.line("const " + type(node) + " " + result + " = " + cast(type(node), left) + ";");
+      if (source_integral) {
+        const auto [lower, upper] = numeric_float_endpoints(source.result_type);
+        reject("!isfinite(" + result + ") || " + result + " < " + lower + " || " + result + " >= " + upper);
+      } else if (!integral) { reject("!isfinite(" + result + ")"); }
+      reject(cast(type(source), result) + " != " + left);
+      return result;
+    }
+    if (integral) {
+      if (node.kind == operation::add) {
+        reject(signed_value ? "(" + right + " > 0 && " + left + " > " + maximum + " - " + right +
+            ") || (" + right + " < 0 && " + left + " < " + minimum + " - " + right + ")" :
+            left + " > " + maximum + " - " + right);
+      } else if (node.kind == operation::subtract) {
+        reject(signed_value ? "(" + right + " > 0 && " + left + " < " + minimum + " + " + right +
+            ") || (" + right + " < 0 && " + left + " > " + maximum + " + " + right + ")" : left + " < " + right);
+      } else if (node.kind == operation::multiply) {
+        reject(signed_value ? "(" + left + " > 0 && ((" + right + " > 0 && " + left + " > " + maximum + " / " + right +
+            ") || (" + right + " < 0 && " + right + " < " + minimum + " / " + left + "))) || (" + left +
+            " < 0 && ((" + right + " > 0 && " + left + " < " + minimum + " / " + right + ") || (" + right +
+            " < 0 && " + left + " < " + maximum + " / " + right + ")))" : right + " != 0 && " + left + " > " + maximum + " / " + right);
+      } else if (node.kind == operation::negative) {
+        reject(signed_value ? left + " == " + minimum : left + " != 0");
+      }
+    }
+    if (node.kind == operation::divide) {
+      reject(right + " == 0" + (integral && signed_value ? " || (" + left + " == " + minimum + " && " + right + " == -1)" : ""));
+      if (integral) { reject(left + " % " + right + " != 0"); }
+    }
+    const auto value = node.kind == operation::positive ? left : node.kind == operation::negative ? "(-" + left + ")" :
+        "(" + left + (node.kind == operation::add ? " + " : node.kind == operation::subtract ? " - " : node.kind == operation::multiply ? " * " : " / ") + right + ")";
+    return scalar(node, cast(type(node), value), false);
+  }
+
 public:
   // Bind callbacks; evaluation borrows schema metadata and writes only generated source text.
   explicit statement_expression(statement_context value) : context{std::move(value)} {}
@@ -232,9 +306,11 @@ public:
     case operation::call: {
       if (!context.call) { throw std::invalid_argument{"Missing native function call lowering"}; }
       std::vector<std::string> arguments;
-      for (const auto& operand : node.operands) {
+      for (std::size_t index{}; index < node.operands.size(); ++index) {
+        const auto& operand = node.operands[index];
         const auto value = emit(operand, unchecked), argument = temporary();
-        context.line("const " + type(operand) + " " + argument + " = " + value + ";");
+        context.line("const " + type(operand) +
+            (context.cpp && node.call_receiver && index == 0 ? "& " : " ") + argument + " = " + value + ";");
         arguments.push_back(argument);
       }
       return scalar(node, context.call(node, arguments), unchecked);
@@ -274,11 +350,30 @@ public:
       const auto right = child(1); context.line(result + " = " + right + ";"); context.close(); return result;
     }
     case operation::conditional: {
-      const auto condition = child(0), result = temporary(); context.line(type(node) + " " + result + " = " + (context.cpp ? "{}" : "0") + ";");
+      const auto condition = child(0), result = temporary();
+      if (context.cpp && node.result_type.starts_with("record:")) {
+        // Avoid constructing an unselected record default, which can itself run a factory.
+        context.line("::std::optional<" + type(node) + "> " + result + ";");
+        context.open("if (" + condition + ")");
+        const auto yes = child(1); context.line(result + ".emplace(" + yes + ");"); context.close();
+        context.open("else");
+        const auto no = child(2); context.line(result + ".emplace(" + no + ");"); context.close();
+        return "::std::move(*" + result + ")";
+      }
+      context.line(type(node) + " " + result + " = " +
+          (context.cpp ? "{}" : node.result_type.starts_with("record:") ? "{0}" : "0") + ";");
       context.open("if (" + condition + ")"); const auto yes = child(1); context.line(result + " = " + yes + ";"); context.close();
       context.open("else"); const auto no = child(2); context.line(result + " = " + no + ";"); context.close(); return result;
     }
     case operation::logical_not: return "(!" + child(0) + ")";
+    case operation::checked_cast: {
+      const auto source = child(0);
+      if (!context.cpp) { return numeric_c(node, source); }
+      const auto result = temporary();
+      context.line("const auto " + result + " = ::rohit::serializer::try_numeric_cast<" + type(node) + ">(" + source + ");");
+      reject("!" + result);
+      return "(*" + result + ")";
+    }
     case operation::to_double: return context.cpp ? "static_cast<double>(" + child(0) + ")" : "((double)(" + child(0) + "))";
     case operation::less: case operation::less_equal: case operation::greater: case operation::greater_equal: case operation::equal: case operation::not_equal: {
       const auto left = child(0), right = child(1);
@@ -286,6 +381,24 @@ public:
       return "(" + left + token + right + ")";
     }
     default: break;
+    }
+    if (node.numeric_contract_enabled && node.result_type != "double" &&
+        (node.kind == operation::positive || node.kind == operation::negative ||
+         node.kind == operation::add || node.kind == operation::subtract ||
+         node.kind == operation::multiply || node.kind == operation::divide)) {
+      const auto left = child(0);
+      if (!context.cpp) { return numeric_c(node, left, node.operands.size() == 2 ? child(1) : ""); }
+      const auto result = temporary();
+      const auto function = node.kind == operation::positive ? "try_numeric_cast" :
+          node.kind == operation::negative ? "try_checked_negate" :
+          node.kind == operation::add ? "try_checked_add" :
+          node.kind == operation::subtract ? "try_checked_subtract" :
+          node.kind == operation::multiply ? "try_checked_multiply" : "try_checked_divide";
+      auto arguments = left;
+      if (node.operands.size() == 2) { arguments += ", " + child(1); }
+      context.line("const auto " + result + " = ::rohit::serializer::" + function + "<" + type(node) + ">(" + arguments + ");");
+      reject("!" + result);
+      return "(*" + result + ")";
     }
     const auto helper_prefix = std::string{context.cpp ? "::rohit::serializer::detail::" : ""};
     const auto suffix = context.cpp && context.predicate ? "_predicate" : "";

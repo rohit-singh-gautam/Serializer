@@ -1,0 +1,566 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: 0BSD
+#pragma once
+
+#include <rohit/managed_editor.hpp>
+#include <rohit/managed_identity.hpp>
+#include <rohit/managed_resident.hpp>
+
+#include <algorithm>
+#include <concepts>
+#include <cstddef>
+#include <cstdint>
+#include <functional>
+#include <initializer_list>
+#include <limits>
+#include <map>
+#include <memory>
+#include <optional>
+#include <span>
+#include <stdexcept>
+#include <string_view>
+#include <type_traits>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
+namespace rohit::managed {
+
+// Generated descriptors describe schema fields, never native object offsets.
+template <typename Plain> struct fields;
+// Ordinary nested values use their own field projection, including separate-value profiles.
+template <typename Plain> struct value_fields;
+enum class registry_error_code { missing_id, wrong_type, missing_member, wrong_member_type,
+                                 duplicate_key, invalid_identity, expired_editor };
+
+// Preserve a machine-readable failure without exposing a mutable catalog.
+class registry_error : public std::logic_error {
+  registry_error_code code_;
+public:
+  // Retain the precise lookup or binding failure alongside its diagnostic.
+  registry_error(registry_error_code code, const char* message)
+      : std::logic_error{message}, code_{code} {}
+  // Inspect the failure independently of diagnostic wording.
+  registry_error_code code() const noexcept { return code_; }
+};
+
+// Static metadata is shared by all occurrences of one generated type.
+struct member_info {
+  std::uint32_t id{};
+  std::string_view name{};
+  bool writable{};
+};
+
+// A typed descriptor uses generated access, including private schema fields.
+template <typename Plain, typename Storage, typename Value>
+struct member_descriptor {
+  using plain_type = Plain;
+  using storage_type = Storage;
+  using value_type = Value;
+  member_info info{};
+  const Value& (*get)(const Storage&){};
+  void (*set)(Storage&, Value){};
+  Value& (*mutable_get)(Storage&){};
+
+  // Copy a field without lending an alias beyond its owning snapshot or callback.
+  Value read(const Storage& storage) const { return get(storage); }
+  // Reject immutable metadata before applying a typed candidate assignment.
+  void write(Storage& storage, Value value) const {
+    if (!set) {
+      throw registry_error{registry_error_code::missing_member, "Registry member is readonly"};
+    }
+    set(storage, std::move(value));
+  }
+};
+
+namespace detail {
+// Exact paths contain only stable field/base IDs; collection positions remain separate addresses.
+template <typename Descriptors, typename Storage, typename Value>
+Value read_registry_path(const Storage& storage, std::span<const std::uint32_t> path) {
+  if (path.empty()) { throw registry_error{registry_error_code::missing_member, "Empty registry field path"}; }
+  std::optional<Value> result;
+  bool exists{};
+  Descriptors::visit([&](const auto& descriptor) {
+    if (descriptor.info.id != path.front()) { return; }
+    exists = true;
+    using field_type = typename std::remove_cvref_t<decltype(descriptor)>::value_type;
+    if (path.size() == 1) {
+      if constexpr (std::same_as<Value, field_type>) { result.emplace(descriptor.read(storage)); }
+    } else if constexpr (requires { value_fields<field_type>::visit([](const auto&) {}); }) {
+      result.emplace(read_registry_path<value_fields<field_type>, field_type, Value>(
+          descriptor.get(storage), path.subspan(1)));
+    }
+  });
+  if (!result) {
+    throw registry_error{exists ? registry_error_code::wrong_member_type : registry_error_code::missing_member,
+                         exists ? "Registry path has a different type" : "Registry member path is missing"};
+  }
+  return std::move(*result);
+}
+
+// Traverse ordinary values only; entity/container boundaries need their own typed editor selection.
+template <typename Descriptors, typename Storage, typename Value>
+void write_registry_path(Storage& storage, std::span<const std::uint32_t> path, Value value) {
+  if (path.empty()) { throw registry_error{registry_error_code::missing_member, "Empty registry field path"}; }
+  bool changed{};
+  bool exists{};
+  Descriptors::visit([&](const auto& descriptor) {
+    if (descriptor.info.id != path.front()) { return; }
+    exists = true;
+    using field_type = typename std::remove_cvref_t<decltype(descriptor)>::value_type;
+    if (path.size() == 1) {
+      if constexpr (std::same_as<Value, field_type>) {
+        descriptor.write(storage, std::move(value));
+        changed = true;
+      }
+    } else if constexpr (requires { value_fields<field_type>::visit([](const auto&) {}); }) {
+      if (!descriptor.mutable_get) { throw registry_error{registry_error_code::missing_member, "Registry path is readonly"}; }
+      changed = true;
+      write_registry_path<value_fields<field_type>>(descriptor.mutable_get(storage), path.subspan(1), std::move(value));
+    }
+  });
+  if (!changed) {
+    throw registry_error{exists ? registry_error_code::wrong_member_type : registry_error_code::missing_member,
+                         exists ? "Registry path has a different type" : "Registry member path is missing"};
+  }
+}
+// Address identity is a local type check only; it is never persisted or used as a wire key.
+template <typename Plain> inline constexpr unsigned char registry_type_token{};
+
+// Adapt generated traversal while leaving existing two-argument identity visitors unchanged.
+template <typename Callback>
+struct registry_entity_visitor {
+  Callback callback;
+  // Carry the generated concrete type and live storage into one synchronous callback.
+  template <typename Plain, typename Storage>
+  void entity(Storage& storage) { callback.template operator()<Plain>(storage); }
+};
+
+// Visit identified occurrences through the generator's normal ownership boundaries.
+template <typename Traits, typename Storage, typename Callback>
+void visit_registry_entities(Storage& storage, Callback callback) {
+  registry_entity_visitor<Callback> visitor{std::move(callback)};
+  Traits::visit_entities(storage, visitor);
+}
+
+// Resolve anew after each structural edit rather than reusing a candidate pointer.
+template <typename Plain, typename Traits, typename Root, typename Id>
+auto& resolve_registry_entity(Root& root, Id id) {
+  using storage_type = typename model_traits<Plain>::storage_type;
+  storage_type* result{};
+  bool exists{};
+  visit_registry_entities<Traits>(root, [&]<typename Actual>(auto& storage) {
+    if (storage.persistent_id != id) { return; }
+    exists = true;
+    if constexpr (std::same_as<Plain, Actual>) { result = std::addressof(storage); }
+  });
+  if (!result) {
+    throw registry_error{exists ? registry_error_code::wrong_type : registry_error_code::missing_id,
+                         exists ? "Registry entity has a different type" : "Registry entity is missing"};
+  }
+  return *result;
+}
+} // namespace detail
+
+// Own one reusable exact-type ordinary-member path for binding and secondary indexing.
+template <typename Plain, typename Value>
+class member_path_descriptor {
+  std::vector<std::uint32_t> path_;
+public:
+  using plain_type = Plain;
+  using storage_type = typename model_traits<Plain>::storage_type;
+  using value_type = Value;
+  // Keep schema IDs alive independently of the caller's temporary path container.
+  explicit member_path_descriptor(std::span<const std::uint32_t> path)
+      : path_{path.begin(), path.end()} {
+    if (path_.empty()) {
+      throw registry_error{registry_error_code::missing_member, "Empty registry field path"};
+    }
+  }
+  // Read the exact selected ordinary value through generated field/base projections.
+  Value read(const storage_type& storage) const {
+    return detail::read_registry_path<fields<Plain>, storage_type, Value>(storage, path_);
+  }
+  // Bind through the same generated mutability and exact-type checks as direct members.
+  void write(storage_type& storage, Value value) const {
+    detail::write_registry_path<fields<Plain>>(storage, path_, std::move(value));
+  }
+};
+
+// Create a reusable path descriptor without retaining initializer-list storage.
+template <typename Plain, typename Value>
+auto field_path(std::initializer_list<std::uint32_t> path) {
+  return member_path_descriptor<Plain, Value>{{path.begin(), path.size()}};
+}
+
+// Pins one immutable entity and its entire owning snapshot across store publication.
+template <typename Plain>
+class entity_read {
+  using storage_type = typename model_traits<Plain>::storage_type;
+  std::shared_ptr<const storage_type> storage_;
+public:
+  // Alias the selected snapshot; ownership keeps storage valid across undo/load/commit.
+  explicit entity_read(std::shared_ptr<const storage_type> storage) : storage_{std::move(storage)} {
+    if (!storage_) { throw std::invalid_argument{"Entity read needs a snapshot pin"}; }
+  }
+  // Borrow immutable storage while this handle or another snapshot pin remains alive.
+  const storage_type& storage() const noexcept { return *storage_; }
+  // Read the generated payload through the same representation binding as editors.
+  const auto& value() const noexcept { return model_traits<Plain>::payload(*storage_); }
+  // Read its stable document-local identity independently of application map keys.
+  auto id() const noexcept { return storage_->persistent_id; }
+};
+
+// Bound derived catalog construction separately from payload/decode budgets.
+struct registry_options {
+  std::size_t max_entities{std::numeric_limits<std::size_t>::max()};
+  std::size_t max_index_bytes{std::numeric_limits<std::size_t>::max()};
+};
+
+// A secondary index pins its source snapshot and accounts its derived owned capacity.
+template <typename Root, typename Map>
+class secondary_index {
+  std::shared_ptr<const Root> root_;
+  document_id document_{};
+  Map values_;
+  std::shared_ptr<detail::resident_charge> charge_{};
+public:
+  // Bind copied keys/IDs to their immutable owning generation, never to a live mutable catalog.
+  secondary_index(std::shared_ptr<const Root> root, document_id document, Map values,
+                  std::shared_ptr<detail::resident_charge> charge)
+      : root_{std::move(root)}, document_{document}, values_{std::move(values)}, charge_{std::move(charge)} {}
+  secondary_index(const secondary_index&) = delete;
+  secondary_index& operator=(const secondary_index&) = delete;
+  secondary_index(secondary_index&&) = default;
+  secondary_index& operator=(secondary_index&&) = default;
+  // Read a selected key's matching stable IDs; missing keys retain map's checked failure.
+  const auto& at(const typename Map::key_type& key) const { return values_.at(key); }
+  // Look up one key without changing membership or pin lifetime.
+  auto find(const typename Map::key_type& key) const { return values_.find(key); }
+  // Begin immutable key/ID traversal in the declared ordered/hash representation.
+  auto begin() const noexcept { return values_.begin(); }
+  // Mark the end of immutable traversal.
+  auto end() const noexcept { return values_.end(); }
+  // Report distinct secondary keys, rather than the number of objects.
+  std::size_t size() const noexcept { return values_.size(); }
+  // Start an ordered range query; hash indexes intentionally do not expose this operation.
+  auto lower_bound(const typename Map::key_type& key) const
+    requires requires(const Map& value) { value.lower_bound(key); }
+  { return values_.lower_bound(key); }
+  // Inspect the namespace which owns every indexed identity.
+  document_id document() const noexcept { return document_; }
+  // Retain the exact root to resolve returned IDs through a compatible snapshot catalog.
+  const auto& snapshot() const noexcept { return root_; }
+};
+
+// A rebuildable catalog belongs to exactly one immutable root; default stores allocate none.
+template <typename Root, typename Traits = model_traits<Root>>
+class registry_view {
+public:
+  using storage_type = typename Traits::storage_type;
+  using id_type = typename Traits::id_type;
+private:
+  static constexpr std::size_t catalog_node_overhead_bytes = 6 * sizeof(void*);
+  struct location {
+    const void* pointer{};
+    const void* type_token{};
+    std::string_view type_key{};
+  };
+  std::shared_ptr<const storage_type> root_;
+  document_id document_{};
+  std::map<id_type, location> locations_{};
+  registry_options options_{};
+  std::shared_ptr<detail::resident_charge> charge_{};
+  std::shared_ptr<detail::resident_ledger> ledger_{};
+
+  // Admit derived capacity without claiming a hard allocator or process peak ceiling.
+  void admit(std::size_t bytes) {
+    if (bytes > options_.max_index_bytes) {
+      throw std::length_error{"Registry index admission budget exceeded"};
+    }
+    if (charge_) { charge_->resize(bytes); }
+  }
+public:
+  // Build only from a pinned generated snapshot; duplicate/zero identities reject construction.
+  explicit registry_view(std::shared_ptr<const storage_type> root, registry_options options = {},
+                         std::shared_ptr<detail::resident_ledger> ledger = {}, document_id document = {})
+      : root_{std::move(root)}, document_{document}, options_{options} {
+    if (!root_) { throw std::invalid_argument{"Registry needs a snapshot pin"}; }
+    ledger_ = std::move(ledger);
+    if (ledger_) { charge_ = std::make_shared<detail::resident_charge>(ledger_); }
+    detail::visit_registry_entities<Traits>(*root_, [&]<typename Plain>(const auto& storage) {
+      if (locations_.size() >= options_.max_entities) {
+        throw std::length_error{"Registry entity budget exceeded"};
+      }
+      const auto next = detail::multiply_memory_estimate(locations_.size() + 1,
+          sizeof(typename decltype(locations_)::value_type) + catalog_node_overhead_bytes);
+      admit(next);
+      const location entry{std::addressof(storage), &detail::registry_type_token<Plain>,
+                           model_traits<Plain>::type_key};
+      if (storage.persistent_id == 0 || !locations_.emplace(storage.persistent_id, entry).second) {
+        throw registry_error{registry_error_code::invalid_identity, "Invalid registry identity"};
+      }
+    });
+  }
+  registry_view(const registry_view&) = delete;
+  registry_view& operator=(const registry_view&) = delete;
+  registry_view(registry_view&&) = default;
+  registry_view& operator=(registry_view&&) = default;
+
+  // Query membership without conferring mutation or authorization rights.
+  bool contains(id_type id) const noexcept { return locations_.contains(id); }
+  // Preserve the selected document namespace even when the store later loads another document.
+  document_id document() const noexcept { return document_; }
+  // Count only independently managed occurrences in this selected snapshot.
+  std::size_t size() const noexcept { return locations_.size(); }
+  // Inspect a generated schema type key, never a native RTTI spelling.
+  std::string_view type(id_type id) const {
+    const auto found = locations_.find(id);
+    if (found == locations_.end()) {
+      throw registry_error{registry_error_code::missing_id, "Registry entity is missing"};
+    }
+    return found->second.type_key;
+  }
+  // Resolve in logarithmic catalog time and pin the exact selected occurrence.
+  template <typename Plain>
+  entity_read<Plain> find(id_type id) const {
+    if (!root_) { throw std::logic_error{"Registry snapshot handle was moved"}; }
+    const auto found = locations_.find(id);
+    if (found == locations_.end()) {
+      throw registry_error{registry_error_code::missing_id, "Registry entity is missing"};
+    }
+    if (found->second.type_token != &detail::registry_type_token<Plain>) {
+      throw registry_error{registry_error_code::wrong_type, "Registry entity has a different type"};
+    }
+    using entity_storage = typename model_traits<Plain>::storage_type;
+    return entity_read<Plain>{std::shared_ptr<const entity_storage>{
+        root_, static_cast<const entity_storage*>(found->second.pointer)}};
+  }
+  // Inspect the catalog synchronously without exposing its mutable membership table.
+  template <typename Callback>
+  void visit(Callback&& callback) const {
+    for (const auto& [id, entry] : locations_) { callback(id, entry.type_key); }
+  }
+  // Read a statically selected exact field through generated descriptor access.
+  template <typename Plain, typename Storage, typename Value>
+  Value member(id_type id, const member_descriptor<Plain, Storage, Value>& descriptor) const {
+    return descriptor.read(find<Plain>(id).storage());
+  }
+  // Resolve a numeric stable field ID with an exact expected value type.
+  template <typename Plain, typename Value>
+  Value member(id_type id, std::uint32_t field_id) const {
+    const auto entity = find<Plain>(id);
+    std::optional<Value> result;
+    bool exists{};
+    fields<Plain>::visit([&](const auto& descriptor) {
+      if (descriptor.info.id != field_id) { return; }
+      exists = true;
+      if constexpr (std::same_as<Value, typename std::remove_cvref_t<decltype(descriptor)>::value_type>) {
+        result.emplace(descriptor.read(entity.storage()));
+      }
+    });
+    if (!result) {
+      throw registry_error{exists ? registry_error_code::wrong_member_type : registry_error_code::missing_member,
+          exists ? "Registry member has a different type" : "Registry member is missing"};
+    }
+    return std::move(*result);
+  }
+  // Resolve nested ordinary members and bases using their stable schema identity path.
+  template <typename Plain, typename Value>
+  Value member(id_type id, std::span<const std::uint32_t> path) const {
+    return detail::read_registry_path<fields<Plain>, typename model_traits<Plain>::storage_type, Value>(
+        find<Plain>(id).storage(), path);
+  }
+  // Produce an ordered snapshot-local secondary index; composite scope keys remain application data.
+  template <typename Descriptor, typename Key = typename Descriptor::value_type,
+            typename Compare = std::less<Key>>
+  auto ordered(const Descriptor& descriptor, bool unique = false,
+               Compare compare = {}) const {
+    using Plain = typename Descriptor::plain_type;
+    using Storage = typename Descriptor::storage_type;
+    static_assert(std::same_as<Storage, typename model_traits<Plain>::storage_type>,
+                  "Registry descriptors must match the generated entity storage");
+    std::map<Key, std::vector<id_type>, Compare> result{std::move(compare)};
+    for (const auto& [id, entry] : locations_) {
+      if (entry.type_token != &detail::registry_type_token<Plain>) { continue; }
+      auto key = descriptor.read(*static_cast<const Storage*>(entry.pointer));
+      auto& members = result[std::move(key)];
+      if (unique && !members.empty()) {
+        throw registry_error{registry_error_code::duplicate_key, "Duplicate registry key"};
+      }
+      members.push_back(id);
+    }
+    const auto bytes = detail::estimate_dynamic_memory(result);
+    if (bytes > options_.max_index_bytes) { throw std::length_error{"Registry secondary index budget exceeded"}; }
+    auto charge = ledger_ ? std::make_shared<detail::resident_charge>(ledger_, bytes) : nullptr;
+    return secondary_index<storage_type, decltype(result)>{root_, document_, std::move(result), std::move(charge)};
+  }
+  // Produce a hash index with caller-selected key hash/equality and expected constant-time lookup.
+  template <typename Descriptor, typename Key = typename Descriptor::value_type, typename Hash = std::hash<Key>,
+            typename Equal = std::equal_to<Key>>
+  auto hashed(const Descriptor& descriptor, bool unique = false,
+              Hash hash = {}, Equal equal = {}) const {
+    using Plain = typename Descriptor::plain_type;
+    using Storage = typename Descriptor::storage_type;
+    static_assert(std::same_as<Storage, typename model_traits<Plain>::storage_type>,
+                  "Registry descriptors must match the generated entity storage");
+    std::unordered_map<Key, std::vector<id_type>, Hash, Equal> result{0, std::move(hash), std::move(equal)};
+    for (const auto& [id, entry] : locations_) {
+      if (entry.type_token != &detail::registry_type_token<Plain>) { continue; }
+      auto& members = result[descriptor.read(*static_cast<const Storage*>(entry.pointer))];
+      if (unique && !members.empty()) {
+        throw registry_error{registry_error_code::duplicate_key, "Duplicate registry key"};
+      }
+      members.push_back(id);
+    }
+    const auto bytes = detail::estimate_dynamic_memory(result);
+    if (bytes > options_.max_index_bytes) { throw std::length_error{"Registry secondary index budget exceeded"}; }
+    auto charge = ledger_ ? std::make_shared<detail::resident_charge>(ledger_, bytes) : nullptr;
+    return secondary_index<storage_type, decltype(result)>{root_, document_, std::move(result), std::move(charge)};
+  }
+};
+
+// An edit catalog holds only an invalidatable channel; each operation resolves the current candidate.
+template <typename Root, typename Traits = model_traits<Root>>
+class registry_edit {
+  using storage_type = typename Traits::storage_type;
+  using id_type = typename Traits::id_type;
+  std::shared_ptr<detail::edit_channel<storage_type, id_type>> channel_;
+  // Convert only registry lifetime failures to typed errors; normal editor contracts stay unchanged.
+  void require_active() const {
+    if (!channel_ || !channel_->owner) {
+      throw registry_error{registry_error_code::expired_editor, "Registry transaction is closed"};
+    }
+  }
+public:
+  // Share the normal transaction lifetime/failure channel, without owning its mutable candidate.
+  explicit registry_edit(std::shared_ptr<detail::edit_channel<storage_type, id_type>> channel)
+      : channel_{std::move(channel)} {}
+  // Select a generated editor which revalidates identity/type after every structural mutation.
+  template <typename Plain>
+  auto edit(id_type id) const {
+    require_active();
+    channel_->guard([&] {
+      channel_->update([&](storage_type& root) { detail::resolve_registry_entity<Plain, Traits>(root, id); });
+    });
+    using entity_storage = typename model_traits<Plain>::storage_type;
+    auto resolve = [id](storage_type& root) -> entity_storage& {
+      return detail::resolve_registry_entity<Plain, Traits>(root, id);
+    };
+    return model_traits<Plain>::make_editor(
+        detail::editor_access<storage_type, entity_storage, true, decltype(resolve)>{channel_, resolve});
+  }
+  // Bind/rebind a durable application key or other ordinary field within the same transaction.
+  template <typename Plain, typename Storage, typename Value>
+  void bind(id_type id, const member_descriptor<Plain, Storage, Value>& descriptor, Value value) const {
+    require_active();
+    channel_->guard([&] {
+      channel_->update([&](storage_type& root) {
+        descriptor.write(detail::resolve_registry_entity<Plain, Traits>(root, id), std::move(value));
+      });
+    });
+  }
+  // Apply a nested ordinary-field binding through the existing candidate mutation boundary.
+  template <typename Plain, typename Value>
+  void bind(id_type id, std::span<const std::uint32_t> path, Value value) const {
+    require_active();
+    channel_->guard([&] {
+      channel_->update([&](storage_type& root) {
+        detail::write_registry_path<fields<Plain>>(detail::resolve_registry_entity<Plain, Traits>(root, id), path, std::move(value));
+      });
+    });
+  }
+  // Reserve through the existing flush-before-exposure allocator; cancellation never recycles IDs.
+  id_type reserve() const {
+    require_active();
+    return channel_->guard([&] {
+      const auto id = channel_->allocate(channel_->owner);
+      if (!channel_->registry_reservations) {
+        channel_->registry_reservations = std::make_unique<std::vector<id_type>>();
+      }
+      channel_->registry_reservations->push_back(id);
+      return id;
+    });
+  }
+  // Query current candidate membership without keeping addresses across structural changes.
+  bool contains(id_type id) const {
+    require_active();
+    bool result{};
+    channel_->update([&](storage_type& root) {
+      detail::visit_registry_entities<Traits>(root, [&]<typename Plain>(const auto& node) {
+        static_cast<void>(sizeof(Plain));
+        result = result || node.persistent_id == id;
+      });
+    });
+    return result;
+  }
+  // Adopt values under a fresh managed reservation; ordinary application references are not remapped.
+  template <typename Plain, typename Attach>
+  id_type adopt(Plain value, Attach attach) const {
+    const auto id = reserve();
+    return adopt_reserved(id, std::move(value), std::move(attach));
+  }
+  // Adopt a caller-selected reservation from this active transaction, rejecting retired/foreign IDs.
+  // The trusted attachment callback changes owning model state, never an independent catalog.
+  template <typename Plain, typename Attach>
+  id_type adopt_reserved(id_type id, Plain value, Attach attach) const {
+    require_active();
+    return channel_->guard([&] {
+      auto* reservations = channel_->registry_reservations.get();
+      if (!reservations || std::find(reservations->begin(), reservations->end(), id) == reservations->end() || contains(id)) {
+        throw registry_error{registry_error_code::invalid_identity, "Registry ID is not an unused transaction reservation"};
+      }
+      // Consume before initialization/attachment; retirement never makes this reservation reusable.
+      std::erase(*reservations, id);
+      auto imported = model_traits<Plain>::make_storage(std::move(value));
+      detail::visit_registry_entities<model_traits<Plain>>(imported, [&]<typename Actual>(auto& node) {
+        static_cast<void>(sizeof(Actual));
+        node.persistent_id = static_cast<const void*>(std::addressof(node)) ==
+            static_cast<const void*>(std::addressof(imported)) ? id : reserve();
+      });
+      channel_->update([&](storage_type& root) {
+        std::invoke(attach, root, std::move(imported));
+        // Require the imported occurrence to become owned model state before accepting adoption.
+        static_cast<void>(detail::resolve_registry_entity<Plain, Traits>(root, id));
+      });
+      return id;
+    });
+  }
+  // Retire an occurrence through a trusted owning-container edit; its logical ID remains consumed.
+  template <typename Plain, typename Remove>
+  void retire(id_type id, Remove remove) const {
+    require_active();
+    channel_->guard([&] {
+      channel_->update([&](storage_type& root) {
+        static_cast<void>(detail::resolve_registry_entity<Plain, Traits>(root, id));
+        std::invoke(remove, root, id);
+        bool remains{};
+        detail::visit_registry_entities<Traits>(root, [&]<typename Actual>(const auto& node) {
+          static_cast<void>(sizeof(Actual));
+          remains = remains || node.persistent_id == id;
+        });
+        if (remains) { throw registry_error{registry_error_code::invalid_identity, "Registry retirement retained its entity"}; }
+      });
+    });
+  }
+};
+
+// Typed external resolution returns owning immutable handles under the provider's lifetime contract.
+// Provider state is not made undoable or authorized by storing its key in a Serializer model.
+template <typename Key, typename Value>
+class external_registry {
+  std::function<std::shared_ptr<const Value>(const Key&)> resolve_;
+public:
+  // The provider owns synchronization, authentication, version selection and external transactions.
+  explicit external_registry(std::function<std::shared_ptr<const Value>(const Key&)> resolve)
+      : resolve_{std::move(resolve)} {
+    if (!resolve_) { throw std::invalid_argument{"External registry needs a resolver"}; }
+  }
+  // Acquire a scoped owning handle; missing keys produce the same typed lookup failure.
+  std::shared_ptr<const Value> find(const Key& key) const {
+    auto result = resolve_(key);
+    if (!result) { throw registry_error{registry_error_code::missing_id, "External registry key is missing"}; }
+    return result;
+  }
+};
+} // namespace rohit::managed

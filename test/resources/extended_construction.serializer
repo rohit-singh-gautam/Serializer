@@ -1,0 +1,51 @@
+serializer version 1.11.0;
+
+class construction_defaults stable_ids {
+  public uint32 x (1) {1};
+  public uint32 y (2) {2};
+  public constructor(uint32 x_input = 7, uint32 y_input = 9) explicit {
+    x = x_input;
+    y = y_input;
+  }
+}
+
+class construction_fixed_vector<T, uint64 N> stable_ids {
+  public array[N] T values (1);
+  public constructor(array[N] T input) explicit {
+    values = input;
+  }
+}
+instantiate construction_triplet = construction_fixed_vector<int32, 3>;
+instantiate construction_matrix = construction_fixed_vector<double, 2 * 3>;
+
+class construction_measure<T: (integral || floating_point) && !bool> stable_ids {
+  public T value (1);
+  public constructor<Input: (integral || floating_point) && !bool>(Input input) explicit {
+    value = checked<T>(input);
+  }
+  public factory neutral() {
+    value = checked<T>(0);
+  }
+}
+instantiate construction_small_measure = construction_measure<uint16>;
+instantiate construction_signed_measure = construction_measure<int64>;
+instantiate construction_unsigned_measure = construction_measure<uint64>;
+instantiate construction_floating_measure = construction_measure<double>;
+
+class construction_wide_value stable_ids {
+  public int64 value (1);
+}
+
+class construction_projected_value stable_ids {
+  public int32 value (1);
+  public constructor(construction_wide_value input) explicit {
+    value = checked<int32>(input.value);
+  }
+  public factory half(int32 input) {
+    value = input / checked<int32>(2);
+  }
+}
+
+class construction_checked_default stable_ids {
+  public construction_small_measure value (1) default(neutral);
+}

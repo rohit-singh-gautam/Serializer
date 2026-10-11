@@ -145,10 +145,71 @@ public function double average(double copies) readonly
 
 The portable form supports finite binary64 literals, declared scalar symbols,
 `math.pi`, unary `+`/`-`, binary `+`/`-`/`*`, grouping and explicit
-`to_double(int32_or_uint32)`. Arithmetic operands and the result are `double`;
-implicit integer arithmetic, arbitrary loops, assignment and undeclared calls are rejected.
+`to_double(int32_or_uint32)`. Through language `1.10.0`, arithmetic operands and the
+result are `double`. Language `1.11.0` adds the exact numeric profile below.
+Arbitrary loops, assignment and undeclared calls remain outside the bounded profile.
 Bounds are 1024 expression nodes and depth 64. This bounded language leaves
 application-specific logic in native code.
+
+### Exact numeric representations
+
+Language `1.11.0` preserves the representation of matching integer, `float`, and
+`double` operands for unary `+`/`-` and binary `+`/`-`/`*`/`/`. Integer intermediates
+remain integers across their full declared width; they never pass through binary64.
+Overflow, division by zero, signed minimum divided by minus one, and fractional
+integer quotients fail before evaluation can publish a result. Thus `3 / 2` is
+invalid when bound to an integer representation. Nonzero unsigned negation also
+fails. Floating arithmetic rounds in its declared representation and requires
+finite inputs and intermediates. Python and JavaScript restore `float` operands
+to binary32 before arithmetic, comparisons, guards, or checked value binding, since
+their native numeric storage is binary64. Explicit `math.is_finite` inspection
+continues to observe nonfinite values without rejecting the observation itself.
+
+```text
+serializer version 1.11.0;
+class amount<Rep: (integral || floating_point) && !bool> {
+  public Rep value;
+  public function Rep added(Rep other) readonly expression(value + other);
+  public function Rep half() readonly expression(value / 2);
+  public function Rep scaled(Rep factor) readonly expression(value * factor);
+  public function Rep bound(uint64 other) readonly expression(checked<Rep>(other));
+}
+```
+
+`checked<Result>(value)` explicitly selects a numeric result representation and
+requires lossless value binding. Signed/unsigned conversions check both endpoints;
+integer-to-floating conversions require exact representability; floating-to-integer
+conversions reject fractions and out-of-range endpoints; floating conversions
+reject rounding, overflow, NaN, and infinity. This includes the entire `int64` and
+`uint64` ranges: the integer `uint64` maximum cannot bind to `double`, while an
+exact power of two can. Floating signed zero is retained by floating conversions;
+binding either zero to an integer produces integer zero.
+
+Numeric operands of different representations require an explicit selection,
+for example `left + checked<int64>(right)`. There is no implicit signed/unsigned
+promotion, unrestricted native promotion, or conversion between distinct generated
+record types. Integral literals bind to an adjoining exact representation and retain
+their authored bits; floating and dependent representations receive a checked binding.
+Thus `float_value + 16777217` fails if reached instead of rounding that integral
+literal to a different value. Arithmetic type parameters must have numeric category
+constraints. Include `!bool` when the constraint otherwise includes Boolean values.
+
+All eleven ordinary outputs implement concrete numeric expressions and checked
+numeric bindings. C++ also retains open constrained numeric templates. Other outputs
+use their existing concrete generic specializations. C++, C, Go, Rust, and Swift
+check native operations before overflow. Java, C#, Kotlin, Python, and JavaScript
+use exact integer intermediates where necessary; this bounded expression machinery
+does not alter stored fields or their codec bytes. Reached invalid operations follow
+the existing `expression` failure contract and return false in `predicate` bodies.
+Existing `to_double(int32_or_uint32)` and older declared schema contracts retain
+their prior meanings.
+
+Application C++ code can use `<rohit/numeric.hpp>` directly. The `constexpr`
+`checked_numeric_cast<Result>(value)` and matching-representation
+`checked_add`, `checked_subtract`, `checked_multiply`, `checked_divide`, and
+`checked_negate` throw `std::domain_error` for invalid values. Their
+`try_numeric_cast<Result>` and `try_checked_*` counterparts are `noexcept` and
+return `std::optional` without allocation, including during constant evaluation.
 
 ## Declared function calls
 
@@ -178,6 +239,38 @@ Unqualified member calls use the current receiver; free functions use lexical
 namespace lookup or an explicitly qualified name. Existing builtins retain their
 meaning. Typed call cycles are rejected. Conditional and boolean branches remain
 lazy, and call arguments evaluate once, from left to right.
+
+Language `1.11.0` also permits calls on generated owning record projections,
+including nested fields, checked collection elements, reduction items, and
+record-valued call results. Only declared public `readonly` methods and public
+inherited methods are accessible through a projected receiver; arbitrary external
+object signatures are not inferred. Each file declaring the expression needs its
+own `1.11.0` header, including included files.
+
+```text
+serializer version 1.11.0;
+class item_key {
+  public uint64 value;
+  public function bool valid() readonly expression(value != 0);
+}
+class selection {
+  public item_key preferred;
+  public item_key fallback;
+  public function item_key selected() readonly
+    expression(preferred.valid() ? preferred : fallback);
+}
+```
+
+Conditional selection accepts exactly matching ordinary owning record types.
+Different records, generic specializations, managed occurrences, or view values
+are not implicitly converted. The condition and selected branch are evaluated
+once; the other branch is not evaluated. The result follows the target's ordinary
+record value/reference rules. C++ and Rust return owned values; Rust clones only
+the selected branch. C supports returned record selections whose entire storage
+graph contains no dynamically owned strings, digests, or collections. A selection
+returning a dynamically owning C record reports a generation error because a
+shallow copy would not establish a fresh ownership contract. Existing borrowed C
+record projections remain unchanged.
 
 Standalone overloads are supported in C++, Java, C#, Swift and Kotlin when their
 generated signatures remain distinct. Other outputs require unique standalone
@@ -225,7 +318,8 @@ Language `1.8.0` adds binary64 division, `math.sqrt(value)`, `math.sin(value)` a
 equality `==`/`!=`, boolean literals/parameters/fields, `!`, `&&`, `||`, and
 `condition ? when_true : when_false`. Conditions must be boolean; both branches
 must have the same scalar type, and the declared return type must match.
-Arithmetic requires explicit double operands. Comparisons retain matching signed
+The language `1.8.0` arithmetic profile requires explicit double operands.
+Language `1.11.0` adds representation-preserving operations above. Comparisons retain matching signed
 or unsigned integer widths, float/double, bool equality, or declared enum identity;
 an adjacent integer literal binds to that exact width and is checked for range.
 Mixed signed/unsigned or integer/floating comparisons require an explicit supported
@@ -282,8 +376,9 @@ the collection's length must satisfy it before any item is evaluated. Empty `all
 is true and empty `any` is false. Every invocation shares a 1,000,000 visited-item
 budget across nested reductions, charged once per visited item. Exhaustion fails
 the expression or returns false for a predicate. Binder names cannot shadow fields,
-parameters or outer binders. Maps, optional/variant projection, integer arithmetic,
-mutation and undeclared calls are outside this profile.
+parameters or outer binders. Maps, optional/variant projection, mutation and
+undeclared calls are outside this profile. Exact integer arithmetic requires
+language `1.11.0`.
 
 C++ emits `constexpr`/`noexcept` for eligible readonly typed methods, including
 exact scalar predicates and bounded projections/reductions whose operations permit
@@ -304,9 +399,10 @@ native callees total when the predicate must always return a boolean.
 Evaluation preserves the parsed order. Python floating arithmetic inputs are
 converted to binary64 after validation, even when application code assigns Python
 integers; exact integer comparisons retain integer values. Arithmetic inputs,
-intermediates and results must be finite; integer conversions
-are exact over the declared 32-bit range, including Java unsigned
-storage. Dynamic targets also reject fractional/out-of-range integer operands.
+intermediates and results must be finite. The original `to_double` conversion is
+exact over its declared 32-bit range, including Java unsigned storage. Language
+`1.11.0` checked bindings also cover full-width signed/unsigned representations.
+Dynamic targets reject fractional/out-of-range integer operands.
 Private arithmetic helpers avoid authored type, member and parameter names after
 the selected naming conversion. Helper-like schema names keep their original
 bindings, including under Java/C# `naming = preserve`.

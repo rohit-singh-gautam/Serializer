@@ -5,6 +5,25 @@ const { test } = require('node:test');
 const { Registry, INITIAL } = require('vscode-textmate');
 const onig = require('vscode-oniguruma');
 
+test('language 1.11 checked construction and record selection retain exact type scopes', async () => {
+  const grammar = await loadGrammar();
+  const line = 'serializer version 1.11.0; class values<T> { ' +
+    'public constructor<Input: (integral || floating_point) && !bool>(Input input, uint32 count = 3) explicit { value = checked<T>(input); } ' +
+    'public map(lib::key<T>) lib::record entries; ' +
+    'public function lib::record selected() readonly expression(first.valid() ? first : second); ' +
+    'public function uint64 converted() readonly expression(checked<uint64>(value)); }';
+  const result = grammar.tokenizeLine(line, INITIAL);
+  const scope = offset => result.tokens.find(token => token.startIndex <= offset && token.endIndex > offset).scopes.at(-1);
+  for (const match of line.matchAll(/checked/g)) { assert.equal(scope(match.index), 'support.function.serializer'); }
+  assert.equal(scope(line.indexOf('constructor')), 'storage.type.serializer');
+  assert.equal(scope(line.indexOf('explicit')), 'storage.modifier.serializer');
+  assert.equal(scope(line.indexOf('key<T>')), 'entity.name.type.serializer');
+  assert.equal(scope(line.indexOf('lib::record entries') + 5), 'entity.name.type.serializer');
+  assert.equal(scope(line.indexOf('valid()')), 'entity.name.function.serializer');
+  assert.equal(scope(line.indexOf('checked<T>') + 'checked<'.length), 'entity.name.type.serializer');
+  assert.equal(result.ruleStack.depth, 1);
+});
+
 test('language 1.10 namespace calls and Boolean type constraints have distinct scopes', async () => {
   const grammar = await loadGrammar();
   const line = 'serializer version 1.10.0; namespace math_values { ' +
@@ -43,7 +62,7 @@ test('optional and nested container generics highlight types without consuming f
   }
   assert.equal(result.ruleStack.depth, 1);
   const snippets = JSON.parse(fs.readFileSync(path.join(__dirname, '../snippets/serializer.json'), 'utf8'));
-  assert.equal(snippets.Schema.body[0], 'serializer version 1.10.0;');
+  assert.equal(snippets.Schema.body[0], 'serializer version 1.11.0;');
   assert.equal(snippets['Optional field'].prefix, 'optional');
   assert.match(snippets['Optional field'].body, /optional</);
 });

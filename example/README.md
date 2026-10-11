@@ -1,5 +1,18 @@
 # Serializer examples
 
+## Custom ID registries
+
+The dedicated [custom ID example](custom_ids/README.md) contains one scoped,
+type-tagged record-ID schema and maintained application-owned registry consumers
+in all eleven output languages. It demonstrates binding, duplicate rejection,
+rebind preserving logical identity, retirement without reuse, import validation,
+and four codec round trips. Its [C++ managed companion](custom_ids/managed_cpp/README.md)
+uses generated `model_store` registries, immutable snapshot pins and undo/redo.
+
+```powershell
+python example/custom_ids/run.py --compiler out/build/make-Release/Release/serializer.exe --cpp-library out/build/make-Release/Release/serializer_runtime.lib --language all --wsl-languages rust,swift
+```
+
 ## Custom C++ code
 
 The [custom C++ example](cpp/custom_code/README.md) demonstrates a `cpp preamble`,

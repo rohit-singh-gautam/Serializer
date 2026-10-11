@@ -138,12 +138,28 @@
           },
           "end": "(?=[=,>])",
           "patterns": [
-            { "include": "#comments" },
-            { "name": "storage.modifier.serializer", "match": "\\b(?:stateless|integral|floating_point)\\b" },
-            { "name": "keyword.operator.serializer", "match": "&&|\\|\\||!|::" },
-            { "name": "punctuation.section.group.serializer", "match": "[()]" },
-            { "include": "#generic_arguments" },
-            { "name": "entity.name.type.serializer", "match": "[A-Za-z_][A-Za-z_0-9]*" }
+            {
+              "include": "#comments"
+            },
+            {
+              "name": "storage.modifier.serializer",
+              "match": "\\b(?:stateless|integral|floating_point)\\b"
+            },
+            {
+              "name": "keyword.operator.serializer",
+              "match": "&&|\\|\\||!|::"
+            },
+            {
+              "name": "punctuation.section.group.serializer",
+              "match": "[()]"
+            },
+            {
+              "include": "#generic_arguments"
+            },
+            {
+              "name": "entity.name.type.serializer",
+              "match": "[A-Za-z_][A-Za-z_0-9]*"
+            }
           ]
         },
         {
@@ -311,8 +327,11 @@
               "include": "#comments"
             },
             {
+              "include": "#checked_conversion"
+            },
+            {
               "name": "support.function.serializer",
-              "match": "\\bmath\\.(sqrt|sin|cos|is_finite)\\b|\\b(?:to_double|size|all|any)(?=\\s*\\()"
+              "match": "\\bmath\\.(sqrt|sin|cos|is_finite)\\b|\\b(?:to_double|size|all|any)(?=\\s*\\()|\\bchecked(?=\\s*<)"
             },
             {
               "name": "entity.name.function.serializer",
@@ -341,7 +360,7 @@
           ]
         },
         {
-          "match": "\\b(constructor)(?=\\s*\\()",
+          "match": "\\b(constructor)(?=\\s*(?:<|\\())",
           "captures": {
             "1": {
               "name": "storage.type.serializer"
@@ -349,7 +368,7 @@
           }
         },
         {
-          "match": "\\b(factory)\\s+([A-Za-z_][A-Za-z_0-9]*)(?=\\s*\\()",
+          "match": "\\b(factory)\\s+([A-Za-z_][A-Za-z_0-9]*)(?=\\s*(?:<|\\())",
           "captures": {
             "1": {
               "name": "storage.type.serializer"
@@ -394,7 +413,10 @@
           }
         },
         {
-          "match": "\\bmath\\.(sqrt|sin|cos|is_finite)\\b|\\b(?:to_double|size|all|any)(?=\\s*\\()",
+          "include": "#checked_conversion"
+        },
+        {
+          "match": "\\bmath\\.(sqrt|sin|cos|is_finite)\\b|\\b(?:to_double|size|all|any)(?=\\s*\\()|\\bchecked(?=\\s*<)",
           "name": "support.function.serializer"
         },
         {
@@ -598,6 +620,9 @@
           }
         },
         {
+          "include": "#legacy_generic_map"
+        },
+        {
           "match": "\\b(map)\\s*(\\()\\s*((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)\\s*(\\))\\s*((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
           "captures": {
             "1": {
@@ -691,7 +716,7 @@
           }
         },
         {
-          "match": "\\b(public|protected|private|managed)\\s+((?!(?:(?:array|map|union|managed|transient|wire_only|conversion|function|version|magic)\\b|variant\\s*\\(|constructor\\s*\\(|factory\\s+[A-Za-z_]\\w*\\s*\\())(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
+          "match": "\\b(public|protected|private|managed)\\s+((?!(?:(?:array|map|union|managed|transient|wire_only|conversion|function|version|magic)\\b|variant\\s*\\(|constructor\\s*(?:<|\\()|factory\\s+[A-Za-z_]\\w*\\s*(?:<|\\()))(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
           "captures": {
             "1": {
               "name": "storage.modifier.serializer"
@@ -786,7 +811,7 @@
         },
         {
           "name": "storage.modifier.serializer",
-          "match": "\\b(public|protected|private|transient|edit|virtual|abstract|override|stable_ids|managed|owning|view|readonly|mutable|packed|compact_prefix|compact_varint|strict|lenient)\\b"
+          "match": "\\b(explicit|public|protected|private|transient|edit|virtual|abstract|override|stable_ids|managed|owning|view|readonly|mutable|packed|compact_prefix|compact_varint|strict|lenient)\\b"
         },
         {
           "name": "support.type.serializer",
@@ -2366,6 +2391,69 @@
       "patterns": [
         {
           "include": "#native_member_contents"
+        }
+      ]
+    },
+    "checked_conversion": {
+      "begin": "\\b(checked)\\s*(<)",
+      "beginCaptures": {
+        "1": {
+          "name": "support.function.serializer"
+        },
+        "2": {
+          "name": "punctuation.section.group.serializer"
+        }
+      },
+      "end": ">|(?=[;{}])",
+      "endCaptures": {
+        "0": {
+          "name": "punctuation.section.group.serializer"
+        }
+      },
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#generic_arguments"
+        },
+        {
+          "include": "#type_name"
+        }
+      ]
+    },
+    "legacy_generic_map": {
+      "begin": "\\b(map)\\s*(\\()(?=[^()\\r\\n]*<)",
+      "beginCaptures": {
+        "1": {
+          "name": "storage.type.serializer"
+        },
+        "2": {
+          "name": "punctuation.section.group.serializer"
+        }
+      },
+      "end": "(\\))\\s*((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)|(?=[;{}])",
+      "endCaptures": {
+        "1": {
+          "name": "punctuation.section.group.serializer"
+        },
+        "2": {
+          "patterns": [
+            {
+              "include": "#type_name"
+            }
+          ]
+        }
+      },
+      "patterns": [
+        {
+          "include": "#comments"
+        },
+        {
+          "include": "#generic_arguments"
+        },
+        {
+          "include": "#type_name"
         }
       ]
     }

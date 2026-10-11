@@ -199,6 +199,13 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
       for (let next = i + 2; next < tokens.length && depth; ++next) {
         if (tokens[next].text === '(') { ++depth; }
         if (tokens[next].text === ')') { --depth; }
+        if (tokens[next].text === 'checked' && tokens[next + 1]?.text === '<') {
+          next = typeReference(next + 2);
+          if (tokens[next]?.text === '>') { ++next; }
+          --next;
+          i = next;
+          continue;
+        }
         const value = qualified(next);
         if (value && value.name.includes('::')) {
           const separator = value.next - 2;
@@ -209,6 +216,8 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
         }
         i = next;
       }
+    } else if (schema && token.text === 'checked' && tokens[i + 1]?.text === '<') {
+      i = typeReference(i + 2);
     } else if (token.text === '{') {
       scopes.push(namespaceBodies.get(i) ?? currentScope());
     } else if (token.text === '}') {
@@ -287,13 +296,54 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
           // The conversion body is its own grammar; do not mistake its target names for declarations.
           i = next;
         }
-      } else if ((tokens[i + 1]?.text === 'constructor' && tokens[i + 2]?.text === '(') ||
-          (tokens[i + 1]?.text === 'factory' && tokens[i + 3]?.text === '(')) {
+      } else if ((tokens[i + 1]?.text === 'constructor' && ['(', '<'].includes(tokens[i + 2]?.text ?? '')) ||
+          (tokens[i + 1]?.text === 'factory' && ['(', '<'].includes(tokens[i + 3]?.text ?? ''))) {
         let next = i + (tokens[i + 1].text === 'constructor' ? 3 : 4);
+        if (tokens[next - 1]?.text === '<') {
+          const localScope = [...currentScope(), `$construction_${tokens[i].start}`];
+          referenceScope = localScope;
+          --next;
+          let depth = 1;
+          let parameterStart = true;
+          let inConstraint = false;
+          while (++next < tokens.length && depth) {
+            const current = tokens[next].text;
+            if (current === '<') { ++depth; }
+            if (current === '>') { --depth; }
+            if (depth === 1 && current === ',') { parameterStart = true; inConstraint = false; }
+            if (depth === 1 && current === ':') { inConstraint = true; }
+            if (depth === 1 && parameterStart && /^[A-Za-z_]\w*$/.test(current)) {
+              const parameter = tokens[next], qualifiedName = [...localScope, current].join('::');
+              result.symbols.push({ ...parameter, name: current, qualified: qualifiedName, kind: 'class',
+                body: parameter.start, declaration: parameter.start, definition: true, typeParameter: true });
+              result.references.push({ ...parameter, name: qualifiedName, scope: [] });
+              parameterStart = false;
+            } else if (depth === 1 && inConstraint && /^[A-Za-z_]\w*$/.test(current) &&
+                !['stateless', 'integral', 'floating_point'].includes(current)) {
+              next = typeReference(next) - 1;
+            }
+          }
+          if (tokens[next]?.text === '(') { ++next; }
+        }
         while (next < tokens.length && ![')', ';', '}'].includes(tokens[next].text)) {
           next = typeReference(next) + 1;
+          if (tokens[next]?.text === '=') {
+            let depth = 0;
+            while (++next < tokens.length &&
+                (depth || ![',', ')', ';', '}'].includes(tokens[next].text))) {
+              if (tokens[next].text === '(') { ++depth; }
+              if (tokens[next].text === ')') { --depth; }
+            }
+          }
           if (tokens[next]?.text === ',') { ++next; }
         }
+        if (referenceScope) {
+          let body = next + 1;
+          if (tokens[body]?.text === 'explicit') { ++body; }
+          if (tokens[body]?.text === '{') { namespaceBodies.set(body, referenceScope); }
+          referenceScope = undefined;
+        }
+        i = next;
       } else if (tokens[i + 1]?.text === 'function') {
         let next = i + 2;
         if (['virtual', 'abstract', 'override'].includes(tokens[next]?.text)) { ++next; }

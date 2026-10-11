@@ -196,6 +196,7 @@ template <typename Input> struct behavior_expression_parser {
   const Input& input;
   std::size_t nodes{};
   std::size_t depth{};
+  namespace_node* space{};
   // New operators retain their declaring file's language contract, including includes.
   void require_checked_language() {
     if (active_language_version < language_version{1u, 8u, 0u}) {
@@ -222,7 +223,10 @@ template <typename Input> struct behavior_expression_parser {
     if (++nodes > maximum_expression_nodes) {
       throw exception::bad_member_spec{input, "Expression exceeds 1024 nodes"};
     }
-    return {kind, std::move(value), {}, behavior_source_offset(input)};
+    behavior_expression result{kind, std::move(value), {}, behavior_source_offset(input)};
+    result.record_selection_enabled = active_language_version >= language_version{1u, 11u, 0u};
+    result.numeric_contract_enabled = active_language_version >= language_version{1u, 11u, 0u};
+    return result;
   }
   // Parse bounded positional arguments while preserving their left-to-right source order.
   behavior_expression call(std::string name) {
@@ -313,6 +317,22 @@ template <typename Input> struct behavior_expression_parser {
         if (!consume("=>")) { throw exception::bad_member_spec{input, "Reduction requires item => boolean expression"}; }
         result.operands.push_back(conditional());
         skip_whitespace_and_comment(input); check_and_increase(input, ')');
+      } else if (name == "checked" && *input == '<') {
+        if (active_language_version < language_version{1u, 11u, 0u}) {
+          throw exception::bad_member_spec{input, "Checked numeric binding requires serializer version 1.11.0"};
+        }
+        ++input;
+        skip_whitespace_and_comment(input);
+        auto target = parse_type_expression(input, space);
+        skip_whitespace_and_comment(input);
+        check_and_increase(input, '>');
+        skip_whitespace_and_comment(input);
+        check_and_increase(input, '(');
+        result = make(operation::checked_cast, target.name);
+        result.resolved_type = std::move(target);
+        result.operands.push_back(conditional());
+        skip_whitespace_and_comment(input);
+        check_and_increase(input, ')');
       } else if ((name == "size" || name == "to_double") && *input == '(') {
         ++input;
         if (name == "size") { require_checked_language(); }
@@ -339,8 +359,20 @@ template <typename Input> struct behavior_expression_parser {
     for (;;) {
       if (consume(".")) {
         require_checked_language();
-        auto next = make(operation::member_access, parse_identifier_impl(input));
-        next.operands.push_back(std::move(result)); result = std::move(next);
+        auto name = parse_identifier_impl(input);
+        skip_whitespace_and_comment(input);
+        if (!input.full() && *input == '(') {
+          if (active_language_version < language_version{1u, 11u, 0u}) {
+            throw exception::bad_member_spec{input, "Projected readonly calls require serializer version 1.11.0"};
+          }
+          auto next = call(std::move(name));
+          next.call_receiver = true;
+          next.operands.insert(next.operands.begin(), std::move(result));
+          result = std::move(next);
+        } else {
+          auto next = make(operation::member_access, std::move(name));
+          next.operands.push_back(std::move(result)); result = std::move(next);
+        }
       } else if (consume("[")) {
         require_checked_language();
         auto next = make(operation::index_access);
@@ -510,7 +542,7 @@ function_declaration parse_function(const rohit::type_check::schema_input_buffer
     skip_whitespace_and_comment(input);
     check_and_increase(input, '(');
     const auto expression_begin = behavior_source_offset(input);
-    result.expression = behavior_expression_parser{input}.conditional();
+    result.expression = behavior_expression_parser{input, 0, 0, space}.conditional();
     if (result.return_type.name == "bool" && active_language_version < language_version{1u, 8u, 0u}) {
       throw exception::bad_member_spec{input, "Boolean portable results require serializer version 1.8.0"};
     }
@@ -634,11 +666,62 @@ std::string validate_behavior_expression(behavior_expression& value, const class
     return type == "char" || type == "int8" || type == "uint8" || type == "int16" ||
         type == "uint16" || type == "int32" || type == "uint32" || type == "int64" || type == "uint64";
   };
+  // Category constraints must rule out records and other opaque values before generic arithmetic.
+  const auto numeric_parameter = [&](std::string_view name) {
+    const auto parameter = std::find_if(owner.generic_parameters.begin(), owner.generic_parameters.end(),
+        [&](const auto& item) { return item.name == name; });
+    if (parameter == owner.generic_parameters.end() || !parameter->constraint) { return false; }
+    const auto numeric_constraint = [&](const auto& self, const generic_constraint& constraint) -> bool {
+      using kind = generic_constraint::operation;
+      if (constraint.kind == kind::integral || constraint.kind == kind::floating_point) { return true; }
+      if (constraint.kind == kind::exact_type) {
+        return constraint.type && (integer(constraint.type->name) ||
+            constraint.type->name == "float" || constraint.type->name == "double");
+      }
+      if (constraint.kind == kind::logical_and) {
+        return std::any_of(constraint.operands.begin(), constraint.operands.end(),
+            [&](const auto& operand) { return self(self, operand); });
+      }
+      if (constraint.kind == kind::logical_or) {
+        return std::all_of(constraint.operands.begin(), constraint.operands.end(),
+            [&](const auto& operand) { return self(self, operand); });
+      }
+      return false;
+    };
+    return numeric_constraint(numeric_constraint, *parameter->constraint);
+  };
+  const auto numeric = [&](const std::string& type) {
+    return integer(type) || type == "float" || type == "double" || numeric_parameter(type);
+  };
   const auto scalar = [&](const std::string& type) {
     return integer(type) || type == "bool" || type == "float" || type == "double" || type.starts_with("enum:") ||
         std::find(owner.type_parameters.begin(), owner.type_parameters.end(), type) != owner.type_parameters.end();
   };
   const auto literal = [&](behavior_expression& node, const std::string& target) {
+    const auto integral_token = [&](const behavior_expression& candidate) {
+      const auto& token = candidate.kind == operation::literal ? candidate.value : candidate.operands.front().value;
+      return token.find_first_of(".eE") == std::string::npos;
+    };
+    if (value.numeric_contract_enabled &&
+        (numeric_parameter(target) || target == "float" || target == "double") &&
+        (node.kind == operation::literal ||
+         ((node.kind == operation::negative || node.kind == operation::positive) &&
+          node.operands.size() == 1 && node.operands.front().kind == operation::literal)) &&
+        (numeric_parameter(target) || integral_token(node))) {
+      // Preserve integral literal bits before binding to a floating or dependent representation.
+      auto source = node;
+      const auto& token = node.kind == operation::literal ? node.value : node.operands.front().value;
+      if (token.find_first_of(".eE") == std::string::npos) {
+        bind_behavior_literal(source, node.kind == operation::negative ? "int64" : "uint64", owner.parent_namespace);
+      }
+      node.kind = operation::checked_cast;
+      node.value = target;
+      node.operands = {std::move(source)};
+      node.result_type = target;
+      node.resolved_type = type_name{std::string{target}, owner.parent_namespace};
+      if (target == "float" || target == "double") { node.resolved_type->type = object_type::primitive; }
+      return true;
+    }
     return bind_behavior_literal(node, target, owner.parent_namespace);
   };
   const auto validate = [&](behavior_expression& node, const auto& scope) {
@@ -648,6 +731,22 @@ std::string validate_behavior_expression(behavior_expression& value, const class
     value.call_target = nullptr;
     value.call_base_path.clear();
     for (auto& argument : value.operands) { validate(argument, locals); }
+    const class_node* receiver = &owner;
+    const auto argument_begin = value.call_receiver ? std::size_t{1} : std::size_t{};
+    if (value.call_receiver) {
+      const auto& base = value.operands.front();
+      if (!base.result_type.starts_with("record:") || !base.resolved_type ||
+          !base.resolved_type->resolved_node ||
+          (base.resolved_type->type != object_type::class_type &&
+           base.resolved_type->type != object_type::generic_definition)) {
+        throw std::invalid_argument{"Readonly call receiver requires a generated owning record"};
+      }
+      receiver = static_cast<const class_node*>(base.resolved_type->resolved_node);
+      if (receiver->storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
+          receiver->supports_managed()) {
+        throw std::invalid_argument{"Readonly call receiver requires an ordinary owning record"};
+      }
+    }
     struct candidate {
       const syntax_node* target{};
       const function_declaration* declaration{};
@@ -655,38 +754,71 @@ std::string validate_behavior_expression(behavior_expression& value, const class
       std::vector<std::size_t> base_path{};
       std::vector<behavior_expression> arguments{};
     };
+    // Rebind the selected receiver's template arguments along its exact inherited method path.
+    const auto receiver_type = [&](type_name type, const candidate& selected) {
+      if (!value.call_receiver) { return type; }
+      std::unordered_map<std::string, type_name> bindings;
+      const auto substitute = [&](const auto& self, type_name item) -> type_name {
+        if (!item.application && item.arguments.empty()) {
+          if (const auto found = bindings.find(item.name); found != bindings.end()) { return found->second; }
+        }
+        for (auto& argument : item.arguments) { argument = self(self, std::move(argument)); }
+        return item;
+      };
+      const auto bind_arguments = [&](const class_node& scope, const type_name& application) {
+        bindings.clear();
+        for (std::size_t index{}; index < scope.generic_parameters.size() && index < application.arguments.size(); ++index) {
+          bindings.emplace(scope.generic_parameters[index].name, application.arguments[index]);
+        }
+      };
+      const class_node* scope = receiver;
+      auto application = *value.operands.front().resolved_type;
+      bind_arguments(*scope, application);
+      for (const auto index : selected.base_path) {
+        const auto& base = scope->parents.at(index);
+        application = base.type_expression.empty() ? type_name{std::string{base.name}, base.current_namespace} :
+            substitute(substitute, base.type_expression.front());
+        scope = base.parent_class;
+        bind_arguments(*scope, application);
+      }
+      return substitute(substitute, std::move(type));
+    };
     std::vector<candidate> candidates;
     const auto collect_members = [&](const auto& self, const class_node& scope,
         std::vector<std::size_t> path, std::set<std::string> hidden) -> void {
       for (std::size_t index{}; index < scope.functions.size(); ++index) {
         const auto& declaration = scope.functions[index];
+        const candidate current{&scope, &declaration, index, path, {}};
         std::string signature = declaration.name + "(";
         for (const auto& parameter : declaration.parameters) {
-          signature += parameter.type.get_full_name() + ",";
+          signature += receiver_type(parameter.type, current).get_full_name() + ",";
         }
         signature += ')';
         if (declaration.name == value.value && !hidden.contains(signature) &&
-            (&scope == &owner || declaration.access != access_type::private_access)) {
-          candidates.push_back({&scope, &declaration, index, path, {}});
+            (value.call_receiver ? declaration.access == access_type::public_access :
+             (&scope == &owner || declaration.access != access_type::private_access))) {
+          candidates.push_back(current);
         }
       }
       for (const auto& declaration : scope.functions) {
+        const candidate current{&scope, &declaration, 0, path, {}};
         std::string signature = declaration.name + "(";
         for (const auto& parameter : declaration.parameters) {
-          signature += parameter.type.get_full_name() + ",";
+          signature += receiver_type(parameter.type, current).get_full_name() + ",";
         }
         hidden.insert(signature + ')');
       }
       for (std::size_t index{}; index < scope.parents.size(); ++index) {
         if (!scope.parents[index].parent_class ||
-            (&scope != &owner && scope.parents[index].access == access_type::private_access)) { continue; }
+            (value.call_receiver ? scope.parents[index].access != access_type::public_access :
+             (&scope != &owner && scope.parents[index].access == access_type::private_access))) { continue; }
         auto next = path;
         next.push_back(index);
         self(self, *scope.parents[index].parent_class, std::move(next), hidden);
       }
     };
-    if (value.value.find("::") == std::string::npos) { collect_members(collect_members, owner, {}, {}); }
-    if (candidates.empty()) {
+    if (value.value.find("::") == std::string::npos) { collect_members(collect_members, *receiver, {}, {}); }
+    if (candidates.empty() && !value.call_receiver) {
       auto scope = owner.parent_namespace ? owner.parent_namespace->get_full_name() : std::string{};
       for (;;) {
         const auto name = scope.empty() ? value.value : scope + "::" + value.value;
@@ -711,12 +843,12 @@ std::string validate_behavior_expression(behavior_expression& value, const class
     // Resolve exact arguments before binding an untyped numeric literal to a parameter width.
     for (const bool bind_literals : {false, true}) {
       for (auto candidate : candidates) {
-        if (candidate.declaration->parameters.size() != value.operands.size()) { continue; }
+        if (candidate.declaration->parameters.size() != value.operands.size() - argument_begin) { continue; }
         candidate.arguments = value.operands;
         bool matched = true;
-        for (std::size_t index{}; index < candidate.arguments.size(); ++index) {
+        for (std::size_t index{argument_begin}; index < candidate.arguments.size(); ++index) {
           auto& argument = candidate.arguments[index];
-          const auto& parameter = candidate.declaration->parameters[index].type;
+          const auto parameter = receiver_type(candidate.declaration->parameters[index - argument_begin].type, candidate);
           if (exact(argument, parameter)) { continue; }
           try {
             if (!bind_literals || !literal(argument, parameter.name)) { matched = false; break; }
@@ -740,7 +872,7 @@ std::string validate_behavior_expression(behavior_expression& value, const class
     value.call_method_index = selected.index;
     value.call_base_path = selected.base_path;
     value.operands = selected.arguments;
-    return bind(selected.declaration->return_type);
+    return bind(receiver_type(selected.declaration->return_type, selected));
   }
   if (value.kind == operation::literal || value.kind == operation::pi) {
     return typed(value.result_type == "float" ? "float" : "double");
@@ -750,7 +882,10 @@ std::string validate_behavior_expression(behavior_expression& value, const class
   if (value.kind == operation::symbol) {
     if (value.local_symbol) { return value.result_type; }
     if (const auto local = locals.find(value.value); local != locals.end()) {
-      value = local->second; return value.result_type;
+      const auto numeric_contract = value.numeric_contract_enabled;
+      value = local->second;
+      value.numeric_contract_enabled = numeric_contract;
+      return value.result_type;
     }
     const auto parameter = std::find_if(method.parameters.begin(), method.parameters.end(),
         [&](const auto& item) { return item.name == value.value; });
@@ -822,6 +957,7 @@ std::string validate_behavior_expression(behavior_expression& value, const class
     }
     const auto binder = value.value;
     behavior_expression local; local.kind = operation::symbol; local.local_symbol = true;
+    local.numeric_contract_enabled = value.numeric_contract_enabled;
     local.value = "_srl_expression_item_" + std::to_string(value.source_offset);
     while (locals.contains(local.value) ||
         std::any_of(locals.begin(), locals.end(), [&](const auto& binding) { return binding.second.value == local.value; }) ||
@@ -835,6 +971,27 @@ std::string validate_behavior_expression(behavior_expression& value, const class
     auto nested = locals; nested.emplace(binder, local);
     if (validate(value.operands.at(1), nested) != "bool") { throw std::invalid_argument{"Collection reductions require a boolean body"}; }
     value.value = local.value; return typed("bool");
+  }
+  if (value.kind == operation::checked_cast) {
+    if (!value.numeric_contract_enabled || !value.resolved_type) {
+      throw std::invalid_argument{"Checked numeric binding requires serializer version 1.11.0"};
+    }
+    const auto target = *value.resolved_type;
+    if (!target.arguments.empty() || !numeric(target.name)) {
+      throw std::invalid_argument{"Checked numeric binding requires a numeric result representation"};
+    }
+    auto& source = value.operands.at(0);
+    if (source.kind == operation::literal && source.value.find_first_of(".eE") == std::string::npos) {
+      bind_behavior_literal(source, "uint64", owner.parent_namespace);
+    } else if ((source.kind == operation::negative || source.kind == operation::positive) &&
+        source.operands.size() == 1 && source.operands.front().kind == operation::literal &&
+        source.operands.front().value.find_first_of(".eE") == std::string::npos) {
+      bind_behavior_literal(source, source.kind == operation::negative ? "int64" : "uint64", owner.parent_namespace);
+    }
+    if (!numeric(validate(source, locals))) {
+      throw std::invalid_argument{"Checked numeric binding requires a numeric source representation"};
+    }
+    return bind(target);
   }
   if (value.kind == operation::to_double) {
     const auto type = validate(value.operands.at(0), locals);
@@ -855,12 +1012,30 @@ std::string validate_behavior_expression(behavior_expression& value, const class
     if (literal(value.operands[0], types[1])) { types[0] = types[1]; }
   }
   if (value.kind == operation::conditional) {
+    if (types.at(1).starts_with("record:") || types.at(2).starts_with("record:")) {
+      if (!value.record_selection_enabled) {
+        throw std::invalid_argument{"Record conditional selection requires serializer version 1.11.0"};
+      }
+      const auto& yes = value.operands.at(1);
+      const auto& no = value.operands.at(2);
+      if (types.at(0) != "bool" || !yes.resolved_type || !no.resolved_type ||
+          yes.collection_modifier != member::modifier_type::none ||
+          no.collection_modifier != member::modifier_type::none ||
+          !matching_behavior_type(*yes.resolved_type, *no.resolved_type) ||
+          !yes.resolved_type->resolved_node) {
+        throw std::invalid_argument{"Record conditional selection requires exactly matching owning branches"};
+      }
+      const auto& record = static_cast<const class_node&>(*yes.resolved_type->resolved_node);
+      if (record.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) || record.supports_managed()) {
+        throw std::invalid_argument{"Record conditional selection requires ordinary owning values"};
+      }
+      return bind(*yes.resolved_type);
+    }
     if (literal(value.operands[2], types[1])) { types[2] = types[1]; }
     if (literal(value.operands[1], types[2])) { types[1] = types[2]; }
     if (types.at(0) != "bool" || types.at(1) != types.at(2) || !scalar(types.at(1))) {
       throw std::invalid_argument{"Portable guard requires a boolean condition and matching scalar branches"};
     }
-    value.resolved_type = value.operands[1].resolved_type;
     value.resolved_type = value.operands.at(1).resolved_type;
     return typed(types.at(1));
   }
@@ -881,6 +1056,18 @@ std::string validate_behavior_expression(behavior_expression& value, const class
       throw std::invalid_argument{"Portable ordering requires matching numeric or enum operands"};
     }
     return typed("bool");
+  }
+  const bool arithmetic = value.kind == operation::positive || value.kind == operation::negative ||
+      value.kind == operation::add || value.kind == operation::subtract ||
+      value.kind == operation::multiply || value.kind == operation::divide;
+  if (arithmetic && value.numeric_contract_enabled) {
+    if (!numeric(types.at(0)) || std::any_of(types.begin(), types.end(),
+        [&](const auto& type) { return type != types.at(0); })) {
+      throw std::invalid_argument{"Checked arithmetic requires matching numeric representations; use checked<T>(value) explicitly"};
+    }
+    value.resolved_type = value.operands.front().resolved_type.value_or(
+        type_name{std::string{types.front()}, owner.parent_namespace});
+    return typed(types.front());
   }
   if (std::any_of(types.begin(), types.end(), [](const auto& type) { return type != "double"; })) {
     throw std::invalid_argument{"Portable arithmetic/comparisons require explicit binary64 operands"};

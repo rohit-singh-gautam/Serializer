@@ -1046,6 +1046,8 @@ class managed_writer {
                          "  static constexpr ::std::string_view schema_id = \"",
                          separate_values_ ? "managed.v1:" : "managed.direct.v1:",
                          item.source->get_full_name(), ":", hash, ":", managed_id_type, "\";\n");
+      write_managed_text(unit_output, "  // Stable concrete schema key for typed registry catalogs.\n"
+          "  static constexpr ::std::string_view type_key = \"", item.source->get_full_name(), "\";\n");
       write_managed_text(unit_output,
           "  // Select an explicitly negotiated nested-path collaboration wire contract when required.\n"
           "  static constexpr bool has_inherited_field_paths = ", inherited_paths ? "true" : "false", ";\n");
@@ -1071,8 +1073,10 @@ class managed_writer {
           unit_output,
           "  // Visit only independently identified occurrences; ordinary children remain values.\n"
           "  static void visit_entities(auto& storage, auto&& visitor) {\n"
-          "    visitor(storage.persistent_id, \"",
-          item.source->get_full_name(), "\");\n");
+          "    if constexpr (requires { visitor.template entity<", full_type_name(item.source),
+          ">(storage); }) { visitor.template entity<", full_type_name(item.source),
+          ">(storage); } else { visitor(storage.persistent_id, \"",
+          item.source->get_full_name(), "\"); }\n");
       for (const auto& base : item.source->parents) {
         if (base.managed) {
           write_managed_text(unit_output, "    model_traits<", full_type_name(base.parent_class),
@@ -1132,6 +1136,70 @@ class managed_writer {
       writer_.write_reusable_unit(output, "managed-traits:" + full_type_name(item.source),
           {reinterpret_cast<const char*>(unit_output.begin()), unit_output.current_offset()});
     }
+    for (const auto* source : editor_classes) {
+      write_registry_fields(output, source);
+      write_registry_fields(output, source, true);
+    }
+  }
+
+  // Emit one reusable exact-type descriptor set; no table is stored inside individual objects.
+  void write_registry_fields(auto& output, const class_node* source, bool ordinary = false) {
+    full_stream_auto_alloc unit_output{};
+    const auto plain = full_type_name(source);
+    const auto wrapped = !ordinary && separate_values_ && source->supports_managed();
+    const auto storage = wrapped
+        ? full_type_name(managed_for(source).storage.get()) : plain;
+    const auto prefix = wrapped ? "input.value." : "input.";
+    write_managed_text(unit_output, "namespace rohit::managed {\n"
+        "// Generated stable field descriptors for this owning schema type.\n"
+        "template <> struct ", ordinary ? "value_fields" : "fields", "<", plain, "> {\n");
+    std::vector<std::string> names;
+    for (const auto& base : source->parents) {
+      if (base.managed) { continue; }
+      const auto accessor = function_name("base_" + base_accessor_name(base));
+      names.push_back(accessor);
+      const auto type = full_type_name(base.parent_class);
+      write_managed_text(unit_output, "  // Traverse this ordinary base by its stable schema ID.\n"
+          "  static constexpr auto ", accessor, "() {\n    using storage_type = ", storage,
+          ";\n    using value_type = ", type, ";\n    return member_descriptor<", plain,
+          ", storage_type, value_type>{{", base.id, "u, \"", base.display_name, "\", false},\n"
+          "      +[](const storage_type& input) -> const value_type& { return static_cast<const value_type&>(",
+          wrapped ? "input.value" : "input", "); }, nullptr,\n"
+          "      +[](storage_type& input) -> value_type& { return static_cast<value_type&>(",
+          wrapped ? "input.value" : "input", "); }};\n  }\n");
+    }
+    for (const auto& field : source->member_list) {
+      if (field.managed) { continue; }
+      const auto accessor = function_name("field_" + field.name);
+      names.push_back(accessor);
+      const auto member = field_name(field.name);
+      const auto writable = !field.version && !field.transient;
+      write_managed_text(unit_output, "  // Select this stable schema field without an ABI offset.\n"
+          "  static constexpr auto ", accessor, "() {\n    using storage_type = ", storage,
+          ";\n    using value_type = ::std::remove_cvref_t<decltype(::std::declval<storage_type&>().",
+          wrapped ? "value." : "", member, ")>;\n"
+          "    return member_descriptor<", plain, ", storage_type, value_type>{{", field.id,
+          "u, \"", field.display_name, "\", ", writable ? "true" : "false", "},\n"
+          "      +[](const storage_type& input) -> const value_type& { ",
+          lifetime_guard(source, field, wrapped ? "input.value" : "input"),
+          "return ", prefix, member, "; },\n");
+      if (writable) {
+        // Version-lifetime checks remain in typed descriptors just as in generated editors.
+        write_managed_text(unit_output, "      +[](storage_type& input, value_type value) { ",
+            lifetime_guard(source, field, wrapped ? "input.value" : "input"),
+            prefix, member, " = ::std::move(value); },\n"
+            "      +[](storage_type& input) -> value_type& { ", lifetime_guard(source, field, wrapped ? "input.value" : "input"),
+            "return ", prefix, member, "; }};\n  }\n");
+      } else {
+        write_managed_text(unit_output, "      nullptr};\n  }\n");
+      }
+    }
+    write_managed_text(unit_output, "  // Dispatch exact typed descriptors through one per-type table.\n"
+        "  static void visit(auto&& visitor) {\n    static_cast<void>(visitor);\n");
+    for (const auto& name : names) { write_managed_text(unit_output, "    visitor(", name, "());\n"); }
+    write_managed_text(unit_output, "  }\n};\n}\n");
+    writer_.write_reusable_unit(output, std::string{ordinary ? "managed-value-fields:" : "managed-fields:"} + plain,
+        {reinterpret_cast<const char*>(unit_output.begin()), unit_output.current_offset()});
   }
 
 public:
@@ -1150,6 +1218,8 @@ public:
     write_managed_text(output, "  template<class> friend class ",
                        type_name(original->name + "_editor"), ";\n"
                        "  template<class> friend struct ::rohit::managed::model_traits;\n"
+                       "  template<class> friend struct ::rohit::managed::fields;\n"
+                       "  template<class> friend struct ::rohit::managed::value_fields;\n"
                        "  template<class> friend struct ::rohit::managed::runtime_traits;\n");
   }
   // Emit identity directly on the schema class unless separate value classes were requested.

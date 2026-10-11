@@ -1,6 +1,6 @@
 # Serializer compiler and schema versions
 
-The compiler and runtime release is **1.15.1**, defined by `project(... VERSION ...)` in the
+The compiler and runtime release is **1.16.0**, defined by `project(... VERSION ...)` in the
 root CMake file. `serializer --version` (or `-v`) prints that release and the
 supported schema language version. CMake generates `<rohit/version.hpp>` with
 `rohit::serializer::compiler_version`, `schema_language_version_text`, and
@@ -35,7 +35,7 @@ class account stable_ids {
 The statement must precede every declaration. Whitespace and `//` or `/* ... */`
 comments may precede it or separate its keywords. The version has exactly three
 unsigned decimal components separated by dots, without whitespace or comments
-inside the version. The supported language is **1.10.0**, accepting older contracts
+inside the version. The supported language is **1.11.0**, accepting older contracts
 in the same major version. The original
 `serializer version 1;` is an exact alias for `serializer version 1.0.0;`, exclusive
 to version 1; future integer majors such as `2;` are not aliases for `2.0.0;`.
@@ -71,8 +71,14 @@ the complete parsed result. See [licensing and notice rules](licensing.md).
 The repository's [schema language versioning policy](../AGENTS.md#schema-language-versioning)
 uses `major.minor.patch` for language releases, independently of the compiler
 release. `serializer_schema_language_version` in the root CMake file defines the
-language release separately from `project(... VERSION ...)`. Compiler **1.15.1**
-currently supports language **1.10.0**; `serializer --version` reports both.
+language release separately from `project(... VERSION ...)`. Compiler **1.16.0**
+currently supports language **1.11.0**; `serializer --version` reports both.
+
+Language `1.11.0` adds [checked numeric and record expressions](behavior.md),
+[extended construction](construction.md), and [generic record map keys](generics.md).
+Select that header in each file declaring these features. Earlier language
+contracts retain their behavior; merely upgrading the compiler does not opt an
+older schema into exact integer expression inference.
 
 Language `1.10.0` adds [declared readonly calls and namespace functions](behavior.md#declared-function-calls)
 and [Boolean generic constraints](generics.md#boolean-type-constraints). Each file

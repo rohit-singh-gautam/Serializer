@@ -1,0 +1,24 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.11.0;
+
+class record_leaf {
+  public uint64 value;
+  public function bool valid() readonly expression(value != 0);
+  public function bool matches(uint64 expected) readonly expression(value == expected);
+}
+class record_child : public record_leaf ("base", 1) {
+  public uint64 detail;
+}
+class record_probe {
+  public record_leaf preferred;
+  public record_leaf fallback;
+  public record_child child;
+  public array record_leaf items;
+  public function record_leaf selected() readonly expression(preferred.valid() ? preferred : fallback);
+  public function record_leaf guarded(bool choose) readonly expression(choose ? preferred : items[0]);
+  public function bool matches(uint64 expected) readonly expression(selected().matches(expected));
+  public function bool inherited() readonly expression(child.valid());
+  public function bool items_valid() readonly predicate(all(items, 8, item => item.valid()));
+}
+function bool projected_valid(record_leaf value) readonly expression(value.valid());

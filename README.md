@@ -29,22 +29,38 @@ wire records but do not have equivalent native managed engines.
 | Undo, redo, and retain branches | C++ linear or tree snapshot history | [Managed runtime](docs/managed/cpp_runtime.md) |
 | Recover committed work | C++ appended or sidecar journals | [Journal contract](docs/managed/journal.md) |
 | Coordinate edits across clients | C++ collaboration and authority policy hooks | [Local collaboration](docs/managed/local_collaboration.md) |
+| Resolve typed entities and application keys | Opt-in C++ snapshot registries and field indexes | [State registries](docs/state_registry.md) |
+| Explore mostly-disk indexes | Proposed paged backend and database comparison | [Paged indexing](docs/paged_indexing.md) |
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **1.15.1**. Bug fixes and minor updates
+The current compiler and runtime release is **1.16.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
-compatibility across major releases. The schema language version is **1.10.0**;
+compatibility across major releases. The schema language version is **1.11.0**;
 see [release and schema versions](docs/command_line.md).
 
-Use `serializer version 1.10.0;` for new schemas. Older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, and `1.9.0` schemas remain supported. The original
+Use `serializer version 1.11.0;` for new schemas. Older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, and `1.10.0` schemas remain supported. The original
 `serializer version 1;` is an exact compatibility alias for `1.0.0`, exclusive to
 version 1. Future versions require all three components; see the
 [schema language policy](docs/command_line.md#schema-language-version-policy).
 
 **Supported outputs:** C++, Java, JavaScript, TypeScript declarations, Go, C#,
 Rust, Python, Swift, Kotlin, and C. TypeScript uses the JavaScript runtime.
+
+Language `1.11.0` adds lossless `checked<T>(value)` numeric bindings,
+representation-preserving integer arithmetic, projected readonly record calls,
+lazy owning-record conditionals, generic record map keys, and extended typed
+construction. See [behavior](docs/behavior.md), [construction](docs/construction.md),
+and [generics](docs/generics.md) for backend limits. C++ managed
+[state registries](docs/state_registry.md) add pinned typed lookups, stable field
+paths, custom-key uniqueness and optional ordered/hash indexes while retaining
+the existing identity, history, journal and collaboration protocols.
+Mostly-disk indexing is a [separate design proposal](docs/paged_indexing.md).
+The [custom-ID examples](example/custom_ids/README.md) demonstrate application-owned
+scoped keys in every language and a C++ managed registry companion.
+See the [enhancement verification record](docs/verification-registry-numeric-2026-10-11.md)
+for executed native, SDK and editor checks and their platform limits.
 
 Language `1.10.0` adds [namespace functions and declared readonly calls](docs/behavior.md#declared-function-calls)
 inside portable expressions and [Boolean generic type constraints](docs/generics.md#boolean-type-constraints),
@@ -437,8 +453,8 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editor_extension.md) |
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
-Both extensions use source release version **1.1.38**, independent of compiler version
-**1.15.1**. Embedded `cpp { ... }`, `java { ... }`, and other target blocks reuse
+Both extensions use source release version **1.1.39**, independent of compiler version
+**1.16.0**. Embedded `cpp { ... }`, `java { ... }`, and other target blocks reuse
 available language grammars for syntax highlighting. Install the language's grammar
 provider where the editor does not bundle it; this does not add embedded IntelliSense.
 See [embedded source highlighting](docs/editor_extension.md#embedded-source-highlighting)
@@ -472,10 +488,17 @@ application must provide.
 | Control which sessions may publish edits or acquire locks | [Authorization](docs/managed/authorization.md) |
 | Understand runtime and generated-code optimizations | [Performance features](docs/performance.md) |
 | Plan database persistence | [Database integration](docs/database_integration.md) |
+| Plan indexes larger than RAM | [Paged indexing research and proposed design](docs/paged_indexing.md) |
 
 Native managed runtimes outside C++ and Serializer database adapters are not
 implemented. The [feature status guide](docs/feature_status.md) separates available
 features from proposals and records their limitations.
+
+Disk-backed paged indexes are also proposed. The current managed store keeps its
+model, identity table, and retained snapshots in memory; paging an index alone
+would not make the model larger than RAM. See the
+[paged indexing study](docs/paged_indexing.md) for existing database approaches,
+cache limits, compatibility requirements, and staged implementation criteria.
 
 ## Integrate with a coding agent
 

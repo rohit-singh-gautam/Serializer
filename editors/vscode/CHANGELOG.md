@@ -1,3 +1,10 @@
+# 1.1.39
+
+- Support schema language 1.11.0 projected readonly calls and exact record conditional selection.
+- Highlight checked numeric conversion and constrained construction input types.
+- Navigate generic map keys, fixed-array construction parameters, defaults and checked result types.
+- Select language 1.11.0 in new schema snippets and keep both editor package versions synchronized.
+
 # 1.1.38
 
 - Reuse available native language grammars inside target method bodies, class hooks, and preambles.

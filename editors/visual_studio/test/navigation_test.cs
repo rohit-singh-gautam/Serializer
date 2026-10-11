@@ -95,6 +95,25 @@ internal static class NavigationTest {
           "namespace signatures and exact constraint types retain included navigation");
         ++checks;
       }
+      var extendedConstructionText = "serializer version 1.11.0; include sales/order; class holder<T> { " +
+        "public map(demo::order) demo::order entries; " +
+        "public constructor<Input: demo::order>(Input input, array[3] demo::order items, demo::order fallback = default(origin)) explicit { value = checked<T>(input.value); } " +
+        "public function T converted() readonly expression(checked<T>(value)); }";
+      live[model] = extendedConstructionText;
+      foreach (var name in new[] { "demo::order)", "demo::order entries", "demo::order>", "demo::order items", "demo::order fallback" }) {
+        var start = extendedConstructionText.IndexOf(name, StringComparison.Ordinal);
+        var destination = NavigationRunner.Resolve(model, start, false, generated, live, CancellationToken.None);
+        Require(destination.Length == 1 && Path.GetFileName(destination[0].file) == "order.serializer",
+          "extended construction signature and map key types retain included navigation");
+        ++checks;
+      }
+      foreach (var name in new[] { "Input input", "T>(input.value)", "T>(value)" }) {
+        var start = extendedConstructionText.IndexOf(name, StringComparison.Ordinal);
+        var destination = NavigationRunner.Resolve(model, start, false, generated, live, CancellationToken.None);
+        Require(destination.Length == 1 && Path.GetFileName(destination[0].file) == "model.serializer",
+          "construction input and checked result types retain parameter navigation");
+        ++checks;
+      }
       var conversionText = "serializer version 1.9.0; class empty {} class passive<T: stateless = empty> { " +
         "public transient layout(empty) T reference; } class contact { public string street; } " +
         "class other { public string street; } class base { public uint32 rank; } class view { public string address; public uint32 rank; } " +

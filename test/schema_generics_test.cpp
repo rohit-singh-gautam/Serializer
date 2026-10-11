@@ -244,6 +244,32 @@ TEST(schema_generics, map_keys_keep_definition_scope) {
   EXPECT_EQ(table->member_list.front().key_node->get_full_name(), "lib::state");
 }
 
+// Both map spellings resolve record applications for owning C++, retaining explicit backend limits.
+TEST(schema_generics, record_map_keys_accept_nested_generic_applications) {
+  const auto nodes = parse_generic("serializer version 1.11.0; class key<T> { public T value; } "
+      "class table<T> { public map(key<T>) uint64 legacy; public map<key<T>, uint64> generic; } "
+      "instantiate concrete = table<uint64>;");
+  const auto* concrete = find_class(nodes, "concrete");
+  ASSERT_NE(concrete, nullptr);
+  ASSERT_NE(concrete->member_list[0].key_node, nullptr);
+  EXPECT_EQ(concrete->member_list[0].key_node,
+      concrete->member_list[1].type_name_list.front().arguments.front().resolved_node);
+  schema::writer::cpp_options options;
+  options.format = false;
+  options.class_comparisons["key"].ordering = true;
+  EXPECT_NO_THROW(schema::writer::cpp::generate(nodes, options));
+  for (const auto language : {"js", "typescript", "go", "csharp", "rust", "python", "swift", "kotlin", "c"}) {
+    SCOPED_TRACE(language);
+    EXPECT_THROW(schema::writer::portable::generate(nodes, language, "Schema"), std::invalid_argument);
+  }
+  EXPECT_THROW(schema::writer::java::generate(nodes, "Schema"), std::invalid_argument);
+  EXPECT_THROW(parse_generic("serializer version 1.10.0; class key<T> {} class table { public map(key<uint64>) uint64 values; }"), std::exception);
+  EXPECT_THROW(parse_generic("serializer version 1.10.0; class key {} class table { public map<key,uint64> values; }"), std::exception);
+  EXPECT_THROW(parse_generic("serializer version 1.11.0; class table { public map(optional<uint64>) uint64 values; }"), std::exception);
+  EXPECT_THROW(parse_generic("serializer version 1.11.0; class table { public map(array<uint64>) uint64 values; }"), std::exception);
+  EXPECT_NO_THROW(parse_generic("serializer version 1.0.0; class key {} class table { public map(key) uint64 values; }"));
+}
+
 // Limits apply before recursive parse/expansion can exhaust the process stack.
 TEST(schema_generics, bounded_nesting) {
   std::string source = "class box<T> { public T value; } class root { public ";

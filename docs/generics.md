@@ -44,6 +44,31 @@ Java, JavaScript, TypeScript, Go, C#, Rust, Python, Swift, Kotlin, and C. C++ ma
 use them. `count_result` remains a distinct named class with the same fields and
 bytes as `result<std::uint32_t>`; ordinary fields use the native C++ specialization.
 
+## Owning C++ record map keys
+
+Language `1.11.0` accepts generated owning record keys in `map<K,V>` and generic
+key applications in the legacy `map(K) V` spelling. Both forms retain the same
+map storage and native codec contract as the existing named-record key form:
+
+```text
+serializer version 1.11.0;
+class entry_key<T> {
+  public T value;
+}
+class catalog {
+  public map<entry_key<uint64>, uint32> entries;
+  public map(entry_key<uint64>) uint32 legacy_entries;
+}
+```
+
+Select C++ class ordering for the key and any nested key records through the
+[comparison settings](record_comparisons.md). Generic keys keep their arguments
+through native template generation and concrete lowering. Other language outputs
+and Protobuf retain their explicit scalar/enum key restrictions and diagnose
+record keys before publishing generated output. Existing named `map(record)`
+keys remain accepted under older schema language headers; the new spellings
+require `1.11.0` in the file that declares them.
+
 ## Boolean type constraints
 
 Language `1.10.0` supports category and exact-type predicates with `!`, `&&`,

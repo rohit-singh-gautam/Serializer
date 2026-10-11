@@ -1,0 +1,20 @@
+serializer version 1.11.0;
+
+// Application-owned identity: scope, stable domain tag, and local value form one key.
+class custom_id stable_ids {
+  public uint32 scope (1);
+  public uint32 domain (2);
+  public uint64 local (3);
+}
+
+// Binding payload is independent of the identity; replacing it preserves the logical key.
+class entity_binding stable_ids {
+  public custom_id id (1);
+  public uint32 payload (2);
+}
+
+// Durable application registry policy is expressed by host operations over ordinary records.
+class registry_state stable_ids {
+  public array entity_binding bindings (1);
+  public array custom_id retired (2);
+}

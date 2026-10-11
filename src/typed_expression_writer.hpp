@@ -175,13 +175,27 @@ inline std::optional<std::string> typed_expression(const behavior_expression& no
     for (std::size_t index{}; index < node.operands.size(); ++index) {
       auto value = child(index);
       const auto& operand = node.operands[index];
-      if (language == "rust" && (operand.result_type == "collection" || operand.result_type.starts_with("record:"))) {
+      if (language == "rust" && !(node.call_receiver && index == 0) &&
+          (operand.result_type == "collection" || operand.result_type.starts_with("record:"))) {
         value = "(" + value + ").clone()";
       }
       if (language == "rust") { value = ungroup_expression(std::move(value)); }
       arguments.push_back(std::move(value));
     }
     return checked_leaf(context.call(node, arguments));
+  }
+  if (node.kind == operation::conditional && node.result_type.starts_with("record:")) {
+    // Rust returns an owned value; cloning stays inside the branch selected at runtime.
+    if (language == "rust") {
+      return "(if " + ungroup_expression(child(0)) + " { (" + child(1) +
+          ").clone() } else { (" + child(2) + ").clone() })";
+    }
+    if (language == "swift") {
+      const auto yes = (expression_can_fail(node.operands[1], context.predicate) ? "try " : "") + child(1);
+      const auto no = (expression_can_fail(node.operands[2], context.predicate) ? "try " : "") + child(2);
+      const auto test = (expression_can_fail(node.operands[0], context.predicate) ? "try " : "") + child(0);
+      return closure("if " + test + " { return " + yes + "; } return " + no + ";", native(node));
+    }
   }
   if (node.kind == operation::literal && node.result_type == "float") {
     auto value = node.value.find_first_of(".eE") == std::string::npos ? node.value + ".0" : node.value;

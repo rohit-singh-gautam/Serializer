@@ -1,15 +1,17 @@
 set(schemas)
 foreach(fixture IN ITEMS enum person test1 array map variable assessment views storage_reuse
-    fixed_fields constant_names includes wire_compatibility generics dimensions versioning magic typed_magic inferred_arrays compact_fields digests owning_variants owning_variant_cpp optional_cpp native_output_policy reuse_first reuse_second construction readonly_behavior derived_sizes conversion stateless_layout generic_constraints readonly_function_calls readonly_function_overloads)
+    fixed_fields constant_names includes wire_compatibility generics dimensions versioning magic typed_magic inferred_arrays compact_fields digests owning_variants owning_variant_cpp optional_cpp native_output_policy reuse_first reuse_second construction extended_construction readonly_behavior derived_sizes conversion stateless_layout generic_constraints readonly_function_calls readonly_function_overloads numeric_values)
   list(APPEND schemas "${CMAKE_CURRENT_SOURCE_DIR}/resources/${fixture}.serializer")
 endforeach()
 
 add_executable(core_serializer_test
   core_serializer_test.cpp
   behavior_test.cpp
+  numeric_test.cpp
   readonly_behavior_test.cpp
   readonly_function_calls_test.cpp
   construction_test.cpp
+  extended_construction_test.cpp
   auto_size_test.cpp
   conversion_test.cpp
   stateless_constraints_test.cpp
@@ -91,6 +93,20 @@ else()
   target_compile_options(record_comparison_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 add_test(NAME record_comparison_test COMMAND record_comparison_test)
+
+# Qualify nested generic record keys through the owning C++ codec pipeline.
+add_executable(record_map_key_test record_map_key_test.cpp)
+serializer_generate(TARGET record_map_key_test
+  SCHEMAS resources/record_maps.serializer
+  CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/record_maps.ini"
+  OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/record_maps")
+target_link_libraries(record_map_key_test PRIVATE Serializer::serializer_lib GTest::gtest_main)
+if(MSVC)
+  target_compile_options(record_map_key_test PRIVATE /W4 /WX)
+else()
+  target_compile_options(record_map_key_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME record_map_key_test COMMAND record_map_key_test)
 
 # Compare native owning variants with independently generated JavaScript and TypeScript models.
 find_program(serializer_variant_node NAMES node)
@@ -276,8 +292,54 @@ if(Python3_Interpreter_FOUND)
     COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/optional_languages.py"
       --compiler "$<TARGET_FILE:serializer>" --language python
       --build "${CMAKE_CURRENT_BINARY_DIR}/optional_python")
+  add_test(NAME serializer_extended_construction_python
+    COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/extended_construction_languages.py"
+      --compiler "$<TARGET_FILE:serializer>" --language python
+      --build "${CMAKE_CURRENT_BINARY_DIR}/extended_construction_python")
+  add_test(NAME serializer_numeric_python
+    COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/numeric_languages.py"
+      --compiler "$<TARGET_FILE:serializer>" --language python
+      --build "${CMAKE_CURRENT_BINARY_DIR}/numeric_python")
+  add_test(NAME serializer_projected_records_python
+    COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/projected_records_languages.py"
+      --compiler "$<TARGET_FILE:serializer>" --language python
+      --build "${CMAKE_CURRENT_BINARY_DIR}/projected_records_python")
+  add_test(NAME serializer_custom_ids_python
+    COMMAND "${Python3_EXECUTABLE}" -B "${PROJECT_SOURCE_DIR}/example/custom_ids/run.py"
+      --compiler "$<TARGET_FILE:serializer>" --language python
+      --build "${CMAKE_CURRENT_BINARY_DIR}/custom_ids_python")
 endif()
 if(SERIALIZER_BUILD_MANAGED)
+  add_executable(custom_ids_managed_example ../example/custom_ids/managed_cpp/main.cpp)
+  serializer_generate(TARGET custom_ids_managed_example
+    SCHEMAS ../example/custom_ids/managed_cpp/model.serializer
+    CONFIG "${PROJECT_SOURCE_DIR}/example/custom_ids/managed_cpp/model.ini"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/custom_ids_managed")
+  target_link_libraries(custom_ids_managed_example PRIVATE Serializer::managed)
+  if(MSVC)
+    target_compile_options(custom_ids_managed_example PRIVATE /W4 /WX)
+  else()
+    target_compile_options(custom_ids_managed_example PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME custom_ids_managed_example COMMAND custom_ids_managed_example)
+  # Exercise snapshot-local registries with both identity widths and storage representations.
+  foreach(registry_profile IN ITEMS direct32 separate32 direct64 separate64)
+    set(registry_config CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/managed_registry_${registry_profile}.ini")
+    add_executable(managed_registry_${registry_profile}_test managed_registry_test.cpp)
+    serializer_generate(TARGET managed_registry_${registry_profile}_test
+      SCHEMAS resources/managed_registry.serializer ${registry_config}
+      OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed_registry_${registry_profile}")
+    target_link_libraries(managed_registry_${registry_profile}_test PRIVATE Serializer::managed GTest::gtest_main)
+    target_compile_definitions(managed_registry_${registry_profile}_test PRIVATE
+      SERIALIZER_REGISTRY_TEST_DIRECTORY="${CMAKE_CURRENT_BINARY_DIR}"
+      SERIALIZER_REGISTRY_TEST_PROFILE="${registry_profile}")
+    if(MSVC)
+      target_compile_options(managed_registry_${registry_profile}_test PRIVATE /W4 /WX)
+    else()
+      target_compile_options(managed_registry_${registry_profile}_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_test(NAME managed_registry_${registry_profile}_test COMMAND managed_registry_${registry_profile}_test)
+  endforeach()
   add_executable(managed_reuse_test managed_reuse_test.cpp)
   serializer_generate(TARGET managed_reuse_test
     SCHEMAS resources/managed_reuse_first.serializer resources/managed_reuse_second.serializer

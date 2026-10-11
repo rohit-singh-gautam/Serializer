@@ -1,5 +1,12 @@
 # Proposed managed-state data structures
 
+Implemented registry subset in compiler/runtime `1.16.0`: generated C++ object
+catalogs and field/base descriptors, snapshot-owned ordered/hash field indexes,
+transactional key binding/adoption/retirement and runtime uniqueness invariants.
+See [state registries](../state_registry.md) for the actual public API and limits.
+This does not implement the complete structures illustrated below, automatic
+maintained index caches, or a disk backend.
+
 Current C++ representation: managed schema classes carry `persistent_id` directly
 by default. Separate ID-free values/storage wrappers in the illustrations below
 require `[managed] separate_values = true`; see the [runtime contract](cpp_runtime.md).

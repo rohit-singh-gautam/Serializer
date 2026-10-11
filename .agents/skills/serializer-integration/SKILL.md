@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Use Serializer as a state framework when creating or changing schemas, generated behavior, construction/comparisons/conversions, derived wire sizes, generic type constraints, multi-language codecs, bounded decoding, revisions, C++ managed transactions, history, journals, collaboration, or persistence. Review the installed version's entire feature set and apply every feature relevant to the user's contract; preserve wire compatibility and qualify unsupported combinations."
+description: "Use Serializer as a state framework when creating or changing schemas, generated behavior, checked numeric bindings, construction/comparisons/conversions, derived wire sizes, generic type constraints, multi-language codecs, bounded decoding, revisions, C++ managed transactions, typed registries, custom-key indexes, history, journals, collaboration, or persistence. Review the installed version's entire feature set and apply every feature relevant to the user's contract; preserve wire compatibility and qualify unsupported combinations."
 ---
 
 # Serializer Integration
@@ -22,10 +22,31 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
-Compiler/runtime 1.15.1 supports schema language 1.10.0. For new integrations,
+Compiler/runtime 1.16.0 supports schema language 1.11.0. For new integrations,
 review [derived wire sizes](../../../docs/derived_sizes.md),
 [explicit value conversions](../../../docs/conversions.md), and
 [stateless generic constraints](../../../docs/generics.md#stateless-type-constraints).
+
+For language `1.11.0`, use `checked<T>(value)` for lossless numeric representation
+bindings and preserve exact integer arithmetic without promotion through double.
+Review [behavior](../../../docs/behavior.md) for projected readonly calls and
+lazy owning-record conditionals, [construction](../../../docs/construction.md)
+for fixed-array/default/checked bindings and C++ constrained input parameters,
+and [generics](../../../docs/generics.md) for record map keys. Diagnose unsupported
+backend ownership or open generic-method combinations instead of approximating
+the contract. Existing schemas keep their language-selected expression behavior.
+Use the C++ [state registry](../../../docs/state_registry.md) for pinned typed
+entity lookup, stable field/base paths and optional application-key indexes.
+Custom keys retain compact scalar persistent IDs; lookup never grants permission.
+Treat a paged or customer index as derived state with explicit snapshot/lifetime
+and commit boundaries; [paged indexing](../../../docs/paged_indexing.md) remains
+a proposal rather than an available storage backend.
+Use the [custom-ID examples](../../../example/custom_ids/README.md) for portable
+application-owned scoped/type-tag keys and the C++ managed companion. Portable
+host indexes do not supply Serializer's native history, journal or collaboration
+engines; keep those boundaries explicit when adapting the examples.
+Consult the [enhancement verification record](../../../docs/verification-registry-numeric-2026-10-11.md)
+for executed native, SDK and editor checks and their platform limits.
 
 Language `1.10.0` also supports declared readonly calls and namespace functions.
 Use [Boolean type constraints](../../../docs/generics.md#boolean-type-constraints),
@@ -270,6 +291,16 @@ there instead of relying on the relative links.
   The proposed sink operations are not public APIs or generator options. Keep
   dependencies optional and report actual provider verification separately from
   codec or mock tests.
+- For indexes larger than RAM, read the
+  [paged indexing study](../../../docs/paged_indexing.md). Disk-backed indexes and
+  lazy model/history storage are proposed, not current runtime options. The eager
+  store retains the complete model, identity table and history snapshots; existing
+  resident admission accounting is not a hard process-memory limit. Distinguish
+  bounded index cache memory from model, scratch, pinned-reader and OS memory.
+  Preserve document-scoped IDs and the authoritative journal contract; a derived
+  index must be validated against its exact storage generation and sequence before
+  lookup, and rebuilt or caught up when stale. Do not add a database dependency or
+  claim a paged managed backend merely because a provider supports disk indexes.
 - Use the [managed design index](../../../docs/managed/README.md) for the proposals.
   The [capability contract](../../../docs/managed/capabilities.md) now defines
   history, collaboration, authorization, and journal. Every managed
@@ -581,11 +612,11 @@ feature as a prerequisite without the user's request.
   generated replacement setters and the existing history/journal APIs.
   Consult [usage](../../../docs/usage.md), [migration](../../../migration.md), and
   [qualification](../../../docs/verification-dimensions-2026-10-04.md).
-- Use `.serializer` files beginning with `serializer version 1.10.0;`, before declarations
+- Use `.serializer` files beginning with `serializer version 1.11.0;`, before declarations
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
-  remains available through `parser::parse(input)`. Schema language version 1.10.0 is
-  independent of compiler release 1.15.1 and wire protocols. Bug fixes and minor
+  remains available through `parser::parse(input)`. Schema language version 1.11.0 is
+  independent of compiler release 1.16.0 and wire protocols. Bug fixes and minor
   updates increment the patch number; new features increment the minor number.
   Minor and patch releases preserve full compatibility. Developers change the
   major number manually, with best-effort compatibility across major releases.
@@ -980,7 +1011,7 @@ versioned snippets, and invokes the same targets through CMake Tools. Run the ro
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 1.1.38 is shared with the Visual Studio extension and is independent of
+version 1.1.39 is shared with the Visual Studio extension and is independent of
 compiler and schema versions. Keep both editor extension versions equal.
 Embedded target blocks reuse available editor language grammars for highlighting;
 install a grammar provider for targets the host does not bundle. This does not
@@ -1647,7 +1678,7 @@ Regenerate all relevant language and editor outputs when changing these contract
 
 Consult the [versioning verification record](../../../docs/verification-versioning-2026-10-06.md) and [release-policy verification record](../../../docs/verification-release-policies-2026-10-06.md) for completed language, compiler, codec, and editor checks. Release catalogs and nested allow policies are evaluated entirely during schema compilation; generated readers and writers contain only resolved version bounds.
 
-Use [payload versioning](../../../docs/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the supported schema language header (`1.10.0`, older `1.9.0`/`1.8.0`/`1.7.0`/`1.6.0`/`1.5.0`/`1.4.0`/`1.3.0`/`1.2.0`/`1.1.0`/`1.0.0`, or the original `1` alias for `1.0.0`) from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.
+Use [payload versioning](../../../docs/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the supported schema language header (`1.11.0`, older `1.10.0`/`1.9.0`/`1.8.0`/`1.7.0`/`1.6.0`/`1.5.0`/`1.4.0`/`1.3.0`/`1.2.0`/`1.1.0`/`1.0.0`, or the original `1` alias for `1.0.0`) from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.
 
 Declare payload revisions with Serializer's `version` member instead of an ordinary
 counter field. The paired `union_variant` examples declare

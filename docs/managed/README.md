@@ -23,6 +23,8 @@ remains a separate illustrative data model.
 | [Getting started](getting_started.md) | History, journal, collaboration, and authorization concepts, setup, and runnable examples. |
 | [Authorization](authorization.md) | Trusted sessions, writable gates, host policy hooks, and what the application must implement. |
 | [Implemented C++ runtime](cpp_runtime.md) | Optional build target, generated storage and typed editors, all three transaction forms, snapshot history, bounded save/load, and remaining work. |
+| [Typed state registries](../state_registry.md) | Pinned typed lookup, generated field/base paths, custom keys, transactional adoption and optional ordered/hash indexes. |
+| [Paged indexing](../paged_indexing.md) | Proposed mostly-disk indexes, safe customer delegation and existing database approaches. |
 | [Local store collaboration](local_collaboration.md) | Normal store transactions, store-owned sessions/outbox, immediate local undo, separate send/receive, periodic synchronization and client recovery. |
 | [Implemented C++ collaboration](collaboration_runtime.md) | Authority/replica APIs, application-owned session types, generated change records, conditional undo/redo, retries, conflicts, presence, entity/subtree leases, host policy hooks, limits, and five runnable examples. |
 | [Transaction implementation walkthrough](../internals/managed_transactions.md) | Current C++ store and transaction ownership, callback flow, commit, and cleanup, illustrated with a point. |

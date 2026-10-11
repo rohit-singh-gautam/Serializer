@@ -919,6 +919,20 @@ public:
     return store_->read();
   }
 
+  // Pin a typed accepted-state catalog without granting a local mutation path.
+  auto registry(registry_options options = {}) const {
+    check_access();
+    return store_->registry(options);
+  }
+
+  // Enforce application-key uniqueness at the same authoritative publication boundaries.
+  template <typename Descriptor, typename Key = typename Descriptor::value_type,
+            typename Compare = std::less<Key>>
+  void declare_unique_key(Descriptor descriptor, Compare compare = {}) {
+    operation_scope guard{*this};
+    store_->declare_unique_key(descriptor, std::move(compare));
+  }
+
   // Copy the complete wire binding for proposals and trusted replica initialization.
   collaboration::domain context() const {
     check_access();
@@ -1308,6 +1322,7 @@ public:
       throw std::logic_error{"Restore collaboration document before opening sessions"};
     }
     auto replacement = std::make_unique<store_type>(Root{}, make_document_id(), store_options_);
+    replacement->registry_validate_ = store_->registry_validate_;
     bind_store(*replacement);
     replacement->load(bytes);
     auto entities = collect(*replacement->read());
@@ -1356,6 +1371,7 @@ public:
       throw std::logic_error{"Recover collaboration document before opening sessions"};
     }
     auto replacement = std::make_unique<store_type>(Root{}, make_document_id(), store_options_);
+    replacement->registry_validate_ = store_->registry_validate_;
     bind_store(*replacement);
     replacement->recover_journal(path, std::move(options));
     auto entities = collect(*replacement->read());

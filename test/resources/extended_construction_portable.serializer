@@ -1,0 +1,31 @@
+serializer version 1.11.0;
+
+class bound_defaults stable_ids {
+  public uint32 value (1) {1};
+  public factory make(uint32 input = 5) {
+    value = input;
+  }
+}
+
+class bound_pair stable_ids {
+  public array[2] double values (1);
+  public factory from_values(array[2] double input) {
+    values = input;
+  }
+}
+
+class bound_point stable_ids {
+  public double x (1);
+  public double y (2);
+  public factory origin() {
+    x = 2.0;
+    y = -3.0;
+  }
+}
+
+class bound_record_default stable_ids {
+  public bound_point value (1);
+  public factory make(bound_point input = default(origin)) {
+    value = input;
+  }
+}

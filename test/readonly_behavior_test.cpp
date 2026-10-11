@@ -100,3 +100,37 @@ class nonliteral {
   const auto generated = rohit::serializer::writer::cpp::generate(statements, options);
   EXPECT_NE(generated.find("constexpr bool matches([[maybe_unused]] ::std::uint64_t candidate) const noexcept"), std::string::npos);
 }
+
+// Projected readonly calls retain exact record values and evaluate only the selected branch.
+TEST(readonly_behavior, projected_calls_and_lazy_record_selection) {
+  projected_identity_probe value{};
+  value.preferred.value = std::numeric_limits<std::uint64_t>::max();
+  value.preferred.label = "selected payload";
+  value.fallback.value = 7;
+  EXPECT_EQ(value.selected().value, std::numeric_limits<std::uint64_t>::max());
+  const auto selected = value.selected();
+  value.preferred.label = "changed source";
+  EXPECT_EQ(selected.label, "selected payload");
+  EXPECT_TRUE(value.matches(std::numeric_limits<std::uint64_t>::max()));
+  EXPECT_EQ(value.guarded(true).value, std::numeric_limits<std::uint64_t>::max());
+  EXPECT_THROW(static_cast<void>(value.guarded(false)), std::domain_error);
+  value.preferred.value = 0;
+  EXPECT_EQ(value.selected().value, 7u);
+  value.child.value = 3;
+  EXPECT_TRUE(value.inherited());
+  EXPECT_TRUE(value.items_valid());
+  value.items.push_back({9, {}});
+  EXPECT_TRUE(value.items_valid());
+  value.items.push_back({0, {}});
+  EXPECT_FALSE(value.items_valid());
+}
+
+// Generic projected calls substitute exact argument/result types through public bases.
+TEST(readonly_behavior, projected_generic_receiver_signatures) {
+  projected_generic_probe<std::uint64_t> value{};
+  value.item.value = std::numeric_limits<std::uint64_t>::max();
+  value.child.value = 7;
+  EXPECT_EQ(value.read(), std::numeric_limits<std::uint64_t>::max());
+  EXPECT_TRUE(value.matches(std::numeric_limits<std::uint64_t>::max()));
+  EXPECT_EQ(value.inherited_read(), 7u);
+}

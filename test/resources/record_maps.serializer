@@ -1,0 +1,17 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.11.0;
+
+namespace record_maps {
+  class key<T> stable_ids {
+    public T value (1);
+  }
+  class legacy_table<T> stable_ids {
+    public map(key<T>) uint64 entries (1);
+  }
+  class generic_table<T> stable_ids {
+    public map<key<T>, uint64> entries (1);
+  }
+  instantiate legacy_unsigned = legacy_table<uint64>;
+  instantiate generic_unsigned = generic_table<uint64>;
+}

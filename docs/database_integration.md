@@ -14,6 +14,11 @@ a generated language does not imply availability of every provider's SDK there.
 Start with the [usage guide](usage.md) and preserve the
 [wire-format contract](wire_format.md).
 
+For indexes that exceed RAM, see the [paged indexing study](paged_indexing.md).
+It compares SQLite, LMDB and RocksDB and proposes bounded-cache, rebuildable
+indexes for Serializer. These provider capabilities do not establish a Serializer
+adapter or page the current managed model/history.
+
 ## Choose a storage representation
 
 | Representation | Application integration | Query behavior |

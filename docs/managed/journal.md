@@ -528,6 +528,12 @@ Candidate optimizations:
 - Maintain rebuildable entity/revision-to-offset indexes. File offsets are locations,
   not stable entity IDs; compaction can change every offset without changing identity.
 
+The [paged indexing study](../paged_indexing.md) develops the last proposal into
+bounded page caching, streamed rebuilds and generation/sequence validation. It
+preserves this journal as the authority and requires separate lazy model/history
+storage before claiming larger-than-RAM managed state. No paged index is currently
+implemented.
+
 ## Verification required before implementation claims
 
 Inject interruption at every append/flush/manifest-replace/cleanup boundary;

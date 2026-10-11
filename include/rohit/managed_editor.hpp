@@ -39,6 +39,8 @@ struct edit_channel {
   void* owner{};
   void (*mutate)(void*, void*, void (*)(void*, Root&)){};
   Id (*allocate)(void*){};
+  // Created only by registry reservation; absent on ordinary editor paths.
+  std::unique_ptr<std::vector<Id>> registry_reservations{};
   void (*fail)(void*, std::exception_ptr) noexcept {};
   std::uint64_t variant_generation{}; // Candidate-local replacement epoch; never serialized.
 

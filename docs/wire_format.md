@@ -1,5 +1,13 @@
 # Wire format and decoding contract
 
+Language `1.11.0` checked numeric bindings, owning-record expressions and extended
+construction introduce no new payload tags or encodings. Record map keys use
+the existing C++ owning map codecs. Managed registries and secondary indexes are
+derived runtime state: their pointers, type tokens, callbacks and cache entries
+are never serialized. Application binding keys are durable only when declared
+as ordinary schema fields. Scalar persistent IDs and all existing managed journal
+and collaboration wire versions remain unchanged; see [state registries](state_registry.md).
+
 Language `1.10.0` readonly calls, namespace functions and Boolean type constraints
 add no wire fields or metadata. Existing schemas and payload encodings retain
 their earlier identities and bytes.

@@ -1856,10 +1856,11 @@ class emitter {
         context.enum_value = [&](const auto& item, std::string_view name) { return enum_constant(item, name); };
         context.call = [&](const behavior_expression& node, const std::vector<std::string>& arguments) {
           const auto& callee = behavior::called_function(node);
-          std::string receiver = language == target::go ? receiver_name : "this";
+          std::string receiver = node.call_receiver ? "(" + arguments.at(0) + ")" :
+              language == target::go ? receiver_name : "this";
           for (const auto base : node.call_base_path) { receiver += "." + field("base" + std::to_string(base)); }
           const auto callable = node.call_target->type == object_type::function_type ? names.at(node.call_target) : receiver + "." + field(callee.name, callee.access);
-          return callable + "(" + behavior::call_arguments(arguments) + ")";
+          return callable + "(" + behavior::call_arguments(arguments, node.call_receiver ? 1 : 0) + ")";
         };
         context.predicate = method.predicate_body;
         while (std::any_of(method.parameters.begin(), method.parameters.end(), [&](const auto& parameter) {
@@ -1876,7 +1877,8 @@ class emitter {
         statement(choose("const ", "", return_type + " ") + std::string{"srlBehaviorResult"} +
             choose(" = ", " := ", " = ") + behavior::expression(*method.expression, selected, symbol, arithmetic_helpers, context));
         if (method.return_type.name == "float" || method.return_type.name == "double") {
-          condition("!" + (language == target::csharp ? std::string{"double.IsFinite(srlBehaviorResult)"} : behavior::finite("srlBehaviorResult")));
+          condition("!" + (language == target::csharp ? std::string{"double.IsFinite(srlBehaviorResult)"} :
+              behavior::finite(language == target::go ? "float64(srlBehaviorResult)" : "srlBehaviorResult")));
           statement(error); close();
         }
         statement("return srlBehaviorResult");
@@ -1934,6 +1936,13 @@ class emitter {
       context.native_type = [&](const auto& value) { return type(value); };
       context.enum_value = [&](const auto& value, auto constant) { return enum_constant(value, constant); };
       context.call = [&](const behavior_expression& call, const std::vector<std::string>& arguments) {
+        if (call.call_receiver) {
+          std::string receiver = "(" + arguments.at(0) + ")";
+          for (const auto base : call.call_base_path) { receiver += "." + field("base" + std::to_string(base)); }
+          const auto& callee = behavior::called_function(call);
+          return receiver + "." + field(callee.name, callee.access) + "(" +
+              behavior::call_arguments(arguments, 1) + ")";
+        }
         return names.at(call.call_target) + "(" + behavior::call_arguments(arguments) + ")";
       };
       behavior::free_expression_body(method, selected, result_type,

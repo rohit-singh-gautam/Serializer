@@ -600,3 +600,61 @@ TEST(behavior, finite_inspection_evaluates_readonly_calls_once) {
     EXPECT_EQ(source.find("observe_value()", first + 1), std::string::npos);
   }
 }
+
+// Record receivers resolve declared public methods, with exact lazy branch types and file gates.
+TEST(behavior, projected_record_calls_and_exact_selection_contract) {
+  const std::string prefix = "serializer version 1.11.0; class key { public uint64 value; "
+      "public function bool valid() readonly expression(value != 0); } ";
+  const auto parsed = parse_schema(prefix + "class probe { public key first; public key second; "
+      "public function key selected() readonly expression(first.valid() ? first : second); }");
+  const auto& owner = static_cast<const codec::class_node&>(*parsed.statements.back());
+  const auto& expression = *owner.functions.front().expression;
+  ASSERT_EQ(expression.kind, codec::behavior_expression::operation::conditional);
+  EXPECT_TRUE(expression.operands.front().call_receiver);
+  EXPECT_EQ(expression.operands.front().call_target, parsed.statements.front().get());
+  for (const auto language : {"js", "typescript", "go", "csharp", "rust", "python", "swift", "kotlin", "c"}) {
+    SCOPED_TRACE(language);
+    EXPECT_NO_THROW(codec::writer::portable::generate(parsed.statements, language, "Schema"));
+  }
+  EXPECT_NO_THROW(codec::writer::java::generate(parsed.statements, "Schema"));
+  EXPECT_THROW(parse_schema("serializer version 1.10.0; class key { public uint64 value; "
+      "public function bool valid() readonly expression(value != 0); } class probe { public key item; "
+      "public function bool valid() readonly expression(item.valid()); }"), std::exception);
+  EXPECT_THROW(parse_schema("serializer version 1.10.0; class key {} class probe { public key first; public key second; "
+      "public function key selected(bool choose) readonly expression(choose ? first : second); }"), std::exception);
+  EXPECT_THROW(parse_schema(prefix + "class other {} class probe { public key first; public other second; "
+      "public function key selected() readonly expression(first.valid() ? first : second); }"), std::exception);
+  for (const std::string_view target : {"private function bool target() readonly expression(true);",
+      "protected function bool target() readonly expression(true);",
+      "public function bool target() edit;", "public function void target() readonly;"}) {
+    EXPECT_THROW(parse_schema("serializer version 1.11.0; class key { " + std::string{target} +
+        " } class probe { public key item; public function bool valid() readonly expression(item.target()); }"), std::exception);
+  }
+  const auto owned = parse_schema("serializer version 1.11.0; class text { public string value; } "
+      "class probe { public text first; public text second; public function text selected(bool choose) readonly "
+      "expression(choose ? first : second); }");
+  EXPECT_THROW(codec::writer::portable::generate(owned.statements, "c", "Schema"), std::invalid_argument);
+  codec::writer::cpp_options options;
+  options.format = false;
+  const auto generated = codec::writer::cpp::generate(owned.statements, options);
+  EXPECT_EQ(generated.find("selected([[maybe_unused]] bool choose) const noexcept"), std::string::npos);
+}
+
+// Receiver substitutions include arguments and results whose lexical parameter names differ.
+TEST(behavior, projected_generic_receiver_signature_substitution) {
+  const auto parsed = parse_schema("serializer version 1.11.0; class key<T> { public T value; "
+      "public function T read() readonly expression(value); "
+      "public function bool matches(T expected) readonly expression(value == expected); } "
+      "class child<V> : public key<V> {} class holder<U> { public key<U> item; public child<U> inherited; "
+      "public function U read() readonly expression(item.read()); "
+      "public function bool matches(U candidate) readonly expression(item.matches(candidate)); "
+      "public function U inherited_read() readonly expression(inherited.read()); } instantiate concrete = holder<uint64>;");
+  codec::writer::cpp_options options;
+  options.format = false;
+  EXPECT_NO_THROW(codec::writer::cpp::generate(parsed.statements, options));
+  EXPECT_NO_THROW(codec::writer::java::generate(parsed.statements, "Schema"));
+  for (const auto language : {"js", "typescript", "go", "csharp", "rust", "python", "swift", "kotlin", "c"}) {
+    SCOPED_TRACE(language);
+    EXPECT_NO_THROW(codec::writer::portable::generate(parsed.statements, language, "Schema"));
+  }
+}

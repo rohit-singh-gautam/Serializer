@@ -768,10 +768,10 @@ class mobile_emitter {
         };
         context.call = [&](const behavior_expression& node, const std::vector<std::string>& arguments) {
           const auto& target = behavior::called_function(node);
-          std::string receiver = select("self", "this");
+          std::string receiver = node.call_receiver ? "(" + arguments.at(0) + ")" : select("self", "this");
           for (const auto base : node.call_base_path) { receiver += ".base" + std::to_string(base); }
           const auto callable = node.call_target->type == object_type::function_type ? field(model.names.at(node.call_target)) : receiver + "." + field(target.name);
-          return callable + "(" + behavior::call_arguments(arguments) + ")";
+          return callable + "(" + behavior::call_arguments(arguments, node.call_receiver ? 1 : 0) + ")";
         };
         context.predicate = method.predicate_body;
         if (behavior::expression_has_reduction(*method.expression)) {
@@ -842,6 +842,12 @@ class mobile_emitter {
       context.native_type = [&](const auto& value) { return type(value); };
       context.enum_value = [&](const auto& value, auto name) { return type(value) + "." + pascal(name); };
       context.call = [&](const behavior_expression& call, const std::vector<std::string>& arguments) {
+        if (call.call_receiver) {
+          std::string receiver = "(" + arguments.at(0) + ")";
+          for (const auto base : call.call_base_path) { receiver += ".base" + std::to_string(base); }
+          return receiver + "." + field(behavior::called_function(call).name) + "(" +
+              behavior::call_arguments(arguments, 1) + ")";
+        }
         return field(model.names.at(call.call_target)) + "(" + behavior::call_arguments(arguments) + ")";
       };
       behavior::free_expression_body(method, language, result_type, [&](auto value) { return field(value); },

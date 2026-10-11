@@ -113,7 +113,7 @@ TEST(digest_codec, rejects_wrong_lengths_and_keeps_failed_fresh_decode_transacti
                  rohit::exception::base_parser);
     EXPECT_EQ(destination.value, original);
   }
-  for (const auto bytes : {std::vector<std::uint8_t>{2, 1, 2},
+  for (const auto& bytes : {std::vector<std::uint8_t>{2, 1, 2},
                           std::vector<std::uint8_t>{4, 1, 2, 3, 4},
                           std::vector<std::uint8_t>{3, 1, 2, 3, 0}}) {
     const auto input = rohit::make_constant_stream(bytes.data(), bytes.size());

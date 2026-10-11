@@ -1,5 +1,17 @@
 # Schema compatibility checking
 
+Compiler/runtime `1.16.0` and language `1.11.0` retain existing schema identities
+and codec formats. Numeric bindings, constructor overloads and readonly record
+expressions add generated APIs; older language headers keep their expression
+contract. Opting an existing schema into new construction defaults can change
+application initialization, so review absent-field behavior as usual. C++ record
+map keys use existing map encoding and require compatible generated comparisons.
+Managed registries persist no additional catalog: declaring an ordinary
+application-key field is a normal schema migration. Runtime uniqueness policies
+must be reinstalled before loading/recovering a fresh store or authority; they
+validate retained history as well as the accepted root. See
+[state registries](state_registry.md) for lifetimes and publication guarantees.
+
 `stable_ids` validates one schema. The optional compatibility checker compares
 two resolved revisions and applies a persistent retirement policy. It is a
 separate, read-only compiler mode; it does not generate code, change schema

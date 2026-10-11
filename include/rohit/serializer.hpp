@@ -715,6 +715,7 @@ public:
   explicit constexpr schema_value_scope(bool& enabled) noexcept
       : enabled_{&enabled}, previous_{std::exchange(enabled, true)} {}
   schema_value_scope(const schema_value_scope&) = delete;
+  schema_value_scope& operator=(const schema_value_scope&) = delete;
   // Reinstate the enclosing value contract without throwing during stack unwinding.
   constexpr ~schema_value_scope() { *enabled_ = previous_; }
 };
