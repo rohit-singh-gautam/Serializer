@@ -13,12 +13,19 @@ FILES = {"cpp": "main.cpp", "java": "Main.java", "javascript": "main.mjs", "type
 
 
 def consumer(language):
-    """Verify fresh unit-Z defaults, constructor omissions, arrays, and customized coordinates."""
+    """Verify fresh typed/empty-record defaults, shortened calls, and supplied overrides."""
     sources = {
         "cpp": '''#include "message.hpp"
 static_assert(default_frame{}.normal.z == 1);
 static_assert(default_direction::create().coordinates[2] == 1);
 int main() {
+  auto box=default_box::create(1,2);auto sized=default_box::sized_default_2(1,2);
+  auto supplied=default_box::create(1,2,default_area::create(11,12));
+  auto owner=default_frame_owner::create();auto untouched=default_frame_owner::create();
+  owner.value.normal.z=8;owner.value.axes[0].x=9;
+  auto nested=default_frame_owner::from_nested_default_0();
+  if(box.area.width!=3 || box.area.height!=4 || sized.area.width!=10 || sized.area.height!=20 || supplied.area.width!=11 || supplied.area.height!=12 || untouched.value.normal.z!=1 || untouched.value.axes[0].x!=1 || nested.value.axes[0].z!=1 || nested.value.axes[1].z!=1)return 2;
+  if(default_frame_owner::from_frame().value.axes[1].y!=1)return 3;
   auto first=default_frame::create_default_0(); auto second=default_frame{};
   auto direction=default_direction::create_default_0(); auto custom=default_vector3::create(2,3,4);
   first.normal.z=8; first.axes[0].x=9;
@@ -27,6 +34,13 @@ int main() {
 ''',
         "java": '''public final class Main {
  public static void main(String[] args) throws Exception {
+  var box=Schema.DefaultBox.create_default_2(1,2);var sized=Schema.DefaultBox.sized_default_2(1,2);
+  var supplied=Schema.DefaultBox.create(1,2,Schema.DefaultArea.create(11,12));
+  var owner=Schema.DefaultFrameOwner.create_default_0();var untouched=Schema.DefaultFrameOwner.create_default_0();
+  owner.value.normal.z=8;owner.value.axes[0].x=9;
+  var nested=Schema.DefaultFrameOwner.fromNested_default_0();
+  if(box.area.width!=3 || box.area.height!=4 || sized.area.width!=10 || sized.area.height!=20 || supplied.area.width!=11 || supplied.area.height!=12 || untouched.value.normal.z!=1 || untouched.value.axes[0].x!=1 || nested.value.axes[0].z!=1 || nested.value.axes[1].z!=1)throw new AssertionError();
+  if(Schema.DefaultFrameOwner.fromFrame_default_0().value.axes[1].y!=1)throw new AssertionError();
   var first=Schema.DefaultFrame.create_default_0(); var second=new Schema.DefaultFrame();
   var direction=Schema.DefaultDirection.create_default_0(); var custom=Schema.DefaultVector3.create(2,3,4);
   first.normal.z=8; first.axes[0].x=9;
@@ -37,7 +51,12 @@ int main() {
  }
 }
 ''',
-        "javascript": '''import {DefaultFrame,DefaultDirection,DefaultVector3,Protocol} from './schema.mjs';
+        "javascript": '''import {DefaultFrame,DefaultDirection,DefaultVector3,DefaultArea,DefaultBox,DefaultFrameOwner,Protocol} from './schema.mjs';
+const box=DefaultBox.create(1,2),sized=DefaultBox.sized_default_2(1,2),supplied=DefaultBox.create(1,2,DefaultArea.create(11,12));
+const owner=DefaultFrameOwner.create(),untouched=DefaultFrameOwner.create();owner.value.normal.z=8;owner.value.axes[0].x=9;
+const nested=DefaultFrameOwner.fromNested_default_0();
+if(box.area.width!==3 || box.area.height!==4 || sized.area.width!==10 || sized.area.height!==20 || supplied.area.width!==11 || supplied.area.height!==12 || untouched.value.normal.z!==1 || untouched.value.axes[0].x!==1 || nested.value.axes[0].z!==1 || nested.value.axes[1].z!==1)throw Error('empty record default mismatch');
+if(DefaultFrameOwner.fromFrame().value.axes[1].y!==1)throw Error('factory empty record default mismatch');
 const first=DefaultFrame.create_default_0(),second=new DefaultFrame(),direction=DefaultDirection.create_default_0(),custom=DefaultVector3.create(2,3,4);
 first.normal.z=8;first.axes[0].x=9;
 const decoded=DefaultFrame.decode(first.encode(Protocol.BINARY_INTEGER),Protocol.BINARY_INTEGER),empty=DefaultFrame.decode(new TextEncoder().encode('{}'),Protocol.JSON);
@@ -46,6 +65,10 @@ if(second.normal.z!==1 || second.axes[0].x!==1 || second.axes[1].y!==1 || direct
 ''',
         "go": '''package main
 func main(){
+ box:=DefaultBox_Create_default_2(1,2);sized:=DefaultBox_Sized_default_2(1,2);supplied:=DefaultBox_Create(1,2,DefaultArea_Create(11,12))
+ owner:=DefaultFrameOwner_Create_default_0();untouched:=DefaultFrameOwner_Create_default_0();owner.Value.Normal.Z=8;owner.Value.Axes[0].X=9;nested:=DefaultFrameOwner_FromNested_default_0()
+ if box.Area.Width!=3 || box.Area.Height!=4 || sized.Area.Width!=10 || sized.Area.Height!=20 || supplied.Area.Width!=11 || supplied.Area.Height!=12 || untouched.Value.Normal.Z!=1 || untouched.Value.Axes[0].X!=1 || nested.Value.Axes[0].Z!=1 || nested.Value.Axes[1].Z!=1{panic("empty record default mismatch")}
+ if DefaultFrameOwner_FromFrame_default_0().Value.Axes[1].Y!=1{panic("factory empty record default mismatch")}
  first:=DefaultFrame_Create_default_0(); second:=NewDefaultFrame(); direction:=DefaultDirection_Create_default_0(); custom:=DefaultVector3_Create(2,3,4)
  first.Normal.Z=8;first.Axes[0].X=9
  encoded,err:=first.Encode(BINARY_INTEGER);if err!=nil{panic(err)};decoded,err:=DecodeDefaultFrame(encoded,BINARY_INTEGER);if err!=nil{panic(err)};empty,err:=DecodeDefaultFrame([]byte("{}"),JSON);if err!=nil{panic(err)}
@@ -55,6 +78,10 @@ func main(){
 ''',
         "csharp": '''using System; using static SerializerGenerated.Schema;
 internal static class Program { private static void Main(){
+ var box=DefaultBox.Create_default_2(1,2);var sized=DefaultBox.Sized_default_2(1,2);var supplied=DefaultBox.Create(1,2,DefaultArea.Create(11,12));
+ var owner=DefaultFrameOwner.Create_default_0();var untouched=DefaultFrameOwner.Create_default_0();owner.Value.Normal.Z=8;owner.Value.Axes[0].X=9;var nested=DefaultFrameOwner.FromNested_default_0();
+ if(box.Area.Width!=3 || box.Area.Height!=4 || sized.Area.Width!=10 || sized.Area.Height!=20 || supplied.Area.Width!=11 || supplied.Area.Height!=12 || untouched.Value.Normal.Z!=1 || untouched.Value.Axes[0].X!=1 || nested.Value.Axes[0].Z!=1 || nested.Value.Axes[1].Z!=1)throw new Exception("empty record default mismatch");
+ if(DefaultFrameOwner.FromFrame_default_0().Value.Axes[1].Y!=1)throw new Exception("factory empty record default mismatch");
  var first=DefaultFrame.Create_default_0();var second=new DefaultFrame();var direction=DefaultDirection.Create_default_0();var custom=DefaultVector3.Create(2,3,4);
  first.Normal.Z=8;first.Axes[0].X=9;
  var decoded=DefaultFrame.Decode(first.Encode(Protocol.BINARY_INTEGER),Protocol.BINARY_INTEGER);var empty=DefaultFrame.Decode(System.Text.Encoding.UTF8.GetBytes("{}"),Protocol.JSON);
@@ -63,13 +90,21 @@ internal static class Program { private static void Main(){
 }}
 ''',
         "rust": '''mod schema;use schema::*;
-fn main(){let mut first=DefaultFrame::create_default_0();let second=DefaultFrame::default();let direction=DefaultDirection::create_default_0();let custom=DefaultVector3::create(2.0,3.0,4.0);
+fn main(){let box_value=DefaultBox::create_default_2(1,2);let sized=DefaultBox::sized_default_2(1,2);let supplied=DefaultBox::create(1,2,DefaultArea::create(11,12));
+let mut owner=DefaultFrameOwner::create_default_0();let untouched=DefaultFrameOwner::create_default_0();owner.value.normal.z=8.0;owner.value.axes[0].x=9.0;let nested=DefaultFrameOwner::from_nested_default_0();
+assert_eq!((box_value.area.width,box_value.area.height),(3,4));assert_eq!((sized.area.width,sized.area.height),(10,20));assert_eq!((supplied.area.width,supplied.area.height),(11,12));assert_eq!(untouched.value.normal.z,1.0);assert_eq!(untouched.value.axes[0].x,1.0);assert_eq!(nested.value.axes[0].z,1.0);assert_eq!(nested.value.axes[1].z,1.0);assert_eq!(DefaultFrameOwner::from_frame_default_0().value.axes[1].y,1.0);
+let mut first=DefaultFrame::create_default_0();let second=DefaultFrame::default();let direction=DefaultDirection::create_default_0();let custom=DefaultVector3::create(2.0,3.0,4.0);
 first.normal.z=8.0;first.axes[0].x=9.0;
 let decoded=DefaultFrame::decode(&first.encode(Protocol::BinaryInteger).unwrap(),Protocol::BinaryInteger).unwrap();let empty=DefaultFrame::decode(b"{}",Protocol::Json).unwrap();
 assert_eq!(decoded.normal.z,8.0);assert_eq!(decoded.axes[0].x,9.0);assert_eq!(empty.normal.z,1.0);assert_eq!(empty.axes[1].y,1.0);
 assert_eq!(second.normal.z,1.0);assert_eq!(second.axes[0].x,1.0);assert_eq!(second.axes[1].y,1.0);assert_eq!(direction.coordinates[2],1.0);assert_eq!(custom.x,2.0);assert_eq!(custom.z,4.0);}
 ''',
-        "python": '''from schema import DefaultFrame,DefaultDirection,DefaultVector3,Protocol
+        "python": '''from schema import DefaultFrame,DefaultDirection,DefaultVector3,DefaultArea,DefaultBox,DefaultFrameOwner,Protocol
+box=DefaultBox.create(1,2);sized=DefaultBox.sized_default_2(1,2);supplied=DefaultBox.create(1,2,DefaultArea.create(11,12))
+owner=DefaultFrameOwner.create();untouched=DefaultFrameOwner.create();owner.value.normal.z=8;owner.value.axes[0].x=9;nested=DefaultFrameOwner.from_nested_default_0()
+assert (box.area.width,box.area.height)==(3,4) and (sized.area.width,sized.area.height)==(10,20) and (supplied.area.width,supplied.area.height)==(11,12)
+assert untouched.value.normal.z==1 and untouched.value.axes[0].x==1 and nested.value.axes[0].z==1 and nested.value.axes[1].z==1
+assert DefaultFrameOwner.from_frame().value.axes[1].y==1
 first=DefaultFrame.create_default_0();second=DefaultFrame();direction=DefaultDirection.create_default_0();custom=DefaultVector3.create(2,3,4)
 first.normal.z=8;first.axes[0].x=9
 decoded=DefaultFrame.decode(first.encode(Protocol.BINARY_INTEGER),Protocol.BINARY_INTEGER);empty=DefaultFrame.decode(b'{}',Protocol.JSON)
@@ -78,6 +113,10 @@ one=DefaultDirection.create();two=DefaultDirection.create();one.coordinates[2]=9
 assert second.normal.z==1 and second.axes[0].x==1 and second.axes[1].y==1 and direction.coordinates[2]==1 and custom.x==2 and custom.z==4
 ''',
         "swift": '''import Foundation
+let box=DefaultBox.create(1,2);let sized=DefaultBox.sized_default_2(1,2);let supplied=DefaultBox.create(1,2,DefaultArea.create(11,12))
+var owner=DefaultFrameOwner.create();let untouched=DefaultFrameOwner.create();owner.value.normal.z=8;owner.value.axes[0].x=9;let nested=DefaultFrameOwner.fromNested_default_0()
+precondition(box.area.width==3 && box.area.height==4 && sized.area.width==10 && sized.area.height==20 && supplied.area.width==11 && supplied.area.height==12 && untouched.value.normal.z==1 && untouched.value.axes[0].x==1 && nested.value.axes[0].z==1 && nested.value.axes[1].z==1)
+precondition(DefaultFrameOwner.fromFrame().value.axes[1].y==1)
 var first=DefaultFrame.create_default_0();let second=DefaultFrame();let direction=DefaultDirection.create_default_0();let custom=DefaultVector3.create(2,3,4)
 first.normal.z=8;first.axes[0].x=9
 let decoded=try DefaultFrame.decode(first.encode(.BINARY_INTEGER),.BINARY_INTEGER);let empty=try DefaultFrame.decode(Array("{}".utf8),.JSON)
@@ -85,6 +124,10 @@ precondition(decoded.normal.z==8 && decoded.axes[0].x==9 && empty.normal.z==1 &&
 precondition(second.normal.z==1 && second.axes[0].x==1 && second.axes[1].y==1 && direction.coordinates[2]==1 && custom.x==2 && custom.z==4)
 ''',
         "kotlin": '''fun main(){
+ val box=DefaultBox.create(1u,2u);val sized=DefaultBox.sized_default_2(1u,2u);val supplied=DefaultBox.create(1u,2u,DefaultArea.create(11u,12u))
+ val owner=DefaultFrameOwner.create();val untouched=DefaultFrameOwner.create();owner.value.normal.z=8.0;owner.value.axes[0].x=9.0;val nested=DefaultFrameOwner.fromNested_default_0()
+ check(box.area.width==3u && box.area.height==4u && sized.area.width==10u && sized.area.height==20u && supplied.area.width==11u && supplied.area.height==12u && untouched.value.normal.z==1.0 && untouched.value.axes[0].x==1.0 && nested.value.axes[0].z==1.0 && nested.value.axes[1].z==1.0)
+ check(DefaultFrameOwner.fromFrame().value.axes[1].y==1.0)
  val first=DefaultFrame.create_default_0();val second=DefaultFrame();val direction=DefaultDirection.create_default_0();val custom=DefaultVector3.create(2.0,3.0,4.0)
  first.normal.z=8.0;first.axes[0].x=9.0
  val decoded=DefaultFrame.decode(first.encode(Protocol.BINARY_INTEGER),Protocol.BINARY_INTEGER);val empty=DefaultFrame.decode("{}".toByteArray(),Protocol.JSON)
@@ -94,6 +137,12 @@ precondition(second.normal.z==1 && second.axes[0].x==1 && second.axes[1].y==1 &&
 ''',
         "c": '''#include "schema.h"
 int main(void){default_frame first={0},second={0};default_direction direction={0};default_vector3 custom={0};
+default_box box={0},sized={0},supplied={0};default_area area={0};default_frame_owner owner={0},untouched={0},nested={0},factory={0};
+if(default_box_create_default_2(&box,1,2)!=srl_ok || default_box_sized_default_2(&sized,1,2)!=srl_ok || default_area_create(&area,11,12)!=srl_ok || default_box_create(&supplied,1,2,&area)!=srl_ok || default_frame_owner_create_default_0(&owner)!=srl_ok || default_frame_owner_create_default_0(&untouched)!=srl_ok || default_frame_owner_from_nested_default_0(&nested)!=srl_ok || default_frame_owner_from_frame_default_0(&factory)!=srl_ok)return 4;
+owner.value.normal.z=8;owner.value.axes.data[0].x=9;
+int record_failed=box.area.width!=3 || box.area.height!=4 || sized.area.width!=10 || sized.area.height!=20 || supplied.area.width!=11 || supplied.area.height!=12 || untouched.value.normal.z!=1 || untouched.value.axes.data[0].x!=1 || nested.value.axes.data[0].z!=1 || nested.value.axes.data[1].z!=1 || factory.value.axes.data[1].y!=1;
+default_box_free(&box);default_box_free(&sized);default_box_free(&supplied);default_area_free(&area);default_frame_owner_free(&owner);default_frame_owner_free(&untouched);default_frame_owner_free(&nested);default_frame_owner_free(&factory);
+if(record_failed)return 5;
 if(default_frame_create_default_0(&first)!=srl_ok || default_frame_init(&second)!=srl_ok || default_direction_create_default_0(&direction)!=srl_ok || default_vector3_create(&custom,2,3,4)!=srl_ok)return 1;
 first.normal.z=8;first.axes.data[0].x=9;
 srl_buffer encoded={0};default_frame decoded={0},empty={0};if(default_frame_encode(&first,srl_binary_integer,&encoded)!=srl_ok || default_frame_decode(&decoded,encoded.data,encoded.size,srl_binary_integer,NULL)!=srl_ok || default_frame_decode(&empty,(const uint8_t*)"{}",2,srl_json,NULL)!=srl_ok)return 2;
@@ -139,7 +188,7 @@ def main():
         source.mkdir(parents=True, exist_ok=True)
         (source / FILES[language]).write_text(consumer(language), encoding="utf-8")
         examples.run(runner.build(language, "constructor_defaults", args.build / language, source))
-        print(f"PASS: {language}, typed nested/fixed-array defaults and custom coordinates", flush=True)
+        print(f"PASS: {language}, fresh empty-record/typed defaults and custom arguments", flush=True)
 
 
 if __name__ == "__main__":

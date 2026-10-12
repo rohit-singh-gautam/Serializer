@@ -3361,7 +3361,7 @@ void validate_constructions(const rohit::type_check::schema_input_buffer auto& i
             value.default_value.starts_with('{') && value.default_value.ends_with('}')) {
           value.default_value = value.default_value.substr(1, value.default_value.size() - 2);
         }
-        validate_portable_default(input, value, owner);
+        validate_portable_default(input, value, owner, parameter.empty_record_default_enabled);
         parameter.initializer = value.initializer;
         if (!value.default_factory.empty() && !factory_contract) { validate_factory_default(input, value, owner); }
         else if (factory_contract) { continue; }

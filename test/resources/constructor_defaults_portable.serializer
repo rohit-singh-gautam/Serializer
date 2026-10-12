@@ -1,4 +1,4 @@
-serializer version 1.14.0;
+serializer version 1.15.0;
 
 class portable_vector3<T> stable_ids {
   public T x (1) {0};
@@ -22,3 +22,39 @@ class portable_frame<T> stable_ids {
 instantiate default_vector3 = portable_vector3<double>;
 instantiate default_direction = portable_direction<double>;
 instantiate default_frame = portable_frame<double>;
+
+class default_area stable_ids {
+  public uint32 width (1) {3};
+  public uint32 height (2) {4};
+  public constructor(uint32 width_input, uint32 height_input) {
+    width = width_input;
+    height = height_input;
+  }
+}
+class default_box stable_ids {
+  public uint32 a (1);
+  public uint32 b (2);
+  public default_area area (3);
+  public constructor(uint32 a_input, uint32 b_input, default_area area_input = {}) {
+    a = a_input;
+    b = b_input;
+    area = area_input;
+  }
+  public factory sized(uint32 a_input, uint32 b_input, default_area area_input = {10, 20}) {
+    a = a_input;
+    b = b_input;
+    area = area_input;
+  }
+}
+class default_frame_owner stable_ids {
+  public default_frame value (1);
+  public constructor(default_frame input = {}) {
+    value = input;
+  }
+  public factory from_frame(default_frame input = {}) {
+    value = input;
+  }
+  public factory from_nested(default_frame input = {{}, {{}, {}}}) {
+    value = input;
+  }
+}

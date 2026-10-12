@@ -1,3 +1,10 @@
+# 1.1.44
+
+- Support language 1.15.0 fresh record defaults in constructor and factory parameters.
+- Preserve navigation and highlighting after empty and nested positional brace defaults.
+- Select language 1.15.0 in new schema snippets.
+- Keep both editor package versions synchronized.
+
 # 1.1.43
 
 - Support language 1.14.0 readonly field exposure, arithmetic mappings, callable additions, and structured defaults.

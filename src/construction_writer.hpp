@@ -206,8 +206,10 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
   const bool cpp = language == "cpp", python = language == "python", rust = language == "rust";
   const bool go = language == "go", swift = language == "swift", kotlin = language == "kotlin";
   const bool typescript = language == "typescript", js = language == "js";
-  const bool constexpr_owner = cpp && constexpr_construction(owner);
-  const bool nothrow_owner = cpp && nothrow_construction(owner);
+  const bool constexpr_owner = cpp && constexpr_construction(owner) &&
+      default_record_parameters_support(owner, default_record_qualifier::constant_evaluation);
+  const bool nothrow_owner = cpp && nothrow_construction(owner) &&
+      default_record_parameters_support(owner, default_record_qualifier::nonthrowing);
   // Calls require ordered statement evaluation; retain existing lowering for other bindings.
   const auto expression_text = [&](const behavior_expression& expression,
       const std::function<std::string(std::string_view)>& symbol,

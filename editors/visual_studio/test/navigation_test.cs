@@ -40,6 +40,32 @@ internal static class NavigationTest {
         ++checks;
       }
       live[model] = text;
+      var freshDefaultsText = "serializer version 1.15.0; include sales/order; class holder<T> { " +
+        "public constructor(demo::order input = {}, demo::order tail = {{}, 7}) {} " +
+        "public factory make(demo::order input = { /* fresh record */ }, demo::order tail = {10, 20}) {} " +
+        "public constructor<Input: demo::order>(Input input = {}, demo::order tail = {{}, 7}) {} " +
+        "public demo::order after; }";
+      live[model] = freshDefaultsText;
+      foreach (Match operand in Regex.Matches(freshDefaultsText, "demo::order")) {
+        for (var cursor = operand.Index; cursor <= operand.Index + operand.Length; ++cursor) {
+          var destination = NavigationRunner.Resolve(model, cursor, false, generated, live, CancellationToken.None);
+          Require(destination.Length == 1 && Path.GetFileName(destination[0].file) == "order.serializer",
+            "fresh and nested record defaults retain constructor, factory and following field type boundaries");
+          ++checks;
+        }
+      }
+      var freshParameter = freshDefaultsText.IndexOf("Input input", StringComparison.Ordinal);
+      Require(NavigationRunner.Resolve(model, freshParameter, false, generated, live, CancellationToken.None)
+        .Single().start == freshDefaultsText.IndexOf("Input:", StringComparison.Ordinal),
+        "fresh defaults preserve independent constructor input scopes");
+      ++checks;
+      foreach (var metadata in new[] { "input = {}", "tail =", "make(", "fresh record", "after;" }) {
+        Require(NavigationRunner.Resolve(model, freshDefaultsText.IndexOf(metadata, StringComparison.Ordinal),
+          false, generated, live, CancellationToken.None).Length == 0,
+          "fresh default metadata and parameter names retain normal editor navigation");
+        ++checks;
+      }
+      live[model] = text;
       var optionalText = "serializer version 1.7.0; include sales/order; " +
         "class box<T = optional<demo::order>> { public optional<T> value; } class model { " +
         "public optional<optional<demo::order>> nested; public optional<array<demo::order>> rows; " +

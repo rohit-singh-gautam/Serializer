@@ -121,6 +121,57 @@ inline bool nothrow_construction(const class_node& owner,
   });
 }
 
+enum class default_record_qualifier { constant_evaluation, nonthrowing };
+
+// Qualify host default construction reached by empty-record parameter defaults only.
+inline bool default_record_parameters_support(const class_node& owner,
+    default_record_qualifier qualifier) {
+  std::set<const class_node*> active;
+  std::function<bool(const class_node&)> check_owner;
+  // Generic arguments and wrapped storage can contain additional owning records.
+  const auto check_type = [&](const auto& self, const type_name& type) -> bool {
+    if (!std::all_of(type.arguments.begin(), type.arguments.end(),
+        [&](const auto& argument) { return self(self, argument); })) { return false; }
+    if (type.resolved_node && (type.resolved_node->type == object_type::class_type ||
+                              type.resolved_node->type == object_type::generic_definition)) {
+      return check_owner(static_cast<const class_node&>(*type.resolved_node));
+    }
+    return true;
+  };
+  // A recursive storage cycle cannot establish an inferred default-construction promise.
+  check_owner = [&](const class_node& value) {
+    if (!active.insert(&value).second) { return false; }
+    const bool external_default = std::any_of(value.constructions.begin(), value.constructions.end(),
+        [&](const auto& constructor) {
+          return constructor.constructor && constructor.parameters.empty() && constructor.declaration_only &&
+              !constructor.defaulted && (qualifier == default_record_qualifier::nonthrowing ||
+                  constructor.cpp_prefix.find("constexpr") == std::string::npos);
+        });
+    const bool supported = !external_default &&
+        std::all_of(value.parents.begin(), value.parents.end(), [&](const auto& base) {
+          return base.parent_class && check_owner(*base.parent_class);
+        }) && std::all_of(value.member_list.begin(), value.member_list.end(), [&](const auto& field) {
+          return field.wire_only || std::all_of(field.type_name_list.begin(), field.type_name_list.end(),
+              [&](const auto& type) { return check_type(check_type, type); });
+        });
+    active.erase(&value);
+    return supported;
+  };
+  // Positional record and fixed-array defaults may contain nested empty literals.
+  const auto check_initializer = [&](const auto& self, const value_initializer& value) -> bool {
+    if (value.kind == value_initializer::kind_type::default_record) {
+      return check_type(check_type, value.type);
+    }
+    return std::all_of(value.elements.begin(), value.elements.end(),
+        [&](const auto& element) { return self(self, element); });
+  };
+  return std::all_of(owner.constructions.begin(), owner.constructions.end(), [&](const auto& construction) {
+    return std::all_of(construction.parameters.begin(), construction.parameters.end(), [&](const auto& parameter) {
+      return !parameter.initializer || check_initializer(check_initializer, *parameter.initializer);
+    });
+  });
+}
+
 } // namespace rohit::serializer::writer::construction
 
 namespace rohit::serializer::writer::behavior {
@@ -138,7 +189,10 @@ inline bool constexpr_type(const class_node& owner, const type_name& value,
     if (type.type == object_type::primitive || type.type == object_type::enum_type) { return true; }
     if (type.resolved_node && (type.resolved_node->type == object_type::class_type ||
                               type.resolved_node->type == object_type::generic_definition)) {
-      return construction::constexpr_construction(static_cast<const class_node&>(*type.resolved_node));
+      const auto& record = static_cast<const class_node&>(*type.resolved_node);
+      return construction::constexpr_construction(record) &&
+          construction::default_record_parameters_support(record,
+              construction::default_record_qualifier::constant_evaluation);
     }
     return std::find(owner.type_parameters.begin(), owner.type_parameters.end(), type.name) != owner.type_parameters.end() ||
         std::any_of(input_types.begin(), input_types.end(), [&](const auto& input) { return input.name == type.name; });
@@ -164,7 +218,9 @@ inline bool constexpr_expression(const behavior_expression& node,
     if (node.call_constructor) {
       if (!node.call_target) { return false; }
       const auto& target = static_cast<const class_node&>(*node.call_target);
-      if (!construction::constexpr_construction(target)) { return false; }
+      if (!construction::constexpr_construction(target) ||
+          !construction::default_record_parameters_support(target,
+              construction::default_record_qualifier::constant_evaluation)) { return false; }
       if (node.call_method_index != std::numeric_limits<std::size_t>::max()) {
         const auto& constructor = target.constructions.at(node.call_method_index);
         if (constructor.declaration_only && !constructor.defaulted &&

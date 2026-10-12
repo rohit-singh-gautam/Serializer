@@ -29,6 +29,19 @@ inline std::string initializer(const value_initializer& value, std::string_view 
     }
     return literal;
   }
+  if (value.kind == value_initializer::kind_type::default_record) {
+    auto owner = type(value.type);
+    if (language == "cpp") { return owner + "{}"; }
+    if (language == "rust") { return owner + "::default()"; }
+    if (language == "go") {
+      if (owner.starts_with('*')) { owner.erase(0, 1); }
+      return "New" + owner + "()";
+    }
+    if (language == "java" || language == "csharp" || language == "js") {
+      return "new " + owner + "()";
+    }
+    return owner + "()";
+  }
   std::string arguments;
   for (const auto& element : value.elements) {
     if (!arguments.empty()) { arguments += ", "; }

@@ -1,5 +1,29 @@
 # Migrating to the snake_case Serializer API
 
+## Empty class-valued parameter defaults (12 October 2026)
+
+Compiler/runtime **1.20.0** supports language **1.15.0**. Raise the declaring
+file's header, including included files, when adding `area input = {}` to a
+constructor or named factory for a record with fields, or when nesting an empty
+record literal in a positional parameter default. Omission creates a fresh
+owning value from the class's schema field defaults and does not run parameterized
+authoring constructors or their hooks. An external public zero-argument constructor
+retains its host-defined behavior. Supplied values retain their ordinary binding
+semantics.
+
+Full positional defaults such as `area input = {10, 20}` remain available under
+`1.14.0`; already-valid defaults for actually empty records retain their earlier
+meaning. Partial/named record literals and ordinary function parameter defaults
+remain unavailable. Unconstrained type parameters still require the existing
+explicit factory contract instead of `Value input = {}`. Known schema record
+applications such as `area<T>` use their generated owning defaults.
+
+Regenerate and compile selected outputs. Use the portable `_default_<count>`
+wrappers where the backend cannot express native trailing record defaults.
+Verify fresh mutable defaults and explicitly supplied arguments in the consuming
+application. No field IDs, payload revisions or wire protocols change. See
+[the construction contract](docs/schema/construction.md#empty-class-valued-parameter-defaults-in-language-115).
+
 ## Owning APIs and typed defaults (12 October 2026)
 
 Compiler/runtime **1.19.0** supports language **1.14.0**. Raise the header only in

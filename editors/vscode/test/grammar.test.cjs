@@ -5,6 +5,43 @@ const { test } = require('node:test');
 const { Registry, INITIAL } = require('vscode-textmate');
 const onig = require('vscode-oniguruma');
 
+test('language 1.15 fresh record defaults preserve constructor and factory boundaries', async () => {
+  const grammar = await loadGrammar();
+  const lines = [
+    'serializer version 1.15.0; class holder {',
+    'public constructor(lib::area area = {},',
+    '  lib::frame frame = {{}, 7}, lib::area tail = {10, 20}) { value = area; }',
+    'public factory make(lib::area area = { /* fresh record */ }, lib::frame frame = {{}, 7}) { value = area; }',
+    'public lib::area after; }',
+  ];
+  let state = INITIAL;
+  const tokens = lines.map(line => {
+    const result = grammar.tokenizeLine(line, state);
+    state = result.ruleStack;
+    return result.tokens;
+  });
+  /** Inspect a defaulted signature token without consuming the following declaration. */
+  const scopes = (line, word) => {
+    const offset = lines[line].indexOf(word);
+    return tokens[line].find(token => token.startIndex <= offset && token.endIndex > offset).scopes;
+  };
+  assert.equal(scopes(0, '1.15.0').at(-1), 'constant.numeric.serializer');
+  assert.equal(scopes(1, 'constructor').at(-1), 'storage.type.serializer');
+  assert.equal(scopes(3, 'make').at(-1), 'entity.name.function.serializer');
+  for (const line of [1, 2, 3, 4]) {
+    for (const match of lines[line].matchAll(/(?:area|frame)(?= (?:area|frame|tail|after))/g)) {
+      assert.equal(tokens[line].find(token => token.startIndex <= match.index && token.endIndex > match.index)
+        .scopes.at(-1), 'entity.name.type.serializer');
+    }
+  }
+  assert.equal(scopes(2, '7').at(-1), 'constant.numeric.serializer');
+  assert.equal(scopes(2, '10').at(-1), 'constant.numeric.serializer');
+  assert.ok(scopes(3, 'fresh record').some(scope => /^comment\./.test(scope)));
+  assert.equal(state.depth, 1, 'empty and nested defaults close before the next class declaration');
+  const snippets = JSON.parse(fs.readFileSync(path.join(__dirname, '../snippets/serializer.json'), 'utf8'));
+  assert.equal(snippets.Schema.body[0], 'serializer version 1.15.0;');
+});
+
 test('language 1.14 exposure, operator mappings and callable additions preserve schema boundaries', async () => {
   const grammar = await loadGrammar();
   const lines = [
@@ -211,7 +248,7 @@ test('optional and nested container generics highlight types without consuming f
   }
   assert.equal(result.ruleStack.depth, 1);
   const snippets = JSON.parse(fs.readFileSync(path.join(__dirname, '../snippets/serializer.json'), 'utf8'));
-  assert.equal(snippets.Schema.body[0], 'serializer version 1.14.0;');
+  assert.equal(snippets.Schema.body[0], 'serializer version 1.15.0;');
   assert.equal(snippets['Optional field'].prefix, 'optional');
   assert.match(snippets['Optional field'].body, /optional</);
 });

@@ -74,6 +74,7 @@ construction_declaration parse_construction(const rohit::type_check::schema_inpu
   while (!input.full() && *input != ')') {
     function_parameter parameter;
     parameter.portable_default_enabled = result.member_initialization_enabled;
+    parameter.empty_record_default_enabled = active_language_version >= language_version{1u, 15u, 0u};
     parameter.type = parse_type_expression(input, space);
     skip_whitespace_and_comment(input);
     if (parameter.type.name == "array" && !parameter.type.application && !input.full() && *input == '[') {

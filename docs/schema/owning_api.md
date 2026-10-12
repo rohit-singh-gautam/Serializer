@@ -5,6 +5,12 @@ IDs, names, payload revisions, or the managed journal/collaboration protocols.
 Each declaring file, including included files, must select language **1.14.0**.
 Earlier schema contracts keep their previous generation behavior.
 
+Language `1.15.0` separately adds `area input = {}` for class-valued constructor
+and named-factory parameters, including nested empty record literals. An omitted
+argument receives a fresh owning value with its schema field defaults. Full
+positional defaults remain a `1.14.0` feature; earlier actually empty-record
+defaults keep their meaning. See [empty parameter defaults](construction.md#empty-class-valued-parameter-defaults-in-language-115).
+
 ## Readonly C++ getters
 
 ```text

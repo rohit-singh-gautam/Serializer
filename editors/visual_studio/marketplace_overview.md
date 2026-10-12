@@ -14,6 +14,7 @@ navigation for projects using Serializer — State Framework.
 - Schema language 1.5.0 warning suppression such as `ignore(warning magic, version)`,
   with type navigation preserved beside field metadata and unnamed payload revisions.
 - Schema language 1.9.0 stateless constraints, computed size headers and portable conversions.
+- Language 1.15.0 fresh record defaults in constructor/factory parameters, including nested positional braces.
 - Language 1.14.0 readonly field exposure, arithmetic mappings, reciprocal/external constructors, C++ declaration additions and typed nested defaults.
 - Language 1.13.0 C++ `noexcept(cpp)` function contracts, external declarations and native methods with either C++ qualifier order.
 - Language 1.12.0 overloaded constructors, generic readonly/common-type signatures, factory-constrained defaults, native storage/constexpr contracts and authoring hooks.

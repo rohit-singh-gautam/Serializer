@@ -1,6 +1,6 @@
 # Serializer compiler and schema versions
 
-The compiler and runtime release is **1.19.0**, defined by `project(... VERSION ...)` in the
+The compiler and runtime release is **1.20.0**, defined by `project(... VERSION ...)` in the
 root CMake file. `serializer --version` (or `-v`) prints that release and the
 supported schema language version. CMake generates `<rohit/version.hpp>` with
 `rohit::serializer::compiler_version`, `schema_language_version_text`, and
@@ -35,7 +35,7 @@ class account stable_ids {
 The statement must precede every declaration. Whitespace and `//` or `/* ... */`
 comments may precede it or separate its keywords. The version has exactly three
 unsigned decimal components separated by dots, without whitespace or comments
-inside the version. The supported language is **1.14.0**, accepting older contracts
+inside the version. The supported language is **1.15.0**, accepting older contracts
 in the same major version. The original
 `serializer version 1;` is an exact alias for `serializer version 1.0.0;`, exclusive
 to version 1; future integer majors such as `2;` are not aliases for `2.0.0;`.
@@ -71,8 +71,14 @@ the complete parsed result. See [licensing and notice rules](../project/licensin
 The repository's [schema language versioning policy](../../AGENTS.md#schema-language-versioning)
 uses `major.minor.patch` for language releases, independently of the compiler
 release. `serializer_schema_language_version` in the root CMake file defines the
-language release separately from `project(... VERSION ...)`. Compiler **1.19.0**
-currently supports language **1.14.0**; `serializer --version` reports both.
+language release separately from `project(... VERSION ...)`. Compiler **1.20.0**
+currently supports language **1.15.0**; `serializer --version` reports both.
+
+Language `1.15.0` adds [empty class-valued constructor/factory parameter defaults](../schema/construction.md#empty-class-valued-parameter-defaults-in-language-115),
+including nested empty record literals. Select that header in each declaring
+file, including included files. The existing full positional record defaults
+remain available with `1.14.0`, and actually empty records retain their earlier
+default behavior. These changes add authoring APIs without wire metadata.
 
 Language `1.14.0` adds [owning record APIs](../schema/owning_api.md), including
 readonly getters, direct initialization/defaults, reciprocal signatures, C++

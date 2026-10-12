@@ -167,6 +167,36 @@ async function main() {
     path.join(directory, 'stateless-layout'), [], outputs, true, true);
   checks += await verify(path.join(repository, 'test/resources/inferred_arrays.serializer'),
     path.join(directory, 'inferred-arrays'), [], { cpp: outputs.cpp }, true);
+  const freshDefaultsInput = path.join(directory, 'fresh-record-defaults.serializer');
+  fs.writeFileSync(freshDefaultsInput, `serializer version 1.15.0;
+namespace fresh_models {
+  class area stable_ids {
+    public uint32 width (1) {3};
+    public uint32 height (2) {4};
+    public constructor(uint32 width_input, uint32 height_input) {
+      width = width_input;
+      height = height_input;
+    }
+  }
+  class frame stable_ids {
+    public fresh_models::area extent (1);
+    public uint32 tag (2) {7};
+  }
+  class holder stable_ids {
+    public fresh_models::area extent (1);
+    public fresh_models::frame placement (2);
+    public constructor(fresh_models::area area_input = {}, fresh_models::frame frame_input = {{}, 7}) {
+      extent = area_input;
+      placement = frame_input;
+    }
+    public factory sized(fresh_models::area area_input = {10, 20}, fresh_models::frame frame_input = {}) {
+      extent = area_input;
+      placement = frame_input;
+    }
+  }
+}
+`);
+  checks += await verify(freshDefaultsInput, path.join(directory, 'fresh-record-defaults'), [], outputs, true, true);
   const nonthrowingInput = path.join(directory, 'noexcept.serializer');
   fs.writeFileSync(nonthrowingInput, `serializer version 1.13.0;
 namespace nonthrowing_models {
@@ -268,7 +298,7 @@ namespace Names_ { class Value_Type {} }
     checks += await verify(path.join(repository, `test/resources/${name}.serializer`),
       path.join(directory, name), ['--cpp.naming', 'preserve'], { cpp: outputs.cpp }, true, true);
   }
-  console.log(`Fresh compiler navigation passed: ${checks} bidirectional type/field checks across all 11 ordinary output languages; language 1.14 C++ readonly getters and deleted temporary overloads; language 1.13 C++ noexcept signature types; C++ language 1.12 native/factory contracts, constructor overloads and generic readonly signatures; projected readonly record calls, generic record map keys, owning generic inheritance and inherited declarations, nested optionals and generic containers, unnamed revisions and warning suppression, unions and variants, digest fields, compact fields, typed magic and inferred arrays, identical codecs for legacy/dotted headers, transitive includes, acronyms, preserved names, and direct/separated managed classes across all C++ profiles.`);
+  console.log(`Fresh compiler navigation passed: ${checks} bidirectional type/field checks across all 11 ordinary output languages; language 1.15 fresh constructor/factory record defaults and nested positional defaults; language 1.14 C++ readonly getters and deleted temporary overloads; language 1.13 C++ noexcept signature types; C++ language 1.12 native/factory contracts, constructor overloads and generic readonly signatures; projected readonly record calls, generic record map keys, owning generic inheritance and inherited declarations, nested optionals and generic containers, unnamed revisions and warning suppression, unions and variants, digest fields, compact fields, typed magic and inferred arrays, identical codecs for legacy/dotted headers, transitive includes, acronyms, preserved names, and direct/separated managed classes across all C++ profiles.`);
 }
 
 main().catch(error => { console.error(error.stderr?.toString() || error); process.exitCode = 1; });

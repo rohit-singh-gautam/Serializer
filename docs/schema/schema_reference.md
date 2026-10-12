@@ -13,7 +13,15 @@ Start with [small schema examples](schema_examples.md) if you are new to the syn
 ## Schema structure
 
 Every `.serializer` file starts with a supported language header before declarations.
-Use `serializer version 1.14.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, `1.11.0`, `1.12.0`, and `1.13.0` remain supported.
+Use `serializer version 1.15.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, `1.11.0`, `1.12.0`, `1.13.0`, and `1.14.0` remain supported.
+
+Language `1.15.0` adds [empty class-valued parameter defaults](construction.md#empty-class-valued-parameter-defaults-in-language-115):
+`area input = {}` in constructors and named factories creates a fresh owning
+generated record using its field defaults when omitted. Nested empty record
+literals are also supported in positional parameter defaults. Full positional
+record defaults remain available since `1.14.0`; partial/named literals and
+ordinary function parameter defaults remain unavailable. Each declaring file,
+including included files, selects the required language contract.
 
 Language `1.14.0` adds [owning record APIs](owning_api.md): `expose readonly(access) as name`,
 typed recursive defaults, direct C++ constructor initialization, reciprocal

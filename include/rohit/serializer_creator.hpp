@@ -334,7 +334,7 @@ enum class auto_size_scope { record, payload };
 
 // Typed owning defaults retain a recursive value tree, independently of each output's syntax.
 struct value_initializer {
-  enum class kind_type { scalar, fixed_array, record };
+  enum class kind_type { scalar, fixed_array, record, default_record };
   kind_type kind{kind_type::scalar};
   type_name type{std::string{}, nullptr};
   std::string value{};
@@ -478,6 +478,7 @@ struct function_parameter {
   std::string default_factory{};
   bool portable_default_enabled{false};
   std::optional<value_initializer> initializer{};
+  bool empty_record_default_enabled{false}; // Construction parameters opt in with language 1.15.
 };
 
 // One owned field initialization, bound to a parameter, literal, or typed default factory.

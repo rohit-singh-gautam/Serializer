@@ -2,7 +2,14 @@
 
 [Documentation index](../README.md) · [Application and build guides](README.md)
 
-Compiler/runtime **1.19.0** and language **1.14.0** add [owning record APIs](../schema/owning_api.md).
+Compiler/runtime **1.20.0** supports language **1.15.0**, which adds
+[empty class-valued parameter defaults](../schema/construction.md#empty-class-valued-parameter-defaults-in-language-115).
+Declare `area input = {}` in a constructor or named factory to supply fresh owning
+field defaults when omitted; `area input = {10, 20}` remains a full positional
+default from `1.14.0`. Default overloads remain available across output languages;
+ordinary function parameter defaults and partial/named record literals are unavailable.
+
+Language **1.14.0** adds [owning record APIs](../schema/owning_api.md).
 Use explicit readonly getter exposure for borrowed C++ access to private storage,
 direct constructor bindings for nonassignable representations, and typed nested
 defaults for portable fresh owning values. Reciprocal constructor types resolve
@@ -430,7 +437,7 @@ class person stable_ids {
 ```
 
 - Use `class`, `enum`, and `namespace`; schema declarations are not C++ source.
-- Start every new `.serializer` file with `serializer version 1.14.0;` before declarations.
+- Start every new `.serializer` file with `serializer version 1.15.0;` before declarations.
   Older `1.0.0` files remain supported.
   The original `serializer version 1;` is an exact alias for `1.0.0`, exclusive to
   version 1. Future versions require three components. The language version is
@@ -494,7 +501,7 @@ namespace demo {
   spaces, backslashes, absolute paths, and other extensions are rejected.
   `./` and `../` are supported. Paths resolve from the including file, independently
   of the compiler's working directory. Comments may separate directive tokens.
-- Every file requires its own supported version header. `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, `1.11.0`, `1.12.0`, `1.13.0`, `1.14.0`, and the
+- Every file requires its own supported version header. `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, `1.11.0`, `1.12.0`, `1.13.0`, `1.14.0`, `1.15.0`, and the
   original `1` alias may coexist in an include graph. Typed magic and inferred
   arrays require `1.1.0`, compact scalars require `1.2.0`, and built-in digests
   require `1.3.0`; owning variants require `1.4.0` and warning suppression requires
@@ -507,6 +514,8 @@ namespace demo {
   Readonly exposure, aggregate defaults, reciprocal constructor signatures,
   declaration-site additions, arithmetic mappings and owning constructor calls
   require `1.14.0` in their declaring file.
+  Empty class-valued constructor/factory parameter defaults for records with
+  fields, including nested empty record literals, require `1.15.0`.
   Includes follow that
   header and precede all declarations, at file scope only.
 - Nested dependencies load before their includers. Repeated paths, normalized path

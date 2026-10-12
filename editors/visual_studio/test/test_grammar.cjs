@@ -210,6 +210,32 @@ function checkAuthoringContracts(grammar, label) {
   return expected.length + 1;
 }
 
+/** Qualify empty constructor/factory record defaults against installed and fallback grammars. */
+function checkFreshRecordDefaults(grammar, label) {
+  const lines = [
+    'serializer version 1.15.0; class holder {',
+    'public constructor(lib::area area = {},',
+    '  lib::frame frame = {{}, 7}, lib::area tail = {10, 20}) { value = area; }',
+    'public factory make(lib::area area = { /* fresh record */ }, lib::frame frame = {{}, 7}) { value = area; }',
+    'public lib::area after; }',
+  ];
+  const result = tokenize(grammar, lines);
+  const expected = [[0, '1.15.0', 'constant.numeric.serializer'],
+    [1, 'constructor', 'storage.type.serializer'],
+    [1, 'area area', 'entity.name.type.serializer'],
+    [2, 'frame frame', 'entity.name.type.serializer'],
+    [2, 'area tail', 'entity.name.type.serializer'],
+    [3, 'make', 'entity.name.function.serializer'],
+    [3, 'area area', 'entity.name.type.serializer'],
+    [3, 'frame frame', 'entity.name.type.serializer'],
+    [4, 'area after', 'entity.name.type.serializer']];
+  for (const [line, word, scope] of expected) {
+    assert.ok(scopesAt(lines, result, line, word).includes(scope), `${label}: ${word} lacks ${scope}`);
+  }
+  assert.equal(result.state.depth, 1, `${label}: fresh defaults consumed the following declaration`);
+  return expected.length + 1;
+}
+
 /** Exercise real Visual Studio grammar assets and missing-provider fallback separately. */
 async function main() {
   const directory = process.argv[2];
@@ -228,7 +254,9 @@ async function main() {
     checkConstructionContracts(host, 'installed host grammar') +
     checkConstructionContracts(fallback, 'missing grammar fallback') +
     checkAuthoringContracts(host, 'installed host grammar') +
-    checkAuthoringContracts(fallback, 'missing grammar fallback');
+    checkAuthoringContracts(fallback, 'missing grammar fallback') +
+    checkFreshRecordDefaults(host, 'installed host grammar') +
+    checkFreshRecordDefaults(fallback, 'missing grammar fallback');
   console.log(`Installed grammar assets passed ${checks} embedded syntax/boundary checks across all ${nativeLanguages.length} tags.`);
   console.log(`Loaded ${grammars.size} installed grammar scopes; this validates assets with the TextMate tokenizer, not an editor-host UI run.`);
 }

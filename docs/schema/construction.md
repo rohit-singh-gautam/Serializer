@@ -1,5 +1,9 @@
 # Portable value construction and transient layout
 
+Language `1.15.0` adds empty class-valued constructor/factory parameter defaults
+for records with fields, including nested empty record literals. See
+[the default contract below](#empty-class-valued-parameter-defaults-in-language-115).
+
 Language `1.14.0` adds direct C++ member initialization, typed recursive defaults,
 reciprocal constructor signature resolution, and external/defaulted constructor
 declarations. See [owning APIs](owning_api.md) for the complete contract and
@@ -110,6 +114,75 @@ and variant fields, inherited field assignment, view/packed construction, and
 arbitrary construction expressions are outside this initial contract. Borrowing `cpp.emission_only`
 models reject construction APIs, and structured defaults cannot embed their
 owning record recursively.
+
+## Empty class-valued parameter defaults in language 1.15
+
+Compiler/runtime `1.20.0` and language `1.15.0` allow `= {}` on an owning generated
+record parameter in a constructor or named factory. Omitting the argument creates
+a fresh instance using its schema field defaults, without invoking parameterized
+authoring constructors or their validation/initialization hooks. This includes
+known generic schema record applications such as `area<T>`; it does not grant default
+construction to an unconstrained type parameter such as `Value`.
+
+```text
+serializer version 1.15.0;
+class area stable_ids {
+  public int32 width (1) {10};
+  public int32 height (2) {20};
+}
+class rectangle stable_ids {
+  public int32 x (1);
+  public int32 y (2);
+  public area extent (3);
+  public constructor(int32 x_value, int32 y_value, area input = {}) {
+    x = x_value;
+    y = y_value;
+    extent = input;
+  }
+  public factory sized(int32 x_value, int32 y_value, area input = {10, 20}) {
+    x = x_value;
+    y = y_value;
+    extent = input;
+  }
+}
+```
+
+With the default naming profile, JavaScript's `Rectangle.create(1, 2)` receives a
+new `Area` whose width and height are `10` and `20`; C++ exposes
+`rectangle::create(1, 2)`. A supplied
+`area` retains its supplied values. Portable
+`create_default_2(1, 2)` and `sized_default_2(1, 2)` wrappers expose the same
+omitted-argument behavior in every backend's naming profile; C also takes the
+destination argument. Native shortened signatures remain backend-specific.
+Mutable records are never shared across omitted calls, including in Python.
+
+Full positional record defaults such as `area input = {10, 20}` already work
+in language `1.14.0`. They require exactly the supported fields in declaration
+order. The new empty form chooses all field defaults instead; partial defaults
+such as `{10}` and named forms such as `{width: 10}` are unavailable. Nested
+empty literals for records with fields in positional parameter defaults also
+require `1.15.0`.
+An actually empty record's already-valid `1.14.0` default remains valid under
+that header. Earlier schemas retain their existing default semantics.
+
+Record literal defaults require ordinary unpacked owning generated records
+without bases, managed storage or native storage. Method-only native blocks
+qualified with `storage(none)` remain eligible. The empty default form requires
+public default construction. Fixed arrays retain their exact cardinality
+requirements; `{}` does not request an empty or zero-filled
+fixed-array parameter. All parameters after the first default must still have
+defaults. Ordinary member/namespace function parameter defaults are unavailable.
+Use `default(factory_name)` for the existing explicit public zero-argument
+factory contract, including constrained generic factory defaults.
+
+An external public zero-argument constructor retains its host-defined behavior;
+this feature does not inspect or suppress that implementation. Empty defaults
+apply to constructor/factory parameters and do not change member initializer syntax.
+
+Parameter defaults change authoring APIs only. They introduce no field IDs,
+payload revisions or wire metadata and leave codec default construction and
+missing-field decode behavior unchanged. See [owning APIs](owning_api.md) for
+the `1.14.0` positional-literal and direct-construction contracts.
 
 ## Extended bindings in language 1.11
 

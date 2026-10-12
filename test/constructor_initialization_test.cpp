@@ -6,10 +6,24 @@
 
 #include <array>
 #include <cstdint>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
+
+namespace {
+bool reject_external_default{};
+}
+
+namespace constructor_initialization {
+// Supply a failing host default constructor to verify omitted schema arguments propagate errors.
+external_area::external_area() {
+  if (reject_external_default) {
+    throw std::runtime_error{"External area default construction failed"};
+  }
+}
+} // namespace constructor_initialization
 
 namespace {
 // Qualify input ownership without granting default construction or either assignment operation.
@@ -124,6 +138,101 @@ TEST(constructor_initialization, nested_defaults_are_fresh_and_partial_decode_ke
   EXPECT_EQ(decoded.axes[0].x, 1);
   EXPECT_EQ(round_trip(first).normal.z, 8);
   EXPECT_EQ(round_trip(first).axes[0].x, 9);
+}
+
+TEST(constructor_initialization, empty_record_parameter_defaults_keep_schema_values_and_overrides) {
+  using area = constructor_initialization::area;
+  using box = constructor_initialization::box;
+  constexpr box omitted{1, 2};
+  static_assert(omitted.a == 1 && omitted.b == 2);
+  static_assert(omitted.extent.width == 3 && omitted.extent.height == 4);
+  static_assert(box::create(1, 2).extent.width == 3);
+  static_assert(box::create_default_2(1, 2).extent.height == 4);
+  static_assert(box::sized(1, 2).extent.width == 10);
+  static_assert(box::sized_default_2(1, 2).extent.height == 20);
+  constexpr box customized{1, 2, area::create(11, 12)};
+  static_assert(customized.extent.width == 11 && customized.extent.height == 12);
+  const auto decoded = round_trip(customized);
+  EXPECT_EQ(decoded.extent.width, 11);
+  EXPECT_EQ(decoded.extent.height, 12);
+
+  using owner = constructor_initialization::frame_owner;
+  static_assert(owner::create().value.normal.z == 1);
+  static_assert(owner::from_frame().value.axes[0].x == 1);
+  static_assert(owner::from_nested().value.axes[0].z == 1);
+  static_assert(owner::from_nested().value.axes[1].z == 1);
+  auto first = owner::create();
+  const auto second = owner::create();
+  first.value.normal.z = 8;
+  first.value.axes[0].x = 9;
+  EXPECT_EQ(second.value.normal.z, 1);
+  EXPECT_EQ(second.value.axes[0].x, 1);
+  EXPECT_EQ(owner::from_frame_default_0().value.axes[1].y, 1);
+
+  using generic_owner = constructor_initialization::generic_frame_owner<double>;
+  static_assert(generic_owner::create().value.normal.z == 1);
+  static_assert(generic_owner::from_frame().value.axes[0].x == 1);
+  using custom_owner = constructor_initialization::generic_frame_owner<immutable_input>;
+  static_assert(custom_owner::create().value.normal.z.value == 1);
+  static_assert(custom_owner::from_frame().value.axes[1].y.value == 1);
+}
+
+TEST(constructor_initialization, empty_record_defaults_preserve_language_and_shape_boundaries) {
+  for (const auto text : {
+      "serializer version 1.14.0; class area { public uint32 width {3}; } class box { public area value; public constructor(area input = {}) {value=input;} }",
+      "serializer version 1.15.0; class area { public uint32 width; public uint32 height; } class box { public area value; public constructor(area input = {10}) {value=input;} }",
+      "serializer version 1.15.0; class box<T> { public T value; public constructor(T input = {}) {value=input;} }",
+      "serializer version 1.15.0; class box { public uint32 value; public constructor(uint32 input = {}) {value=input;} }",
+      "serializer version 1.15.0; class box { public array[2] uint32 value; public constructor(array[2] uint32 input = {}) {value=input;} }",
+      "serializer version 1.15.0; class area { public uint32 width; private constructor() = default; } class box { public area value; public constructor(area input = {}) {value=input;} }",
+      "serializer version 1.15.0; class area { public uint32 width; } class box { public area value; public constructor(area input = {}, uint32 required) {value=input;} }"}) {
+    EXPECT_THROW(parse(text), std::exception) << text;
+  }
+  const auto legacy_empty = parse("serializer version 1.14.0; class area {} "
+      "class box { public area value; public constructor(area input = {}) {value=input;} }");
+  rohit::serializer::writer::cpp_options options;
+  options.format = false;
+  EXPECT_NO_THROW(rohit::serializer::writer::cpp::generate(legacy_empty, options));
+}
+
+TEST(constructor_initialization, external_default_constructor_controls_empty_default_qualification) {
+  rohit::serializer::writer::cpp_options options;
+  options.format = false;
+  options.rename_identifiers = false;
+  for (const auto declaration : {"public constructor();",
+                                 "public cpp { constexpr } constructor();"}) {
+    const auto schema = parse(std::string{"serializer version 1.15.0; "
+        "class area { public uint32 width; "} + declaration +
+        " } class box { public area value; public constructor(area input = {}) {value=input;} }");
+    const auto output = rohit::serializer::writer::cpp::generate(schema, options);
+    EXPECT_EQ(output.find("box create_default_0() noexcept"), std::string::npos);
+    if (std::string_view{declaration}.find("constexpr") == std::string_view::npos) {
+      EXPECT_NE(output.find("[[nodiscard]] static box create_default_0()"), std::string::npos);
+      EXPECT_EQ(output.find("static constexpr box create_default_0()"), std::string::npos);
+    } else {
+      EXPECT_NE(output.find("static constexpr box create_default_0()"), std::string::npos);
+    }
+  }
+  const auto expression_schema = parse("serializer version 1.15.0; "
+      "class area { public uint32 width; public constructor(); } "
+      "class box { public uint32 first; public area value; "
+      "public constructor(uint32 first_input, area input = {}) { first=first_input; value=input; } } "
+      "function box make() readonly expression(box(1)); "
+      "function box copy(box input) readonly expression(input);");
+  const auto expression_output = rohit::serializer::writer::cpp::generate(expression_schema, options);
+  EXPECT_NE(expression_output.find("::box make()"), std::string::npos);
+  EXPECT_EQ(expression_output.find("constexpr ::box make()"), std::string::npos);
+  EXPECT_NE(expression_output.find("::box copy("), std::string::npos);
+  EXPECT_EQ(expression_output.find("constexpr ::box copy("), std::string::npos);
+}
+
+TEST(constructor_initialization, external_empty_record_defaults_propagate_host_constructor_failures) {
+  using owner = constructor_initialization::external_area_owner;
+  static_assert(!noexcept(owner::create_default_1(1)));
+  reject_external_default = true;
+  EXPECT_THROW(static_cast<void>(owner::create_default_1(1)), std::runtime_error);
+  EXPECT_THROW(static_cast<void>(owner::create(1)), std::runtime_error);
+  reject_external_default = false;
 }
 
 TEST(constructor_initialization, older_constructor_lowering_retains_its_contract) {

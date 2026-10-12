@@ -12,7 +12,7 @@ in their guide.
 
 [Back to the project overview](../../README.md)
 
-Current compiler/runtime **1.19.0** supports language **1.14.0** and includes
+Current compiler/runtime **1.20.0** supports language **1.15.0** and includes
 `constexpr` ordinary C++ codec templates and a native positional/integer-key
 scalar decoder subset for constexpr-safe typed streams. Eligible checked
 arithmetic and dotted-value construction/conversions also constant-evaluate.
@@ -20,6 +20,17 @@ Useful value results are `[[nodiscard]]`; proven nonthrowing value operations us
 `noexcept`, with conditional guarantees for generic comparisons/observers.
 See [direct codecs and qualifiers](../serialization/constant_evaluation.md#34-direct-generated-codecs-and-value-qualifiers)
 for limitations and executed qualification.
+
+Language `1.15.0` adds [empty class-valued parameter defaults](../schema/construction.md#empty-class-valued-parameter-defaults-in-language-115)
+for constructors and named factories, including nested empty record literals.
+An omitted `area input = {}` creates fresh owning field defaults, without shared
+mutable state or parameterized authoring hooks. Full positional defaults remain
+available from
+`1.14.0`; partial/named literals and ordinary function defaults are unavailable.
+Unconstrained generic type parameters, inherited/managed/packed/native-storage
+records and array cardinality relaxation remain outside this contract. See
+[qualification](../verification/verification-empty-record-defaults-2026-10-12.md)
+for this feature's executed verification status.
 
 Language `1.14.0` adds [owning record APIs](../schema/owning_api.md), with
 [four maintained examples](../../example/README.md#owning-record-apis): borrowed
@@ -241,7 +252,7 @@ behavior remain unchanged.
 
 Language-specific output profiles select layouts and naming conventions. Schemas use
 `.serializer` and begin with a supported language header; new schemas use
-`serializer version 1.14.0;`. Older `1.13.0`, `1.12.0`, `1.11.0`, `1.10.0`, `1.9.0`, `1.8.0`, `1.7.0`, `1.6.0`, `1.5.0`, `1.4.0`, `1.3.0`, `1.2.0`, `1.1.0`, `1.0.0` and the original `1` alias remain supported.
+`serializer version 1.15.0;`. Older `1.14.0`, `1.13.0`, `1.12.0`, `1.11.0`, `1.10.0`, `1.9.0`, `1.8.0`, `1.7.0`, `1.6.0`, `1.5.0`, `1.4.0`, `1.3.0`, `1.2.0`, `1.1.0`, `1.0.0` and the original `1` alias remain supported.
 Schema language and compiler versions are independent.
 Future versions require all three components. Share declarations with `include
 common;` before any declarations. Paths are unquoted and relative to the including file;
@@ -253,7 +264,7 @@ Namespace scopes are reused during parsing; duplicate types and namespace/type c
 are rejected. See [schema includes](../guides/usage.md#share-declarations-with-includes) and the
 [paired C++/Java examples](../../example/includes/README.md). Quoted defaults preserve
 literal spaces, for example `public string label { "schema default" };`; escaping the
-space is unnecessary. Run `serializer --version` for compiler version **1.19.0** and
+space is unnecessary. Run `serializer --version` for compiler version **1.20.0** and
 supported schema versions. See [command-line options](../guides/command_line.md) for
 multi-language generation and overrides.
 

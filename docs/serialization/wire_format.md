@@ -1,5 +1,12 @@
 # Wire format and decoding contract
 
+Language `1.15.0` empty class-valued constructor/factory parameter defaults add
+no wire fields or metadata. Omitting such an argument creates fresh schema field
+defaults for authoring; codec default construction, existing field defaults,
+missing-field decoding, payload revisions, managed fingerprints, journal records
+and collaboration protocols retain their contracts. Earlier language headers
+preserve their default semantics. See [parameter defaults](../schema/construction.md#empty-class-valued-parameter-defaults-in-language-115).
+
 Language `1.14.0` owning API additions introduce no field tags or serialized
 metadata. Readonly getter references, constructor qualifiers and arithmetic
 operators access existing storage. Direct C++ constructor lowering preserves

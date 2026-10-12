@@ -4,7 +4,8 @@
 // Bind one typed recursive initializer; owned record fields use their declaration order.
 value_initializer bind_value_initializer(const rohit::type_check::schema_input_buffer auto& input,
     const member& field, const class_node& owner, std::string text,
-    std::size_t depth = 0, std::size_t* shared_nodes = nullptr) {
+    std::size_t depth = 0, std::size_t* shared_nodes = nullptr,
+    bool empty_record_default_enabled = false) {
   constexpr std::size_t maximum_depth = 32, maximum_nodes = 65536;
   std::size_t local_nodes{};
   auto& nodes = shared_nodes ? *shared_nodes : local_nodes;
@@ -36,7 +37,8 @@ value_initializer bind_value_initializer(const rohit::type_check::schema_input_b
       element.modifier = member::modifier_type::none;
       element.initializer.reset();
       for (auto& value : values) {
-        result.elements.push_back(bind_value_initializer(input, element, owner, std::move(value), depth + 1, &nodes));
+        result.elements.push_back(bind_value_initializer(input, element, owner, std::move(value),
+            depth + 1, &nodes, empty_record_default_enabled));
       }
     } else {
       result.kind = value_initializer::kind_type::record;
@@ -47,6 +49,23 @@ value_initializer bind_value_initializer(const rohit::type_check::schema_input_b
           std::any_of(record.native_blocks.begin(), record.native_blocks.end(),
               [](const auto& block) { return block.language == "cpp" && !block.no_instance_storage; })) {
         throw exception::bad_member_spec{input, "Portable record defaults require nonmanaged owning records without bases/native storage"};
+      }
+      const bool has_fields = std::any_of(record.member_list.begin(), record.member_list.end(),
+          [](const auto& member) { return !member.wire_only; });
+      if (values.empty() && has_fields) {
+        if (!empty_record_default_enabled) {
+          throw exception::bad_member_spec{input,
+              "Empty record parameter defaults require serializer version 1.15.0"};
+        }
+        if (std::any_of(record.constructions.begin(), record.constructions.end(), [](const auto& construction) {
+            return construction.constructor && construction.parameters.empty() &&
+                construction.access != access_type::public_access;
+          })) {
+          throw exception::bad_member_spec{input, "Empty record parameter default requires a public default constructor"};
+        }
+        // Default construction keeps schema field defaults and never runs a parameterized authoring hook.
+        result.kind = value_initializer::kind_type::default_record;
+        return result;
       }
       std::size_t position{};
       for (const auto& record_field : record.member_list) {
@@ -68,7 +87,7 @@ value_initializer bind_value_initializer(const rohit::type_check::schema_input_b
         };
         for (auto& type : element.type_name_list) { substitute(substitute, type); }
         result.elements.push_back(bind_value_initializer(input, element, owner,
-            std::move(values[position++]), depth + 1, &nodes));
+            std::move(values[position++]), depth + 1, &nodes, empty_record_default_enabled));
       }
       if (position != values.size()) {
         throw exception::bad_member_spec{input, "Portable record default has excessive field values"};
@@ -106,7 +125,8 @@ value_initializer bind_value_initializer(const rohit::type_check::schema_input_b
 
 // Retain ordinary scalar defaults and opt into typed fixed-array/nested/open-generic defaults only in 1.14.
 void validate_portable_default(const rohit::type_check::schema_input_buffer auto& input,
-                              member& field, const class_node& owner) {
+                              member& field, const class_node& owner,
+                              bool empty_record_default_enabled = false) {
   if (field.portable_default_enabled && !field.fixed_extent && field.extent_expression.size() == 1 &&
       field.extent_expression.front().kind == dimension_expression::operation::literal) {
     field.fixed_extent = field.extent_expression.front().value;
@@ -119,7 +139,8 @@ void validate_portable_default(const rohit::type_check::schema_input_buffer auto
       std::find(owner.type_parameters.begin(), owner.type_parameters.end(), type.name) != owner.type_parameters.end();
   if (!aggregate && !parameter) { return; }
   const auto text = field.modifier == member::modifier_type::array ? "{" + field.default_value + "}" : field.default_value;
-  field.initializer = bind_value_initializer(input, field, owner, text);
+  field.initializer = bind_value_initializer(input, field, owner, text, 0, nullptr,
+      empty_record_default_enabled);
 }
 
 // Supply a compiler-owned positional factory only for record types used by typed aggregate defaults.

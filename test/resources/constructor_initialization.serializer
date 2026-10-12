@@ -1,4 +1,4 @@
-serializer version 1.14.0;
+serializer version 1.15.0;
 
 namespace constructor_initialization {
   class inferred_bytes stable_ids {
@@ -39,7 +39,63 @@ namespace constructor_initialization {
     public array[2] vector3<T> axes (2) {{1, 0, 0}, {0, 1, 0}};
     public constructor(vector3<T> input = {0, 0, 1}) { normal = input; }
   }
+  class generic_frame_owner<T> stable_ids {
+    public frame<T> value (1);
+    public constructor(frame<T> input = {}) {
+      value = input;
+    }
+    public factory from_frame(frame<T> input = {}) {
+      value = input;
+    }
+  }
   instantiate double_vector3 = vector3<double>;
   instantiate double_direction = array_direction<double>;
   instantiate double_frame = frame<double>;
+  class area stable_ids {
+    public uint32 width (1) {3};
+    public uint32 height (2) {4};
+    public constructor(uint32 width_input, uint32 height_input) {
+      width = width_input;
+      height = height_input;
+    }
+  }
+  class box stable_ids {
+    public uint32 a (1);
+    public uint32 b (2);
+    public area extent (3);
+    public constructor(uint32 a_input, uint32 b_input, area area_input = {}) {
+      a = a_input;
+      b = b_input;
+      extent = area_input;
+    }
+    public factory sized(uint32 a_input, uint32 b_input, area area_input = {10, 20}) {
+      a = a_input;
+      b = b_input;
+      extent = area_input;
+    }
+  }
+  class frame_owner stable_ids {
+    public double_frame value (1);
+    public constructor(double_frame input = {}) {
+      value = input;
+    }
+    public factory from_frame(double_frame input = {}) {
+      value = input;
+    }
+    public factory from_nested(double_frame input = {{}, {{}, {}}}) {
+      value = input;
+    }
+  }
+  class external_area stable_ids {
+    public uint32 value (1);
+    public constructor();
+  }
+  class external_area_owner stable_ids {
+    public uint32 first (1);
+    public external_area area (2);
+    public constructor(uint32 first_input, external_area input = {}) {
+      first = first_input;
+      area = input;
+    }
+  }
 }

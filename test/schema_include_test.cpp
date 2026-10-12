@@ -375,8 +375,20 @@ TEST_F(schema_include_test, readonly_call_language_contract_is_per_file) {
       "function uint64 identity(uint64 value) readonly expression(value);");
   write("root.serializer", "serializer version 1; include common; class root { public uint32 value; }");
   EXPECT_NO_THROW(schema::parser::parse_file(directory / "root.serializer"));
-  write("common.serializer", "serializer version 1.15.0; class future {}");
+  write("common.serializer", "serializer version 1.16.0; class future {}");
   reject("Unsupported schema language version");
+}
+
+// Empty record defaults use the declaring file's contract, independently of its includer.
+TEST_F(schema_include_test, empty_record_default_language_contract_is_per_file) {
+  write("root.serializer", "serializer version 1.15.0; include common; class root {}");
+  const std::string declarations = "class area { public uint32 width {3}; } "
+      "class box { public area value; public constructor(area input = {}) { value = input; } }";
+  write("common.serializer", "serializer version 1.14.0; " + declarations);
+  reject("require serializer version 1.15.0");
+  write("common.serializer", "serializer version 1.15.0; " + declarations);
+  write("root.serializer", "serializer version 1; include common; class root {}");
+  EXPECT_NO_THROW(schema::parser::parse_file(directory / "root.serializer"));
 }
 
 // Authoring and native qualification use each dependency's header, including older includers.

@@ -1134,6 +1134,11 @@ class c_emitter {
   // Initialize or replace one checked owning default while preserving partial-allocation cleanup.
   void initialize_default(const value_initializer& value, const std::string& destination,
                           const std::string& status, bool initialized = false) {
+    if (value.kind == value_initializer::kind_type::default_record) {
+      if (initialized) { free_value(value.type, destination); }
+      init_value(value.type, destination, {}, status);
+      return;
+    }
     if (value.kind == value_initializer::kind_type::fixed_array) {
       if (!initialized) {
         const auto count = std::to_string(value.elements.size());
