@@ -468,6 +468,9 @@ void naming::validate_names(const std::vector<std::unique_ptr<syntax_node>>& sta
         for (const auto& field : object.member_list) {
           if (object.has_mode(storage_mode::owning)) {
             insert_name(owning, field_name(field.name));
+            if (!field.readonly_getter.empty()) {
+              insert_name(owning, function_name(field.readonly_getter));
+            }
             static_cast<void>(default_value(field));
           }
           if (object.has_mode(storage_mode::read_only_view) ||

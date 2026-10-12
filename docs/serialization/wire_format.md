@@ -1,5 +1,13 @@
 # Wire format and decoding contract
 
+Language `1.14.0` owning API additions introduce no field tags or serialized
+metadata. Readonly getter references, constructor qualifiers and arithmetic
+operators access existing storage. Direct C++ constructor lowering preserves
+field order/identities; newly authored typed defaults affect fresh/missing-field
+values only where the schema declares them. Existing schema headers retain their
+default and decode contracts. Managed identities, journal and collaboration wire
+versions remain unchanged. See [owning APIs](../schema/owning_api.md).
+
 Language `1.13.0` `noexcept(cpp)` function qualifiers change generated C++
 exception signatures only. They introduce no wire fields or metadata and leave
 all codec bytes, payload revisions, managed fingerprints, journal records and

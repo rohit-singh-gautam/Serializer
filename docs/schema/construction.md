@@ -1,5 +1,12 @@
 # Portable value construction and transient layout
 
+Language `1.14.0` adds direct C++ member initialization, typed recursive defaults,
+reciprocal constructor signature resolution, and external/defaulted constructor
+declarations. See [owning APIs](owning_api.md) for the complete contract and
+[construction defaults](../../example/cpp/construction_defaults/README.md) for
+fresh unit-Z values, custom coordinates and codec parity. Older schemas retain
+their previous lowering and default contracts.
+
 Compiler/runtime 1.13 and schema language 1.8 add typed construction declarations.
 They initialize ordinary owning values, with no new wire metadata or executable
 payload. Parameters bind to exactly matching field types; implicit numeric
@@ -31,7 +38,7 @@ class segment {
 }
 ```
 
-A constructor requires at least one parameter and cannot take its own record
+A schema-defined binding constructor requires at least one parameter and cannot take its own record
 type by value; named factories may accept that type. C++ emits the constructor and
 retains default construction for codecs and containers. Every backend emits its
 portable `create` factory; ordinary named factories use the selected naming
@@ -42,7 +49,7 @@ belong to the companion object. Private/protected construction is nonpublic
 where the backend can express it; C cannot enforce schema access.
 
 C++ schema constructors also generate a public defaulted zero-argument
-constructor, so no separate schema `constructor()` or native `owner() = default;`
+constructor unless language `1.14.0` explicitly declares one; no separate schema `constructor()` or native `owner() = default;`
 declaration is needed. Default construction initializes fresh schema field
 defaults; it does not supply default arguments to a parameterized constructor.
 Opaque constructors inside `cpp { ... }` remain verbatim and alone do not trigger

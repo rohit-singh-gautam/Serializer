@@ -275,6 +275,13 @@ class emitter {
   }
   // Validate portable literals before translating their native spelling.
   std::string default_value(const member& value) const {
+    if (value.initializer) {
+      return construction::initializer(*value.initializer,
+          language == target::go ? "go" : language == target::csharp ? "csharp" : "js",
+          [&](const auto& item) { return type(item); },
+          [&](const auto& item) { return default_value(item); },
+          [&](auto item) { return field(item, access_type::public_access); });
+    }
     if (!value.default_factory.empty()) {
       return construction::factory_call(names.at(value.type_name_list.front().resolved_node),
           field(value.default_factory, access_type::public_access), language == target::go ? "go" : "js");
@@ -462,7 +469,7 @@ class emitter {
       for (const auto& item : value.member_list) {
         if (item.wire_only) { continue; }
         const auto identifier = field(item.name, item.access);
-        if (item.modifier != member::modifier_type::none && !item.default_value.empty()) {
+        if (item.modifier != member::modifier_type::none && !item.default_value.empty() && !item.initializer) {
           throw std::invalid_argument{"Collection and union defaults are unsupported"};
         }
         if (item.modifier == member::modifier_type::map &&
@@ -710,6 +717,7 @@ class emitter {
   }
   // Construct independent fixed elements while leaving variable collections empty.
   std::string initial_collection(const member& value) const {
+    if (value.initializer) { return default_value(value); }
     if (value.fixed_extent != 0) {
       const auto count = std::to_string(value.fixed_extent);
       const auto element = initial(value.type_name_list.front());
@@ -1855,6 +1863,8 @@ class emitter {
         context.native_type = [&](const auto& item) { return type(item); };
         context.enum_value = [&](const auto& item, std::string_view name) { return enum_constant(item, name); };
         context.call = [&](const behavior_expression& node, const std::vector<std::string>& arguments) {
+          if (node.call_constructor) { return behavior::constructor_expression(node, arguments, selected,
+              [&](const auto& value) { return type(value); }, [&](auto name) { return field(name); }); }
           const auto& callee = behavior::called_function(node);
           std::string receiver = node.call_receiver ? "(" + arguments.at(0) + ")" :
               language == target::go ? receiver_name : "this";
@@ -1936,6 +1946,8 @@ class emitter {
       context.native_type = [&](const auto& value) { return type(value); };
       context.enum_value = [&](const auto& value, auto constant) { return enum_constant(value, constant); };
       context.call = [&](const behavior_expression& call, const std::vector<std::string>& arguments) {
+        if (call.call_constructor) { return behavior::constructor_expression(call, arguments, selected,
+            [&](const auto& value) { return type(value); }, [&](auto name) { return field(name); }); }
         if (call.call_receiver) {
           std::string receiver = "(" + arguments.at(0) + ")";
           for (const auto base : call.call_base_path) { receiver += "." + field("base" + std::to_string(base)); }

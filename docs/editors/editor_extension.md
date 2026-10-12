@@ -17,10 +17,17 @@ Serializer provides separate packages for VS Code and Visual Studio. Both use
 to the VS Code extension. For the Visual Studio VSIX, see
 [Visual Studio](#visual-studio-extension) below.
 
-Both extensions use release version **1.1.42**. Keep their versions equal and
+Both extensions use release version **1.1.43**. Keep their versions equal and
 increment them together for future changes, including changes to only one package.
 Their release number is independent of the compiler/runtime release and the schema
 language version; only the two editor packages are synchronized.
+
+Version **1.1.43** adds language **1.14.0** owning APIs: readonly exposure,
+arithmetic mappings and owning calls, reciprocal/external constructor signatures,
+declaration-site C++ additions and typed nested defaults. Shared grammar and
+navigation preserve unrelated symbols, transitive includes and unsaved edits.
+See [owning APIs](../schema/owning_api.md) and
+[qualification](../verification/verification-owning-api-2026-10-12.md).
 
 Version **1.1.42** supports schema language 1.13.0 C++ `noexcept(cpp)` function
 contracts. Both editors highlight bodyless readonly declarations and native methods,
@@ -122,7 +129,7 @@ Version **1.1.28** recognizes language `1.3.0` digest fields: bare `digest`,
 algorithm names and decimal extents. The shared resolver skips those operands
 while retaining neighboring qualified/generic references and legacy declared
 types named `digest`. VS Code adds `digest`, `digest-opaque`, and `digest-fixed`
-snippets; the current schema snippet selects `1.13.0`. See [digest usage](../schema/digest.md).
+snippets; the current schema snippet selects `1.14.0`. See [digest usage](../schema/digest.md).
 
 Version 1.1.27 directs generated applications to `Serializer::runtime`, the 0BSD
 application target introduced by compiler/runtime 1.7.0. `serializer_generate`
@@ -151,9 +158,9 @@ Both resolve either spelling for navigation; VS Code also supplies a shorthand
 
 ## VS Code
 
-The [Rohit Serializer extension](../../editors/vscode/README.md), version **1.1.42**, provides `.serializer`
+The [Rohit Serializer extension](../../editors/vscode/README.md), version **1.1.43**, provides `.serializer`
 syntax highlighting, snippets, declaration/definition navigation, and CMake generated-header commands. Schemas use
-the current `serializer version 1.13.0;` header, older compatible headers, and the original
+the current `serializer version 1.14.0;` header, older compatible headers, and the original
 `1` alias for language `1.0.0`. Schema
 language versions are independent of compiler releases, and future versions
 require all three components. Legacy `.def` and `.struct` names are
@@ -209,13 +216,13 @@ Packaging compiles and bundles TypeScript, copies the canonical grammar, logo,
 and repository license into the extension, and writes:
 
 ```text
-out/extensions/serializer-vscode-1.1.42.vsix
+out/extensions/serializer-vscode-1.1.43.vsix
 ```
 
 From the repository root, install it with:
 
 ```sh
-code --install-extension out/extensions/serializer-vscode-1.1.42.vsix
+code --install-extension out/extensions/serializer-vscode-1.1.43.vsix
 ```
 
 Alternatively run **Extensions: Install from VSIX** and select the file. The
@@ -685,7 +692,7 @@ outside this extension's implementation.
 ## Visual Studio extension
 
 The separate [Visual Studio package](../../editors/visual_studio/README.md), version
-**1.1.42**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
+**1.1.43**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
 grammar, editing configuration and a native MEF navigation component using the
 same resolver as VS Code. The grammar's `fileTypes` associates `.serializer` files;
 a `.pkgdef` registers its grammar and editing configuration.
@@ -698,7 +705,7 @@ npm ci --prefix editors/vscode
 ```
 
 The script restores locked NuGet dependencies, rebuilds package intermediates, and writes
-`out/extensions/serializer-visual-studio-1.1.42.vsix`. Close Visual Studio,
+`out/extensions/serializer-visual-studio-1.1.43.vsix`. Close Visual Studio,
 double-click this VSIX, install into the desired instance, and restart Visual
 Studio. The root `install_extension.ps1` remains the VS Code installer.
 
@@ -802,7 +809,7 @@ Empty extents and element types receive fixed-array highlighting. Enum type
 operands and qualified enum defaults in typed magic retain declaration, definition,
 and type-definition navigation, including unsaved and transitive included schemas.
 VS Code includes `array_inferred` and `magic_typed` snippets; its schema snippet
-selects `serializer version 1.13.0;`. The original `1` header remains exactly
+selects `serializer version 1.14.0;`. The original `1` header remains exactly
 `1.0.0` and does not enable these features. See the
 [magic contract](../schema/magic_and_omission.md) and [fixed arrays](../schema/generics.md).
 

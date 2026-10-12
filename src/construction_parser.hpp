@@ -34,6 +34,8 @@ construction_declaration parse_construction(const rohit::type_check::schema_inpu
   construction_declaration result;
   result.access = access;
   result.overload_contract_enabled = active_language_version >= language_version{1u, 12u, 0u};
+  result.forward_signature_enabled = active_language_version >= language_version{1u, 14u, 0u};
+  result.member_initialization_enabled = active_language_version >= language_version{1u, 14u, 0u};
   result.constructor = parse_identifier_impl(input) == "constructor";
   skip_whitespace_and_comment(input);
   if (!result.constructor) {
@@ -71,6 +73,7 @@ construction_declaration parse_construction(const rohit::type_check::schema_inpu
   constexpr std::size_t maximum_parameters = 64;
   while (!input.full() && *input != ')') {
     function_parameter parameter;
+    parameter.portable_default_enabled = result.member_initialization_enabled;
     parameter.type = parse_type_expression(input, space);
     skip_whitespace_and_comment(input);
     if (parameter.type.name == "array" && !parameter.type.application && !input.full() && *input == '[') {
@@ -106,8 +109,9 @@ construction_declaration parse_construction(const rohit::type_check::schema_inpu
         const auto* begin = input.curr();
         char quote{};
         bool escaped{};
+        std::size_t aggregate_depth{};
         constexpr std::size_t maximum_default_bytes = 4096;
-        while (!input.full() && (quote || (*input != ',' && *input != ')'))) {
+        while (!input.full() && (quote || aggregate_depth || (*input != ',' && *input != ')'))) {
           const auto character = static_cast<char>(*input);
           if (input.curr() - begin >= static_cast<std::ptrdiff_t>(maximum_default_bytes)) {
             throw exception::bad_member_spec{input, "Construction parameter default exceeds 4096 bytes"};
@@ -117,6 +121,14 @@ construction_declaration parse_construction(const rohit::type_check::schema_inpu
             else if (character == '\\') { escaped = true; }
             else if (character == quote) { quote = 0; }
           } else if (character == '\'' || character == '"') { quote = character; }
+          else if (character == '{') {
+            if (!result.member_initialization_enabled || ++aggregate_depth > 32) {
+              throw exception::bad_member_spec{input, "Aggregate defaults require serializer version 1.14.0 and at most 32 levels"};
+            }
+          } else if (character == '}') {
+            if (!aggregate_depth) { throw exception::bad_member_spec{input, "Unbalanced aggregate parameter default"}; }
+            --aggregate_depth;
+          }
           ++input;
         }
         parameter.default_value = schema_version::trim(std::string_view{
@@ -144,6 +156,25 @@ construction_declaration parse_construction(const rohit::type_check::schema_inpu
     static_cast<void>(parse_identifier_impl(input));
     result.explicit_constructor = true;
     skip_whitespace_and_comment(input);
+  }
+  if (!input.full() && (*input == ';' || *input == '=')) {
+    if (!result.forward_signature_enabled || !result.constructor) {
+      throw exception::bad_member_spec{input,
+          "Constructor declarations require serializer version 1.14.0"};
+    }
+    result.declaration_only = true;
+    if (*input == '=') {
+      ++input;
+      skip_whitespace_and_comment(input);
+      if (parse_identifier_impl(input) != "default" || !result.parameters.empty() ||
+          !result.generic_parameters.empty() || result.explicit_constructor) {
+        throw exception::bad_member_spec{input, "Only a zero-argument constructor may be defaulted"};
+      }
+      result.defaulted = true;
+      skip_whitespace_and_comment(input);
+    }
+    check_and_increase(input, ';');
+    return result;
   }
   check_and_increase(input, '{');
   skip_whitespace_and_comment(input);

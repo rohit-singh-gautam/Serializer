@@ -25,7 +25,7 @@ export interface SourceIndex {
   symbols: TypeSymbol[];
   includes: SchemaInclude[];
   references: Array<Span & { name: string; scope: string[]; kind?: TypeSymbol['kind'] }>;
-  members?: Array<Span & { name: string; owner: string; type?: { name: string; scope: string[] }; wireOnly?: boolean }>;
+  members?: Array<Span & { name: string; owner: string; type?: { name: string; scope: string[] }; wireOnly?: boolean; getter?: boolean }>;
   memberReferences?: Array<Span & { name: string; owner: { name: string; scope: string[] }; path: string[] }>;
 }
 
@@ -229,6 +229,79 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
     referenceScope = undefined;
   }
 
+  /** Index constructor signatures independently of an access token or an opaque C++ prefix. */
+  function constructionSignature(start: number): number {
+    let next = start + (tokens[start].text === 'constructor' ? 2 : 3);
+    if (tokens[next - 1]?.text === '<') {
+      const localScope = [...currentScope(), `$construction_${tokens[start].start}`];
+      referenceScope = localScope;
+      next = inputParameters(next - 1, localScope);
+      if (tokens[next]?.text === '(') { ++next; }
+    }
+    while (next < tokens.length && ![')', ';', '}'].includes(tokens[next].text)) {
+      next = typeReference(next) + 1;
+      if (tokens[next]?.text === '=') {
+        // Nested aggregate defaults own their braces; they must not close the surrounding class.
+        const groups: string[] = [];
+        ++next;
+        while (next < tokens.length) {
+          const current = tokens[next].text;
+          if (!groups.length && [',', ')', ';', '}'].includes(current)) { break; }
+          if (['(', '[', '{', '<'].includes(current)) { groups.push(current); }
+          else if ([')', ']', '}', '>'].includes(current)) { groups.pop(); }
+          ++next;
+        }
+      }
+      if (tokens[next]?.text === ',') { ++next; }
+    }
+    if (referenceScope) {
+      let body = next + 1;
+      if (tokens[body]?.text === 'explicit') { ++body; }
+      if (tokens[body]?.text === '{') { namespaceBodies.set(body, referenceScope); }
+      referenceScope = undefined;
+    }
+    return next;
+  }
+
+  /** Index constructor/checked operands and enum types within a balanced portable expression. */
+  function expressionReferences(open: number): number {
+    let depth = 1;
+    let next = open + 1;
+    for (; next < tokens.length && depth; ++next) {
+      if (tokens[next].text === '(') { ++depth; }
+      if (tokens[next].text === ')') { --depth; }
+      if (tokens[next].text === 'checked' && tokens[next + 1]?.text === '<') {
+        next = typeReference(next + 2);
+        if (tokens[next]?.text === '>') { ++next; }
+        --next;
+        continue;
+      }
+      const value = qualified(next);
+      let application = value?.next ?? next;
+      if (value && tokens[application]?.text === '<') {
+        let argumentsDepth = 1;
+        while (++application < tokens.length && argumentsDepth &&
+            ![';', '{', '}'].includes(tokens[application].text)) {
+          if (tokens[application].text === '<') { ++argumentsDepth; }
+          if (tokens[application].text === '>') { --argumentsDepth; }
+        }
+      }
+      if (value && tokens[next - 1]?.text !== '.' && tokens[application]?.text === '(') {
+        // Ordinary functions without a declared type retain their language-service destination.
+        next = typeReference(next) - 1;
+        continue;
+      }
+      if (value && value.name.includes('::')) {
+        const separator = value.next - 2;
+        result.references.push({ start: value.start, end: tokens[separator - 1].end,
+          name: value.name.slice(0, value.name.lastIndexOf('::')),
+          scope: [...currentScope()], kind: 'enum' });
+        next = value.next - 1;
+      }
+    }
+    return next - 1;
+  }
+
   /** Index enum type prefixes in field and magic defaults, excluding values and quoted text. */
   function defaultReference(member: number, metadata = false): void {
     if (!metadata && !/^[A-Za-z_]\w*$/.test(tokens[member]?.text ?? '')) { return; }
@@ -236,7 +309,10 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
       const token = tokens[next].text;
       if ([';', '}', 'public', 'private', 'protected'].includes(token)) { return; }
       if (token !== '{') { continue; }
-      for (let entry = next + 1; entry < tokens.length && tokens[entry].text !== '}';) {
+      let depth = 1;
+      for (let entry = next + 1; entry < tokens.length && depth;) {
+        if (tokens[entry].text === '{') { ++depth; }
+        if (tokens[entry].text === '}') { --depth; }
         const value = qualified(entry);
         if (value && [',', '}'].includes(tokens[value.next]?.text)) {
           const separator = value.next - 2;
@@ -278,30 +354,24 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
       }
     } else if (schema && ['expression', 'predicate'].includes(token.text) &&
                tokens[i + 1]?.text === '(') {
-      // Typed enum constants reference their type; lambda variables and field projections do not.
-      let depth = 1;
-      for (let next = i + 2; next < tokens.length && depth; ++next) {
-        if (tokens[next].text === '(') { ++depth; }
-        if (tokens[next].text === ')') { --depth; }
-        if (tokens[next].text === 'checked' && tokens[next + 1]?.text === '<') {
-          next = typeReference(next + 2);
-          if (tokens[next]?.text === '>') { ++next; }
-          --next;
-          i = next;
-          continue;
-        }
-        const value = qualified(next);
-        if (value && value.name.includes('::')) {
-          const separator = value.next - 2;
-          result.references.push({ start: value.start, end: tokens[separator - 1].end,
-            name: value.name.slice(0, value.name.lastIndexOf('::')),
-            scope: [...currentScope()], kind: 'enum' });
-          next = value.next - 1;
-        }
-        i = next;
-      }
+      i = expressionReferences(i + 1);
     } else if (schema && token.text === 'checked' && tokens[i + 1]?.text === '<') {
       i = typeReference(i + 2);
+    } else if (schema && token.text === 'expose' && tokens[i + 1]?.text === 'readonly') {
+      const getter = tokens[i + 5]?.text === 'as' ? tokens[i + 6] : undefined;
+      const field = result.members![result.members!.length - 1];
+      if (getter && field && /^[A-Za-z_]\w*$/.test(getter.text)) {
+        result.members!.push({ ...getter, name: getter.text, owner: field.owner,
+          type: field.type, getter: true });
+        i += 6;
+      }
+    } else if (schema && token.text === 'binary' && tokens[i + 1]?.text === '(' &&
+        tokens[i + 3]?.text === ',') {
+      // Arithmetic binary mappings explicitly declare their right operand's type.
+      i = typeReference(i + 4);
+    } else if (schema && token.text === 'constructor' &&
+        ['(', '<'].includes(tokens[i + 1]?.text ?? '')) {
+      i = constructionSignature(i);
     } else if (token.text === '{') {
       scopes.push(namespaceBodies.get(i) ?? currentScope());
     } else if (token.text === '}') {
@@ -373,32 +443,7 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
         }
       } else if ((tokens[i + 1]?.text === 'constructor' && ['(', '<'].includes(tokens[i + 2]?.text ?? '')) ||
           (tokens[i + 1]?.text === 'factory' && ['(', '<'].includes(tokens[i + 3]?.text ?? ''))) {
-        let next = i + (tokens[i + 1].text === 'constructor' ? 3 : 4);
-        if (tokens[next - 1]?.text === '<') {
-          const localScope = [...currentScope(), `$construction_${tokens[i].start}`];
-          referenceScope = localScope;
-          next = inputParameters(next - 1, localScope);
-          if (tokens[next]?.text === '(') { ++next; }
-        }
-        while (next < tokens.length && ![')', ';', '}'].includes(tokens[next].text)) {
-          next = typeReference(next) + 1;
-          if (tokens[next]?.text === '=') {
-            let depth = 0;
-            while (++next < tokens.length &&
-                (depth || ![',', ')', ';', '}'].includes(tokens[next].text))) {
-              if (tokens[next].text === '(') { ++depth; }
-              if (tokens[next].text === ')') { --depth; }
-            }
-          }
-          if (tokens[next]?.text === ',') { ++next; }
-        }
-        if (referenceScope) {
-          let body = next + 1;
-          if (tokens[body]?.text === 'explicit') { ++body; }
-          if (tokens[body]?.text === '{') { namespaceBodies.set(body, referenceScope); }
-          referenceScope = undefined;
-        }
-        i = next;
+        i = constructionSignature(i + 1);
       } else if (tokens[i + 1]?.text === 'function') {
         functionSignature(i + 1);
         // The access-prefixed method signature was indexed here; skip its keyword.
@@ -475,6 +520,11 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
             next = typeReference(next + 1) - 1;
             const base = result.references[referenceStart];
             if (base) { bases.push({ name: base.name, scope: [...base.scope] }); }
+          } else if (tokens[next].text === 'binary' && tokens[next + 1]?.text === '(' &&
+              tokens[next + 3]?.text === ',') {
+            next = typeReference(next + 4) - 1;
+          } else if (tokens[next].text === 'expression' && tokens[next + 1]?.text === '(') {
+            next = expressionReferences(next + 1);
           }
         }
         referenceScope = undefined;

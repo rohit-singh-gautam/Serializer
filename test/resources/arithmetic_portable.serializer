@@ -1,0 +1,19 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.14.0;
+
+class distance {
+  public int64 value (1);
+  public constructor(int64 amount) { value = amount; }
+  public function distance negated() readonly expression(distance(-value));
+  public function distance added(distance other) readonly expression(distance(value + other.value));
+  public function distance baseline() readonly expression(distance());
+  arithmetic(unary(-) -> negated);
+  arithmetic(binary(+) -> added);
+}
+class duration {
+  public int64 value (1);
+  public constructor(int64 amount) { value = amount; }
+  public function duration negated() readonly expression(duration(-value));
+  arithmetic(unary(-) -> expression(duration(-value)));
+}

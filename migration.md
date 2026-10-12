@@ -1,5 +1,37 @@
 # Migrating to the snake_case Serializer API
 
+## Owning APIs and typed defaults (12 October 2026)
+
+Compiler/runtime **1.19.0** supports language **1.14.0**. Raise the header only in
+files adopting readonly field exposure, typed recursive defaults, reciprocal
+constructor dependencies, declaration-site C++ additions or arithmetic mappings.
+Regenerate and compile each selected output. Earlier schemas keep their default
+construction/lowering contract, public APIs, IDs, names and serialized formats.
+
+Replace native readonly getters with `expose readonly(public) as name` only on
+ordinary owning C++ storage. The generated getter borrows a const reference and
+rejects temporary owners. Check naming-profile collisions; use `naming = preserve`
+when a backing underscore and getter name must remain distinct. Keep existing
+friend definitions for private writes and preserve owner/reference lifetime.
+
+New constructor bindings initialize C++ members directly. Codec/default
+construction stays separate from authoring. Typed nested defaults are fresh
+values, but changing a released field's default still changes fresh/missing-field
+application behavior and needs the application's compatibility review. Keep
+custom coordinates and historical decode fixtures when introducing unit-Z values.
+
+Reciprocal constructor types no longer need declaration order to follow their
+call dependencies; by-value storage cycles remain rejected. Match external
+`cpp { constexpr }` declarations with visible host definitions. An explicit
+`constructor() = default;` differs from an external `constructor();` and from the
+automatic codec default constructor. `constexpr` and `noexcept` are independent.
+
+Map operators explicitly to typed readonly methods or owning constructor
+expressions. Preserve strong result/quantity identities and checked errors;
+a scalar helper produces a scalar operator unless it is deliberately wrapped.
+No fields or wire tags are added. Run [the four examples](example/README.md#owning-record-apis)
+and consult [qualification](docs/verification/verification-owning-api-2026-10-12.md).
+
 ## Explicit C++ noexcept functions (12 October 2026)
 
 Compiler/runtime **1.18.0** supports language **1.13.0**. Raise the header only

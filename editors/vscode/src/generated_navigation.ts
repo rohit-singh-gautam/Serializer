@@ -146,7 +146,7 @@ export function outputNames(qualified: string, file: string, text: string): stri
 
 /** Locate a generated field declaration without treating method locals as schema members. */
 export function generatedMember(text: string, file: string, index: SourceIndex,
-  offset: number): (Span & { name: string; owner: TypeSymbol }) | undefined {
+  offset: number): (Span & { name: string; owner: TypeSymbol; getter?: boolean }) | undefined {
   const language = generatedLanguage(file, text);
   const code = generatedCode(text, language ?? '');
   let start = offset;
@@ -181,6 +181,10 @@ export function generatedMember(text: string, file: string, index: SourceIndex,
     const suffix = code.slice(end);
     const lineStart = Math.max(code.lastIndexOf('\n', start), code.lastIndexOf(';', start), open) + 1;
     const prefix = code.slice(lineStart, start);
+    if (language === 'cpp' && depth === 1 && /\bconst\s+[^;{}]+&\s*$/.test(prefix) &&
+        /^\s*\(\s*\)\s+const\s*&&?\s*(?:noexcept|=)/.test(suffix)) {
+      return { start, end, name, owner, getter: true };
+    }
     if (language === 'javascript' && depth === 2 && /^\s*this\.$/.test(prefix) && /^\s*=/.test(suffix)) {
       const method = [...code.slice(open, start).matchAll(/^\s{2}(\w+)\s*\(/gm)].at(-1)?.[1];
       if (method === 'constructor') { return { start, end, name, owner }; }

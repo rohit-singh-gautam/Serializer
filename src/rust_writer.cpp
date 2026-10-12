@@ -127,6 +127,17 @@ class rust_emitter {
     }
     return literal_value.empty() ? "0" : literal_value;
   }
+  // Construct independent typed defaults without sharing nested record or collection ownership.
+  std::string default_value(const member& value) const {
+    if (value.initializer) {
+      return construction::initializer(*value.initializer, "rust",
+          [&](const auto& item) { return type(item); },
+          [&](const auto& item) { return initial(item.type_name_list.front(), literal(item)); },
+          [&](auto item) { return field(item); });
+    }
+    return value.default_factory.empty() ? initial(value.type_name_list.front(), literal(value)) :
+        construction::factory_call(type(value.type_name_list.front()), field(value.default_factory), "rust");
+  }
   // Decode one scalar with explicit wire context.
   std::string read(const type_name& value, bool collection) const {
     if (value.is_optional()) {
@@ -471,6 +482,8 @@ class rust_emitter {
         context.native_type = [&](const auto& value_type) { return type(value_type); };
         context.enum_value = [&](const auto& value_type, auto enumerator) { return type(value_type) + "::" + pascal(enumerator); };
         context.call = [&](const behavior_expression& node, const std::vector<std::string>& arguments) {
+          if (node.call_constructor) { return behavior::constructor_expression(node, arguments, "rust",
+              [&](const auto& value) { return type(value); }, [&](auto name) { return field(name); }); }
           const auto& target = behavior::called_function(node);
           std::string receiver = node.call_receiver ? "(" + arguments.at(0) + ")" : "self";
           for (const auto base : node.call_base_path) { receiver += ".base" + std::to_string(base); }
@@ -530,6 +543,8 @@ class rust_emitter {
       context.native_type = [&](const auto& value) { return type(value); };
       context.enum_value = [&](const auto& value, auto name) { return type(value) + "::" + pascal(name); };
       context.call = [&](const behavior_expression& call, const std::vector<std::string>& arguments) {
+        if (call.call_constructor) { return behavior::constructor_expression(call, arguments, "rust",
+            [&](const auto& value) { return type(value); }, [&](auto name) { return field(name); }); }
         if (call.call_receiver) {
           std::string receiver = "(" + arguments.at(0) + ")";
           for (const auto base : call.call_base_path) { receiver += ".base" + std::to_string(base); }
@@ -643,14 +658,13 @@ class rust_emitter {
         }
       } else if (f.modifier == member::modifier_type::array) {
         fields.push_back({id, "Vec<" + type(t) + ">",
-          f.fixed_extent ? "std::iter::repeat_with(|| " + behavior::ungroup_expression(initial(t)) + ").take(" +
+          f.initializer ? default_value(f) : f.fixed_extent ? "std::iter::repeat_with(|| " + behavior::ungroup_expression(initial(t)) + ").take(" +
               std::to_string(f.fixed_extent) + ").collect()" : "Vec::new()", visible});
       } else if (f.modifier == member::modifier_type::map) {
         fields.push_back({id, "BTreeMap<" + type(map_key(f)) + ", " + type(t) + ">",
                           "BTreeMap::new()", visible});
       } else {
-        fields.push_back({id, type(t), f.default_factory.empty() ? initial(t, literal(f)) :
-            construction::factory_call(type(t), field(f.default_factory), "rust"), visible});
+        fields.push_back({id, type(t), default_value(f), visible});
       }
     }
     line("/// Owning schema value; encoding borrows its fields.");
@@ -676,9 +690,7 @@ class rust_emitter {
     output += construction::factories(value, name, "rust",
         [&](const auto& item) { return type(item); },
         [&](auto item, auto) { return field(item); },
-        [&](const auto& item) { return item.default_factory.empty() ?
-            initial(item.type_name_list.front(), literal(item)) : construction::factory_call(
-                type(item.type_name_list.front()), field(item.default_factory), "rust"); });
+        [&](const auto& item) { return default_value(item); });
     output += conversion::methods(value, name, "rust",
         [&](const auto& item) { return type(item); },
         [&](auto item, auto) { return field(item); });

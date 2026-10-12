@@ -1,0 +1,62 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.14.0;
+
+namespace arithmetic_test {
+  class length<Rep: (integral || floating_point) && !bool>
+      arithmetic(unary(-) -> negated) {
+    public Rep value (1);
+    public constructor(Rep amount) { value = amount; }
+    public function Rep negated_value() readonly expression(-value);
+    public function length<Rep> negated() readonly expression(length<Rep>(negated_value()));
+    public function length<Rep> scaled(Rep factor) readonly expression(length<Rep>(value * factor));
+    public function length<Rep> divided(Rep divisor) readonly expression(length<Rep>(value / divisor));
+    arithmetic(binary(*) -> scaled);
+    arithmetic(binary(/) -> divided);
+    arithmetic(binary(+, length<Rep> rhs) -> expression(length<Rep>(value + rhs.value)));
+  }
+  instantiate signed_length = length<int64>;
+  instantiate unsigned_length = length<uint64>;
+  instantiate floating_length = length<double>;
+
+  class duration<Rep: (integral || floating_point) && !bool> {
+    public Rep value (1);
+    public constructor(Rep amount) { value = amount; }
+    arithmetic(unary(-) -> expression(duration<Rep>(-value)));
+  }
+  instantiate signed_duration = duration<int64>;
+
+  class scalar_contract {
+    public int64 value (1);
+    public function int64 negated() readonly expression(-value);
+    arithmetic(unary(-) -> negated);
+  }
+
+  class native_scalar {
+    public int64 value (1) {19};
+    public function int64 positive() readonly noexcept(cpp) cpp { return this->value; };
+    arithmetic(unary(+) -> positive);
+  }
+
+  class constructor_defaults {
+    public int32 value (1);
+    public int32 extra (2) {17};
+    public constructor(int32 amount, int32 additional = 17) {
+      value = amount;
+      extra = additional;
+    }
+  }
+  class constructor_calls {
+    public int32 value (1) {12};
+    public function constructor_defaults built() readonly expression(constructor_defaults(value));
+    public function constructor_defaults defaults() readonly expression(constructor_defaults());
+  }
+  class constructor_overloads {
+    public int32 value (1);
+    public constructor(int8 amount) { value = checked<int32>(amount); }
+    public constructor(int32 amount) { value = amount; }
+  }
+  class overload_calls {
+    public function constructor_overloads built() readonly expression(constructor_overloads(1000));
+  }
+}

@@ -11,6 +11,7 @@ that later changes or untested backend combinations passed the same checks.
 
 | Record | Scope |
 | --- | --- |
+| [Owning record APIs](verification-owning-api-2026-10-12.md) | Readonly getter lifetimes, direct construction/defaults, reciprocal signatures, arithmetic mappings and editor support. |
 | [Explicit C++ noexcept qualification](verification-noexcept-2026-10-12.md) | Native and external function signatures, dispatch forwarding, portable-first integration, language compatibility, and editor support. |
 
 ## 11 October 2026

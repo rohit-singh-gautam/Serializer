@@ -1,0 +1,18 @@
+cmake_minimum_required(VERSION 3.28)
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  project(serializer_readonly_getters_example LANGUAGES CXX)
+  find_package(Serializer CONFIG REQUIRED)
+  enable_testing()
+endif()
+
+add_executable(serializer_readonly_getters_example main.cpp)
+serializer_generate(TARGET serializer_readonly_getters_example SCHEMAS model.serializer
+  CONFIG codegen.ini OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/generated")
+if(MSVC)
+  target_compile_options(serializer_readonly_getters_example PRIVATE /W4 /WX)
+else()
+  target_compile_options(serializer_readonly_getters_example PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+if(SERIALIZER_BUILD_TESTS OR CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  add_test(NAME serializer_readonly_getters_example COMMAND serializer_readonly_getters_example)
+endif()

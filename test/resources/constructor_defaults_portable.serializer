@@ -1,0 +1,24 @@
+serializer version 1.14.0;
+
+class portable_vector3<T> stable_ids {
+  public T x (1) {0};
+  public T y (2) {0};
+  public T z (3) {1};
+  public constructor(T x_value = 0, T y_value = 0, T z_value = 1) {
+    x = x_value;
+    y = y_value;
+    z = z_value;
+  }
+}
+class portable_direction<T> stable_ids {
+  public array[3] T coordinates (1) {0, 0, 1};
+  public constructor(array[3] T input = {0, 0, 1}) {coordinates = input;}
+}
+class portable_frame<T> stable_ids {
+  public portable_vector3<T> normal (1) {{0, 0, 1}};
+  public array[2] portable_vector3<T> axes (2) {{1, 0, 0}, {0, 1, 0}};
+  public constructor(portable_vector3<T> input = {0, 0, 1}) {normal = input;}
+}
+instantiate default_vector3 = portable_vector3<double>;
+instantiate default_direction = portable_direction<double>;
+instantiate default_frame = portable_frame<double>;

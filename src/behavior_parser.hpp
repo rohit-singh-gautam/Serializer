@@ -229,6 +229,7 @@ template <typename Input> struct behavior_expression_parser {
     behavior_expression result{kind, std::move(value), {}, behavior_source_offset(input)};
     result.record_selection_enabled = active_language_version >= language_version{1u, 11u, 0u};
     result.numeric_contract_enabled = active_language_version >= language_version{1u, 11u, 0u};
+    result.constructor_calls_enabled = active_language_version >= language_version{1u, 14u, 0u};
     return result;
   }
   // Parse bounded positional arguments while preserving their left-to-right source order.
@@ -283,9 +284,29 @@ template <typename Input> struct behavior_expression_parser {
       }
       result = make(operation::literal, std::move(value));
     } else {
+      const auto type_probe = make_constant_full_stream(input.curr(), input.remaining_buffer());
       auto name = parse_identifier_impl(input);
       skip_whitespace_and_comment(input);
-      if (name == "math" && *input == '.') {
+      std::optional<type_name> constructor_type;
+      if (name != "checked" && !input.full() && (*input == '<' || *input == ':')) {
+        try {
+          auto type = parse_type_expression(type_probe, space);
+          skip_whitespace_and_comment(type_probe);
+          if (type.application && !type_probe.full() && *type_probe == '(') {
+            if (active_language_version < language_version{1u, 14u, 0u}) {
+              throw exception::bad_member_spec{input, "Owning constructor expressions require serializer version 1.14.0"};
+            }
+            constructor_type = std::move(type);
+          }
+        } catch (const exception::bad_member_spec&) { throw; }
+        catch (const std::exception&) { /* A relational expression is not a type application. */ }
+      }
+      if (constructor_type) {
+        input += static_cast<std::size_t>(type_probe.curr() - input.curr());
+        result = call(constructor_type->name);
+        result.call_constructor = true;
+        result.resolved_type = std::move(constructor_type);
+      } else if (name == "math" && *input == '.') {
         ++input;
         const auto member = parse_identifier_impl(input);
         if (member == "pi") { result = make(operation::pi); }
@@ -485,6 +506,7 @@ function_declaration parse_function(const rohit::type_check::schema_input_buffer
   require_behavior_language(input);
   function_declaration result;
   result.access = access;
+  result.automatic_constexpr_enabled = active_language_version >= language_version{1u, 14u, 0u};
   result.source_offset = behavior_source_offset(input);
   const auto source_begin = result.source_offset;
   parse_identifier_impl(input); // function
@@ -837,6 +859,99 @@ std::string validate_behavior_expression(behavior_expression& value, const class
     return validate_behavior_expression(node, owner, method, symbols, scope, functions);
   };
   if (value.kind == operation::call) {
+    // Constructor calls retain an explicit owning type; ordinary readonly call inference is unchanged.
+    auto target_type = value.call_constructor && value.resolved_type ? *value.resolved_type :
+        type_name{std::string{value.value}, owner.parent_namespace};
+    const auto* constructor_owner = target_type.resolved_node ? target_type.resolved_node :
+        (!value.call_receiver ? find_declared_type(target_type.name, target_type.declared_namespace, symbols) : nullptr);
+    if (value.call_constructor || (value.constructor_calls_enabled && constructor_owner &&
+        (constructor_owner->type == object_type::class_type || constructor_owner->type == object_type::generic_definition))) {
+      if (!value.constructor_calls_enabled) {
+        throw std::invalid_argument{"Owning constructor expressions require serializer version 1.14.0"};
+      }
+      if (!constructor_owner || (constructor_owner->type != object_type::class_type &&
+          constructor_owner->type != object_type::generic_definition)) {
+        throw std::invalid_argument{"Constructor expression requires a generated owning record"};
+      }
+      const auto& record = static_cast<const class_node&>(*constructor_owner);
+      if (record.supports_managed() || record.storage_modes != static_cast<std::uint8_t>(storage_mode::owning)) {
+        throw std::invalid_argument{"Constructor expression requires an ordinary owning record"};
+      }
+      target_type.resolved_node = constructor_owner;
+      target_type.type = constructor_owner->type;
+      target_type.defined_namespace = constructor_owner->parent_namespace;
+      if (!target_type.application) { target_type.name = constructor_owner->get_full_name(); }
+      for (auto& argument : value.operands) { validate(argument, locals); }
+      const auto substitute = [&](const auto& self, type_name type) -> type_name {
+        if (!type.application) {
+          const auto& arguments = target_type.arguments.empty() ? record.generic_arguments : target_type.arguments;
+          for (std::size_t index{}; index < record.generic_parameters.size() && index < arguments.size(); ++index) {
+            if (type.name == record.generic_parameters[index].name) { return arguments[index]; }
+          }
+        }
+        for (auto& argument : type.arguments) { argument = self(self, std::move(argument)); }
+        return type;
+      };
+      std::optional<std::size_t> selected;
+      std::vector<behavior_expression> selected_arguments;
+      for (const bool bind_literals : {false, true}) {
+        for (std::size_t index{}; index < record.constructions.size(); ++index) {
+          const auto& constructor = record.constructions[index];
+          if (!constructor.constructor || !constructor.generic_parameters.empty() ||
+              (constructor.access != access_type::public_access && &record != &owner) ||
+              value.operands.size() > constructor.parameters.size()) { continue; }
+          if (std::any_of(constructor.parameters.begin() + static_cast<std::ptrdiff_t>(value.operands.size()),
+              constructor.parameters.end(), [](const auto& parameter) {
+                return parameter.default_value.empty() && parameter.default_factory.empty();
+              })) { continue; }
+          auto arguments = value.operands;
+          bool matching = true;
+          for (std::size_t argument{}; argument < arguments.size(); ++argument) {
+            const auto parameter = substitute(substitute, constructor.parameters[argument].type);
+            const auto& actual = arguments[argument];
+            const bool exact = actual.resolved_type ? actual.collection_modifier == member::modifier_type::none &&
+                matching_behavior_type(*actual.resolved_type, parameter) : actual.result_type == parameter.name;
+            if (constructor.parameters[argument].modifier != member::modifier_type::none) {
+              matching = false;
+              break;
+            }
+            if (!exact) {
+              try {
+                if (!bind_literals || !literal(arguments[argument], parameter.name)) { matching = false; break; }
+              } catch (const std::invalid_argument&) {
+                matching = false;
+                break;
+              }
+            }
+          }
+          if (!matching) { continue; }
+          if (selected) { throw std::invalid_argument{"Ambiguous owning constructor expression"}; }
+          selected = index;
+          selected_arguments = std::move(arguments);
+        }
+        if (selected) { break; }
+      }
+      if (!selected && !value.operands.empty()) {
+        if (std::any_of(record.constructions.begin(), record.constructions.end(), [](const auto& constructor) {
+          return constructor.constructor && !constructor.generic_parameters.empty();
+        })) {
+          throw std::invalid_argument{"Owning constructor expressions cannot deduce independently generic inputs"};
+        }
+        throw std::invalid_argument{"No matching explicit owning constructor"};
+      }
+      if (!selected && !record.constructions.empty() &&
+          std::any_of(record.constructions.begin(), record.constructions.end(), [](const auto& item) {
+            return item.constructor && item.parameters.empty();
+          })) {
+        throw std::invalid_argument{"Owning default constructor is inaccessible"};
+      }
+      value.call_constructor = true;
+      value.call_target = constructor_owner;
+      value.call_method_index = selected.value_or(std::numeric_limits<std::size_t>::max());
+      value.call_base_path.clear();
+      if (selected) { value.operands = std::move(selected_arguments); }
+      return bind(target_type);
+    }
     value.call_target = nullptr;
     value.call_base_path.clear();
     for (auto& argument : value.operands) { validate(argument, locals); }

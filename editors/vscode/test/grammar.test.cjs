@@ -5,6 +5,76 @@ const { test } = require('node:test');
 const { Registry, INITIAL } = require('vscode-textmate');
 const onig = require('vscode-oniguruma');
 
+test('language 1.14 exposure, operator mappings and callable additions preserve schema boundaries', async () => {
+  const grammar = await loadGrammar();
+  const lines = [
+    'serializer version 1.14.0; class holder<T> {',
+    'private lib::value<T> stored (1) expose readonly(public) as read_value;',
+    'public cpp { constexpr inline } constructor(lib::value<T> input);',
+    'public constructor() = default;',
+    'public cpp { constexpr } function lib::value<T> result() readonly;',
+    'arithmetic(unary(-) -> negated);',
+    'arithmetic(binary(+, lib::value<T> rhs) -> expression(lib::value<T>(checked<T>(rhs.number))));',
+    'public lib::frame placement (2) {{0, 0, 1}, 7};',
+    'public uint32 expose; public uint32 arithmetic (3); public uint32 default; }',
+  ];
+  let state = INITIAL;
+  const tokens = lines.map(line => {
+    const result = grammar.tokenizeLine(line, state);
+    state = result.ruleStack;
+    return result.tokens;
+  });
+  /** Inspect a new contract token at its exact source position. */
+  const scopes = (line, word) => {
+    const offset = lines[line].indexOf(word);
+    return tokens[line].find(token => token.startIndex <= offset && token.endIndex > offset).scopes;
+  };
+  assert.equal(scopes(1, 'expose').at(-1), 'storage.modifier.serializer');
+  assert.equal(scopes(1, 'read_value').at(-1), 'entity.name.function.serializer');
+  assert.equal(scopes(1, 'readonly').at(-1), 'storage.modifier.serializer');
+  assert.ok(scopes(2, 'constexpr').includes('meta.embedded.block.cpp'));
+  assert.equal(scopes(2, 'constructor').at(-1), 'storage.type.serializer');
+  assert.equal(scopes(2, 'value<T>').at(-1), 'entity.name.type.serializer');
+  assert.equal(scopes(3, 'default').at(-1), 'keyword.control.serializer');
+  assert.equal(scopes(4, 'result').at(-1), 'entity.name.function.serializer');
+  assert.equal(scopes(5, 'arithmetic').at(-1), 'storage.modifier.serializer');
+  assert.equal(scopes(5, 'unary').at(-1), 'storage.modifier.serializer');
+  assert.equal(scopes(5, 'negated').at(-1), 'entity.name.function.serializer');
+  assert.equal(scopes(6, 'binary').at(-1), 'storage.modifier.serializer');
+  assert.equal(scopes(6, 'expression').at(-1), 'keyword.control.serializer');
+  for (const match of lines[6].matchAll(/value/g)) {
+    assert.equal(tokens[6].find(token => token.startIndex <= match.index && token.endIndex > match.index).scopes.at(-1),
+      'entity.name.type.serializer');
+  }
+  assert.equal(state.depth, 1);
+  for (const word of ['expose;', 'arithmetic (', 'default;']) {
+    assert.equal(scopes(8, word).at(-1), 'source.serializer');
+  }
+  const header = 'class holder<T> arithmetic(unary(-) -> expression(lib::value<T>(-number))) { public uint32 after; }';
+  const result = grammar.tokenizeLine(header, INITIAL);
+  assert.equal(result.ruleStack.depth, 1, 'header operator expression closes before class body');
+  assert.equal(result.tokens.find(token => token.startIndex <= header.indexOf('uint32') &&
+    token.endIndex > header.indexOf('uint32')).scopes.at(-1), 'support.type.serializer');
+  const split = [
+    'private lib::value<T> stored expose /* declaration */',
+    'readonly(public)',
+    'as /* explicit name */',
+    'read_value;',
+    'public uint32 after;',
+  ];
+  let splitState = INITIAL;
+  const splitTokens = split.map(line => {
+    const parsed = grammar.tokenizeLine(line, splitState);
+    splitState = parsed.ruleStack;
+    return parsed.tokens;
+  });
+  assert.equal(splitTokens[3].find(token => token.startIndex === 0).scopes.at(-1),
+    'entity.name.function.serializer');
+  assert.equal(splitTokens[4].find(token => token.startIndex <= split[4].indexOf('uint32') &&
+    token.endIndex > split[4].indexOf('uint32')).scopes.at(-1), 'support.type.serializer');
+  assert.equal(splitState.depth, 1);
+});
+
 test('language 1.13 C++ exception contracts preserve qualifier and native body boundaries', async () => {
   const grammar = await loadGrammar();
   for (const suffix of ['noexcept(cpp);', 'noexcept ( cpp );',
@@ -141,7 +211,7 @@ test('optional and nested container generics highlight types without consuming f
   }
   assert.equal(result.ruleStack.depth, 1);
   const snippets = JSON.parse(fs.readFileSync(path.join(__dirname, '../snippets/serializer.json'), 'utf8'));
-  assert.equal(snippets.Schema.body[0], 'serializer version 1.13.0;');
+  assert.equal(snippets.Schema.body[0], 'serializer version 1.14.0;');
   assert.equal(snippets['Optional field'].prefix, 'optional');
   assert.match(snippets['Optional field'].body, /optional</);
 });

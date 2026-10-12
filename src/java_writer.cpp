@@ -324,6 +324,12 @@ class emitter {
 
   // Translate portable literal defaults and reject arbitrary C++ expressions.
   std::string default_value(const member& value) const {
+    if (value.initializer) {
+      return construction::initializer(*value.initializer, "java",
+          [&](const auto& item) { return type(item); },
+          [&](const auto& item) { return default_value(item); },
+          [&](auto item) { return field(item); });
+    }
     if (!value.default_factory.empty()) {
       return construction::factory_call(names.at(value.type_name_list.front().resolved_node),
           field(value.default_factory), "java");
@@ -603,12 +609,12 @@ class emitter {
                                : value.access == access_type::protected_access ? "protected "
                                                                                : "public ";
     const auto name = field(value.name);
-    if (value.modifier != member::modifier_type::none && !value.default_value.empty()) {
+    if (value.modifier != member::modifier_type::none && !value.default_value.empty() && !value.initializer) {
       throw std::invalid_argument{"Java collection/union defaults are not supported: " +
                                   value.name};
     }
     if (value.modifier == member::modifier_type::array) {
-      line(access + type(item) + "[] " + name + " = " + (value.fixed_extent == 0 ? array_initial(item, "0") :
+      line(access + type(item) + "[] " + name + " = " + (value.initializer ? default_value(value) : value.fixed_extent == 0 ? array_initial(item, "0") :
           item.type == object_type::primitive && item.name != "string" && !item.is_digest() &&
                   !item.is_optional() && !item.is_sequence() && !item.is_associative()
               ? array_initial(item, std::to_string(value.fixed_extent))
@@ -941,6 +947,8 @@ class emitter {
         context.native_type = [&](const auto& item) { return type(item); };
         context.enum_value = [&](const auto& item, std::string_view name) { return type(item) + "." + constant(name); };
         context.call = [&](const behavior_expression& node, const std::vector<std::string>& arguments) {
+          if (node.call_constructor) { return behavior::constructor_expression(node, arguments, "java",
+              [&](const auto& value) { return type(value); }, [&](auto name) { return field(name); }); }
           const auto& target = behavior::called_function(node);
           std::string receiver = node.call_receiver ? "(" + arguments.at(0) + ")" : "this";
           for (const auto base : node.call_base_path) { receiver += ".base" + std::to_string(base); }
@@ -1541,6 +1549,8 @@ class emitter {
       context.native_type = [&](const auto& value) { return type(value); };
       context.enum_value = [&](const auto& value, auto name) { return type(value) + "." + constant(name); };
       context.call = [&](const behavior_expression& call, const std::vector<std::string>& arguments) {
+        if (call.call_constructor) { return behavior::constructor_expression(call, arguments, "java",
+            [&](const auto& value) { return type(value); }, [&](auto name) { return field(name); }); }
         if (call.call_receiver) {
           std::string receiver = "(" + arguments.at(0) + ")";
           for (const auto base : call.call_base_path) { receiver += ".base" + std::to_string(base); }

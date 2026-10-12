@@ -1,0 +1,21 @@
+// SPDX-FileCopyrightText: 2026 Rohit Jairaj Singh <rohit@singh.org.in>
+// SPDX-License-Identifier: 0BSD
+serializer version 1.14.0;
+
+namespace quantities {
+  class distance<Rep: (integral || floating_point) && !bool>
+      arithmetic(unary(-) -> negated) {
+    public Rep value (1);
+    public constructor(Rep amount) { value = amount; }
+    public function Rep negated_value() readonly expression(-value);
+    public function distance<Rep> negated() readonly expression(distance<Rep>(negated_value()));
+    arithmetic(binary(+, distance<Rep> rhs) -> expression(distance<Rep>(value + rhs.value)));
+  }
+  class duration<Rep: (integral || floating_point) && !bool> {
+    public Rep value (1);
+    public constructor(Rep amount) { value = amount; }
+    arithmetic(unary(-) -> expression(duration<Rep>(-value)));
+  }
+  instantiate integer_distance = distance<int64>;
+  instantiate integer_duration = duration<int64>;
+}

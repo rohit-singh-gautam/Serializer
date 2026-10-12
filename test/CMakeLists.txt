@@ -81,6 +81,58 @@ endif()
 
 add_test(NAME core_serializer_test COMMAND core_serializer_test)
 
+add_executable(reciprocal_constructors_test reciprocal_constructors_test.cpp)
+serializer_generate(TARGET reciprocal_constructors_test
+  SCHEMAS resources/reciprocal_constructors.serializer
+  CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/reciprocal_constructors.ini"
+  OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/reciprocal_constructors")
+target_link_libraries(reciprocal_constructors_test PRIVATE Serializer::serializer_lib GTest::gtest_main)
+if(MSVC)
+  target_compile_options(reciprocal_constructors_test PRIVATE /W4 /WX)
+else()
+  target_compile_options(reciprocal_constructors_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME reciprocal_constructors_test COMMAND reciprocal_constructors_test)
+
+add_executable(arithmetic_operators_test arithmetic_operators_test.cpp)
+serializer_generate(TARGET arithmetic_operators_test SCHEMAS resources/arithmetic_operators.serializer
+  CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/arithmetic_operators.ini"
+  OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/arithmetic_operators")
+target_link_libraries(arithmetic_operators_test PRIVATE Serializer::serializer_lib GTest::gtest_main)
+if(MSVC)
+  target_compile_options(arithmetic_operators_test PRIVATE /W4 /WX)
+else()
+  target_compile_options(arithmetic_operators_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME arithmetic_operators_test COMMAND arithmetic_operators_test)
+
+add_executable(constructor_initialization_test constructor_initialization_test.cpp)
+serializer_generate(TARGET constructor_initialization_test
+  SCHEMAS resources/constructor_initialization.serializer
+  OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/constructor_initialization")
+target_link_libraries(constructor_initialization_test PRIVATE Serializer::serializer_lib GTest::gtest_main)
+if(MSVC)
+  target_compile_options(constructor_initialization_test PRIVATE /W4 /WX)
+else()
+  target_compile_options(constructor_initialization_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME constructor_initialization_test COMMAND constructor_initialization_test)
+
+if(SERIALIZER_BUILD_MANAGED)
+  add_executable(readonly_getters_test readonly_getters_test.cpp)
+  serializer_generate(TARGET readonly_getters_test
+    SCHEMAS resources/readonly_getters.serializer
+    CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/readonly_getters.ini"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/readonly_getters")
+  target_link_libraries(readonly_getters_test PRIVATE Serializer::serializer_lib Serializer::managed GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(readonly_getters_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(readonly_getters_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME readonly_getters_test COMMAND readonly_getters_test)
+endif()
+
 # Preserve authored C++ spellings while qualifying native construction and readonly calls.
 add_executable(authoring_construction_test
   authoring_construction_test.cpp

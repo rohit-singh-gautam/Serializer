@@ -250,7 +250,7 @@ public:
       for (std::size_t index{}; index < node.operands.size(); ++index) {
         const auto& operand = node.operands[index];
         const auto value = emit(operand, unchecked), argument = temporary();
-        context.line("const " + type(operand) +
+        context.line(std::string{context.cpp && node.call_constructor ? "" : "const "} + type(operand) +
             (context.cpp && node.call_receiver && index == 0 ? "& " : " ") + argument + " = " + value + ";");
         arguments.push_back(argument);
       }

@@ -17,7 +17,7 @@
   "Schema": {
     "prefix": "schema",
     "body": [
-      "serializer version 1.13.0;",
+      "serializer version 1.14.0;",
       "",
       "namespace ${1:models} {",
       "class ${2:account} stable_ids {",
@@ -42,6 +42,21 @@
     "prefix": "field",
     "body": "public ${1:string} ${2:name} (${3:1});$0",
     "description": "Declare a field; select an unused ID in this class"
+  },
+  "Readonly getter": {
+    "prefix": "readonly-getter",
+    "body": "private ${1:record} ${2:stored_value} (${3:1}) expose readonly(public) as ${4:value};$0",
+    "description": "Expose an owning C++ field by const reference from an lvalue; requires language 1.14.0"
+  },
+  "Arithmetic unary operator": {
+    "prefix": "arithmetic-unary",
+    "body": "arithmetic(unary(-) -> ${1:negated});$0",
+    "description": "Forward unary minus through one typed readonly method; requires language 1.14.0"
+  },
+  "Constexpr constructor declaration": {
+    "prefix": "constexpr-constructor",
+    "body": "public cpp { constexpr } constructor(${1:other_type} ${2:extent});$0",
+    "description": "Declare a host-defined constexpr C++ constructor; requires language 1.14.0"
   },
   "Ignore simplicity warning": {
     "prefix": "ignore-warning",

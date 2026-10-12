@@ -181,6 +181,18 @@ class mobile_emitter {
     }
     return literal_value;
   }
+  // Construct independent typed defaults in the selected mobile language.
+  std::string default_value(const member& value) const {
+    const auto language = swift ? "swift" : "kotlin";
+    if (value.initializer) {
+      return construction::initializer(*value.initializer, language,
+          [&](const auto& item) { return type(item); },
+          [&](const auto& item) { return initial(item.type_name_list.front(), literal(item)); },
+          [&](auto item) { return field(item); });
+    }
+    return value.default_factory.empty() ? initial(value.type_name_list.front(), literal(value)) :
+        construction::factory_call(type(value.type_name_list.front()), field(value.default_factory), language);
+  }
   // Select numeric component comparisons appropriate to the native language.
   version_language revision_language() const {
     return swift ? version_language::swift : version_language::kotlin;
@@ -312,6 +324,7 @@ class mobile_emitter {
   }
   // Construct empty containers without sharing mutable state.
   std::string empty(const member& value) const {
+    if (value.initializer) { return default_value(value); }
     if (value.fixed_extent != 0) {
       const auto count = std::to_string(value.fixed_extent);
       const auto& t = value.type_name_list.front();
@@ -767,6 +780,8 @@ class mobile_emitter {
           return type(expression_type) + "." + pascal(name);
         };
         context.call = [&](const behavior_expression& node, const std::vector<std::string>& arguments) {
+          if (node.call_constructor) { return behavior::constructor_expression(node, arguments, language,
+              [&](const auto& value) { return type(value); }, [&](auto name) { return field(name); }); }
           const auto& target = behavior::called_function(node);
           std::string receiver = node.call_receiver ? "(" + arguments.at(0) + ")" : select("self", "this");
           for (const auto base : node.call_base_path) { receiver += ".base" + std::to_string(base); }
@@ -842,6 +857,8 @@ class mobile_emitter {
       context.native_type = [&](const auto& value) { return type(value); };
       context.enum_value = [&](const auto& value, auto name) { return type(value) + "." + pascal(name); };
       context.call = [&](const behavior_expression& call, const std::vector<std::string>& arguments) {
+        if (call.call_constructor) { return behavior::constructor_expression(call, arguments, language,
+            [&](const auto& value) { return type(value); }, [&](auto name) { return field(name); }); }
         if (call.call_receiver) {
           std::string receiver = "(" + arguments.at(0) + ")";
           for (const auto base : call.call_base_path) { receiver += ".base" + std::to_string(base); }
@@ -1022,8 +1039,7 @@ class mobile_emitter {
           declare(id + pascal(alt.enum_name), type(alt), initial(alt), item.access);
         }
       } else if (item.modifier == member::modifier_type::none) {
-        declare(id, type(t), item.default_factory.empty() ? initial(t, literal(item)) :
-            construction::factory_call(type(t), field(item.default_factory), swift ? "swift" : "kotlin"), item.access);
+        declare(id, type(t), default_value(item), item.access);
       } else {
         declare(id, collection_type(item), empty(item), item.access);
       }
@@ -1036,9 +1052,7 @@ class mobile_emitter {
       output += construction::factories(value, name, "swift",
           [&](const auto& item) { return type(item); },
           [&](auto item, auto) { return field(item); },
-          [&](const auto& item) { return item.default_factory.empty() ?
-              initial(item.type_name_list.front(), literal(item)) : construction::factory_call(
-                  type(item.type_name_list.front()), field(item.default_factory), "swift"); });
+          [&](const auto& item) { return default_value(item); });
     }
     output += conversion::methods(value, name, swift ? "swift" : "kotlin",
         [&](const auto& item) { return type(item); },
@@ -1056,9 +1070,7 @@ class mobile_emitter {
       output += construction::factories(value, name, "kotlin",
           [&](const auto& item) { return type(item); },
           [&](auto item, auto) { return field(item); },
-          [&](const auto& item) { return item.default_factory.empty() ?
-              initial(item.type_name_list.front(), literal(item)) : construction::factory_call(
-                  type(item.type_name_list.front()), field(item.default_factory), "kotlin"); });
+          [&](const auto& item) { return default_value(item); });
     }
     std::string ids = select("[", "intArrayOf(");
     bool id_first = true;

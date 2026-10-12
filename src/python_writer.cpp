@@ -83,6 +83,17 @@ class python_emitter {
     const auto number = literal_value.empty() ? "0" : literal_value;
     return value.name == "float" ? "_FLOAT.unpack(_FLOAT.pack(" + number + "))[0]" : number;
   }
+  // Construct independent typed defaults, including nested owned records and fixed arrays.
+  std::string default_value(const member& value) const {
+    if (value.initializer) {
+      return construction::initializer(*value.initializer, "python",
+          [&](const auto& item) { return type(item); },
+          [&](const auto& item) { return initial(item.type_name_list.front(), literal(item)); },
+          [&](auto item) { return field(item); });
+    }
+    return value.default_factory.empty() ? initial(value.type_name_list.front(), literal(value)) :
+        construction::factory_call(type(value.type_name_list.front()), field(value.default_factory), "python");
+  }
   // Map schema scalars to public Python type annotations.
   std::string type(const type_name& value) const {
     if (value.is_optional()) { return "tuple[()] | tuple[" + type(value.arguments.front()) + "]"; }
@@ -423,6 +434,8 @@ class python_emitter {
         context.native_type = [&](const auto& value_type) { return type(value_type); };
         context.enum_value = [&](const auto& value_type, auto enumerator) { return type(value_type) + "." + pascal(enumerator); };
         context.call = [&](const behavior_expression& node, const std::vector<std::string>& arguments) {
+          if (node.call_constructor) { return behavior::constructor_expression(node, arguments, "python",
+              [&](const auto& value) { return type(value); }, [&](auto name) { return field(name); }); }
           const auto& target = behavior::called_function(node);
           std::string receiver = node.call_receiver ? "(" + arguments.at(0) + ")" : "self";
           for (const auto base : node.call_base_path) { receiver += "." + field("base" + std::to_string(base)); }
@@ -473,6 +486,8 @@ class python_emitter {
       context.native_type = [&](const auto& value) { return type(value); };
       context.enum_value = [&](const auto& value, auto name) { return type(value) + "." + pascal(name); };
       context.call = [&](const behavior_expression& call, const std::vector<std::string>& arguments) {
+        if (call.call_constructor) { return behavior::constructor_expression(call, arguments, "python",
+            [&](const auto& value) { return type(value); }, [&](auto name) { return field(name); }); }
         if (call.call_receiver) {
           std::string receiver = "(" + arguments.at(0) + ")";
           for (const auto base : call.call_base_path) { receiver += "." + field("base" + std::to_string(base)); }
@@ -622,14 +637,13 @@ class python_emitter {
           fields.push_back({f + "_" + snake(alt.enum_name), {type(alt), initial(alt)}});
         }
       } else if (item.modifier == member::modifier_type::none) {
-        fields.push_back({f, {type(t), item.default_factory.empty() ? initial(t, literal(item)) :
-            construction::factory_call(type(t), field(item.default_factory), "python")}});
+        fields.push_back({f, {type(t), default_value(item)}});
       } else {
         fields.push_back({f,
                           {item.modifier == member::modifier_type::array
                                ? "list[" + type(t) + "]"
                                : "dict[" + type(map_key(item)) + ", " + type(t) + "]",
-                           item.fixed_extent ? "[" + initial(t) + " for _ in range(" +
+                           item.initializer ? default_value(item) : item.fixed_extent ? "[" + initial(t) + " for _ in range(" +
                                std::to_string(item.fixed_extent) + ")]" :
                            item.modifier == member::modifier_type::array ? "[]" : "{}"}});
       }
@@ -657,9 +671,7 @@ class python_emitter {
     output += behavior::python_block(construction::factories(value, name, "python",
         [&](const auto& item) { return type(item); },
         [&](auto item, auto access) { return field(item, access); },
-        [&](const auto& item) { return item.default_factory.empty() ?
-            initial(item.type_name_list.front(), literal(item)) : construction::factory_call(
-                type(item.type_name_list.front()), field(item.default_factory), "python"); }), indent * 4);
+        [&](const auto& item) { return default_value(item); }), indent * 4);
     output += behavior::python_block(conversion::methods(value, name, "python",
         [&](const auto& item) { return type(item); },
         [&](auto item, auto access) { return field(item, access); }), indent * 4);

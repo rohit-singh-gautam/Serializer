@@ -1,0 +1,18 @@
+cmake_minimum_required(VERSION 3.28)
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  project(serializer_arithmetic_operators_example LANGUAGES CXX)
+  find_package(Serializer 1.19 CONFIG REQUIRED)
+  enable_testing()
+endif()
+
+add_executable(serializer_arithmetic_operators main.cpp)
+serializer_generate(TARGET serializer_arithmetic_operators SCHEMAS quantities.serializer
+  OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}" CODING_STANDARD serializer)
+target_link_libraries(serializer_arithmetic_operators PRIVATE Serializer::runtime)
+target_compile_features(serializer_arithmetic_operators PRIVATE cxx_std_20)
+if(MSVC)
+  target_compile_options(serializer_arithmetic_operators PRIVATE /W4 /WX)
+else()
+  target_compile_options(serializer_arithmetic_operators PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME serializer_arithmetic_operators COMMAND serializer_arithmetic_operators)

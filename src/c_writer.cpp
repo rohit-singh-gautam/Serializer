@@ -851,6 +851,37 @@ class c_emitter {
 
   // Propagate checked callee status while leaving native calls under their declared C contract.
   std::string behavior_call(const behavior_expression& node, const std::vector<std::string>& arguments) {
+    if (node.call_constructor) {
+      const auto& owner = static_cast<const class_node&>(*node.call_target);
+      if (!plain_record_result(owner)) {
+        throw std::invalid_argument{"c: owning constructor expressions require records without dynamic owned storage"};
+      }
+      const auto local = "srl_behavior_construct_" + std::to_string(next_behavior_call++);
+      line(type(*node.resolved_type) + " " + local + " = {0};");
+      std::string callable = name(&owner) + "_init", inputs = "&" + local;
+      if (node.call_method_index != std::numeric_limits<std::size_t>::max()) {
+        const auto& constructor = owner.constructions.at(node.call_method_index);
+        callable = name(&owner) + "_" + field("create");
+        if (arguments.size() != constructor.parameters.size()) {
+          callable += "_default_" + std::to_string(arguments.size());
+        }
+        for (std::size_t index{}; index < arguments.size(); ++index) {
+          const auto& parameter = constructor.parameters[index];
+          if (construction_owned(parameter.type)) {
+            if (parameter.type.type != object_type::class_type ||
+                !plain_record_result(static_cast<const class_node&>(*parameter.type.resolved_node))) {
+              throw std::invalid_argument{"c: owning constructor expressions cannot move dynamically owned arguments"};
+            }
+            const auto copied = local + "_argument_" + std::to_string(index);
+            line(type(parameter.type) + " " + copied + " = " + arguments[index] + ";");
+            inputs += ", &" + copied;
+          } else { inputs += ", " + arguments[index]; }
+        }
+      }
+      line("srl_status " + local + "_status = " + callable + "(" + inputs + ");");
+      line("if (" + local + "_status != srl_ok) { return " + local + "_status; }");
+      return local;
+    }
     const auto& method = behavior::called_function(node);
     if (method.dispatch == function_declaration::dispatch_type::abstract_method) {
       throw std::invalid_argument{"c: abstract readonly calls require a behavior adapter receiver"};
@@ -1100,6 +1131,41 @@ class c_emitter {
     }
     return result + ")";
   }
+  // Initialize or replace one checked owning default while preserving partial-allocation cleanup.
+  void initialize_default(const value_initializer& value, const std::string& destination,
+                          const std::string& status, bool initialized = false) {
+    if (value.kind == value_initializer::kind_type::fixed_array) {
+      if (!initialized) {
+        const auto count = std::to_string(value.elements.size());
+        line("if (" + status + " == srl_ok) { " + destination + ".data = (" + type(value.type) +
+            "*)calloc(" + count + ", sizeof(" + destination + ".data[0])); if (!" + destination +
+            ".data) { " + status + " = srl_allocation; } else { " + destination + ".capacity = " + count + "; } }");
+      }
+      for (std::size_t index{}; index < value.elements.size(); ++index) {
+        open("if (" + status + " == srl_ok)");
+        if (!initialized) { line("++" + destination + ".size;"); }
+        initialize_default(value.elements[index], destination + ".data[" + std::to_string(index) + "]", status, initialized);
+        close();
+      }
+      return;
+    }
+    if (value.kind == value_initializer::kind_type::record) {
+      if (!initialized) { init_value(value.type, destination, {}, status); }
+      const auto& owner = static_cast<const class_node&>(*value.type.resolved_node);
+      std::size_t index{};
+      for (const auto& member : owner.member_list) {
+        if (member.wire_only) { continue; }
+        initialize_default(value.elements.at(index++), destination + "." + field(member.name), status, true);
+      }
+      return;
+    }
+    if (initialized) { free_value(value.type, destination); }
+    member scalar{access_type::public_access, member::modifier_type::none, {value.type},
+        "serializer_default", "serializer_default", 0, {}, value.value};
+    scalar.magic = value.type.name == "char" && !value.value.empty() && value.value.front() != '\'';
+    init_value(value.type, destination, literal(scalar), status);
+  }
+
   // Publish a fresh constructed candidate only after allocation succeeds; owned inputs move once.
   void constructions(const class_node& value) {
     const auto n = name(&value);
@@ -1162,9 +1228,19 @@ class c_emitter {
         for (std::size_t index = arity; index < factory.parameters.size(); ++index) {
           const auto& parameter = factory.parameters[index];
           const auto argument = "srl_arg_" + field(parameter.name);
-          line(type(parameter.type) + " " + argument + " = {0};");
+          std::string parameter_type = type(parameter.type);
+          if (parameter.modifier == member::modifier_type::array) {
+            const auto assignment = std::find_if(factory.assignments.begin(), factory.assignments.end(),
+                [&](const auto& item) { return item.parameter && item.value == parameter.name; });
+            const auto member = std::find_if(value.member_list.begin(), value.member_list.end(),
+                [&](const auto& item) { return assignment != factory.assignments.end() && item.name == assignment->field; });
+            if (member == value.member_list.end()) { throw std::invalid_argument{"c: default array input must bind an owned field"}; }
+            parameter_type = collection(value, *member);
+          }
+          line(parameter_type + " " + argument + " = {0};");
           auto default_field = construction::parameter_default(parameter);
-          init_value(parameter.type, argument, literal(default_field), "status");
+          if (parameter.initializer) { initialize_default(*parameter.initializer, argument, "status"); }
+          else { init_value(parameter.type, argument, literal(default_field), "status"); }
           if (!parameter.default_factory.empty()) {
             line("if (status == srl_ok) { status = " + type(parameter.type) + "_" +
                 field(parameter.default_factory) + "(&" + argument + "); }");
@@ -1173,13 +1249,22 @@ class c_emitter {
         std::string arguments{"result"};
         for (std::size_t index{}; index < factory.parameters.size(); ++index) {
           const auto& parameter = factory.parameters[index];
-          arguments += ", " + std::string(index >= arity && construction_owned(parameter.type) ? "&" : "") +
+          arguments += ", " + std::string(index >= arity &&
+              (construction_owned(parameter.type) || parameter.modifier == member::modifier_type::array) ? "&" : "") +
               "srl_arg_" + field(parameter.name);
         }
         line("if (status == srl_ok) { status = " + n + "_" + field(factory.constructor ? "create" : factory.name) +
             "(" + arguments + "); }");
         for (std::size_t index = arity; index < factory.parameters.size(); ++index) {
-          free_value(factory.parameters[index].type, "srl_arg_" + field(factory.parameters[index].name));
+          const auto& parameter = factory.parameters[index];
+          const auto argument = "srl_arg_" + field(parameter.name);
+          if (parameter.modifier == member::modifier_type::array) {
+            const auto assignment = std::find_if(factory.assignments.begin(), factory.assignments.end(),
+                [&](const auto& item) { return item.parameter && item.value == parameter.name; });
+            const auto member = std::find_if(value.member_list.begin(), value.member_list.end(),
+                [&](const auto& item) { return assignment != factory.assignments.end() && item.name == assignment->field; });
+            line(collection(value, *member) + "_clear(&" + argument + ");");
+          } else { free_value(parameter.type, argument); }
         }
         line("return status;");
         close();
@@ -1302,12 +1387,17 @@ class c_emitter {
           init_value(alt, dst + "_" + field(alt.enum_name), {}, "status");
         }
       } else if (f.modifier == member::modifier_type::none) {
-        init_value(f.type_name_list.front(), dst, literal(f), "status");
+        if (f.initializer) { initialize_default(*f.initializer, dst, "status"); }
+        else { init_value(f.type_name_list.front(), dst, literal(f), "status"); }
         if (!f.default_factory.empty()) {
           line("if (status == srl_ok) { status = " + type(f.type_name_list.front()) + "_" +
               field(f.default_factory) + "(&" + dst + "); }");
         }
       } else if (f.fixed_extent != 0) {
+        if (f.initializer) {
+          initialize_default(*f.initializer, dst, "status");
+          continue;
+        }
         const auto count = std::to_string(f.fixed_extent);
         line("if (status == srl_ok) { " + dst + ".data = (" + type(f.type_name_list.front()) +
              "*)calloc(" + count + ", sizeof(" + dst + ".data[0])); if (!" + dst +

@@ -108,6 +108,7 @@ type_name map_key(const member& value) {
 }
 // Validate defaults once; backends only translate the already checked spelling.
 std::string literal(const member& value) {
+  if (value.initializer) { return {}; }
   const auto first = value.default_value.find_first_not_of(" \t\r\n");
   if (first == std::string::npos) {
     return {};
@@ -276,7 +277,7 @@ schema::schema(const std::vector<std::unique_ptr<syntax_node>>& statements) {
       add_key(object.parents[i].display_name);
     }
     for (const auto& field : object.member_list) {
-      if (field.modifier != member::modifier_type::none && !field.default_value.empty()) {
+      if (field.modifier != member::modifier_type::none && !field.default_value.empty() && !field.initializer) {
         throw std::invalid_argument{"Collection and union defaults are unsupported"};
       }
       if (field.modifier == member::modifier_type::map) {

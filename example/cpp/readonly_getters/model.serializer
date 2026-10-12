@@ -1,0 +1,21 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: 0BSD
+serializer version 1.14.0;
+
+cpp preamble {
+  namespace readonly_example { struct writer; }
+}
+
+namespace readonly_example {
+  class box<T> stable_ids {
+    private T payload_ ("payload", 1) expose readonly(public) as payload;
+    public cpp storage(none) { friend struct writer; }
+  }
+  instantiate integer_box = box<int32>;
+
+  class document stable_ids {
+    private integer_box contents_ ("contents", 1) expose readonly(public) as contents;
+    private string label_ ("label", 2) {"example"} expose readonly(public) as label;
+    public cpp storage(none) { friend struct writer; }
+  }
+}

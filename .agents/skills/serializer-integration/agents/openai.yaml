@@ -1,6 +1,6 @@
 interface:
   display_name: "Serializer Integration"
-  short_description: "Use the full Serializer schema and state framework"
+  short_description: "Use Serializer schemas, owning APIs, and managed state"
 
 policy:
   allow_implicit_invocation: true

@@ -1,5 +1,12 @@
 # Schema behavior and native source
 
+Language `1.14.0` adds [explicit arithmetic mappings and owning constructor calls](owning_api.md#explicit-arithmetic-mappings-and-owning-calls),
+[readonly field getters](owning_api.md#readonly-c-getters), and declaration-site
+C++ `constexpr`/`inline` additions. Eligible ordinary C++ native readonly/edit
+bodies become constant-capable automatically; external definitions still need a
+matching explicit declaration and visible implementation. Fields and wire layout
+remain unchanged. See [examples](../../example/README.md#owning-record-apis).
+
 Schema 1.6 declares behavior alongside durable fields. Methods and target source
 have no wire IDs and do not enter codecs, managed fingerprints, history comparison
 or collaboration patches. [Runnable native schema](../../test/resources/document_native_behavior.serializer)

@@ -1,0 +1,47 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.14.0;
+
+cpp preamble {
+  namespace readonly_getters { struct field_access; }
+}
+
+namespace readonly_getters {
+  class box<T> stable_ids {
+    private T value_ ("value", 1) expose readonly(public) as value;
+    public cpp storage(none) { friend struct field_access; }
+  }
+  instantiate integer_box = box<int32>;
+
+  class record stable_ids {
+    private int32 number_ ("number", 1) {7} expose readonly(public) as number;
+    private string label_ ("label", 2) {"seed"} expose readonly(public) as label;
+    private array[2] int32 coordinates_ ("coordinates", 3) {4, 9} expose readonly(public) as coordinates;
+    private integer_box payload_ ("payload", 4) expose readonly(public) as payload;
+    private transient uint32 cache_ {5} expose readonly(public) as cache;
+    public cpp storage(none) { friend struct field_access; }
+  }
+
+  class access_probe stable_ids {
+    private int32 protected_value_ (1) expose readonly(protected) as protected_value;
+    private int32 private_value_ (2) expose readonly(private) as private_value;
+    public cpp storage(none) { friend struct field_access; }
+  }
+
+  class baseline_box stable_ids {
+    private int32 value_ ("value", 1);
+    public cpp storage(none) { friend struct field_access; }
+  }
+  class baseline_record stable_ids {
+    private int32 number_ ("number", 1) {7};
+    private string label_ ("label", 2) {"seed"};
+    private array[2] int32 coordinates_ ("coordinates", 3) {4, 9};
+    private baseline_box payload_ ("payload", 4);
+    private transient uint32 cache_ {5};
+    public cpp storage(none) { friend struct field_access; }
+  }
+
+  class history_root managed stable_ids {
+    public record snapshot (1);
+  }
+}

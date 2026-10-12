@@ -332,6 +332,15 @@ struct version_policy {
 
 enum class auto_size_scope { record, payload };
 
+// Typed owning defaults retain a recursive value tree, independently of each output's syntax.
+struct value_initializer {
+  enum class kind_type { scalar, fixed_array, record };
+  kind_type kind{kind_type::scalar};
+  type_name type{std::string{}, nullptr};
+  std::string value{};
+  std::vector<value_initializer> elements{};
+};
+
 struct member {
   enum class modifier_type { none, array, map, variant };
   access_type access;
@@ -376,6 +385,10 @@ struct member {
   bool wire_only{false}; // Computed auto-size metadata has no per-instance storage.
   auto_size_scope size_scope{auto_size_scope::record}; // Payload excludes this complete field key and scalar.
   std::optional<type_name> key_type{}; // Preserve nested legacy map-key applications through lowering.
+  bool portable_default_enabled{false}; // Preserve the declaration's language 1.14 default contract.
+  std::optional<value_initializer> initializer{};
+  std::string readonly_getter{}; // Explicit C++ lvalue-only const-reference exposure; no wire storage.
+  access_type readonly_getter_access{access_type::public_access};
 
   // Select a computed fixed-width size without storing per-instance codec policy.
   bool auto_sizes(std::string_view format) const {
@@ -390,6 +403,8 @@ struct member {
            inferred_extent == rhs.inferred_extent && owning_variant == rhs.owning_variant &&
            transient == rhs.transient && empty_layout == rhs.empty_layout &&
            default_factory == rhs.default_factory &&
+           readonly_getter == rhs.readonly_getter &&
+           readonly_getter_access == rhs.readonly_getter_access &&
            auto_size_formats == rhs.auto_size_formats &&
            wire_only == rhs.wire_only && size_scope == rhs.size_scope &&
            version == rhs.version && magic == rhs.magic &&
@@ -448,6 +463,8 @@ struct behavior_expression {
   bool call_receiver{false}; // Operand zero is an explicitly projected generated record receiver.
   bool record_selection_enabled{true}; // Preserve the declaring file's language 1.11 contract.
   bool numeric_contract_enabled{false}; // New arithmetic retains its declaring file's contract.
+  bool call_constructor{false}; // An explicitly typed owning call, never an inferred record conversion.
+  bool constructor_calls_enabled{false}; // Owning expressions retain their declaring language contract.
 };
 
 // A named argument with the schema's owned value type.
@@ -459,6 +476,8 @@ struct function_parameter {
   std::uint64_t fixed_extent{};
   std::string default_value{}; // Construction-only typed literal or default(factory) binding.
   std::string default_factory{};
+  bool portable_default_enabled{false};
+  std::optional<value_initializer> initializer{};
 };
 
 // One owned field initialization, bound to a parameter, literal, or typed default factory.
@@ -480,6 +499,11 @@ struct construction_declaration {
   std::vector<generic_parameter> generic_parameters{}; // Independently constrained input types.
   bool explicit_constructor{false}; // Opt-in C++ converting-constructor control.
   bool overload_contract_enabled{false}; // Preserve each file's language 1.12 constructor contract.
+  bool forward_signature_enabled{false}; // Language 1.14 resolves callable-only dependencies in a second pass.
+  bool declaration_only{false}; // C++ host definition supplies this constructor's implementation.
+  bool defaulted{false}; // Explicit default constructor, independent of codec default construction.
+  std::string cpp_prefix{}; // Declaration-site C++ constexpr/inline additions, never serialized storage.
+  bool member_initialization_enabled{false}; // Language 1.14 initializes owning C++ members directly.
   std::vector<behavior_expression> validations{}; // Checked after bindings and before host initialization.
   std::vector<native_code_block> native_validations{}; // Explicit host validation of custom representations.
   std::vector<native_code_block> initializers{}; // Authoring-only host initialization, never codec/copy hooks.
@@ -521,6 +545,8 @@ struct function_declaration {
   bool cpp_constexpr{false}; // Author-qualified ordinary readonly C++ native body.
   std::vector<generic_parameter> generic_parameters{}; // Appended to preserve existing aggregate initialization.
   bool cpp_noexcept{false}; // Author-promised nonthrowing C++ readonly native/external callable.
+  std::string cpp_prefix{}; // Explicit declaration-site C++ constexpr/inline additions.
+  bool automatic_constexpr_enabled{false}; // Preserve older native-body qualification contracts.
 };
 
 // A namespace-owned readonly callable has no serialized identity or receiver storage.
@@ -530,6 +556,15 @@ struct function_node : syntax_node {
   function_node(function_declaration declaration, namespace_node* space)
       : syntax_node{object_type::function_type, std::string{declaration.name}, space},
         function{std::move(declaration)} {}
+};
+
+// One explicit operator forwards to a complete readonly callable contract without wire storage.
+struct arithmetic_declaration {
+  bool unary{true};
+  std::string symbol{};
+  std::string method_name{};
+  std::size_t method_index{};
+  bool inline_expression{false};
 };
 
 // Keep declaration order separate from the field-only persistence traversal.
@@ -571,6 +606,7 @@ struct class_node : public syntax_node {
   std::vector<function_declaration> functions{};
   std::vector<construction_declaration> constructions{};
   std::vector<conversion_declaration> conversions{};
+  std::vector<arithmetic_declaration> arithmetic{};
   std::vector<native_code_block> native_blocks{};
   std::vector<class_body_item> body_order{};
   std::string magic_bytes{}; // Exact raw binary prefix; no terminator, length, or field identity.
@@ -609,6 +645,7 @@ struct class_node : public syntax_node {
         parents{std::move(rhs.parents)}, member_list{std::move(rhs.member_list)},
         functions{std::move(rhs.functions)}, constructions{std::move(rhs.constructions)},
         conversions{std::move(rhs.conversions)},
+        arithmetic{std::move(rhs.arithmetic)},
         native_blocks{std::move(rhs.native_blocks)},
         body_order{std::move(rhs.body_order)},
         magic_bytes{std::move(rhs.magic_bytes)}, magic_field{std::move(rhs.magic_field)},
@@ -688,14 +725,21 @@ inline void require_variable_arrays(const std::vector<std::unique_ptr<syntax_nod
   }
 }
 
-// Refuse managed declarations on backends without a managed runtime instead of losing semantics.
+// Refuse C++-only ownership and exposure contracts rather than dropping their declared semantics.
 inline void require_unmanaged_backend(const std::vector<std::unique_ptr<syntax_node>>& statements) {
   for (const auto& node : statements) {
     if (node->type == object_type::namespace_type) {
       require_unmanaged_backend(static_cast<const namespace_node*>(node.get())->statements);
-    } else if (node->type == object_type::class_type &&
-               static_cast<const class_node*>(node.get())->supports_managed()) {
-      throw std::invalid_argument{"Managed generation is currently supported only by the C++ backend"};
+    } else if (node->type == object_type::class_type || node->type == object_type::generic_definition) {
+      const auto& object = static_cast<const class_node&>(*node);
+      if (object.supports_managed()) {
+        throw std::invalid_argument{"Managed generation is currently supported only by the C++ backend"};
+      }
+      if (std::any_of(object.member_list.begin(), object.member_list.end(), [](const auto& field) {
+            return !field.readonly_getter.empty();
+          })) {
+        throw std::invalid_argument{"Readonly field exposure is currently supported only by the C++ backend"};
+      }
     }
   }
 }

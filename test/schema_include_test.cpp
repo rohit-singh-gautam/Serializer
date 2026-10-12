@@ -375,7 +375,7 @@ TEST_F(schema_include_test, readonly_call_language_contract_is_per_file) {
       "function uint64 identity(uint64 value) readonly expression(value);");
   write("root.serializer", "serializer version 1; include common; class root { public uint32 value; }");
   EXPECT_NO_THROW(schema::parser::parse_file(directory / "root.serializer"));
-  write("common.serializer", "serializer version 1.14.0; class future {}");
+  write("common.serializer", "serializer version 1.15.0; class future {}");
   reject("Unsupported schema language version");
 }
 

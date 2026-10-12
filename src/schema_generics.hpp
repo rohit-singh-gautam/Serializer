@@ -62,6 +62,8 @@ class generic_lowering {
   std::unordered_set<std::string> occupied{};
   std::unordered_set<std::string> expanding{};
   std::unordered_set<std::string> incomplete{};
+  // Named specializations copy signatures before the deferred callable pass substitutes them.
+  std::unordered_map<const class_node*, std::unordered_map<std::string, type_name>> named_bindings{};
 
   // Produce a canonical schema identity, independent of generated names and namespace spelling.
   std::string identity(const type_name& type) const {
@@ -560,6 +562,7 @@ class generic_lowering {
     concrete->functions = definition->functions;
     concrete->constructions = definition->constructions;
     concrete->conversions = definition->conversions;
+    concrete->arithmetic = definition->arithmetic;
     concrete->native_blocks = definition->native_blocks;
     concrete->body_order = definition->body_order;
     concrete->magic_bytes = definition->magic_bytes;
@@ -703,6 +706,20 @@ class generic_lowering {
       for (auto& argument : value.arguments) { self(self, argument); }
     };
     substitute(substitute, type);
+    // A callable may return/take its exact owner without introducing recursive inline storage.
+    if (type.application && !owner.generic_name.empty() &&
+        type.arguments.size() == owner.generic_arguments.size()) {
+      const auto* declaration = find_declared_type(type.name, type.declared_namespace, visible);
+      const bool same_owner = type.name == owner.generic_name ||
+          (declaration && declaration->get_full_name() == owner.generic_name);
+      if (same_owner && std::equal(type.arguments.begin(), type.arguments.end(),
+          owner.generic_arguments.begin(), [&](const auto& left, const auto& right) {
+            return identity(left) == identity(right);
+          })) {
+        bind(type, &owner);
+        return;
+      }
+    }
     if (contains_callable_input(type, input_types)) {
       validate_callable_type(type, owner, input_types);
     } else {
@@ -791,6 +808,7 @@ class generic_lowering {
       }
     }
     for (auto& construction : object.constructions) {
+      if (construction.constructor && construction.forward_signature_enabled) { continue; }
       for (auto& parameter : construction.parameters) {
         if (parameter.type.application && contains_callable_input(parameter.type, construction.generic_parameters) &&
             !construction.overload_contract_enabled) {
@@ -926,8 +944,19 @@ class generic_lowering {
               for (auto& parameter : method.parameters) {
                 validate_callable_type(parameter.type, object, method.generic_parameters);
               }
+              // Explicit expression type applications share callable scope, including the owner.
+              if (method.expression) {
+                const auto validate_types = [&](const auto& self, behavior_expression& expression) -> void {
+                  if (expression.resolved_type) {
+                    validate_callable_type(*expression.resolved_type, object, method.generic_parameters);
+                  }
+                  for (auto& operand : expression.operands) { self(self, operand); }
+                };
+                validate_types(validate_types, *method.expression);
+              }
             }
             for (auto& construction : object.constructions) {
+              if (construction.constructor && construction.forward_signature_enabled) { continue; }
               for (auto& parameter : construction.parameters) {
                 if (parameter.type.application && contains_callable_input(parameter.type, construction.generic_parameters) &&
                     !construction.overload_contract_enabled) {
@@ -958,6 +987,7 @@ class generic_lowering {
             object.functions = source.functions;
             object.constructions = source.constructions;
             object.conversions = source.conversions;
+            object.arithmetic = source.arithmetic;
             object.native_blocks = source.native_blocks;
             object.body_order = source.body_order;
             object.magic_bytes = source.magic_bytes;
@@ -970,6 +1000,10 @@ class generic_lowering {
             object.reserved_variables = source.reserved_variables;
             object.reserved_names = source.reserved_names;
             object.named_generic_source = source.generic_name;
+            auto& bindings = named_bindings[&object];
+            for (std::size_t index{}; index < source.generic_arguments.size(); ++index) {
+              bindings.emplace(source.generic_parameters[index].name, source.generic_arguments[index]);
+            }
             object.instance_of.clear();
           } else {
             incomplete.insert(object.get_full_name());
@@ -1002,6 +1036,49 @@ class generic_lowering {
     }
   }
 
+  // Resolve callable-only constructor dependencies after finite layouts and declarations are known.
+  void resolve_deferred_constructors(syntax_node& node) {
+    if (node.type == object_type::namespace_type) {
+      for (auto& child : static_cast<namespace_node&>(node).statements) {
+        resolve_deferred_constructors(*child);
+      }
+      return;
+    }
+    if (node.type != object_type::class_type) { return; }
+    auto& owner = static_cast<class_node&>(node);
+    auto bindings = named_bindings.contains(&owner) ? named_bindings.at(&owner)
+        : std::unordered_map<std::string, type_name>{};
+    for (std::size_t argument{}; argument < owner.generic_arguments.size(); ++argument) {
+      bindings.emplace(owner.generic_parameters[argument].name, owner.generic_arguments[argument]);
+    }
+    for (auto& construction : owner.constructions) {
+      if (!construction.constructor || !construction.forward_signature_enabled) { continue; }
+      for (auto& parameter : construction.parameters) {
+        if (!owner.type_parameters.empty()) {
+          validate_callable_type(parameter.type, owner, construction.generic_parameters);
+        } else {
+          resolve_callable_type(parameter.type, owner, construction.generic_parameters, bindings, 0);
+        }
+        if (!parameter.extent_expression.empty()) {
+          constexpr std::uint64_t maximum_fixed_elements = 65536;
+          const auto extent = evaluate(parameter.extent_expression.front(),
+              owner.type_parameters.empty() ? bindings : placeholders(owner),
+              !owner.type_parameters.empty());
+          if (extent && (*extent == 0 || *extent > maximum_fixed_elements)) {
+            throw exception::bad_member_type{input, "Construction array extent must be in 1..65536"};
+          }
+          if (extent) { parameter.fixed_extent = *extent; }
+        }
+      }
+      for (auto& assignment : construction.assignments) {
+        if (assignment.expression) {
+          resolve_callable_expression(*assignment.expression, owner,
+              construction.generic_parameters, bindings, 0);
+        }
+      }
+    }
+  }
+
 public:
   // Keep diagnostics associated with the compilation input; all caches are per compilation.
   explicit generic_lowering(const Input& source) : input{source} {}
@@ -1010,6 +1087,12 @@ public:
   std::vector<std::unique_ptr<syntax_node>> run(std::vector<std::unique_ptr<syntax_node>> nodes) {
     collect(nodes);
     visit(std::move(nodes));
+    // Callable dependencies do not own storage. Resolve them only after every finite field
+    // layout and template declaration is known, allowing reciprocal constructor signatures.
+    // New concrete signature types may append output; their fields are checked before reuse.
+    for (std::size_t index{}; index < output.size(); ++index) {
+      resolve_deferred_constructors(*output[index]);
+    }
     for (auto* definition : retained_templates) {
       definition->type = object_type::generic_definition;
     }

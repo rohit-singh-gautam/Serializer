@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.28)
 
-project(serializer VERSION 1.18.0 LANGUAGES CXX)
+project(serializer VERSION 1.19.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
-set(serializer_schema_language_version 1.13.0)
+set(serializer_schema_language_version 1.14.0)
 string(REPLACE "." ";" serializer_schema_language_version_components
   "${serializer_schema_language_version}")
 list(GET serializer_schema_language_version_components 0 serializer_schema_language_version_major)
@@ -82,6 +82,11 @@ add_library(serializer_lib
   src/parser.cpp
   src/construction_parser.hpp
   src/construction_writer.hpp
+  src/construction_defaults.hpp
+  src/construction_defaults_parser.hpp
+  src/callable_prefix_parser.hpp
+  src/arithmetic_parser.hpp
+  src/arithmetic_writer.hpp
   src/construction_contract.hpp
   src/construction_qualification.hpp
   src/numeric_expression_writer.hpp
@@ -315,6 +320,10 @@ if(SERIALIZER_BUILD_TESTS OR SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
   add_subdirectory(example/generics)
   add_subdirectory(example/cpp/expressions)
   add_subdirectory(example/cpp/custom_code)
+  add_subdirectory(example/cpp/readonly_getters)
+  add_subdirectory(example/cpp/arithmetic_operators)
+  add_subdirectory(example/cpp/reciprocal_quantities)
+  add_subdirectory(example/cpp/construction_defaults)
 endif()
 
 if(SERIALIZER_BUILD_INTEROP_EXAMPLES)

@@ -8,12 +8,34 @@
 #include <algorithm>
 #include <cstdint>
 #include <functional>
+#include <limits>
 #include <set>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
 namespace rohit::serializer::writer::construction {
+
+// Explain an inferred constexpr restriction without claiming anything about opaque native tokens.
+inline std::string constexpr_restriction(const class_node& owner,
+                                        const construction_declaration& factory) {
+  if (!factory.native_validations.empty() || !factory.initializers.empty()) {
+    return "native authoring validation/initialization has no portable constexpr contract";
+  }
+  if (owner.supports_managed()) { return "managed identity and lifetime hooks require runtime state"; }
+  if (std::any_of(owner.native_blocks.begin(), owner.native_blocks.end(), [](const auto& block) {
+        return block.language == "cpp" && !block.no_instance_storage;
+      })) { return "opaque native instance storage has no declared constexpr contract"; }
+  if (std::any_of(owner.member_list.begin(), owner.member_list.end(), [](const auto& field) {
+        return field.modifier == member::modifier_type::map ||
+            std::any_of(field.type_name_list.begin(), field.type_name_list.end(),
+                [](const auto& type) { return type.is_associative(); });
+      })) { return "ordered/hash associative storage is not constexpr in C++20"; }
+  if (std::any_of(owner.functions.begin(), owner.functions.end(), [](const auto& method) {
+        return method.dispatch != function_declaration::dispatch_type::ordinary;
+      })) { return "dispatched behavior retains runtime lifecycle requirements"; }
+  return "a nested value, callable, or binding has no proven C++20 constexpr contract";
+}
 
 // Prove known storage supports C++20 construction; dependent values defer to specialization.
 inline bool constexpr_construction(const class_node& owner,
@@ -126,18 +148,39 @@ inline bool constexpr_type(const class_node& owner, const type_name& value,
 
 // Check returned/parameter values without restricting unrelated borrowed receiver storage.
 inline bool constexpr_parameters(const class_node& owner, const function_declaration& method) {
-  return constexpr_type(owner, method.return_type, method.generic_parameters) &&
+  return (method.return_type.name == "void" ||
+      constexpr_type(owner, method.return_type, method.generic_parameters)) &&
       std::all_of(method.parameters.begin(), method.parameters.end(),
           [&](const auto& parameter) { return constexpr_type(owner, parameter.type, method.generic_parameters); });
 }
 
 // Follow typed callees and explicit native contracts without interpreting their C++ tokens.
 inline bool constexpr_expression(const behavior_expression& node,
-    std::set<const function_declaration*>& active) {
+    std::set<const void*>& active) {
   using operation = behavior_expression::operation;
   switch (node.kind) {
   case operation::square_root: case operation::sine: case operation::cosine: return false;
   case operation::call: {
+    if (node.call_constructor) {
+      if (!node.call_target) { return false; }
+      const auto& target = static_cast<const class_node&>(*node.call_target);
+      if (!construction::constexpr_construction(target)) { return false; }
+      if (node.call_method_index != std::numeric_limits<std::size_t>::max()) {
+        const auto& constructor = target.constructions.at(node.call_method_index);
+        if (constructor.declaration_only && !constructor.defaulted &&
+            constructor.cpp_prefix.find("constexpr") == std::string::npos) { return false; }
+        if (!active.insert(&constructor).second) { return false; }
+        const bool eligible = constructor.native_validations.empty() && constructor.initializers.empty() &&
+            std::all_of(constructor.assignments.begin(), constructor.assignments.end(), [&](const auto& assignment) {
+              return !assignment.expression || constexpr_expression(*assignment.expression, active);
+            }) && std::all_of(constructor.validations.begin(), constructor.validations.end(), [&](const auto& expression) {
+              return constexpr_expression(expression, active);
+            });
+        active.erase(&constructor);
+        if (!eligible) { return false; }
+      }
+      break;
+    }
     const auto& method = called_function(node);
     if (method.dispatch != function_declaration::dispatch_type::ordinary ||
         method.effect != function_declaration::effect_type::readonly) { return false; }
@@ -146,8 +189,10 @@ inline bool constexpr_expression(const behavior_expression& node,
     const auto& owner = node.call_target->type == object_type::function_type ? free_owner :
         static_cast<const class_node&>(*node.call_target);
     if (!constexpr_parameters(owner, method)) { return false; }
-    if (native_body(method, "cpp")) {
-      if (!method.cpp_constexpr) { return false; }
+    if (native_body(method, "cpp") || !method.expression) {
+      if (!method.cpp_constexpr && method.cpp_prefix.find("constexpr") == std::string::npos &&
+          !(method.automatic_constexpr_enabled && native_body(method, "cpp") &&
+            construction::constexpr_construction(owner))) { return false; }
     } else {
       if (!method.expression || !active.insert(&method).second) { return false; }
       const bool eligible = constexpr_expression(*method.expression, active);
@@ -165,8 +210,61 @@ inline bool constexpr_expression(const behavior_expression& node,
 
 // Start a fresh walk for repeated callees and recursive callable metadata.
 inline bool constexpr_expression(const behavior_expression& node) {
-  std::set<const function_declaration*> active;
+  std::set<const void*> active;
   return constexpr_expression(node, active);
+}
+
+// Identify the first operation or selected callee that prevents constant evaluation.
+inline std::string constexpr_expression_restriction(const behavior_expression& node) {
+  using operation = behavior_expression::operation;
+  switch (node.kind) {
+  case operation::square_root: return "square root is a runtime-only C++20 math operation";
+  case operation::sine: return "sine is a runtime-only C++20 math operation";
+  case operation::cosine: return "cosine is a runtime-only C++20 math operation";
+  case operation::call:
+    if (!constexpr_expression(node)) {
+      if (node.call_constructor && node.call_target) {
+        return "constructor '" + node.call_target->get_full_name() +
+            "' has no proven C++20 constexpr construction contract";
+      }
+      return "callable '" + called_function(node).name +
+          "' has no proven C++20 constexpr definition";
+    }
+    break;
+  default: break;
+  }
+  for (const auto& operand : node.operands) {
+    if (!constexpr_expression(operand)) { return constexpr_expression_restriction(operand); }
+  }
+  return "the expression has no proven C++20 constexpr contract";
+}
+
+// Report the selected receiver, value, or expression restriction rather than unrelated alternatives.
+inline std::string constexpr_method_restriction(const class_node* owner,
+    const function_declaration& method, bool editor_receiver) {
+  if (editor_receiver) { return "managed editor guards require runtime state"; }
+  if (method.dispatch != function_declaration::dispatch_type::ordinary) {
+    return "dispatched behavior retains runtime lifecycle requirements";
+  }
+  static const class_node free_owner{object_type::class_type, std::string{}, nullptr,
+      class_attributes::none, {}};
+  const auto& scope = owner ? *owner : free_owner;
+  if (method.return_type.name != "void" &&
+      !constexpr_type(scope, method.return_type, method.generic_parameters)) {
+    return "return type '" + method.return_type.get_full_name() +
+        "' has no proven C++20 constexpr value lifetime";
+  }
+  for (const auto& parameter : method.parameters) {
+    if (!constexpr_type(scope, parameter.type, method.generic_parameters)) {
+      return "parameter type '" + parameter.type.get_full_name() +
+          "' has no proven C++20 constexpr value lifetime";
+    }
+  }
+  if (native_body(method, "cpp") && owner && !construction::constexpr_construction(*owner)) {
+    return construction::constexpr_restriction(*owner, {});
+  }
+  if (method.expression) { return constexpr_expression_restriction(*method.expression); }
+  return "the native C++ body has no declared constexpr contract";
 }
 
 } // namespace rohit::serializer::writer::behavior

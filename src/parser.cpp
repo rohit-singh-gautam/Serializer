@@ -89,17 +89,22 @@ namespace parser {
 using language_version = std::array<unsigned, 3>;
 thread_local language_version active_language_version{
     schema_language_version_major, schema_language_version_minor, schema_language_version_patch};
+// Headerless library fragments retain their established opaque C++ member-default contract.
+thread_local bool active_declared_language_contract{};
 
 // Restore the including file's contract after recursively parsing a dependency.
 struct language_version_scope {
   const language_version previous{active_language_version};
+  const bool previous_declared{active_declared_language_contract};
   // Apply one file's declared contract for its declarations.
-  explicit language_version_scope(language_version version) {
+  explicit language_version_scope(language_version version, bool declared = true) {
     active_language_version = version;
+    active_declared_language_contract = declared;
   }
   // Return this thread's parser to the surrounding file or fragment contract.
   ~language_version_scope() {
     active_language_version = previous;
+    active_declared_language_contract = previous_declared;
   }
 };
 
@@ -1635,6 +1640,8 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   std::vector<std::string> auto_sizes{};
   auto_size_scope size_scope{auto_size_scope::record};
   bool parsed_size_scope{};
+  std::string readonly_getter{};
+  access_type readonly_getter_access{access_type::public_access};
   while (true) {
     skip_whitespace_and_comment(in_stream);
     if (*in_stream == '(') {
@@ -1651,6 +1658,11 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
       if (infer_extent) {
         array_values = normalize_array_initializer(
             in_stream, type_name_list.front().name, parse_array_initializer(in_stream));
+      } else if (active_language_version >= language_version{1u, 14u, 0u}) {
+        for (const auto& value : parse_array_initializer(in_stream)) {
+          if (!default_value.empty()) { default_value += ", "; }
+          default_value += value;
+        }
       } else {
         default_value = get_default_value(in_stream);
       }
@@ -1669,6 +1681,31 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
       default_factory = parse_identifier_impl(in_stream);
       skip_whitespace_and_comment(in_stream);
       check_and_increase(in_stream, ')');
+    } else if (next_keyword(in_stream, "expose")) {
+      if (active_language_version < language_version{1u, 14u, 0u}) {
+        throw exception::bad_member_spec{in_stream,
+            "Readonly field exposure requires serializer version 1.14.0"};
+      }
+      if (!readonly_getter.empty()) {
+        throw exception::bad_member_spec{in_stream, "Only one readonly field exposure is allowed"};
+      }
+      parse_identifier_impl(in_stream);
+      skip_whitespace_and_comment(in_stream);
+      if (parse_identifier_impl(in_stream) != "readonly") {
+        throw exception::bad_member_spec{in_stream, "Expected expose readonly(access) as getter_name"};
+      }
+      skip_whitespace_and_comment(in_stream);
+      check_and_increase(in_stream, '(');
+      skip_whitespace_and_comment(in_stream);
+      readonly_getter_access = parse_access_type_impl(in_stream);
+      skip_whitespace_and_comment(in_stream);
+      check_and_increase(in_stream, ')');
+      skip_whitespace_and_comment(in_stream);
+      if (parse_identifier_impl(in_stream) != "as") {
+        throw exception::bad_member_spec{in_stream, "Readonly field exposure requires an explicit as name"};
+      }
+      skip_whitespace_and_comment(in_stream);
+      readonly_getter = parse_identifier_impl(in_stream);
     } else if (next_keyword(in_stream, "compatibility")) {
       if (!version || !compatibility.empty()) {
         throw exception::bad_member_spec{in_stream,
@@ -1738,6 +1775,11 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   if (wire_only && parsed_default_value) {
     throw exception::bad_member_spec{in_stream, "wire_only has no stored default value"};
   }
+  if (!readonly_getter.empty() && (wire_only || version ||
+      (member_modifier == member::modifier_type::variant && !owning_variant))) {
+    throw exception::bad_member_spec{in_stream,
+        "Readonly field exposure requires stored ordinary scalar, collection or owning variant storage"};
+  }
   if (!auto_sizes.empty() && (version || transient || managed ||
       compact != compact_encoding::none || member_modifier != member::modifier_type::none ||
       type_name_list.size() != 1 || (type_name_list.front().name != "uint32" &&
@@ -1777,6 +1819,10 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   result.transient = transient;
   result.empty_layout = empty_layout;
   result.default_factory = std::move(default_factory);
+  result.portable_default_enabled = active_declared_language_contract &&
+      active_language_version >= language_version{1u, 14u, 0u};
+  result.readonly_getter = std::move(readonly_getter);
+  result.readonly_getter_access = readonly_getter_access;
   result.inferred_extent = infer_extent;
   result.owning_variant = owning_variant;
   result.compact = compact;
@@ -1898,8 +1944,10 @@ object_type parse_object_type(const rohit::type_check::schema_input_buffer auto&
 } // parse_object_type
 
 #include "behavior_parser.hpp"
+#include "arithmetic_parser.hpp"
 #include "construction_parser.hpp"
 #include "conversion_parser.hpp"
+#include "callable_prefix_parser.hpp"
 
 // Recognize native bodies without claiming ordinary fields whose type or name matches a native tag.
 bool native_class_block_head(const rohit::type_check::schema_input_buffer auto& input) {
@@ -1932,6 +1980,13 @@ void parse_class_body_impl(const rohit::type_check::schema_input_buffer auto& in
   ++in_stream;
   skip_whitespace_and_comment(in_stream);
   while (*in_stream != '}') {
+    if (next_keyword(in_stream, "arithmetic")) {
+      parse_arithmetic(in_stream, *obj);
+      skip_whitespace_and_comment(in_stream);
+      check_and_increase(in_stream, ';');
+      skip_whitespace_and_comment(in_stream);
+      continue;
+    }
     if (next_keyword(in_stream, "reserve")) {
       parse_reserve(in_stream, *obj);
       skip_whitespace_and_comment(in_stream);
@@ -1941,6 +1996,31 @@ void parse_class_body_impl(const rohit::type_check::schema_input_buffer auto& in
     const auto access = next_keyword(lookahead, "public") || next_keyword(lookahead, "private") ||
         next_keyword(lookahead, "protected") ? parse_access_type_impl(lookahead) : access_type::error;
     skip_whitespace_and_comment(lookahead);
+    if (callable_prefix_head(lookahead)) {
+      static_cast<void>(parse_access_type_impl(in_stream));
+      skip_whitespace_and_comment(in_stream);
+      auto prefix = parse_callable_prefix(in_stream, access);
+      if (construction_head(in_stream)) {
+        auto construction = parse_construction(in_stream, access, obj->parent_namespace);
+        if (!construction.constructor) {
+          throw exception::bad_member_spec{in_stream, "Declaration-site additions require a constructor or function"};
+        }
+        construction.cpp_prefix = std::move(prefix);
+        obj->constructions.push_back(std::move(construction));
+      } else {
+        auto method = parse_function(in_stream, access, obj->parent_namespace);
+        if (method.effect != function_declaration::effect_type::readonly ||
+            method.dispatch != function_declaration::dispatch_type::ordinary ||
+            method.cpp_constexpr || method.expression) {
+          throw exception::bad_member_spec{in_stream, "C++ additions require ordinary readonly native or external functions"};
+        }
+        method.cpp_prefix = std::move(prefix);
+        obj->body_order.push_back({class_body_item::kind_type::function, obj->functions.size()});
+        obj->functions.push_back(std::move(method));
+      }
+      skip_whitespace_and_comment(in_stream);
+      continue;
+    }
     if (construction_head(lookahead)) {
       parse_access_type_impl(in_stream);
       skip_whitespace_and_comment(in_stream);
@@ -2252,9 +2332,13 @@ parse_class_header(const rohit::type_check::schema_input_buffer auto& in_stream,
     skip_whitespace_and_comment(in_stream);
   }
   auto attributes{class_attributes::none};
+  class_node arithmetic_owner{object_type::class_type, std::string{name}, current_namespace,
+                             class_attributes::none, {}};
   bool view{}, owning{}, readonly{}, mutable_view{};
   space_separated_identifier_impl(in_stream, [&](std::string&& value) {
-    if (value == "packed") {
+    if (value == "arithmetic") {
+      parse_arithmetic(in_stream, arithmetic_owner, true);
+    } else if (value == "packed") {
       attributes |= class_attributes::packed;
     } else if (value == "stable_ids") {
       attributes |= class_attributes::stable_ids;
@@ -2303,6 +2387,9 @@ parse_class_header(const rohit::type_check::schema_input_buffer auto& in_stream,
       (mutable_view ? static_cast<unsigned>(storage_mode::mutable_view) : 0u));
   result->type_parameters = std::move(parameters);
   result->generic_parameters = std::move(parameter_specs);
+  result->arithmetic = std::move(arithmetic_owner.arithmetic);
+  result->functions = std::move(arithmetic_owner.functions);
+  result->body_order = std::move(arithmetic_owner.body_order);
   return result;
 }
 
@@ -2397,6 +2484,25 @@ void validate_class_keys(const rohit::type_check::schema_input_buffer auto& inpu
       add_name(field.display_name);
     }
   }
+  // Exposed accessors share the source member namespace, independently of their wire names.
+  for (const auto& field : obj.member_list) {
+    if (field.readonly_getter.empty()) { continue; }
+    if (obj.supports_managed() ||
+        (obj.attributes & class_attributes::packed) == class_attributes::packed ||
+        obj.storage_modes != static_cast<std::uint8_t>(storage_mode::owning)) {
+      throw exception::bad_member_spec{input,
+          "Readonly field exposure currently requires an unpacked ordinary owning class without managed or view modes"};
+    }
+    if (field.readonly_getter == obj.name ||
+        !variables.insert(field.readonly_getter).second ||
+        std::find(obj.type_parameters.begin(), obj.type_parameters.end(), field.readonly_getter) !=
+            obj.type_parameters.end() ||
+        std::any_of(obj.functions.begin(), obj.functions.end(), [&](const auto& function) {
+          return function.name == field.readonly_getter;
+        })) {
+      throw exception::bad_member_spec{input, "Readonly getter collides with a source declaration"};
+    }
+  }
   const auto* version = obj.version_member();
   if (!version) {
     for (const auto& field : obj.member_list) {
@@ -2476,6 +2582,7 @@ parse_class(const rohit::type_check::schema_input_buffer auto& in_stream,
   register_declaration(in_stream, *obj, declarations);
   // At this point all whitespace is skipped
   parse_class_body_impl(in_stream, obj.get(), id);
+  prepare_arithmetic_names(*obj);
   if (std::any_of(obj->member_list.begin(), obj->member_list.end(), [](const auto& field) {
         return field.compact != compact_encoding::none;
       }) && (obj->storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
@@ -3166,9 +3273,12 @@ bool guarantees_factory(const generic_constraint& constraint, std::string_view n
   return false;
 }
 
+#include "construction_defaults_parser.hpp"
+
 // Resolve owned initialization types and reject native expressions or ambiguous construction APIs.
 void validate_constructions(const rohit::type_check::schema_input_buffer auto& input,
-                            class_node& owner, const std::unordered_map<std::string, syntax_node*>& symbols) {
+                            class_node& owner, const std::unordered_map<std::string, syntax_node*>& symbols,
+                            const std::unordered_map<std::string, syntax_node*>* callable_symbols = nullptr) {
   if (!owner.constructions.empty() &&
       (owner.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
        (owner.attributes & class_attributes::packed) != class_attributes::none)) {
@@ -3178,7 +3288,7 @@ void validate_constructions(const rohit::type_check::schema_input_buffer auto& i
   std::vector<const construction_declaration*> constructors;
   std::unordered_set<std::string> constructor_calls;
   for (auto& factory : owner.constructions) {
-    if (factory.constructor && factory.parameters.empty()) {
+    if (factory.constructor && factory.parameters.empty() && !factory.declaration_only) {
       throw exception::bad_member_spec{input, "Portable constructors require parameters; use a zero-argument factory for structured defaults"};
     }
     if (factory.constructor) {
@@ -3204,10 +3314,17 @@ void validate_constructions(const rohit::type_check::schema_input_buffer auto& i
       }
     }
     for (auto& parameter : factory.parameters) {
+      if (parameter.portable_default_enabled && !parameter.fixed_extent && parameter.extent_expression.size() == 1 &&
+          parameter.extent_expression.front().kind == dimension_expression::operation::literal) {
+        parameter.fixed_extent = parameter.extent_expression.front().value;
+      }
       const bool input_type = std::any_of(factory.generic_parameters.begin(), factory.generic_parameters.end(),
           [&](const auto& item) { return item.name == parameter.type.name; });
       const bool owner_type = std::find(owner.type_parameters.begin(), owner.type_parameters.end(), parameter.type.name) != owner.type_parameters.end();
-      if (!input_type && !owner_type) { resolve_type(input, parameter.type, symbols); }
+      if (!input_type && !owner_type) {
+        resolve_type(input, parameter.type,
+            factory.forward_signature_enabled && callable_symbols ? *callable_symbols : symbols);
+      }
       // Every wrapped record parameter must provide storage independent of borrowed wire bytes.
       const auto validate_owned_type = [&](auto&& inspect, const type_name& type) -> void {
         validate_nested_modes(input, owner, type.resolved_node);
@@ -3228,15 +3345,27 @@ void validate_constructions(const rohit::type_check::schema_input_buffer auto& i
         const bool factory_contract = owner_type && factory.overload_contract_enabled && !parameter.default_factory.empty() &&
             generic != owner.generic_parameters.end() && generic->constraint &&
             guarantees_factory(*generic->constraint, parameter.default_factory);
-        if (parameter.modifier != member::modifier_type::none || input_type || (owner_type && !factory_contract)) {
+        const bool portable_default = parameter.portable_default_enabled && !parameter.default_value.empty();
+        if ((parameter.modifier != member::modifier_type::none && !portable_default) || input_type ||
+            (owner_type && !factory_contract && !portable_default)) {
           throw exception::bad_member_spec{input, "Construction parameter defaults require a concrete scalar or owning record"};
         }
-        member value{access_type::public_access, member::modifier_type::none, {parameter.type},
+        member value{access_type::public_access, parameter.modifier, {parameter.type},
             parameter.name, parameter.name, 0, {}, parameter.default_value};
         value.default_factory = parameter.default_factory;
+        value.portable_default_enabled = parameter.portable_default_enabled;
+        value.fixed_extent = parameter.fixed_extent;
+        value.extent_expression = parameter.extent_expression;
+        // Parameter aggregate defaults include their own braces; field defaults have an outer wrapper.
+        if (value.modifier == member::modifier_type::array && value.portable_default_enabled &&
+            value.default_value.starts_with('{') && value.default_value.ends_with('}')) {
+          value.default_value = value.default_value.substr(1, value.default_value.size() - 2);
+        }
+        validate_portable_default(input, value, owner);
+        parameter.initializer = value.initializer;
         if (!value.default_factory.empty() && !factory_contract) { validate_factory_default(input, value, owner); }
         else if (factory_contract) { continue; }
-        else {
+        else if (!value.initializer) {
           if (parameter.type.name == "float" || parameter.type.name == "double") { validate_magic_constant(input, value); }
           if (writer::native::literal(value).empty()) {
             throw exception::bad_member_spec{input, "Construction parameter defaults require checked literals or default(factory)"};
@@ -3278,7 +3407,12 @@ void validate_constructions(const rohit::type_check::schema_input_buffer auto& i
              (parameter->fixed_extent != found->fixed_extent ||
               (!parameter->fixed_extent && parameter->extent_expression != found->extent_expression))) ||
             parameter->type.get_full_name() != found->type_name_list.front().get_full_name()) {
-          throw exception::bad_member_spec{input, "Construction assignment requires exactly matching owned types"};
+          throw exception::bad_member_spec{input, "Construction assignment requires exactly matching owned types" +
+              (factory.member_initialization_enabled && parameter != factory.parameters.end() ?
+                  ": " + owner.name + "." + found->name + " (field extent " + std::to_string(found->fixed_extent) +
+                      ", input extent " + std::to_string(parameter->fixed_extent) + ", field type " +
+                      found->type_name_list.front().get_full_name() + ", input type " + parameter->type.get_full_name() + ")" :
+                  std::string{} )};
         }
       } else if (!assignment.expression) {
         auto value = *found;
@@ -3304,14 +3438,30 @@ void validate_constructions(const rohit::type_check::schema_input_buffer auto& i
 // Resolve member types against the discovered namespace and type declarations.
 void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream,
                     std::vector<std::unique_ptr<rohit::serializer::syntax_node>>& statements,
-                    std::unordered_map<std::string, syntax_node*>& variable_type_map) {
+                    std::unordered_map<std::string, syntax_node*>& variable_type_map,
+                    const std::unordered_map<std::string, syntax_node*>* callable_symbols = nullptr) {
+  std::unordered_map<std::string, syntax_node*> callable_inventory;
+  if (!callable_symbols) {
+    const auto collect = [&](const auto& self, auto& nodes) -> void {
+      for (auto& node : nodes) {
+        if (node->type == object_type::namespace_type) {
+          self(self, static_cast<namespace_node&>(*node).statements);
+        } else if (node->type == object_type::class_type || node->type == object_type::generic_definition ||
+                   node->type == object_type::enum_type) {
+          callable_inventory.emplace(node->get_full_name(), node.get());
+        }
+      }
+    };
+    collect(collect, statements);
+    callable_symbols = &callable_inventory;
+  }
   for (auto& statement : statements) {
     try {
       switch (statement->type) {
       case object_type::namespace_type: {
         auto namespace_ptr = dynamic_cast<namespace_node*>(statement.get());
         register_declaration(in_stream, *namespace_ptr, variable_type_map);
-        resolve_member(in_stream, namespace_ptr->statements, variable_type_map);
+        resolve_member(in_stream, namespace_ptr->statements, variable_type_map, callable_symbols);
       } break;
 
       case object_type::class_type: {
@@ -3354,6 +3504,7 @@ void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream
           validate_digest_member(in_stream, *class_ptr, member);
           validate_optional_member(in_stream, *class_ptr, member);
           validate_factory_default(in_stream, member, *class_ptr);
+          validate_portable_default(in_stream, member, *class_ptr);
           validate_empty_layout(in_stream, *class_ptr, member);
           if (member.modifier == member::modifier_type::map) {
             auto key = member.key_type.value_or(type_name{std::string{member.key}, member.type_name_list.front().declared_namespace});
@@ -3367,7 +3518,7 @@ void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream
           }
         }
         std::unordered_set<std::string> signatures;
-        validate_constructions(in_stream, *class_ptr, variable_type_map);
+        validate_constructions(in_stream, *class_ptr, variable_type_map, callable_symbols);
         for (auto& conversion : class_ptr->conversions) {
           resolve_type(in_stream, conversion.target, variable_type_map);
         }
@@ -3464,6 +3615,7 @@ void resolve_behavior_bodies(const rohit::type_check::schema_input_buffer auto& 
     const syntax_node* target{};
     std::size_t method_index{};
     function_declaration* method{};
+    construction_declaration* constructor{};
   };
   std::vector<callable> callables;
   // Numeric policies describe a callable scalar representation, never nested record storage.
@@ -3517,6 +3669,7 @@ void resolve_behavior_bodies(const rohit::type_check::schema_input_buffer auto& 
     callables.push_back({node, 0, &node->function});
   }
   for (auto* owner : owners) {
+    for (auto& field : owner->member_list) { validate_portable_default(input, field, *owner); }
     bind_construction_expressions(input, *owner, symbols, functions);
     std::set<std::string> member_signatures;
     for (std::size_t index{}; index < owner->functions.size(); ++index) {
@@ -3568,18 +3721,23 @@ void resolve_behavior_bodies(const rohit::type_check::schema_input_buffer auto& 
       }
       callables.push_back({owner, index, &method});
     }
+    validate_arithmetic(input, *owner);
+    for (std::size_t index{}; index < owner->constructions.size(); ++index) {
+      auto& constructor = owner->constructions[index];
+      if (constructor.constructor) { callables.push_back({owner, index, nullptr, &constructor}); }
+    }
   }
   // A topological traversal rejects portable recursion without recursively following the call graph.
   std::vector<std::vector<std::size_t>> edges(callables.size());
   std::vector<std::size_t> incoming(callables.size());
   for (std::size_t index{}; index < callables.size(); ++index) {
-    if (!callables[index].method->expression) { continue; }
     const auto visit = [&](const auto& self, const behavior_expression& expression) -> void {
       if (expression.kind == behavior_expression::operation::call) {
         const auto found = std::find_if(callables.begin(), callables.end(), [&](const auto& candidate) {
-          return candidate.target == expression.call_target && candidate.method_index == expression.call_method_index;
+          return candidate.target == expression.call_target && candidate.method_index == expression.call_method_index &&
+              (expression.call_constructor ? candidate.constructor != nullptr : candidate.method != nullptr);
         });
-        if (found != callables.end() && found->method->expression) {
+        if (found != callables.end() && (found->constructor || found->method->expression)) {
           const auto target = static_cast<std::size_t>(found - callables.begin());
           edges[index].push_back(target);
           ++incoming[target];
@@ -3587,7 +3745,14 @@ void resolve_behavior_bodies(const rohit::type_check::schema_input_buffer auto& 
       }
       for (const auto& operand : expression.operands) { self(self, operand); }
     };
-    visit(visit, *callables[index].method->expression);
+    if (callables[index].method && callables[index].method->expression) {
+      visit(visit, *callables[index].method->expression);
+    } else if (callables[index].constructor) {
+      for (const auto& assignment : callables[index].constructor->assignments) {
+        if (assignment.expression) { visit(visit, *assignment.expression); }
+      }
+      for (const auto& validation : callables[index].constructor->validations) { visit(visit, validation); }
+    }
   }
   std::queue<std::size_t> ready;
   for (std::size_t index{}; index < incoming.size(); ++index) {
@@ -3605,14 +3770,18 @@ void resolve_behavior_bodies(const rohit::type_check::schema_input_buffer auto& 
   if (visited != callables.size()) {
     throw exception::bad_member_spec{input, "Portable readonly function calls cannot be recursive"};
   }
+  install_default_constructions(owners);
 }
 
 // Consume the leading version statement before any declarations; comments may precede it.
 // Bound every read so incomplete headers report schema errors instead of stream overflow.
 language_version parse_version_header(const rohit::type_check::schema_input_buffer auto& input,
-                                      bool required) {
+                                      bool required, bool* declared_contract = nullptr) {
   skip_whitespace_and_comment(input);
-  if (!(input == "serializer")) {
+  // Share the consuming scan so malformed leading comments retain their original error cursor.
+  const bool has_header = input == "serializer";
+  if (declared_contract) { *declared_contract = has_header; }
+  if (!has_header) {
     if (required) {
       throw exception::bad_input_data{input, "Expected first statement: serializer version 1.0.0;"};
     }
@@ -3914,7 +4083,9 @@ parse_schema(const rohit::type_check::schema_input_buffer auto& in_stream, bool 
   std::vector<std::string> simplicity_warnings;
   const auto source = make_constant_full_stream(in_stream.curr(), in_stream.remaining_buffer());
   append_source_notices(in_stream, source_notices);
-  const language_version_scope contract{parse_version_header(in_stream, require_version)};
+  bool declared_contract{};
+  const auto version = parse_version_header(in_stream, require_version, &declared_contract);
+  const language_version_scope contract{version, declared_contract};
   std::unordered_map<std::string, syntax_node*> declarations{};
   // Resolve policies and deliver callbacks only after the borrowed lexical context is restored.
   auto statements = [&] {

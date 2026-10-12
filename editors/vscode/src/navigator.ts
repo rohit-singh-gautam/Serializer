@@ -147,7 +147,7 @@ export class Navigator {
   }
 
   /** Find generated field definitions through the same dependency and owner identity as reverse navigation. */
-  private async memberDefinitions(file: string, member: Span & { name: string; owner: string }): Promise<NavigationTarget[]> {
+  private async memberDefinitions(file: string, member: Span & { name: string; owner: string; getter?: boolean }): Promise<NavigationTarget[]> {
     const targets: NavigationTarget[] = [];
     for (const output of await this.outputs(file, file)) {
       const generated = await this.source(output);
@@ -167,7 +167,8 @@ export class Navigator {
         if (this.host.cancelled()) { return []; }
         if (!names.includes(token[0])) { continue; }
         const field = generatedMember(generated.text, output, generated.index, token.index!);
-        if (field && (field.owner.schemaQualified === member.owner || owners.includes(field.owner.qualified))) {
+        if (field && !!field.getter === !!member.getter &&
+            (field.owner.schemaQualified === member.owner || owners.includes(field.owner.qualified))) {
           targets.push({ file: output, start: field.start, end: field.end });
         }
       }
@@ -343,6 +344,7 @@ export class Navigator {
       for (const schema of graph) {
         if (member) {
           const members = (schema.index.members ?? []).filter(declaration =>
+            !!declaration.getter === !!member.getter &&
             (member.owner.schemaQualified === declaration.owner || families.has(declaration.owner) ||
              outputNames(declaration.owner, header, source!.text).includes(member.owner.qualified)) &&
             outputMemberNames(declaration.name, header, source!.text).includes(member.name));

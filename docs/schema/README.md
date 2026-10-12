@@ -15,6 +15,7 @@ identify unsupported combinations in their respective contracts.
 | [Unions and owning variants](unions_and_variants.md) | Choice declarations, owning storage, discriminator contracts, and backend limits. |
 | [Behavior and native source](behavior.md) | Portable functions, native fragments, checked expressions, and transient members. |
 | [Value construction](construction.md) | Typed constructors and factories, numeric bindings, authoring hooks, and transient layout. |
+| [Owning record APIs](owning_api.md) | Readonly getters, direct initialization, nested defaults, reciprocal signatures and arithmetic mappings. |
 | [Record conversions](conversions.md) | Explicit portable conversion methods and supported value shapes. |
 | [Record comparisons](record_comparisons.md) | Generator configuration for owning equality and ordering; no additional schema or wire metadata. |
 | [Digest fields](digest.md) | Stored digest bytes, fixed algorithm lengths, and application-supplied digest creation. |

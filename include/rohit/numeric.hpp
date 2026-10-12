@@ -194,10 +194,11 @@ template <numeric_representation T>
   if constexpr (std::integral<T>) {
     if constexpr (std::unsigned_integral<T>) {
       if (value != 0) { return std::nullopt; }
-    } else if (value == std::numeric_limits<T>::min()) {
-      return std::nullopt;
+      return T{};
+    } else {
+      if (value == std::numeric_limits<T>::min()) { return std::nullopt; }
+      return static_cast<T>(-value);
     }
-    return static_cast<T>(-value);
   } else {
     const auto valid = try_numeric_cast<T>(value);
     return valid ? std::optional<T>{-value} : std::nullopt;

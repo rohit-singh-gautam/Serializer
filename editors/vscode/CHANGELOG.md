@@ -1,3 +1,10 @@
+# 1.1.43
+
+- Support language 1.14.0 readonly field exposure, arithmetic mappings, callable additions, and structured defaults.
+- Preserve signature and owning-expression type navigation in reciprocal constructor declarations.
+- Add getter, operator and constexpr constructor snippets; new schemas select language 1.14.0.
+- Keep both editor package versions synchronized.
+
 # 1.1.42
 
 - Support schema language 1.13.0 C++ `noexcept(cpp)` function contracts.

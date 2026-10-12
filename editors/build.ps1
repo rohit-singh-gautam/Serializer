@@ -51,12 +51,17 @@ if ($nodeVersion -notmatch '^v(\d+)\.' -or [int]$Matches[1] -lt 22) {
 $outputDirectory = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../out/extensions'))
 New-Item -ItemType Directory -Path $outputDirectory -Force | Out-Null
 $vscodePackage = Join-Path $outputDirectory "serializer-vscode-$version.vsix"
+# Anchor README links at the extension's repository directory before VSCE resolves relative paths.
+$vscodeContentBaseUrl = 'https://github.com/rohit-singh-gautam/Serializer/blob/main/editors/vscode/'
+$vscodeImageBaseUrl = 'https://raw.githubusercontent.com/rohit-singh-gautam/Serializer/main/editors/vscode/'
 Write-Host "Building both Rohit Serializer extensions at version $version..."
 Push-Location -LiteralPath $vscodeDirectory
 try {
   Invoke-ExtensionCommand $npm @('ci', '--no-audit', '--no-fund')
   # vsce invokes vscode:prepublish to compile and refresh every canonical asset.
-  Invoke-ExtensionCommand $npm @('exec', '--offline', '--', 'vsce', 'package', '--no-dependencies', '--out', $vscodePackage)
+  Invoke-ExtensionCommand $npm @('exec', '--offline', '--', 'vsce', 'package', '--no-dependencies',
+    '--baseContentUrl', $vscodeContentBaseUrl, '--baseImagesUrl', $vscodeImageBaseUrl,
+    '--out', $vscodePackage)
 } finally {
   Pop-Location
 }

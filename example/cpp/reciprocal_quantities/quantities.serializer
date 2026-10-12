@@ -1,0 +1,20 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: 0BSD
+serializer version 1.14.0;
+
+namespace reciprocal_quantities {
+  class radius<Rep> stable_ids {
+    public Rep value (1) {0};
+    public constructor(Rep extent) { value = extent; }
+    public cpp { constexpr } constructor(diameter<Rep> extent);
+    public cpp { constexpr } function Rep as_scalar() readonly;
+    public function Rep native_scalar() readonly cpp { return value; };
+  }
+  class diameter<Rep> stable_ids {
+    public Rep value (1) {0};
+    public constructor(Rep extent) { value = extent; }
+    public cpp { constexpr } constructor(radius<Rep> extent);
+  }
+  instantiate radius64 = radius<double>;
+  instantiate diameter64 = diameter<double>;
+}

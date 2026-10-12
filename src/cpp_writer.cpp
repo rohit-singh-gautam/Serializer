@@ -26,6 +26,7 @@
 #include "construction_writer.hpp"
 #include "conversion_writer.hpp"
 #include "comparison_writer.hpp"
+#include "arithmetic_writer.hpp"
 #include "auto_size_writer.hpp"
 
 #include <rohit/serializer_creator.hpp>
@@ -177,6 +178,13 @@ public:
   // Lower bound readonly calls identically in method bodies and construction input bindings.
   std::string readonly_call(const class_node* owner, const behavior_expression& node,
                             const std::vector<std::string>& arguments) {
+    if (node.call_constructor) {
+      auto owned_arguments = arguments;
+      for (auto& argument : owned_arguments) { argument = "::std::move(" + argument + ")"; }
+      return behavior::constructor_expression(node, owned_arguments, "cpp",
+          [&](const auto& value) { return generic_default(value); },
+          [&](auto name) { return function_name(name); });
+    }
     const auto& target = behavior::called_function(node);
     if (node.call_target->type == object_type::function_type) {
       return full_type_name(node.call_target) + "(" + behavior::call_arguments(arguments) + ")";
@@ -787,6 +795,10 @@ public:
     const bool inferred_constexpr = typed_body && method.dispatch == dispatch::ordinary &&
         behavior::constexpr_expression(*method.expression) &&
         behavior::constexpr_parameters(owner ? *owner : free_owner, method);
+    const bool automatic_native_constexpr = body && method.automatic_constexpr_enabled &&
+        !editor_receiver && method.dispatch == dispatch::ordinary &&
+        behavior::constexpr_parameters(owner ? *owner : free_owner, method) &&
+        (!owner || construction::constexpr_construction(*owner));
     const bool scalar_return = method.return_type.type == object_type::enum_type ||
         (method.return_type.type == object_type::primitive && method.return_type.name != "string" &&
          !method.return_type.is_digest());
@@ -800,7 +812,15 @@ public:
     if (method.dispatch == dispatch::virtual_method || method.dispatch == dispatch::override_method) {
       output.write("virtual ");
     }
-    if (inferred_constexpr || (body && method.cpp_constexpr && !editor_receiver)) { output.write("constexpr "); }
+    if (method.automatic_constexpr_enabled && (body || method.expression) &&
+        !inferred_constexpr && !automatic_native_constexpr && !method.cpp_constexpr &&
+        method.cpp_prefix.find("constexpr") == std::string::npos) {
+      output.write("// Constant evaluation unavailable: ",
+          behavior::constexpr_method_restriction(owner, method, editor_receiver), ".\n  ");
+    }
+    if (inferred_constexpr || automatic_native_constexpr ||
+        (body && method.cpp_constexpr && !editor_receiver)) { output.write("constexpr "); }
+    else if (!method.cpp_prefix.empty()) { output.write(method.cpp_prefix); }
     else if (!owner && (body || method.expression)) { output.write("inline "); }
     output.write(method.return_type.name == "void" ? "void" : generic_default(method.return_type), " ",
                  function_name(method.name), "(");
@@ -965,6 +985,17 @@ public:
   }
 
   // Emit C++ member list for the parsed schema.
+  // Translate typed owning defaults after selecting the target's open/concrete generic names.
+  std::string default_value(const member& field) {
+    if (field.initializer) {
+      return construction::initializer(*field.initializer, "cpp",
+          [&](const auto& value) { return generic_default(value); },
+          [&](const auto& value) { return naming::default_value(value); },
+          [&](auto value) { return function_name(value); });
+    }
+    return naming::default_value(field);
+  }
+
   void write_member_list(rohit::type_check::output_buffer auto& out_stream,
                          const std::vector<member>& members, const class_node& object) {
     access_type last_access{access_type::private_access};
@@ -988,12 +1019,24 @@ public:
       out_stream.write("  ", get_cpp_type(member), ' ', member_name(member), "{");
       if (!member.default_value.empty() || !member.default_factory.empty()) {
         // Initialize the backing array explicitly so generic elements may also be aggregates.
-        const bool aggregate_elements = member.inferred_extent;
+        const bool aggregate_elements = member.inferred_extent && !member.initializer;
         if (aggregate_elements) { out_stream.write("{"); }
         out_stream.write(default_value(member));
         if (aggregate_elements) { out_stream.write("}"); }
       }
       out_stream.write("};\n");
+      if (!member.readonly_getter.empty()) {
+        out_stream.write('\n');
+        write_access_type(out_stream, member.readonly_getter_access);
+        out_stream.write(":\n  // Borrow this field from a live lvalue owner; its lifetime bounds the reference.\n",
+            "  constexpr inline const ", get_cpp_type(member), "& ",
+            function_name(member.readonly_getter), "() const & noexcept { return this->",
+            member_name(member), "; }\n",
+            "  // Reject temporary owners before a borrowed field reference can escape.\n",
+            "  const ", get_cpp_type(member), "& ", function_name(member.readonly_getter),
+            "() const && = delete;\n");
+        last_access = member.readonly_getter_access;
+      }
     }
   }
 
@@ -2735,6 +2778,12 @@ public:
         [&](auto name, auto) { return field_name(name); },
         [&](auto name, auto) { return function_name(name); }));
     write_behavior_contract(out_stream, obj);
+    if (emission_only && !obj->arithmetic.empty()) {
+      throw std::invalid_argument{"Borrowed emission models cannot expose owning arithmetic"};
+    }
+    out_stream.write(arithmetic::operators(*obj,
+        [&](const auto& value) { return generic_default(value); },
+        [&](auto name) { return function_name(name); }));
     write_comparisons(out_stream, obj);
 
     out_stream.write("\npublic:\n"
@@ -3009,6 +3058,13 @@ public:
       } else if (statement->type == object_type::function_type) { found = true; }
       else if (statement->type == object_type::generic_definition) {
         generic_definitions.emplace(statement->get_full_name(), static_cast<const class_node*>(statement.get()));
+        const auto& owner = static_cast<const class_node&>(*statement);
+        found = found || std::any_of(owner.constructions.begin(), owner.constructions.end(),
+            [](const auto& construction) { return construction.forward_signature_enabled; });
+      } else if (statement->type == object_type::class_type) {
+        const auto& owner = static_cast<const class_node&>(*statement);
+        found = found || std::any_of(owner.constructions.begin(), owner.constructions.end(),
+            [](const auto& construction) { return construction.forward_signature_enabled; });
       }
     }
     return found;
@@ -3168,6 +3224,9 @@ public:
             throw std::invalid_argument{"cpp.emission_only does not support owning construction APIs"};
           }
           for (const auto& field : object.member_list) {
+            if (!field.readonly_getter.empty()) {
+              throw std::invalid_argument{"cpp.emission_only does not support owning readonly field exposure"};
+            }
             if (field.modifier == member::modifier_type::map) {
               throw std::invalid_argument{"cpp.emission_only does not support map fields"};
             }

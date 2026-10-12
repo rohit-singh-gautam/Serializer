@@ -1,5 +1,20 @@
 # Serializer examples
 
+## Owning record APIs
+
+Compiler/runtime **1.19.0** and language **1.14.0** add four focused consumers:
+
+| Example | Demonstrates |
+| --- | --- |
+| [Readonly getters](cpp/readonly_getters/README.md) | Private storage, borrowed const-reference getters, owner lifetime, friendship and unchanged native bytes. |
+| [Construction defaults](cpp/construction_defaults/README.md) | Direct initialization of nonassignable inputs, fresh fixed-array/nested unit-Z defaults and custom-coordinate decode parity. |
+| [Reciprocal quantities](cpp/reciprocal_quantities/README.md) | Two-pass constructor signatures, matching visible constexpr host definitions and codec/default construction. |
+| [Arithmetic operators](cpp/arithmetic_operators/README.md) | Explicit typed mappings, owning results, constant evaluation and shared checked rejection behavior. |
+
+Repository test builds generate, compile and execute these examples. Each folder
+also has a CMake entry point for installed-package consumers. See
+[owning API contracts](../docs/schema/owning_api.md) for syntax and backend limits.
+
 ## Custom ID registries
 
 The dedicated [custom ID example](custom_ids/README.md) contains one scoped,

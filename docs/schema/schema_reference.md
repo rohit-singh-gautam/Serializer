@@ -13,7 +13,15 @@ Start with [small schema examples](schema_examples.md) if you are new to the syn
 ## Schema structure
 
 Every `.serializer` file starts with a supported language header before declarations.
-Use `serializer version 1.13.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, `1.11.0`, and `1.12.0` remain supported.
+Use `serializer version 1.14.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, `1.11.0`, `1.12.0`, and `1.13.0` remain supported.
+
+Language `1.14.0` adds [owning record APIs](owning_api.md): `expose readonly(access) as name`,
+typed recursive defaults, direct C++ constructor initialization, reciprocal
+constructor signatures, declaration-site `cpp { constexpr inline }` additions,
+explicit/defaulted constructor declarations, `arithmetic(unary(-) -> method)` and
+typed inline binary mappings. Owning constructor calls can appear in portable
+expressions. These add APIs without wire fields; each output diagnoses unsupported
+access, declaration, or ownership combinations.
 
 Language `1.13.0` adds `readonly noexcept(cpp)` to native/external C++ signatures,
 including namespace functions and dispatched member contracts. It generates an

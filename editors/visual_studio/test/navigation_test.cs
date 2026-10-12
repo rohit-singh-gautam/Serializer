@@ -16,6 +16,30 @@ internal static class NavigationTest {
       var text = File.ReadAllText(model).Replace("serializer version 1;", "serializer version 1.0.0;");
       var live = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [model] = text };
       var checks = 0;
+      var authoringText = "serializer version 1.14.0; include sales/order; class holder<T> " +
+        "arithmetic(binary(+, demo::order rhs) -> expression(demo::order(rhs))) { " +
+        "private demo::order stored expose readonly(public) as read_value; " +
+        "public cpp { constexpr inline } constructor(demo::order input); " +
+        "public cpp { constexpr } function demo::order result(demo::order input) readonly; " +
+        "public constructor(demo::order input = {{0, 0, 1}, 7}, demo::order tail = default(origin)) {} " +
+        "arithmetic(binary(+, demo::order rhs) -> expression(demo::order(rhs))); " +
+        "public demo::order after; }";
+      live[model] = authoringText;
+      foreach (Match operand in Regex.Matches(authoringText, "demo::order")) {
+        for (var cursor = operand.Index; cursor <= operand.Index + operand.Length; ++cursor) {
+          var destination = NavigationRunner.Resolve(model, cursor, false, generated, live, CancellationToken.None);
+          Require(destination.Length == 1 && Path.GetFileName(destination[0].file) == "order.serializer",
+            "authoring exposure, callable prefix, nested defaults and operator types retain qualified boundaries");
+          ++checks;
+        }
+      }
+      foreach (var metadata in new[] { "constexpr", "inline", "readonly(public)", "read_value", "binary(" }) {
+        Require(NavigationRunner.Resolve(model, authoringText.IndexOf(metadata, StringComparison.Ordinal),
+          false, generated, live, CancellationToken.None).Length == 0,
+          "authoring metadata does not claim unrelated schema types");
+        ++checks;
+      }
+      live[model] = text;
       var optionalText = "serializer version 1.7.0; include sales/order; " +
         "class box<T = optional<demo::order>> { public optional<T> value; } class model { " +
         "public optional<optional<demo::order>> nested; public optional<array<demo::order>> rows; " +

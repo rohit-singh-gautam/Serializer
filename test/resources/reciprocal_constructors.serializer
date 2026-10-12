@@ -1,0 +1,56 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: 0BSD
+serializer version 1.14.0;
+
+namespace radius_first {
+  class radius<T> stable_ids {
+    public T value (1) {0};
+    public constructor(T extent) { value = extent; }
+    public cpp { constexpr } constructor(diameter<T> extent);
+    public cpp { constexpr } function T as_scalar() readonly;
+    public function T native_scalar() readonly cpp { return value; };
+  }
+  class diameter<T> stable_ids {
+    public T value (1) {0};
+    public constructor(T extent) { value = extent; }
+    public cpp { constexpr } constructor(radius<T> extent);
+  }
+  instantiate radius64 = radius<double>;
+  instantiate diameter64 = diameter<double>;
+}
+
+namespace diameter_first {
+  class diameter<T> stable_ids {
+    public T value (1) {0};
+    public constructor(T extent) { value = extent; }
+    public cpp { constexpr inline } constructor(radius<T> extent);
+  }
+  class radius<T> stable_ids {
+    public T value (1) {0};
+    public constructor(T extent) { value = extent; }
+    public cpp { constexpr } constructor(diameter<T> extent);
+  }
+  instantiate radius64 = radius<double>;
+  instantiate diameter64 = diameter<double>;
+}
+
+class explicit_default stable_ids {
+  public int32 value (1) {7};
+  public constructor() = default;
+}
+
+class external_default stable_ids {
+  public int32 value (1) {7};
+  public constructor();
+}
+
+class constant_edit stable_ids {
+  public int32 value (1) {0};
+  public function void set_value(int32 input) edit cpp { value = input; };
+  public function int32 replace_value(int32 input) edit cpp { value = input; return value; };
+}
+
+class inline_constructor stable_ids {
+  public int32 value (1) {0};
+  public cpp { inline } constructor(int32 input) { value = input; }
+}

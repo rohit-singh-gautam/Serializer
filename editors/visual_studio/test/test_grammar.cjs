@@ -180,6 +180,36 @@ function checkConstructionContracts(grammar, label) {
   return expected.length + 1;
 }
 
+/** Qualify new field/API contracts with both the installed C++ grammar and native fallback. */
+function checkAuthoringContracts(grammar, label) {
+  const lines = [
+    'class holder<T> arithmetic(unary(-) -> expression(lib::value<T>(-number))) {',
+    'private lib::value<T> stored expose readonly(public) as read_value;',
+    'public cpp { constexpr inline } constructor(lib::value<T> input);',
+    'public constructor() = default;',
+    'public cpp { constexpr } function lib::value<T> result() readonly;',
+    'arithmetic(binary(+, lib::value<T> rhs) -> expression(lib::value<T>(rhs.number)));',
+    'public lib::frame nested_default {{0, 0, 1}, 7}; public uint32 after; }',
+  ];
+  const result = tokenize(grammar, lines);
+  const expected = [[0, 'arithmetic', 'storage.modifier.serializer'],
+    [0, 'expression', 'keyword.control.serializer'],
+    [1, 'expose', 'storage.modifier.serializer'],
+    [1, 'read_value', 'entity.name.function.serializer'],
+    [2, 'constexpr', 'meta.embedded.block.cpp'],
+    [2, 'constructor', 'storage.type.serializer'],
+    [3, 'default', 'keyword.control.serializer'],
+    [4, 'result', 'entity.name.function.serializer'],
+    [5, 'binary', 'storage.modifier.serializer'],
+    [5, 'value<T>', 'entity.name.type.serializer'],
+    [6, 'uint32', 'support.type.serializer']];
+  for (const [line, word, scope] of expected) {
+    assert.ok(scopesAt(lines, result, line, word).includes(scope), `${label}: ${word} lacks ${scope}`);
+  }
+  assert.equal(result.state.depth, 1, `${label}: authoring contracts consumed the following declaration`);
+  return expected.length + 1;
+}
+
 /** Exercise real Visual Studio grammar assets and missing-provider fallback separately. */
 async function main() {
   const directory = process.argv[2];
@@ -196,7 +226,9 @@ async function main() {
     checkLiterals(host, 'installed host grammar') +
     checkLiterals(fallback, 'missing grammar fallback') +
     checkConstructionContracts(host, 'installed host grammar') +
-    checkConstructionContracts(fallback, 'missing grammar fallback');
+    checkConstructionContracts(fallback, 'missing grammar fallback') +
+    checkAuthoringContracts(host, 'installed host grammar') +
+    checkAuthoringContracts(fallback, 'missing grammar fallback');
   console.log(`Installed grammar assets passed ${checks} embedded syntax/boundary checks across all ${nativeLanguages.length} tags.`);
   console.log(`Loaded ${grammars.size} installed grammar scopes; this validates assets with the TextMate tokenizer, not an editor-host UI run.`);
 }

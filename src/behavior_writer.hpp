@@ -7,6 +7,7 @@
 #include <array>
 #include <functional>
 #include <map>
+#include <limits>
 #include <optional>
 #include <set>
 #include <stdexcept>
@@ -61,6 +62,35 @@ inline std::string call_arguments(const std::vector<std::string>& arguments, std
     result += arguments[index];
   }
   return result;
+}
+
+// Lower an explicitly bound owning constructor through the backend's existing construction API.
+inline std::string constructor_expression(const behavior_expression& node,
+    const std::vector<std::string>& arguments, std::string_view language,
+    const std::function<std::string(const type_name&)>& type,
+    const std::function<std::string(std::string_view)>& identifier) {
+  if (!node.call_constructor || !node.call_target || !node.resolved_type) {
+    throw std::invalid_argument{"Missing owning constructor expression binding"};
+  }
+  auto owner_name = type(*node.resolved_type);
+  if (language == "go" && owner_name.starts_with('*')) { owner_name.erase(0, 1); }
+  const auto inputs = call_arguments(arguments);
+  if (node.call_method_index == std::numeric_limits<std::size_t>::max()) {
+    return language == "cpp" ? owner_name + "{}" : language == "rust" ? owner_name + "::default()" :
+        language == "go" ? "New" + owner_name + "()" :
+        language == "java" || language == "csharp" || language == "js" || language == "typescript" ?
+            "new " + owner_name + "()" : owner_name + "()";
+  }
+  const auto& constructor = static_cast<const class_node&>(*node.call_target).constructions.at(node.call_method_index);
+  if (language == "cpp" && arguments.size() == constructor.parameters.size()) {
+    return owner_name + "(" + inputs + ")";
+  }
+  auto factory = identifier("create");
+  if (arguments.size() != constructor.parameters.size()) {
+    factory += "_default_" + std::to_string(arguments.size());
+  }
+  return owner_name + (language == "cpp" || language == "rust" ? "::" : language == "go" ? "_" : ".") +
+      factory + "(" + inputs + ")";
 }
 
 // Remove complete outer groups when a Rust assignment or call argument already delimits a value.
@@ -455,6 +485,12 @@ inline bool expression_can_fail(const behavior_expression& node, bool predicate 
       return expression_can_fail(child, predicate, unchecked_leaf);
     });
   case operation::call: {
+    if (node.call_constructor) {
+      // Portable create/default APIs are nonthrowing; checked operands retain their own effects.
+      return std::any_of(node.operands.begin(), node.operands.end(), [&](const auto& operand) {
+        return expression_can_fail(operand, predicate, unchecked_leaf);
+      });
+    }
     const auto& method = called_function(node);
     if (method.expression && !method.predicate_body) { return true; }
     if (!unchecked_leaf && (predicate || node.result_type == "float") &&
