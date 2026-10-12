@@ -12,7 +12,9 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <map>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -632,8 +634,89 @@ class rust_emitter {
     }
   }
 
+  // Expose checked immutable borrows and native move replacement without cloning elements.
+  void array_access(const class_node& owner) {
+    for (const auto& item : owner.member_list) {
+      if (!item.array_exposure) { continue; }
+      const auto& exposure = *item.array_exposure;
+      const auto storage = "self." + field(item.name);
+      const auto& element = item.modifier == member::modifier_type::array ?
+          item.type_name_list.front() : item.type_name_list.front().arguments.front();
+      const auto visibility = exposure.access == access_type::public_access ? "pub " : "";
+      std::vector<std::uint64_t> dimensions;
+      for (const auto& dimension : exposure.dimensions) {
+        if (dimension.kind != dimension_expression::operation::literal) {
+          throw std::invalid_argument{"rust: array exposure dimensions must be resolved"};
+        }
+        dimensions.push_back(dimension.value);
+      }
+      const auto rank = dimensions.empty() ? std::size_t{1} : dimensions.size();
+      std::string parameters;
+      std::string offset;
+      for (std::size_t index = 0; index < rank; ++index) {
+        const auto coordinate = "index" + std::to_string(index);
+        parameters += ", " + coordinate + ": usize";
+        offset = offset.empty() ? coordinate :
+            "(" + offset + " * " + std::to_string(dimensions[index]) + " + " + coordinate + ")";
+      }
+      // Index brackets already group the complete expression; keep only necessary inner grouping.
+      offset = behavior::ungroup_expression(offset);
+      line("/// Validate and return the logical length of the selected storage.");
+      open(std::string{visibility} + "fn size(&self) -> Result<usize, Error>");
+      if (item.fixed_extent != 0) {
+        line("if " + storage + ".len() != " + std::to_string(item.fixed_extent) +
+            " { return Err(Error(\"Invalid fixed array length\")); }");
+      }
+      line("Ok(" + storage + ".len())");
+      close();
+      const auto bounds = [&]() {
+        line(dimensions.empty() ? "let count = self.size()?;" : "self.size()?;");
+        for (std::size_t index = 0; index < rank; ++index) {
+          const auto extent = dimensions.empty() ? "count" : std::to_string(dimensions[index]);
+          line("if index" + std::to_string(index) + " >= " + extent +
+              " { return Err(Error(\"Array coordinate out of bounds\")); }");
+        }
+      };
+      line("/// Borrow one immutable element; its lifetime is tied to the owner borrow.");
+      open(std::string{visibility} + "fn get(&self" + parameters + ") -> Result<&" + type(element) + ", Error>");
+      bounds();
+      line("Ok(&" + storage + "[" + offset + "])");
+      close();
+      if (!exposure.readonly) {
+        line("/// Consume a replacement value; invalid coordinates leave the owner unchanged.");
+        open(std::string{visibility} + "fn set(&mut self" + parameters + ", item: " + type(element) + ") -> Result<(), Error>");
+        bounds();
+        line(storage + "[" + offset + "] = item;");
+        line("Ok(())");
+        close();
+      }
+      line("/// Borrow an immutable iterable slice; the borrow prevents owner relocation or mutation.");
+      open(std::string{visibility} + "fn values(&self) -> Result<&[" + type(element) + "], Error>");
+      line("self.size()?;");
+      line("Ok(" + storage + ".as_slice())");
+      close();
+    }
+  }
+
   // Define a class's owned fields, defaults, and transactional public decoding.
   void object(const class_node& value) {
+    std::set<std::string> array_methods;
+    for (const auto& item : value.member_list) {
+      if (!item.array_exposure) { continue; }
+      for (const auto method : {"get", "size", "values", "set"}) {
+        if (std::string_view{method} == "set" && item.array_exposure->readonly) { continue; }
+        if (!array_methods.insert(field(method)).second) {
+          throw std::invalid_argument{"rust: array exposure helper collision"};
+        }
+      }
+    }
+    const auto check_array_name = [&](const std::string& name) {
+      if (array_methods.contains(name)) { throw std::invalid_argument{"rust: array exposure naming collision: " + name}; }
+    };
+    for (const auto& item : value.member_list) { check_array_name(field(item.name)); }
+    for (const auto& method : value.functions) { check_array_name(field(method.name)); }
+    for (const auto& factory : value.constructions) { check_array_name(field(factory.constructor ? "create" : factory.name)); }
+    for (const auto& conversion : value.conversions) { check_array_name(field(conversion.name)); }
     const auto name = model.names.at(&value);
     struct declaration {
       std::string name, type, initial;
@@ -685,6 +768,7 @@ class rust_emitter {
     close();
     close();
     open("impl " + name);
+    array_access(value);
     behaviors(value);
     comparisons(value);
     output += construction::factories(value, name, "rust",

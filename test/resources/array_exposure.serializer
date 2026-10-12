@@ -1,0 +1,28 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.17.0;
+
+namespace array_exposure {
+  class triangle stable_ids {
+    public array[3] uint32 indices (1) expose array(public);
+    public constructor(uint32 first, uint32 second, uint32 third) {
+      indices = {first, second, third};
+    }
+  }
+  class readonly_triangle stable_ids {
+    public array[3] uint32 indices (1) {4, 5, 6} expose array(readonly, public);
+  }
+  class grid stable_ids {
+    public array[6] int32 elements (1) {1, 2, 3, 4, 5, 6}
+      expose array(public, const_value) dimensions(2, 3);
+  }
+  class dynamic_values stable_ids {
+    public array uint32 elements (1) expose array(public);
+  }
+  class owned_values stable_ids {
+    public array[2] string entries (1) expose array(public);
+    public constructor(string first, string second) {
+      entries = {first, second};
+    }
+  }
+}

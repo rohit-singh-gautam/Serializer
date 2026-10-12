@@ -17,10 +17,18 @@ Serializer provides separate packages for VS Code and Visual Studio. Both use
 to the VS Code extension. For the Visual Studio VSIX, see
 [Visual Studio](#visual-studio-extension) below.
 
-Both extensions use release version **1.1.45**. Keep their versions equal and
+Both extensions use release version **1.1.46**. Keep their versions equal and
 increment them together for future changes, including changes to only one package.
 Their release number is independent of the compiler/runtime release and the schema
 language version; only the two editor packages are synchronized.
+
+Version **1.1.46** supports schema language **1.17.0** array exposure,
+`readonly`/`const_value`, explicit `dimensions`, trailing `const_ref` inputs,
+static/expected callable signatures and `when`, `delegates`, `generate` metadata.
+Qualified type and dimension navigation keeps metadata names separate from
+schema symbols. New-schema snippets select `1.17.0`. Source unit tests, native
+grammar/navigation and current local packages are recorded with
+[qualification](../verification/verification-array-callable-api-2026-10-13.md).
 
 Version **1.1.45** supports language **1.16.0** defaults such as
 `Frame placement = {}` for owning class type parameters in constructors and
@@ -145,7 +153,7 @@ Version **1.1.28** recognizes language `1.3.0` digest fields: bare `digest`,
 algorithm names and decimal extents. The shared resolver skips those operands
 while retaining neighboring qualified/generic references and legacy declared
 types named `digest`. VS Code adds `digest`, `digest-opaque`, and `digest-fixed`
-snippets; the current schema snippet selects `1.16.0`. See [digest usage](../schema/digest.md).
+snippets; the current schema snippet selects `1.17.0`. See [digest usage](../schema/digest.md).
 
 Version 1.1.27 directs generated applications to `Serializer::runtime`, the 0BSD
 application target introduced by compiler/runtime 1.7.0. `serializer_generate`
@@ -174,9 +182,9 @@ Both resolve either spelling for navigation; VS Code also supplies a shorthand
 
 ## VS Code
 
-The [Rohit Serializer extension](../../editors/vscode/README.md), version **1.1.45**, provides `.serializer`
+The [Rohit Serializer extension](../../editors/vscode/README.md), version **1.1.46**, provides `.serializer`
 syntax highlighting, snippets, declaration/definition navigation, and CMake generated-header commands. Schemas use
-the current `serializer version 1.16.0;` header, older compatible headers, and the original
+the current `serializer version 1.17.0;` header, older compatible headers, and the original
 `1` alias for language `1.0.0`. Schema
 language versions are independent of compiler releases, and future versions
 require all three components. Legacy `.def` and `.struct` names are
@@ -232,13 +240,13 @@ Packaging compiles and bundles TypeScript, copies the canonical grammar, logo,
 and repository license into the extension, and writes:
 
 ```text
-out/extensions/serializer-vscode-1.1.45.vsix
+out/extensions/serializer-vscode-1.1.46.vsix
 ```
 
 From the repository root, install it with:
 
 ```sh
-code --install-extension out/extensions/serializer-vscode-1.1.45.vsix
+code --install-extension out/extensions/serializer-vscode-1.1.46.vsix
 ```
 
 Alternatively run **Extensions: Install from VSIX** and select the file. The
@@ -447,8 +455,17 @@ The fixture disables generated-output formatting so it does not need clang-forma
 
 ### Verification performed
 
-The current **1.1.45** package verification is recorded with
-[language 1.16.0 qualification](../verification/verification-generic-owner-defaults-2026-10-12.md).
+The current **1.1.46** packages rebuilt through `./make.ps1 extension`, with the
+Visual Studio package validation passing. The source suite passed **133** tests,
+and installed Visual Studio grammar/fallback checks passed **424** cases across
+all eleven native language tags. See the
+[current qualification record](../verification/verification-array-callable-api-2026-10-13.md)
+for .NET navigation and completed runtime/SDK checks. No current editor-host UI
+run or IDE package installation is claimed.
+The refreshed .NET/Jint resolver passed **1,103** source/output checks against
+retained actual fixtures in all eleven languages.
+The [1.1.45/1.16.0 qualification](../verification/verification-generic-owner-defaults-2026-10-12.md)
+remains a historical result.
 The results below belong to the named historical versions and do not establish
 verification for the current packages.
 
@@ -728,7 +745,7 @@ outside this extension's implementation.
 ## Visual Studio extension
 
 The separate [Visual Studio package](../../editors/visual_studio/README.md), version
-**1.1.45**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
+**1.1.46**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
 grammar, editing configuration and a native MEF navigation component using the
 same resolver as VS Code. The grammar's `fileTypes` associates `.serializer` files;
 a `.pkgdef` registers its grammar and editing configuration.
@@ -741,7 +758,7 @@ npm ci --prefix editors/vscode
 ```
 
 The script restores locked NuGet dependencies, rebuilds package intermediates, and writes
-`out/extensions/serializer-visual-studio-1.1.45.vsix`. Close Visual Studio,
+`out/extensions/serializer-visual-studio-1.1.46.vsix`. Close Visual Studio,
 double-click this VSIX, install into the desired instance, and restart Visual
 Studio. The root `install_extension.ps1` remains the VS Code installer.
 
@@ -845,7 +862,7 @@ Empty extents and element types receive fixed-array highlighting. Enum type
 operands and qualified enum defaults in typed magic retain declaration, definition,
 and type-definition navigation, including unsaved and transitive included schemas.
 VS Code includes `array_inferred` and `magic_typed` snippets; its schema snippet
-selects `serializer version 1.16.0;`. The original `1` header remains exactly
+selects `serializer version 1.17.0;`. The original `1` header remains exactly
 `1.0.0` and does not enable these features. See the
 [magic contract](../schema/magic_and_omission.md) and [fixed arrays](../schema/generics.md).
 

@@ -6,9 +6,12 @@
 #include "behavior_writer.hpp"
 #include "construction_qualification.hpp"
 #include "construction_defaults.hpp"
+#include "callable_guard.hpp"
 #include <rohit/serializer_creator.hpp>
 #include <algorithm>
+#include <cctype>
 #include <functional>
+#include <limits>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -29,11 +32,14 @@ inline std::string extent_text(const dimension_expression& value) {
 inline std::string parameter_type(const function_parameter& parameter, std::string_view language,
     const std::function<std::string(const type_name&)>& type) {
   const auto element = type(parameter.type);
-  if (parameter.modifier != member::modifier_type::array) { return element; }
+  if (parameter.modifier != member::modifier_type::array) {
+    return language == "cpp" && parameter.const_ref ? "const " + element + "&" : element;
+  }
   if (language == "cpp") {
     const auto count = parameter.fixed_extent ? std::to_string(parameter.fixed_extent) :
         extent_text(parameter.extent_expression.at(0));
-    return "::std::array<" + element + ", " + count + ">";
+    const auto array = "::std::array<" + element + ", " + count + ">";
+    return parameter.const_ref ? "const " + array + "&" : array;
   }
   if (language == "rust") { return "Vec<" + element + ">"; }
   if (language == "go") { return "[]" + element; }
@@ -78,11 +84,15 @@ inline std::string input_template(const construction_declaration& factory,
   if (factory.generic_parameters.empty()) { return {}; }
   std::string parameters, constraints;
   for (const auto& parameter : factory.generic_parameters) {
-    if (!parameters.empty()) { parameters += ", "; constraints += " && "; }
+    if (!parameters.empty()) { parameters += ", "; }
     parameters += "typename " + parameter.name;
-    constraints += "(" + input_constraint(*parameter.constraint, parameter.name, type, callable_identifier) + ")";
+    if (parameter.constraint) {
+      if (!constraints.empty()) { constraints += " && "; }
+      constraints += "(" + input_constraint(*parameter.constraint, parameter.name, type, callable_identifier) + ")";
+    }
   }
-  return "  template <" + parameters + ">\n  requires (" + constraints + ")\n";
+  return "  template <" + parameters + ">\n" +
+      (constraints.empty() ? "" : "  requires (" + constraints + ")\n");
 }
 
 // Build a typed default without interpreting native tokens or sharing owned mutable instances.
@@ -99,11 +109,29 @@ inline member parameter_default(const function_parameter& parameter) {
 
 // Reject unsupported new output contracts explicitly while leaving existing construction available.
 inline void validate_extended_backend(const class_node& owner, std::string_view language) {
+  if (language != "cpp" && std::any_of(owner.constructions.begin(), owner.constructions.end(),
+      [](const auto& factory) {
+        return factory.delegating || std::any_of(factory.parameters.begin(), factory.parameters.end(),
+            [](const auto& parameter) { return parameter.const_ref; });
+      })) {
+    throw std::invalid_argument{std::string{language} + ": delegating or borrowed constructors require C++ output"};
+  }
   if (language != "cpp" && std::count_if(owner.constructions.begin(), owner.constructions.end(),
       [](const auto& factory) { return factory.constructor; }) > 1) {
     throw std::invalid_argument{std::string{language} + ": constructor overloads require C++ output"};
   }
   for (const auto& factory : owner.constructions) {
+    if (factory.guard && factory.guard->available == false) { continue; }
+    if (language != "cpp" && factory.guard && !factory.guard->available) {
+      throw std::invalid_argument{std::string{language} + ": dependent callable availability requires a concrete specialization"};
+    }
+    if (language != "cpp" && std::any_of(factory.assignments.begin(), factory.assignments.end(),
+        [](const auto& assignment) {
+          return !assignment.generator_indices.empty() || std::any_of(assignment.elements.begin(),
+              assignment.elements.end(), [](const auto& element) { return element.expression.has_value(); });
+        })) {
+      throw std::invalid_argument{std::string{language} + ": checked array generation requires C++ output"};
+    }
     if (factory.declaration_only || factory.defaulted) {
       if (language != "cpp") {
         throw std::invalid_argument{std::string{language} + ": external/defaulted constructor declarations require C++ output"};
@@ -157,6 +185,7 @@ inline void validate_names(const class_node& owner, std::string_view owner_name,
   }
   std::set<std::string> constructor_names;
   for (const auto& factory : owner.constructions) {
+    if (factory.guard && factory.guard->available == false) { continue; }
     const auto source_name = factory.constructor ? std::string_view{"create"} : std::string_view{factory.name};
     const auto name = callable_identifier ? callable_identifier(source_name) : identifier(source_name, factory.access);
     const bool constructor_overload = language == "cpp" && factory.constructor &&
@@ -231,10 +260,86 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
     }
     return behavior::expression(expression, language, symbol, {}, context);
   };
+  // Construct fixed arrays directly; each owned input is bound once in source order.
+  const auto array_binding = [&](const construction_assignment& assignment, const member& field,
+      bool direct_members, const std::string& transfer_name) {
+    const auto& element_type = field.type_name_list.front();
+    std::string arguments;
+    behavior::expression_context context;
+    context.call = call;
+    context.native_type = type;
+    context.member_name = [&](auto member_name) { return identifier(member_name, access_type::public_access); };
+    if (!assignment.generator_indices.empty()) {
+      if (!cpp) { throw std::invalid_argument{"Checked array generation requires C++ output"}; }
+      const auto dimensions = field.array_exposure && !field.array_exposure->dimensions.empty() ?
+          field.array_exposure->dimensions : field.extent_expression;
+      const auto count = field.fixed_extent ? std::to_string(field.fixed_extent) : extent_text(field.extent_expression.at(0));
+      std::set<std::string> locals{name, owner.name};
+      locals.insert(owner.type_parameters.begin(), owner.type_parameters.end());
+      for (const auto& construction : owner.constructions) {
+        for (const auto& parameter : construction.generic_parameters) { locals.insert(parameter.name); }
+        for (const auto& parameter : construction.parameters) {
+          locals.insert("srl_arg_" + identifier(parameter.name, access_type::public_access));
+        }
+      }
+      const auto fresh_local = [&](const std::string& base) {
+        auto result = base;
+        std::size_t suffix{};
+        while (!locals.insert(result).second) { result = base + "_" + std::to_string(++suffix); }
+        return result;
+      };
+      const auto array_name = fresh_local("srl_array");
+      std::vector<std::string> indices;
+      for (const auto& index : assignment.generator_indices) { indices.push_back(fresh_local("srl_index_" + index)); }
+      const auto symbol = [&](std::string_view name) {
+        const auto found = std::find(assignment.generator_indices.begin(), assignment.generator_indices.end(), name);
+        return found != assignment.generator_indices.end() ? indices[static_cast<std::size_t>(found - assignment.generator_indices.begin())] :
+            "srl_arg_" + identifier(name, access_type::public_access);
+      };
+      std::string result = "[&]() constexpr { ::std::array<" + type(element_type) + ", " + count + "> " + array_name + "{}; ";
+      std::string offset = indices.front();
+      for (std::size_t axis{}; axis < dimensions.size(); ++axis) {
+        const auto& index = indices[axis];
+        result += "for (::std::uint64_t " + index + "{}; " + index + " < " + extent_text(dimensions[axis]) + "; ++" + index + ") { ";
+        if (axis) { offset = "(" + offset + " * " + extent_text(dimensions[axis]) + " + " + index + ")"; }
+      }
+      result += array_name + "[" + offset + "] = " + expression_text(*assignment.expression, symbol, context) + "; ";
+      for (std::size_t axis{}; axis < dimensions.size(); ++axis) { result += "} "; }
+      return result + "return " + array_name + "; }()";
+    }
+    for (const auto& element : assignment.elements) {
+      if (!arguments.empty()) { arguments += ", "; }
+      if (element.parameter) {
+        const auto argument = (rust ? "_srl_arg_" : "srl_arg_") + identifier(element.value, access_type::public_access);
+        arguments += cpp ? transfer_owned(argument, direct_members, transfer_name) : argument;
+      } else if (element.expression) {
+        arguments += expression_text(*element.expression,
+            [&](auto symbol) { return "srl_arg_" + identifier(symbol, access_type::public_access); }, context);
+      } else {
+        auto value = field;
+        value.modifier = member::modifier_type::none;
+        value.extent_expression.clear(); value.fixed_extent = 0;
+        value.initializer.reset(); value.default_factory.clear(); value.default_value = element.value;
+        arguments += initial(value);
+      }
+    }
+    if (cpp) { return "::std::array<" + type(element_type) + ", " + std::to_string(assignment.elements.size()) + ">{" + arguments + "}"; }
+    if (language == "java") { return "new " + type(element_type) + "[]{" + arguments + "}"; }
+    if (rust) { return "vec![" + arguments + "]"; }
+    if (go) { return "[]" + type(element_type) + "{" + arguments + "}"; }
+    if (language == "csharp") { return "new System.Collections.Generic.List<" + type(element_type) + ">{" + arguments + "}"; }
+    if (kotlin) {
+      auto kind = type(element_type);
+      std::transform(kind.begin(), kind.end(), kind.begin(), [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
+      return (element_type.type == object_type::primitive && element_type.name != "string" ? kind + "ArrayOf" : "mutableListOf") + "(" + arguments + ")";
+    }
+    return "[" + arguments + "]";
+  };
   bool explicit_constructor{};
   bool authored_default_constructor{};
   std::set<std::string> generated_tags;
   for (const auto& factory : owner.constructions) {
+    if (factory.guard && factory.guard->available == false) { continue; }
     const auto id = callable_identifier ? callable_identifier(factory.constructor ? "create" : factory.name) :
         identifier(factory.constructor ? "create" : factory.name, factory.access);
     const bool direct_members = cpp && factory.member_initialization_enabled && !owner.supports_managed();
@@ -255,10 +360,30 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
     const auto visibility = factory.access == access_type::public_access ? "public " :
         factory.access == access_type::protected_access && (cpp || language == "java" || language == "csharp") ?
             "protected " : "private ";
+    const auto constant_binding = [&](const auto& self, const construction_assignment& assignment) -> bool {
+      return (!assignment.expression || constexpr_binding(*assignment.expression)) &&
+          std::all_of(assignment.elements.begin(), assignment.elements.end(),
+              [&](const auto& element) { return self(self, element); });
+    };
     const bool constexpr_bindings = std::all_of(factory.assignments.begin(), factory.assignments.end(),
-        [](const auto& assignment) { return !assignment.expression || constexpr_binding(*assignment.expression); });
+        [&](const auto& assignment) { return constant_binding(constant_binding, assignment); });
     const bool authoring = !factory.validations.empty() || !factory.native_validations.empty() || !factory.initializers.empty();
+    // A delegated call inherits its selected constructor's constant-evaluation eligibility.
+    const auto constant_delegation = [&](const auto& self, const construction_declaration& item) -> bool {
+      if (!item.delegating) { return true; }
+      if (item.delegation_target == std::numeric_limits<std::size_t>::max()) { return constexpr_owner; }
+      const auto& target = owner.constructions.at(item.delegation_target);
+      if (!self(self, target)) { return false; }
+      behavior_expression call_expression;
+      call_expression.kind = behavior_expression::operation::call;
+      call_expression.call_constructor = true;
+      call_expression.call_target = &owner;
+      call_expression.call_method_index = item.delegation_target;
+      call_expression.operands = item.delegation;
+      return constexpr_binding(call_expression);
+    };
     const bool inferred_constexpr = cpp && constexpr_owner && constexpr_bindings &&
+        constant_delegation(constant_delegation, factory) &&
         factory.native_validations.empty() && factory.initializers.empty() &&
         std::all_of(factory.validations.begin(), factory.validations.end(), constexpr_binding) &&
         constexpr_construction(owner, factory.parameters, factory.generic_parameters);
@@ -268,20 +393,26 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
       constant = "constexpr" + (constant.empty() ? "" : " " + constant);
     }
     if (!constant.empty()) { constant += ' '; }
+    const auto checked_assignment = [&](const auto& self, const construction_assignment& assignment) -> bool {
+      return assignment.expression.has_value() || std::any_of(assignment.elements.begin(), assignment.elements.end(),
+          [&](const auto& element) { return self(self, element); });
+    };
     const bool checked_binding = std::any_of(factory.assignments.begin(), factory.assignments.end(),
-        [](const auto& assignment) { return assignment.expression.has_value(); });
+        [&](const auto& assignment) { return checked_assignment(checked_assignment, assignment); });
     const bool default_factory = std::any_of(factory.parameters.begin(), factory.parameters.end(),
         [](const auto& parameter) { return !parameter.default_factory.empty(); });
-    const std::string exception = cpp && !authoring && !checked_binding && !default_factory && nothrow_owner && nothrow_construction(owner, factory.parameters) ? " noexcept" : "";
+    const std::string exception = cpp && !factory.delegating && !authoring && !checked_binding && !default_factory && nothrow_owner && nothrow_construction(owner, factory.parameters) ? " noexcept" : "";
     const auto constexpr_comment = cpp && constant.find("constexpr") == std::string::npos && !factory.declaration_only && !factory.defaulted ?
         "  // C++ constexpr unavailable: " + constexpr_restriction(owner, factory) + ".\n" : std::string{};
     const auto template_declaration = cpp ? input_template(factory, type, callable_identifier) : std::string{};
+    const auto guard_clause = cpp && factory.guard && !factory.guard->available.has_value() ?
+        " requires (" + callable_availability::cpp(*factory.guard, type) + ")" : std::string{};
     std::string parameters, constructor_parameters, arguments;
     std::vector<std::string> parameter_declarations, parameter_names, default_values;
     for (const auto& parameter : factory.parameters) {
       const auto parameter_name = (rust ? "_srl_arg_" : "srl_arg_") + identifier(parameter.name, access_type::public_access);
       if (!parameters.empty()) { parameters += ", "; constructor_parameters += ", "; arguments += ", "; }
-      arguments += cpp ? transfer_owned(parameter_name, direct_members, transfer_name) : parameter_name;
+      arguments += cpp && !parameter.const_ref ? transfer_owned(parameter_name, direct_members, transfer_name) : parameter_name;
       auto declaration = python || js ? parameter_name :
           rust || swift || kotlin || typescript ? (swift ? "_ " : "") + parameter_name + ": " + parameter_type(parameter, language, type) :
           go ? parameter_name + " " + parameter_type(parameter, language, type) :
@@ -311,7 +442,7 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
           template_declaration + "  " + (factory.explicit_constructor ? "explicit " : "") +
           (factory.defaulted ? constant : factory.cpp_prefix +
               (factory.cpp_prefix.empty() ? "" : " ")) + name + "(" + constructor_parameters + ")" +
-          (factory.defaulted ? " = default;\n" : ";\n");
+          guard_clause + (factory.defaulted ? " = default;\n" : ";\n");
       continue;
     }
     // Private tag identities cannot become an open generic representation or shadow emitted members.
@@ -336,8 +467,33 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
     while (tag_names.contains(factory_tag) || generated_tags.contains(factory_tag)) {
       factory_tag = tag_base + "_" + std::to_string(++tag_suffix);
     }
-    if (cpp && (factory.constructor || direct_members)) {
+    if (cpp && factory.delegating) {
       explicit_constructor = true;
+      authored_default_constructor = authored_default_constructor || factory.parameters.empty();
+      std::string delegated_arguments;
+      behavior::expression_context context;
+      context.call = call;
+      context.native_type = type;
+      context.member_name = [&](auto field) { return identifier(field, access_type::public_access); };
+      for (const auto& argument : factory.delegation) {
+        if (!delegated_arguments.empty()) { delegated_arguments += ", "; }
+        delegated_arguments += expression_text(argument,
+            [&](auto symbol) { return "srl_arg_" + identifier(symbol, access_type::public_access); }, context);
+      }
+      if (factory.delegation_target != std::numeric_limits<std::size_t>::max()) {
+        const auto& target = owner.constructions.at(factory.delegation_target);
+        // Spell every omitted argument so delegation cannot select the independent codec default.
+        for (std::size_t index = factory.delegation.size(); index < target.parameters.size(); ++index) {
+          if (!delegated_arguments.empty()) { delegated_arguments += ", "; }
+          delegated_arguments += initial(parameter_default(target.parameters[index]));
+        }
+      }
+      output += std::string{visibility} + ":\n  // Delegate once to the selected owning constructor and its authoring hooks.\n" +
+          constexpr_comment + template_declaration + "  " + (factory.explicit_constructor ? "explicit " : "") +
+          constant + name + "(" + constructor_parameters + ")" + guard_clause + " : " + name + "(" + delegated_arguments + ") {}\n";
+    } else if (cpp && (factory.constructor || direct_members)) {
+      explicit_constructor = true;
+      authored_default_constructor = authored_default_constructor || (factory.constructor && factory.parameters.empty());
       if (!factory.constructor) {
         generated_tags.insert(factory_tag);
         output += "private:\n  struct " + factory_tag + " {};\n";
@@ -345,7 +501,7 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
       output += std::string{factory.constructor ? visibility : "private "} + ":\n  // Construct owned fields from checked schema bindings.\n" + constexpr_comment + template_declaration + "  " +
           (factory.explicit_constructor ? "explicit " : "") + constant + name + "(" +
           (factory.constructor ? constructor_parameters : factory_tag +
-              (parameters.empty() ? "" : ", " + constructor_parameters)) + ")" + exception;
+              (parameters.empty() ? "" : ", " + constructor_parameters)) + ")" + exception + guard_clause;
       if (!direct_members) { output += " : " + name + "()"; }
       // Declaration order matches the C++ initialization order; unbound members keep schema defaults.
       const auto& assignments = factory.assignments;
@@ -356,13 +512,14 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
         if (binding == assignments.end()) { continue; }
         const auto& assignment = *binding;
         auto value = field;
+        value.initializer.reset();
         value.default_value = assignment.value;
         value.default_factory = assignment.factory_default ? assignment.value : std::string{};
         behavior::expression_context context;
         context.call = call;
         context.native_type = type;
         context.member_name = [&](auto member_name) { return identifier(member_name, access_type::public_access); };
-        const auto bound = assignment.expression ? expression_text(*assignment.expression,
+        const auto bound = assignment.array_binding ? array_binding(assignment, field, direct_members, transfer_name) : assignment.expression ? expression_text(*assignment.expression,
             [&](auto symbol) { return "srl_arg_" + identifier(symbol, access_type::public_access); }, context) :
             assignment.parameter ? transfer_owned("srl_arg_" + identifier(assignment.value, access_type::public_access), direct_members, transfer_name) : initial(value);
         if (direct_members) {
@@ -376,13 +533,14 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
         if (direct_members) { break; }
         const auto found = std::find_if(owner.member_list.begin(), owner.member_list.end(), [&](const auto& field) { return field.name == assignment.field; });
         auto value = *found;
+        value.initializer.reset();
         value.default_value = assignment.value;
         value.default_factory = assignment.factory_default ? assignment.value : std::string{};
         behavior::expression_context context;
         context.call = call;
         context.native_type = type;
         context.member_name = [&](auto field) { return identifier(field, access_type::public_access); };
-        const auto bound = assignment.expression ? expression_text(*assignment.expression,
+        const auto bound = assignment.array_binding ? array_binding(assignment, *found, direct_members, transfer_name) : assignment.expression ? expression_text(*assignment.expression,
             [&](auto symbol) { return "srl_arg_" + identifier(symbol, access_type::public_access); }, context) :
             assignment.parameter ? "std::move(srl_arg_" + identifier(assignment.value, access_type::public_access) + ")" : initial(value);
         output += "    this->" + identifier(found->name, found->access) + " = " + bound + ";\n";
@@ -417,7 +575,7 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
         kotlin ? "  // Construct a fresh owned schema value.\n  @Suppress(\"UNUSED_PARAMETER\")\n  " + std::string{visibility} + "fun " + id + "(" + parameters + "): " + name + " {\n" :
         typescript ? "  " + std::string{visibility} + "static " + id + "(" + parameters + "): " + name + ";\n" :
         js ? "  // Construct a fresh owned schema value.\n  static " + id + "(" + parameters + ") {\n" :
-        cpp ? std::string{visibility} + ":\n  // Construct a fresh owned schema value.\n" + constexpr_comment + template_declaration + "  [[nodiscard]] static " + constant + name + " " + id + "(" + parameters + ")" + exception + " {\n" :
+        cpp ? std::string{visibility} + ":\n  // Construct a fresh owned schema value.\n" + constexpr_comment + template_declaration + "  [[nodiscard]] static " + constant + name + " " + id + "(" + parameters + ")" + exception + guard_clause + " {\n" :
         "  // Construct a fresh owned schema value.\n  " + std::string{visibility} + "static " + name + " " + id + "(" + parameters + ") {\n";
     if (typescript) {
       for (std::size_t arity{}; arity < factory.parameters.size(); ++arity) {
@@ -469,13 +627,14 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
         const auto found = std::find_if(owner.member_list.begin(), owner.member_list.end(), [&](const auto& field) { return field.name == assignment.field; });
         if (found == owner.member_list.end()) { throw std::invalid_argument{"Unbound construction field"}; }
         auto value = *found;
+        value.initializer.reset();
         value.default_value = assignment.value;
         value.default_factory = assignment.factory_default ? assignment.value : std::string{};
         const auto parameter = assignment.parameter ?
             (rust ? "_srl_arg_" : "srl_arg_") + identifier(assignment.value, access_type::public_access) : std::string{};
-        auto assigned_value = assignment.expression ? std::string{} : assignment.parameter ?
+        auto assigned_value = assignment.array_binding ? array_binding(assignment, *found, false, transfer_name) : assignment.expression ? std::string{} : assignment.parameter ?
             (cpp ? "std::move(" + parameter + ")" : parameter) : initial(value);
-        if (assignment.expression) {
+        if (assignment.expression && !assignment.array_binding) {
           behavior::expression_context context;
           context.call = call;
           context.native_type = type;
@@ -516,7 +675,7 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
           go ? "// Construct with fresh defaults for omitted trailing arguments.\nfunc " + go_owner + "_" + wrapper + "(" + declarations + ") *" + name + " { return " + target + "(" + inputs + ") }\n" :
           swift ? "  /// Construct with fresh defaults for omitted trailing arguments.\n  " + std::string{visibility} + "static func " + wrapper + "(" + declarations + ") -> " + name + " { return " + target + "(" + inputs + ") }\n" :
           kotlin ? "  // Construct with fresh defaults for omitted trailing arguments.\n  " + std::string{visibility} + "fun " + wrapper + "(" + declarations + "): " + name + " { return " + target + "(" + inputs + ") }\n" :
-          cpp ? std::string{visibility} + ":\n  // Construct with fresh defaults for omitted trailing arguments.\n  [[nodiscard]] static " + constant + name + " " + wrapper + "(" + declarations + ")" + exception + " { return " + target + "(" + inputs + "); }\n" :
+          cpp ? std::string{visibility} + ":\n  // Construct with fresh defaults for omitted trailing arguments.\n  [[nodiscard]] static " + constant + name + " " + wrapper + "(" + declarations + ")" + exception + guard_clause + " { return " + target + "(" + inputs + "); }\n" :
           js ? "  // Construct with fresh defaults for omitted trailing arguments.\n  static " + wrapper + "(" + declarations + ") { return " + target + "(" + inputs + "); }\n" :
           "  // Construct with fresh defaults for omitted trailing arguments.\n  " + std::string{visibility} + "static " + name + " " + wrapper + "(" + declarations + ") { return " + target + "(" + inputs + "); }\n";
     }

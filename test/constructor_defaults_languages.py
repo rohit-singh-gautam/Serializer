@@ -1,7 +1,8 @@
-"""Regenerate, compile and run typed, record and generic owner defaults in selected SDKs."""
+"""Regenerate, compile and run constructor defaults or array facades in selected SDKs."""
 import argparse
 import importlib.util
 from pathlib import Path
+from array_callable_consumers import consumer as array_callable_consumer
 
 ROOT = Path(__file__).resolve().parents[1]
 SPEC = importlib.util.spec_from_file_location("examples", ROOT / "example/run.py")
@@ -241,7 +242,11 @@ def main():
     parser.add_argument("--wsl-languages", default="")
     parser.add_argument("--generic-owner-defaults", action="store_true",
                         help="Qualify language 1.16 concretized owner-type defaults; retain the 1.15 fixture otherwise")
+    parser.add_argument("--array-callable-api", action="store_true",
+                        help="Qualify language 1.17 array exposure, packs, bounds and ownership in each SDK")
     args = parser.parse_args()
+    if args.array_callable_api and args.generic_owner_defaults:
+        parser.error("Select either --array-callable-api or --generic-owner-defaults")
     args.sanitize = False
     args.compiler = args.compiler.resolve()
     args.build = args.build.resolve()
@@ -252,7 +257,8 @@ def main():
                for language in languages}
     if "typescript" in languages and "javascript" not in languages:
         targets["js"] = args.build / "typescript/schema.mjs"
-    schema_name = ("constructor_defaults_owner_portable.serializer" if args.generic_owner_defaults else
+    schema_name = ("array_exposure.serializer" if args.array_callable_api else
+                   "constructor_defaults_owner_portable.serializer" if args.generic_owner_defaults else
                    "constructor_defaults_portable.serializer")
     command = [args.compiler, "--input", ROOT / "test/resources" / schema_name,
                "--language", ",".join(targets), "--cpp.format=false", "--go.package=main", "--kotlin.package="]
@@ -266,9 +272,12 @@ def main():
     for language in languages:
         source = args.build / "consumers" / language
         source.mkdir(parents=True, exist_ok=True)
-        (source / FILES[language]).write_text(consumer(language, args.generic_owner_defaults), encoding="utf-8")
-        examples.run(runner.build(language, "constructor_defaults", args.build / language, source))
-        scope = "concretized generic owner defaults" if args.generic_owner_defaults else "fresh empty-record/typed defaults"
+        (source / FILES[language]).write_text(array_callable_consumer(language) if args.array_callable_api else
+                                            consumer(language, args.generic_owner_defaults), encoding="utf-8")
+        examples.run(runner.build(language, "array_callable_api" if args.array_callable_api else
+                                  "constructor_defaults", args.build / language, source))
+        scope = ("checked array exposure, packs and ownership" if args.array_callable_api else
+                 "concretized generic owner defaults" if args.generic_owner_defaults else "fresh empty-record/typed defaults")
         print(f"PASS: {language}, {scope} and custom arguments", flush=True)
 
 

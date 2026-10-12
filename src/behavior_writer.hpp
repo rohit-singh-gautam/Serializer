@@ -173,6 +173,10 @@ inline checked_helpers select_helpers(const std::vector<const syntax_node*>& nod
 
 // Select an authored implementation without interpreting or rewriting its native tokens.
 inline const native_code_block* native_body(const function_declaration& method, std::string_view language) {
+  if (language != "cpp" && method.has_native_signature()) {
+    throw std::invalid_argument{std::string{language} +
+        ": static, const_ref, fixed-array callable signatures, and expected results require C++ output"};
+  }
   const auto common_type = [&](const auto& self, const type_name& type) -> bool {
     return type.common_numeric || std::any_of(type.arguments.begin(), type.arguments.end(),
         [&](const auto& argument) { return self(self, argument); });
@@ -186,6 +190,23 @@ inline const native_code_block* native_body(const function_declaration& method, 
   const auto found = std::find_if(method.bodies.begin(), method.bodies.end(),
       [&](const auto& code) { return code.language == language || (language == "js" && code.language == "javascript"); });
   return found == method.bodies.end() ? nullptr : &*found;
+}
+
+// Diagnose native callable contracts before a backend maps types or drops open generic declarations.
+inline void require_callable_backend(const std::vector<std::unique_ptr<syntax_node>>& nodes,
+    std::string_view language) {
+  for (const auto& node : nodes) {
+    if (node->type == object_type::namespace_type) {
+      require_callable_backend(static_cast<const namespace_node&>(*node).statements, language);
+    } else if (node->type == object_type::function_type) {
+      const auto& method = static_cast<const function_node&>(*node).function;
+      if (method.has_native_signature()) { static_cast<void>(native_body(method, language)); }
+    } else if (node->type == object_type::class_type || node->type == object_type::generic_definition) {
+      for (const auto& method : static_cast<const class_node&>(*node).functions) {
+        if (method.has_native_signature()) { static_cast<void>(native_body(method, language)); }
+      }
+    }
+  }
 }
 
 // Opaque source may refer to generated identifiers only when their spelling is preserved.

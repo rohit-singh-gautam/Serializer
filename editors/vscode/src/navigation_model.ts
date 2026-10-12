@@ -53,6 +53,8 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
   const language = code.match(/\bserializer\s+version\s+(\d+)(?:\.(\d+)\.(\d+))?\s*;/);
   const commonTypeContract = language !== null && (Number(language[1]) > 1 ||
     (Number(language[1]) === 1 && Number(language[2] ?? 0) >= 12));
+  const owningApiContract = language !== null && (Number(language[1]) > 1 ||
+    (Number(language[1]) === 1 && Number(language[2] ?? 0) >= 17));
   const tokens: Token[] = [...code.matchAll(/[A-Za-z_][A-Za-z_0-9]*|::|[^\s]/g)]
     .map(match => ({ text: match[0], start: match.index!, end: match.index! + match[0].length }));
   const result: SourceIndex = { symbols: [], includes: [], references: [], members: [], memberReferences: [] };
@@ -103,8 +105,10 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
         return typeReference(operand, depth + 1);
       }
     }
-    if (token === 'managed' || token === 'transient' || token === 'wire_only') { return typeReference(start + 1, depth + 1); }
-    if ((['optional', 'array', 'map'].includes(token) || (token === 'common_type' && commonTypeContract)) &&
+    if (token === 'managed' || token === 'transient' || token === 'wire_only' ||
+        (token === 'const_ref' && owningApiContract)) { return typeReference(start + 1, depth + 1); }
+    if ((['optional', 'array', 'map'].includes(token) || (token === 'common_type' && commonTypeContract) ||
+        (token === 'expected' && owningApiContract)) &&
         tokens[start + 1]?.text === '<') {
       // Only user-declared constructors have destinations; retain references for compatible schemas.
       if (token !== 'common_type') {
@@ -198,7 +202,8 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
   /** Index generic readonly signatures without exposing method names or native implementations. */
   function functionSignature(start: number): void {
     let next = start + 1;
-    if (['virtual', 'abstract', 'override'].includes(tokens[next]?.text)) { ++next; }
+    if (['virtual', 'abstract', 'override'].includes(tokens[next]?.text) ||
+        (tokens[next]?.text === 'static' && owningApiContract)) { ++next; }
     const returnStart = result.references.length;
     next = typeReference(next);
     if (tokens[next + 1]?.text === '<') {
@@ -223,6 +228,7 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
       ++next;
       while (next < tokens.length && ![')', ';', '}'].includes(tokens[next].text)) {
         next = typeReference(next) + 1;
+        if (owningApiContract && tokens[next]?.text === 'const_ref') { ++next; }
         if (tokens[next]?.text === ',') { ++next; }
       }
     }
@@ -240,6 +246,7 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
     }
     while (next < tokens.length && ![')', ';', '}'].includes(tokens[next].text)) {
       next = typeReference(next) + 1;
+      if (owningApiContract && tokens[next]?.text === 'const_ref') { ++next; }
       if (tokens[next]?.text === '=') {
         // Nested aggregate defaults own their braces; they must not close the surrounding class.
         const groups: string[] = [];
@@ -352,9 +359,25 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
         }
         --i;
       }
-    } else if (schema && ['expression', 'predicate'].includes(token.text) &&
+    } else if (schema && (['expression', 'predicate'].includes(token.text) ||
+        (owningApiContract && token.text === 'delegates')) &&
                tokens[i + 1]?.text === '(') {
       i = expressionReferences(i + 1);
+    } else if (schema && owningApiContract && ['dimensions', 'when'].includes(token.text) &&
+        tokens[i + 1]?.text === '(') {
+      // Metadata names have no destination; explicitly named owner dimensions and type operands do.
+      let depth = 1;
+      for (let next = i + 2; next < tokens.length && depth; ++next) {
+        if (tokens[next].text === '(') { ++depth; }
+        if (tokens[next].text === ')') { --depth; }
+        if (tokens[next].text === 'same_type' && tokens[next + 1]?.text === '(') { continue; }
+        const operand = qualified(next);
+        if (operand) {
+          result.references.push({ ...operand, scope: [...currentScope()] });
+          next = operand.next - 1;
+        }
+        i = next;
+      }
     } else if (schema && token.text === 'checked' && tokens[i + 1]?.text === '<') {
       i = typeReference(i + 2);
     } else if (schema && token.text === 'expose' && tokens[i + 1]?.text === 'readonly') {

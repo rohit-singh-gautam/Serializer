@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -150,6 +151,88 @@ TEST(constructor_initialization, binds_nondefault_nonassignable_copyable_inputs_
   static_assert(collision_factories::a(copy_input).value.value == 11);
   static_assert(collision_factories::a_1(copy_input).value.value == 11);
   EXPECT_EQ(direct.value.value, 7);
+}
+
+// Checked open constructors preserve constexpr success across exact, scalar and record inputs.
+TEST(constructor_initialization, open_checked_constructors_bind_numeric_and_projected_inputs) {
+  using integer_quantity = constructor_initialization::checked_quantity<std::uint16_t>;
+  using floating_quantity = constructor_initialization::checked_quantity<double>;
+  using integer_extent = constructor_initialization::checked_extent<std::uint16_t>;
+  constexpr std::uint16_t exact_input{13};
+  constexpr integer_quantity exact{exact_input};
+  constexpr integer_quantity converted{17.0};
+  constexpr floating_quantity input_record{19.0};
+  constexpr integer_quantity projected{input_record};
+  constexpr integer_extent distinct{input_record};
+  static_assert(exact.value == exact_input && converted.value == 17);
+  static_assert(projected.value == 19 && distinct.value == 19);
+  static_assert(integer_quantity::create(exact_input).value == exact_input);
+  static_assert(integer_quantity::create(17.0).value == 17);
+  static_assert(integer_quantity::create(input_record).value == 19);
+  static_assert(integer_extent::create(input_record).value == 19);
+  static_assert(integer_quantity::from_value(17.0).value == 17);
+  static_assert(integer_extent::from_quantity(input_record).value == 19);
+  static_assert(constructor_initialization::checked_u16_quantity{23.0}.value == 23);
+  static_assert(constructor_initialization::checked_u16_extent{input_record}.value == 19);
+  static_assert(!std::is_convertible_v<double, integer_quantity>);
+  static_assert(!std::is_convertible_v<floating_quantity, integer_extent>);
+  static_assert(!std::is_constructible_v<integer_quantity, std::string>);
+  static_assert(!noexcept(integer_quantity{exact_input}));
+  static_assert(!noexcept(integer_extent{input_record}));
+  EXPECT_EQ(round_trip(projected).value, input_record.value);
+}
+
+// Constructor and factory conversion paths reject the same exactness, range and finite failures.
+TEST(constructor_initialization, open_checked_constructors_preserve_numeric_rejection_parity) {
+  using integer_quantity = constructor_initialization::checked_quantity<std::uint16_t>;
+  using floating_quantity = constructor_initialization::checked_quantity<double>;
+  using integer_extent = constructor_initialization::checked_extent<std::uint16_t>;
+  const auto beyond_storage = static_cast<double>(std::numeric_limits<std::uint16_t>::max()) + 1;
+  for (const double input : {-1.0, 1.5, beyond_storage,
+                            std::numeric_limits<double>::infinity(),
+                            std::numeric_limits<double>::quiet_NaN()}) {
+    floating_quantity record;
+    record.value = input;
+    EXPECT_THROW(static_cast<void>(integer_quantity{input}), std::domain_error);
+    EXPECT_THROW(static_cast<void>(integer_quantity::from_value(input)), std::domain_error);
+    EXPECT_THROW(static_cast<void>(integer_quantity{record}), std::domain_error);
+    EXPECT_THROW(static_cast<void>(integer_extent{record}), std::domain_error);
+    EXPECT_THROW(static_cast<void>(integer_extent::from_quantity(record)), std::domain_error);
+    EXPECT_THROW(static_cast<void>(constructor_initialization::checked_u16_quantity{input}), std::domain_error);
+  }
+  const auto beyond_exact_double = (std::uint64_t{1} << std::numeric_limits<double>::digits) + 1;
+  EXPECT_THROW(static_cast<void>(floating_quantity{beyond_exact_double}), std::domain_error);
+  EXPECT_THROW(static_cast<void>(floating_quantity::from_value(beyond_exact_double)), std::domain_error);
+  const auto nonfinite = std::numeric_limits<double>::infinity();
+  EXPECT_THROW(static_cast<void>(floating_quantity{nonfinite}), std::domain_error);
+  EXPECT_THROW(static_cast<void>(floating_quantity::from_value(nonfinite)), std::domain_error);
+}
+
+// Numeric checking must not add default construction, moving or assignment to other owned inputs.
+TEST(constructor_initialization, open_checked_constructors_keep_copy_only_coordinates_direct) {
+  using owner = constructor_initialization::checked_coordinate<std::uint16_t, copy_only_input>;
+  constexpr copy_only_input coordinate{29};
+  constexpr owner constructed{31.0, coordinate};
+  static_assert(constructed.coordinate.value == 29 && constructed.value == 31);
+  static_assert(owner::create(31.0, coordinate).coordinate.value == 29);
+  static_assert(owner::from_value(31.0, coordinate).value == 31);
+  EXPECT_THROW(static_cast<void>(owner{1.5, coordinate}), std::domain_error);
+  EXPECT_EQ(coordinate.value, 29);
+}
+
+// Retaining dependent checked targets must still require numeric proofs and exact destination identity.
+TEST(constructor_initialization, open_checked_constructors_retain_type_admission_checks) {
+  EXPECT_NO_THROW(parse("serializer version 1.14.0; "
+      "class quantity<T: (integral || floating_point) && !bool> { public T value; "
+      "public constructor<Input: (integral || floating_point) && !bool>(Input input) {"
+      "value=checked<T>(input); } }"));
+  for (const std::string_view source : {
+      "serializer version 1.14.0; class quantity<T> { public T value; public constructor(T input) {value=checked<T>(input);} }",
+      "serializer version 1.14.0; class quantity<T: integral> { public T value; public constructor<Input: bool || !bool>(Input input) {value=checked<T>(input);} }",
+      "serializer version 1.14.0; class quantity<T: integral> { public T value; public constructor(uint32 input) {value=checked<Unknown>(input);} }",
+      "serializer version 1.14.0; class quantity<T: integral> { public T value; public constructor(uint32 input) {value=checked<double>(input);} }"}) {
+    EXPECT_ANY_THROW(parse(source)) << source;
+  }
 }
 
 TEST(constructor_initialization, generic_scalar_and_fixed_array_defaults_preserve_custom_coordinates) {

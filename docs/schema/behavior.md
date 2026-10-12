@@ -1,5 +1,10 @@
 # Schema behavior and native source
 
+Language `1.17.0` adds [array and callable APIs](array_and_callable_api.md).
+Use explicit storage/axes, owner field factories and callable-local restrictions
+to preserve supported host contracts. Target limits and completed qualification
+are recorded with the feature; older contracts below retain their semantics.
+
 Language `1.14.0` adds [explicit arithmetic mappings and owning constructor calls](owning_api.md#explicit-arithmetic-mappings-and-owning-calls),
 [readonly field getters](owning_api.md#readonly-c-getters), and declaration-site
 C++ `constexpr`/`inline` additions. Eligible ordinary C++ native readonly/edit

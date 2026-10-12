@@ -3,6 +3,7 @@
 #include <rohit/serializer_creator.hpp>
 #include "conversion_contract.hpp"
 #include "stateless_constraint.hpp"
+#include "callable_guard.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -197,16 +198,19 @@ class generic_lowering {
 
   // Recognize only unshadowed generic syntax and keep each included file's language contract.
   bool bind_builtin(type_name& type, const syntax_node* declaration) const {
-    if ((declaration && !type.is_optional() && !type.is_sequence() && !type.is_associative()) ||
+    if ((declaration && !type.is_optional() && !type.is_sequence() && !type.is_associative() && !type.is_expected()) ||
         !type.application ||
-        (type.name != "optional" && type.name != "array" && type.name != "map")) {
+        (type.name != "optional" && type.name != "array" && type.name != "map" && type.name != "expected")) {
       return false;
     }
-    if (!type.optional_language_supported) {
+    if (type.name == "expected" && !type.expected_language_supported) {
+      throw exception::bad_member_type{input, "Expected callable results require serializer version 1.17.0"};
+    }
+    if (type.name != "expected" && !type.optional_language_supported) {
       throw exception::bad_member_type{input,
           "Built-in optional and collection type arguments require serializer version 1.7.0 or newer"};
     }
-    const std::size_t required_arguments = type.name == "map" ? 2 : 1;
+    const std::size_t required_arguments = type.name == "map" || type.name == "expected" ? 2 : 1;
     if (type.arguments.size() != required_arguments) {
       throw exception::bad_member_type{input, "Incorrect built-in generic argument count: " + type.name};
     }
@@ -373,6 +377,9 @@ class generic_lowering {
     }
     auto* node = find_declared_type(type.name, type.declared_namespace, visible);
     if (bind_builtin(type, node)) {
+      if (type.is_expected()) {
+        throw exception::bad_member_type{input, "Expected is supported only as a direct native C++ callable result"};
+      }
       for (auto& argument : type.arguments) {
         validate_expression(argument, owner);
       }
@@ -449,7 +456,7 @@ class generic_lowering {
       throw exception::bad_member_type{input, "Type/value kind mismatch: expected type"};
     }
     if (type.type == object_type::primitive &&
-        !type.is_optional() && !type.is_sequence() && !type.is_associative()) { return; }
+        !type.is_optional() && !type.is_sequence() && !type.is_associative() && !type.is_expected()) { return; }
     if (const auto found = bindings.find(type.name); found != bindings.end()) {
       if (found->second.kind != generic_argument_kind::type) {
         throw exception::bad_member_type{input, "Type/value kind mismatch: expected type"};
@@ -464,6 +471,9 @@ class generic_lowering {
     }
     auto* node = find_declared_type(type.name, type.declared_namespace, visible);
     if (bind_builtin(type, node)) {
+      if (type.is_expected()) {
+        throw exception::bad_member_type{input, "Expected is supported only as a direct native C++ callable result"};
+      }
       for (auto& argument : type.arguments) {
         if (argument.common_numeric) {
           throw exception::bad_member_type{input, "Common numeric policies cannot be container arguments"};
@@ -659,13 +669,15 @@ class generic_lowering {
     scope.type_parameters = owner.type_parameters;
     scope.generic_parameters = owner.generic_parameters;
     for (const auto& parameter : input_types) {
-      if (parameter.name == owner.name || !parameter.constraint ||
+      if (parameter.name == owner.name ||
           std::find(scope.type_parameters.begin(), scope.type_parameters.end(), parameter.name) !=
               scope.type_parameters.end()) {
-        throw exception::bad_member_type{input, "Callable input types cannot shadow their owner and require constraints"};
+        throw exception::bad_member_type{input, "Callable input types cannot shadow their owner or other input types"};
       }
-      auto constraint = *parameter.constraint;
-      validate_constraint(constraint, scope);
+      if (parameter.constraint) {
+        auto constraint = *parameter.constraint;
+        validate_constraint(constraint, scope);
+      }
       scope.type_parameters.push_back(parameter.name);
       scope.generic_parameters.push_back(parameter);
     }
@@ -683,8 +695,17 @@ class generic_lowering {
 
   // Validate nested independent inputs against the same class and input constraints as C++ templates.
   void validate_callable_type(type_name& type, const class_node& owner,
-      const std::vector<generic_parameter>& input_types) const {
+      const std::vector<generic_parameter>& input_types, bool result = false) const {
     const auto scope = callable_scope(owner, input_types);
+    if (bind_builtin(type, find_declared_type(type.name, type.declared_namespace, visible)) && type.is_expected()) {
+      if (!result || type.arguments.back().name == "void") {
+        throw exception::bad_member_type{input, "Expected requires a nonvoid error type and a direct native C++ callable result"};
+      }
+      for (auto& argument : type.arguments) {
+        if (argument.name != "void") { validate_callable_type(argument, owner, input_types); }
+      }
+      return;
+    }
     if (type.common_numeric) {
       for (auto& argument : type.arguments) { validate_expression(argument, scope); }
       return;
@@ -695,7 +716,7 @@ class generic_lowering {
   // Substitute class arguments while retaining method-dependent record applications for C++ deduction.
   void resolve_callable_type(type_name& type, const class_node& owner,
       const std::vector<generic_parameter>& input_types,
-      const std::unordered_map<std::string, type_name>& bindings, std::size_t depth) {
+      const std::unordered_map<std::string, type_name>& bindings, std::size_t depth, bool result = false) {
     const auto substitute = [&](const auto& self, type_name& value) -> void {
       if (!value.application) {
         if (const auto found = bindings.find(value.name); found != bindings.end()) {
@@ -706,6 +727,17 @@ class generic_lowering {
       for (auto& argument : value.arguments) { self(self, argument); }
     };
     substitute(substitute, type);
+    if (bind_builtin(type, find_declared_type(type.name, type.declared_namespace, visible)) && type.is_expected()) {
+      if (!result || type.arguments.back().name == "void") {
+        throw exception::bad_member_type{input, "Expected requires a nonvoid error type and a direct native C++ callable result"};
+      }
+      for (auto& argument : type.arguments) {
+        if (argument.name != "void") {
+          resolve_callable_type(argument, owner, input_types, bindings, depth + 1);
+        }
+      }
+      return;
+    }
     // A callable may return/take its exact owner without introducing recursive inline storage.
     if (type.application && !owner.generic_name.empty() &&
         type.arguments.size() == owner.generic_arguments.size()) {
@@ -721,9 +753,20 @@ class generic_lowering {
       }
     }
     if (contains_callable_input(type, input_types)) {
-      validate_callable_type(type, owner, input_types);
+      validate_callable_type(type, owner, input_types, result);
     } else {
       resolve(type, bindings, depth);
+    }
+  }
+
+  // Validate open expression types in their class/input scope without inventing concrete bindings.
+  void validate_callable_expression(behavior_expression& expression, const class_node& owner,
+      const std::vector<generic_parameter>& input_types) const {
+    if (expression.resolved_type) {
+      validate_callable_type(*expression.resolved_type, owner, input_types);
+    }
+    for (auto& operand : expression.operands) {
+      validate_callable_expression(operand, owner, input_types);
     }
   }
 
@@ -742,6 +785,19 @@ class generic_lowering {
     }
   }
 
+  // Keep API array shapes exact while deferring only dimensions owned by an open class template.
+  void resolve_callable_extent(const std::vector<dimension_expression>& expressions,
+      std::uint64_t& fixed_extent, const class_node& owner,
+      const std::unordered_map<std::string, type_name>& bindings, bool dependent) const {
+    if (expressions.empty()) { return; }
+    constexpr std::uint64_t maximum_fixed_elements = 65536;
+    const auto extent = evaluate(expressions.front(), dependent ? placeholders(owner) : bindings, dependent);
+    if ((!extent && !dependent) || (extent && (!*extent || *extent > maximum_fixed_elements))) {
+      throw exception::bad_member_type{input, "Invalid or excessive callable fixed array extent (1..65536)"};
+    }
+    if (extent) { fixed_extent = *extent; }
+  }
+
   // Substitute bases, fields and map keys without changing wire IDs, order, names or defaults.
   void resolve_fields(class_node& object,
                       const std::unordered_map<std::string, type_name>& bindings,
@@ -755,8 +811,8 @@ class generic_lowering {
       validate_magic_constant(input, field);
     }
     for (auto& field : object.member_list) {
+      constexpr std::uint64_t maximum_fixed_elements = 65536;
       if (!field.extent_expression.empty()) {
-        constexpr std::uint64_t maximum_fixed_elements = 65536;
         const auto extent = evaluate(field.extent_expression.front(), bindings);
         if (!extent || *extent == 0 || *extent > maximum_fixed_elements) {
           throw exception::bad_member_type{input, "Invalid or excessive fixed array extent (1..65536) at schema byte " +
@@ -767,6 +823,19 @@ class generic_lowering {
           throw exception::bad_member_type{input, "Fixed arrays require unpacked owning fields"};
         }
         field.fixed_extent = *extent;
+      }
+      if (field.array_exposure) {
+        // Named concrete owners copy this resolved metadata before discarding their source parameter scope.
+        for (auto& dimension : field.array_exposure->dimensions) {
+          const auto extent = evaluate(dimension, bindings);
+          if (!extent || !*extent || *extent > maximum_fixed_elements) {
+            throw exception::bad_member_type{input, "Invalid or unresolved exposed array dimension"};
+          }
+          dimension.kind = dimension_expression::operation::literal;
+          dimension.value = *extent;
+          dimension.name.clear();
+          dimension.operands.clear();
+        }
       }
       for (auto& type : field.type_name_list) {
         resolve(type, bindings, depth);
@@ -797,17 +866,21 @@ class generic_lowering {
       }
     }
     for (auto& method : object.functions) {
+      if (method.guard) { callable_availability::bind(*method.guard, object, bindings); }
       if (method.return_type.name != "void") {
-        resolve_callable_type(method.return_type, object, method.generic_parameters, bindings, depth);
+        resolve_callable_type(method.return_type, object, method.generic_parameters, bindings, depth, true);
       }
+      resolve_callable_extent(method.return_extent_expression, method.return_fixed_extent, object, bindings, false);
       for (auto& parameter : method.parameters) {
         resolve_callable_type(parameter.type, object, method.generic_parameters, bindings, depth);
+        resolve_callable_extent(parameter.extent_expression, parameter.fixed_extent, object, bindings, false);
       }
       if (method.expression) {
         resolve_callable_expression(*method.expression, object, method.generic_parameters, bindings, depth);
       }
     }
     for (auto& construction : object.constructions) {
+      if (construction.guard) { callable_availability::bind(*construction.guard, object, bindings); }
       if (construction.constructor && construction.forward_signature_enabled) { continue; }
       for (auto& parameter : construction.parameters) {
         if (parameter.type.application && contains_callable_input(parameter.type, construction.generic_parameters) &&
@@ -825,6 +898,11 @@ class generic_lowering {
         }
       }
       for (auto& assignment : construction.assignments) {
+        for (auto& element : assignment.elements) {
+          if (element.expression) {
+            resolve_callable_expression(*element.expression, object, construction.generic_parameters, bindings, depth);
+          }
+        }
         if (assignment.expression) {
           resolve_callable_expression(*assignment.expression, object, construction.generic_parameters, bindings, depth);
         }
@@ -938,24 +1016,22 @@ class generic_lowering {
               }
             }
             for (auto& method : object.functions) {
+              if (method.guard) { callable_availability::bind(*method.guard, object); }
               if (method.return_type.name != "void") {
-                validate_callable_type(method.return_type, object, method.generic_parameters);
+                validate_callable_type(method.return_type, object, method.generic_parameters, true);
               }
+              resolve_callable_extent(method.return_extent_expression, method.return_fixed_extent, object, {}, true);
               for (auto& parameter : method.parameters) {
                 validate_callable_type(parameter.type, object, method.generic_parameters);
+                resolve_callable_extent(parameter.extent_expression, parameter.fixed_extent, object, {}, true);
               }
               // Explicit expression type applications share callable scope, including the owner.
               if (method.expression) {
-                const auto validate_types = [&](const auto& self, behavior_expression& expression) -> void {
-                  if (expression.resolved_type) {
-                    validate_callable_type(*expression.resolved_type, object, method.generic_parameters);
-                  }
-                  for (auto& operand : expression.operands) { self(self, operand); }
-                };
-                validate_types(validate_types, *method.expression);
+                validate_callable_expression(*method.expression, object, method.generic_parameters);
               }
             }
             for (auto& construction : object.constructions) {
+              if (construction.guard) { callable_availability::bind(*construction.guard, object); }
               if (construction.constructor && construction.forward_signature_enabled) { continue; }
               for (auto& parameter : construction.parameters) {
                 if (parameter.type.application && contains_callable_input(parameter.type, construction.generic_parameters) &&
@@ -1015,10 +1091,12 @@ class generic_lowering {
           auto& function = static_cast<function_node&>(*raw).function;
           class_node scope{object_type::class_type, std::string{}, raw->parent_namespace, class_attributes::none, {}};
           if (function.return_type.name != "void") {
-            resolve_callable_type(function.return_type, scope, function.generic_parameters, {}, 0);
+            resolve_callable_type(function.return_type, scope, function.generic_parameters, {}, 0, true);
           }
+          resolve_callable_extent(function.return_extent_expression, function.return_fixed_extent, scope, {}, false);
           for (auto& parameter : function.parameters) {
             resolve_callable_type(parameter.type, scope, function.generic_parameters, {}, 0);
+            resolve_callable_extent(parameter.extent_expression, parameter.fixed_extent, scope, {}, false);
           }
           if (function.expression) {
             resolve_callable_expression(*function.expression, scope, function.generic_parameters, {}, 0);
@@ -1052,6 +1130,7 @@ class generic_lowering {
       bindings.emplace(owner.generic_parameters[argument].name, owner.generic_arguments[argument]);
     }
     for (auto& construction : owner.constructions) {
+      if (construction.guard) { callable_availability::bind(*construction.guard, owner, bindings); }
       if (!construction.constructor || !construction.forward_signature_enabled) { continue; }
       for (auto& parameter : construction.parameters) {
         if (!owner.type_parameters.empty()) {
@@ -1071,9 +1150,22 @@ class generic_lowering {
         }
       }
       for (auto& assignment : construction.assignments) {
+        for (auto& element : assignment.elements) {
+          if (!element.expression) { continue; }
+          if (!owner.type_parameters.empty()) {
+            validate_callable_expression(*element.expression, owner, construction.generic_parameters);
+          } else {
+            resolve_callable_expression(*element.expression, owner, construction.generic_parameters, bindings, 0);
+          }
+        }
         if (assignment.expression) {
-          resolve_callable_expression(*assignment.expression, owner,
-              construction.generic_parameters, bindings, 0);
+          if (!owner.type_parameters.empty()) {
+            // Deferred open constructors retain T just like their signatures and method bodies.
+            validate_callable_expression(*assignment.expression, owner, construction.generic_parameters);
+          } else {
+            resolve_callable_expression(*assignment.expression, owner,
+                construction.generic_parameters, bindings, 0);
+          }
         }
       }
     }
@@ -1111,8 +1203,9 @@ inline bool contains_generics(const std::vector<std::unique_ptr<syntax_node>>& n
       const auto& function = static_cast<const function_node&>(*node).function;
       if (!function.generic_parameters.empty()) { return true; }
       if (function.return_type.application) { return true; }
+      if (!function.return_extent_expression.empty()) { return true; }
       for (const auto& parameter : function.parameters) {
-        if (parameter.type.application) { return true; }
+        if (parameter.type.application || !parameter.extent_expression.empty()) { return true; }
       }
     } else if (node->type == object_type::class_type) {
       const auto& object = static_cast<const class_node&>(*node);
@@ -1133,8 +1226,9 @@ inline bool contains_generics(const std::vector<std::unique_ptr<syntax_node>>& n
       for (const auto& method : object.functions) {
         if (!method.generic_parameters.empty()) { return true; }
         if (method.return_type.application) { return true; }
+        if (!method.return_extent_expression.empty()) { return true; }
         for (const auto& parameter : method.parameters) {
-          if (parameter.type.application) { return true; }
+          if (parameter.type.application || !parameter.extent_expression.empty()) { return true; }
         }
       }
       for (const auto& construction : object.constructions) {

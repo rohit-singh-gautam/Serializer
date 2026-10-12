@@ -5,6 +5,49 @@ const { test } = require('node:test');
 const { Registry, INITIAL } = require('vscode-textmate');
 const onig = require('vscode-oniguruma');
 
+test('language 1.17 array and callable metadata retain type and body boundaries', async () => {
+  const grammar = await loadGrammar();
+  const lines = [
+    'serializer version 1.17.0; class grid<uint64 Rows, uint64 Cols, T> {',
+    'private array[Rows * Cols] T stored expose array(public, const_value) dimensions(Rows, Cols);',
+    'private array[3] uint32 indices expose array(readonly, public);',
+    'public function static expected<lib::value, lib::error> make(array[Rows] lib::value input const_ref) readonly cpp { return {}; };',
+    'public constructor<Input>(Input input const_ref) explicit delegates(input.radius, input.height);',
+    'public factory identity() when(Rows == Cols && same_type(T, double)) { stored = generate(row, column => checked<T>(row == column ? 1 : 0)); }',
+    'public function array[3] lib::value copy() readonly cpp { return {}; };',
+    'public function Vector apply_vector<Vector>(Vector input const_ref) readonly;',
+    'public lib::value after; }',
+  ];
+  let state = INITIAL;
+  const tokens = lines.map(line => {
+    const result = grammar.tokenizeLine(line, state);
+    state = result.ruleStack;
+    return result.tokens;
+  });
+  const scope = (line, word) => tokens[line].find(token => token.startIndex <= lines[line].indexOf(word) &&
+    token.endIndex > lines[line].indexOf(word)).scopes.at(-1);
+  for (const word of ['expose', 'array(public', 'const_value', 'dimensions']) {
+    assert.equal(scope(1, word), 'storage.modifier.serializer', word);
+  }
+  assert.equal(scope(1, 'Cols);'), 'entity.name.type.serializer');
+  assert.equal(scope(2, 'readonly'), 'storage.modifier.serializer');
+  assert.equal(scope(3, 'static'), 'storage.modifier.serializer');
+  assert.equal(scope(3, 'expected'), 'support.type.serializer');
+  assert.equal(scope(3, 'const_ref'), 'storage.modifier.serializer');
+  assert.equal(scope(4, 'delegates'), 'keyword.control.serializer');
+  assert.equal(scope(5, 'when'), 'keyword.control.serializer');
+  assert.equal(scope(5, 'same_type'), 'support.function.serializer');
+  assert.equal(scope(5, 'generate'), 'keyword.control.serializer');
+  assert.equal(scope(6, 'array'), 'storage.type.serializer');
+  assert.equal(scope(7, 'apply_vector'), 'entity.name.function.serializer');
+  assert.equal(scope(7, 'const_ref'), 'storage.modifier.serializer');
+  assert.equal(scope(8, 'value'), 'entity.name.type.serializer');
+  const snippets = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../snippets/serializer.json'), 'utf8'));
+  assert.equal(snippets.Schema.body[0], 'serializer version 1.17.0;');
+  assert.match(snippets['Borrowed C++ function input'].body, /input\} const_ref/);
+  assert.match(snippets['Matrix array facade'].body, /dimensions\(/);
+});
+
 test('language 1.15 fresh record defaults preserve constructor and factory boundaries', async () => {
   const grammar = await loadGrammar();
   const lines = [
@@ -39,7 +82,7 @@ test('language 1.15 fresh record defaults preserve constructor and factory bound
   assert.ok(scopes(3, 'fresh record').some(scope => /^comment\./.test(scope)));
   assert.equal(state.depth, 1, 'empty and nested defaults close before the next class declaration');
   const snippets = JSON.parse(fs.readFileSync(path.join(__dirname, '../snippets/serializer.json'), 'utf8'));
-  assert.equal(snippets.Schema.body[0], 'serializer version 1.16.0;');
+  assert.equal(snippets.Schema.body[0], 'serializer version 1.17.0;');
 });
 
 test('language 1.14 exposure, operator mappings and callable additions preserve schema boundaries', async () => {
@@ -248,7 +291,7 @@ test('optional and nested container generics highlight types without consuming f
   }
   assert.equal(result.ruleStack.depth, 1);
   const snippets = JSON.parse(fs.readFileSync(path.join(__dirname, '../snippets/serializer.json'), 'utf8'));
-  assert.equal(snippets.Schema.body[0], 'serializer version 1.16.0;');
+  assert.equal(snippets.Schema.body[0], 'serializer version 1.17.0;');
   assert.equal(snippets['Optional field'].prefix, 'optional');
   assert.match(snippets['Optional field'].body, /optional</);
 });

@@ -2,7 +2,15 @@
 
 [Documentation index](../README.md) · [Application and build guides](README.md)
 
-Compiler/runtime **1.21.0** supports language **1.16.0**, which adds
+Compiler/runtime **1.22.0** supports language **1.17.0**.
+Use [array and callable APIs](../schema/array_and_callable_api.md) to select
+ordinary array storage, exact const indexing policy and explicit axes.
+Preserve native borrow lifetimes, field defaults, direct copy-only binding
+and existing wire bytes when replacing adapters. New
+[qualification](../verification/verification-array-callable-api-2026-10-13.md)
+passed the native 134-entry suite, all eleven SDKs and editor/package checks.
+
+Language **1.16.0** adds
 [generic owner-parameter defaults](../schema/construction.md#generic-owner-parameter-defaults-in-language-116).
 Use `Frame placement = {}` in a constructor or named factory when `Frame` is a
 type parameter of the owning class. Omission uses native C++ `Frame{}` without
@@ -463,7 +471,7 @@ class person stable_ids {
 ```
 
 - Use `class`, `enum`, and `namespace`; schema declarations are not C++ source.
-- Start every new `.serializer` file with `serializer version 1.16.0;` before declarations.
+- Start every new `.serializer` file with `serializer version 1.17.0;` before declarations.
   Older `1.0.0` files remain supported.
   The original `serializer version 1;` is an exact alias for `1.0.0`, exclusive to
   version 1. Future versions require three components. The language version is
@@ -527,7 +535,7 @@ namespace demo {
   spaces, backslashes, absolute paths, and other extensions are rejected.
   `./` and `../` are supported. Paths resolve from the including file, independently
   of the compiler's working directory. Comments may separate directive tokens.
-- Every file requires its own supported version header. `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, `1.11.0`, `1.12.0`, `1.13.0`, `1.14.0`, `1.15.0`, `1.16.0`, and the
+- Every file requires its own supported version header. `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, `1.11.0`, `1.12.0`, `1.13.0`, `1.14.0`, `1.15.0`, `1.16.0`, `1.17.0`, and the
   original `1` alias may coexist in an include graph. Typed magic and inferred
   arrays require `1.1.0`, compact scalars require `1.2.0`, and built-in digests
   require `1.3.0`; owning variants require `1.4.0` and warning suppression requires

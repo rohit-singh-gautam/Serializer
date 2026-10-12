@@ -1,13 +1,13 @@
 ---
 name: serializer-integration
-description: "Use Serializer as a state framework when creating or changing schemas, readonly getters, arithmetic operators, generated behavior and native C++ qualifiers, checked numeric bindings, direct construction, typed nested and generic owner-parameter defaults, authoring hooks, comparisons/conversions, derived wire sizes, generic type constraints, multi-language codecs, bounded decoding, revisions, C++ managed transactions, typed registries, external-provider leases, custom-key indexes, history, journals, collaboration, or persistence. Prefer portable schema behavior, review the installed version's entire feature set and apply every feature relevant to the user's contract; preserve wire compatibility and qualify unsupported combinations."
+description: "Use Serializer as a state framework when creating or changing schemas, array exposure and dimensions, callable availability and delegation, owner-type field factories, static or borrowed callable signatures, readonly getters, arithmetic operators, generated behavior and native C++ qualifiers, checked numeric bindings, direct construction, typed nested and generic owner-parameter defaults, authoring hooks, comparisons/conversions, derived wire sizes, generic type constraints, multi-language codecs, bounded decoding, revisions, C++ managed transactions, typed registries, external-provider leases, custom-key indexes, history, journals, collaboration, or persistence. Prefer portable schema behavior, review the installed version's entire feature set and apply every feature relevant to the user's contract; preserve wire compatibility and qualify unsupported combinations."
 ---
 
 # Serializer Integration
 
 [Documentation index](../../../docs/README.md)
 
-Serializer — **State Framework** combines multi-language generated codecs and
+Serializer â€” **State Framework** combines multi-language generated codecs and
 schema evolution with C++ application-state management. Choose ordinary generated
 models for data exchange or the managed runtime for editable C++ models. Native
 managed engines outside C++ remain unimplemented; exchanging managed wire records
@@ -42,10 +42,29 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
-Compiler/runtime 1.21.0 supports schema language 1.16.0. For new integrations,
+Compiler/runtime 1.22.0 supports schema language 1.17.0. For new integrations,
 review [derived wire sizes](../../../docs/schema/derived_sizes.md),
 [explicit value conversions](../../../docs/schema/conversions.md), and
 [stateless generic constraints](../../../docs/schema/generics.md#stateless-type-constraints).
+
+For language `1.17.0`, review [array and callable APIs](../../../docs/schema/array_and_callable_api.md).
+Select the backing field with `expose array(public)`; add `readonly` to disable
+writes and `const_value` only when the existing const indexing API returns by
+value. State axes with `dimensions(Rows, Cols)` and preserve native unchecked
+C++ bounds and temporary-owner borrow lifetimes. Logical get/set helpers check
+each coordinate. Managed-language values snapshots allocate shallow slots; C
+and C++ borrow native storage with owner lifetime. Do not substitute snapshots
+or codec copies on native hot paths. Review naming collisions and dynamic
+C++ vector<bool> limitations. Preserve exact identity defaults with owner-type
+field `default(identity)`, without adding class-wide factory/defaultability
+constraints. Use callable-local `when` for restricted factories, typed array
+bindings/generation and structural delegation where supported. Static,
+const_ref, fixed-array and expected callable extensions currently require C++;
+expected additionally requires the selected C++23 host. Prefer portable
+schema bodies and diagnose unsupported targets. New
+[qualification](../../../docs/verification/verification-array-callable-api-2026-10-13.md)
+passed the native 134-entry suite, all eleven SDKs and editor/package checks; retain earlier release verification as historical.
+Native/external ordinary readonly C++ functions may declare unconstrained independent inputs in language 1.17. Portable numeric expressions still need declared proof; do not infer a numeric, factory or defaultability constraint. Constructor delegation can project known schema records or applications, including independent types inside their arguments; unconstrained host inputs do not establish inspectable members.
 
 For language `1.16.0`, use a constructor or named-factory parameter such as
 `Frame placement = {}` when `Frame` is an owning class's type parameter and
@@ -757,11 +776,11 @@ feature as a prerequisite without the user's request.
   generated replacement setters and the existing history/journal APIs.
   Consult [usage](../../../docs/guides/usage.md), [migration](../../../migration.md), and
   [qualification](../../../docs/verification/verification-dimensions-2026-10-04.md).
-- Use `.serializer` files beginning with `serializer version 1.16.0;`, before declarations
+- Use `.serializer` files beginning with `serializer version 1.17.0;`, before declarations
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
-  remains available through `parser::parse(input)`. Schema language version 1.16.0 is
-  independent of compiler release 1.21.0 and wire protocols. Bug fixes and minor
+  remains available through `parser::parse(input)`. Schema language version 1.17.0 is
+  independent of compiler release 1.22.0 and wire protocols. Bug fixes and minor
   updates increment the patch number; new features increment the minor number.
   Minor and patch releases preserve full compatibility. Developers change the
   major number manually, with best-effort compatibility across major releases.
@@ -1151,12 +1170,12 @@ not create headers. No custom VS Code task or Serializer editor extension is
 required, and `.vscode/*` remains ignored. Editor provider settings may be user-level.
 The optional Rohit Serializer extension (`rohitjairajsingh.serializer-language`)
 in `editors/vscode` highlights `.serializer`, offers
-32×32 language icons for Explorer/editor tabs where the file icon theme permits them,
+32Ã—32 language icons for Explorer/editor tabs where the file icon theme permits them,
 versioned snippets, and invokes the same targets through CMake Tools. Run the root
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 1.1.45 is shared with the Visual Studio extension and is independent of
+version 1.1.46 is shared with the Visual Studio extension and is independent of
 compiler and schema versions. Keep both editor extension versions equal.
 Embedded target blocks reuse available editor language grammars for highlighting;
 install a grammar provider for targets the host does not bundle. This does not
@@ -1823,7 +1842,7 @@ Regenerate all relevant language and editor outputs when changing these contract
 
 Consult the [versioning verification record](../../../docs/verification/verification-versioning-2026-10-06.md) and [release-policy verification record](../../../docs/verification/verification-release-policies-2026-10-06.md) for completed language, compiler, codec, and editor checks. Release catalogs and nested allow policies are evaluated entirely during schema compilation; generated readers and writers contain only resolved version bounds.
 
-Use [payload versioning](../../../docs/schema/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the supported schema language header (`1.16.0`, older `1.15.0`/`1.14.0`/`1.13.0`/`1.12.0`/`1.11.0`/`1.10.0`/`1.9.0`/`1.8.0`/`1.7.0`/`1.6.0`/`1.5.0`/`1.4.0`/`1.3.0`/`1.2.0`/`1.1.0`/`1.0.0`, or the original `1` alias for `1.0.0`) from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.
+Use [payload versioning](../../../docs/schema/versioning.md) and the [all-language examples](../../../example/README.md#versioning) for `version`, `compatibility`, `created`, `obsolete`, `replaced`, and class-scoped `reserve` syntax. Distinguish the supported schema language header (`1.17.0`, older `1.16.0`/`1.15.0`/`1.14.0`/`1.13.0`/`1.12.0`/`1.11.0`/`1.10.0`/`1.9.0`/`1.8.0`/`1.7.0`/`1.6.0`/`1.5.0`/`1.4.0`/`1.3.0`/`1.2.0`/`1.1.0`/`1.0.0`, or the original `1` alias for `1.0.0`) from a class's payload discriminator. Freeze durable discriminator identities explicitly when the default first-free ID could change.
 
 Declare payload revisions with Serializer's `version` member instead of an ordinary
 counter field. The paired `union_variant` examples declare

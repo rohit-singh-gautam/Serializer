@@ -237,6 +237,35 @@ function checkFreshRecordDefaults(grammar, label) {
 }
 
 /** Exercise real Visual Studio grammar assets and missing-provider fallback separately. */
+/** Qualify array exposure and callable metadata against native and fallback tokenizers. */
+function checkArrayCallableApis(grammar, label) {
+  const lines = [
+    'serializer version 1.17.0; class grid<uint64 Rows, uint64 Cols, T> {',
+    'private array[Rows * Cols] T stored expose array(public, const_value) dimensions(Rows, Cols);',
+    'private array[3] uint32 indices expose array(readonly, public);',
+    'public function static expected<lib::value, lib::error> make(array[Rows] lib::value input const_ref) readonly cpp { return {}; };',
+    'public constructor<Input>(Input input const_ref) explicit delegates(input.radius, input.height);',
+    'public factory identity() when(Rows == Cols && same_type(T, double)) { stored = generate(row, column => checked<T>(row == column ? 1 : 0)); }',
+    'public function array[3] lib::value copy() readonly cpp { return {}; };',
+    'public function Vector apply_vector<Vector>(Vector input const_ref) readonly;',
+    'public lib::value after; }',
+  ];
+  const result = tokenize(grammar, lines);
+  const checks = [[1, 'expose', 'storage.modifier.serializer'],
+    [1, 'array(public', 'storage.modifier.serializer'], [1, 'const_value', 'storage.modifier.serializer'],
+    [1, 'dimensions', 'storage.modifier.serializer'], [1, 'Cols);', 'entity.name.type.serializer'],
+    [2, 'readonly', 'storage.modifier.serializer'], [3, 'static', 'storage.modifier.serializer'],
+    [3, 'expected', 'support.type.serializer'], [3, 'const_ref', 'storage.modifier.serializer'],
+    [4, 'delegates', 'keyword.control.serializer'], [5, 'when', 'keyword.control.serializer'],
+    [5, 'same_type', 'support.function.serializer'], [5, 'generate', 'keyword.control.serializer'],
+    [6, 'array', 'storage.type.serializer'], [7, 'apply_vector', 'entity.name.function.serializer'],
+    [7, 'const_ref', 'storage.modifier.serializer'], [8, 'value', 'entity.name.type.serializer']];
+  for (const [line, word, expected] of checks) {
+    assert.equal(scopesAt(lines, result, line, word).at(-1), expected, `${label}: ${word}`);
+  }
+  return checks.length;
+}
+
 async function main() {
   const directory = process.argv[2];
   assert.ok(directory && fs.statSync(directory).isDirectory(), 'Pass the Visual Studio TextMate directory.');
@@ -256,7 +285,9 @@ async function main() {
     checkAuthoringContracts(host, 'installed host grammar') +
     checkAuthoringContracts(fallback, 'missing grammar fallback') +
     checkFreshRecordDefaults(host, 'installed host grammar') +
-    checkFreshRecordDefaults(fallback, 'missing grammar fallback');
+    checkFreshRecordDefaults(fallback, 'missing grammar fallback') +
+    checkArrayCallableApis(host, 'installed host grammar') +
+    checkArrayCallableApis(fallback, 'missing grammar fallback');
   console.log(`Installed grammar assets passed ${checks} embedded syntax/boundary checks across all ${nativeLanguages.length} tags.`);
   console.log(`Loaded ${grammars.size} installed grammar scopes; this validates assets with the TextMate tokenizer, not an editor-host UI run.`);
 }

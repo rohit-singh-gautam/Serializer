@@ -13,6 +13,7 @@
 #include <array>
 #include <cctype>
 #include <charconv>
+#include <cstdint>
 #include <limits>
 #include <map>
 #include <regex>
@@ -463,6 +464,30 @@ class emitter {
           throw std::invalid_argument{"Generated field collision: " + identifier};
         }
       };
+      for (const auto& item : value.member_list) {
+        if (!item.array_exposure) { continue; }
+        const auto access = item.array_exposure->access;
+        for (const auto method : {"get", "size", "values"}) { add(field(method, access)); }
+        if (!item.array_exposure->readonly) { add(field("set", access)); }
+        for (const auto& method : value.functions) {
+          const auto identifier = field(method.name, method.access);
+          if (fields.contains(identifier.starts_with('#') ? identifier.substr(1) : identifier)) {
+            throw std::invalid_argument{"Array exposure method naming collision: " + method.name};
+          }
+        }
+        for (const auto& factory : value.constructions) {
+          const auto identifier = field(factory.constructor ? "create" : factory.name, factory.access);
+          if (fields.contains(identifier.starts_with('#') ? identifier.substr(1) : identifier)) {
+            throw std::invalid_argument{"Array exposure factory naming collision"};
+          }
+        }
+        for (const auto& conversion : value.conversions) {
+          const auto identifier = field(conversion.name, conversion.access);
+          if (fields.contains(identifier.starts_with('#') ? identifier.substr(1) : identifier)) {
+            throw std::invalid_argument{"Array exposure conversion naming collision"};
+          }
+        }
+      }
       for (std::size_t i = 0; i < value.parents.size(); ++i) {
         add(field(std::string(language == target::go ? "Base" : "base") + std::to_string(i), value.parents[i].access));
       }
@@ -2124,6 +2149,117 @@ class emitter {
     }
   }
 
+  // Emit checked logical array helpers and allocating iteration snapshots.
+  void array_access(const class_node& owner) {
+    for (const auto& item : owner.member_list) {
+      if (!item.array_exposure) { continue; }
+      const auto& exposure = *item.array_exposure;
+      const auto receiver = language == target::go ? "receiver" : "this";
+      const auto storage = std::string{receiver} + "." + field(item.name, item.access);
+      const auto& element = item.modifier == member::modifier_type::array ?
+          item.type_name_list.front() : item.type_name_list.front().arguments.front();
+      const auto scalar = type(element);
+      const auto visibility = exposure.access == access_type::public_access ? "public " : "private ";
+      const auto get = field("get", exposure.access);
+      const auto set = field("set", exposure.access);
+      const auto size = field("size", exposure.access);
+      const auto values = field("values", exposure.access);
+      std::vector<std::uint64_t> dimensions;
+      for (const auto& dimension : exposure.dimensions) {
+        if (dimension.kind != dimension_expression::operation::literal) {
+          throw std::invalid_argument{"Portable array exposure dimensions must be resolved"};
+        }
+        dimensions.push_back(dimension.value);
+      }
+      const auto rank = dimensions.empty() ? std::size_t{1} : dimensions.size();
+      std::string parameters;
+      std::string offset;
+      for (std::size_t index = 0; index < rank; ++index) {
+        const auto coordinate = "index" + std::to_string(index);
+        parameters += (parameters.empty() ? "" : ", ") + choose(coordinate, coordinate + " int", "int " + coordinate);
+        offset = offset.empty() ? coordinate :
+            "(" + offset + " * " + std::to_string(dimensions[index]) + " + " + coordinate + ")";
+      }
+      if (language == target::typescript) {
+        std::string declarations;
+        for (std::size_t index = 0; index < rank; ++index) {
+          declarations += (declarations.empty() ? "" : ", ") + std::string{"index"} + std::to_string(index) + ": number";
+        }
+        const auto access = exposure.access == access_type::public_access ? "" : "private ";
+        line("// Checked logical access; iteration allocates a shallow snapshot.");
+        line(std::string{access} + get + "(" + declarations + "): " + scalar + ";");
+        if (!exposure.readonly) { line(std::string{access} + set + "(" + declarations + ", item: " + scalar + "): void;"); }
+        line(std::string{access} + size + "(): number;");
+        line(std::string{access} + values + "(): " + (exposure.readonly ? "ReadonlyArray<" + scalar + ">" : scalar + "[]") + ";");
+        continue;
+      }
+      const auto failure = [&](const std::string& message, bool bounds) {
+        statement(choose("throw new " + std::string{bounds ? "RangeError" : "TypeError"} + "(" + quote(message) + ")",
+            "panic(fmt.Errorf(" + quote(message) + "))",
+            "throw new System." + std::string{bounds ? "IndexOutOfRangeException" : "InvalidOperationException"} + "(" + quote(message) + ")"));
+      };
+      line("// Return the validated logical length of the selected storage.");
+      open(choose(size + "()", "func (receiver *" + names.at(&owner) + ") " + size + "() int", std::string{visibility} + "int " + size + "()"));
+      if (language == target::go) {
+        condition("receiver == nil"); failure("Nil array owner", false); close();
+      } else {
+        condition(language == target::js ? "!Array.isArray(" + storage + ")" : storage + " == null");
+        failure("Invalid array storage", false); close();
+      }
+      const auto length = choose(storage + ".length", "len(" + storage + ")", storage + ".Count");
+      if (item.fixed_extent != 0) {
+        condition(length + " != " + std::to_string(item.fixed_extent));
+        failure("Invalid fixed array length", false); close();
+      }
+      statement("return " + length);
+      close();
+      const auto bounds = [&]() {
+        const auto size_call = std::string{receiver} + "." + size + "()";
+        if (dimensions.empty()) { local("count", size_call); }
+        else { statement((language == target::go ? "_ = " : "") + size_call); }
+        for (std::size_t index = 0; index < rank; ++index) {
+          const auto coordinate = "index" + std::to_string(index);
+          const auto extent = dimensions.empty() ? "count" : std::to_string(dimensions[index]);
+          const auto valid_integer = language == target::js ? "!Number.isSafeInteger(" + coordinate + ") || " : "";
+          condition(valid_integer + coordinate + " < 0 || " + coordinate + " >= " + extent);
+          failure("Array coordinate out of bounds", true); close();
+        }
+      };
+      line("// Read one element; object elements retain ordinary reference semantics.");
+      open(choose(get + "(" + parameters + ")", "func (receiver *" + names.at(&owner) + ") " + get + "(" + parameters + ") " + scalar,
+          std::string{visibility} + scalar + " " + get + "(" + parameters + ")"));
+      bounds();
+      statement("return " + storage + "[" + offset + "]");
+      close();
+      if (!exposure.readonly) {
+        line("// Replace an element after validating every coordinate and the storage.");
+        open(choose(set + "(" + parameters + ", item)", "func (receiver *" + names.at(&owner) + ") " + set + "(" + parameters + ", item " + scalar + ")",
+            std::string{visibility} + "void " + set + "(" + parameters + ", " + scalar + " item)"));
+        bounds();
+        statement(storage + "[" + offset + "] = item");
+        close();
+      }
+      line("// Allocate an iterable snapshot; object elements are shared, not deeply copied.");
+      const auto snapshot_type = std::string{exposure.readonly ? "System.Collections.Generic.IReadOnlyList<" : "System.Collections.Generic.List<"} + scalar + ">";
+      open(choose(values + "()", "func (receiver *" + names.at(&owner) + ") " + values + "() []" + scalar,
+          std::string{visibility} + snapshot_type + " " + values + "()"));
+      if (language == target::go) {
+        local("count", "receiver." + size + "()");
+        local("result", "make([]" + scalar + ", count)");
+        statement("copy(result, " + storage + ")");
+        statement("return result");
+      } else {
+        statement("this." + size + "()");
+        if (language == target::js) {
+          statement("return " + std::string{exposure.readonly ? "Object.freeze(" : ""} + storage + ".slice()" + (exposure.readonly ? ")" : ""));
+        } else {
+          statement("return new System.Collections.Generic.List<" + scalar + ">(" + storage + ")" + (exposure.readonly ? ".AsReadOnly()" : ""));
+        }
+      }
+      close();
+    }
+  }
+
   // Emit an owning class with exact-message public APIs.
   void object(const class_node& value) {
     const auto identifier = names.at(&value);
@@ -2202,7 +2338,7 @@ class emitter {
     } else {
       declarations(value);
     }
-    if (language != target::go) { behaviors(value); }
+    if (language != target::go) { array_access(value); behaviors(value); }
     if (language != target::go) {
       source += construction::factories(value, identifier,
           language == target::csharp ? "csharp" : language == target::typescript ? "typescript" : "js",
@@ -2256,7 +2392,7 @@ class emitter {
       close();
       close();
     }
-    if (language == target::go) { behaviors(value); }
+    if (language == target::go) { array_access(value); behaviors(value); }
     if (language == target::go) {
       source += construction::factories(value, identifier, "go",
           [&](const auto& item) { return type(item); },
@@ -2460,6 +2596,7 @@ public:
 std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,
                      std::string_view language, std::string_view unit_name,
                      const portable_options& options) {
+  behavior::require_callable_backend(statements, language);
   require_unmanaged_backend(statements);
   auto_size::validate(statements, options.class_auto_sizes);
   comparison::validate(statements, options.class_comparisons, true);

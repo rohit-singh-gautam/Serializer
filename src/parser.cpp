@@ -26,6 +26,7 @@
 #include "schema_scan.hpp"
 #include "schema_version.hpp"
 #include "native_schema.hpp"
+#include "callable_guard.hpp"
 
 #include <algorithm>
 #include <array>
@@ -523,6 +524,7 @@ type_name parse_type_expression(const rohit::type_check::schema_input_buffer aut
   type_name result{parse_hierarchical_identifier_impl(input), scope};
   result.source_offset = source_offset;
   result.record_key_language_supported = active_language_version >= language_version{1u, 11u, 0u};
+  result.expected_language_supported = active_language_version >= language_version{1u, 17u, 0u};
   skip_whitespace_and_comment(input);
   if (result.name == "digest") {
     result.digest_language_supported = active_language_version >= language_version{1u, 3u, 0u};
@@ -1642,6 +1644,7 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   bool parsed_size_scope{};
   std::string readonly_getter{};
   access_type readonly_getter_access{access_type::public_access};
+  std::optional<array_exposure_options> array_exposure{};
   while (true) {
     skip_whitespace_and_comment(in_stream);
     if (*in_stream == '(') {
@@ -1686,13 +1689,44 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
         throw exception::bad_member_spec{in_stream,
             "Readonly field exposure requires serializer version 1.14.0"};
       }
-      if (!readonly_getter.empty()) {
-        throw exception::bad_member_spec{in_stream, "Only one readonly field exposure is allowed"};
-      }
       parse_identifier_impl(in_stream);
       skip_whitespace_and_comment(in_stream);
-      if (parse_identifier_impl(in_stream) != "readonly") {
+      const auto exposure = parse_identifier_impl(in_stream);
+      if (exposure == "array") {
+        if (active_language_version < language_version{1u, 17u, 0u}) {
+          throw exception::bad_member_spec{in_stream, "Array exposure requires serializer version 1.17.0"};
+        }
+        if (array_exposure) { throw exception::bad_member_spec{in_stream, "Only one array exposure is allowed per field"}; }
+        array_exposure.emplace();
+        skip_whitespace_and_comment(in_stream);
+        check_and_increase(in_stream, '(');
+        skip_whitespace_and_comment(in_stream);
+        if (next_keyword(in_stream, "readonly")) {
+          parse_identifier_impl(in_stream);
+          array_exposure->readonly = true;
+          skip_whitespace_and_comment(in_stream);
+          check_and_increase(in_stream, ',');
+          skip_whitespace_and_comment(in_stream);
+        }
+        array_exposure->access = parse_access_type_impl(in_stream);
+        skip_whitespace_and_comment(in_stream);
+        if (!in_stream.full() && *in_stream == ',') {
+          ++in_stream;
+          skip_whitespace_and_comment(in_stream);
+          if (parse_identifier_impl(in_stream) != "const_value") {
+            throw exception::bad_member_spec{in_stream, "Array exposure only supports the optional const_value policy"};
+          }
+          array_exposure->const_value = true;
+          skip_whitespace_and_comment(in_stream);
+        }
+        check_and_increase(in_stream, ')');
+        continue;
+      }
+      if (exposure != "readonly") {
         throw exception::bad_member_spec{in_stream, "Expected expose readonly(access) as getter_name"};
+      }
+      if (!readonly_getter.empty()) {
+        throw exception::bad_member_spec{in_stream, "Only one readonly field exposure is allowed"};
       }
       skip_whitespace_and_comment(in_stream);
       check_and_increase(in_stream, '(');
@@ -1706,6 +1740,28 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
       }
       skip_whitespace_and_comment(in_stream);
       readonly_getter = parse_identifier_impl(in_stream);
+    } else if (next_keyword(in_stream, "dimensions")) {
+      if (active_language_version < language_version{1u, 17u, 0u} || !array_exposure) {
+        throw exception::bad_member_spec{in_stream, "dimensions requires a preceding array exposure and serializer version 1.17.0"};
+      }
+      if (!array_exposure->dimensions.empty()) {
+        throw exception::bad_member_spec{in_stream, "Only one explicit array dimensions declaration is allowed"};
+      }
+      parse_identifier_impl(in_stream);
+      skip_whitespace_and_comment(in_stream);
+      check_and_increase(in_stream, '(');
+      constexpr std::size_t maximum_array_rank = 8;
+      do {
+        skip_whitespace_and_comment(in_stream);
+        if (array_exposure->dimensions.size() == maximum_array_rank) {
+          throw exception::bad_member_spec{in_stream, "Array exposure rank exceeds 8"};
+        }
+        array_exposure->dimensions.push_back(parse_dimension_expression(in_stream));
+        skip_whitespace_and_comment(in_stream);
+        if (in_stream.full() || *in_stream != ',') { break; }
+        ++in_stream;
+      } while (true);
+      check_and_increase(in_stream, ')');
     } else if (next_keyword(in_stream, "compatibility")) {
       if (!version || !compatibility.empty()) {
         throw exception::bad_member_spec{in_stream,
@@ -1823,6 +1879,7 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
       active_language_version >= language_version{1u, 14u, 0u};
   result.readonly_getter = std::move(readonly_getter);
   result.readonly_getter_access = readonly_getter_access;
+  result.array_exposure = std::move(array_exposure);
   result.inferred_extent = infer_extent;
   result.owning_variant = owning_variant;
   result.compact = compact;
@@ -1943,6 +2000,7 @@ object_type parse_object_type(const rohit::type_check::schema_input_buffer auto&
   throw exception::bad_object_type{in_stream, error_text};
 } // parse_object_type
 
+#include "callable_guard_parser.hpp"
 #include "behavior_parser.hpp"
 #include "arithmetic_parser.hpp"
 #include "construction_parser.hpp"
@@ -2080,6 +2138,13 @@ void parse_class_body_impl(const rohit::type_check::schema_input_buffer auto& in
       }
     }
     auto member = parse_member_impl(in_stream, id++, obj->parent_namespace);
+    member.owner_factory_default_enabled = active_language_version >= language_version{1u, 17u, 0u} &&
+        !member.default_factory.empty() && member.modifier == member::modifier_type::none &&
+        member.type_name_list.size() == 1 && !member.type_name_list.front().application &&
+        std::any_of(obj->generic_parameters.begin(), obj->generic_parameters.end(), [&](const auto& parameter) {
+          return parameter.kind == generic_argument_kind::type &&
+              parameter.name == member.type_name_list.front().name;
+        });
     if (member.transient) { --id; }
     if (!member.magic_bytes.empty() || member.magic) {
       if (obj->has_magic()) {
@@ -3139,11 +3204,39 @@ void register_declaration(const rohit::type_check::schema_input_buffer auto& inp
   } while (true);
 }
 
-// Resolve member types against the discovered namespace and type declarations.
-// Bind structured defaults to a public zero-argument factory on an owning record.
+#include "array_exposure_parser.hpp"
+
+// Bind structured defaults, deferring source owner-parameter factories until a native default is needed.
 void validate_factory_default(const rohit::type_check::schema_input_buffer auto& input,
-                              const member& field, const class_node& owner) {
+                              member& field, const class_node& owner) {
   if (field.default_factory.empty()) { return; }
+  if (field.owner_factory_default_enabled) {
+    if (owner.supports_managed() ||
+        owner.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
+        (owner.attributes & class_attributes::packed) != class_attributes::none ||
+        field.modifier != member::modifier_type::none || field.type_name_list.size() != 1 ||
+        field.version || field.magic || field.wire_only || field.managed) {
+      throw exception::bad_member_spec{input, "Owner factory defaults require ordinary fields in an unpacked owning class"};
+    }
+    // Concrete schema factories retain portable lowering; native-only methods remain deferred C++ calls.
+    const auto& target = field.type_name_list.front();
+    const auto* record = target.resolved_node && (target.type == object_type::class_type ||
+        target.type == object_type::generic_definition) ? static_cast<const class_node*>(target.resolved_node) : nullptr;
+    if (record && std::any_of(record->constructions.begin(), record->constructions.end(), [&](const auto& factory) {
+        return !factory.constructor && factory.name == field.default_factory && factory.parameters.empty() &&
+            factory.generic_parameters.empty() && factory.access == access_type::public_access &&
+            (!factory.guard || factory.guard->available.value_or(true));
+      })) {
+      field.initializer.reset();
+    } else {
+      value_initializer initializer;
+      initializer.kind = value_initializer::kind_type::factory_owner;
+      initializer.type = target;
+      initializer.value = field.default_factory;
+      field.initializer = std::move(initializer);
+    }
+    return;
+  }
   if (field.modifier != member::modifier_type::none || field.type_name_list.size() != 1 ||
       field.version || field.magic || !field.type_name_list.front().resolved_node ||
       field.type_name_list.front().resolved_node->type != object_type::class_type) {
@@ -3243,7 +3336,7 @@ std::string construction_signature(const construction_declaration& construction,
           dimension_signature(dimension_signature, parameter.extent_expression.front());
       parameter_signature = "$array<" + parameter_signature + "," + extent + ">";
     }
-    result += parameter_signature + ',';
+    result += parameter_signature + (parameter.const_ref ? " const_ref," : ",");
   }
   return result;
 }
@@ -3288,9 +3381,11 @@ void validate_constructions(const rohit::type_check::schema_input_buffer auto& i
   std::vector<const construction_declaration*> constructors;
   std::unordered_set<std::string> constructor_calls;
   for (auto& factory : owner.constructions) {
-    if (factory.constructor && factory.parameters.empty() && !factory.declaration_only) {
-      throw exception::bad_member_spec{input, "Portable constructors require parameters; use a zero-argument factory for structured defaults"};
+    if (factory.constructor && factory.parameters.empty() &&
+        (!factory.validations.empty() || !factory.native_validations.empty() || !factory.initializers.empty())) {
+      throw exception::bad_member_spec{input, "Default constructors cannot contain authoring validation or initialization hooks"};
     }
+    if (factory.guard) { callable_availability::bind(*factory.guard, owner); }
     if (factory.constructor) {
       if (!constructors.empty() && (!factory.overload_contract_enabled ||
           std::any_of(constructors.begin(), constructors.end(),
@@ -3309,7 +3404,7 @@ void validate_constructions(const rohit::type_check::schema_input_buffer auto& i
     }
     for (const auto& parameter : factory.generic_parameters) {
       if (std::find(owner.type_parameters.begin(), owner.type_parameters.end(), parameter.name) != owner.type_parameters.end() ||
-          parameter.name == owner.name || !parameter.constraint) {
+          parameter.name == owner.name || (!parameter.constraint && !factory.delegating)) {
         throw exception::bad_member_spec{input, "Construction input types must be independently constrained and cannot shadow their owner"};
       }
     }
@@ -3392,6 +3487,34 @@ void validate_constructions(const rohit::type_check::schema_input_buffer auto& i
            (found->modifier != member::modifier_type::array || found->extent_expression.empty())) ||
           found->managed || found->version) {
         throw exception::bad_member_spec{input, "Construction requires an ordinary owned field declared by its owner: " + assignment.field};
+      }
+      if (assignment.array_binding) {
+        if (found->modifier != member::modifier_type::array || found->extent_expression.empty()) {
+          throw exception::bad_member_spec{input, "Array bindings require an ordinary fixed-array field"};
+        }
+        if (assignment.generator_indices.empty()) {
+          if (!found->fixed_extent || found->fixed_extent != assignment.elements.size()) {
+            throw exception::bad_member_spec{input, "Array binding cardinality must exactly match its fixed field extent"};
+          }
+          for (const auto& element : assignment.elements) {
+            if (!element.parameter) { continue; }
+            const auto parameter = std::find_if(factory.parameters.begin(), factory.parameters.end(),
+                [&](const auto& item) { return item.name == element.value; });
+            if (parameter == factory.parameters.end() || parameter->const_ref ||
+                parameter->modifier != member::modifier_type::none ||
+                parameter->type.get_full_name() != found->type_name_list.front().get_full_name() ||
+                !assigned_parameters.insert(element.value).second) {
+              throw exception::bad_member_spec{input, "Array elements require exact scalar owned inputs used once"};
+            }
+          }
+        } else {
+          const auto rank = found->array_exposure && !found->array_exposure->dimensions.empty() ?
+              found->array_exposure->dimensions.size() : std::size_t{1};
+          if (assignment.generator_indices.size() != rank || !assignment.expression || !assignment.elements.empty()) {
+            throw exception::bad_member_spec{input, "Array generation index count must match its declared dimensions"};
+          }
+        }
+        continue;
       }
       if (found->modifier == member::modifier_type::array && !assignment.parameter) {
         throw exception::bad_member_spec{input, "Fixed-array construction fields require an exactly matching owned parameter"};
@@ -3533,14 +3656,12 @@ void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream
           if (method.return_type.name != "void" && !method.return_type.common_numeric && !dependent(dependent, method.return_type)) {
             resolve_type(in_stream, method.return_type, variable_type_map);
           }
-          std::string signature = method.name + "(";
           for (auto& parameter : method.parameters) {
             if (!parameter.type.common_numeric && !dependent(dependent, parameter.type)) {
               resolve_type(in_stream, parameter.type, variable_type_map);
             }
-            signature += parameter.type.get_full_name() + ",";
           }
-          signature += ")";
+          const auto signature = behavior_signature(method);
           if (!signatures.insert(signature).second ||
               std::any_of(class_ptr->member_list.begin(), class_ptr->member_list.end(),
                   [&](const auto& field) { return field.name == method.name; })) {
@@ -3625,6 +3746,37 @@ void resolve_behavior_bodies(const rohit::type_check::schema_input_buffer auto& 
         [&](const auto& argument) { return self(self, argument); });
   };
   const auto bind_body = [&](function_declaration& method, const class_node& owner) {
+    if (method.guard) {
+      if (owner.name.empty()) {
+        throw exception::bad_member_spec{input, "Namespace functions cannot use class callable availability guards"};
+      }
+      callable_availability::bind(*method.guard, owner);
+    }
+    if (method.has_native_signature()) {
+      if (method.return_type.is_expected() && method.return_modifier != member::modifier_type::none) {
+        throw exception::bad_member_spec{input, "Expected is supported only as a direct native C++ callable result"};
+      }
+      if (method.effect != function_declaration::effect_type::readonly ||
+          method.dispatch != function_declaration::dispatch_type::ordinary || method.expression ||
+          std::any_of(method.bodies.begin(), method.bodies.end(), [](const auto& body) {
+            return body.language != "cpp";
+          })) {
+        throw exception::bad_member_spec{input,
+            "Native callable signatures require an ordinary readonly native C++ body or external definition"};
+      }
+      if ((!owner.name.empty() && (owner.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
+           (owner.attributes & class_attributes::packed) == class_attributes::packed)) ||
+          (owner.name.empty() && method.is_static)) {
+        throw exception::bad_member_spec{input,
+            "Static functions require an unpacked owning class; native callable signatures cannot use managed or view receivers"};
+      }
+      if ((method.return_modifier == member::modifier_type::array && method.return_type.name == "void") ||
+          std::any_of(method.parameters.begin(), method.parameters.end(), [](const auto& parameter) {
+            return parameter.type.name == "void";
+          })) {
+        throw exception::bad_member_spec{input, "Native callable parameters and fixed-array elements cannot be void"};
+      }
+    }
     const auto validate_policy = [&](const type_name& type) {
       if (!type.common_numeric) {
         if (contains_common_numeric(contains_common_numeric, type)) {
@@ -3670,7 +3822,11 @@ void resolve_behavior_bodies(const rohit::type_check::schema_input_buffer auto& 
     callables.push_back({node, 0, &node->function});
   }
   for (auto* owner : owners) {
-    for (auto& field : owner->member_list) { validate_portable_default(input, field, *owner); }
+    validate_array_exposure(input, *owner);
+    for (auto& field : owner->member_list) {
+      if (field.owner_factory_default_enabled) { validate_factory_default(input, field, *owner); }
+      validate_portable_default(input, field, *owner);
+    }
     bind_construction_expressions(input, *owner, symbols, functions);
     std::set<std::string> member_signatures;
     for (std::size_t index{}; index < owner->functions.size(); ++index) {

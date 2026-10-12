@@ -466,6 +466,11 @@ void naming::validate_names(const std::vector<std::unique_ptr<syntax_node>>& sta
           insert_name(views, function_name("get_base_" + std::to_string(base.id)));
         }
         for (const auto& field : object.member_list) {
+          if (field.array_exposure && object.has_mode(storage_mode::owning)) {
+            for (const auto helper : {"begin", "end", "data", "size"}) { insert_name(owning, helper); }
+            for (const auto helper : {"get", "values"}) { insert_name(owning, function_name(helper)); }
+            if (!field.array_exposure->readonly) { insert_name(owning, function_name("set")); }
+          }
           if (object.has_mode(storage_mode::owning)) {
             insert_name(owning, field_name(field.name));
             if (!field.readonly_getter.empty()) {

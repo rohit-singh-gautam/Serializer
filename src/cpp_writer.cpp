@@ -28,6 +28,7 @@
 #include "comparison_writer.hpp"
 #include "arithmetic_writer.hpp"
 #include "auto_size_writer.hpp"
+#include "array_exposure_writer.hpp"
 
 #include <rohit/serializer_creator.hpp>
 
@@ -763,11 +764,29 @@ public:
     }
   }
 
+  // Preserve the exact value/borrowed representation of one authored callable input.
+  std::string behavior_parameter_type(const function_parameter& parameter) {
+    return construction::parameter_type(parameter, "cpp",
+        [&](const auto& type) { return generic_default(type); });
+  }
+
+  // Render a fixed-array result without adding a serialized member or changing its value ownership.
+  std::string behavior_return_type(const function_declaration& method) {
+    if (method.return_type.name == "void") { return "void"; }
+    function_parameter result;
+    result.type = method.return_type;
+    result.modifier = method.return_modifier;
+    result.extent_expression = method.return_extent_expression;
+    result.fixed_extent = method.return_fixed_extent;
+    return behavior_parameter_type(result);
+  }
+
   // Emit a readonly free function or one method on an owning/editor receiver.
   void write_behavior_method(rohit::type_check::output_buffer auto& output, const class_node* owner,
                              const function_declaration& method, bool editor_receiver = false,
                              bool declaration_only = false) {
     if (method.dispatch == function_declaration::dispatch_type::abstract_method) { return; }
+    if (method.guard && method.guard->available == false) { return; }
     const auto* body = behavior::native_body(method, "cpp");
     if (body && rename_behavior_identifiers) {
       throw std::invalid_argument{"cpp: opaque native bodies require naming = preserve"};
@@ -801,7 +820,8 @@ public:
         (!owner || construction::constexpr_construction(*owner));
     const bool scalar_return = method.return_type.type == object_type::enum_type ||
         (method.return_type.type == object_type::primitive && method.return_type.name != "string" &&
-         !method.return_type.is_digest());
+         !method.return_type.is_digest() && !method.return_type.is_expected() &&
+         method.return_modifier == member::modifier_type::none);
     const bool inferred_noexcept = typed_body && scalar_return &&
         ((method.predicate_body && !behavior::has_call(*method.expression) &&
           behavior::native_scalar_expression(*method.expression)) ||
@@ -812,6 +832,7 @@ public:
     if (method.dispatch == dispatch::virtual_method || method.dispatch == dispatch::override_method) {
       output.write("virtual ");
     }
+    if (method.is_static) { output.write("static "); }
     if (method.automatic_constexpr_enabled && (body || method.expression) &&
         !inferred_constexpr && !automatic_native_constexpr && !method.cpp_constexpr &&
         method.cpp_prefix.find("constexpr") == std::string::npos) {
@@ -822,19 +843,23 @@ public:
         (body && method.cpp_constexpr && !editor_receiver)) { output.write("constexpr "); }
     else if (!method.cpp_prefix.empty()) { output.write(method.cpp_prefix); }
     else if (!owner && (body || method.expression)) { output.write("inline "); }
-    output.write(method.return_type.name == "void" ? "void" : generic_default(method.return_type), " ",
+    output.write(behavior_return_type(method), " ",
                  function_name(method.name), "(");
     for (std::size_t index = 0; index < method.parameters.size(); ++index) {
       const auto& argument = method.parameters[index];
       if (index) { output.write(", "); }
       if (method.expression) { output.write("[[maybe_unused]] "); }
-      output.write(generic_default(argument.type), " ", local_name(argument.name));
+      output.write(behavior_parameter_type(argument), " ", local_name(argument.name));
     }
     output.write(")");
-    if (owner && !editor_receiver && method.effect == function_declaration::effect_type::readonly) { output.write(" const"); }
+    if (owner && !editor_receiver && !method.is_static && method.effect == function_declaration::effect_type::readonly) { output.write(" const"); }
     if (inferred_noexcept || method.cpp_noexcept) { output.write(" noexcept"); }
     if (method.dispatch == dispatch::override_method && behavior::concrete_virtual_base(*owner, method)) { output.write(" override"); }
     if (editor_receiver) { output.write(" requires (!Access::is_runtime_access)"); }
+    if (method.guard && !method.guard->available.has_value()) {
+      output.write(" requires (", callable_availability::cpp(*method.guard,
+          [&](const auto& type) { return generic_default(type); }), ")");
+    }
     if (declaration_only) { output.write(";\n"); return; }
     if (method.dispatch == dispatch::abstract_method) { output.write(" = 0;\n"); return; }
     if (body) {
@@ -917,8 +942,10 @@ public:
                                bool editor_receiver = false) {
     std::vector<const function_declaration*> required;
     for (const auto& method : owner->functions) {
+      if (method.guard && method.guard->available == false) { continue; }
       if (method.expression || behavior::native_body(method, "cpp") ||
-          method.dispatch == function_declaration::dispatch_type::abstract_method) { continue; }
+          method.dispatch == function_declaration::dispatch_type::abstract_method ||
+          !method.generic_parameters.empty()) { continue; }
       const bool edit = method.effect == function_declaration::effect_type::edit;
       if (editor_receiver != (owner->supports_managed() && edit)) { continue; }
       required.push_back(&method);
@@ -934,18 +961,24 @@ public:
     }
     for (std::size_t index{}; index < required.size(); ++index) {
       const auto& method = *required[index];
+      const bool guarded = method.guard && !method.guard->available.has_value();
+      if (guarded) {
+        output.write("    if constexpr (", callable_availability::cpp(*method.guard,
+            [&](const auto& type) { return generic_default(type); }), ") {\n");
+      }
       output.write("    using SerializerMethod", std::to_string(index), " = ",
-          method.return_type.name == "void" ? "void" : generic_default(method.return_type),
-          " (SerializerReceiver::*)(");
+          behavior_return_type(method),
+          ::std::string_view{method.is_static ? " (*)(" : " (SerializerReceiver::*)("});
       for (std::size_t argument{}; argument < method.parameters.size(); ++argument) {
         if (argument) { output.write(", "); }
-        output.write(generic_default(method.parameters[argument].type));
+        output.write(behavior_parameter_type(method.parameters[argument]));
       }
-      output.write(")", ::std::string_view{!editor_receiver && method.effect == function_declaration::effect_type::readonly ? " const" : ""},
+      output.write(")", ::std::string_view{!editor_receiver && !method.is_static && method.effect == function_declaration::effect_type::readonly ? " const" : ""},
           ::std::string_view{method.cpp_noexcept ? " noexcept" : ""},
           ";\n    SerializerMethod", std::to_string(index), " volatile required", std::to_string(index),
           " = static_cast<SerializerMethod", std::to_string(index), ">(&SerializerReceiver::", function_name(method.name),
           ");\n    (void)required", std::to_string(index), ";\n");
+      if (guarded) { output.write("    }\n"); }
     }
     output.write("  }\n");
   }
@@ -1036,6 +1069,15 @@ public:
             "  const ", get_cpp_type(member), "& ", function_name(member.readonly_getter),
             "() const && = delete;\n");
         last_access = member.readonly_getter_access;
+      }
+      if (member.array_exposure) {
+        const auto& element = member.modifier == member::modifier_type::array ?
+            member.type_name_list.front() : member.type_name_list.front().arguments.front();
+        out_stream.write(array_exposure::methods(member, get_cpp_type(member), generic_default(element),
+            member_name(member), behavior::constexpr_type(object, element),
+            [&](const auto& expression) { return dimension_default(expression); },
+            [&](auto name) { return function_name(name); }));
+        last_access = member.array_exposure->access;
       }
     }
   }
@@ -3043,7 +3085,7 @@ public:
       std::string identity = "forward:" + full_type_name(statement.get());
       if (statement->type == object_type::function_type) {
         const auto& function = static_cast<const function_node&>(*statement).function;
-        for (const auto& parameter : function.parameters) { identity += ":" + generic_default(parameter.type); }
+        for (const auto& parameter : function.parameters) { identity += ":" + behavior_parameter_type(parameter); }
       }
       write_reusable_unit(output, identity, source);
     }
@@ -3152,7 +3194,7 @@ public:
       std::string identity = full_type_name(statement.get());
       if (statement->type == object_type::function_type) {
         for (const auto& parameter : static_cast<const function_node&>(*statement).function.parameters) {
-          identity += ":" + generic_default(parameter.type);
+          identity += ":" + behavior_parameter_type(parameter);
         }
       }
       write_reusable_unit(out_stream, identity, unit_source);
@@ -3173,6 +3215,11 @@ public:
 
   // Retain earlier parameter references and declaration-scope type defaults in public aliases.
   std::string generic_default(const ::rohit::serializer::type_name& value) {
+    if (value.name == "void" && !value.application) { return "void"; }
+    if (value.is_expected()) {
+      return "::std::expected<" + generic_default(value.arguments.at(0)) + ", " +
+          generic_default(value.arguments.at(1)) + ">";
+    }
     if (value.common_numeric) {
       return "::std::common_type_t<" + generic_default(value.arguments.at(0)) + ", " +
           generic_default(value.arguments.at(1)) + ">";
@@ -3220,12 +3267,20 @@ public:
           throw std::invalid_argument{"cpp.protocols binary_none does not support managed or view models"};
         }
         if (emission_only) {
+          if (std::any_of(object.functions.begin(), object.functions.end(), [](const auto& method) {
+                return method.has_native_signature();
+              })) {
+            throw std::invalid_argument{"cpp.emission_only does not support native callable signatures"};
+          }
           if (!object.constructions.empty()) {
             throw std::invalid_argument{"cpp.emission_only does not support owning construction APIs"};
           }
           for (const auto& field : object.member_list) {
             if (!field.readonly_getter.empty()) {
               throw std::invalid_argument{"cpp.emission_only does not support owning readonly field exposure"};
+            }
+            if (field.array_exposure) {
+              throw std::invalid_argument{"cpp.emission_only does not support owning array exposure"};
             }
             if (field.modifier == member::modifier_type::map) {
               throw std::invalid_argument{"cpp.emission_only does not support map fields"};
@@ -3244,6 +3299,24 @@ public:
   // Generate a complete C++ header while retaining the parsed schema and original wire names.
   void emit(rohit::type_check::output_buffer auto& out_stream,
             const std::vector<std::unique_ptr<syntax_node>>& statements) {
+    const auto has_expected_results = [&](const auto& self, const auto& nodes) -> bool {
+      return std::any_of(nodes.begin(), nodes.end(), [&](const auto& node) {
+        if (node->type == object_type::namespace_type) {
+          return self(self, static_cast<const namespace_node&>(*node).statements);
+        }
+        if (node->type == object_type::function_type) {
+          return static_cast<const function_node&>(*node).function.return_type.is_expected();
+        }
+        if (node->type == object_type::class_type || node->type == object_type::generic_definition) {
+          const auto& owner = static_cast<const class_node&>(*node);
+          return std::any_of(owner.functions.begin(), owner.functions.end(), [](const auto& method) {
+            return method.return_type.is_expected() && (!method.guard || method.guard->available != false);
+          });
+        }
+        return false;
+      });
+    };
+    const bool expected_results = has_expected_results(has_expected_results, statements);
     const bool has_variants = contains_owning_variants(statements);
     if (has_variants && (protobuf_enabled || emission_only)) {
       throw std::invalid_argument{"C++ variant fields do not support cpp.protobuf or cpp.emission_only"};
@@ -3320,6 +3393,12 @@ public:
                      "#include <type_traits>\n"
                      "#include <utility>\n"
                      "#include <vector>\n\n");
+    if (expected_results) {
+      out_stream.write("#include <expected>\n"
+          "#if !defined(__cpp_lib_expected) || __cpp_lib_expected < 202202L\n"
+          "#error \"Serializer expected callable results require C++23 std::expected\"\n"
+          "#endif\n\n");
+    }
     out_stream.write(behavior::helpers("cpp"));
     out_stream.write(behavior::helpers_predicate("cpp"));
     for (const auto& statement : statements) {

@@ -105,6 +105,9 @@ inline bool nothrow_construction(const class_node& owner,
   return std::all_of(owner.parents.begin(), owner.parents.end(), [&](const auto& base) {
     return base.parent_class && nothrow_construction(*base.parent_class);
   }) && std::all_of(owner.member_list.begin(), owner.member_list.end(), [&](const auto& field) {
+    if (field.owner_factory_default_enabled && !field.default_factory.empty()) {
+      return false; // A deferred native factory keeps its own exception contract.
+    }
     if ((field.modifier != member::modifier_type::none &&
          (field.modifier != member::modifier_type::array || field.fixed_extent == 0)) ||
         field.type_name_list.size() != 1 || !check_type(field.type_name_list.front())) { return false; }
@@ -185,6 +188,8 @@ namespace rohit::serializer::writer::behavior {
 inline bool constexpr_type(const class_node& owner, const type_name& value,
     const std::vector<generic_parameter>& input_types = {}) {
   const auto eligible = [&](const type_name& type, const auto& self) -> bool {
+    // Expected values rely on the selected host's C++23 facility and its error representation.
+    if (type.is_expected()) { return false; }
     if (type.common_numeric) {
       return std::all_of(type.arguments.begin(), type.arguments.end(),
           [&](const auto& argument) { return self(argument, self); });

@@ -1,5 +1,13 @@
 # Rohit Serializer for Visual Studio
 
+Version **1.1.46** supports schema language **1.17.0** array exposure,
+`readonly`/`const_value`, explicit `dimensions`, trailing `const_ref` inputs,
+static/expected callable signatures and `when`, `delegates`, `generate` metadata.
+Qualified type and dimension navigation keeps metadata names separate from
+schema symbols. New-schema snippets select `1.17.0`. Source unit tests, native
+grammar/navigation and current local packages are recorded with
+[qualification](../../docs/verification/verification-array-callable-api-2026-10-13.md).
+
 Version **1.1.45** supports language **1.16.0** defaults such as
 `Frame placement = {}` for owning class type parameters in constructors and
 named factories. Existing generic signature navigation and brace-default
@@ -168,7 +176,7 @@ installation. It uses full-framework MSBuild with locked dependencies, bundles
 the current shared resolver, rebuilds and validates:
 
 ```text
-out/extensions/serializer-visual-studio-1.1.45.vsix
+out/extensions/serializer-visual-studio-1.1.46.vsix
 ```
 
 Close Visual Studio, double-click the VSIX, select the installation and restart
@@ -290,7 +298,7 @@ Empty extents and element types receive fixed-array highlighting. Enum type
 operands and qualified enum defaults in typed magic retain declaration, definition,
 and type-definition navigation, including unsaved and transitive included schemas.
 VS Code includes `array_inferred` and `magic_typed` snippets; its schema snippet
-selects `serializer version 1.16.0;`. The original `1` header remains exactly
+selects `serializer version 1.17.0;`. The original `1` header remains exactly
 `1.0.0` and does not enable these features. See the
 [magic contract](../../docs/schema/magic_and_omission.md) and [fixed arrays](../../docs/schema/generics.md).
 

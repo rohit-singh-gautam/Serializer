@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstddef>
+#include <cstdint>
 #include <map>
 #include <set>
 #include <string>
@@ -994,8 +995,105 @@ class mobile_emitter {
     close();
   }
 
+  // Expose checked logical indexing using each mobile language's native value ownership.
+  void array_access(const class_node& owner) {
+    for (const auto& item : owner.member_list) {
+      if (!item.array_exposure) { continue; }
+      const auto& exposure = *item.array_exposure;
+      const auto storage = select("self.", "this.") + field(item.name);
+      const auto& element = item.modifier == member::modifier_type::array ?
+          item.type_name_list.front() : item.type_name_list.front().arguments.front();
+      const auto visibility = exposure.access == access_type::public_access ? select("public ", "") : "private ";
+      std::vector<std::uint64_t> dimensions;
+      for (const auto& dimension : exposure.dimensions) {
+        if (dimension.kind != dimension_expression::operation::literal) {
+          throw std::invalid_argument{select("swift", "kotlin") + ": array exposure dimensions must be resolved"};
+        }
+        dimensions.push_back(dimension.value);
+      }
+      const auto rank = dimensions.empty() ? std::size_t{1} : dimensions.size();
+      std::string parameters;
+      std::string offset;
+      for (std::size_t index = 0; index < rank; ++index) {
+        const auto coordinate = "index" + std::to_string(index);
+        parameters += (parameters.empty() ? "" : ", ") + select("_ ", "") + coordinate + ": Int";
+        offset = offset.empty() ? coordinate :
+            "(" + offset + " * " + std::to_string(dimensions[index]) + " + " + coordinate + ")";
+      }
+      const auto failure = [&](const std::string& message) {
+        line(select("throw SerializerError.invalid(" + quote(message) + ")", "throw SerializerException(" + quote(message) + ")"));
+      };
+      line("// Validate and return the logical length of the selected storage.");
+      open(visibility + select("func size() throws -> Int", "fun size(): Int"));
+      const auto count = storage + select(".count", ".size");
+      if (item.fixed_extent != 0) {
+        open(select("if " + count + " != " + std::to_string(item.fixed_extent),
+            "if (" + count + " != " + std::to_string(item.fixed_extent) + ")"));
+        failure("Invalid fixed array length");
+        close();
+      }
+      line("return " + count);
+      close();
+      const auto bounds = [&]() {
+        line(dimensions.empty() ? select("let count = try self.size()", "val count = this.size()") :
+            select("_ = try self.size()", "this.size()"));
+        for (std::size_t index = 0; index < rank; ++index) {
+          const auto coordinate = "index" + std::to_string(index);
+          const auto extent = dimensions.empty() ? "count" : std::to_string(dimensions[index]);
+          const auto condition = coordinate + " < 0 || " + coordinate + " >= " + extent;
+          open(select("if " + condition, "if (" + condition + ")"));
+          failure("Array coordinate out of bounds");
+          close();
+        }
+      };
+      // Kotlin get/set are valid contextual function names, not field identifiers.
+      line("// Read one element with the language's ordinary value or reference semantics.");
+      open(visibility + select("func get(" + parameters + ") throws -> " + type(element),
+          "fun get(" + parameters + "): " + type(element)));
+      bounds();
+      line("return " + storage + "[" + offset + "]");
+      close();
+      if (!exposure.readonly) {
+        line("// Replace one element after validating storage and every coordinate.");
+        open(visibility + select("mutating func set(" + parameters + ", _ item: " + type(element) + ") throws",
+            "fun set(" + parameters + ", item: " + type(element) + ")"));
+        bounds();
+        line(storage + "[" + offset + "] = item");
+        close();
+      }
+      line(select("// Return a value snapshot with native array copy-on-write and element semantics.",
+          "// Allocate an iterable snapshot; contained objects are shared, not deeply copied."));
+      const auto result_type = swift ? "[" + type(element) + "]" :
+          std::string{exposure.readonly ? "List<" : "MutableList<"} + type(element) + ">";
+      open(visibility + select("func values() throws -> " + result_type, "fun values(): " + result_type));
+      line(select("_ = try self.size()", "this.size()"));
+      line(swift ? "return " + storage : "return " + std::string{exposure.readonly ? "java.util.Collections.unmodifiableList(" : ""} +
+          storage + ".toMutableList()" + (exposure.readonly ? ")" : ""));
+      close();
+    }
+  }
+
   // Emit native owning models with public exact-message decoding.
   void object(const class_node& value) {
+    std::set<std::string> array_methods;
+    for (const auto& item : value.member_list) {
+      if (!item.array_exposure) { continue; }
+      for (const auto method : {"get", "size", "values", "set"}) {
+        if (std::string_view{method} == "set" && item.array_exposure->readonly) { continue; }
+        if (!array_methods.insert(method).second) {
+          throw std::invalid_argument{select("swift", "kotlin") + ": array exposure helper collision"};
+        }
+      }
+    }
+    const auto check_array_name = [&](const std::string& name) {
+      if (array_methods.contains(name)) {
+        throw std::invalid_argument{select("swift", "kotlin") + ": array exposure naming collision: " + name};
+      }
+    };
+    for (const auto& item : value.member_list) { check_array_name(field(item.name)); }
+    for (const auto& method : value.functions) { check_array_name(field(method.name)); }
+    for (const auto& factory : value.constructions) { check_array_name(field(factory.constructor ? "create" : factory.name)); }
+    for (const auto& conversion : value.conversions) { check_array_name(field(conversion.name)); }
     const auto name = model.names.at(&value);
     line("// Owning schema model; avoid concurrent mutation during encoding.");
     const bool external = std::any_of(value.functions.begin(), value.functions.end(), [&](const auto& method) {
@@ -1044,6 +1142,7 @@ class mobile_emitter {
         declare(id, collection_type(item), empty(item), item.access);
       }
     }
+    array_access(value);
     behaviors(value);
     comparisons(value);
     if (swift) {

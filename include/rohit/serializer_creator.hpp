@@ -192,6 +192,7 @@ struct type_name {
         digest{rhs.digest}, digest_extent{rhs.digest_extent},
         digest_language_supported{rhs.digest_language_supported},
         optional_language_supported{rhs.optional_language_supported},
+        expected_language_supported{rhs.expected_language_supported},
         record_key_language_supported{rhs.record_key_language_supported},
         common_numeric{rhs.common_numeric} {}
   // Assign the documented view or value state from the source object.
@@ -212,6 +213,7 @@ struct type_name {
     digest_extent = rhs.digest_extent;
     digest_language_supported = rhs.digest_language_supported;
     optional_language_supported = rhs.optional_language_supported;
+    expected_language_supported = rhs.expected_language_supported;
     record_key_language_supported = rhs.record_key_language_supported;
     common_numeric = rhs.common_numeric;
     return *this;
@@ -233,6 +235,7 @@ struct type_name {
   std::uint32_t digest_extent{}; // Zero denotes caller-provided variable-length bytes.
   bool digest_language_supported{true}; // The source file's selected contract survives includes.
   bool optional_language_supported{true}; // Built-in generic types require language 1.7.
+  bool expected_language_supported{true}; // Callable-only expected results require language 1.17.
   bool record_key_language_supported{true}; // Record keys in generic maps require language 1.11.
   bool common_numeric{false}; // Explicit C++ common representation, restricted to callable APIs.
 
@@ -251,6 +254,11 @@ struct type_name {
     return type == object_type::primitive && name == "map" && application;
   }
 
+  // Identify a C++ callable result policy without assigning it any stored or wire representation.
+  bool is_expected() const noexcept {
+    return type == object_type::primitive && name == "expected" && application;
+  }
+
   // Identify byte-container primitives without confusing a user declaration named digest.
   bool is_digest() const noexcept {
     return type == object_type::primitive && name == "digest";
@@ -259,7 +267,7 @@ struct type_name {
   // Resolve this syntax node name relative to its containing namespace.
   std::string get_full_name() const {
     if (resolved_node) { return resolved_node->get_full_name(); }
-    if (is_optional() || is_sequence() || is_associative() || common_numeric) {
+    if (is_optional() || is_sequence() || is_associative() || is_expected() || common_numeric) {
       std::string result = name + "<";
       for (std::size_t index = 0; index < arguments.size(); ++index) {
         if (index != 0) { result += ","; }
@@ -334,11 +342,21 @@ enum class auto_size_scope { record, payload };
 
 // Typed owning defaults retain a recursive value tree, independently of each output's syntax.
 struct value_initializer {
-  enum class kind_type { scalar, fixed_array, record, default_record, default_owner };
+  enum class kind_type { scalar, fixed_array, record, default_record, default_owner, factory_owner };
   kind_type kind{kind_type::scalar};
   type_name type{std::string{}, nullptr};
   std::string value{};
   std::vector<value_initializer> elements{};
+};
+
+// Select one owning array's logical access policy without adding wire fields or storage.
+struct array_exposure_options {
+  access_type access{access_type::public_access};
+  bool readonly{false};
+  bool const_value{false};
+  std::vector<dimension_expression> dimensions{};
+  // Compare only the explicitly selected source API contract.
+  bool operator==(const array_exposure_options&) const = default;
 };
 
 struct member {
@@ -389,6 +407,8 @@ struct member {
   std::optional<value_initializer> initializer{};
   std::string readonly_getter{}; // Explicit C++ lvalue-only const-reference exposure; no wire storage.
   access_type readonly_getter_access{access_type::public_access};
+  std::optional<array_exposure_options> array_exposure{};
+  bool owner_factory_default_enabled{false}; // Source owner-type defaults defer factory use from language 1.17.
 
   // Select a computed fixed-width size without storing per-instance codec policy.
   bool auto_sizes(std::string_view format) const {
@@ -405,6 +425,8 @@ struct member {
            default_factory == rhs.default_factory &&
            readonly_getter == rhs.readonly_getter &&
            readonly_getter_access == rhs.readonly_getter_access &&
+           array_exposure == rhs.array_exposure &&
+           owner_factory_default_enabled == rhs.owner_factory_default_enabled &&
            auto_size_formats == rhs.auto_size_formats &&
            wire_only == rhs.wire_only && size_scope == rhs.size_scope &&
            version == rhs.version && magic == rhs.magic &&
@@ -467,6 +489,19 @@ struct behavior_expression {
   bool constructor_calls_enabled{false}; // Owning expressions retain their declaring language contract.
 };
 
+// A bounded compile-time condition controlling one callable's availability.
+struct callable_guard {
+  enum class operation { integer, symbol, type_equal, equal, not_equal, less,
+    less_equal, greater, greater_equal, logical_not, logical_and, logical_or };
+  operation kind{operation::integer};
+  std::uint64_t value{};
+  std::string name{};
+  type_name left_type{std::string{}, nullptr};
+  type_name right_type{std::string{}, nullptr};
+  std::vector<callable_guard> operands{};
+  std::optional<bool> available{}; // Concrete substitutions resolve before portable emission.
+};
+
 // A named argument with the schema's owned value type.
 struct function_parameter {
   type_name type{std::string{"double"}, nullptr};
@@ -480,6 +515,7 @@ struct function_parameter {
   std::optional<value_initializer> initializer{};
   bool empty_record_default_enabled{false}; // Construction parameters opt in with language 1.15.
   bool owner_parameter_default_enabled{false}; // Preserve source owner-type provenance across 1.16 substitution.
+  bool const_ref{false}; // C++ readonly borrowed argument; never moves or copies the supplied storage.
 };
 
 // One owned field initialization, bound to a parameter, literal, or typed default factory.
@@ -489,6 +525,9 @@ struct construction_assignment {
   bool parameter{false};
   bool factory_default{false};
   std::optional<behavior_expression> expression{}; // Bounded checked scalar/projection binding.
+  std::vector<construction_assignment> elements{}; // Exact-cardinality fixed-array element bindings.
+  std::vector<std::string> generator_indices{}; // Bounded array generation binds one index per axis.
+  bool array_binding{false}; // Distinguish an empty pack from an ordinary scalar binding.
 };
 
 // Portable value construction binds the generated owner instead of opaque self-type tokens.
@@ -509,6 +548,10 @@ struct construction_declaration {
   std::vector<behavior_expression> validations{}; // Checked after bindings and before host initialization.
   std::vector<native_code_block> native_validations{}; // Explicit host validation of custom representations.
   std::vector<native_code_block> initializers{}; // Authoring-only host initialization, never codec/copy hooks.
+  std::optional<callable_guard> guard{}; // Language 1.17 permits callable-local dimension/type guards.
+  std::vector<behavior_expression> delegation{}; // Evaluate once, then invoke one owning constructor.
+  bool delegating{false}; // Empty delegation still names a zero-argument target.
+  std::size_t delegation_target{std::numeric_limits<std::size_t>::max()}; // Bound owning constructor, or the implicit codec default.
 };
 
 // A readonly source projection supplies one exactly typed target field.
@@ -549,6 +592,22 @@ struct function_declaration {
   bool cpp_noexcept{false}; // Author-promised nonthrowing C++ readonly native/external callable.
   std::string cpp_prefix{}; // Explicit declaration-site C++ constexpr/inline additions.
   bool automatic_constexpr_enabled{false}; // Preserve older native-body qualification contracts.
+  bool is_static{false}; // An ordinary C++ callable has no receiver or persistent identity.
+  member::modifier_type return_modifier{member::modifier_type::none};
+  std::vector<dimension_expression> return_extent_expression{};
+  std::uint64_t return_fixed_extent{}; // Fixed-array result shape, independent of payload fields.
+  std::optional<callable_guard> guard{}; // Language 1.17 controls this callable without constraining its owner.
+
+  // Identify signatures whose receiver, borrowing, or result policy needs exact native C++ semantics.
+  bool has_native_signature() const {
+    return is_static || guard.has_value() || return_type.is_expected() || return_modifier == member::modifier_type::array ||
+        std::any_of(generic_parameters.begin(), generic_parameters.end(), [](const auto& parameter) {
+          return !parameter.constraint.has_value();
+        }) ||
+        std::any_of(parameters.begin(), parameters.end(), [](const auto& parameter) {
+          return parameter.const_ref || parameter.modifier == member::modifier_type::array;
+        });
+  }
 };
 
 // A namespace-owned readonly callable has no serialized identity or receiver storage.
@@ -741,6 +800,12 @@ inline void require_unmanaged_backend(const std::vector<std::unique_ptr<syntax_n
             return !field.readonly_getter.empty();
           })) {
         throw std::invalid_argument{"Readonly field exposure is currently supported only by the C++ backend"};
+      }
+      if (node->type != object_type::generic_definition &&
+          std::any_of(object.member_list.begin(), object.member_list.end(), [](const auto& field) {
+            return field.initializer && field.initializer->kind == value_initializer::kind_type::factory_owner;
+          })) {
+        throw std::invalid_argument{"Owner factory defaults require a concrete public schema factory for non-C++ output"};
       }
     }
   }

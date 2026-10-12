@@ -1,0 +1,52 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.14.0;
+
+namespace constructor_initialization {
+  class checked_quantity<T: (integral || floating_point) && !bool = double> stable_ids {
+    public T value (1);
+    // Check the exact storage representation rather than bypassing finite-value validation.
+    public constructor(T input) explicit {
+      value = checked<T>(input);
+    }
+    // Bind another numeric representation with the same lossless numeric checks.
+    public constructor<Input: (integral || floating_point) && !bool>(Input input) explicit {
+      value = checked<T>(input);
+    }
+    // Project a matching unit's stored value before checked representation conversion.
+    public constructor<Input: (integral || floating_point) && !bool>(checked_quantity<Input> input) explicit {
+      value = checked<T>(input.value);
+    }
+    // Retain the independently generic factory as a constructor rejection-parity control.
+    public factory from_value<Input: (integral || floating_point) && !bool>(Input input) {
+      value = checked<T>(input);
+    }
+  }
+  class checked_extent<T: (integral || floating_point) && !bool = double> stable_ids {
+    public T value (1);
+    // Convert a distinct owning quantity while retaining the destination representation.
+    public constructor<Input: (integral || floating_point) && !bool>(checked_quantity<Input> input) explicit {
+      value = checked<T>(input.value);
+    }
+    // Keep a projected-record factory to compare exact conversion failures.
+    public factory from_quantity<Input: (integral || floating_point) && !bool>(checked_quantity<Input> input) {
+      value = checked<T>(input.value);
+    }
+  }
+  class checked_coordinate<T: (integral || floating_point) && !bool, Coordinate> stable_ids {
+    public Coordinate coordinate (1);
+    public T value (2);
+    // Check the numeric value while directly binding an arbitrary nonassignable coordinate.
+    public constructor<Input: (integral || floating_point) && !bool>(Input input, Coordinate placement) {
+      coordinate = placement;
+      value = checked<T>(input);
+    }
+    // Preserve copy-only coordinate construction through the corresponding factory.
+    public factory from_value<Input: (integral || floating_point) && !bool>(Input input, Coordinate placement) {
+      coordinate = placement;
+      value = checked<T>(input);
+    }
+  }
+  instantiate checked_u16_quantity = checked_quantity<uint16>;
+  instantiate checked_u16_extent = checked_extent<uint16>;
+}

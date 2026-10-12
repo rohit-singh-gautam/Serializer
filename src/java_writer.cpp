@@ -13,6 +13,7 @@
 #include <array>
 #include <cctype>
 #include <charconv>
+#include <cstdint>
 #include <limits>
 #include <map>
 #include <regex>
@@ -1048,6 +1049,83 @@ class emitter {
     }
   }
 
+  // Expose checked logical array access without changing field ownership or codecs.
+  void array_access(const class_node& owner) {
+    for (const auto& item : owner.member_list) {
+      if (!item.array_exposure) { continue; }
+      const auto& exposure = *item.array_exposure;
+      const auto storage = "this." + field(item.name);
+      const bool native_array = item.modifier == member::modifier_type::array;
+      const auto count = storage + (native_array ? ".length" : ".size()");
+      const auto& element = item.modifier == member::modifier_type::array ?
+          item.type_name_list.front() : item.type_name_list.front().arguments.front();
+      const auto visibility = exposure.access == access_type::public_access ? "public " :
+          exposure.access == access_type::protected_access ? "protected " : "private ";
+      std::vector<std::uint64_t> dimensions;
+      for (const auto& dimension : exposure.dimensions) {
+        if (dimension.kind != dimension_expression::operation::literal) {
+          throw std::invalid_argument{"java: array exposure dimensions must be resolved"};
+        }
+        dimensions.push_back(dimension.value);
+      }
+      const auto rank = dimensions.empty() ? std::size_t{1} : dimensions.size();
+      std::string parameters;
+      std::string offset;
+      for (std::size_t index = 0; index < rank; ++index) {
+        const auto coordinate = "index" + std::to_string(index);
+        parameters += (parameters.empty() ? "" : ", ") + std::string{"int "} + coordinate;
+        offset = offset.empty() ? coordinate :
+            "(" + offset + " * " + std::to_string(dimensions[index]) + " + " + coordinate + ")";
+      }
+      line("/** Return the validated logical length of the selected storage. */");
+      line(std::string{visibility} + "int " + field("size") + "() {");
+      ++level;
+      line("if (" + storage + " == null) { throw new java.lang.IllegalStateException(\"Null array storage\"); }");
+      if (item.fixed_extent != 0) {
+        line("if (" + count + " != " + std::to_string(item.fixed_extent) +
+            ") { throw new java.lang.IllegalStateException(\"Invalid fixed array length\"); }");
+      }
+      line("return " + count + ";");
+      --level;
+      line("}");
+      const auto bounds = [&]() {
+        line("int count = " + field("size") + "();");
+        for (std::size_t index = 0; index < rank; ++index) {
+          const auto coordinate = "index" + std::to_string(index);
+          const auto extent = dimensions.empty() ? "count" : std::to_string(dimensions[index]);
+          line("if (" + coordinate + " < 0 || " + coordinate + " >= " + extent +
+              ") { throw new java.lang.IndexOutOfBoundsException(\"Array coordinate out of bounds\"); }");
+        }
+      };
+      line("/** Read one logical element; object elements retain their ordinary reference semantics. */");
+      line(std::string{visibility} + type(element) + " " + field("get") + "(" + parameters + ") {");
+      ++level;
+      bounds();
+      line("return " + storage + (native_array ? "[" + offset + "]" : ".get(" + offset + ")") + ";");
+      --level;
+      line("}");
+      if (!exposure.readonly) {
+        line("/** Replace one element after validating the storage and every coordinate. */");
+        line(std::string{visibility} + "void " + field("set") + "(" + parameters + ", " + type(element) + " item) {");
+        ++level;
+        bounds();
+        line(storage + (native_array ? "[" + offset + "] = item" : ".set(" + offset + ", item)") + ";");
+        --level;
+        line("}");
+      }
+      line("/** Allocate an iterable snapshot; object elements are shared, not deeply copied. */");
+      line(std::string{visibility} + "java.util.List<" + type(element, true) + "> " + field("values") + "() {");
+      ++level;
+      line("int count = " + field("size") + "();");
+      line("java.util.ArrayList<" + type(element, true) + "> result = new java.util.ArrayList<>(count);");
+      line("for (int index = 0; index < count; ++index) { result.add(" + storage +
+          (native_array ? "[index]" : ".get(index)") + "); }");
+      line(std::string{"return "} + (exposure.readonly ? "java.util.Collections.unmodifiableList(result)" : "result") + ";");
+      --level;
+      line("}");
+    }
+  }
+
   // Emit a directly encoded owning class; schema parents are explicit composed fields.
   void object(const class_node& value) {
     if (value.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
@@ -1062,6 +1140,26 @@ class emitter {
         throw std::invalid_argument{"Java field name collision: " + name};
       }
     };
+    for (const auto& item : value.member_list) {
+      if (!item.array_exposure) { continue; }
+      for (const auto method : {"get", "size", "values"}) { add_field(field(method)); }
+      if (!item.array_exposure->readonly) { add_field(field("set")); }
+      for (const auto& method : value.functions) {
+        if (fields.contains(field(method.name))) {
+          throw std::invalid_argument{"Java array exposure method collision: " + field(method.name)};
+        }
+      }
+      for (const auto& factory : value.constructions) {
+        if (fields.contains(field(factory.constructor ? "create" : factory.name))) {
+          throw std::invalid_argument{"Java array exposure factory collision"};
+        }
+      }
+      for (const auto& conversion : value.conversions) {
+        if (fields.contains(field(conversion.name))) {
+          throw std::invalid_argument{"Java array exposure conversion collision"};
+        }
+      }
+    }
     for (std::size_t index = 0; index < value.parents.size(); ++index) {
       add_field("base" + std::to_string(index));
     }
@@ -1127,6 +1225,7 @@ class emitter {
     for (const auto& item : value.member_list) {
       if (!item.wire_only) { declaration(item); }
     }
+    array_access(value);
     behaviors(value);
     source += construction::factories(value, name, "java",
         [&](const auto& item) { return type(item); },
@@ -1607,6 +1706,7 @@ public:
 
   // Validate and generate the complete source without external formatting tools.
   std::string generate(const std::vector<std::unique_ptr<syntax_node>>& values) {
+    behavior::require_callable_backend(values, "java");
     validate_identifier(outer);
     const std::set<std::string> reserved{outer,    "ReadPolicy", "Protocol", "Limits",
                                          "Writer", "Reader",     "String"};

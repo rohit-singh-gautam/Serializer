@@ -500,6 +500,50 @@ template <typename Input> struct behavior_expression_parser {
   }
 };
 
+// Parse an ordinary or fixed-array callable value type without introducing field storage.
+function_parameter parse_callable_value_type(const rohit::type_check::schema_input_buffer auto& input,
+                                            namespace_node* space, bool check_language = true) {
+  function_parameter result;
+  const auto probe = make_constant_full_stream(input.curr(), input.remaining_buffer());
+  if (next_keyword(probe, "array")) {
+    static_cast<void>(parse_identifier_impl(probe));
+    skip_whitespace_and_comment(probe);
+    if (!probe.full() && *probe == '[') {
+      if (check_language && active_language_version < language_version{1u, 17u, 0u}) {
+        throw exception::bad_member_type{input, "Fixed-array function signatures require serializer version 1.17.0"};
+      }
+      static_cast<void>(parse_identifier_impl(input));
+      skip_whitespace_and_comment(input);
+      check_and_increase(input, '[');
+      skip_whitespace_and_comment(input);
+      result.modifier = member::modifier_type::array;
+      result.extent_expression.push_back(parse_dimension_expression(input));
+      skip_whitespace_and_comment(input);
+      check_and_increase(input, ']');
+      skip_whitespace_and_comment(input);
+    }
+  }
+  result.type = parse_type_expression(input, space);
+  return result;
+}
+
+// Retain a legacy return type named static while recognizing an additional return type and method name.
+bool has_static_function_modifier(const rohit::type_check::schema_input_buffer auto& input,
+                                 namespace_node* space) {
+  if (!next_keyword(input, "static")) { return false; }
+  const auto probe = make_constant_full_stream(input.curr(), input.remaining_buffer());
+  static_cast<void>(parse_identifier_impl(probe));
+  skip_whitespace_and_comment(probe);
+  try {
+    static_cast<void>(parse_callable_value_type(probe, space, false));
+    skip_whitespace_and_comment(probe);
+    return is_first_identifier(probe);
+  } catch (const std::exception&) {
+    // A constrained generic method name is not a type application in this lookahead.
+    return false;
+  }
+}
+
 // Parse one API method; native payloads and pure expressions have no durable identity.
 function_declaration parse_function(const rohit::type_check::schema_input_buffer auto& input,
                                     access_type access, namespace_node* space) {
@@ -511,6 +555,14 @@ function_declaration parse_function(const rohit::type_check::schema_input_buffer
   const auto source_begin = result.source_offset;
   parse_identifier_impl(input); // function
   skip_whitespace_and_comment(input);
+  if (has_static_function_modifier(input, space)) {
+    if (active_language_version < language_version{1u, 17u, 0u}) {
+      throw exception::bad_member_spec{input, "Static functions require serializer version 1.17.0"};
+    }
+    result.is_static = true;
+    static_cast<void>(parse_identifier_impl(input));
+    skip_whitespace_and_comment(input);
+  }
   if (next_keyword(input, "virtual") || next_keyword(input, "abstract") || next_keyword(input, "override")) {
     const auto modifier = parse_identifier_impl(input);
     result.dispatch = modifier == "virtual" ? function_declaration::dispatch_type::virtual_method :
@@ -518,7 +570,10 @@ function_declaration parse_function(const rohit::type_check::schema_input_buffer
                                  function_declaration::dispatch_type::override_method;
     skip_whitespace_and_comment(input);
   }
-  result.return_type = parse_type_expression(input, space);
+  auto return_value = parse_callable_value_type(input, space);
+  result.return_type = std::move(return_value.type);
+  result.return_modifier = return_value.modifier;
+  result.return_extent_expression = std::move(return_value.extent_expression);
   skip_whitespace_and_comment(input);
   result.name = parse_identifier_impl(input);
   skip_whitespace_and_comment(input);
@@ -539,8 +594,12 @@ function_declaration parse_function(const rohit::type_check::schema_input_buffer
         throw exception::bad_member_spec{input, "Duplicate, reserved, or excessive readonly input types"};
       }
       skip_whitespace_and_comment(input);
-      check_and_increase(input, ':');
-      parameter.constraint = parse_construction_constraint(input, space);
+      if (!input.full() && *input == ':') {
+        ++input;
+        parameter.constraint = parse_construction_constraint(input, space);
+      } else if (active_language_version < language_version{1u, 17u, 0u}) {
+        throw exception::bad_member_spec{input, "Unconstrained native function inputs require serializer version 1.17.0"};
+      }
       result.generic_parameters.push_back(std::move(parameter));
       skip_whitespace_and_comment(input);
       if (input.full() || *input != ',') { break; }
@@ -553,10 +612,17 @@ function_declaration parse_function(const rohit::type_check::schema_input_buffer
   skip_whitespace_and_comment(input);
   std::unordered_set<std::string> parameters;
   while (!input.full() && *input != ')') {
-    function_parameter parameter;
-    parameter.type = parse_type_expression(input, space);
+    auto parameter = parse_callable_value_type(input, space);
     skip_whitespace_and_comment(input);
     parameter.name = parse_identifier_impl(input);
+    skip_whitespace_and_comment(input);
+    if (next_keyword(input, "const_ref")) {
+      if (active_language_version < language_version{1u, 17u, 0u}) {
+        throw exception::bad_member_spec{input, "Borrowed const_ref inputs require serializer version 1.17.0"};
+      }
+      parameter.const_ref = true;
+      static_cast<void>(parse_identifier_impl(input));
+    }
     if (!parameters.insert(parameter.name).second) {
       throw exception::bad_member_spec{input, "Duplicate function parameter"};
     }
@@ -578,6 +644,13 @@ function_declaration parse_function(const rohit::type_check::schema_input_buffer
   }
   result.effect = effect == "edit" ? function_declaration::effect_type::edit :
                                    function_declaration::effect_type::readonly;
+  if ((result.is_static || result.return_modifier == member::modifier_type::array ||
+       std::any_of(result.parameters.begin(), result.parameters.end(), [](const auto& parameter) {
+         return parameter.const_ref || parameter.modifier == member::modifier_type::array;
+       })) && (result.dispatch != function_declaration::dispatch_type::ordinary ||
+               result.effect != function_declaration::effect_type::readonly)) {
+    throw exception::bad_member_spec{input, "Native callable signatures require ordinary readonly functions"};
+  }
   if (!result.generic_parameters.empty() && (result.effect != function_declaration::effect_type::readonly ||
       result.dispatch != function_declaration::dispatch_type::ordinary)) {
     throw exception::bad_member_spec{input, "Generic input types require ordinary readonly functions"};
@@ -606,6 +679,9 @@ function_declaration parse_function(const rohit::type_check::schema_input_buffer
     check_and_increase(input, ')');
     skip_whitespace_and_comment(input);
     specified = true;
+  }
+  if (next_keyword(input, "when")) {
+    result.guard = parse_callable_guard(input, space);
   }
   if (next_keyword(input, "expression") || next_keyword(input, "predicate")) {
     if (active_language_version < language_version{1u, 10u, 0u} &&
@@ -647,6 +723,9 @@ function_declaration parse_function(const rohit::type_check::schema_input_buffer
   }
   if (result.expression && result.effect != function_declaration::effect_type::readonly) {
     throw exception::bad_member_spec{input, "Portable expressions require readonly"};
+  }
+  if (result.expression && result.has_native_signature()) {
+    throw exception::bad_member_spec{input, "Static, borrowed, and fixed-array signatures require a native C++ body or external definition"};
   }
   if (result.cpp_noexcept && (result.effect != function_declaration::effect_type::readonly || result.expression)) {
     throw exception::bad_member_spec{input, "noexcept(cpp) requires a readonly native or external function"};
@@ -1019,6 +1098,7 @@ std::string validate_behavior_expression(behavior_expression& value, const class
         }
         signature += ')';
         if (declaration.name == value.value && !hidden.contains(signature) &&
+            (value.call_receiver || !method.is_static || declaration.is_static) &&
             (value.call_receiver ? declaration.access == access_type::public_access :
              (&scope == &owner || declaration.access != access_type::private_access))) {
           candidates.push_back(current);
@@ -1070,6 +1150,7 @@ std::string validate_behavior_expression(behavior_expression& value, const class
     for (const bool bind_literals : {false, true}) {
       for (auto candidate : candidates) {
         if (!candidate.declaration->generic_parameters.empty()) { continue; }
+        if (candidate.declaration->has_native_signature()) { continue; }
         if (candidate.declaration->parameters.size() != value.operands.size() - argument_begin) { continue; }
         candidate.arguments = value.operands;
         bool matched = true;
@@ -1122,6 +1203,9 @@ std::string validate_behavior_expression(behavior_expression& value, const class
     const auto parameter = std::find_if(method.parameters.begin(), method.parameters.end(),
         [&](const auto& item) { return item.name == value.value; });
     if (parameter != method.parameters.end()) { return bind(parameter->type); }
+    if (method.is_static) {
+      throw std::invalid_argument{"Static functions cannot access an instance field: " + value.value};
+    }
     const auto field = std::find_if(owner.member_list.begin(), owner.member_list.end(),
         [&](const auto& item) { return item.name == value.value; });
     if (field == owner.member_list.end() || field->wire_only || (field->modifier != member::modifier_type::none && field->modifier != member::modifier_type::array)) {
@@ -1337,7 +1421,20 @@ std::string validate_behavior_expression(behavior_expression& value, const class
 // Match complete resolved signatures before selecting backend dispatch adapters.
 std::string behavior_signature(const function_declaration& method) {
   std::string key = method.name + "(";
-  for (const auto& parameter : method.parameters) { key += parameter.type.get_full_name() + ","; }
+  const auto extent_key = [&](const auto& self, const dimension_expression& extent) -> std::string {
+    if (extent.kind == dimension_expression::operation::literal) { return std::to_string(extent.value); }
+    if (extent.kind == dimension_expression::operation::parameter) { return extent.name; }
+    return "(" + self(self, extent.operands.at(0)) +
+        (extent.kind == dimension_expression::operation::add ? "+" : "*") +
+        self(self, extent.operands.at(1)) + ")";
+  };
+  for (const auto& parameter : method.parameters) {
+    if (parameter.modifier == member::modifier_type::array) {
+      key += "array[" + (parameter.fixed_extent ? std::to_string(parameter.fixed_extent) :
+          extent_key(extent_key, parameter.extent_expression.at(0))) + "]";
+    }
+    key += parameter.type.get_full_name() + (parameter.const_ref ? " const_ref," : ",");
+  }
   return key + ")";
 }
 

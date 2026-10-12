@@ -1,0 +1,104 @@
+serializer version 1.17.0;
+
+cpp preamble {
+  #include <cstdint>
+  #include <stdexcept>
+  namespace constructor_delegation_fixture {
+    inline unsigned validations{};
+    inline unsigned registrations{};
+    inline unsigned default_frames{};
+    inline bool reject_registration{};
+    inline bool reject_default{};
+    struct registration_failure : std::runtime_error {
+      // Preserve the host's distinct failure category through a delegated constructor.
+      registration_failure() : std::runtime_error{"Registration failed"} {}
+    };
+    struct default_failure : std::runtime_error {
+      // Identify a rejected omitted host value independently of schema validation.
+      default_failure() : std::runtime_error{"Default frame failed"} {}
+    };
+    // Observe one validation pass before authoring initialization.
+    template<class T> void validate(T value) {
+      ++validations;
+      if (value == 0) { throw std::domain_error{"A nonzero value is required"}; }
+    }
+    // Observe successful validation and preserve a host initialization exception.
+    inline void register_value() {
+      ++registrations;
+      if (reject_registration) { throw registration_failure{}; }
+    }
+    struct counted_frame {
+      unsigned marker;
+      // Produce a fresh host default exactly once per omitted argument.
+      counted_frame() {
+        if (reject_default) { throw default_failure{}; }
+        marker = ++default_frames;
+      }
+    };
+    struct copy_only_value {
+      int marker;
+      copy_only_value() = delete;
+      // Supply a copy-only value without a default or assignment operation.
+      explicit constexpr copy_only_value(int value) : marker{value} {}
+      copy_only_value(const copy_only_value&) = default;
+      copy_only_value(copy_only_value&&) = delete;
+      copy_only_value& operator=(const copy_only_value&) = delete;
+      copy_only_value& operator=(copy_only_value&&) = delete;
+    };
+    struct nondefault_tag { nondefault_tag() = delete; };
+    struct other_tag {};
+  }
+}
+
+namespace constructor_delegation {
+  class inputs stable_ids {
+    public uint32 first (1);
+    public uint32 second (2);
+  }
+  class authored stable_ids {
+    public uint32 first (1);
+    public uint32 second (2);
+    public constructor(uint32 left, uint32 right = 7) {
+      first = left;
+      second = right;
+      validate cpp { constructor_delegation_fixture::validate(first); };
+      initialize cpp { constructor_delegation_fixture::register_value(); };
+    }
+    public constructor(inputs input const_ref) explicit delegates(input.first, input.second);
+  }
+  class generic_authored<T: integral && !bool, Tag, Policy> stable_ids {
+    public T first (1);
+    public T second (2);
+    public constructor(T left, T right) {
+      first = left;
+      second = right;
+      validate cpp { constructor_delegation_fixture::validate(first); };
+      initialize cpp { constructor_delegation_fixture::register_value(); };
+    }
+    public constructor<OtherTag, OtherPolicy>(generic_authored<T, OtherTag, OtherPolicy> input const_ref)
+      explicit delegates(input.first, input.second);
+  }
+  class wrapped<Value> stable_ids {
+    public Value value (1);
+    public constructor(Value input) { value = input; }
+  }
+  class forwarded<Value> stable_ids {
+    public Value value (1);
+    public constructor(Value input) { value = input; }
+    public cpp { constexpr } constructor(wrapped<Value> input const_ref) explicit delegates(input.value);
+  }
+  class default_target<Frame> stable_ids {
+    public uint32 id (1);
+    public Frame placement (2);
+    public constructor(uint32 key = 5, Frame input = {}) {
+      id = key;
+      placement = input;
+    }
+    public constructor(bool trigger) explicit delegates();
+  }
+  class default_bound stable_ids {
+    public uint32 value (1);
+    public constructor() { value = 17; }
+  }
+  class plain_bound stable_ids { public uint32 value (1); }
+}

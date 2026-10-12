@@ -125,7 +125,7 @@ TEST(construction, checked_schema_contract) {
       "class p { public double x; public factory make() { missing = 1; } }",
       "class p { public double x; } class q { public p value default(missing); }",
       "class p { public double x; } class q { public transient layout(empty) p value; }",
-      "class p { public constructor() {} }",
+      "serializer version 1.16.0; class p { public constructor() {} }",
       "class p { public double x; public double y; public factory make(double v) { x = v; y = v; } }",
       "class p { public constructor(p value) {} }",
       "class p { public double create; public double x; public constructor(double v) { x = v; } }",

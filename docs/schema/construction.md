@@ -1,5 +1,10 @@
 # Portable value construction and transient layout
 
+Language `1.17.0` adds [array and callable APIs](array_and_callable_api.md).
+Use explicit storage/axes, owner field factories and callable-local restrictions
+to preserve supported host contracts. Target limits and completed qualification
+are recorded with the feature; older contracts below retain their semantics.
+
 Language `1.16.0` adds empty constructor/factory defaults on an owning class's
 type parameters. Native C++ defaults are instantiated only when omitted, so
 explicit nondefault/nonassignable representations remain valid without a factory

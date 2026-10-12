@@ -16,6 +16,36 @@ internal static class NavigationTest {
       var text = File.ReadAllText(model).Replace("serializer version 1;", "serializer version 1.0.0;");
       var live = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [model] = text };
       var checks = 0;
+      var arrayCallableText = "serializer version 1.17.0; include sales/order; class holder<uint64 Rows, uint64 Cols, T> { " +
+        "private array[Rows * Cols] demo::order stored expose array(public, const_value) dimensions(Rows, Cols); " +
+        "public function static expected<demo::order, demo::order> make(array[Rows] demo::order input const_ref) readonly; " +
+        "public function array[3] demo::order copy(demo::order input const_ref) readonly; " +
+        "public function Vector apply_vector<Vector>(Vector input const_ref) readonly; " +
+        "public factory identity() when(Rows == Cols && same_type(T, double)) {} " +
+        "public constructor<Input>(Input input const_ref) explicit delegates(input.radius, input.height); " +
+        "public demo::order after; }";
+      live[model] = arrayCallableText;
+      foreach (Match operand in Regex.Matches(arrayCallableText, "demo::order")) {
+        for (var cursor = operand.Index; cursor <= operand.Index + operand.Length; ++cursor) {
+          var destination = NavigationRunner.Resolve(model, cursor, false, generated, live, CancellationToken.None);
+          Require(destination.Length == 1 && Path.GetFileName(destination[0].file) == "order.serializer",
+            "array axes and extended signatures retain transitive qualified type boundaries");
+          ++checks;
+        }
+      }
+      foreach (Match dimension in Regex.Matches(arrayCallableText, "Rows|Cols")) {
+        Require(NavigationRunner.Resolve(model, dimension.Index, false, generated, live, CancellationToken.None)
+          .Single().start == arrayCallableText.IndexOf(dimension.Value, StringComparison.Ordinal),
+          "explicit shape and callable guards retain owner dimension navigation");
+        ++checks;
+      }
+      foreach (var metadata in new[] { "const_value", "dimensions(", "static expected", "expected<", "const_ref", "when(", "same_type(", "delegates(" }) {
+        Require(NavigationRunner.Resolve(model, arrayCallableText.IndexOf(metadata, StringComparison.Ordinal),
+          false, generated, live, CancellationToken.None).Length == 0,
+          "array/callable metadata retains ordinary native navigation ownership");
+        ++checks;
+      }
+      live[model] = text;
       var authoringText = "serializer version 1.14.0; include sales/order; class holder<T> " +
         "arithmetic(binary(+, demo::order rhs) -> expression(demo::order(rhs))) { " +
         "private demo::order stored expose readonly(public) as read_value; " +

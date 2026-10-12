@@ -37,6 +37,13 @@ inline std::string initializer(const value_initializer& value, std::string_view 
     }
     return type(value.type) + "{}";
   }
+  if (value.kind == value_initializer::kind_type::factory_owner) {
+    if (language != "cpp") {
+      throw std::invalid_argument{std::string{language} +
+          ": owner factory defaults require a concrete public schema factory or C++ output"};
+    }
+    return type(value.type) + "::" + (callable ? callable(value.value) : value.value) + "()";
+  }
   if (value.kind == value_initializer::kind_type::default_record) {
     auto owner = type(value.type);
     if (language == "cpp") { return owner + "{}"; }

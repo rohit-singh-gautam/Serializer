@@ -94,6 +94,19 @@ else()
 endif()
 add_test(NAME reciprocal_constructors_test COMMAND reciprocal_constructors_test)
 
+add_executable(array_exposure_test array_exposure_test.cpp)
+serializer_generate(TARGET array_exposure_test
+  SCHEMAS resources/array_exposure.serializer resources/array_generation.serializer
+  CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/array_exposure.ini"
+  OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/array_exposure")
+target_link_libraries(array_exposure_test PRIVATE Serializer::serializer_lib GTest::gtest_main)
+if(MSVC)
+  target_compile_options(array_exposure_test PRIVATE /W4 /WX)
+else()
+  target_compile_options(array_exposure_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME array_exposure_test COMMAND array_exposure_test)
+
 add_executable(arithmetic_operators_test arithmetic_operators_test.cpp)
 serializer_generate(TARGET arithmetic_operators_test SCHEMAS resources/arithmetic_operators.serializer
   CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/arithmetic_operators.ini"
@@ -118,6 +131,19 @@ else()
   target_compile_options(constructor_initialization_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 add_test(NAME constructor_initialization_test COMMAND constructor_initialization_test)
+
+add_executable(native_callable_test native_callable_test.cpp)
+serializer_generate(TARGET native_callable_test SCHEMAS resources/native_callables.serializer
+  CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/authoring_construction.ini"
+  OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/native_callables")
+target_link_libraries(native_callable_test PRIVATE Serializer::serializer_lib GTest::gtest_main)
+set_target_properties(native_callable_test PROPERTIES CXX_STANDARD 23)
+if(MSVC)
+  target_compile_options(native_callable_test PRIVATE /W4 /WX)
+else()
+  target_compile_options(native_callable_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME native_callable_test COMMAND native_callable_test)
 
 if(SERIALIZER_BUILD_MANAGED)
   add_executable(readonly_getters_test readonly_getters_test.cpp)
@@ -844,6 +870,19 @@ add_test(NAME serializer_document_collections_cpp COMMAND serializer_document_co
 
 # Imported vcpkg DLLs must be available when tests run from CTest or directly from the build tree.
 # Derive every transitive runtime dependency from the target instead of assuming a package path.
+add_executable(constructor_delegation_test constructor_delegation_test.cpp)
+serializer_generate(TARGET constructor_delegation_test
+  SCHEMAS resources/constructor_delegation.serializer
+  CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/authoring_construction.ini"
+  OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/constructor_delegation")
+target_link_libraries(constructor_delegation_test PRIVATE Serializer::serializer_lib GTest::gtest_main)
+if(MSVC)
+  target_compile_options(constructor_delegation_test PRIVATE /W4 /WX)
+else()
+  target_compile_options(constructor_delegation_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME constructor_delegation_test COMMAND constructor_delegation_test)
+
 if(WIN32)
   get_property(serializer_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
   foreach(target IN LISTS serializer_test_targets)

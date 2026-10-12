@@ -1,5 +1,10 @@
 # Owning record APIs in language 1.14.0
 
+Language `1.17.0` adds [array and callable APIs](array_and_callable_api.md).
+Use explicit storage/axes, owner field factories and callable-local restrictions
+to preserve supported host contracts. Target limits and completed qualification
+are recorded with the feature; older contracts below retain their semantics.
+
 Compiler/runtime **1.19.0** supports these API additions without changing field
 IDs, names, payload revisions, or the managed journal/collaboration protocols.
 Each declaring file, including included files, must select language **1.14.0**.

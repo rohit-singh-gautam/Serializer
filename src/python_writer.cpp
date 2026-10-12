@@ -12,7 +12,9 @@
 #include <functional>
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <map>
+#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -600,8 +602,89 @@ class python_emitter {
     }
   }
 
+  // Emit logical indexing and shallow snapshots while preserving owning list fields.
+  void array_access(const class_node& owner) {
+    for (const auto& item : owner.member_list) {
+      if (!item.array_exposure) { continue; }
+      const auto& exposure = *item.array_exposure;
+      const auto storage = "self." + field(item.name, item.access);
+      const auto& element = item.modifier == member::modifier_type::array ?
+          item.type_name_list.front() : item.type_name_list.front().arguments.front();
+      const auto size = field("size", exposure.access);
+      std::vector<std::uint64_t> dimensions;
+      for (const auto& dimension : exposure.dimensions) {
+        if (dimension.kind != dimension_expression::operation::literal) {
+          throw std::invalid_argument{"python: array exposure dimensions must be resolved"};
+        }
+        dimensions.push_back(dimension.value);
+      }
+      const auto rank = dimensions.empty() ? std::size_t{1} : dimensions.size();
+      std::string parameters;
+      std::string offset;
+      for (std::size_t index = 0; index < rank; ++index) {
+        const auto coordinate = "index" + std::to_string(index);
+        parameters += ", " + coordinate + ": int";
+        offset = offset.empty() ? coordinate :
+            "(" + offset + " * " + std::to_string(dimensions[index]) + " + " + coordinate + ")";
+      }
+      open("def " + size + "(self) -> int");
+      line("\"\"\"Return the validated logical length of the selected storage.\"\"\"");
+      line("if not isinstance(" + storage + ", list): raise ValueError('Invalid array storage')");
+      if (item.fixed_extent != 0) {
+        line("if len(" + storage + ") != " + std::to_string(item.fixed_extent) + ": raise ValueError('Invalid fixed array length')");
+      }
+      line("return len(" + storage + ")");
+      --indent;
+      const auto bounds = [&]() {
+        line("count = self." + size + "()");
+        for (std::size_t index = 0; index < rank; ++index) {
+          const auto coordinate = "index" + std::to_string(index);
+          const auto extent = dimensions.empty() ? "count" : std::to_string(dimensions[index]);
+          line("if not isinstance(" + coordinate + ", int) or isinstance(" + coordinate +
+              ", bool) or " + coordinate + " < 0 or " + coordinate + " >= " + extent +
+              ": raise IndexError('Array coordinate out of bounds')");
+        }
+      };
+      open("def " + field("get", exposure.access) + "(self" + parameters + ") -> " + type(element));
+      line("\"\"\"Read one element; object values retain their ordinary reference semantics.\"\"\"");
+      bounds();
+      line("return " + storage + "[" + offset + "]");
+      --indent;
+      if (!exposure.readonly) {
+        open("def " + field("set", exposure.access) + "(self" + parameters + ", item: " + type(element) + ") -> None");
+        line("\"\"\"Replace one element after storage and coordinate validation.\"\"\"");
+        bounds();
+        line(storage + "[" + offset + "] = item");
+        --indent;
+      }
+      open("def " + field("values", exposure.access) + "(self) -> " +
+          (exposure.readonly ? "tuple[" + type(element) + ", ...]" : "list[" + type(element) + "]"));
+      line("\"\"\"Allocate an iterable snapshot; contained objects are shared, not deeply copied.\"\"\"");
+      line("self." + size + "()");
+      line(std::string{"return "} + (exposure.readonly ? "tuple(" : "list(") + storage + ")");
+      --indent;
+    }
+  }
+
   // Emit slot-based owning models with independent defaults and exact decode APIs.
   void object(const class_node& value) {
+    std::set<std::string> array_methods;
+    for (const auto& item : value.member_list) {
+      if (!item.array_exposure) { continue; }
+      for (const auto method : {"get", "size", "values", "set"}) {
+        if (std::string_view{method} == "set" && item.array_exposure->readonly) { continue; }
+        if (!array_methods.insert(field(method, item.array_exposure->access)).second) {
+          throw std::invalid_argument{"python: array exposure helper collision"};
+        }
+      }
+    }
+    const auto check_array_name = [&](const std::string& name) {
+      if (array_methods.contains(name)) { throw std::invalid_argument{"python: array exposure naming collision: " + name}; }
+    };
+    for (const auto& item : value.member_list) { check_array_name(field(item.name, item.access)); }
+    for (const auto& method : value.functions) { check_array_name(field(method.name, method.access)); }
+    for (const auto& factory : value.constructions) { check_array_name(field(factory.constructor ? "create" : factory.name, factory.access)); }
+    for (const auto& conversion : value.conversions) { check_array_name(field(conversion.name, conversion.access)); }
     dynamic_first = value.has_magic() && !value.magic_omits("json");
     for (const auto& item : value.member_list) {
       dynamic_first = dynamic_first || !omitted_condition(item.omitted_formats, "out").empty();
@@ -666,6 +749,7 @@ class python_emitter {
     }
     if (external_behavior) { line("self._srl_behavior = None"); }
     --indent;
+    array_access(value);
     behaviors(value);
     comparisons(value);
     output += behavior::python_block(construction::factories(value, name, "python",

@@ -35,19 +35,31 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **1.21.0**. Bug fixes and minor updates
+The current compiler and runtime release is **1.22.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
-compatibility across major releases. The schema language version is **1.16.0**;
+compatibility across major releases. The schema language version is **1.17.0**;
 see [release and schema versions](docs/guides/command_line.md).
 
-Use `serializer version 1.16.0;` for new schemas. Older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, `1.11.0`, `1.12.0`, `1.13.0`, `1.14.0`, and `1.15.0` schemas remain supported. The original
+Use `serializer version 1.17.0;` for new schemas. Older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, `1.11.0`, `1.12.0`, `1.13.0`, `1.14.0`, `1.15.0`, and `1.16.0` schemas remain supported. The original
 `serializer version 1;` is an exact compatibility alias for `1.0.0`, exclusive to
 version 1. Future versions require all three components; see the
 [schema language policy](docs/guides/command_line.md#schema-language-version-policy).
 
 **Supported outputs:** C++, Java, JavaScript, TypeScript declarations, Go, C#,
 Rust, Python, Swift, Kotlin, and C. TypeScript uses the JavaScript runtime.
+
+Language `1.17.0` adds [explicit array and callable APIs](docs/schema/array_and_callable_api.md):
+`expose array(public)` selects mutable/const native C++ indexing and ranges;
+`readonly` disables writes, `const_value` preserves value-returning const APIs,
+and `dimensions(Rows, Cols)` states row-major axes. Portable output uses checked
+logical helpers. Owner-type field `default(identity)` keeps omitted/fresh
+factory behavior without class-wide constraints. Callable guards, array
+bindings/generation, structural delegation and richer C++ signatures remove
+supported host adapters. Backend boundaries and
+[qualification status](docs/verification/verification-array-callable-api-2026-10-13.md)
+are documented separately. Native **134/134**, all eleven SDKs, editor checks
+and both **1.1.46** packages passed the recorded qualification.
 
 Language `1.16.0` adds [generic owner-parameter defaults](docs/schema/construction.md#generic-owner-parameter-defaults-in-language-116):
 `constructor(int32 count, Frame placement = {})` preserves open C++ representations
@@ -73,7 +85,7 @@ arithmetic operator mappings with owning constructor calls in portable expressio
 Existing fields, wire formats and managed protocols retain their contracts.
 Run the [four focused examples](example/README.md#owning-record-apis) and consult
 [qualification](docs/verification/verification-owning-api-2026-10-12.md) for tested
-backends and limits. Both editor packages are **1.1.45**.
+backends and limits. Both editor packages are **1.1.46**.
 
 Language `1.13.0` adds the C++ function qualifier `noexcept(cpp)` for readonly
 native bodies and external declarations, including dispatched member contracts.
@@ -501,8 +513,8 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editors/editor_extension.md) |
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
-Both extensions use source release version **1.1.45**, independent of compiler version
-**1.21.0**. Embedded `cpp { ... }`, `java { ... }`, and other target blocks reuse
+Both extensions use source release version **1.1.46**, independent of compiler version
+**1.22.0**. Embedded `cpp { ... }`, `java { ... }`, and other target blocks reuse
 available language grammars for syntax highlighting. Install the language's grammar
 provider where the editor does not bundle it; this does not add embedded IntelliSense.
 See [embedded source highlighting](docs/editors/editor_extension.md#embedded-source-highlighting)

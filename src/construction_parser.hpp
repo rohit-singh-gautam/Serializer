@@ -71,8 +71,12 @@ construction_declaration parse_construction(const rohit::type_check::schema_inpu
         throw exception::bad_member_spec{input, "Duplicate, reserved, or excessive construction input types"};
       }
       skip_whitespace_and_comment(input);
-      check_and_increase(input, ':');
-      parameter.constraint = parse_construction_constraint(input, space);
+      if (!input.full() && *input == ':') {
+        ++input;
+        parameter.constraint = parse_construction_constraint(input, space);
+      } else if (active_language_version < language_version{1u, 17u, 0u}) {
+        throw exception::bad_member_spec{input, "Unconstrained delegating constructor inputs require serializer version 1.17.0"};
+      }
       result.generic_parameters.push_back(std::move(parameter));
       skip_whitespace_and_comment(input);
       if (input.full() || *input != ',') { break; }
@@ -116,6 +120,14 @@ construction_declaration parse_construction(const rohit::type_check::schema_inpu
       throw exception::bad_member_spec{input, "Duplicate or excessive construction parameters"};
     }
     skip_whitespace_and_comment(input);
+    if (next_keyword(input, "const_ref")) {
+      if (active_language_version < language_version{1u, 17u, 0u}) {
+        throw exception::bad_member_spec{input, "Borrowed constructor const_ref inputs require serializer version 1.17.0"};
+      }
+      parameter.const_ref = true;
+      static_cast<void>(parse_identifier_impl(input));
+      skip_whitespace_and_comment(input);
+    }
     if (!input.full() && *input == '=') {
       require_extended_construction(input);
       ++input;
@@ -207,6 +219,39 @@ construction_declaration parse_construction(const rohit::type_check::schema_inpu
     result.explicit_constructor = true;
     skip_whitespace_and_comment(input);
   }
+  if (next_keyword(input, "when")) { result.guard = parse_callable_guard(input, space); }
+  if (next_keyword(input, "delegates")) {
+    if (!result.constructor || active_language_version < language_version{1u, 17u, 0u}) {
+      throw exception::bad_member_spec{input, "Constructor delegation requires serializer version 1.17.0"};
+    }
+    result.delegating = true;
+    static_cast<void>(parse_identifier_impl(input));
+    skip_whitespace_and_comment(input);
+    check_and_increase(input, '(');
+    skip_whitespace_and_comment(input);
+    constexpr std::size_t maximum_delegation_arguments = 64;
+    while (!input.full() && *input != ')') {
+      if (result.delegation.size() >= maximum_delegation_arguments) {
+        throw exception::bad_member_spec{input, "Constructor delegation exceeds 64 arguments"};
+      }
+      result.delegation.push_back(behavior_expression_parser{input, 0, 0, space}.conditional());
+      skip_whitespace_and_comment(input);
+      if (input.full() || *input != ',') { break; }
+      ++input;
+      skip_whitespace_and_comment(input);
+      if (!input.full() && *input == ')') {
+        throw exception::bad_member_spec{input, "Trailing constructor delegation argument comma"};
+      }
+    }
+    check_and_increase(input, ')');
+    skip_whitespace_and_comment(input);
+    check_and_increase(input, ';');
+    return result;
+  }
+  if (std::any_of(result.generic_parameters.begin(), result.generic_parameters.end(),
+      [](const auto& parameter) { return !parameter.constraint; })) {
+    throw exception::bad_member_spec{input, "Unconstrained independent inputs require a delegating constructor"};
+  }
   if (!input.full() && (*input == ';' || *input == '=')) {
     if (!result.forward_signature_enabled || !result.constructor) {
       throw exception::bad_member_spec{input,
@@ -225,6 +270,10 @@ construction_declaration parse_construction(const rohit::type_check::schema_inpu
     }
     check_and_increase(input, ';');
     return result;
+  }
+  if (result.constructor && result.parameters.empty() &&
+      active_language_version < language_version{1u, 17u, 0u}) {
+    throw exception::bad_member_spec{input, "Zero-argument constructor bindings require serializer version 1.17.0"};
   }
   check_and_increase(input, '{');
   skip_whitespace_and_comment(input);
@@ -281,7 +330,66 @@ construction_declaration parse_construction(const rohit::type_check::schema_inpu
     skip_whitespace_and_comment(input);
     check_and_increase(input, '=');
     skip_whitespace_and_comment(input);
-    if (next_keyword(input, "default")) {
+    if (!input.full() && *input == '{') {
+      if (active_language_version < language_version{1u, 17u, 0u}) {
+        throw exception::bad_member_spec{input, "Array construction bindings require serializer version 1.17.0"};
+      }
+      assignment.array_binding = true;
+      ++input;
+      skip_whitespace_and_comment(input);
+      constexpr std::size_t maximum_array_bindings = 65536;
+      while (!input.full() && *input != '}') {
+        construction_assignment element;
+        element.expression = behavior_expression_parser{input, 0, 0, space}.conditional();
+        if (element.expression->kind == behavior_expression::operation::symbol &&
+            parameters.contains(element.expression->value)) {
+          element.parameter = true;
+          element.value = element.expression->value;
+          element.expression.reset();
+        }
+        assignment.elements.push_back(std::move(element));
+        if (assignment.elements.size() > maximum_array_bindings) {
+          throw exception::bad_member_spec{input, "Array construction exceeds 65536 elements"};
+        }
+        skip_whitespace_and_comment(input);
+        if (input.full() || *input != ',') { break; }
+        ++input;
+        skip_whitespace_and_comment(input);
+        if (!input.full() && *input == '}') {
+          throw exception::bad_member_spec{input, "Trailing array construction comma"};
+        }
+      }
+      check_and_increase(input, '}');
+      skip_whitespace_and_comment(input);
+    } else if (next_keyword(input, "generate")) {
+      if (active_language_version < language_version{1u, 17u, 0u}) {
+        throw exception::bad_member_spec{input, "Array generation requires serializer version 1.17.0"};
+      }
+      assignment.array_binding = true;
+      static_cast<void>(parse_identifier_impl(input));
+      skip_whitespace_and_comment(input);
+      check_and_increase(input, '(');
+      skip_whitespace_and_comment(input);
+      do {
+        const auto index = parse_identifier_impl(input);
+        if (parameters.contains(index) || std::find(assignment.generator_indices.begin(),
+            assignment.generator_indices.end(), index) != assignment.generator_indices.end() ||
+            assignment.generator_indices.size() >= 8) {
+          throw exception::bad_member_spec{input, "Array generation requires at most eight independent index names"};
+        }
+        assignment.generator_indices.push_back(index);
+        skip_whitespace_and_comment(input);
+        if (input.full() || *input != ',') { break; }
+        ++input;
+        skip_whitespace_and_comment(input);
+      } while (true);
+      check_and_increase(input, '=');
+      check_and_increase(input, '>');
+      assignment.expression = behavior_expression_parser{input, 0, 0, space}.conditional();
+      skip_whitespace_and_comment(input);
+      check_and_increase(input, ')');
+      skip_whitespace_and_comment(input);
+    } else if (next_keyword(input, "default")) {
       parse_identifier_impl(input);
       skip_whitespace_and_comment(input);
       check_and_increase(input, '(');

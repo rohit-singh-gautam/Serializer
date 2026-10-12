@@ -7,6 +7,12 @@ configurations, and toolchains named in each report. They retain historical
 release metadata and outstanding qualification limits; a result does not imply
 that later changes or untested backend combinations passed the same checks.
 
+## 13 October 2026
+
+| Record | Scope |
+| --- | --- |
+| [Array and callable APIs](verification-array-callable-api-2026-10-13.md) | Native array borrowing, checked logical helpers, field factory defaults, conditional/delegating construction and richer signatures; completed qualification. |
+
 ## 12 October 2026
 
 | Record | Scope |

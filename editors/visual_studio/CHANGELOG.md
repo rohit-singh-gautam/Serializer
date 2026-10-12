@@ -1,3 +1,9 @@
+# 1.1.46
+
+- Support language 1.17.0 array exposure, explicit dimensions, borrowed function inputs, static functions and callable guards/delegation/generation metadata.
+- Highlight callable-only expected result types without claiming native implementations.
+- Keep qualified signature and dimension navigation, new schema snippets and companion package versions synchronized.
+
 # 1.1.45
 
 - Support language 1.16.0 empty defaults for owning class type parameters in constructors and named factories.

@@ -1,0 +1,64 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.17.0;
+
+namespace array_generation {
+  class matrix<uint64 Rows, uint64 Cols, T: (integral || floating_point) && !bool> stable_ids {
+    public array[Rows * Cols] T elements (1) expose array(public, const_value) dimensions(Rows, Cols);
+    public factory identity() when(Rows == Cols) {
+      elements = generate(row, column => checked<T>(row == column ? 1 : 0));
+    }
+  }
+  instantiate square = matrix<3, 3, double>;
+  instantiate rectangular = matrix<2, 3, double>;
+  class pair<Value> stable_ids {
+    public array[2] Value elements (1) expose array(public);
+    public constructor(Value left, Value right) { elements = {left, right}; }
+  }
+  class checked_pair stable_ids {
+    public array[2] uint32 elements (1) expose array(public);
+    public constructor(int64 left, uint32 right) {
+      elements = {checked<uint32>(left), right};
+    }
+  }
+  class frame<Origin, Basis> stable_ids {
+    public Origin origin (1);
+    public Basis basis (2) default(identity);
+    public constructor() {}
+    public constructor(Origin point) { origin = point; }
+    public constructor(Origin point, Basis matrix) { origin = point; basis = matrix; }
+  }
+  class guarded_defaults<uint64 N> stable_ids {
+    public uint32 value (1);
+    public constructor(uint32 input = 9) when(N == 3) { value = input; }
+    public factory limited(uint32 input = 7) when(N == 3) { value = input; }
+  }
+  class type_guard<First, Second> stable_ids {
+    public uint32 value (1);
+    public factory matching(uint32 input = 11) when(same_type(First, Second)) { value = input; }
+  }
+  instantiate same_array = type_guard<array<uint32>, array<uint32>>;
+  instantiate different_array = type_guard<array<uint32>, array<uint64>>;
+  instantiate same_optional = type_guard<optional<uint32>, optional<uint32>>;
+  instantiate different_optional = type_guard<optional<uint32>, optional<uint64>>;
+  instantiate same_map = type_guard<map<string, uint32>, map<string, uint32>>;
+  instantiate different_map = type_guard<map<string, uint32>, map<string, uint64>>;
+  instantiate different_digest_extent = type_guard<digest[32], digest[64]>;
+  instantiate same_digest_extent = type_guard<digest(sha256), digest[32]>;
+  instantiate same_opaque_digest = type_guard<digest, array<uint8>>;
+  class generated_locals<uint64 srl_index_row, srl_array: integral && !bool> stable_ids {
+    public array[srl_index_row] srl_array elements (1) expose array(public);
+    public factory generated<srl_array_2: integral && !bool>(srl_array_2 srl_array_1) {
+      elements = generate(row => checked<srl_array>(row + checked<uint64>(srl_array_1)));
+    }
+  }
+  class map_facade stable_ids {
+    public array[2] map<string, uint32> elements (1) expose array(public, const_value);
+  }
+  class map_record stable_ids {
+    public map(string) uint32 values (1);
+  }
+  class record_facade stable_ids {
+    public array[2] map_record elements (1) expose array(public, const_value);
+  }
+}

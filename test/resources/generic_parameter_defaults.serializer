@@ -3,6 +3,7 @@
 serializer version 1.16.0;
 
 include constructor_initialization;
+include checked_constructor_initialization;
 
 cpp preamble {
   namespace generic_default_host {

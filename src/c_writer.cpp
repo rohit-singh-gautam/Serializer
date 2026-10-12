@@ -11,6 +11,7 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
 #include <map>
 #include <set>
 #include <stdexcept>
@@ -74,6 +75,13 @@ class c_emitter {
           add(n + "_" + field(item));
         }
       } else {
+        const auto& owner = static_cast<const class_node&>(*node);
+        for (const auto& item : owner.member_list) {
+          if (!item.array_exposure) { continue; }
+          for (const auto method : {"get", "size", "values"}) { add(n + "_" + field(method)); }
+          if (!item.array_exposure->readonly) { add(n + "_" + field("set")); }
+          for (const auto& method : owner.functions) { add(n + "_" + field(method.name)); }
+        }
         for (const auto& factory : static_cast<const class_node&>(*node).constructions) {
           const auto method = n + "_" + field(factory.constructor ? "create" : factory.name);
           add(method);
@@ -1177,6 +1185,7 @@ class c_emitter {
     construction::validate_names(value, n, [&](auto identifier, auto) { return field(identifier); });
     construction::validate_extended_backend(value, "c");
     for (const auto& factory : value.constructions) {
+      if (factory.guard && factory.guard->available == false) { continue; }
       line("/* Construct into initialized/zeroed result; move inputs must be disjoint from result and each other. Failure preserves both. */");
       open(construction_signature(value, factory));
       line("if (!result) { return srl_invalid; }");
@@ -1198,6 +1207,27 @@ class c_emitter {
             [&](const auto& item) { return item.name == assignment.field; });
         const auto& t = found->type_name_list.front();
         const auto dst = "srl_candidate." + field(found->name);
+        if (assignment.array_binding) {
+          for (std::size_t index = 0; index < assignment.elements.size(); ++index) {
+            const auto& element = assignment.elements[index];
+            const auto destination = dst + ".data[" + std::to_string(index) + "]";
+            if (element.parameter) {
+              if (!construction_owned(t)) {
+                line("if (status == srl_ok) { " + destination + " = srl_arg_" + field(element.value) + "; }");
+              }
+            } else {
+              open("if (status == srl_ok)");
+              free_value(t, destination);
+              auto literal_value = *found;
+              literal_value.initializer.reset();
+              literal_value.modifier = member::modifier_type::none;
+              literal_value.default_value = element.value;
+              init_value(t, destination, literal(literal_value), "status");
+              close();
+            }
+          }
+          continue;
+        }
         if (assignment.parameter) {
           if (found->modifier != member::modifier_type::array && !construction_owned(t)) { line(dst + " = srl_arg_" + field(assignment.value) + ";"); }
         } else if (assignment.factory_default) {
@@ -1213,6 +1243,20 @@ class c_emitter {
       for (const auto& assignment : factory.assignments) {
         const auto found = std::find_if(value.member_list.begin(), value.member_list.end(),
             [&](const auto& item) { return item.name == assignment.field; });
+        if (assignment.array_binding) {
+          const auto& t = found->type_name_list.front();
+          if (construction_owned(t)) {
+            for (std::size_t index = 0; index < assignment.elements.size(); ++index) {
+              const auto& element = assignment.elements[index];
+              if (!element.parameter) { continue; }
+              const auto destination = "srl_candidate." + field(found->name) + ".data[" + std::to_string(index) + "]";
+              const auto argument = "srl_arg_" + field(element.value);
+              free_value(t, destination);
+              line(destination + " = *" + argument + "; memset(" + argument + ", 0, sizeof(*" + argument + "));");
+            }
+          }
+          continue;
+        }
         if (!assignment.parameter || (found->modifier != member::modifier_type::array &&
             !construction_owned(found->type_name_list.front()))) { continue; }
         const auto dst = "srl_candidate." + field(found->name);
@@ -1344,6 +1388,82 @@ class c_emitter {
     }
   }
 
+  // Expose checked borrowed elements and transfer replacement ownership only on success.
+  void array_access(const class_node& owner) {
+    const auto n = name(&owner);
+    for (const auto& item : owner.member_list) {
+      if (!item.array_exposure) { continue; }
+      const auto& exposure = *item.array_exposure;
+      const auto storage = "value->" + field(item.name);
+      const auto& element = item.modifier == member::modifier_type::array ?
+          item.type_name_list.front() : item.type_name_list.front().arguments.front();
+      const auto scalar = type(element);
+      std::vector<std::uint64_t> dimensions;
+      for (const auto& dimension : exposure.dimensions) {
+        if (dimension.kind != dimension_expression::operation::literal) {
+          throw std::invalid_argument{"c: array exposure dimensions must be resolved"};
+        }
+        dimensions.push_back(dimension.value);
+      }
+      const auto rank = dimensions.empty() ? std::size_t{1} : dimensions.size();
+      std::string parameters;
+      std::string offset;
+      for (std::size_t index = 0; index < rank; ++index) {
+        const auto coordinate = "index" + std::to_string(index);
+        parameters += ", size_t " + coordinate;
+        offset = offset.empty() ? coordinate :
+            "(" + offset + " * " + std::to_string(dimensions[index]) + " + " + coordinate + ")";
+      }
+      line("/* Validate logical storage length; failure preserves the result. */");
+      open("static inline srl_status " + n + "_size(const " + n + "* value, size_t* result)");
+      line("if (!value || !result) { return srl_invalid; }");
+      line("if (" + storage + ".size > " + storage + ".capacity || (" + storage +
+          ".size && !" + storage + ".data)) { return srl_invalid; }");
+      if (item.fixed_extent != 0) {
+        line("if (" + storage + ".size != " + std::to_string(item.fixed_extent) + ") { return srl_invalid; }");
+      }
+      line("*result = " + storage + ".size; return srl_ok;");
+      close();
+      const auto bounds = [&]() {
+        line("size_t count = 0;");
+        line("if (" + n + "_size(value, &count) != srl_ok) { return srl_invalid; }");
+        for (std::size_t index = 0; index < rank; ++index) {
+          const auto extent = dimensions.empty() ? "count" : std::to_string(dimensions[index]);
+          line("if (index" + std::to_string(index) + " >= " + extent + ") { return srl_invalid; }");
+        }
+      };
+      line("/* Borrow one const element; owner destruction or storage relocation invalidates it. */");
+      open("static inline srl_status " + n + "_get(const " + n + "* value" + parameters + ", const " + scalar + "** result)");
+      line("if (!result) { return srl_invalid; }");
+      bounds();
+      line("*result = &" + storage + ".data[" + offset + "]; return srl_ok;");
+      close();
+      if (!exposure.readonly) {
+        const bool owned = construction_owned(element) || element.name.starts_with("version");
+        line(owned ? "/* Move a valid owned element disjoint from the destination; bounds failure preserves both operands. */" :
+            "/* Replace one scalar element after storage and coordinate validation. */");
+        open("static inline srl_status " + n + "_set(" + n + "* value" + parameters + ", " + scalar + (owned ? "* input" : " input") + ")");
+        if (owned) { line("if (!input) { return srl_invalid; }"); }
+        bounds();
+        const auto destination = storage + ".data[" + offset + "]";
+        if (owned) {
+          line("if (input == &" + destination + ") { return srl_ok; }");
+          free_value(element, destination);
+          line(destination + " = *input; memset(input, 0, sizeof(*input));");
+        } else { line(destination + " = input;"); }
+        line("return srl_ok;");
+        close();
+      }
+      line("/* Borrow contiguous iteration storage and its count; do not retain it across relocation or destruction. */");
+      open("static inline srl_status " + n + "_values(const " + n + "* value, const " + scalar + "** result, size_t* count)");
+      line("if (!result || !count) { return srl_invalid; }");
+      line("size_t length = 0;");
+      line("if (" + n + "_size(value, &length) != srl_ok) { return srl_invalid; }");
+      line("*result = " + storage + ".data; *count = length; return srl_ok;");
+      close();
+    }
+  }
+
   // Emit lifecycle APIs and direct per-field codecs for one C model.
   void object(const class_node& value) {
     const auto n = name(&value);
@@ -1421,6 +1541,7 @@ class c_emitter {
         [&](const auto& item) { return type(item); },
         [&](auto item, auto) { return field(item); });
     comparisons(value);
+    array_access(value);
     const auto magic_name = (value.magic_access == access_type::public_access ? "" : "srl_") +
                             n + "_magic";
     line("/* Encode in schema order; the source retains ownership of all its fields. */");

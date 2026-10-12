@@ -17,7 +17,7 @@
   "Schema": {
     "prefix": "schema",
     "body": [
-      "serializer version 1.16.0;",
+      "serializer version 1.17.0;",
       "",
       "namespace ${1:models} {",
       "class ${2:account} stable_ids {",
@@ -311,5 +311,55 @@
       "}$0"
     ],
     "description": "Validate bound authoring inputs before a C++ initialization hook"
+  },
+  "Array facade": {
+    "prefix": "array-facade",
+    "body": "private array[${1:3}] ${2:uint32} ${3:elements} (${4:1}) expose array(public);$0",
+    "description": "Select ordinary array storage for native borrowing and checked logical access; requires language 1.17.0"
+  },
+  "Readonly array facade": {
+    "prefix": "array-facade-readonly",
+    "body": "private array[${1:3}] ${2:uint32} ${3:elements} (${4:1}) expose array(readonly, public);$0",
+    "description": "Expose const access and iteration; omit mutable methods and setter; requires language 1.17.0"
+  },
+  "Matrix array facade": {
+    "prefix": "array-facade-matrix",
+    "body": "private array[${1:Rows} * ${2:Cols}] ${3:T} ${4:elements} (${5:1}) expose array(public, const_value) dimensions($1, $2);$0",
+    "description": "Declare row-major axes explicitly and preserve const-value indexing; requires language 1.17.0"
+  },
+  "Owner factory field default": {
+    "prefix": "owner-factory-default",
+    "body": "public ${1:Basis} ${2:basis} (${3:1}) default(${4:identity});$0",
+    "description": "Defer an owner type parameter factory until fresh field default construction; requires language 1.17.0"
+  },
+  "Borrowed C++ function input": {
+    "prefix": "const-ref-input",
+    "body": "${1:record} ${2:input} const_ref$0",
+    "description": "Borrow a readonly ordinary function input in C++; requires language 1.17.0"
+  },
+  "Static function": {
+    "prefix": "static-function",
+    "body": "public function static ${1:result} ${2:make}(${3:parameters}) readonly expression(${4:body});$0",
+    "description": "Declare receiver-independent behavior; requires language 1.17.0"
+  },
+  "Callable availability": {
+    "prefix": "when",
+    "body": "when(${1:Rows} == ${2:Cols})$0",
+    "description": "Restrict one callable without constraining its owner; requires language 1.17.0"
+  },
+  "Delegating constructor": {
+    "prefix": "constructor-delegates",
+    "body": "public constructor(${1:inputs} ${2:input} const_ref) explicit delegates($2.${3:first}, $2.${4:second});$0",
+    "description": "Borrow a declared schema record and invoke a typed C++ constructor once; requires language 1.17.0"
+  },
+  "Array generator": {
+    "prefix": "array-generate",
+    "body": "${1:elements} = generate(${2:row}, ${3:column} => checked<${4:T}>($2 == $3 ? 1 : 0));$0",
+    "description": "Generate a bounded fixed array using its explicitly declared axes; requires language 1.17.0"
+  },
+  "Expected C++ callable": {
+    "prefix": "function-expected",
+    "body": "public function static expected<${1:result}, ${2:error}> ${3:make}(${4:parameters}) readonly cpp { ${5:body} };$0",
+    "description": "Declare a callable-only std::expected result on a C++23 host; requires language 1.17.0"
   }
 }

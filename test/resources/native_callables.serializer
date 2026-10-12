@@ -1,0 +1,64 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.17.0;
+
+namespace native_callables {
+  class operation_error stable_ids {
+    public uint32 code (1);
+    public string message (2);
+    // Preserve the host error payload; expected does not invent an error-code policy.
+    public constructor(uint32 code_input, string message_input) {
+      code = code_input;
+      message = message_input;
+    }
+  }
+
+  class vector<uint64 N, T: (integral || floating_point) && !bool = double> stable_ids {
+    public array[N] T coordinates (1);
+    // Construct directly from owned coordinates without adding a borrowing conversion.
+    public constructor(array[N] T input) { coordinates = input; }
+    // Borrow both exact host arrays; independently supplied inputs must not be consumed.
+    public function static vector<N, T> difference(array[N] T left const_ref, array[N] T right const_ref) readonly;
+    // Return the exact fixed-array value shape used by the host calculation.
+    public function array[N] double converted() readonly;
+    // Preserve a const-reference input on an ordinary const receiver.
+    public function double dot(array[N] T other const_ref) readonly;
+    // Admit the native formula only for its existing dimension and representation contract.
+    public function vector<N, T> cross(vector<N, T> other const_ref) readonly
+        when(N == 3 && same_type(T, double));
+  }
+
+  class normalized_value<uint64 N, Error = operation_error> stable_ids {
+    public array[N] double coordinates (1);
+    // Bind a finished value independently of any error representation's default construction.
+    public constructor(array[N] double input) { coordinates = input; }
+    // Return this exact owner or a host error while retaining independently checked numeric inputs.
+    public function static expected<normalized_value<N, Error>, Error>
+        from<Input: (integral || floating_point) && !bool>(vector<N, Input> input) readonly;
+  }
+
+  class borrowed_owner<Value> stable_ids {
+    public array[2] Value values (1);
+    // Qualification supplies a noncopyable element to prove that the argument is borrowed.
+    public function static void observe(array[2] Value input const_ref) readonly;
+    // Unconstrained host inputs defer their requirements to each native specialization.
+    public function void observe_input<Input>(Input input const_ref) readonly;
+  }
+
+  class static_api stable_ids {
+    public uint64 value (1);
+    // Ordinary external static definitions participate in the generated function-pointer check.
+    public function static expected<static_api, operation_error> make(uint64 input) readonly;
+    // A successful void expected result has no stored value or wire representation.
+    public function static expected<void, operation_error> validate(bool accepted) readonly;
+    // An allocation-free host policy can retain its authored external nonthrowing contract.
+    public function static expected<void, uint32> ready(bool accepted) readonly noexcept(cpp);
+    // Native typed static qualifiers must remain independent of the expected policy's defaults.
+    public function static uint64 native_identity(uint64 input) readonly constexpr(cpp) noexcept(cpp) cpp {
+      return input;
+    };
+  }
+
+  instantiate vector3 = vector<3>;
+  instantiate normalized3 = normalized_value<3>;
+}

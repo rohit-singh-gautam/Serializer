@@ -17,7 +17,8 @@ TEST(schema_version, preserves_declarations) {
     "// license\nserializer /* language */ version 1.0.0 /* revision */;\n"
     "class account stable_ids { public uint32 id (7); }",
     "serializer version 1.15.0; class account stable_ids { public uint32 id (7); }",
-    "serializer version 1.16.0; class account stable_ids { public uint32 id (7); }"};
+    "serializer version 1.16.0; class account stable_ids { public uint32 id (7); }",
+    "serializer version 1.17.0; class account stable_ids { public uint32 id (7); }"};
   for (const auto source : sources) {
     SCOPED_TRACE(source);
     const auto input = rohit::make_constant_stream(source.data(), source.size());
@@ -30,16 +31,16 @@ TEST(schema_version, preserves_declarations) {
     EXPECT_EQ(record->member_list.front().id, 7u);
   }
   EXPECT_EQ(rohit::serializer::schema_language_version, 1u);
-  EXPECT_EQ(rohit::serializer::schema_language_version_text, "1.16.0");
+  EXPECT_EQ(rohit::serializer::schema_language_version_text, "1.17.0");
   EXPECT_EQ(rohit::serializer::schema_language_version_major, 1u);
-  EXPECT_EQ(rohit::serializer::schema_language_version_minor, 16u);
+  EXPECT_EQ(rohit::serializer::schema_language_version_minor, 17u);
   EXPECT_EQ(rohit::serializer::schema_language_version_patch, 0u);
 }
 
 // All truncated header prefixes fail through schema diagnostics without out-of-bounds reads.
 TEST(schema_version, truncated_headers) {
   constexpr std::string_view headers[]{"serializer version 1;", "serializer version 1.0.0;",
-                                        "serializer version 1.1.0;", "serializer version 1.2.0;", "serializer version 1.3.0;", "serializer version 1.4.0;", "serializer version 1.5.0;", "serializer version 1.13.0;", "serializer version 1.14.0;", "serializer version 1.15.0;", "serializer version 1.16.0;"};
+                                        "serializer version 1.1.0;", "serializer version 1.2.0;", "serializer version 1.3.0;", "serializer version 1.4.0;", "serializer version 1.5.0;", "serializer version 1.13.0;", "serializer version 1.14.0;", "serializer version 1.15.0;", "serializer version 1.16.0;", "serializer version 1.17.0;"};
   for (const auto header : headers) {
     SCOPED_TRACE(header);
     for (std::size_t length = 0; length < header.size(); ++length) {
@@ -68,8 +69,8 @@ TEST(schema_version, invalid_versions_and_positions) {
                                           "serializer version 1.0.0+build;",
                                           "serializer version 1.0.-1;",
                                           "serializer version 0.0.0;",
-                                          "serializer version 1.16.1;",
-                                          "serializer version 1.17.0;",
+                                          "serializer version 1.17.1;",
+                                          "serializer version 1.18.0;",
                                           "serializer version 2.0.0;",
                                           "serializer version 999999999999999999999999.0.0;",
                                           "serializer version 1.999999999999999999999999.0;",
@@ -103,7 +104,7 @@ TEST(schema_version, optional_for_library_fragments) {
 
 // Compare dotted components numerically so a newer minor accepts every older compatible patch.
 TEST(schema_version, accepts_older_contracts_with_numeric_component_order) {
-  for (const std::string_view version : {"1", "1.0.0", "1.0.1", "1.0.10", "1.0.999", "1.1.0", "1.1.1", "1.2.0", "1.2.1", "1.3.0", "1.3.1", "1.4.0", "1.4.1", "1.4.999", "1.5.0", "1.5.1", "1.6.0", "1.6.1", "1.7.0", "1.7.999", "1.8.0", "1.8.999", "1.9.0", "1.10.0", "1.10.999", "1.11.0", "1.11.999", "1.12.0", "1.12.999", "1.13.0", "1.13.999", "1.14.0", "1.14.999", "1.15.0", "1.15.1", "1.15.999", "1.16.0"}) {
+  for (const std::string_view version : {"1", "1.0.0", "1.0.1", "1.0.10", "1.0.999", "1.1.0", "1.1.1", "1.2.0", "1.2.1", "1.3.0", "1.3.1", "1.4.0", "1.4.1", "1.4.999", "1.5.0", "1.5.1", "1.6.0", "1.6.1", "1.7.0", "1.7.999", "1.8.0", "1.8.999", "1.9.0", "1.10.0", "1.10.999", "1.11.0", "1.11.999", "1.12.0", "1.12.999", "1.13.0", "1.13.999", "1.14.0", "1.14.999", "1.15.0", "1.15.1", "1.15.999", "1.16.0", "1.16.1", "1.16.999", "1.17.0"}) {
     SCOPED_TRACE(version);
     const auto source = "serializer version " + std::string{version} +
         "; class record { public uint32 value; }";

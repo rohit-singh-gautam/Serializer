@@ -1,5 +1,13 @@
 # Wire format and decoding contract
 
+Language `1.17.0` [array and callable APIs](../schema/array_and_callable_api.md)
+add no wire tags or layout metadata. Exposed access, dimensions and callable
+availability operate on the existing stored fields. Typed bindings affect
+authoring; an explicitly selected field factory affects fresh/missing defaults
+and must preserve the prior policy during migration. Present values retain
+ordinary codec behavior. Journal, managed identity and collaboration records
+do not change. New wire/default parity qualification is pending.
+
 Language `1.16.0` generic owner-parameter defaults introduce authoring APIs only.
 An omitted open native C++ parameter uses its type's `{}` construction; known
 owning generated record substitutions retain the portable record-default

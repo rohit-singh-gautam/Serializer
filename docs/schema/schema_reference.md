@@ -13,7 +13,12 @@ Start with [small schema examples](schema_examples.md) if you are new to the syn
 ## Schema structure
 
 Every `.serializer` file starts with a supported language header before declarations.
-Use `serializer version 1.16.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, `1.11.0`, `1.12.0`, `1.13.0`, `1.14.0`, and `1.15.0` remain supported.
+Use `serializer version 1.17.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, `1.11.0`, `1.12.0`, `1.13.0`, `1.14.0`, `1.15.0`, and `1.16.0` remain supported.
+
+Language `1.17.0` adds [array and callable APIs](array_and_callable_api.md),
+including explicit array exposure/axes, deferred owner field factories,
+callable availability, array bindings/generation and native delegation/signatures.
+Select each contract explicitly and review its target boundaries.
 
 Language `1.16.0` adds [generic owner-parameter defaults](construction.md#generic-owner-parameter-defaults-in-language-116):
 `Frame input = {}` in a constructor or named factory defaults a type parameter of
