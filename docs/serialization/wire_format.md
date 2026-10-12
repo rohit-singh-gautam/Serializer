@@ -1,5 +1,13 @@
 # Wire format and decoding contract
 
+Language `1.16.0` generic owner-parameter defaults introduce authoring APIs only.
+An omitted open native C++ parameter uses its type's `{}` construction; known
+owning generated record substitutions retain the portable record-default
+contract. No field IDs, codec field defaults, missing-field decode behavior,
+payload revisions, managed fingerprints, journal records or collaboration
+protocols change. Earlier headers retain their parameter-default semantics.
+See [generic owner defaults](../schema/construction.md#generic-owner-parameter-defaults-in-language-116).
+
 Language `1.15.0` empty class-valued constructor/factory parameter defaults add
 no wire fields or metadata. Omitting such an argument creates fresh schema field
 defaults for authoring; codec default construction, existing field defaults,

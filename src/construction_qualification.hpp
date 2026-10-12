@@ -123,7 +123,7 @@ inline bool nothrow_construction(const class_node& owner,
 
 enum class default_record_qualifier { constant_evaluation, nonthrowing };
 
-// Qualify host default construction reached by empty-record parameter defaults only.
+// Qualify host default construction while open native defaults defer constant evaluation to specialization.
 inline bool default_record_parameters_support(const class_node& owner,
     default_record_qualifier qualifier) {
   std::set<const class_node*> active;
@@ -159,6 +159,11 @@ inline bool default_record_parameters_support(const class_node& owner,
   };
   // Positional record and fixed-array defaults may contain nested empty literals.
   const auto check_initializer = [&](const auto& self, const value_initializer& value) -> bool {
+    if (value.kind == value_initializer::kind_type::default_owner) {
+      // An unknown native default can throw; constexpr eligibility is checked when that call is instantiated.
+      return qualifier == default_record_qualifier::constant_evaluation &&
+          check_type(check_type, value.type);
+    }
     if (value.kind == value_initializer::kind_type::default_record) {
       return check_type(check_type, value.type);
     }

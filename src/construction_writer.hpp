@@ -116,6 +116,18 @@ inline void validate_extended_backend(const class_node& owner, std::string_view 
     if (language != "cpp" && !factory.generic_parameters.empty()) {
       throw std::invalid_argument{std::string{language} + ": independently generic construction inputs require C++ output"};
     }
+    const auto native_default = [&](const auto& self, const value_initializer& value) -> bool {
+      return value.kind == value_initializer::kind_type::default_owner ||
+          std::any_of(value.elements.begin(), value.elements.end(),
+              [&](const auto& element) { return self(self, element); });
+    };
+    if (language != "cpp" && std::any_of(factory.parameters.begin(), factory.parameters.end(),
+        [&](const auto& parameter) {
+          return parameter.initializer && native_default(native_default, *parameter.initializer);
+        })) {
+      throw std::invalid_argument{std::string{language} +
+          ": empty owner-parameter defaults require a concrete supported owning record or C++ output"};
+    }
     if (language != "cpp" && std::any_of(factory.assignments.begin(), factory.assignments.end(),
         [](const auto& assignment) { return assignment.expression.has_value(); })) {
       throw std::invalid_argument{std::string{language} + ": checked construction expressions require C++ output"};

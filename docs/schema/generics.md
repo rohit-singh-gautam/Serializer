@@ -159,6 +159,14 @@ transaction. Check the selected implementation separately when those properties
 matter. See [fresh generic defaults](construction.md#fresh-generic-factory-defaults)
 and [authoring verification](../verification/verification-authoring-2026-10-11.md).
 
+Language `1.16.0` separately allows `Frame placement = {}` on an owner's type
+parameter without a factory or defaultability constraint. Native C++ initializes
+`Frame{}` only for an omitted argument; explicit nondefault/nonassignable values
+remain valid. Known supported owning generated records retain their portable
+`1.15.0` defaults. Independent input deduction, function defaults and fixed-array
+cardinality do not change. See [generic owner defaults](construction.md#generic-owner-parameter-defaults-in-language-116)
+for the C++-only substitution boundaries and normal codec requirements.
+
 ## Independently generic C++ callables
 
 Language `1.11.0` introduced numeric input parameters on construction declarations.

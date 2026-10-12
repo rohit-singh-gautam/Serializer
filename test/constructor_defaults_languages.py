@@ -1,4 +1,4 @@
-"""Regenerate, compile and run typed nested/fixed-array defaults in the selected SDKs."""
+"""Regenerate, compile and run typed, record and generic owner defaults in selected SDKs."""
 import argparse
 import importlib.util
 from pathlib import Path
@@ -12,7 +12,7 @@ FILES = {"cpp": "main.cpp", "java": "Main.java", "javascript": "main.mjs", "type
          "swift": "main.swift", "kotlin": "Main.kt", "c": "main.c"}
 
 
-def consumer(language):
+def consumer(language, generic_owner_defaults=False):
     """Verify fresh typed/empty-record defaults, shortened calls, and supplied overrides."""
     sources = {
         "cpp": '''#include "message.hpp"
@@ -152,7 +152,83 @@ int failed=second.normal.z!=1 || second.axes.data[0].x!=1 || second.axes.data[1]
 default_frame_free(&first);default_frame_free(&second);default_direction_free(&direction);default_vector3_free(&custom);return failed;}
 '''
     }
-    return sources["javascript" if language == "typescript" else language]
+    source = sources["javascript" if language == "typescript" else language]
+    if generic_owner_defaults:
+        source = generic_owner_consumer(source, language)
+    return source
+
+
+def generic_owner_consumer(source, language):
+    """Check supplied constructor/factory overrides on concretized owner-type defaults."""
+    checks = {
+        "cpp": ("  auto owner=", '''  auto supplied_frame=default_frame::create_default_0();supplied_frame.normal.z=4;
+  auto explicit_owner=default_frame_owner::create(supplied_frame);
+  auto explicit_factory=default_frame_owner::from_frame(supplied_frame);
+  if(explicit_owner.value.normal.z!=4 || explicit_factory.value.normal.z!=4)return 4;
+'''),
+        "java": ("  var owner=", '''  var suppliedFrame=Schema.DefaultFrame.create_default_0();suppliedFrame.normal.z=4;
+  var explicitOwner=Schema.DefaultFrameOwner.create(suppliedFrame);
+  var explicitFactory=Schema.DefaultFrameOwner.fromFrame(suppliedFrame);
+  if(explicitOwner.value.normal.z!=4 || explicitFactory.value.normal.z!=4)throw new AssertionError("supplied owner default mismatch");
+'''),
+        "javascript": ("const owner=", '''const suppliedFrame=DefaultFrame.create_default_0();suppliedFrame.normal.z=4;
+const explicitOwner=DefaultFrameOwner.create(suppliedFrame),explicitFactory=DefaultFrameOwner.fromFrame(suppliedFrame);
+if(explicitOwner.value.normal.z!==4 || explicitFactory.value.normal.z!==4)throw Error('supplied owner default mismatch');
+'''),
+        "go": (" owner:=", ''' suppliedFrame:=DefaultFrame_Create_default_0();suppliedFrame.Normal.Z=4
+ explicitOwner:=DefaultFrameOwner_Create(suppliedFrame);explicitFactory:=DefaultFrameOwner_FromFrame(suppliedFrame)
+ if explicitOwner.Value.Normal.Z!=4 || explicitFactory.Value.Normal.Z!=4{panic("supplied owner default mismatch")}
+'''),
+        "csharp": (" var owner=", ''' var suppliedFrame=DefaultFrame.Create_default_0();suppliedFrame.Normal.Z=4;
+ var explicitOwner=DefaultFrameOwner.Create(suppliedFrame);var explicitFactory=DefaultFrameOwner.FromFrame(suppliedFrame);
+ if(explicitOwner.Value.Normal.Z!=4 || explicitFactory.Value.Normal.Z!=4)throw new Exception("supplied owner default mismatch");
+'''),
+        "rust": ("let mut owner=", '''let mut supplied_frame=DefaultFrame::create_default_0();supplied_frame.normal.z=4.0;
+let explicit_owner=DefaultFrameOwner::create(supplied_frame.clone());let explicit_factory=DefaultFrameOwner::from_frame(supplied_frame);
+assert_eq!(explicit_owner.value.normal.z,4.0);assert_eq!(explicit_factory.value.normal.z,4.0);
+'''),
+        "python": ("owner=", '''supplied_frame=DefaultFrame.create_default_0();supplied_frame.normal.z=4
+explicit_owner=DefaultFrameOwner.create(supplied_frame);explicit_factory=DefaultFrameOwner.from_frame(supplied_frame)
+assert explicit_owner.value.normal.z==4 and explicit_factory.value.normal.z==4
+'''),
+        "swift": ("var owner=", '''var suppliedFrame=DefaultFrame.create_default_0();suppliedFrame.normal.z=4
+let explicitOwner=DefaultFrameOwner.create(suppliedFrame);let explicitFactory=DefaultFrameOwner.fromFrame(suppliedFrame)
+precondition(explicitOwner.value.normal.z==4 && explicitFactory.value.normal.z==4)
+'''),
+        "kotlin": (" val owner=", ''' val suppliedFrame=DefaultFrame.create_default_0();suppliedFrame.normal.z=4.0
+ val explicitOwner=DefaultFrameOwner.create(suppliedFrame);val explicitFactory=DefaultFrameOwner.fromFrame(suppliedFrame)
+ check(explicitOwner.value.normal.z==4.0 && explicitFactory.value.normal.z==4.0)
+'''),
+        "c": ("default_box box=", '''default_frame supplied_frame={0},factory_frame={0};default_frame_owner explicit_owner={0},explicit_factory={0};
+if(default_frame_create_default_0(&supplied_frame)!=srl_ok || default_frame_create_default_0(&factory_frame)!=srl_ok)return 6;
+supplied_frame.normal.z=4;factory_frame.normal.z=4;
+/* Owned C bindings move each supplied frame and leave that input zeroed. */
+if(default_frame_owner_create(&explicit_owner,&supplied_frame)!=srl_ok || default_frame_owner_from_frame(&explicit_factory,&factory_frame)!=srl_ok)return 6;
+int supplied_failed=explicit_owner.value.normal.z!=4 || explicit_factory.value.normal.z!=4 || supplied_frame.normal.z!=0 || factory_frame.normal.z!=0 || supplied_frame.axes.data!=NULL || factory_frame.axes.data!=NULL;
+default_frame_free(&supplied_frame);default_frame_free(&factory_frame);default_frame_owner_free(&explicit_owner);default_frame_owner_free(&explicit_factory);
+if(supplied_failed)return 7;
+''')
+    }
+    anchor, check = checks["javascript" if language == "typescript" else language]
+    if source.count(anchor) != 1:
+        raise AssertionError(f"Expected one {language} owner-default insertion point")
+    source = source.replace(anchor, check + anchor, 1)
+    source = source.replace("default_frame_owner", "generic_default_frame_owner").replace(
+        "DefaultFrameOwner", "GenericDefaultFrameOwner")
+    # Nested positional literals remain on the included 1.15 concrete owner: an
+    # unconstrained Frame cannot accept a default_frame binding before specialization.
+    for suffix in ("::from_nested", "_from_nested"):
+        source = source.replace("generic_default_frame_owner" + suffix, "default_frame_owner" + suffix)
+    for suffix in (".fromNested", "_FromNested", ".FromNested", "::from_nested", ".from_nested"):
+        source = source.replace("GenericDefaultFrameOwner" + suffix, "DefaultFrameOwner" + suffix)
+    if language in ("javascript", "typescript", "python"):
+        source = source.replace("DefaultBox,GenericDefaultFrameOwner,Protocol",
+                                "DefaultBox,DefaultFrameOwner,GenericDefaultFrameOwner,Protocol", 1)
+    if language == "c":
+        source = source.replace("generic_default_frame_owner owner={0},untouched={0},nested={0},factory={0};",
+                                "generic_default_frame_owner owner={0},untouched={0},factory={0};default_frame_owner nested={0};")
+        source = source.replace("generic_default_frame_owner_free(&nested)", "default_frame_owner_free(&nested)")
+    return source
 
 
 def main():
@@ -163,6 +239,8 @@ def main():
     parser.add_argument("--build", type=Path, default=ROOT / "out/constructor-defaults-languages")
     parser.add_argument("--language", default="all")
     parser.add_argument("--wsl-languages", default="")
+    parser.add_argument("--generic-owner-defaults", action="store_true",
+                        help="Qualify language 1.16 concretized owner-type defaults; retain the 1.15 fixture otherwise")
     args = parser.parse_args()
     args.sanitize = False
     args.compiler = args.compiler.resolve()
@@ -174,7 +252,9 @@ def main():
                for language in languages}
     if "typescript" in languages and "javascript" not in languages:
         targets["js"] = args.build / "typescript/schema.mjs"
-    command = [args.compiler, "--input", ROOT / "test/resources/constructor_defaults_portable.serializer",
+    schema_name = ("constructor_defaults_owner_portable.serializer" if args.generic_owner_defaults else
+                   "constructor_defaults_portable.serializer")
+    command = [args.compiler, "--input", ROOT / "test/resources" / schema_name,
                "--language", ",".join(targets), "--cpp.format=false", "--go.package=main", "--kotlin.package="]
     for language, destination in targets.items():
         destination.parent.mkdir(parents=True, exist_ok=True)
@@ -186,9 +266,10 @@ def main():
     for language in languages:
         source = args.build / "consumers" / language
         source.mkdir(parents=True, exist_ok=True)
-        (source / FILES[language]).write_text(consumer(language), encoding="utf-8")
+        (source / FILES[language]).write_text(consumer(language, args.generic_owner_defaults), encoding="utf-8")
         examples.run(runner.build(language, "constructor_defaults", args.build / language, source))
-        print(f"PASS: {language}, fresh empty-record/typed defaults and custom arguments", flush=True)
+        scope = "concretized generic owner defaults" if args.generic_owner_defaults else "fresh empty-record/typed defaults"
+        print(f"PASS: {language}, {scope} and custom arguments", flush=True)
 
 
 if __name__ == "__main__":

@@ -1,5 +1,10 @@
 # Portable value construction and transient layout
 
+Language `1.16.0` adds empty constructor/factory defaults on an owning class's
+type parameters. Native C++ defaults are instantiated only when omitted, so
+explicit nondefault/nonassignable representations remain valid without a factory
+constraint. See [generic owner defaults](#generic-owner-parameter-defaults-in-language-116).
+
 Language `1.15.0` adds empty class-valued constructor/factory parameter defaults
 for records with fields, including nested empty record literals. See
 [the default contract below](#empty-class-valued-parameter-defaults-in-language-115).
@@ -121,8 +126,8 @@ Compiler/runtime `1.20.0` and language `1.15.0` allow `= {}` on an owning genera
 record parameter in a constructor or named factory. Omitting the argument creates
 a fresh instance using its schema field defaults, without invoking parameterized
 authoring constructors or their validation/initialization hooks. This includes
-known generic schema record applications such as `area<T>`; it does not grant default
-construction to an unconstrained type parameter such as `Value`.
+known generic schema record applications such as `area<T>`; under the `1.15.0`
+contract it does not default an unconstrained type parameter such as `Value`.
 
 ```text
 serializer version 1.15.0;
@@ -184,6 +189,63 @@ payload revisions or wire metadata and leave codec default construction and
 missing-field decode behavior unchanged. See [owning APIs](owning_api.md) for
 the `1.14.0` positional-literal and direct-construction contracts.
 
+## Generic owner-parameter defaults in language 1.16
+
+Compiler/runtime `1.21.0` and language `1.16.0` also allow `= {}` when a constructor
+or named-factory parameter names a type parameter of its owning class:
+
+```text
+serializer version 1.16.0;
+class framed_value<Frame> stable_ids {
+  public int32 value (1);
+  public Frame placement (2);
+  // Bind supplied values directly; omitted placement uses fresh Frame{}.
+  public constructor(int32 input, Frame frame_input = {}) {
+    value = input;
+    placement = frame_input;
+  }
+  // Construct another owner through the same direct binding and optional default.
+  public factory located(int32 input, Frame frame_input = {}) {
+    value = input;
+    placement = frame_input;
+  }
+}
+```
+
+For an open native C++ representation, the omitted value is exactly `Frame{}`.
+It uses the selected type's ordinary default/value initialization, including its
+host constructor behavior. It does not select `Frame::identity()` or another
+factory. Each omitted call creates a fresh value. Default arguments and shortened
+factory wrappers instantiate this expression only when that argument is omitted;
+merely declaring the owner or calling its full signature adds no defaultability
+requirement. Explicitly supplied nondefault/nonassignable values continue through
+direct member binding, using their normal copy/move construction. Regular owner
+default construction and decoding still have their separate representation
+requirements.
+
+Do not add a `factory(name)` or default-constructibility constraint to the class
+just to express this optional argument. An actual omitted call must compile for
+the chosen C++ type. Its default may throw or lack constant-evaluation support;
+this feature introduces no implicit nothrow or constexpr promise. Use the existing
+`default(factory_name)` contract instead when the named factory has deliberately
+different semantics.
+
+Known supported owning generated record arguments reuse language `1.15.0`'s
+portable fresh-record defaults. Open native arguments and concrete primitive,
+enum or container substitutions use the C++ default contract; other outputs
+diagnose unsupported defaults instead of inventing their initialization rules.
+Independent constructor/factory input type defaults remain unsupported: omission
+does not provide a type to deduce. This adds no ordinary function defaults, direct
+scalar `{}` defaults, partial/named literals or empty fixed-array defaults.
+Fixed arrays retain exact cardinality; containing-record storage/mode checks stay
+unchanged.
+
+The declaring file, including an included file, needs `1.16.0`. Earlier headers
+retain their rejection and default semantics. This parameter-only addition adds
+no fields, revisions, managed IDs or wire bytes; codec field defaults do not change.
+See [qualification](../verification/verification-generic-owner-defaults-2026-10-12.md)
+for actual tests and backend limits.
+
 ## Extended bindings in language 1.11
 
 Compiler/runtime 1.16.0 and schema language 1.11.0 add fixed-array parameter
@@ -241,8 +303,9 @@ owning record. All parameters after the first default must have defaults.
 Scalar/string/enum defaults use the existing checked literal rules; record
 defaults select an existing public zero-argument factory. Class type parameters,
 independent generic input parameters and fixed-array parameters cannot have
-defaults. A generic `Value input = {}` or `Value input = default(factory)` rejects
-even when `Value` has a class template default. Language `1.12.0` adds the explicit
+defaults. Under `1.11.0`, a generic `Value input = {}` or
+`Value input = default(factory)` rejects even when `Value` has a class template
+default. Language `1.12.0` adds the explicit
 generic factory contract below. Record defaults construct a fresh
 value on every invocation, including Python; no
 shared mutable default is introduced.
@@ -435,8 +498,10 @@ the example. A custom C++ frame must also satisfy the generated owner's ordinary
 default-construction, assignment and codec requirements. A factory constraint
 does not promise constant evaluation or `noexcept`; qualify the selected factory
 implementation when those guarantees matter. Literal defaults on open type
-parameters, independent input defaults, fixed-array defaults and `{}` parameter
-defaults retain their existing restrictions. See [generic constraints](generics.md).
+parameters, independent input defaults and fixed-array defaults retain their
+language-selected restrictions. Language `1.16.0` separately permits `{}` on owner
+type parameters without the factory constraint; it chooses ordinary default
+initialization rather than the factory's result. See [generic constraints](generics.md).
 
 Other ordinary backends retain fresh factory defaults after an owning generic
 model is concretely specialized in the schema. They do not expose the open C++

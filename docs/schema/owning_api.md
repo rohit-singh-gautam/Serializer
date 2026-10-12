@@ -5,6 +5,12 @@ IDs, names, payload revisions, or the managed journal/collaboration protocols.
 Each declaring file, including included files, must select language **1.14.0**.
 Earlier schema contracts keep their previous generation behavior.
 
+Language `1.16.0` separately permits `Frame placement = {}` on an owner's type
+parameter, with omitted-only C++ default initialization and no factory or
+defaultability constraint. Explicit nondefault/nonassignable inputs retain direct
+binding. See [generic owner defaults](construction.md#generic-owner-parameter-defaults-in-language-116)
+for backend limits and the independent codec/default requirements.
+
 Language `1.15.0` separately adds `area input = {}` for class-valued constructor
 and named-factory parameters, including nested empty record literals. An omitted
 argument receives a fresh owning value with its schema field defaults. Full

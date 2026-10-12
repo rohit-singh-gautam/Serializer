@@ -108,7 +108,8 @@ add_test(NAME arithmetic_operators_test COMMAND arithmetic_operators_test)
 
 add_executable(constructor_initialization_test constructor_initialization_test.cpp)
 serializer_generate(TARGET constructor_initialization_test
-  SCHEMAS resources/constructor_initialization.serializer
+  SCHEMAS resources/generic_parameter_defaults.serializer
+  CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/authoring_construction.ini"
   OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/constructor_initialization")
 target_link_libraries(constructor_initialization_test PRIVATE Serializer::serializer_lib GTest::gtest_main)
 if(MSVC)

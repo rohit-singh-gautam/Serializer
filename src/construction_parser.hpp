@@ -25,9 +25,23 @@ bool construction_head(const rohit::type_check::schema_input_buffer auto& input)
   return !probe.full() && (*probe == '(' || *probe == '<');
 }
 
+// Recognize fresh value-initialization without treating comments as aggregate elements.
+bool empty_construction_default(std::string_view text) {
+  const auto input = make_constant_full_stream(text.data(), text.size());
+  skip_whitespace_and_comment(input);
+  if (input.full() || *input != '{') { return false; }
+  ++input;
+  skip_whitespace_and_comment(input);
+  if (input.full() || *input != '}') { return false; }
+  ++input;
+  skip_whitespace_and_comment(input);
+  return input.full();
+}
+
 // Parse bounded portable owned construction; assignments have no wire identities.
 construction_declaration parse_construction(const rohit::type_check::schema_input_buffer auto& input,
-                                           access_type access, namespace_node* space) {
+                                           access_type access, namespace_node* space,
+                                           const class_node& owner) {
   if (active_language_version < language_version{1u, 8u, 0u}) {
     throw exception::bad_member_spec{input, "Portable construction requires serializer version 1.8.0"};
   }
@@ -89,6 +103,14 @@ construction_declaration parse_construction(const rohit::type_check::schema_inpu
       parameter.type = parse_type_expression(input, space);
       skip_whitespace_and_comment(input);
     }
+    const bool owner_type_parameter = parameter.modifier == member::modifier_type::none &&
+        !parameter.type.application &&
+        std::any_of(owner.generic_parameters.begin(), owner.generic_parameters.end(),
+            [&](const auto& item) {
+              return item.kind == generic_argument_kind::type && item.name == parameter.type.name;
+            });
+    parameter.owner_parameter_default_enabled = owner_type_parameter &&
+        active_language_version >= language_version{1u, 16u, 0u};
     parameter.name = parse_identifier_impl(input);
     if (!parameters.insert(parameter.name).second || result.parameters.size() >= maximum_parameters) {
       throw exception::bad_member_spec{input, "Duplicate or excessive construction parameters"};
@@ -109,18 +131,39 @@ construction_declaration parse_construction(const rohit::type_check::schema_inpu
       } else {
         const auto* begin = input.curr();
         char quote{};
+        char comment{};
         bool escaped{};
         std::size_t aggregate_depth{};
         constexpr std::size_t maximum_default_bytes = 4096;
-        while (!input.full() && (quote || aggregate_depth || (*input != ',' && *input != ')'))) {
+        while (!input.full() && (quote || comment || aggregate_depth || (*input != ',' && *input != ')'))) {
           const auto character = static_cast<char>(*input);
           if (input.curr() - begin >= static_cast<std::ptrdiff_t>(maximum_default_bytes)) {
             throw exception::bad_member_spec{input, "Construction parameter default exceeds 4096 bytes"};
           }
-          if (quote) {
+          if (comment) {
+            if (comment == '/' && character == '\n') { comment = 0; }
+            else if (comment == '*' && character == '*' && input.remaining_buffer() >= 2 &&
+                input.curr()[1] == '/') {
+              if (input.curr() - begin >= static_cast<std::ptrdiff_t>(maximum_default_bytes - 1)) {
+                throw exception::bad_member_spec{input, "Construction parameter default exceeds 4096 bytes"};
+              }
+              input.advance_unchecked(2);
+              comment = 0;
+              continue;
+            }
+          } else if (quote) {
             if (escaped) { escaped = false; }
             else if (character == '\\') { escaped = true; }
             else if (character == quote) { quote = 0; }
+          } else if (character == '/' && input.remaining_buffer() >= 2 &&
+              (input.curr()[1] == '/' || input.curr()[1] == '*')) {
+            // Comment contents consume the same byte budget but cannot alter delimiter or quote state.
+            if (input.curr() - begin >= static_cast<std::ptrdiff_t>(maximum_default_bytes - 1)) {
+              throw exception::bad_member_spec{input, "Construction parameter default exceeds 4096 bytes"};
+            }
+            comment = static_cast<char>(input.curr()[1]);
+            input.advance_unchecked(2);
+            continue;
           } else if (character == '\'' || character == '"') { quote = character; }
           else if (character == '{') {
             if (!result.member_initialization_enabled || ++aggregate_depth > 32) {
@@ -132,10 +175,16 @@ construction_declaration parse_construction(const rohit::type_check::schema_inpu
           }
           ++input;
         }
+        if (comment == '*') { throw exception::bad_input_data{input, "Unterminated schema comment"}; }
         parameter.default_value = schema_version::trim(std::string_view{
             reinterpret_cast<const char*>(begin), static_cast<std::size_t>(input.curr() - begin)});
         if (parameter.default_value.empty()) {
           throw exception::bad_member_spec{input, "Construction parameter default cannot be empty"};
+        }
+        if (owner_type_parameter && !parameter.owner_parameter_default_enabled &&
+            empty_construction_default(parameter.default_value)) {
+          throw exception::bad_member_spec{input,
+              "Empty owner-parameter defaults require serializer version 1.16.0"};
         }
       }
       skip_whitespace_and_comment(input);

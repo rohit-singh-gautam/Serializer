@@ -9,14 +9,14 @@ particular distribution actually exposes.
 
 ## Choose the dependency for your application
 
-The current source release **1.20.0** provides proprietary-compatible generated
+The current source release **1.21.0** provides proprietary-compatible generated
 output and a 0BSD application runtime. Packages of this release should include
 `LICENSE`, `LICENSE-RUNTIME`, and `LICENSE-GENERATED`, and export the separate
 `Serializer::runtime` application target. The compiler and
 `Serializer::serializer_lib` compiler API remain GPL-3.0-or-later. Confirm the
 license scope and targets of the package you actually install; these permissions
 must not be inferred for an older port. See [licensing](licensing.md).
-Both current editor source packages are version **1.1.44**; their schema support
+Both current editor source packages are version **1.1.45**; their schema support
 and documentation links match the current checkout. Source releases and local builds do
 not update published Marketplace listings or the upstream vcpkg registry.
 

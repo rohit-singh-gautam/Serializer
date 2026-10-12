@@ -1,5 +1,15 @@
 # Rohit Serializer for Visual Studio
 
+Version **1.1.45** supports language **1.16.0** defaults such as
+`Frame placement = {}` for owning class type parameters in constructors and
+named factories. Existing generic signature navigation and brace-default
+highlighting apply without new grammar tokens. The companion VS Code schema snippet selects
+`1.16.0`. Native C++ omission uses `Frame{}` without a class-wide defaultability
+constraint; backend and deduction limits are described in
+[generic owner defaults](../../docs/schema/construction.md#generic-owner-parameter-defaults-in-language-116).
+See [qualification](../../docs/verification/verification-generic-owner-defaults-2026-10-12.md)
+for the executed verification status.
+
 Version **1.1.44** supports language **1.15.0** fresh record defaults such as
 `area = {}` in constructor and factory parameters, including empty record values
 inside positional defaults. Signature and following field types retain navigation
@@ -158,7 +168,7 @@ installation. It uses full-framework MSBuild with locked dependencies, bundles
 the current shared resolver, rebuilds and validates:
 
 ```text
-out/extensions/serializer-visual-studio-1.1.44.vsix
+out/extensions/serializer-visual-studio-1.1.45.vsix
 ```
 
 Close Visual Studio, double-click the VSIX, select the installation and restart
@@ -280,7 +290,7 @@ Empty extents and element types receive fixed-array highlighting. Enum type
 operands and qualified enum defaults in typed magic retain declaration, definition,
 and type-definition navigation, including unsaved and transitive included schemas.
 VS Code includes `array_inferred` and `magic_typed` snippets; its schema snippet
-selects `serializer version 1.15.0;`. The original `1` header remains exactly
+selects `serializer version 1.16.0;`. The original `1` header remains exactly
 `1.0.0` and does not enable these features. See the
 [magic contract](../../docs/schema/magic_and_omission.md) and [fixed arrays](../../docs/schema/generics.md).
 

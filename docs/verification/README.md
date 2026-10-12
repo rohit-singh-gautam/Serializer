@@ -11,6 +11,7 @@ that later changes or untested backend combinations passed the same checks.
 
 | Record | Scope |
 | --- | --- |
+| [Generic owner-parameter defaults](verification-generic-owner-defaults-2026-10-12.md) | Omission-only native C++ defaults, explicit nondefault inputs, portable record substitutions, compatibility and verification status. |
 | [Empty class-valued parameter defaults](verification-empty-record-defaults-2026-10-12.md) | Fresh constructor/factory defaults, positional compatibility, nested records, backend APIs and verification status. |
 | [Owning record APIs](verification-owning-api-2026-10-12.md) | Readonly getter lifetimes, direct construction/defaults, reciprocal signatures, arithmetic mappings and editor support. |
 | [Explicit C++ noexcept qualification](verification-noexcept-2026-10-12.md) | Native and external function signatures, dispatch forwarding, portable-first integration, language compatibility, and editor support. |

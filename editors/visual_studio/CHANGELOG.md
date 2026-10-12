@@ -1,3 +1,10 @@
+# 1.1.45
+
+- Support language 1.16.0 empty defaults for owning class type parameters in constructors and named factories.
+- Retain generic signature navigation and existing brace-default highlighting; this feature adds no grammar tokens.
+- Synchronize with the companion VS Code package's language 1.16.0 new-schema snippet.
+- Keep both editor package versions synchronized.
+
 # 1.1.44
 
 - Support language 1.15.0 fresh record defaults in constructor and factory parameters.

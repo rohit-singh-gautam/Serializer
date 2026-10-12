@@ -1,5 +1,34 @@
 # Migrating to the snake_case Serializer API
 
+## Generic owner-parameter defaults (12 October 2026)
+
+Compiler/runtime **1.21.0** supports language **1.16.0**. Raise each declaring
+file's header, including included files, when replacing a native constructor or
+factory's `Frame input = Frame{}` with schema `Frame input = {}`, where `Frame` is
+a type parameter of the owning class. Keep direct field bindings to preserve
+nonassignable representations. Omission uses exactly the selected C++ type's
+normal `{}` construction, evaluated only when an argument is omitted. Explicit
+nondefault inputs remain valid without introducing a factory or class-wide
+defaultability constraint. Ordinary codec/default-construction requirements
+remain independent. Keep `default(factory)` where that factory deliberately
+differs from normal host defaults.
+
+Known supported owning generated record substitutions reuse the portable
+`1.15.0` default contract. Open native and concrete primitive/enum/container
+substitutions are C++-only and diagnose in other outputs. Host defaults may throw
+or be non-constant; this feature does not add a `noexcept` or `constexpr` promise.
+Independently generic input defaults cannot deduce an omitted type. Direct scalar
+`{}` defaults, ordinary function defaults, partial/named record literals and
+fixed-array cardinality retain their existing boundaries.
+
+Regenerate and compile selected outputs, checking both omitted and explicitly
+supplied arguments. Preserve tests for nondefault/nonassignable host values,
+custom host defaults and exceptions. Existing `1.15.0` concrete record defaults
+and `1.14.0` direct bindings remain unchanged. This parameter-only change adds no
+fields, payload revisions, wire bytes or managed protocol metadata. See
+[the construction contract](docs/schema/construction.md#generic-owner-parameter-defaults-in-language-116)
+and [qualification](docs/verification/verification-generic-owner-defaults-2026-10-12.md).
+
 ## Empty class-valued parameter defaults (12 October 2026)
 
 Compiler/runtime **1.20.0** supports language **1.15.0**. Raise the declaring
@@ -14,8 +43,9 @@ semantics.
 Full positional defaults such as `area input = {10, 20}` remain available under
 `1.14.0`; already-valid defaults for actually empty records retain their earlier
 meaning. Partial/named record literals and ordinary function parameter defaults
-remain unavailable. Unconstrained type parameters still require the existing
-explicit factory contract instead of `Value input = {}`. Known schema record
+remain unavailable. Under the `1.15.0` contract, unconstrained type parameters
+require the existing explicit factory contract instead of `Value input = {}`.
+Known schema record
 applications such as `area<T>` use their generated owning defaults.
 
 Regenerate and compile selected outputs. Use the portable `_default_<count>`

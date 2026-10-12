@@ -375,7 +375,7 @@ TEST_F(schema_include_test, readonly_call_language_contract_is_per_file) {
       "function uint64 identity(uint64 value) readonly expression(value);");
   write("root.serializer", "serializer version 1; include common; class root { public uint32 value; }");
   EXPECT_NO_THROW(schema::parser::parse_file(directory / "root.serializer"));
-  write("common.serializer", "serializer version 1.16.0; class future {}");
+  write("common.serializer", "serializer version 1.17.0; class future {}");
   reject("Unsupported schema language version");
 }
 
@@ -389,6 +389,29 @@ TEST_F(schema_include_test, empty_record_default_language_contract_is_per_file) 
   write("common.serializer", "serializer version 1.15.0; " + declarations);
   write("root.serializer", "serializer version 1; include common; class root {}");
   EXPECT_NO_THROW(schema::parser::parse_file(directory / "root.serializer"));
+}
+
+// A new includer cannot grant generic owner defaults to an older declaring dependency.
+TEST_F(schema_include_test, owner_parameter_default_language_contract_is_per_file) {
+  for (const auto declaration : {"constructor", "factory from_frame"}) {
+    SCOPED_TRACE(declaration);
+    const auto declarations = std::string{"class frame { public uint32 marker {17}; } "
+        "class owner<Frame> { public Frame placement; public "} + declaration +
+        "(Frame input = {}) { placement=input; } } instantiate placed_owner = owner<frame>;";
+    write("root.serializer", "serializer version 1.16.0; include middle; class root {}");
+    write("middle.serializer", "serializer version 1.16.0; include common;");
+    write("common.serializer", "serializer version 1.15.0; " + declarations);
+    reject("serializer version 1.16.0");
+    write("common.serializer", "serializer version 1.16.0; " + declarations);
+    write("middle.serializer", "serializer version 1.15.0; include common;");
+    write("root.serializer", "serializer version 1; include middle; class root {}");
+    const auto parsed = schema::parser::parse_file(directory / "root.serializer");
+    EXPECT_EQ(parsed.dependencies.size(), 3u);
+    schema::writer::cpp_options options{};
+    options.format = false;
+    rohit::full_stream_auto_alloc output{};
+    EXPECT_NO_THROW(schema::writer::cpp::write(output, parsed.statements, options));
+  }
 }
 
 // Authoring and native qualification use each dependency's header, including older includers.

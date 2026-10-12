@@ -5,7 +5,8 @@
 value_initializer bind_value_initializer(const rohit::type_check::schema_input_buffer auto& input,
     const member& field, const class_node& owner, std::string text,
     std::size_t depth = 0, std::size_t* shared_nodes = nullptr,
-    bool empty_record_default_enabled = false) {
+    bool empty_record_default_enabled = false,
+    bool owner_parameter_default_enabled = false) {
   constexpr std::size_t maximum_depth = 32, maximum_nodes = 65536;
   std::size_t local_nodes{};
   auto& nodes = shared_nodes ? *shared_nodes : local_nodes;
@@ -15,6 +16,27 @@ value_initializer bind_value_initializer(const rohit::type_check::schema_input_b
   text = schema_version::trim(text);
   value_initializer result;
   result.type = field.type_name_list.front();
+  if (owner_parameter_default_enabled && field.modifier == member::modifier_type::none &&
+      empty_construction_default(text)) {
+    // Open native representations defer T{} to omitted calls, never to a class-wide constraint.
+    result.kind = value_initializer::kind_type::default_owner;
+    if (result.type.resolved_node && (result.type.type == object_type::class_type ||
+                                     result.type.type == object_type::generic_definition)) {
+      const auto& record = static_cast<const class_node&>(*result.type.resolved_node);
+      const bool portable_record = !record.supports_managed() && record.parents.empty() &&
+          record.storage_modes == static_cast<std::uint8_t>(storage_mode::owning) &&
+          (record.attributes & class_attributes::packed) == class_attributes::none &&
+          std::none_of(record.native_blocks.begin(), record.native_blocks.end(), [](const auto& block) {
+            return block.language == "cpp" && !block.no_instance_storage;
+          }) && std::none_of(record.constructions.begin(), record.constructions.end(), [](const auto& construction) {
+            return construction.constructor && construction.parameters.empty() &&
+                construction.access != access_type::public_access;
+          });
+      // Concrete ordinary schema records use the already qualified portable default-construction path.
+      if (portable_record) { result.kind = value_initializer::kind_type::default_record; }
+    }
+    return result;
+  }
   if (field.modifier == member::modifier_type::array ||
       (result.type.resolved_node && (result.type.type == object_type::class_type ||
                                     result.type.type == object_type::generic_definition))) {
@@ -123,10 +145,11 @@ value_initializer bind_value_initializer(const rohit::type_check::schema_input_b
   return result;
 }
 
-// Retain ordinary scalar defaults and opt into typed fixed-array/nested/open-generic defaults only in 1.14.
+// Retain scalar defaults while declaration flags select aggregate and fresh owner-parameter contracts.
 void validate_portable_default(const rohit::type_check::schema_input_buffer auto& input,
                               member& field, const class_node& owner,
-                              bool empty_record_default_enabled = false) {
+                              bool empty_record_default_enabled = false,
+                              bool owner_parameter_default_enabled = false) {
   if (field.portable_default_enabled && !field.fixed_extent && field.extent_expression.size() == 1 &&
       field.extent_expression.front().kind == dimension_expression::operation::literal) {
     field.fixed_extent = field.extent_expression.front().value;
@@ -137,10 +160,12 @@ void validate_portable_default(const rohit::type_check::schema_input_buffer auto
       (type.resolved_node && (type.type == object_type::class_type || type.type == object_type::generic_definition));
   const bool parameter = !type.resolved_node &&
       std::find(owner.type_parameters.begin(), owner.type_parameters.end(), type.name) != owner.type_parameters.end();
-  if (!aggregate && !parameter) { return; }
+  const bool owner_default = owner_parameter_default_enabled &&
+      field.modifier == member::modifier_type::none && empty_construction_default(field.default_value);
+  if (!aggregate && !parameter && !owner_default) { return; }
   const auto text = field.modifier == member::modifier_type::array ? "{" + field.default_value + "}" : field.default_value;
   field.initializer = bind_value_initializer(input, field, owner, text, 0, nullptr,
-      empty_record_default_enabled);
+      empty_record_default_enabled, owner_default);
 }
 
 // Supply a compiler-owned positional factory only for record types used by typed aggregate defaults.

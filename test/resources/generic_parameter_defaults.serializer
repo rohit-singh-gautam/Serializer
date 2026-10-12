@@ -1,0 +1,48 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.16.0;
+
+include constructor_initialization;
+
+cpp preamble {
+  namespace generic_default_host {
+    inline std::uint32_t registrations{};
+    // Count successful authoring without changing the durable value's wire fields.
+    inline std::uint32_t register_value() { return ++registrations; }
+  }
+}
+
+namespace constructor_initialization {
+  class owner_default<Frame> stable_ids {
+    public uint32 a (1);
+    public uint32 b (2);
+    public Frame extent (3);
+    public constructor(uint32 a_input, uint32 b_input, Frame placement = {}) {
+      a = a_input;
+      b = b_input;
+      extent = placement;
+    }
+    public factory from_frame(uint32 a_input, uint32 b_input, Frame placement = {}) {
+      a = a_input;
+      b = b_input;
+      extent = placement;
+    }
+  }
+  class initialized_owner_default<Frame> stable_ids {
+    public uint32 a (1);
+    public uint32 b (2);
+    public Frame extent (3);
+    public transient uint32 execution;
+    public constructor(uint32 a_input, uint32 b_input, Frame placement = {}) {
+      a = a_input;
+      b = b_input;
+      extent = placement;
+      validate expression(a > 0 && b > 0);
+      initialize cpp {
+        execution = generic_default_host::register_value();
+      };
+    }
+  }
+  instantiate default_area_owner = owner_default<area>;
+  instantiate initialized_area_owner = initialized_owner_default<area>;
+}

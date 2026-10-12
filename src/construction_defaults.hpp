@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cctype>
 #include <functional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 
@@ -28,6 +29,13 @@ inline std::string initializer(const value_initializer& value, std::string_view 
       literal = literal.substr(1, literal.size() - 2);
     }
     return literal;
+  }
+  if (value.kind == value_initializer::kind_type::default_owner) {
+    if (language != "cpp") {
+      throw std::invalid_argument{std::string{language} +
+          ": empty owner-parameter defaults require a concrete supported owning record or C++ output"};
+    }
+    return type(value.type) + "{}";
   }
   if (value.kind == value_initializer::kind_type::default_record) {
     auto owner = type(value.type);

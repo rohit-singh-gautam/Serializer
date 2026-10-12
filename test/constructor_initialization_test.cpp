@@ -1,6 +1,6 @@
 // Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
 // SPDX-License-Identifier: GPL-3.0-or-later
-#include "constructor_initialization.hpp"
+#include "generic_parameter_defaults.hpp"
 #include <rohit/serializer_creator.hpp>
 #include <gtest/gtest.h>
 
@@ -14,6 +14,7 @@
 
 namespace {
 bool reject_external_default{};
+bool reject_frame_default{};
 }
 
 namespace constructor_initialization {
@@ -48,6 +49,60 @@ struct copy_only_input {
   copy_only_input& operator=(const copy_only_input&) = delete;
   copy_only_input& operator=(copy_only_input&&) = delete;
 };
+
+// A host frame's ordinary constructor, rather than aggregate field initialization, owns its default.
+struct nonaggregate_frame {
+  int value;
+  // Supply a visible constexpr default with a value different from zero-initialized storage.
+  constexpr nonaggregate_frame() : value{17} {}
+  // Preserve an explicitly supplied placement without consulting the default constructor.
+  constexpr explicit nonaggregate_frame(int input) : value{input} {}
+};
+
+// Observe each omitted placement's construction independently of its owning model's copies.
+struct counted_frame {
+  inline static unsigned default_constructions{};
+  int value;
+  // Produce a new identity marker for each default construction.
+  counted_frame() : value{static_cast<int>(++default_constructions)} {}
+  // Supply a placement without performing the observable default operation.
+  constexpr explicit counted_frame(int input) : value{input} {}
+};
+
+// Keep the injected host failure distinguishable from generated validation errors.
+struct frame_default_failure : std::runtime_error {
+  // Identify the exact failure emitted by the host's ordinary default constructor.
+  frame_default_failure() : std::runtime_error{"Host frame default construction failed"} {}
+};
+
+// A host default may throw, even when the generated direct binding otherwise cannot fail.
+struct throwing_frame {
+  int value{};
+  // Reject omitted placement while preserving the original host failure category.
+  throwing_frame() {
+    if (reject_frame_default) { throw frame_default_failure{}; }
+  }
+  // Permit an explicitly supplied placement without the throwing default.
+  constexpr explicit throwing_frame(int input) : value{input} {}
+};
+
+// Scope failure injection so assertion returns and unexpected exceptions restore the prior test state.
+class frame_default_failure_scope {
+  const bool previous_;
+public:
+  // Enable a runtime failure without promising that every default construction throws.
+  frame_default_failure_scope() : previous_{std::exchange(reject_frame_default, true)} {}
+  // Restore the prior mode before another test or normal authoring operation runs.
+  ~frame_default_failure_scope() { reject_frame_default = previous_; }
+};
+
+// Compare actual encoded bytes without assuming a native object representation.
+template <template <rohit::serializer::serialize_type> class Protocol, typename Value>
+std::string encode(const Value& value) {
+  rohit::full_stream_auto_alloc output;
+  value.template serialize_out<Protocol>(output);
+  return {reinterpret_cast<const char*>(output.begin()), output.current_offset()};
+}
 
 // Preserve one generated instance's exact default/partial decode contract.
 template <typename Value>
@@ -175,6 +230,277 @@ TEST(constructor_initialization, empty_record_parameter_defaults_keep_schema_val
   using custom_owner = constructor_initialization::generic_frame_owner<immutable_input>;
   static_assert(custom_owner::create().value.normal.z.value == 1);
   static_assert(custom_owner::from_frame().value.axes[1].y.value == 1);
+}
+
+// Open owner parameters use their host default constructor and keep explicitly supplied inputs owning.
+TEST(constructor_initialization, owner_parameter_defaults_support_nonaggregate_and_copy_only_frames) {
+  using owner = constructor_initialization::owner_default<nonaggregate_frame>;
+  static_assert(!std::is_aggregate_v<nonaggregate_frame>);
+  constexpr owner omitted{1, 2};
+  static_assert(omitted.a == 1 && omitted.b == 2 && omitted.extent.value == 17);
+  static_assert(owner::create(1, 2).extent.value == 17);
+  static_assert(owner::create_default_2(1, 2).extent.value == 17);
+  static_assert(owner::from_frame(1, 2).extent.value == 17);
+  static_assert(owner::from_frame_default_2(1, 2).extent.value == 17);
+  constexpr nonaggregate_frame custom{23};
+  static_assert(owner{1, 2, custom}.extent.value == 23);
+  static_assert(owner::create(1, 2, custom).extent.value == 23);
+  static_assert(owner::from_frame(1, 2, custom).extent.value == 23);
+
+  using copy_owner = constructor_initialization::owner_default<copy_only_input>;
+  static_assert(!std::is_default_constructible_v<copy_only_input>);
+  static_assert(!std::is_move_constructible_v<copy_only_input>);
+  static_assert(!std::is_copy_assignable_v<copy_only_input>);
+  constexpr copy_only_input input{31};
+  constexpr copy_owner supplied{1, 2, input};
+  static_assert(supplied.extent.value == 31);
+  static_assert(copy_owner::create(1, 2, input).extent.value == 31);
+  static_assert(copy_owner::from_frame(1, 2, input).extent.value == 31);
+  using scalar_owner = constructor_initialization::owner_default<std::uint32_t>;
+  static_assert(scalar_owner::create(1, 2).extent == 0);
+  using array_owner = constructor_initialization::owner_default<std::array<int, 2>>;
+  static_assert(array_owner::from_frame(1, 2).extent == std::array<int, 2>{});
+  EXPECT_EQ(supplied.extent.value, 31);
+}
+
+// Every omitted call constructs one fresh frame; supplied calls do not evaluate its default.
+TEST(constructor_initialization, owner_parameter_defaults_are_evaluated_exactly_once_per_omission) {
+  using owner = constructor_initialization::owner_default<counted_frame>;
+  counted_frame::default_constructions = 0;
+  auto direct = owner{1, 2};
+  EXPECT_EQ(direct.extent.value, 1);
+  EXPECT_EQ(counted_frame::default_constructions, 1u);
+  const auto created = owner::create(1, 2);
+  EXPECT_EQ(created.extent.value, 2);
+  EXPECT_EQ(counted_frame::default_constructions, 2u);
+  const auto wrapped = owner::create_default_2(1, 2);
+  EXPECT_EQ(wrapped.extent.value, 3);
+  EXPECT_EQ(counted_frame::default_constructions, 3u);
+  const auto factory = owner::from_frame(1, 2);
+  EXPECT_EQ(factory.extent.value, 4);
+  EXPECT_EQ(counted_frame::default_constructions, 4u);
+  const auto factory_wrapper = owner::from_frame_default_2(1, 2);
+  EXPECT_EQ(factory_wrapper.extent.value, 5);
+  EXPECT_EQ(counted_frame::default_constructions, 5u);
+  direct.extent.value = -1;
+  EXPECT_EQ(created.extent.value, 2);
+  EXPECT_EQ(factory_wrapper.extent.value, 5);
+
+  const counted_frame supplied{41};
+  EXPECT_EQ((owner{1, 2, supplied}).extent.value, 41);
+  EXPECT_EQ(owner::create(1, 2, supplied).extent.value, 41);
+  EXPECT_EQ(owner::from_frame(1, 2, supplied).extent.value, 41);
+  EXPECT_EQ(counted_frame::default_constructions, 5u);
+}
+
+// Generic default failures propagate through native constructors, full APIs and generated wrappers.
+TEST(constructor_initialization, owner_parameter_default_failures_do_not_acquire_false_noexcept) {
+  using owner = constructor_initialization::owner_default<throwing_frame>;
+  static_assert(!noexcept(owner{1, 2}));
+  static_assert(!noexcept(owner::create(1, 2)));
+  static_assert(!noexcept(owner::create_default_2(1, 2)));
+  static_assert(!noexcept(owner::from_frame(1, 2)));
+  static_assert(!noexcept(owner::from_frame_default_2(1, 2)));
+  EXPECT_EQ((owner{1, 2}).extent.value, 0);
+  EXPECT_EQ(owner::create_default_2(1, 2).extent.value, 0);
+  {
+    const frame_default_failure_scope failure;
+    EXPECT_THROW((owner{1, 2}), frame_default_failure);
+    EXPECT_THROW(static_cast<void>(owner::create(1, 2)), frame_default_failure);
+    EXPECT_THROW(static_cast<void>(owner::create_default_2(1, 2)), frame_default_failure);
+    EXPECT_THROW(static_cast<void>(owner::from_frame(1, 2)), frame_default_failure);
+    EXPECT_THROW(static_cast<void>(owner::from_frame_default_2(1, 2)), frame_default_failure);
+    constexpr throwing_frame supplied{47};
+    EXPECT_EQ((owner{1, 2, supplied}).extent.value, 47);
+    EXPECT_EQ(owner::from_frame(1, 2, supplied).extent.value, 47);
+  }
+  EXPECT_EQ(owner::from_frame_default_2(1, 2).extent.value, 0);
+}
+
+// Parameter omission neither duplicates authoring hooks nor replays them during fresh decoding.
+TEST(constructor_initialization, owner_parameter_defaults_validate_then_initialize_only_for_authoring) {
+  using owner = constructor_initialization::initialized_owner_default<counted_frame>;
+  generic_default_host::registrations = 0;
+  counted_frame::default_constructions = 0;
+  const owner codec_default{};
+  EXPECT_EQ(codec_default.execution, 0u);
+  EXPECT_EQ(counted_frame::default_constructions, 1u);
+  EXPECT_EQ(generic_default_host::registrations, 0u);
+  const owner direct{1, 2};
+  EXPECT_EQ(direct.execution, 1u);
+  EXPECT_EQ(direct.extent.value, 2);
+  const auto created = owner::create_default_2(1, 2);
+  EXPECT_EQ(created.execution, 2u);
+  EXPECT_EQ(created.extent.value, 3);
+  const auto full_created = owner::create(1, 2);
+  EXPECT_EQ(full_created.execution, 3u);
+  EXPECT_EQ(full_created.extent.value, 4);
+  EXPECT_THROW((owner{0, 2}), std::domain_error);
+  EXPECT_EQ(counted_frame::default_constructions, 5u);
+  EXPECT_THROW(static_cast<void>(owner::create(1, 0, counted_frame{59})), std::domain_error);
+  EXPECT_EQ(counted_frame::default_constructions, 5u);
+  EXPECT_EQ(generic_default_host::registrations, 3u);
+  const auto copied = full_created;
+  EXPECT_EQ(copied.execution, 3u);
+  EXPECT_EQ(generic_default_host::registrations, 3u);
+  using failing_owner = constructor_initialization::initialized_owner_default<throwing_frame>;
+  {
+    const frame_default_failure_scope failure;
+    EXPECT_THROW(static_cast<void>(failing_owner::create_default_2(1, 2)), frame_default_failure);
+  }
+  EXPECT_EQ(generic_default_host::registrations, 3u);
+
+  using concrete = constructor_initialization::initialized_area_owner;
+  const concrete authored{1, 2};
+  EXPECT_EQ(authored.extent.width, 3u);
+  EXPECT_EQ(authored.execution, 4u);
+  const auto decoded = round_trip(authored);
+  EXPECT_EQ(decoded.a, 1u);
+  EXPECT_EQ(decoded.extent.width, 3u);
+  EXPECT_EQ(decoded.execution, 0u);
+  const std::string_view partial = "{\"a\":9}";
+  const auto input = rohit::make_constant_stream(partial.data(), partial.size());
+  const auto fresh = rohit::serializer::deserialize_exact<concrete, rohit::serializer::json>(input);
+  EXPECT_EQ(fresh.a, 9u);
+  EXPECT_EQ(fresh.b, 0u);
+  EXPECT_EQ(fresh.extent.width, 3u);
+  EXPECT_EQ(fresh.extent.height, 4u);
+  EXPECT_EQ(fresh.execution, 0u);
+  EXPECT_EQ(generic_default_host::registrations, 4u);
+}
+
+// Adding an owner-generic parameter default preserves the existing concrete model's four wire formats.
+TEST(constructor_initialization, owner_parameter_defaults_preserve_existing_wire_and_fresh_decode) {
+  using owner = constructor_initialization::default_area_owner;
+  const constructor_initialization::box legacy{1, 2};
+  const owner current{1, 2};
+  EXPECT_EQ(encode<rohit::serializer::binary_none>(current), encode<rohit::serializer::binary_none>(legacy));
+  EXPECT_EQ(encode<rohit::serializer::binary_integer>(current), encode<rohit::serializer::binary_integer>(legacy));
+  EXPECT_EQ(encode<rohit::serializer::binary_string>(current), encode<rohit::serializer::binary_string>(legacy));
+  EXPECT_EQ(encode<rohit::serializer::json>(current), encode<rohit::serializer::json>(legacy));
+  const owner overridden{1, 2, constructor_initialization::area{11, 12}};
+  EXPECT_EQ(round_trip(overridden).extent.width, 11u);
+  const std::string_view empty_record = "{}";
+  const auto input = rohit::make_constant_stream(empty_record.data(), empty_record.size());
+  auto first = rohit::serializer::deserialize_exact<owner, rohit::serializer::json>(input);
+  const owner second{};
+  first.extent.width = 67;
+  EXPECT_EQ(second.a, 0u);
+  EXPECT_EQ(second.extent.width, 3u);
+  EXPECT_EQ(second.extent.height, 4u);
+}
+
+// Only class-owned type parameters gain this spelling; unrelated default grammar remains unchanged.
+TEST(constructor_initialization, owner_parameter_defaults_preserve_scope_and_literal_boundaries) {
+  const auto accepted = parse("serializer version 1.16.0; class box<Frame> { public Frame value; "
+      "public constructor(Frame input = { /* fresh */ }) { value=input; } "
+      "public factory from_frame(Frame input = {\n}) { value=input; } }");
+  rohit::serializer::writer::cpp_options options;
+  options.format = false;
+  EXPECT_NO_THROW(rohit::serializer::writer::cpp::generate(accepted, options));
+  for (const auto text : {
+      "serializer version 1.15.0; class box<Frame> { public Frame value; public constructor(Frame input = {}) {value=input;} }",
+      "serializer version 1.15.0; class box<Frame> { public Frame value; public factory from_frame(Frame input = {}) {value=input;} }",
+      "serializer version 1.16.0; class box<Frame> { public Frame value; public constructor(Frame input = {1}) {value=input;} }",
+      "serializer version 1.16.0; class box<Frame> { public Frame value; public constructor(Frame input = {}, uint32 required) {value=input;} }",
+      "serializer version 1.16.0; class box { public uint32 value; public constructor<Input: integral>(Input input = {}) {value=input;} }",
+      "serializer version 1.16.0; class box { public uint32 value; public factory from_input<Input: integral>(Input input = {}) {value=input;} }",
+      "serializer version 1.16.0; class box<Frame> { public array[2] Frame values; public constructor(array[2] Frame input = {}) {values=input;} }",
+      "serializer version 1.16.0; class box { public array[2] uint32 values; public constructor(array[2] uint32 input = {}) {values=input;} }",
+      "serializer version 1.16.0; class box { public uint32 value; public constructor(uint32 input = {}) {value=input;} }",
+      "serializer version 1.16.0; class box<Frame> { public function Frame read(Frame input = {}) readonly expression(input); }"}) {
+    EXPECT_THROW(parse(text), std::exception) << text;
+  }
+}
+
+// Comment punctuation is trivia while both supported empty-default contracts retain their own gates.
+TEST(constructor_initialization, empty_parameter_defaults_ignore_comment_delimiters_and_quotes) {
+  for (const std::string_view literal : {"{ /* { */ }", "{ /* } */ }",
+      "{ /* unpaired \" ' , ) ( */ }", "{ // { } , ) ( \" '\n}"}) {
+    SCOPED_TRACE(literal);
+    for (const auto declaration : {"constructor", "factory from_frame"}) {
+      SCOPED_TRACE(declaration);
+      const auto owner = std::string{"serializer version 1.16.0; class owner<Frame> { public Frame value; public "} +
+          declaration + "(Frame input = " + std::string{literal} + ") { value=input; } }";
+      EXPECT_NO_THROW(parse(owner));
+      const auto record = std::string{"serializer version 1.15.0; class frame { public uint32 marker {17}; } "
+          "class owner { public frame value; public "} + declaration +
+          "(frame input = " + std::string{literal} + ") { value=input; } }";
+      EXPECT_NO_THROW(parse(record));
+    }
+  }
+}
+
+// Comment skipping keeps the existing byte and aggregate-depth admission limits intact.
+TEST(constructor_initialization, commented_parameter_defaults_retain_capture_resource_bounds) {
+  constexpr std::size_t maximum_default_bytes = 4096;
+  constexpr std::size_t comment_wrapper_bytes = std::string_view{"{/**/}"}.size();
+  const std::string prefix = "serializer version 1.16.0; class owner<Frame> { public Frame value; "
+      "public constructor(Frame input = ";
+  const std::string suffix = ") { value=input; } }";
+  const auto maximum = "{/*" + std::string(maximum_default_bytes - comment_wrapper_bytes, 'x') + "*/}";
+  ASSERT_EQ(maximum.size(), maximum_default_bytes);
+  EXPECT_NO_THROW(parse(prefix + maximum + suffix));
+  const auto oversized = "{/*" + std::string(maximum_default_bytes - comment_wrapper_bytes + 1, 'x') + "*/}";
+  try {
+    static_cast<void>(parse(prefix + oversized + suffix));
+    FAIL() << "Oversized commented default was accepted";
+  } catch (const std::exception& error) {
+    EXPECT_NE(std::string_view{error.what()}.find("exceeds 4096 bytes"), std::string_view::npos);
+  }
+  constexpr std::size_t excessive_aggregate_depth = 33;
+  EXPECT_NO_THROW(parse(prefix + "{/*" + std::string(excessive_aggregate_depth, '{') + "*/}" + suffix));
+  try {
+    static_cast<void>(parse(prefix + std::string(excessive_aggregate_depth, '{') +
+        std::string(excessive_aggregate_depth, '}') + suffix));
+    FAIL() << "Excessively nested default was accepted";
+  } catch (const std::exception& error) {
+    EXPECT_NE(std::string_view{error.what()}.find("at most 32 levels"), std::string_view::npos);
+  }
+  EXPECT_THROW(parse(prefix + "{/* unterminated"), std::exception);
+}
+
+// Existing positional literals keep punctuation and comment spellings inside quoted string values.
+TEST(constructor_initialization, parameter_capture_preserves_quoted_aggregate_literals) {
+  const auto schema = parse("serializer version 1.14.0; class frame { public string text; public char marker; } "
+      "class owner { public frame value; public constructor(frame input = {\"/* { } ' , ) */\", '('}) { value=input; } }");
+  rohit::serializer::writer::cpp_options options;
+  options.format = false;
+  EXPECT_NO_THROW(rohit::serializer::writer::cpp::generate(schema, options));
+}
+
+// A concrete owning schema record retains the established portable fresh-default implementation.
+TEST(constructor_initialization, substituted_record_owner_defaults_generate_in_every_backend) {
+  const auto schema = parse("serializer version 1.16.0; class frame { public uint32 marker {17}; } "
+      "class owner<Frame> { public Frame placement; "
+      "public constructor(uint32 id, Frame input = {}) { placement=input; } "
+      "public factory from_frame(uint32 id, Frame input = {}) { placement=input; } } "
+      "instantiate placed_owner = owner<frame>;");
+  rohit::serializer::writer::cpp_options options;
+  options.format = false;
+  EXPECT_NO_THROW(rohit::serializer::writer::cpp::generate(schema, options));
+  EXPECT_FALSE(rohit::serializer::writer::java::generate(schema, "Schema", {}).empty());
+  for (const auto language : {"js", "typescript", "go", "csharp", "rust", "python", "swift", "kotlin", "c"}) {
+    EXPECT_FALSE(rohit::serializer::writer::portable::generate(schema, language, "Schema", {}).empty()) << language;
+  }
+}
+
+// Generic host defaults must not silently become unsupported portable literal or base-record defaults.
+TEST(constructor_initialization, substituted_unsupported_owner_defaults_diagnose_non_cpp_outputs) {
+  for (const auto type : {"uint32", "array<uint32>", "derived"}) {
+    SCOPED_TRACE(type);
+    const auto schema = parse(std::string{"serializer version 1.16.0; class base { public uint32 marker {17}; } "
+        "class derived : public base {} class owner<Frame> { public Frame value; "
+        "public constructor(Frame input = {}) { value=input; } "
+        "public factory from_frame(Frame input = {}) { value=input; } } instantiate concrete_owner = owner<"} + type + ">;");
+    rohit::serializer::writer::cpp_options options;
+    options.format = false;
+    EXPECT_NO_THROW(rohit::serializer::writer::cpp::generate(schema, options));
+    EXPECT_THROW(rohit::serializer::writer::java::generate(schema, "Schema", {}), std::exception);
+    for (const auto language : {"js", "typescript", "go", "csharp", "rust", "python", "swift", "kotlin", "c"}) {
+      EXPECT_THROW(rohit::serializer::writer::portable::generate(schema, language, "Schema", {}), std::exception) << language;
+    }
+  }
 }
 
 TEST(constructor_initialization, empty_record_defaults_preserve_language_and_shape_boundaries) {

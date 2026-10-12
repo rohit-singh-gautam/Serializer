@@ -1,0 +1,19 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.16.0;
+
+include constructor_defaults_portable;
+
+class portable_owner<Frame> stable_ids {
+  public Frame value (1);
+  // Construct a fresh owning value when the class-owned parameter is omitted.
+  public constructor(Frame input = {}) {
+    value = input;
+  }
+  // Use the same owner-parameter default through a named factory.
+  public factory from_frame(Frame input = {}) {
+    value = input;
+  }
+}
+
+instantiate generic_default_frame_owner = portable_owner<default_frame>;

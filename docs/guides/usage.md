@@ -2,7 +2,33 @@
 
 [Documentation index](../README.md) · [Application and build guides](README.md)
 
-Compiler/runtime **1.20.0** supports language **1.15.0**, which adds
+Compiler/runtime **1.21.0** supports language **1.16.0**, which adds
+[generic owner-parameter defaults](../schema/construction.md#generic-owner-parameter-defaults-in-language-116).
+Use `Frame placement = {}` in a constructor or named factory when `Frame` is a
+type parameter of the owning class. Omission uses native C++ `Frame{}` without
+requiring a schema factory or adding a class-wide defaultability constraint;
+explicit nondefault/nonassignable inputs retain direct construction. Known
+owning generated record substitutions preserve portable defaults. Open native
+and concrete primitive/enum/container substitutions require C++; independently
+generic input deduction and fixed-array cardinality retain their boundaries.
+
+From a Windows Release source build, run the maintained portable qualifier for a
+concretized owning record with:
+
+```powershell
+python test/constructor_defaults_languages.py `
+  --compiler out/build/make-Release/Release/serializer.exe `
+  --generic-owner-defaults --language python `
+  --build out/build/generic-owner-defaults-python
+```
+
+The opt-in selects the `1.16.0` generic-owner fixture and checks omitted defaults,
+fresh ownership and supplied constructor/factory overrides. Without the flag,
+the runner retains its `1.15.0` fixture and consumer behavior. See
+[qualification commands](../verification/verification-generic-owner-defaults-2026-10-12.md#reproduce-portable-sdk-checks)
+for all eleven SDKs, host selection and C move-input ownership.
+
+Language **1.15.0** adds
 [empty class-valued parameter defaults](../schema/construction.md#empty-class-valued-parameter-defaults-in-language-115).
 Declare `area input = {}` in a constructor or named factory to supply fresh owning
 field defaults when omitted; `area input = {10, 20}` remains a full positional
@@ -437,7 +463,7 @@ class person stable_ids {
 ```
 
 - Use `class`, `enum`, and `namespace`; schema declarations are not C++ source.
-- Start every new `.serializer` file with `serializer version 1.15.0;` before declarations.
+- Start every new `.serializer` file with `serializer version 1.16.0;` before declarations.
   Older `1.0.0` files remain supported.
   The original `serializer version 1;` is an exact alias for `1.0.0`, exclusive to
   version 1. Future versions require three components. The language version is
@@ -501,7 +527,7 @@ namespace demo {
   spaces, backslashes, absolute paths, and other extensions are rejected.
   `./` and `../` are supported. Paths resolve from the including file, independently
   of the compiler's working directory. Comments may separate directive tokens.
-- Every file requires its own supported version header. `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, `1.11.0`, `1.12.0`, `1.13.0`, `1.14.0`, `1.15.0`, and the
+- Every file requires its own supported version header. `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, `1.11.0`, `1.12.0`, `1.13.0`, `1.14.0`, `1.15.0`, `1.16.0`, and the
   original `1` alias may coexist in an include graph. Typed magic and inferred
   arrays require `1.1.0`, compact scalars require `1.2.0`, and built-in digests
   require `1.3.0`; owning variants require `1.4.0` and warning suppression requires
@@ -516,6 +542,9 @@ namespace demo {
   require `1.14.0` in their declaring file.
   Empty class-valued constructor/factory parameter defaults for records with
   fields, including nested empty record literals, require `1.15.0`.
+  Empty defaults for an owning class's type parameter require `1.16.0`; open
+  native C++ omission uses that type's normal `{}` construction without a new
+  class-wide defaultability constraint.
   Includes follow that
   header and precede all declarations, at file scope only.
 - Nested dependencies load before their includers. Repeated paths, normalized path

@@ -2001,7 +2001,7 @@ void parse_class_body_impl(const rohit::type_check::schema_input_buffer auto& in
       skip_whitespace_and_comment(in_stream);
       auto prefix = parse_callable_prefix(in_stream, access);
       if (construction_head(in_stream)) {
-        auto construction = parse_construction(in_stream, access, obj->parent_namespace);
+        auto construction = parse_construction(in_stream, access, obj->parent_namespace, *obj);
         if (!construction.constructor) {
           throw exception::bad_member_spec{in_stream, "Declaration-site additions require a constructor or function"};
         }
@@ -2024,7 +2024,7 @@ void parse_class_body_impl(const rohit::type_check::schema_input_buffer auto& in
     if (construction_head(lookahead)) {
       parse_access_type_impl(in_stream);
       skip_whitespace_and_comment(in_stream);
-      obj->constructions.push_back(parse_construction(in_stream, access, obj->parent_namespace));
+      obj->constructions.push_back(parse_construction(in_stream, access, obj->parent_namespace, *obj));
       skip_whitespace_and_comment(in_stream);
       continue;
     }
@@ -3361,7 +3361,8 @@ void validate_constructions(const rohit::type_check::schema_input_buffer auto& i
             value.default_value.starts_with('{') && value.default_value.ends_with('}')) {
           value.default_value = value.default_value.substr(1, value.default_value.size() - 2);
         }
-        validate_portable_default(input, value, owner, parameter.empty_record_default_enabled);
+        validate_portable_default(input, value, owner, parameter.empty_record_default_enabled,
+            parameter.owner_parameter_default_enabled);
         parameter.initializer = value.initializer;
         if (!value.default_factory.empty() && !factory_contract) { validate_factory_default(input, value, owner); }
         else if (factory_contract) { continue; }
