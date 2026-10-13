@@ -2027,6 +2027,34 @@ bool native_class_block_head(const rohit::type_check::schema_input_buffer auto& 
   return !probe.full() && *probe == '{';
 }
 
+// Count complete empty source lines between declarations, excluding comment contents.
+std::size_t declaration_blank_lines(std::string_view spacing) {
+  std::size_t count{};
+  bool line_has_content{true}; // The first line follows the preceding declaration.
+  bool block_comment{};
+  bool line_comment{};
+  for (std::size_t index{}; index < spacing.size(); ++index) {
+    const auto character = spacing[index];
+    if (character == '\n') {
+      if (!line_has_content && !block_comment) { ++count; }
+      line_comment = false;
+      line_has_content = block_comment;
+    } else if (block_comment) {
+      if (character == '*' && index + 1 < spacing.size() && spacing[index + 1] == '/') {
+        block_comment = false;
+        ++index;
+      }
+    } else if (!line_comment && character == '/' && index + 1 < spacing.size()) {
+      if (spacing[index + 1] == '*') { block_comment = true; }
+      if (spacing[index + 1] == '/') { line_comment = true; }
+      line_has_content = true;
+    } else if (character != ' ' && character != '\t' && character != '\r') {
+      line_has_content = true;
+    }
+  }
+  return count;
+}
+
 // Parse class body from the schema input; malformed input throws.
 void parse_class_body_impl(const rohit::type_check::schema_input_buffer auto& in_stream,
                            class_node* obj, std::uint32_t& id) {
@@ -2036,18 +2064,27 @@ void parse_class_body_impl(const rohit::type_check::schema_input_buffer auto& in
     throw exception::bad_class{in_stream, error_text};
   }
   ++in_stream;
-  skip_whitespace_and_comment(in_stream);
+  const std::uint8_t* preceding_end = in_stream.curr();
+  // Remember the complete declaration boundary before discarding lexical whitespace.
+  const auto skip_body_spacing = [&]() {
+    preceding_end = in_stream.curr();
+    skip_whitespace_and_comment(in_stream);
+  };
+  skip_body_spacing();
   while (*in_stream != '}') {
+    const auto blank_lines = declaration_blank_lines(std::string_view{
+        reinterpret_cast<const char*>(preceding_end),
+        static_cast<std::size_t>(in_stream.curr() - preceding_end)});
     if (next_keyword(in_stream, "arithmetic")) {
       parse_arithmetic(in_stream, *obj);
       skip_whitespace_and_comment(in_stream);
       check_and_increase(in_stream, ';');
-      skip_whitespace_and_comment(in_stream);
+      skip_body_spacing();
       continue;
     }
     if (next_keyword(in_stream, "reserve")) {
       parse_reserve(in_stream, *obj);
-      skip_whitespace_and_comment(in_stream);
+      skip_body_spacing();
       continue;
     }
     const auto lookahead = make_constant_full_stream(in_stream.curr(), in_stream.remaining_buffer());
@@ -2073,32 +2110,32 @@ void parse_class_body_impl(const rohit::type_check::schema_input_buffer auto& in
           throw exception::bad_member_spec{in_stream, "C++ additions require ordinary readonly native or external functions"};
         }
         method.cpp_prefix = std::move(prefix);
-        obj->body_order.push_back({class_body_item::kind_type::function, obj->functions.size()});
+        obj->body_order.push_back({class_body_item::kind_type::function, obj->functions.size(), blank_lines});
         obj->functions.push_back(std::move(method));
       }
-      skip_whitespace_and_comment(in_stream);
+      skip_body_spacing();
       continue;
     }
     if (construction_head(lookahead)) {
       parse_access_type_impl(in_stream);
       skip_whitespace_and_comment(in_stream);
       obj->constructions.push_back(parse_construction(in_stream, access, obj->parent_namespace, *obj));
-      skip_whitespace_and_comment(in_stream);
+      skip_body_spacing();
       continue;
     }
     if (conversion_head(lookahead)) {
       parse_access_type_impl(in_stream);
       skip_whitespace_and_comment(in_stream);
       obj->conversions.push_back(parse_conversion(in_stream, access, obj->parent_namespace));
-      skip_whitespace_and_comment(in_stream);
+      skip_body_spacing();
       continue;
     }
     if (behavior_modifier_head(lookahead, "function")) {
       parse_access_type_impl(in_stream);
       skip_whitespace_and_comment(in_stream);
-      obj->body_order.push_back({class_body_item::kind_type::function, obj->functions.size()});
+      obj->body_order.push_back({class_body_item::kind_type::function, obj->functions.size(), blank_lines});
       obj->functions.push_back(parse_function(in_stream, access, obj->parent_namespace));
-      skip_whitespace_and_comment(in_stream);
+      skip_body_spacing();
       continue;
     }
     const auto target = make_constant_full_stream(lookahead.curr(), lookahead.remaining_buffer());
@@ -2130,10 +2167,10 @@ void parse_class_body_impl(const rohit::type_check::schema_input_buffer auto& in
           check_and_increase(in_stream, ')');
           no_instance_storage = true;
         }
-        obj->body_order.push_back({class_body_item::kind_type::native_code, obj->native_blocks.size()});
+        obj->body_order.push_back({class_body_item::kind_type::native_code, obj->native_blocks.size(), blank_lines});
         obj->native_blocks.push_back(parse_native_block(in_stream, name, access));
         obj->native_blocks.back().no_instance_storage = no_instance_storage;
-        skip_whitespace_and_comment(in_stream);
+        skip_body_spacing();
         continue;
       }
     }
@@ -2158,14 +2195,14 @@ void parse_class_body_impl(const rohit::type_check::schema_input_buffer auto& in
       if (member.magic) {
         obj->magic_field = std::move(member);
       }
-      obj->body_order.push_back({class_body_item::kind_type::magic, 0});
+      obj->body_order.push_back({class_body_item::kind_type::magic, 0, blank_lines});
       --id; // Header metadata does not consume an ordinary schema field identity.
-      skip_whitespace_and_comment(in_stream);
+      skip_body_spacing();
       continue;
     }
-    obj->body_order.push_back({class_body_item::kind_type::field, obj->member_list.size()});
+    obj->body_order.push_back({class_body_item::kind_type::field, obj->member_list.size(), blank_lines});
     obj->member_list.push_back(std::move(member));
-    skip_whitespace_and_comment(in_stream);
+    skip_body_spacing();
   }
   ++in_stream;
   if (!in_stream.full() && *in_stream == ';') {

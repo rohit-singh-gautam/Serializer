@@ -16,6 +16,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <vector>
 
 namespace rohit::serializer::parser {
 // Exercise binding of an in-memory expression AST before source offsets or aliases exist.
@@ -39,6 +40,260 @@ std::string document_with(std::string_view body) {
   return "serializer version 1.6.0; class document_metrics stable_ids { "
          "public double page_width (1); public int32 page_count (2); " + std::string{body} + " }";
 }
+
+// Inspect owning declarations and the transition into generated public metadata together.
+std::string_view declaration_body(const std::string& output, std::string_view class_name) {
+  const auto declaration = "class " + std::string{class_name};
+  auto opening = output.find(declaration);
+  while (opening != std::string::npos) {
+    const auto brace = output.find('{', opening + declaration.size());
+    const auto semicolon = output.find(';', opening + declaration.size());
+    if (brace == std::string::npos) { return {}; }
+    if (semicolon < brace) {
+      opening = output.find(declaration, semicolon + 1);
+      continue;
+    }
+    const auto begin = output.find('\n', brace) + 1;
+    const auto metadata = output.find("serializer_reuses_storage", begin);
+    if (metadata == std::string::npos) { return {}; }
+    const auto end = output.rfind('\n', metadata);
+    return std::string_view{output}.substr(begin, end - begin);
+  }
+  return {};
+}
+
+// Collect standalone class access labels independently of the selected indentation profile.
+std::vector<std::string> access_labels(std::string_view body) {
+  std::istringstream input{std::string{body}};
+  std::vector<std::string> labels;
+  std::string line;
+  while (std::getline(input, line)) {
+    const auto begin = line.find_first_not_of(" \t\r");
+    if (begin == std::string::npos) { continue; }
+    const auto end = line.find_last_not_of(" \t\r");
+    const auto label = line.substr(begin, end - begin + 1);
+    if (label == "public:" || label == "protected:" || label == "private:") {
+      labels.push_back(label);
+    }
+  }
+  return labels;
+}
+
+// Inspect one unformatted companion whose outer closing brace starts at column zero.
+std::string_view companion_body(const std::string& output, std::string_view class_name) {
+  const auto opening = output.find("class " + std::string{class_name} + " ");
+  if (opening == std::string::npos) { return {}; }
+  const auto brace = output.find('{', opening);
+  if (brace == std::string::npos) { return {}; }
+  const auto end = output.find("\n};", brace);
+  if (end == std::string::npos) { return {}; }
+  return std::string_view{output}.substr(brace + 1, end - brace - 1);
+}
+}
+
+// Ordinary fields share one access section and retain only physically authored blank lines.
+TEST(behavior, cpp_field_spacing_follows_schema_source) {
+  std::string schema = R"SCHEMA(serializer version 1.6.0;
+class adjacent_fields {
+  public double first;
+  /* Empty lines inside a comment are not declaration spacing.
+
+  */
+  // A comment between neighboring declarations is not a blank line.
+  public double second;
+
+
+  public double third;
+  public double fourth; public double fifth;
+})SCHEMA";
+  constexpr std::string_view blank_group{"\n\n\n"};
+  const auto blank_group_offset = schema.find(blank_group);
+  ASSERT_NE(blank_group_offset, std::string::npos);
+  schema.replace(blank_group_offset, blank_group.size(), "\n\n  \n");
+  const std::string expected = "  double first{};\n  double second{};\n\n\n"
+      "  double third{};\n  double fourth{};\n  double fifth{};\n";
+  for (const auto line_ending : {"\n", "\r\n"}) {
+    SCOPED_TRACE(line_ending);
+    std::string source;
+    for (const auto character : schema) {
+      if (character == '\n') { source += line_ending; }
+      else { source += character; }
+    }
+    const auto parsed = parse_schema(source);
+    codec::writer::cpp_options options; options.format = false;
+    const auto output = codec::writer::cpp::generate(parsed.statements, options);
+    const auto body = declaration_body(output, "adjacent_fields");
+    ASSERT_FALSE(body.empty());
+    EXPECT_NE(body.find(expected), std::string_view::npos);
+    EXPECT_EQ(access_labels(body), (std::vector<std::string>{"public:"}));
+  }
+  const auto inline_parsed = parse_schema("serializer version 1; class inline_fields { public double first; public double second; }");
+  codec::writer::cpp_options options; options.format = false;
+  const auto inline_output = codec::writer::cpp::generate(inline_parsed.statements, options);
+  const auto inline_body = declaration_body(inline_output, "inline_fields");
+  ASSERT_FALSE(inline_body.empty());
+  EXPECT_NE(inline_body.find("  double first{};\n  double second{};\n"), std::string_view::npos);
+  EXPECT_EQ(access_labels(inline_body), (std::vector<std::string>{"public:"}));
+}
+
+// Programmatically assembled schemas without body-order metadata still share access sections.
+TEST(behavior, cpp_access_sections_without_source_order_metadata) {
+  auto parsed = parse_schema(R"SCHEMA(serializer version 1.6.0;
+class legacy_access {
+  public double first;
+  public double second;
+  private double hidden;
+  private double adjacent;
+  public double third;
+  public function double inspect() readonly;
+})SCHEMA");
+  auto& owner = static_cast<codec::class_node&>(*parsed.statements.front());
+  owner.body_order.clear();
+  codec::writer::cpp_options options; options.format = false;
+  const auto output = codec::writer::cpp::generate(parsed.statements, options);
+  const auto body = declaration_body(output, "legacy_access");
+  ASSERT_FALSE(body.empty());
+  EXPECT_EQ(access_labels(body), (std::vector<std::string>{"public:", "private:", "public:"}));
+  EXPECT_NE(body.find("  double first{};\n  double second{};\n"), std::string_view::npos);
+  EXPECT_NE(body.find("  double hidden{};\n  double adjacent{};\n"), std::string_view::npos);
+  EXPECT_LT(body.find("third{};"), body.find("inspect()"));
+}
+
+// Fields and callables share access transitions; opaque hooks require explicit restoration.
+TEST(behavior, cpp_access_sections_follow_declaration_order) {
+  const auto parsed = parse_schema(R"SCHEMA(serializer version 1.6.0;
+class ordered_access {
+  public double first;
+  public double second;
+  private double hidden;
+  private function double inspect() readonly;
+  public cpp { using alias_type = double; }
+  public double third;
+  protected double inherited;
+  public double fourth;
+})SCHEMA");
+  codec::writer::cpp_options options; options.format = false; options.rename_identifiers = false;
+  const auto output = codec::writer::cpp::generate(parsed.statements, options);
+  const auto body = declaration_body(output, "ordered_access");
+  ASSERT_FALSE(body.empty());
+  EXPECT_EQ(access_labels(body), (std::vector<std::string>{
+      "public:", "private:", "public:", "public:", "protected:", "public:"}));
+  std::size_t position{};
+  for (const auto declaration : {"first{};", "second{};", "hidden{};", "inspect()",
+      "using alias_type", "third{};", "inherited{};", "fourth{};"}) {
+    SCOPED_TRACE(declaration);
+    const auto next = body.find(declaration, position);
+    ASSERT_NE(next, std::string_view::npos);
+    position = next + std::string_view{declaration}.size();
+  }
+  EXPECT_NE(body.find("  double first{};\n  double second{};\n"), std::string_view::npos);
+}
+
+// Generated field exposures participate in the same access state as later schema declarations.
+TEST(behavior, cpp_access_sections_include_generated_exposures) {
+  const auto parsed = parse_schema(R"SCHEMA(serializer version 1.17.0;
+class exposed_access {
+  public int32 first expose readonly(public) as read_first;
+  public int32 second;
+  private int32 hidden expose readonly(public) as read_hidden;
+  public int32 third;
+  public array[2] int32 indices expose array(public);
+  public int32 fourth;
+})SCHEMA");
+  codec::writer::cpp_options options; options.format = false; options.rename_identifiers = false;
+  const auto output = codec::writer::cpp::generate(parsed.statements, options);
+  const auto body = declaration_body(output, "exposed_access");
+  ASSERT_FALSE(body.empty());
+  EXPECT_EQ(access_labels(body), (std::vector<std::string>{"public:", "private:", "public:"}));
+  EXPECT_LT(body.find("first{};"), body.find("read_first()"));
+  EXPECT_LT(body.find("read_first()"), body.find("second{};"));
+  EXPECT_LT(body.find("hidden{};"), body.find("read_hidden()"));
+  EXPECT_LT(body.find("read_hidden()"), body.find("third{};"));
+  EXPECT_LT(body.find("indices{};"), body.find("fourth{};"));
+}
+
+// View mapping and field APIs share only the access transitions selected by schema fields.
+TEST(behavior, cpp_view_access_sections_follow_field_visibility) {
+  for (const auto mode : {"readonly", "mutable"}) {
+    SCOPED_TRACE(mode);
+    const auto parsed = parse_schema("serializer version 1; class view_access view " +
+        std::string{mode} + R"SCHEMA( {
+  public int32 first;
+  public int32 second;
+  private int32 hidden;
+  private int32 adjacent;
+  public int32 final;
+})SCHEMA");
+    codec::writer::cpp_options options; options.format = false;
+    const auto output = codec::writer::cpp::generate(parsed.statements, options);
+    const auto body = companion_body(output, "view_access");
+    ASSERT_FALSE(body.empty());
+    EXPECT_EQ(access_labels(body), (std::vector<std::string>{"public:", "private:", "public:"}));
+    std::size_t position{};
+    for (const auto declaration : {"map(", "get_first()", "get_second()", "get_hidden()",
+        "get_adjacent()", "get_final()"}) {
+      SCOPED_TRACE(declaration);
+      const auto next = body.find(declaration, position);
+      ASSERT_NE(next, std::string_view::npos);
+      position = next + std::string_view{declaration}.size();
+    }
+    const bool mutable_view = std::string_view{mode} == "mutable";
+    EXPECT_EQ(body.find("set_first(") != std::string_view::npos, mutable_view);
+    EXPECT_EQ(body.find("set_final(") != std::string_view::npos, mutable_view);
+  }
+}
+
+// Authored editor methods and their external-definition contract retain one public section.
+TEST(behavior, cpp_managed_editor_access_sections_share_existing_public_apis) {
+  const auto parsed = parse_schema(R"SCHEMA(serializer version 1.6.0;
+class managed_access managed stable_ids {
+  public int32 value (1);
+  public function void update(int32 next) edit;
+  public function void clear() edit;
+})SCHEMA");
+  codec::writer::cpp_options options; options.format = false;
+  const auto output = codec::writer::cpp::generate(parsed.statements, options);
+  const auto body = companion_body(output, "managed_access_editor");
+  ASSERT_FALSE(body.empty());
+  EXPECT_EQ(access_labels(body), (std::vector<std::string>{"public:"}));
+  std::size_t position{};
+  for (const auto declaration : {"managed_access_editor(", "get_value()", "update(", "clear()",
+      "serializer_require_behavior_definitions()"}) {
+    SCOPED_TRACE(declaration);
+    const auto next = body.find(declaration, position);
+    ASSERT_NE(next, std::string_view::npos);
+    position = next + std::string_view{declaration}.size();
+  }
+}
+
+// Native class access changes must remain meaningful without rewriting access-like literal text.
+TEST(behavior, cpp_native_access_restores_following_schema_declarations) {
+  const auto parsed = parse_schema(R"SCHEMA(serializer version 1.6.0;
+class native_access {
+  public cpp {
+public:
+  using alias_type = double;
+private:
+  static constexpr auto access_text = R"access(public:
+private:)access";
+  }
+  public double visible;
+  public double adjacent;
+  private double hidden;
+})SCHEMA");
+  codec::writer::cpp_options options; options.format = false; options.rename_identifiers = false;
+  const auto output = codec::writer::cpp::generate(parsed.statements, options);
+  const auto body = declaration_body(output, "native_access");
+  ASSERT_FALSE(body.empty());
+  EXPECT_NE(body.find(R"CHECK(R"access(public:
+private:)access")CHECK"), std::string_view::npos);
+  const auto visible = body.find("  double visible{};");
+  ASSERT_NE(visible, std::string_view::npos);
+  const auto preceding_label = body.rfind("public:", visible);
+  ASSERT_NE(preceding_label, std::string_view::npos);
+  EXPECT_GT(preceding_label, body.find("static constexpr auto access_text"));
+  EXPECT_NE(body.find("  double visible{};\n  double adjacent{};\nprivate:\n  double hidden{};"),
+      std::string_view::npos);
 }
 
 // Source order includes fields, methods and opaque class hooks without consuming wire IDs.
@@ -334,6 +589,16 @@ class document stable_ids {
     method.source_path = schema_path;
     for (auto& body : method.bodies) { body.source_path = schema_path; }
   }
+  const auto field_schema = parse_schema(R"SCHEMA(serializer version 1;
+class formatted_fields {
+  public double first;
+  public double second;
+
+  public double third;
+  private double fourth;
+
+  public double fifth;
+})SCHEMA");
   for (const auto profile : {"serializer", "core", "google", "llvm", "gnu", "cert", "misra", "autosar", "qt"}) {
     SCOPED_TRACE(profile);
     codec::writer::cpp_options options; options.rename_identifiers = false; options.clang_format = formatter;
@@ -363,6 +628,29 @@ class document stable_ids {
       EXPECT_EQ(restored_path, schema_path);
     }
     EXPECT_GE(markers, 4U);
+    const auto formatted_fields = codec::writer::cpp::generate(field_schema.statements, options);
+    const auto fields_body = declaration_body(formatted_fields, "formatted_fields");
+    ASSERT_FALSE(fields_body.empty());
+    EXPECT_EQ(access_labels(fields_body), (std::vector<std::string>{"public:", "private:", "public:"}));
+    const auto first = fields_body.find("first");
+    const auto second = fields_body.find("second");
+    const auto third = fields_body.find("third");
+    const auto fourth = fields_body.find("fourth");
+    const auto fifth = fields_body.find("fifth");
+    ASSERT_LT(first, second);
+    ASSERT_LT(second, third);
+    ASSERT_NE(third, std::string_view::npos);
+    ASSERT_LT(third, fourth);
+    ASSERT_LT(fourth, fifth);
+    ASSERT_NE(fifth, std::string_view::npos);
+    const auto adjacent_gap = fields_body.substr(first, second - first);
+    const auto authored_gap = fields_body.substr(second, third - second);
+    EXPECT_EQ(std::count(adjacent_gap.begin(), adjacent_gap.end(), '\n'), 1);
+    EXPECT_EQ(std::count(authored_gap.begin(), authored_gap.end(), '\n'), 2);
+    const auto access_gap = fields_body.substr(third, fourth - third);
+    const auto authored_access_gap = fields_body.substr(fourth, fifth - fourth);
+    EXPECT_EQ(std::count(access_gap.begin(), access_gap.end(), '\n'), 2);
+    EXPECT_EQ(std::count(authored_access_gap.begin(), authored_access_gap.end(), '\n'), 3);
   }
 }
 

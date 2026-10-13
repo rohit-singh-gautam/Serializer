@@ -11,9 +11,11 @@
 namespace rohit::serializer::writer::arithmetic {
 
 // Forward one declared operation through its shared typed method; forwarding adds no runtime dispatch.
+// An optional section callback shares access changes with the containing C++ class emitter.
 inline std::string operators(const class_node& owner,
     const std::function<std::string(const type_name&)>& type,
-    const std::function<std::string(std::string_view)>& identifier) {
+    const std::function<std::string(std::string_view)>& identifier,
+    const std::function<std::string(access_type)>& cpp_access_section = {}) {
   std::string result;
   for (const auto& mapping : owner.arithmetic) {
     const auto& method = owner.functions.at(mapping.method_index);
@@ -29,7 +31,8 @@ inline std::string operators(const class_node& owner,
       arguments = "::std::move(serializer_arithmetic_rhs)";
     }
     const auto call = "this->" + identifier(method.name) + "(" + arguments + ")";
-    result += "\npublic:\n  // Apply the explicitly mapped readonly operation with its exact result type.\n"
+    result += "\n" + (cpp_access_section ? cpp_access_section(access_type::public_access) : "public:\n") +
+        "  // Apply the explicitly mapped readonly operation with its exact result type.\n"
         "  [[nodiscard]] inline " + std::string{constant ? "constexpr " : ""} +
         type(method.return_type) + " operator" + mapping.symbol + "(" + parameter +
         ") const noexcept(noexcept(" + call + ")) { return " + call + "; }\n";

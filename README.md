@@ -35,7 +35,7 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **1.22.0**. Bug fixes and minor updates
+The current compiler and runtime release is **1.22.1**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.17.0**;
@@ -48,6 +48,10 @@ version 1. Future versions require all three components; see the
 
 **Supported outputs:** C++, Java, JavaScript, TypeScript declarations, Go, C#,
 Rust, Python, Swift, Kotlin, and C. TypeScript uses the JavaScript runtime.
+
+Generated C++ retains schema declaration order, combines consecutive declarations
+with the same access, and preserves source blank-line grouping between fields. See
+[C++ output layout](docs/languages/output_configuration.md#names-compatibility-and-generated-syntax).
 
 Language `1.17.0` adds [explicit array and callable APIs](docs/schema/array_and_callable_api.md):
 `expose array(public)` selects mutable/const native C++ indexing and ranges;
@@ -515,7 +519,7 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
 Both extensions use source release version **1.1.47**, independent of compiler version
-**1.22.0**. Embedded `cpp { ... }`, `java { ... }`, and other target blocks reuse
+**1.22.1**. Embedded `cpp { ... }`, `java { ... }`, and other target blocks reuse
 available language grammars for syntax highlighting. Install the language's grammar
 provider where the editor does not bundle it; this does not add embedded IntelliSense.
 See [embedded source highlighting](docs/editors/editor_extension.md#embedded-source-highlighting)

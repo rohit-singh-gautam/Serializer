@@ -633,6 +633,7 @@ struct class_body_item {
   enum class kind_type { field, function, native_code, magic };
   kind_type kind{kind_type::field};
   std::size_t index{};
+  std::size_t blank_lines_before{}; // Source spacing only; never changes schema or wire identity.
 };
 
 // File-level target hooks are emitted before generated namespaces and declarations.

@@ -2,7 +2,7 @@
 
 [Documentation index](../README.md) · [Application and build guides](README.md)
 
-Compiler/runtime **1.22.0** supports language **1.17.0**.
+Compiler/runtime **1.22.1** supports language **1.17.0**.
 Use [array and callable APIs](../schema/array_and_callable_api.md) to select
 ordinary array storage, exact const indexing policy and explicit axes.
 Preserve native borrow lifetimes, field defaults, direct copy-only binding
@@ -660,6 +660,20 @@ to select and track it directly. See the
 The default profile converts names such as `personID` to `person_id` while
 retaining their wire spellings. Use `--cpp.naming preserve` when retaining an
 existing schema-derived C++ API is required.
+
+### Generated C++ declaration layout
+
+C++ declarations remain in schema order. Consecutive generated declarations with
+the same access share one section; `public:`, `protected:`, or `private:` is emitted
+when the next declaration needs a different access level. Generated helpers keep
+their required access, and access is restored after opaque native hooks.
+
+Blank-line grouping between ordinary fields follows the schema source. Place fields
+on adjacent source lines for a compact list, or separate logical field groups with
+a blank line. Regenerate the header to apply this layout; field names, IDs, defaults,
+access, and serialized bytes retain their existing contracts. See
+[output configuration](../languages/output_configuration.md#names-compatibility-and-generated-syntax)
+for formatter profiles and custom rules.
 
 ### Generate several configurations from one parse
 

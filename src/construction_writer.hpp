@@ -232,6 +232,7 @@ inline std::string transfer_owned(std::string value, bool direct_members, std::s
 }
 
 // Emit typed value factories; default decoding continues to construct ordinary schema defaults.
+// An optional section callback shares access changes with the containing C++ class emitter.
 inline std::string factories(const class_node& owner, std::string_view owner_name,
     std::string_view language, const std::function<std::string(const type_name&)>& type,
     const std::function<std::string(std::string_view, access_type)>& identifier,
@@ -239,7 +240,8 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
     const std::function<std::string(std::string_view)>& callable_identifier = {},
     const std::function<std::string(const behavior_expression&, const std::vector<std::string>&)>& call = {},
     const std::function<std::string(const behavior_expression&,
-        const std::function<std::string(std::string_view)>&)>& checked_expression = {}) {
+        const std::function<std::string(std::string_view)>&)>& checked_expression = {},
+    const std::function<std::string(access_type)>& cpp_access_section = {}) {
   validate_extended_backend(owner, language);
   validate_names(owner, owner_name, identifier, callable_identifier, language);
   std::string output;
@@ -251,6 +253,10 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
       default_record_parameters_support(owner, default_record_qualifier::constant_evaluation);
   const bool nothrow_owner = cpp && nothrow_construction(owner) &&
       default_record_parameters_support(owner, default_record_qualifier::nonthrowing);
+  // Share the owning emitter's current access while retaining standalone fragment output.
+  const auto access_section = [&](access_type access, std::string_view fallback) {
+    return cpp_access_section ? cpp_access_section(access) : std::string{fallback};
+  };
   // Calls require ordered statement evaluation; retain existing lowering for other bindings.
   const auto expression_text = [&](const behavior_expression& expression,
       const std::function<std::string(std::string_view)>& symbol,
@@ -438,7 +444,8 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
     if (cpp && (factory.declaration_only || factory.defaulted)) {
       explicit_constructor = true;
       authored_default_constructor = authored_default_constructor || factory.parameters.empty();
-      output += std::string{visibility} + ":\n  // Declare a constructor supplied by the C++ host.\n" +
+      output += access_section(factory.access, std::string{visibility} + ":\n") +
+          "  // Declare a constructor supplied by the C++ host.\n" +
           template_declaration + "  " + (factory.explicit_constructor ? "explicit " : "") +
           (factory.defaulted ? constant : factory.cpp_prefix +
               (factory.cpp_prefix.empty() ? "" : " ")) + name + "(" + constructor_parameters + ")" +
@@ -488,7 +495,8 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
           delegated_arguments += initial(parameter_default(target.parameters[index]));
         }
       }
-      output += std::string{visibility} + ":\n  // Delegate once to the selected owning constructor and its authoring hooks.\n" +
+      output += access_section(factory.access, std::string{visibility} + ":\n") +
+          "  // Delegate once to the selected owning constructor and its authoring hooks.\n" +
           constexpr_comment + template_declaration + "  " + (factory.explicit_constructor ? "explicit " : "") +
           constant + name + "(" + constructor_parameters + ")" + guard_clause + " : " + name + "(" + delegated_arguments + ") {}\n";
     } else if (cpp && (factory.constructor || direct_members)) {
@@ -496,9 +504,12 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
       authored_default_constructor = authored_default_constructor || (factory.constructor && factory.parameters.empty());
       if (!factory.constructor) {
         generated_tags.insert(factory_tag);
-        output += "private:\n  struct " + factory_tag + " {};\n";
+        output += access_section(access_type::private_access, "private:\n") +
+            "  struct " + factory_tag + " {};\n";
       }
-      output += std::string{factory.constructor ? visibility : "private "} + ":\n  // Construct owned fields from checked schema bindings.\n" + constexpr_comment + template_declaration + "  " +
+      output += access_section(factory.constructor ? factory.access : access_type::private_access,
+          std::string{factory.constructor ? visibility : "private "} + ":\n") +
+          "  // Construct owned fields from checked schema bindings.\n" + constexpr_comment + template_declaration + "  " +
           (factory.explicit_constructor ? "explicit " : "") + constant + name + "(" +
           (factory.constructor ? constructor_parameters : factory_tag +
               (parameters.empty() ? "" : ", " + constructor_parameters)) + ")" + exception + guard_clause;
@@ -575,7 +586,7 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
         kotlin ? "  // Construct a fresh owned schema value.\n  @Suppress(\"UNUSED_PARAMETER\")\n  " + std::string{visibility} + "fun " + id + "(" + parameters + "): " + name + " {\n" :
         typescript ? "  " + std::string{visibility} + "static " + id + "(" + parameters + "): " + name + ";\n" :
         js ? "  // Construct a fresh owned schema value.\n  static " + id + "(" + parameters + ") {\n" :
-        cpp ? std::string{visibility} + ":\n  // Construct a fresh owned schema value.\n" + constexpr_comment + template_declaration + "  [[nodiscard]] static " + constant + name + " " + id + "(" + parameters + ")" + exception + guard_clause + " {\n" :
+        cpp ? access_section(factory.access, std::string{visibility} + ":\n") + "  // Construct a fresh owned schema value.\n" + constexpr_comment + template_declaration + "  [[nodiscard]] static " + constant + name + " " + id + "(" + parameters + ")" + exception + guard_clause + " {\n" :
         "  // Construct a fresh owned schema value.\n  " + std::string{visibility} + "static " + name + " " + id + "(" + parameters + ") {\n";
     if (typescript) {
       for (std::size_t arity{}; arity < factory.parameters.size(); ++arity) {
@@ -675,12 +686,17 @@ inline std::string factories(const class_node& owner, std::string_view owner_nam
           go ? "// Construct with fresh defaults for omitted trailing arguments.\nfunc " + go_owner + "_" + wrapper + "(" + declarations + ") *" + name + " { return " + target + "(" + inputs + ") }\n" :
           swift ? "  /// Construct with fresh defaults for omitted trailing arguments.\n  " + std::string{visibility} + "static func " + wrapper + "(" + declarations + ") -> " + name + " { return " + target + "(" + inputs + ") }\n" :
           kotlin ? "  // Construct with fresh defaults for omitted trailing arguments.\n  " + std::string{visibility} + "fun " + wrapper + "(" + declarations + "): " + name + " { return " + target + "(" + inputs + ") }\n" :
-          cpp ? std::string{visibility} + ":\n  // Construct with fresh defaults for omitted trailing arguments.\n  [[nodiscard]] static " + constant + name + " " + wrapper + "(" + declarations + ")" + exception + guard_clause + " { return " + target + "(" + inputs + "); }\n" :
+          cpp ? access_section(factory.access, std::string{visibility} + ":\n") + "  // Construct with fresh defaults for omitted trailing arguments.\n  [[nodiscard]] static " + constant + name + " " + wrapper + "(" + declarations + ")" + exception + guard_clause + " { return " + target + "(" + inputs + "); }\n" :
           js ? "  // Construct with fresh defaults for omitted trailing arguments.\n  static " + wrapper + "(" + declarations + ") { return " + target + "(" + inputs + "); }\n" :
           "  // Construct with fresh defaults for omitted trailing arguments.\n  " + std::string{visibility} + "static " + name + " " + wrapper + "(" + declarations + ") { return " + target + "(" + inputs + "); }\n";
     }
   }
-  if (explicit_constructor && !authored_default_constructor) { output += "public:\n  // Preserve default construction for codecs and containers.\n  " + std::string{constexpr_owner ? "constexpr " : ""} + name + "()" + std::string{nothrow_owner ? " noexcept" : ""} + " = default;\n"; }
+  if (explicit_constructor && !authored_default_constructor) {
+    output += access_section(access_type::public_access, "public:\n") +
+        "  // Preserve default construction for codecs and containers.\n  " +
+        std::string{constexpr_owner ? "constexpr " : ""} + name + "()" +
+        std::string{nothrow_owner ? " noexcept" : ""} + " = default;\n";
+  }
   return output;
 }
 

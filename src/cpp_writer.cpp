@@ -290,7 +290,7 @@ public:
 
   // Compare selected schema values without including wire headers or hidden runtime metadata.
   void write_comparisons(rohit::type_check::output_buffer auto& output,
-                         const class_node* object) {
+                         const class_node* object, access_type& current_access) {
     const auto* comparison_settings = comparison::find(*object, class_comparisons);
     if (!comparison_settings || (!comparison_settings->equality && !comparison_settings->ordering)) {
       return;
@@ -373,7 +373,7 @@ public:
       return condition.empty() ? std::string{"true"} : condition;
     };
     const bool generic = object->type == object_type::generic_definition;
-    output.write("\npublic:\n");
+    output.write('\n', access_section(access_type::public_access, current_access));
     if (comparison_settings->equality) {
       output.write("  // Test memberwise equality using the configured schema field selection.\n"
                    "  [[nodiscard]] constexpr bool operator==(const ", self, "& ", other, ") const"
@@ -749,6 +749,14 @@ public:
     }
   }
 
+  // Share each class's effective visibility without moving any declarations between sections.
+  std::string access_section(access_type requested, access_type& current_access) {
+    if (requested == current_access) { return {}; }
+    current_access = requested;
+    return requested == access_type::private_access ? "private:\n" :
+        requested == access_type::protected_access ? "protected:\n" : "public:\n";
+  }
+
   // Emit C++ parent list for the parsed schema.
   void write_parent_list(rohit::type_check::output_buffer auto& out_stream,
                          const std::vector<parent>& parents) {
@@ -784,7 +792,7 @@ public:
   // Emit a readonly free function or one method on an owning/editor receiver.
   void write_behavior_method(rohit::type_check::output_buffer auto& output, const class_node* owner,
                              const function_declaration& method, bool editor_receiver = false,
-                             bool declaration_only = false) {
+                             bool declaration_only = false, access_type* current_access = nullptr) {
     if (method.dispatch == function_declaration::dispatch_type::abstract_method) { return; }
     if (method.guard && method.guard->available == false) { return; }
     const auto* body = behavior::native_body(method, "cpp");
@@ -796,8 +804,9 @@ public:
     }
     if (!declaration_only) { output.write(behavior::source_marker(method, "cpp")); }
     if (owner) {
-      write_access_type(output, method.access);
-      output.write(":\n  ");
+      if (current_access) { output.write(access_section(method.access, *current_access)); }
+      else { write_access_type(output, method.access); output.write(":\n"); }
+      output.write("  ");
     }
     if (!method.generic_parameters.empty()) {
       construction_declaration inputs;
@@ -939,7 +948,7 @@ public:
 
   // Explicit qualification retains references to every required external definition, even when unused.
   void write_behavior_contract(rohit::type_check::output_buffer auto& output, const class_node* owner,
-                               bool editor_receiver = false) {
+                               bool editor_receiver = false, access_type* current_access = nullptr) {
     std::vector<const function_declaration*> required;
     for (const auto& method : owner->functions) {
       if (method.guard && method.guard->available == false) { continue; }
@@ -951,7 +960,8 @@ public:
       required.push_back(&method);
     }
     if (required.empty()) { return; }
-    output.write("public:\n  ", ::std::string_view{editor_receiver ? "" : "static "},
+    output.write(current_access ? access_section(access_type::public_access, *current_access) : "public:\n",
+        "  ", ::std::string_view{editor_receiver ? "" : "static "},
         "void serializer_require_behavior_definitions()",
         ::std::string_view{editor_receiver ? " const requires (!Access::is_runtime_access)" : ""}, " {\n");
     if (editor_receiver) {
@@ -984,31 +994,36 @@ public:
   }
 
   // Preserve authored field, method and native declaration order without changing wire order.
-  void write_ordered_body(rohit::type_check::output_buffer auto& output, const class_node* object) {
+  void write_ordered_body(rohit::type_check::output_buffer auto& output, const class_node* object,
+                          access_type& current_access) {
     behavior::require_native_names(*object, "cpp", rename_behavior_identifiers);
     if (object->body_order.empty()) {
-      write_member_list(output, object->member_list, *object);
-      for (const auto& method : object->functions) { write_behavior_method(output, object, method); }
+      for (const auto& field : object->member_list) { write_member(output, field, *object, current_access); }
+      for (const auto& method : object->functions) {
+        write_behavior_method(output, object, method, false, false, &current_access);
+      }
       return;
     }
     for (const auto& item : object->body_order) {
       switch (item.kind) {
       case class_body_item::kind_type::field: {
         const auto& value = object->member_list.at(item.index);
-        write_access_type(output, value.access);
-        output.write(":\n");
-        write_member_list(output, std::vector<member>{value}, *object);
+        if (!value.wire_only) { output.write(std::string(item.blank_lines_before, '\n')); }
+        write_member(output, value, *object, current_access);
         break;
       }
       case class_body_item::kind_type::function:
-        write_behavior_method(output, object, object->functions.at(item.index));
+        output.write(std::string(item.blank_lines_before, '\n'));
+        write_behavior_method(output, object, object->functions.at(item.index), false, false, &current_access);
         break;
       case class_body_item::kind_type::native_code: {
         const auto& code = object->native_blocks.at(item.index);
         if (code.language == "cpp") {
-          write_access_type(output, code.access);
-          output.write(":\n", behavior::source_marker(code, "cpp"), "// clang-format off\n",
-              behavior::line_directive(code, "cpp"), code.text, behavior::reset_line("cpp"), "// clang-format on\nprivate:\n");
+          output.write(std::string(item.blank_lines_before, '\n'), access_section(code.access, current_access),
+              behavior::source_marker(code, "cpp"), "// clang-format off\n",
+              behavior::line_directive(code, "cpp"), code.text, behavior::reset_line("cpp"), "// clang-format on\n");
+          // Opaque hooks can change class access through labels or macros; restore it explicitly.
+          current_access = access_type::error;
         }
         break;
       }
@@ -1029,56 +1044,47 @@ public:
     return naming::default_value(field);
   }
 
-  void write_member_list(rohit::type_check::output_buffer auto& out_stream,
-                         const std::vector<member>& members, const class_node& object) {
-    access_type last_access{access_type::private_access};
-
-    for (const auto& member : members) {
-      if (member.wire_only) { continue; }
-      if (member.access != last_access) {
-        out_stream.write('\n');
-        write_access_type(out_stream, member.access);
-        out_stream.write(":\n");
-        last_access = member.access;
-      }
-      auto support = get_cpp_type_support(member, object);
-      if (!support.empty()) {
-        out_stream.write(support, '\n');
-      }
-      if (member.empty_layout) {
-        out_stream.write("  static_assert(std::is_empty_v<", get_cpp_type(member), ">, \"layout(empty) requires a stateless type\");\n"
-                         "#if defined(_MSC_VER)\n  [[msvc::no_unique_address]]\n#else\n  [[no_unique_address]]\n#endif\n");
-      }
-      out_stream.write("  ", get_cpp_type(member), ' ', member_name(member), "{");
-      if (!member.default_value.empty() || !member.default_factory.empty()) {
-        // Initialize the backing array explicitly so generic elements may also be aggregates.
-        const bool aggregate_elements = member.inferred_extent && !member.initializer;
-        if (aggregate_elements) { out_stream.write("{"); }
-        out_stream.write(default_value(member));
-        if (aggregate_elements) { out_stream.write("}"); }
-      }
-      out_stream.write("};\n");
-      if (!member.readonly_getter.empty()) {
-        out_stream.write('\n');
-        write_access_type(out_stream, member.readonly_getter_access);
-        out_stream.write(":\n  // Borrow this field from a live lvalue owner; its lifetime bounds the reference.\n",
-            "  constexpr inline const ", get_cpp_type(member), "& ",
-            function_name(member.readonly_getter), "() const & noexcept { return this->",
-            member_name(member), "; }\n",
-            "  // Reject temporary owners before a borrowed field reference can escape.\n",
-            "  const ", get_cpp_type(member), "& ", function_name(member.readonly_getter),
-            "() const && = delete;\n");
-        last_access = member.readonly_getter_access;
-      }
-      if (member.array_exposure) {
-        const auto& element = member.modifier == member::modifier_type::array ?
-            member.type_name_list.front() : member.type_name_list.front().arguments.front();
-        out_stream.write(array_exposure::methods(member, get_cpp_type(member), generic_default(element),
-            member_name(member), behavior::constexpr_type(object, element),
-            [&](const auto& expression) { return dimension_default(expression); },
-            [&](auto name) { return function_name(name); }));
-        last_access = member.array_exposure->access;
-      }
+  // Emit one field and its companion APIs while retaining the containing class's access state.
+  void write_member(rohit::type_check::output_buffer auto& out_stream,
+                    const member& member, const class_node& object, access_type& current_access) {
+    if (member.wire_only) { return; }
+    out_stream.write(access_section(member.access, current_access));
+    auto support = get_cpp_type_support(member, object);
+    if (!support.empty()) {
+      out_stream.write(support, '\n');
+    }
+    if (member.empty_layout) {
+      out_stream.write("  static_assert(std::is_empty_v<", get_cpp_type(member), ">, \"layout(empty) requires a stateless type\");\n"
+                       "#if defined(_MSC_VER)\n  [[msvc::no_unique_address]]\n#else\n  [[no_unique_address]]\n#endif\n");
+    }
+    out_stream.write("  ", get_cpp_type(member), ' ', member_name(member), "{");
+    if (!member.default_value.empty() || !member.default_factory.empty()) {
+      // Initialize the backing array explicitly so generic elements may also be aggregates.
+      const bool aggregate_elements = member.inferred_extent && !member.initializer;
+      if (aggregate_elements) { out_stream.write("{"); }
+      out_stream.write(default_value(member));
+      if (aggregate_elements) { out_stream.write("}"); }
+    }
+    out_stream.write("};\n");
+    if (!member.readonly_getter.empty()) {
+      out_stream.write('\n');
+      out_stream.write(access_section(member.readonly_getter_access, current_access),
+          "  // Borrow this field from a live lvalue owner; its lifetime bounds the reference.\n",
+          "  constexpr inline const ", get_cpp_type(member), "& ",
+          function_name(member.readonly_getter), "() const & noexcept { return this->",
+          member_name(member), "; }\n",
+          "  // Reject temporary owners before a borrowed field reference can escape.\n",
+          "  const ", get_cpp_type(member), "& ", function_name(member.readonly_getter),
+          "() const && = delete;\n");
+    }
+    if (member.array_exposure) {
+      const auto& element = member.modifier == member::modifier_type::array ?
+          member.type_name_list.front() : member.type_name_list.front().arguments.front();
+      out_stream.write(array_exposure::methods(member, get_cpp_type(member), generic_default(element),
+          member_name(member), behavior::constexpr_type(object, element),
+          [&](const auto& expression) { return dimension_default(expression); },
+          [&](auto name) { return function_name(name); },
+          [&](auto access) { return access_section(access, current_access); }));
     }
   }
 
@@ -2614,9 +2620,9 @@ public:
 
   // Emit a constant-offset getter; access follows the schema field or parent's visibility.
   void write_view_getter(rohit::type_check::output_buffer auto& output, const std::string& name,
-                         std::size_t index, access_type access) {
-    write_access_type(output, access);
-    output.write(":\n  // Read this field or borrow its nested view from the mapped buffer.\n"
+                         std::size_t index, access_type access, access_type& current_access) {
+    output.write(access_section(access, current_access),
+                 "  // Read this field or borrow its nested view from the mapped buffer.\n"
                  "  [[nodiscard]] auto ",
                  function_name(name),
                  "() const {\n"
@@ -2686,12 +2692,13 @@ public:
     output.write(
         (std::string{"    if ("} + local_name("offsets") + ") { " + local_name("offsets") + "["),
         count, (std::string{"] = "} + local_name("scanner") + ".position(); }\n  }\n"));
+    auto current_access = access_type::public_access;
     index = 0;
     for (const auto& parent : obj->parents) {
-      write_view_getter(output, "get_base_" + std::to_string(parent.id), index++, parent.access);
+      write_view_getter(output, "get_base_" + std::to_string(parent.id), index++, parent.access, current_access);
     }
     for (const auto& field : obj->member_list) {
-      write_view_getter(output, "get_" + field.name, index, field.access);
+      write_view_getter(output, "get_" + field.name, index, field.access, current_access);
       if (field.modifier == member::modifier_type::variant) {
         output.write("  enum class ", union_enum_name(field), " {\n");
         for (const auto& alternative : field.type_name_list) {
@@ -2758,11 +2765,11 @@ public:
     }
 
     out_stream.write(" {\n");
+    auto current_access = access_type::private_access;
+    const auto cpp_access_section = [&](auto access) { return access_section(access, current_access); };
     managed_.write_access_friends(out_stream, obj);
     if (obj->has_magic()) {
-      out_stream.write(::std::string_view{obj->magic_access == access_type::public_access ? "public:\n" :
-                       obj->magic_access == access_type::protected_access ? "protected:\n" :
-                                                                          "private:\n"},
+      out_stream.write(cpp_access_section(obj->magic_access),
                        "  // Fixed schema-owned header");
       if (!obj->magic_field) {
         out_stream.write(" \"");
@@ -2794,7 +2801,7 @@ public:
         }
       }
     }
-    write_ordered_body(out_stream, obj);
+    write_ordered_body(out_stream, obj, current_access);
     out_stream.write(construction::factories(*obj, type_name(obj->name), "cpp",
         [&](const auto& value) { return generic_default(value); },
         [&](auto name, auto) { return field_name(name); },
@@ -2811,24 +2818,25 @@ public:
           }
           return "([&]() { " + bindings + "return " + readonly_call(obj, node, forwarded) + "; }())";
         },
-        [&](const auto& expression, const auto& symbol) { return construction_expression(obj, expression, symbol); }));
+        [&](const auto& expression, const auto& symbol) { return construction_expression(obj, expression, symbol); },
+        cpp_access_section));
     if (emission_only && !obj->conversions.empty()) {
       throw std::invalid_argument{"Borrowed emission models cannot expose owning conversions"};
     }
     out_stream.write(conversion::methods(*obj, type_name(obj->name), "cpp",
         [&](const auto& value) { return generic_default(value); },
         [&](auto name, auto) { return field_name(name); },
-        [&](auto name, auto) { return function_name(name); }));
-    write_behavior_contract(out_stream, obj);
+        [&](auto name, auto) { return function_name(name); }, cpp_access_section));
+    write_behavior_contract(out_stream, obj, false, &current_access);
     if (emission_only && !obj->arithmetic.empty()) {
       throw std::invalid_argument{"Borrowed emission models cannot expose owning arithmetic"};
     }
     out_stream.write(arithmetic::operators(*obj,
         [&](const auto& value) { return generic_default(value); },
-        [&](auto name) { return function_name(name); }));
-    write_comparisons(out_stream, obj);
+        [&](auto name) { return function_name(name); }, cpp_access_section));
+    write_comparisons(out_stream, obj, current_access);
 
-    out_stream.write("\npublic:\n"
+    out_stream.write('\n', cpp_access_section(access_type::public_access),
                      "  static constexpr bool serializer_reuses_storage = ",
                      std::string_view{emission_only ? "false" : "true"}, ";\n\n");
     if (emission_only) {

@@ -132,6 +132,15 @@ parents, nested types, maps, union members/discriminators, and view accessors us
 the same naming policy. The parsed schema is not mutated, so it can be emitted
 under multiple profiles in the same process.
 
+Generated C++ declarations retain schema order. Consecutive declarations with the
+same access share one section, and the writer emits `public:`, `protected:`, or
+`private:` when access changes. Generated helpers retain their required access;
+opaque native hooks require access restoration because their contents can change
+the current section. Blank-line grouping between ordinary fields follows the
+schema source rather than adding a separator after every field. This applies to
+the emitted source before formatting. Built-in profiles leave spacing around access
+labels intact; custom formatter rules can adjust whitespace and empty-line limits.
+
 **Wire names stay unchanged.** For `public uint32 accountID (2);`, Serializer emits
 the C++ member `account_id`, Google emits `account_id_`, and Qt emits `accountId`.
 All three still encode the key `accountID`. Explicit display names, field IDs,

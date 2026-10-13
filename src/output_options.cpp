@@ -447,19 +447,21 @@ output_options read_output_options(const std::filesystem::path& file) {
 
 // Broad design/security guides inherit Serializer's explicit layout; they prescribe no one layout.
 std::string cpp_format_style(coding_standard standard) {
+  const std::string access_spacing =
+      "EmptyLineBeforeAccessModifier: Leave\nEmptyLineAfterAccessModifier: Leave\n";
   switch (standard) {
   case coding_standard::google:
-    return "BasedOnStyle: Google\nLineEnding: CRLF\n";
+    return "BasedOnStyle: Google\nLineEnding: CRLF\n" + access_spacing;
   case coding_standard::llvm:
-    return "BasedOnStyle: LLVM\nLineEnding: CRLF\n";
+    return "BasedOnStyle: LLVM\nLineEnding: CRLF\n" + access_spacing;
   case coding_standard::gnu:
-    return "BasedOnStyle: GNU\nLineEnding: CRLF\n";
+    return "BasedOnStyle: GNU\nLineEnding: CRLF\n" + access_spacing;
   case coding_standard::qt:
     return "BasedOnStyle: LLVM\nIndentWidth: 4\nColumnLimit: 100\nUseTab: Never\n"
            "BreakBeforeBraces: Custom\nBraceWrapping:\n  AfterClass: true\n  AfterFunction: true\n"
            "PointerAlignment: Right\nReferenceAlignment: Right\nDerivePointerAlignment: false\n"
            "BreakBeforeBinaryOperators: All\nAllowShortFunctionsOnASingleLine: Empty\n"
-           "AllowShortIfStatementsOnASingleLine: Never\nLineEnding: CRLF\n";
+           "AllowShortIfStatementsOnASingleLine: Never\nLineEnding: CRLF\n" + access_spacing;
   case coding_standard::serializer:
   case coding_standard::core:
   case coding_standard::cert:
@@ -470,7 +472,7 @@ std::string cpp_format_style(coding_standard standard) {
            "PointerAlignment: Left\nReferenceAlignment: Left\nDerivePointerAlignment: false\n"
            "AllowShortFunctionsOnASingleLine: Empty\nAllowShortIfStatementsOnASingleLine: Never\n"
            "AllowShortLoopsOnASingleLine: false\nInsertBraces: true\nSortIncludes: CaseSensitive\n"
-           "IncludeBlocks: Preserve\nReflowComments: false\nLineEnding: CRLF\n";
+           "IncludeBlocks: Preserve\nReflowComments: false\nLineEnding: CRLF\n" + access_spacing;
   }
   throw std::invalid_argument{"Unknown C++ coding standard"};
 }

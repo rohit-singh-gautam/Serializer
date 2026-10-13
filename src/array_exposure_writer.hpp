@@ -11,11 +11,13 @@
 namespace rohit::serializer::writer::array_exposure {
 
 // Forward native access without copies; logical helpers additionally check every coordinate before flattening.
+// An optional section callback shares access changes with the containing C++ class emitter.
 inline std::string methods(const member& field, std::string_view storage_type,
     std::string_view element_type, std::string_view field_name,
     bool value_constexpr,
     const std::function<std::string(const dimension_expression&)>& dimension,
-    const std::function<std::string(std::string_view)>& callable) {
+    const std::function<std::string(std::string_view)>& callable,
+    const std::function<std::string(access_type)>& cpp_access_section = {}) {
   if (!field.array_exposure) { return {}; }
   const auto& options = *field.array_exposure;
   const std::string target = "this->" + std::string{field_name};
@@ -27,7 +29,8 @@ inline std::string methods(const member& field, std::string_view storage_type,
   const auto constant_qualifier = !options.const_value || value_constexpr ? "constexpr " : "";
   const auto visibility = options.access == access_type::public_access ? "public" :
       options.access == access_type::protected_access ? "protected" : "private";
-  std::string output = "\n" + std::string{visibility} + ":\n"
+  std::string output = "\n" + (cpp_access_section ? cpp_access_section(options.access) :
+      std::string{visibility} + ":\n") +
       "  // Borrow original storage; the owner must outlive references, pointers and iterators.\n";
   if (field.extent_expression.empty()) {
     // vector<bool> has no contiguous data operation; no reference/proxy approximation is permitted.

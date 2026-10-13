@@ -42,7 +42,7 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
-Compiler/runtime 1.22.0 supports schema language 1.17.0. For new integrations,
+Compiler/runtime 1.22.1 supports schema language 1.17.0. For new integrations,
 review [derived wire sizes](../../../docs/schema/derived_sizes.md),
 [explicit value conversions](../../../docs/schema/conversions.md), and
 [stateless generic constraints](../../../docs/schema/generics.md#stateless-type-constraints).
@@ -780,7 +780,7 @@ feature as a prerequisite without the user's request.
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
   remains available through `parser::parse(input)`. Schema language version 1.17.0 is
-  independent of compiler release 1.22.0 and wire protocols. Bug fixes and minor
+  independent of compiler release 1.22.1 and wire protocols. Bug fixes and minor
   updates increment the patch number; new features increment the minor number.
   Minor and patch releases preserve full compatibility. Developers change the
   major number manually, with best-effort compatibility across major releases.
@@ -1283,6 +1283,13 @@ their original spelling. Resolve generated naming collisions; do not silently
 change wire names to fix a C++ naming problem. Enum defaults referring to declared
 values are translated; opaque C++ default expressions require `naming = preserve`
 or an explicitly chosen literal/default change.
+
+Regenerate C++ headers with this compiler to combine consecutive declarations with
+the same access while retaining schema declaration order. Preserve intentional
+blank lines in the schema between fields; adjacent fields generate compact lists.
+Opaque native hooks still require generated access restoration. See
+[C++ output layout](../../../docs/languages/output_configuration.md#names-compatibility-and-generated-syntax)
+and [usage](../../../docs/guides/usage.md#generated-c-declaration-layout).
 
 Formatting requires clang-format 19+ at generation time. Repository test/example
 builds detect a suitable host tool through CMake's program search and, on Windows,

@@ -12,7 +12,7 @@ in their guide.
 
 [Back to the project overview](../../README.md)
 
-Current compiler/runtime **1.22.0** supports language **1.17.0** and includes
+Current compiler/runtime **1.22.1** supports language **1.17.0** and includes
 `constexpr` ordinary C++ codec templates and a native positional/integer-key
 scalar decoder subset for constexpr-safe typed streams. Eligible checked
 arithmetic and dotted-value construction/conversions also constant-evaluate.
@@ -282,7 +282,7 @@ Namespace scopes are reused during parsing; duplicate types and namespace/type c
 are rejected. See [schema includes](../guides/usage.md#share-declarations-with-includes) and the
 [paired C++/Java examples](../../example/includes/README.md). Quoted defaults preserve
 literal spaces, for example `public string label { "schema default" };`; escaping the
-space is unnecessary. Run `serializer --version` for compiler version **1.22.0** and
+space is unnecessary. Run `serializer --version` for compiler version **1.22.1** and
 supported schema versions. See [command-line options](../guides/command_line.md) for
 multi-language generation and overrides.
 

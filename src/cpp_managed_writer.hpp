@@ -413,10 +413,12 @@ class managed_writer {
   void write_editor(auto& output, const class_node* source) {
     open_managed_namespace(output, source);
     const auto name = type_name(source->name + "_editor");
+    auto current_access = access_type::private_access;
     write_managed_text(
         output, "template <typename Access> class ", name,
         " {\n  Access access_;\n"
-        "  using payload_type = typename Access::value_type;\npublic:\n"
+        "  using payload_type = typename Access::value_type;\n",
+        writer_.access_section(access_type::public_access, current_access),
         "  // Bind generated operations to one checked transaction path.\n  explicit ",
         name,
         "(Access access) : access_{::std::move(access)} {}\n"
@@ -536,10 +538,10 @@ class managed_writer {
     }
     for (const auto& method : source->functions) {
       if (method.effect == function_declaration::effect_type::edit) {
-        writer_.write_behavior_method(output, source, method, true);
+        writer_.write_behavior_method(output, source, method, true, false, &current_access);
       }
     }
-    writer_.write_behavior_contract(output, source, true);
+    writer_.write_behavior_contract(output, source, true, &current_access);
     write_managed_text(output, "};\n");
     close_managed_namespace(output, source);
   }

@@ -34,10 +34,12 @@ inline void validate_names(const class_node& owner, std::string_view owner_name,
 }
 
 // Emit explicit independent value conversion methods; C publishes a candidate only after success.
+// An optional section callback shares access changes with the containing C++ class emitter.
 inline std::string methods(const class_node& owner, std::string_view owner_name,
     std::string_view language, const std::function<std::string(const type_name&)>& type,
     const std::function<std::string(std::string_view, access_type)>& field,
-    const std::function<std::string(std::string_view, access_type)>& callable = {}) {
+    const std::function<std::string(std::string_view, access_type)>& callable = {},
+    const std::function<std::string(access_type)>& cpp_access_section = {}) {
   if (owner.conversions.empty()) { return {}; }
   const auto function = callable ? callable : field;
   validate_names(owner, owner_name, field, function);
@@ -68,7 +70,10 @@ inline std::string methods(const class_node& owner, std::string_view owner_name,
           target + " " + result_type + ";\n/* Release an initialized conversion result. */\nstatic inline void " +
           result_type + "_free(" + result_type + "* value) { " + target + "_free(value); }\n";
     }
-    if (cpp) { output += std::string{visibility}.substr(0, visibility.size() - 1) + ":\n"; }
+    if (cpp) {
+      output += cpp_access_section ? cpp_access_section(method.access) :
+          std::string{visibility}.substr(0, visibility.size() - 1) + ":\n";
+    }
     output += python ? "  def " + name + "(self) -> " + target + ":\n" :
         cpp ? "  // Copy public projections into fresh independent target defaults.\n  [[nodiscard]] " + std::string{constant ? "constexpr " : ""} + target + " " + name + "() const" + std::string{nothrow ? " noexcept" : ""} + " {\n" :
         c ? "/* Copy borrowed source into initialized/zeroed result. Failure preserves both; ownership must be disjoint. */\nstatic inline srl_status " + std::string{owner_name} + "_" + name + "(" + target + "* result, const " + std::string{owner_name} + "* source) {\n" :
