@@ -216,6 +216,14 @@
   syntax, generators, naming profiles, and supported languages. Review both
   extensions' behavior and documentation whenever those change;
   update, rebuild, validate, and install the current local package when requested.
+- Keep the Visual Studio [Marketplace overview](editors/visual_studio/marketplace_overview.md)
+  and the VS Code [Marketplace README](editors/vscode/README.md) current in the
+  same change as affected extension features, schema language support, generated
+  output layouts, prerequisites, limitations, and release metadata. Review these
+  listing payloads alongside both extension READMEs and changelogs; updating a
+  README alone does not update the separate Visual Studio overview. Keep local
+  package verification distinct from publication; building packages or editing
+  these files does not update the live Marketplace listings.
 - All supported navigation must work consistently. Treat broken declaration,
   definition, include, and generated-output navigation as regressions. Verify
   qualified names, cursor/selection boundaries, transitive includes, unsaved

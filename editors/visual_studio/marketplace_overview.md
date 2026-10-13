@@ -7,6 +7,11 @@ and existing generated code in **Visual Studio 2022 and Visual Studio 2026 on
 Windows x64**. It provides syntax highlighting, editing assistance, and native
 navigation for projects using Serializer — State Framework.
 
+The current source release is **2.0.0**, supporting schema language **1.17.0**
+and navigation for Serializer **2.0.0**'s default separate C++ generated headers.
+The compiler/runtime, schema language, and editor extension have independent
+versions; existing 1.x schema language headers remain supported.
+
 ## Editor features
 
 - Syntax highlighting for schema declarations, custom type references, namespaces,
@@ -14,6 +19,12 @@ navigation for projects using Serializer — State Framework.
 - Schema language 1.5.0 warning suppression such as `ignore(warning magic, version)`,
   with type navigation preserved beside field metadata and unnamed payload revisions.
 - Schema language 1.9.0 stateless constraints, computed size headers and portable conversions.
+- Language 1.17.0 array exposure and explicit `dimensions`, `readonly`/`const_value`,
+  trailing `const_ref` inputs, static/expected callable signatures, and
+  `when`, `delegates`, and `generate` metadata. Type navigation distinguishes
+  schema symbols from metadata names.
+- Language 1.16.0 defaults such as `Frame placement = {}` for owning generic
+  class parameters in constructors and named factories.
 - Language 1.15.0 fresh record defaults in constructor/factory parameters, including nested positional braces.
 - Language 1.14.0 readonly field exposure, arithmetic mappings, reciprocal/external constructors, C++ declaration additions and typed nested defaults.
 - Language 1.13.0 C++ `noexcept(cpp)` function contracts, external declarations and native methods with either C++ qualifier order.
@@ -38,6 +49,14 @@ navigation for projects using Serializer — State Framework.
 
 Generated-output navigation supports **C++, Java, JavaScript, TypeScript, Go, C#,
 Rust, Python, Swift, Kotlin, and C**, including the supported naming profiles.
+With separate C++ output, included types and fields open their own generated
+headers, including transitive includes and renamed entry outputs. The compiler's
+`// Serializer source:` comments identify the exact declaring schema when several
+files share a basename.
+Combined C++ output remains supported; select `--include-mode inline` or
+`[output] include_mode = inline` in the compiler configuration when generating it.
+Other output languages retain their existing compilation units and modules.
+
 In caller code, use the language's normal navigation to reach the generated type,
 then **Go to Declaration** to open its schema. The Visual Studio adapter does not
 query other language services for a one-step caller-to-schema jump.

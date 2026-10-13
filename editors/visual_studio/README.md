@@ -1,5 +1,11 @@
 # Rohit Serializer for Visual Studio
 
+Version **2.0.0** refreshes the [Marketplace overview](marketplace_overview.md)
+for schema language **1.16.0/1.17.0** and the default separate C++ generated headers
+in compiler/runtime **2.0.0**. Editor, schema language, and compiler release numbers
+are independent; both editor packages remain synchronized. Existing navigation
+behavior is unchanged.
+
 Version **1.1.48** supports the compiler's default separate C++ include files.
 Included types and fields open their own generated headers, including transitive
 includes and renamed entry outputs. Compiler source comments identify the exact
@@ -197,7 +203,7 @@ installation. It uses full-framework MSBuild with locked dependencies, bundles
 the current shared resolver, rebuilds and validates:
 
 ```text
-out/extensions/serializer-visual-studio-1.1.48.vsix
+out/extensions/serializer-visual-studio-2.0.0.vsix
 ```
 
 Close Visual Studio, double-click the VSIX, select the installation and restart

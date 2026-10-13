@@ -1,3 +1,10 @@
+# 2.0.0
+
+- Refresh the dedicated Marketplace overview for schema language 1.16.0/1.17.0 and the compiler's default separate C++ include headers.
+- Distinguish compiler/runtime 2.0.0, schema language 1.17.0, and the synchronized editor release.
+- Require Marketplace overviews and package READMEs to stay current with supported behavior and limitations.
+- Keep both editor package versions synchronized; navigation behavior is unchanged.
+
 # 1.1.48
 
 - Navigate included schema declarations and fields into their separate C++ generated headers.

@@ -435,7 +435,7 @@ leave the editor on the same line. Field names and primitives have no schema typ
 destination; generated-language type lookup remains with its language service.
 Enum type references inside field defaults, such as `AccountState` in
 `AccountState::WaitingForReview`, support both actions.
-Both **1.1.48** editor packages also provide **Go to Definition** from a typed
+Both **2.0.0** editor packages also provide **Go to Definition** from a typed
 external function declaration to available authored C++ out-of-class definitions.
 The bounded workspace lookup matches qualified owners and overload signatures
 and reads unsaved buffers. See

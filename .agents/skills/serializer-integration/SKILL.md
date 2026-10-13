@@ -56,7 +56,7 @@ even without `EXACT`; unversioned discovery remains available. Keep supported
 1.x schema headers and their meanings, model names, runtime APIs and wire contracts.
 The original `serializer version 1;` remains exactly the 1.0.0 language baseline;
 do not select schema language 2.0.0 to match this compiler release. Both editor
-packages remain 1.1.48. See [2.0 migration](../../../migration.md#compilerruntime-200).
+packages use the separately versioned 2.0.0 release. See [2.0 migration](../../../migration.md#compilerruntime-200).
 For new integrations, review [derived wire sizes](../../../docs/schema/derived_sizes.md),
 [explicit value conversions](../../../docs/schema/conversions.md), and
 [stateless generic constraints](../../../docs/schema/generics.md#stateless-type-constraints).
@@ -1221,7 +1221,7 @@ versioned snippets, and invokes the same targets through CMake Tools. Run the ro
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 1.1.48 is shared with the Visual Studio extension and is independent of
+version 2.0.0 is shared with the Visual Studio extension and is independent of
 compiler and schema versions. Keep both editor extension versions equal.
 Embedded target blocks reuse available editor language grammars for highlighting;
 install a grammar provider for targets the host does not bundle. This does not
@@ -1281,7 +1281,7 @@ See [navigation and limits](../../../docs/editors/editor_extension.md#navigate-a
 Semantic schema diagnostics remain unavailable.
 From a typed external schema function declaration, use Go to Definition on the
 function name to locate available authored C++ out-of-class definitions. Both
-1.1.48 editors match qualified templated owners and overload signatures, read
+2.0.0 editors match qualified templated owners and overload signatures, read
 live unsaved buffers, and retain ambiguous candidates as choices. Lookup is
 bounded and passive; do not build, generate, save or activate CMake to satisfy it.
 Native schema blocks remain opaque. This lexical resolver does not implement
@@ -1291,7 +1291,7 @@ control of caller expressions. Follow
 [deferred function navigation](../../../docs/editors/editor_navigation.md#deferred-function-definitions-1147)
 and its [qualification record](../../../docs/verification/verification-deferred-navigation-2026-10-13.md)
 for actual checks and editor-host boundaries.
-The current 1.1.48 editor source passed 141 shared/provider tests, 39,219
+The previous 1.1.48 editor source passed 141 shared/provider tests, 39,219
 fresh-compiler bidirectional type/field navigation checks across all eleven outputs,
 1,167 .NET/Jint resolver checks and 424 Visual Studio grammar asset/boundary
 cases across 48 scopes. Split-header cases cover transitive includes, exact

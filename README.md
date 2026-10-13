@@ -97,9 +97,10 @@ arithmetic operator mappings with owning constructor calls in portable expressio
 Existing fields, wire formats and managed protocols retain their contracts.
 Run the [four focused examples](example/README.md#owning-record-apis) and consult
 [qualification](docs/verification/verification-owning-api-2026-10-12.md) for tested
-backends and limits. Both current editor packages are **1.1.48**, with separate
-C++ generated-header navigation. Their canonical builds and package checks
-passed; see [current editor verification](docs/editors/editor_extension.md#verification-performed).
+backends and limits. Both current editor packages are **2.0.0**, with separate
+C++ generated-header navigation. See
+[editor verification](docs/editors/editor_extension.md#verification-performed)
+for package checks and navigation qualification.
 
 Language `1.13.0` adds the C++ function qualifier `noexcept(cpp)` for readonly
 native bodies and external declarations, including dispatched member contracts.
@@ -533,7 +534,7 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editors/editor_extension.md) |
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
-Both extensions use source release version **1.1.48**, independent of compiler version
+Both extensions use source release version **2.0.0**, independent of compiler version
 **2.0.0**. Embedded `cpp { ... }`, `java { ... }`, and other target blocks reuse
 available language grammars for syntax highlighting. Install the language's grammar
 provider where the editor does not bundle it; this does not add embedded IntelliSense.

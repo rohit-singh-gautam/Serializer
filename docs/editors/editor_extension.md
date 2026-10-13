@@ -17,10 +17,14 @@ Serializer provides separate packages for VS Code and Visual Studio. Both use
 to the VS Code extension. For the Visual Studio VSIX, see
 [Visual Studio](#visual-studio-extension) below.
 
-Both extensions use release version **1.1.48**. Keep their versions equal and
+Both extensions use release version **2.0.0**. Keep their versions equal and
 increment them together for future changes, including changes to only one package.
 Their release number is independent of the compiler/runtime release and the schema
 language version; only the two editor packages are synchronized.
+
+Version **2.0.0** refreshes the [Visual Studio Marketplace overview](../../editors/visual_studio/marketplace_overview.md)
+and package READMEs for schema language 1.16.0/1.17.0 and the compiler/runtime
+2.0.0 default separate C++ headers. Existing navigation behavior is unchanged.
 
 Version **1.1.48** supports separate C++ generated headers. Included types and
 fields navigate to their own generated files, with transitive include traversal,
@@ -198,7 +202,7 @@ Both resolve either spelling for navigation; VS Code also supplies a shorthand
 
 ## VS Code
 
-The [Rohit Serializer extension](../../editors/vscode/README.md), version **1.1.48**, provides `.serializer`
+The [Rohit Serializer extension](../../editors/vscode/README.md), version **2.0.0**, provides `.serializer`
 syntax highlighting, snippets, declaration/definition navigation, and CMake generated-header commands. Schemas use
 the current `serializer version 1.17.0;` header, older compatible headers, and the original
 `1` alias for language `1.0.0`. Schema
@@ -256,13 +260,13 @@ Packaging compiles and bundles TypeScript, copies the canonical grammar, logo,
 and repository license into the extension, and writes:
 
 ```text
-out/extensions/serializer-vscode-1.1.48.vsix
+out/extensions/serializer-vscode-2.0.0.vsix
 ```
 
 From the repository root, install it with:
 
 ```sh
-code --install-extension out/extensions/serializer-vscode-1.1.48.vsix
+code --install-extension out/extensions/serializer-vscode-2.0.0.vsix
 ```
 
 Alternatively run **Extensions: Install from VSIX** and select the file. The
@@ -479,7 +483,14 @@ The fixture disables generated-output formatting so it does not need clang-forma
 
 ### Verification performed
 
-The current **1.1.48** source passed **141** shared/provider tests, including
+The **2.0.0** documentation and release metadata update rebuilt both packages
+through `./make.ps1 extension`. Visual Studio package validation passed; the
+VS Code archive was checked for its stable identity, synchronized version, and
+updated Marketplace README. Neither package was installed for this update, and
+the live Marketplace overview was not published. Navigation qualification from
+the preceding release is recorded separately below.
+
+The previous **1.1.48** source passed **141** shared/provider tests, including
 transitive split headers, qualified cursor/field navigation and an active CMake
 model registering only the entry header. Fresh compiler output passed **39,219**
 bidirectional type/field navigation checks across all eleven languages, including
@@ -793,7 +804,7 @@ outside this extension's implementation.
 ## Visual Studio extension
 
 The separate [Visual Studio package](../../editors/visual_studio/README.md), version
-**1.1.48**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
+**2.0.0**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
 grammar, editing configuration and a native MEF navigation component using the
 same resolver as VS Code. The grammar's `fileTypes` associates `.serializer` files;
 a `.pkgdef` registers its grammar and editing configuration.
@@ -806,7 +817,7 @@ npm ci --prefix editors/vscode
 ```
 
 The script restores locked NuGet dependencies, rebuilds package intermediates, and writes
-`out/extensions/serializer-visual-studio-1.1.48.vsix`. Close Visual Studio,
+`out/extensions/serializer-visual-studio-2.0.0.vsix`. Close Visual Studio,
 double-click this VSIX, install into the desired instance, and restart Visual
 Studio. The root `install_extension.ps1` remains the VS Code installer.
 

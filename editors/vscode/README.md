@@ -1,5 +1,10 @@
 # Rohit Serializer for Visual Studio Code
 
+Version **2.0.0** refreshes Marketplace documentation for schema language
+**1.16.0/1.17.0** and the default separate C++ generated headers in compiler/runtime
+**2.0.0**. Editor, schema language, and compiler release numbers are independent;
+both editor packages remain synchronized. Existing navigation behavior is unchanged.
+
 Version **1.1.48** supports the compiler's default separate C++ include files.
 Included types and fields open their own generated headers, including transitive
 includes and renamed entry outputs. Compiler source comments identify the exact
