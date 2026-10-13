@@ -5,6 +5,8 @@
 - Before modifying this repository, run `git pull` first. Preserve existing local
   changes while integrating upstream updates; never overwrite them to make the
   pull succeed.
+- Do not create Git commits automatically. Commit changes only when the user
+  explicitly requests a commit.
 
 ## Integrating Serializer into an application
 
