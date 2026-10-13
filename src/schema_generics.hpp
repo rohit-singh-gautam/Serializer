@@ -63,6 +63,7 @@ class generic_lowering {
   std::unordered_set<std::string> occupied{};
   std::unordered_set<std::string> expanding{};
   std::unordered_set<std::string> incomplete{};
+  std::string application_source_path{};
   // Named specializations copy signatures before the deferred callable pass substitutes them.
   std::unordered_map<const class_node*, std::unordered_map<std::string, type_name>> named_bindings{};
 
@@ -177,6 +178,8 @@ class generic_lowering {
     while (scope) {
       auto block = std::make_unique<namespace_node>(
           object_type::namespace_type, std::string{scope->name}, scope->parent_namespace);
+      block->source_path = node->source_path;
+      block->output_source_path = node->output_source_path;
       block->source_notices = node->source_notices;
       block->statements.push_back(std::move(node));
       node = std::move(block);
@@ -565,6 +568,7 @@ class generic_lowering {
     }
     concrete->generic_name = definition->get_full_name();
     concrete->source_path = definition->source_path;
+    concrete->output_source_path = application_source_path;
     concrete->source_notices = definition->source_notices;
     concrete->generic_arguments = type.arguments;
     concrete->generic_parameters = definition->generic_parameters;
@@ -927,6 +931,7 @@ class generic_lowering {
   void visit(std::vector<std::unique_ptr<syntax_node>> nodes) {
     for (auto& node : nodes) {
       const auto source_path = node->source_path;
+      application_source_path = source_path;
       try {
         auto* raw = node.get();
         if (raw->type != object_type::function_type) { visible.emplace(raw->get_full_name(), raw); }
@@ -1124,6 +1129,8 @@ class generic_lowering {
     }
     if (node.type != object_type::class_type) { return; }
     auto& owner = static_cast<class_node&>(node);
+    application_source_path = owner.output_source_path.empty()
+        ? owner.source_path : owner.output_source_path;
     auto bindings = named_bindings.contains(&owner) ? named_bindings.at(&owner)
         : std::unordered_map<std::string, type_name>{};
     for (std::size_t argument{}; argument < owner.generic_arguments.size(); ++argument) {

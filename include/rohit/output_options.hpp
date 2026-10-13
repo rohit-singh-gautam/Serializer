@@ -14,6 +14,9 @@ enum class coding_standard { serializer, core, google, llvm, gnu, cert, misra, a
 // Select generated C++ protocol entry points independently of constant evaluation.
 enum class cpp_protocols { all, binary_none };
 
+// Select whether filesystem generation emits one C++ header per source schema.
+enum class include_mode { separate, inline_output };
+
 // Opt in to comparison APIs for one source-qualified generated owning record.
 struct class_comparison_options {
   bool equality{false};
@@ -77,10 +80,14 @@ struct output_options {
   // Other portable sections remain independent even when their naming profile is shared.
   std::map<std::string, std::map<std::string, class_comparison_options>> class_comparisons{};
   std::map<std::string, std::map<std::string, class_auto_size_options>> class_auto_sizes{};
+  include_mode includes{include_mode::separate};
 };
 
 // Parse a nonempty comma-separated language list; reject unknown, empty, or repeated names.
 std::vector<std::string> parse_output_languages(std::string_view names);
+
+// Resolve the exact include layout spelling; reject unknown modes.
+include_mode parse_include_mode(std::string_view name);
 
 // Parse the exact generated C++ protocol selection, rejecting unknown names.
 cpp_protocols parse_cpp_protocols(std::string_view name);

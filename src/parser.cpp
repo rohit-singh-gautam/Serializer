@@ -4232,6 +4232,7 @@ class file_loader {
         }
       };
       locate(locate, statements);
+      result.source_files.push_back(canonical);
       for (auto& statement : statements) {
         result.statements.push_back(std::move(statement));
       }

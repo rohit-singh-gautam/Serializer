@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Use Serializer as a state framework when creating or changing schemas, array exposure and dimensions, callable availability and delegation, owner-type field factories, static or borrowed callable signatures, readonly getters, arithmetic operators, generated behavior and native C++ qualifiers, checked numeric bindings, direct construction, typed nested and generic owner-parameter defaults, authoring hooks, comparisons/conversions, derived wire sizes, generic type constraints, multi-language codecs, bounded decoding, revisions, C++ managed transactions, typed registries, external-provider leases, custom-key indexes, history, journals, collaboration, or persistence. Prefer portable schema behavior, review the installed version's entire feature set and apply every feature relevant to the user's contract; preserve wire compatibility and qualify unsupported combinations."
+description: "Use Serializer as a state framework when creating or changing schemas, compiler/runtime release migration, generated include layout, array exposure and dimensions, callable availability and delegation, owner-type field factories, static or borrowed callable signatures, readonly getters, arithmetic operators, generated behavior and native C++ qualifiers, checked numeric bindings, direct construction, typed nested and generic owner-parameter defaults, authoring hooks, comparisons/conversions, derived wire sizes, generic type constraints, multi-language codecs, bounded decoding, revisions, C++ managed transactions, typed registries, external-provider leases, custom-key indexes, history, journals, collaboration, or persistence. Prefer portable schema behavior, review the installed version's entire feature set and apply every feature relevant to the user's contract; preserve wire compatibility and qualify unsupported combinations."
 ---
 
 # Serializer Integration
@@ -42,8 +42,22 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
-Compiler/runtime 1.22.1 supports schema language 1.17.0. For new integrations,
-review [derived wire sizes](../../../docs/schema/derived_sizes.md),
+Compiler/runtime 2.0.0 supports schema language 1.17.0. C++ schema includes
+generate separate dependency headers by default; use `--include-mode inline`,
+`[output] include_mode = inline`, or CMake `INCLUDE_MODE inline` for a combined
+header. Preserve the entry header's adjacent `.includes/` directory when copying
+or installing generated APIs. Other backends retain their existing combined entry
+units; separate-file generation for them is not implemented. See
+[include layout](../../../docs/guides/usage.md#share-declarations-with-includes).
+For a 1.x compiler/runtime upgrade, update versioned package discovery to
+`find_package(Serializer 2.0 CONFIG REQUIRED)` and regenerate through the
+consuming build rules. `SameMajorVersion` discovery rejects 1.x package requests,
+even without `EXACT`; unversioned discovery remains available. Keep supported
+1.x schema headers and their meanings, model names, runtime APIs and wire contracts.
+The original `serializer version 1;` remains exactly the 1.0.0 language baseline;
+do not select schema language 2.0.0 to match this compiler release. Both editor
+packages remain 1.1.48. See [2.0 migration](../../../migration.md#compilerruntime-200).
+For new integrations, review [derived wire sizes](../../../docs/schema/derived_sizes.md),
 [explicit value conversions](../../../docs/schema/conversions.md), and
 [stateless generic constraints](../../../docs/schema/generics.md#stateless-type-constraints).
 
@@ -780,12 +794,15 @@ feature as a prerequisite without the user's request.
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
   remains available through `parser::parse(input)`. Schema language version 1.17.0 is
-  independent of compiler release 1.22.1 and wire protocols. Bug fixes and minor
+  independent of compiler release 2.0.0 and wire protocols. Bug fixes and minor
   updates increment the patch number; new features increment the minor number.
   Minor and patch releases preserve full compatibility. Developers change the
   major number manually, with best-effort compatibility across major releases.
   Installed CMake packages accept earlier minor and patch versions in the same
-  major release. Use `serializer --version` to inspect the compiler and schema
+  major release. Compiler/runtime 2.0.0 packages reject 1.x discovery requests;
+  update versioned consumers to `find_package(Serializer 2.0 CONFIG REQUIRED)`.
+  Keep schema language headers at their supported 1.x contracts.
+  Use `serializer --version` to inspect the compiler and schema
   versions; see [CLI and versioning](../../../docs/guides/command_line.md).
   The original `serializer version 1;` is exactly the `1.0.0` language baseline,
   not an alias for the latest language release. Only version 1 has that integer
@@ -807,13 +824,38 @@ feature as a prerequisite without the user's request.
 - Reopened namespaces reuse their scope during parsing. Duplicate qualified
   classes/enums and namespace/type conflicts are errors; same leaf names in
   different namespaces are valid. Referenced types still precede their use.
-- Generate the requested entry schemas. Included declarations are
-  emitted into each selected entry output; compiler 1.13 guards individual C++
-  types and managed companions, so matching overlapping entry graphs can be
-  included together. Different generated definitions of one C++ type produce
-  an explicit preprocessor error; use matching naming/runtime profiles.
-  All generation helpers track transitive inputs using depfiles. Library
-  callers use `parser::parse_file(path)` and pass its `statements` to the writers.
+- Generate the requested entry schemas once. C++ defaults to one header per
+  source file, with dependency headers beneath `<entry-output-filename>.includes/`
+  beside the unchanged entry destination. Child headers use the entry extension
+  and preserve the source tree relative to the common canonical ancestor of all
+  dependencies and the entry. Equal source basenames in distinct directories stay
+  distinct; relative source includes do not escape the generated output bundle.
+  Canonical source paths must share a filesystem root in separate mode; use
+  inline mode for dependencies resolved onto different filesystem roots.
+  Headers include earlier sources in dependency-first parsing order, preserving
+  declaration visibility and diamond deduplication. Definitions split by source;
+  shared forward declarations may remain for supported callable signatures. Their
+  reusable guards are described in the output configuration guide. File-level
+  `cpp preamble { ... }` blocks retain compilation-unit scope outside
+  `cpp.emission_only`: each artifact emits them before generated includes, so
+  dependencies can use entry preamble helpers.
+  Select `--include-mode inline`
+  or `[output] include_mode = inline` for the previous combined C++ header.
+  Other backends retain their combined entry units; their separate-file generation
+  is unimplemented. Copy/install the dependency tree with the entry header or use
+  inline mode. Matching overlapping C++ graphs retain individual type and managed
+  companion guards; different definitions of one type produce a preprocessor
+  error. Use matching naming/runtime/codec profiles.
+  All generation helpers track transitive inputs through depfiles; C++ bundle
+  depfiles list every generated file as a target. Library callers use
+  `parser::parse_file(path)` and pass the complete result, including dependency-first
+  `source_files`, to `writer::cpp::generate_files(schema, destination, options, mode)`
+  to get `generated_file` records containing `path` and `contents`.
+  `writer::include_mode::separate` is the default;
+  `writer::include_mode::inline_output` requests one header. The API generates and
+  validates all artifacts without writing files; callers publish the returned
+  bundle. Existing single-string/stream writers retain inline output.
+  Pass the parsed result to other writers to preserve source notices.
   See [include usage](../../../docs/guides/usage.md#share-declarations-with-includes) and
   [paired C++/Java examples](../../../example/includes/README.md).
 - In owning representations, map `array T` to `std::vector<T>` and `map(K) T` to `std::map<K, T>`.
@@ -1158,7 +1200,11 @@ use an interface library and link consumers to it so one target owns generation.
 Keep outputs in the build tree. Add custom format files selected indirectly by
 configs to `DEPENDS`, or use `FORMAT_FILE` to select and track them. Cross builds
 need a host-runnable executable passed through `GENERATOR`. Do not hand-edit
-generated headers. Consult the CMake guide for options and public-header installation.
+generated headers. Override layout through CMake `INCLUDE_MODE separate|inline`.
+When publishing a generated C++ API, install the entry header and its adjacent
+`<entry-output-filename>.includes/` tree at the same relative paths; use inline
+mode when the packaging contract requires a single header. Consult the CMake
+guide for options and public-header installation.
 
 For IntelliSense include errors, check both the real generated header's existence
 and the source target's include directories. In VS Code, use CMake Tools as the
@@ -1175,7 +1221,7 @@ versioned snippets, and invokes the same targets through CMake Tools. Run the ro
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 1.1.47 is shared with the Visual Studio extension and is independent of
+version 1.1.48 is shared with the Visual Studio extension and is independent of
 compiler and schema versions. Keep both editor extension versions equal.
 Embedded target blocks reuse available editor language grammars for highlighting;
 install a grammar provider for targets the host does not bundle. This does not
@@ -1198,8 +1244,14 @@ prefers existing generated output in any supported language and falls back to th
 declaration if no generated definition matches. Enum type prefixes in defaults
 such as `AccountState::WaitingForReview` participate in both lookups; enum value
 navigation is not provided. Follow schema includes to their actual entry
-output and use existing `<output>.d` or workspace multi-output `.d` dependencies when present; expose ambiguous
-legacy basename/profile matches as choices. An already active CMake model can
+output. Separate C++ headers carry `// Serializer source: <absolute-schema-path>`;
+banner-marked files use that exact source identity before depfile/basename lookup.
+Follow existing quoted generated-header includes with bounded depth/file counts,
+including child headers linked from entry-only active CMake registration. Keep
+those children within their entry's selected configuration/profile, accept only
+banner-marked generated destinations, and leave unrelated includes to the native
+language service. Use existing `<output>.d` or workspace multi-output `.d`
+dependencies when present; expose ambiguous legacy basename/profile matches as choices. An already active CMake model can
 narrow lookup but navigation must also work without it and in Restricted Mode.
 Use the built-in `Go to Declaration` menu action, including for whole-name selections.
 Use `Go to Type Definition` in schemas to reach the source class/enum declaration
@@ -1229,7 +1281,7 @@ See [navigation and limits](../../../docs/editors/editor_extension.md#navigate-a
 Semantic schema diagnostics remain unavailable.
 From a typed external schema function declaration, use Go to Definition on the
 function name to locate available authored C++ out-of-class definitions. Both
-1.1.47 editors match qualified templated owners and overload signatures, read
+1.1.48 editors match qualified templated owners and overload signatures, read
 live unsaved buffers, and retain ambiguous candidates as choices. Lookup is
 bounded and passive; do not build, generate, save or activate CMake to satisfy it.
 Native schema blocks remain opaque. This lexical resolver does not implement
@@ -1239,14 +1291,20 @@ control of caller expressions. Follow
 [deferred function navigation](../../../docs/editors/editor_navigation.md#deferred-function-definitions-1147)
 and its [qualification record](../../../docs/verification/verification-deferred-navigation-2026-10-13.md)
 for actual checks and editor-host boundaries.
-The current editor source passed 138 shared/provider tests, 37,967 fresh-compiler
-navigation checks across all eleven outputs, 1,116 .NET/Jint resolver checks and
-the isolated native VS Code definition host. Missing authored definitions fall
-back to the exact schema function name; declaration/type navigation keeps its
-existing behavior. Both packages rebuilt through `./make.ps1 extension` and
-passed package checks. VS Code 1.1.47 is installed in the normal profile; reload
-a running window to activate it. The Visual Studio package was not installed,
-and its resolver test is not a current native Visual Studio UI run.
+The current 1.1.48 editor source passed 141 shared/provider tests, 39,219
+fresh-compiler bidirectional type/field navigation checks across all eleven outputs,
+1,167 .NET/Jint resolver checks and 424 Visual Studio grammar asset/boundary
+cases across 48 scopes. Split-header cases cover transitive includes, exact
+source ownership, equal schema basenames, qualified cursor boundaries and
+active CMake entry-only registration. Missing authored definitions fall back
+to the exact schema function name. Both packages rebuilt through
+`./make.ps1 extension` and passed package checks. The 1.1.48 packages were not
+installed, and no current native editor-host run is claimed.
+The earlier 1.1.47 qualification passed 138 shared/provider tests, 37,967
+fresh-compiler checks, 1,116 .NET/Jint checks and the isolated native VS Code
+definition host. At that verification VS Code 1.1.47 was installed in the normal
+profile; the Visual Studio package was not installed. Keep those results
+historical and distinct from the current package verification.
 For Visual Studio 2022/2026 on Windows x64, use `editors/visual_studio` instead.
 Run its `build.ps1` with Visual Studio's MSBuild to package and validate the VSIX,
 then install it using Visual Studio's VSIX Installer. It shares the canonical

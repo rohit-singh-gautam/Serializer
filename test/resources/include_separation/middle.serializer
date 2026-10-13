@@ -1,0 +1,8 @@
+serializer version 1;
+include library;
+
+namespace include_separation {
+  class intermediate stable_ids {
+    public box<uint32> numeric (3);
+  }
+}

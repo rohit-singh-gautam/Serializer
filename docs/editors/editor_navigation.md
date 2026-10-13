@@ -7,6 +7,29 @@ Version 1.1.4 synchronized both editor extension release versions. Subsequent
 build-tooling releases keep them equal. Version 1.1.11 additionally registers schema
 type-definition navigation and accepts declaration keywords/whole declarations.
 
+## Separate C++ generated headers (1.1.48)
+
+Both extensions navigate the compiler's default separate C++ headers and the
+optional combined layout. Schema definitions and fields resolve to their owning
+generated header, including transitive includes and renamed entry outputs.
+Each separate header carries `// Serializer source: <absolute-schema-path>`.
+For a file with a Serializer-generated banner, the resolver uses this exact
+source identity before depfile or basename lookup. Equal schema basenames in
+different directories therefore remain distinct.
+
+The shared resolver follows existing quoted C++ generated-header includes with
+bounded depth and file counts. It accepts only banner-marked generated
+destinations, leaves unrelated native includes to the language service, and
+deduplicates repeated or cyclic links. VS Code also expands headers registered
+by an already active CMake configuration through that generated include tree,
+even when the CMake model lists only the entry header. Linked dependency headers
+remain associated with that entry's selected configuration and naming profile.
+
+Lookup stays read-only and uses available files and live buffers. Missing child
+headers do not trigger a build, generation or a prompt. See
+[current editor verification](editor_extension.md#verification-performed) for
+completed source, resolver and package checks.
+
 ## Deferred function definitions (1.1.47)
 
 Both editor packages provide **Go to Definition** from the name of a typed
@@ -136,6 +159,10 @@ coloring field identifiers as types. Colors come from the active editor theme.
 
 Output ownership comes from exact targets in a sibling `<output>.d` or a workspace
 multi-output `.d` file. Transitive schema includes identify the original declaration.
+For separate C++ headers, the banner-marked `// Serializer source:` comment
+identifies the exact source before dependency metadata or basename lookup.
+Existing generated include links extend the entry output's tree without changing
+its active CMake configuration.
 This supports renamed outputs without relying on a name appearing somewhere in a
 workspace. Legacy basename lookup still requires a Serializer banner. Current
 Python, Swift, Kotlin and C generators do not emit that banner, so they require
@@ -204,6 +231,7 @@ The project test verifies this before it explicitly builds the fixture headers.
 | Direct/transitive, extensionless, diamond/cyclic and missing includes | Resolve the owning schema; deduplicate cycles; no fabricated destination | Shared tests and native schema/include checks |
 | Enum defaults, inheritance, containers, namespace collisions | Resolve type operands, preserve scope; ignore field/value names and literals | Shared tests and fresh compiler output |
 | Generated class/enum, C typedef, TypeScript alias, managed companions | Reverse to exact schema ownership and naming profile | All 11 fresh compiler output languages, nine C++ and three Java profiles |
+| Separate C++ entry/child headers, transitive includes and equal source basenames | Follow generated includes and exact source comments within the selected entry/configuration | Shared/provider and .NET resolver tests, including an active CMake model registering only the entry header |
 | Qualified C++ type on the RHS of `using ledger = ledger_example::ledger` | Definition/type definition reach the generated class; declaration includes its schema | CMake/C++ host with three duplicate caller aliases |
 | C++ alias use, alias chain and variable | Native declaration/definition retain local meaning; type definition reaches the generated class | CMake/C++ host with real language service |
 | Explicit VS Code schema command on those aliases/variables | Map the native type-definition destination to its schema if ordinary definition stops locally | Provider and CMake/C++ host tests |

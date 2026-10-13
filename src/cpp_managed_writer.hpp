@@ -1005,6 +1005,7 @@ class managed_writer {
   // Generate all companions and traits; no handwritten adapters are required by consumers.
   void write_managed(auto& output) {
     for (const auto& item : managed_classes) {
+      if (!writer_.owns_source(item.source)) { continue; }
       if (!separate_values_) {
         continue;
       }
@@ -1018,6 +1019,7 @@ class managed_writer {
     }
     for (const auto* source : editor_classes) {
       full_stream_auto_alloc unit_output{};
+      if (!writer_.owns_source(source)) { continue; }
       write_editor(unit_output, source);
       write_runtime_traits(unit_output, source);
       if (separate_values_ && source->supports_managed()) {
@@ -1030,6 +1032,7 @@ class managed_writer {
     }
     for (const auto& item : managed_classes) {
       full_stream_auto_alloc unit_output{};
+      if (!writer_.owns_source(item.source)) { continue; }
       const auto hash = hash_managed_schema(item.source);
       std::set<const class_node*> path_visited;
       const auto inherited_paths = has_inherited_field_paths(item.source, path_visited);
@@ -1139,6 +1142,7 @@ class managed_writer {
           {reinterpret_cast<const char*>(unit_output.begin()), unit_output.current_offset()});
     }
     for (const auto* source : editor_classes) {
+      if (!writer_.owns_source(source)) { continue; }
       write_registry_fields(output, source);
       write_registry_fields(output, source, true);
     }

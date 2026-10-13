@@ -1,4 +1,5 @@
 include_guard(GLOBAL)
+include("${CMAKE_CURRENT_LIST_DIR}/serializer_include_outputs.cmake")
 
 # Consumers and editor integrations can refresh every registered schema through one target.
 if(NOT TARGET serializer_generated_headers)
@@ -9,7 +10,7 @@ endif()
 # Call once per target; a normal consumer build runs generation before compiling its sources.
 function(serializer_generate)
   cmake_parse_arguments(PARSE_ARGV 0 arg "VERSION_POLICY_WARNINGS_AS_ERRORS"
-    "TARGET;OUTPUT_DIRECTORY;CONFIG;CODING_STANDARD;FORMAT_FILE;CLANG_FORMAT;GENERATOR;VISIBILITY;VERSION_POLICY_AS_OF"
+    "TARGET;OUTPUT_DIRECTORY;CONFIG;CODING_STANDARD;FORMAT_FILE;CLANG_FORMAT;GENERATOR;VISIBILITY;VERSION_POLICY_AS_OF;INCLUDE_MODE"
     "SCHEMAS;DEPENDS")
   if(arg_UNPARSED_ARGUMENTS OR arg_KEYWORDS_MISSING_VALUES)
     message(FATAL_ERROR "serializer_generate: unknown arguments or missing argument values")
@@ -28,7 +29,7 @@ endfunction()
 # Lists are paired by position; one target also permits the ordinary default configuration.
 function(serializer_generate_variants)
   cmake_parse_arguments(PARSE_ARGV 0 arg "VERSION_POLICY_WARNINGS_AS_ERRORS"
-    "CODING_STANDARD;FORMAT_FILE;CLANG_FORMAT;GENERATOR;VISIBILITY;VERSION_POLICY_AS_OF"
+    "CODING_STANDARD;FORMAT_FILE;CLANG_FORMAT;GENERATOR;VISIBILITY;VERSION_POLICY_AS_OF;INCLUDE_MODE"
     "TARGETS;SCHEMAS;CONFIGS;OUTPUT_DIRECTORIES;DEPENDS")
   if(arg_UNPARSED_ARGUMENTS OR arg_KEYWORDS_MISSING_VALUES)
     message(FATAL_ERROR "serializer_generate_variants: unknown arguments or missing argument values")
@@ -122,6 +123,9 @@ function(_serializer_generate_impl)
   endforeach()
 
   set(arguments)
+  if(arg_INCLUDE_MODE)
+    list(APPEND arguments --include-mode "${arg_INCLUDE_MODE}")
+  endif()
   if(arg_VERSION_POLICY_AS_OF)
     list(APPEND arguments --version-policy-as-of "${arg_VERSION_POLICY_AS_OF}")
   endif()
@@ -136,6 +140,14 @@ function(_serializer_generate_impl)
     endif()
     list(APPEND arguments --config "${config}")
     list(APPEND dependencies "${config}")
+  endforeach()
+  foreach(index RANGE ${last_target})
+    set(config)
+    if(config_count GREATER 0)
+      list(GET arg_CONFIGS ${index} configuration)
+      get_filename_component(config "${configuration}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+    endif()
+    _serializer_include_mode(include_mode_${index} "${config}" "${arg_INCLUDE_MODE}")
   endforeach()
   if(arg_CODING_STANDARD)
     list(APPEND arguments --cpp.coding_standard "${arg_CODING_STANDARD}")
@@ -162,6 +174,7 @@ function(_serializer_generate_impl)
     endif()
     get_filename_component(stem "${input}" NAME_WLE)
     set(schema_headers)
+    set(schema_byproducts)
     set(output_arguments)
     foreach(index RANGE ${last_target})
       list(GET output_directories ${index} output_directory)
@@ -181,11 +194,14 @@ function(_serializer_generate_impl)
       list(APPEND schema_headers "${header}")
       list(APPEND headers_${index} "${header}")
       list(APPEND output_arguments --output "${header}")
+      _serializer_include_outputs(included_headers "${input}" "${header}" "${include_mode_${index}}")
+      list(APPEND schema_byproducts ${included_headers})
     endforeach()
     list(GET schema_headers 0 first_header)
     list(APPEND headers ${schema_headers})
     add_custom_command(
       OUTPUT ${schema_headers}
+      BYPRODUCTS ${schema_byproducts}
       COMMAND "${CMAKE_COMMAND}" -E make_directory ${output_directories}
       COMMAND "${compiler}" --input "${input}" ${output_arguments} --language cpp
         --depfile "${first_header}.d" ${arguments}

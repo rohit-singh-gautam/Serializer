@@ -1,6 +1,6 @@
 # Owning construction and defaults
 
-This consumer requires compiler/runtime **1.19.0**, schema language **1.14.0**,
+This consumer requires compiler/runtime **2.0.0**, schema language **1.14.0**,
 and C++20. It initializes constructor-bound C++
 members directly and expresses independent nested/fixed-array defaults in the schema.
 The vector's neutral value is `(0, 0, 1)`, while explicitly supplied coordinates
@@ -24,7 +24,7 @@ schemas using older language versions retain their established constructor lower
 Build and run the `serializer_construction_defaults_cpp` target through the root
 build wrappers. See [construction](../../../docs/schema/construction.md).
 
-To build this directory independently, install Serializer **1.19.0** first. Its
+To build this directory independently, install Serializer **2.0.0** first. Its
 package supplies the compiler and runtime used by `serializer_generate`. Replace
 `<Serializer install prefix>` with that installation directory; include any required
 dependency installation prefixes in `CMAKE_PREFIX_PATH` as well. From this directory:

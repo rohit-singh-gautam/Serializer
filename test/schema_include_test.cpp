@@ -1,12 +1,16 @@
 // Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include <rohit/serializer_creator.hpp>
+#include <rohit/serializer.hpp>
 #include <rohit/stream.hpp>
 
 #include <gtest/gtest.h>
+#include <include_separation.hpp>
 #include <includes.hpp>
 
 #include <chrono>
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <initializer_list>
@@ -14,6 +18,7 @@
 #include <string>
 #include <string_view>
 #include <system_error>
+#include <vector>
 
 namespace {
 namespace schema = rohit::serializer;
@@ -476,4 +481,183 @@ TEST_F(schema_include_test, projected_record_language_contract_is_per_file) {
       "class table { public map<key, uint64> values; }");
   write("root.serializer", "serializer version 1; include common; class root { public uint32 value; }");
   EXPECT_NO_THROW(schema::parser::parse_file(directory / "root.serializer"));
+}
+
+// Separate artifacts follow include-once postorder and retain declaration-free source notices.
+TEST_F(schema_include_test, separate_artifacts_follow_source_postorder) {
+  write("empty.serializer", "// Copyright 2026 Serializer Include Test Authors\n"
+      "serializer version 1;\n");
+  write("shared/common.serializer", "serializer version 1; class base { public uint32 id (1); }");
+  write("left.serializer", "serializer version 1; include empty; include shared/common; "
+      "class left { public base value (2); }");
+  write("right.serializer", "serializer version 1; include shared/./common.serializer; "
+      "class right { public base value (3); }");
+  write("root.serializer", "serializer version 1; include left; include right; include empty; "
+      "class request { public left first (4); public right second (5); }");
+  const auto parsed = schema::parser::parse_file(directory / "root.serializer");
+  const std::vector expected_sources{
+      std::filesystem::canonical(directory / "empty.serializer"),
+      std::filesystem::canonical(directory / "shared/common.serializer"),
+      std::filesystem::canonical(directory / "left.serializer"),
+      std::filesystem::canonical(directory / "right.serializer"),
+      std::filesystem::canonical(directory / "root.serializer")};
+  EXPECT_EQ(parsed.source_files, expected_sources);
+  schema::writer::cpp_options options{};
+  options.format = false;
+  const auto destination = directory / "generated/custom_name.hxx";
+  const auto files = schema::writer::cpp::generate_files(parsed, destination, options);
+  ASSERT_EQ(files.size(), expected_sources.size());
+  const std::vector expected_outputs{
+      directory / "generated/custom_name.hxx.includes/empty.hxx",
+      directory / "generated/custom_name.hxx.includes/shared/common.hxx",
+      directory / "generated/custom_name.hxx.includes/left.hxx",
+      directory / "generated/custom_name.hxx.includes/right.hxx", destination};
+  for (std::size_t index{}; index < files.size(); ++index) {
+    EXPECT_EQ(files[index].path, expected_outputs[index]);
+    EXPECT_NE(files[index].contents.find("Copyright 2026 Serializer Include Test Authors"),
+        std::string::npos);
+    EXPECT_FALSE(std::filesystem::exists(files[index].path));
+  }
+  EXPECT_NE(files[1].contents.find("class base {"), std::string::npos);
+  EXPECT_NE(files[2].contents.find("class left {"), std::string::npos);
+  EXPECT_NE(files[3].contents.find("class right {"), std::string::npos);
+  EXPECT_NE(files.back().contents.find("class request {"), std::string::npos);
+  EXPECT_EQ(files.back().contents.find("class base {"), std::string::npos);
+  EXPECT_EQ(files.back().contents.find("class left {"), std::string::npos);
+  EXPECT_EQ(files.back().contents.find("class right {"), std::string::npos);
+  EXPECT_NE(files.back().contents.find("#include \"custom_name.hxx.includes/left.hxx\""),
+      std::string::npos);
+}
+
+// Explicit inline bundles remain byte-for-byte equal to the established string generation API.
+TEST_F(schema_include_test, inline_artifacts_preserve_string_generation) {
+  write("shared/common.serializer", "serializer version 1; namespace models { "
+      "class account { public uint32 id (7); } }");
+  write("root.serializer", "serializer version 1; include shared/common; "
+      "namespace models { class request { public account owner (8); } }");
+  const auto parsed = schema::parser::parse_file(directory / "root.serializer");
+  schema::writer::cpp_options options{};
+  options.format = false;
+  const auto destination = directory / "generated/combined.hpp";
+  const auto files = schema::writer::cpp::generate_files(parsed, destination, options,
+      schema::writer::include_mode::inline_output);
+  ASSERT_EQ(files.size(), 1u);
+  EXPECT_EQ(files.front().path, destination);
+  EXPECT_EQ(files.front().contents, schema::writer::cpp::generate_schema(parsed, options));
+  EXPECT_EQ(files.front().contents, schema::writer::cpp::generate(parsed.statements, options));
+  EXPECT_NE(files.front().contents.find("class account {"), std::string::npos);
+  EXPECT_NE(files.front().contents.find("class request {"), std::string::npos);
+  EXPECT_FALSE(std::filesystem::exists(destination));
+}
+
+// Invalid layout values must fail even when an empty or single-file graph uses the fast path.
+TEST_F(schema_include_test, invalid_include_mode_rejects_fast_paths) {
+  constexpr auto invalid_mode = static_cast<schema::writer::include_mode>(-1);
+  schema::writer::cpp_options options{};
+  options.format = false;
+  const schema::parser::parsed_schema empty{};
+  EXPECT_THROW(schema::writer::cpp::generate_files(empty, directory / "empty.hpp", options,
+      invalid_mode), std::invalid_argument);
+  write("root.serializer", "serializer version 1; class request { public uint32 id; }");
+  const auto parsed = schema::parser::parse_file(directory / "root.serializer");
+  ASSERT_EQ(parsed.source_files.size(), 1u);
+  EXPECT_THROW(schema::writer::cpp::generate_files(parsed, directory / "root.hpp", options,
+      invalid_mode), std::invalid_argument);
+}
+
+// A completely declaration-free include graph still emits each file and preserves its notices.
+TEST_F(schema_include_test, empty_included_artifacts_retain_notices) {
+  write("empty.serializer", "// SPDX-License-Identifier: LicenseRef-Serializer-Include-Test\n"
+      "serializer version 1;\n");
+  write("root.serializer", "// Copyright 2026 Serializer Include Test Authors\n"
+      "serializer version 1; include empty;\n");
+  const auto parsed = schema::parser::parse_file(directory / "root.serializer");
+  ASSERT_TRUE(parsed.statements.empty());
+  ASSERT_EQ(parsed.source_files.size(), 2u);
+  schema::writer::cpp_options options{};
+  options.format = false;
+  const auto files = schema::writer::cpp::generate_files(parsed, directory / "root.hpp", options);
+  ASSERT_EQ(files.size(), 2u);
+  EXPECT_EQ(files.front().path, directory / "root.hpp.includes/empty.hpp");
+  EXPECT_EQ(files.back().path, directory / "root.hpp");
+  for (const auto& file : files) {
+    EXPECT_NE(file.contents.find("LicenseRef-Serializer-Include-Test"), std::string::npos);
+    EXPECT_NE(file.contents.find("Copyright 2026 Serializer Include Test Authors"),
+        std::string::npos);
+  }
+}
+
+// Synthesized generic aliases stay at their first application and can reference entry-only types.
+TEST_F(schema_include_test, generic_aliases_belong_to_first_use_site) {
+  write("common.serializer", "serializer version 1; namespace library { "
+      "class box<T> { public T value (1); } }");
+  write("middle.serializer", "serializer version 1; include common; namespace app { "
+      "class intermediate { public library::box<uint32> numeric (2); } }");
+  write("root.serializer", "serializer version 1; include middle; namespace app { "
+      "class root_value { public uint32 marker (3); } "
+      "instantiate root_box = library::box<root_value>; "
+      "class request { public root_box payload (4); public library::box<uint32> reused (5); } }");
+  const auto parsed = schema::parser::parse_file(directory / "root.serializer");
+  schema::writer::cpp_options options{};
+  options.format = false;
+  const auto files = schema::writer::cpp::generate_files(parsed, directory / "root.hpp", options);
+  ASSERT_EQ(files.size(), 3u);
+  EXPECT_NE(files.front().contents.find("class box {"), std::string::npos);
+  EXPECT_EQ(files.front().contents.find("root_value"), std::string::npos);
+  EXPECT_EQ(files[1].contents.find("root_value"), std::string::npos);
+  EXPECT_NE(files[1].contents.find("class intermediate {"), std::string::npos);
+  EXPECT_NE(files.back().contents.find("class root_value {"), std::string::npos);
+  EXPECT_NE(files.back().contents.find("class root_box {"), std::string::npos);
+  EXPECT_NE(files.back().contents.find("::library::box<::app::root_value>"), std::string::npos);
+}
+
+// Entry preambles remain available before imported native bodies in every separate artifact.
+TEST_F(schema_include_test, entry_preambles_precede_generated_includes) {
+  write("common.serializer", "serializer version 1.6.0; class base { public uint32 value; "
+      "public function uint32 adjusted() readonly cpp { return include_preamble_increment(value); }; }");
+  write("root.serializer", "serializer version 1.6.0; include common; cpp preamble { "
+      "#include <cstdint>\n"
+      "// Increment a value consumed by an included native method.\n"
+      "constexpr std::uint32_t include_preamble_increment(std::uint32_t value) { return value + 1; }\n"
+      "} class request { public base item; }");
+  const auto parsed = schema::parser::parse_file(directory / "root.serializer");
+  schema::writer::cpp_options options{};
+  options.format = false;
+  options.rename_identifiers = false;
+  const auto files = schema::writer::cpp::generate_files(parsed, directory / "root.hpp", options);
+  ASSERT_EQ(files.size(), 2u);
+  constexpr std::string_view helper{"constexpr std::uint32_t include_preamble_increment"};
+  for (const auto& file : files) {
+    EXPECT_NE(file.contents.find(helper), std::string::npos);
+  }
+  const auto helper_position = files.back().contents.find(helper);
+  const auto include_position = files.back().contents.find("#include \"root.hpp.includes/common.hpp\"");
+  ASSERT_NE(include_position, std::string::npos);
+  EXPECT_LT(helper_position, include_position);
+}
+
+// Compile and exercise generic aliases, inherited values, and repeated applications across files.
+TEST(schema_include, separate_generic_cpp_round_trip) {
+  include_separation::request source{};
+  source.identifier = 31;
+  source.payload.value.marker = 47;
+  source.branch.numeric.value = 59;
+  source.reused.value = 61;
+  EXPECT_EQ(source.adjusted_identifier(), std::uint32_t{32});
+  // Every existing native protocol traverses values defined in different generated headers.
+  const auto round_trip = [&]<template <schema::serialize_type> class Protocol>() {
+    rohit::full_stream_auto_alloc output{};
+    source.serialize_out<Protocol>(output);
+    const auto input = rohit::make_constant_stream(output.begin(), output.current_offset());
+    const auto decoded = schema::deserialize_exact<include_separation::request, Protocol>(input);
+    EXPECT_EQ(decoded.identifier, std::uint32_t{31});
+    EXPECT_EQ(decoded.payload.value.marker, std::uint32_t{47});
+    EXPECT_EQ(decoded.branch.numeric.value, std::uint32_t{59});
+    EXPECT_EQ(decoded.reused.value, std::uint32_t{61});
+    EXPECT_EQ(decoded.adjusted_identifier(), std::uint32_t{32});
+  };
+  round_trip.template operator()<schema::binary_none>();
+  round_trip.template operator()<schema::binary_integer>();
+  round_trip.template operator()<schema::binary_string>();
+  round_trip.template operator()<schema::json>();
 }

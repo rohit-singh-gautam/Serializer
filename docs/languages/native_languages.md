@@ -28,8 +28,11 @@ serializer --input example/interoperability/message.serializer \
 
 Append `cpp,java,js,typescript,go,csharp` and their destination options to produce
 all outputs in that same invocation. Repeating `--language` also works.
-`--output` accepts one target. Included declarations are emitted together; the
-same depfile and publication validation apply to every backend. With CMake,
+`--output` accepts one target. These five backends emit included declarations
+together in the entry output; separate-file generation is not implemented for
+them. C++ emits separate dependency headers by default and accepts
+`--include-mode inline` for a combined header. Depfile tracking and publication
+validation apply to every backend. With CMake,
 `serializer_generate_source(... LANGUAGE rust OUTPUT .../schema.rs)` and the
 equivalent language names use the existing generation helper.
 

@@ -1,5 +1,12 @@
 # Rohit Serializer for Visual Studio Code
 
+Version **1.1.48** supports the compiler's default separate C++ include files.
+Included types and fields open their own generated headers, including transitive
+includes and renamed entry outputs. Compiler source comments identify the exact
+schema even when several schemas share a basename. An active CMake configuration
+retains the generated headers linked by its entry output. Use `--include-mode inline`
+or `[output] include_mode = inline` for combined C++ output; navigation supports both.
+
 Version **1.1.47** adds **Go to Definition** from typed external schema function
 names to available authored C++ out-of-class definitions. The shared resolver
 matches qualified templated owners and overload signatures, reads live unsaved
@@ -235,15 +242,17 @@ Type references include the enum prefix in defaults such as
 itself is not a type reference. **Go to Definition** falls back to the source
 declaration when the generated header or matching type is unavailable, including
 new types in unsaved schemas. Unresolved names and missing header-only destinations
-produce no result. Included schemas can map to an entry
-schema's header: `account.serializer` included by `request.serializer` may be
-implemented in `request.hpp`. Unsaved schema edits are used for declaration lookup.
+produce no result. By default, `account.serializer` included by `request.serializer`
+is implemented in a separate header under `request.hpp.includes/`. With inline
+generation it maps to `request.hpp`. Unsaved schema edits are used for declaration lookup.
 
 An already active CMake Tools configuration narrows discovery for its generated
 languages and supplies target-specific C/C++ include paths. Other output languages
 remain discoverable. Navigation searches the current workspace folder, including
 ignored build directories. Existing `<output>.d` or multi-output `.d` dependency
-files identify entry schemas precisely. Older banner-marked outputs without a
+files identify entry schemas precisely. Current C++ output also records its exact
+origin in a `// Serializer source:` comment, including each separate header.
+Older banner-marked outputs without a
 depfile use matching schema basenames and the Serializer generated-file banner;
 ambiguous matches remain available as separate choices. Naming profiles and
 storage-mode class specializations are supported. This is available-file lookup,

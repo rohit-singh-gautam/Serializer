@@ -288,6 +288,13 @@ std::vector<std::string> parse_output_languages(std::string_view names) {
   }
 }
 
+// Resolve the include layout without silently accepting misspelled modes.
+include_mode parse_include_mode(std::string_view name) {
+  if (name == "separate") { return include_mode::separate; }
+  if (name == "inline") { return include_mode::inline_output; }
+  throw std::invalid_argument{"include_mode must be separate or inline"};
+}
+
 // Parse the documented small INI grammar and report the line responsible for invalid input.
 output_options read_output_options(const std::filesystem::path& file) {
   std::ifstream input{file};
@@ -373,6 +380,8 @@ output_options read_output_options(const std::filesystem::path& file) {
       } else if (section == "output" && key == "language") {
         result.language = value;
         parse_output_languages(value);
+      } else if (section == "output" && key == "include_mode") {
+        result.includes = parse_include_mode(value);
       } else if ((section == "js" || section == "go" || section == "csharp") && key == "naming") {
         if (value != "profile" && value != "preserve") {
           throw std::invalid_argument{"Expected naming = profile or preserve"};

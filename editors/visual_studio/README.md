@@ -1,5 +1,11 @@
 # Rohit Serializer for Visual Studio
 
+Version **1.1.48** supports the compiler's default separate C++ include files.
+Included types and fields open their own generated headers, including transitive
+includes and renamed entry outputs. Compiler source comments identify the exact
+schema even when several schemas share a basename. Use `--include-mode inline`
+or `[output] include_mode = inline` for combined C++ output; navigation supports both.
+
 Version **1.1.47** adds **Go to Definition** (F12) and **Ctrl+click** from typed
 external schema function names to available authored C++ out-of-class definitions.
 The shared resolver matches qualified templated owners and overload signatures,
@@ -114,6 +120,8 @@ the `1.3.0` schema header. See the [digest contract](../../docs/schema/digest.md
 
 Retain the compiler's `--depfile` beside generated output or in the solution tree,
 especially for renamed outputs and Python/Swift/Kotlin/C output without a banner.
+Current C++ output records its exact originating schema in a `// Serializer source:`
+comment. Separate included headers use this identity for both navigation directions.
 CMake generation helpers already produce dependency metadata. Navigation only
 reads existing files; it never saves, configures, builds or prompts to generate.
 
@@ -189,7 +197,7 @@ installation. It uses full-framework MSBuild with locked dependencies, bundles
 the current shared resolver, rebuilds and validates:
 
 ```text
-out/extensions/serializer-visual-studio-1.1.47.vsix
+out/extensions/serializer-visual-studio-1.1.48.vsix
 ```
 
 Close Visual Studio, double-click the VSIX, select the installation and restart
@@ -246,8 +254,8 @@ assets and block boundaries, rather than native editor UI colors.
 After `npm run test:navigation:generated` produces real compiler output, build
 `test/navigation_test.csproj` with MSBuild and run
 `out/extension-tests/visual-studio/SerializerNavigationTest.exe <repository> <generated-complex-directory> [generated-generic-directory] [generated-inheritance-directory]`.
-This checks the actual .NET interpreter, all 11 output languages, selection
-endpoints, unsaved include changes and cancellation. The optional inheritance
+This checks the actual .NET interpreter, all 11 output languages, separate C++
+header ownership, selection endpoints, unsaved include changes and cancellation. The optional inheritance
 directory also checks inherited field declarations with unsaved schema edits.
 After installing the package, run the native editor test with Windows PowerShell:
 

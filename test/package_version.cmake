@@ -51,3 +51,10 @@ if(major GREATER 0)
   math(EXPR previous_major "${major} - 1")
   check_version("${previous_major}.${minor}.${patch}" FALSE FALSE)
 endif()
+
+# Reject recent major-1 release requests at the major-2 package boundary.
+if(major GREATER 1)
+  foreach(previous_release IN ITEMS 1.22.1 1.23.0)
+    check_version("${previous_release}" FALSE FALSE)
+  endforeach()
+endif()

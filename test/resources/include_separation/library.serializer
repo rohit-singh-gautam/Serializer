@@ -1,0 +1,13 @@
+serializer version 1.6.0;
+
+namespace include_separation {
+  class base stable_ids {
+    public uint32 identifier (1);
+    public function uint32 adjusted_identifier() readonly cpp {
+      return ::include_separation_host::increment_identifier(identifier);
+    };
+  }
+  class box<T> stable_ids {
+    public T value (2);
+  }
+}

@@ -22,6 +22,13 @@ file(MAKE_DIRECTORY "${source}")
 run_checked("${CMAKE_COMMAND}" --install "${BUILD_DIRECTORY}"
   --config "${CONFIGURATION}" --prefix "${prefix}")
 
+# Read the generated package metadata to request this installed release exactly.
+set(PACKAGE_FIND_VERSION "0.0.0")
+set(PACKAGE_FIND_VERSION_MAJOR 0)
+include("${BUILD_DIRECTORY}/SerializerConfigVersion.cmake")
+set(installed_release "${PACKAGE_VERSION}")
+string(REGEX MATCH "^[0-9]+" installed_release_major "${installed_release}")
+
 foreach(license IN ITEMS LICENSE LICENSE-RUNTIME LICENSE-GENERATED)
   if(NOT EXISTS "${prefix}/share/licenses/Serializer/${license}")
     message(FATAL_ERROR "Missing installed licensing terms: ${license}")
@@ -42,7 +49,18 @@ endforeach()
 file(WRITE "${source}/CMakeLists.txt" "cmake_minimum_required(VERSION 3.28)\n"
   "project(installed_serializer_headers LANGUAGES CXX)\n"
   "set(CMAKE_PREFIX_PATH [=[${prefix};${DEPENDENCY_PREFIXES}]=])\n"
-  "find_package(Serializer CONFIG REQUIRED)\n")
+  "find_package(Serializer ${installed_release} EXACT CONFIG REQUIRED)\n")
+if(installed_release_major GREATER 1)
+  foreach(previous_release IN ITEMS 1.22.1 1.23.0)
+    file(APPEND "${source}/CMakeLists.txt"
+      "find_package(Serializer ${previous_release} CONFIG QUIET NO_DEFAULT_PATH PATHS [=[${prefix}]=])\n"
+      "if(Serializer_FOUND)\n"
+      "  message(FATAL_ERROR \"Installed Serializer ${installed_release} accepted incompatible compiler release ${previous_release}\")\n"
+      "endif()\n")
+  endforeach()
+  file(APPEND "${source}/CMakeLists.txt"
+    "find_package(Serializer ${installed_release} EXACT CONFIG REQUIRED)\n")
+endif()
 file(APPEND "${source}/CMakeLists.txt" [=[
 if(NOT TARGET Serializer::runtime OR NOT TARGET Serializer::serializer_lib)
   message(FATAL_ERROR "Missing runtime or compatibility compiler-library target")

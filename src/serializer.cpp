@@ -24,6 +24,7 @@
 #include "command_line.hpp"
 #include "schema_policy.hpp"
 
+#include <algorithm>
 #include <cstddef>
 #include <exception>
 #include <filesystem>
@@ -60,6 +61,8 @@ constexpr rohit::serializer::cli::commandline_option command_options[] = {
     {'o', "output", "file", "One output per configuration selecting exactly one language.", true},
     {'\0', "depfile", "file.d", "Write Make-style dependencies for all generated outputs."},
     {'c', "config", "file.ini", "Independent generator configuration; repeat to parse once.", true},
+    {'\0', "include-mode", "separate|inline",
+     "C++ included schemas use separate headers by default; inline combines them."},
     {'l', "language", "cpp|java|js|typescript|go|csharp|rust|python|swift|kotlin|c",
      "Select output languages; repeat or comma-separate values.", true},
     {'\0', "cpp.output", "file.hpp", "C++ output path; repeat in configuration order.", true},
@@ -107,6 +110,9 @@ constexpr rohit::serializer::cli::commandline_option command_options[] = {
 void apply_output_overrides(rohit::serializer::writer::output_options& options,
                             const rohit::serializer::cli::arguments& arguments) {
   using namespace rohit::serializer;
+  if (arguments.contains("include-mode")) {
+    options.includes = writer::parse_include_mode(cli::first(arguments, "include-mode"));
+  }
   if (arguments.contains("language")) {
     options.language.clear();
     for (const auto& value : arguments.at("language")) {
@@ -227,6 +233,13 @@ struct generation_request {
   std::size_t configuration_index{};
   std::string language{};
   std::filesystem::path destination{};
+};
+
+// Keep each generated artifact associated with the configuration that owns its presentation.
+struct generation_artifact {
+  std::size_t configuration_index{};
+  std::string language{};
+  rohit::serializer::writer::cpp::generated_file file{};
 };
 
 // Load independent INIs, or one default configuration, then apply shared CLI overrides.
@@ -494,6 +507,67 @@ int main(const int argc, const char* argv[]) {
     // The parser supplies the root and transitive schemas; add every INI and custom format file.
     dependencies.insert(dependencies.end(), configuration_dependencies.begin() + 1,
                         configuration_dependencies.end());
+    std::vector<generation_artifact> artifacts{};
+    for (const auto& request : requests) {
+      const auto& options = configurations[request.configuration_index].options;
+      if (request.language == "cpp") {
+        for (auto& file : writer::cpp::generate_files(schema, request.destination, options.cpp,
+                                                     options.includes)) {
+          artifacts.push_back({request.configuration_index, request.language, std::move(file)});
+        }
+      } else {
+        std::string contents{};
+        if (request.language == "java") {
+          contents = writer::java::generate_schema(schema, request.destination.stem().string(),
+                                                   options.java);
+        } else {
+          const auto& language = request.language;
+          auto settings = language == "go" ? options.go : language == "csharp" ? options.csharp :
+                          language == "kotlin" ? options.kotlin : options.js;
+          if (const auto found = options.class_comparisons.find(language);
+              found != options.class_comparisons.end()) {
+            settings.class_comparisons = found->second;
+          }
+          if (const auto found = options.class_auto_sizes.find(language);
+              found != options.class_auto_sizes.end()) {
+            settings.class_auto_sizes = found->second;
+          }
+          contents = writer::portable::generate_schema(schema, language,
+              request.destination.stem().string(), settings);
+        }
+        artifacts.push_back({request.configuration_index, request.language,
+                             {request.destination, std::move(contents)}});
+      }
+    }
+    destinations.clear();
+    for (const auto& artifact : artifacts) {
+      const auto& destination = artifact.file.path;
+      for (const auto& previous : destinations) {
+        if (same_file(previous, destination)) {
+          throw std::invalid_argument{"Output paths must identify distinct files"};
+        }
+      }
+      auto parent = destination.parent_path();
+      while (!parent.empty() && !std::filesystem::exists(parent)) { parent = parent.parent_path(); }
+      if ((!parent.empty() && !std::filesystem::is_directory(parent)) ||
+          std::filesystem::is_directory(destination)) {
+        throw std::invalid_argument{"Generated output requires a directory parent and a file path"};
+      }
+      // A pre-existing symlink must not redirect an implicit child outside its output directory.
+      const auto owner = std::find_if(requests.begin(), requests.end(), [&](const auto& request) {
+        return request.configuration_index == artifact.configuration_index &&
+               request.language == artifact.language;
+      });
+      if (destination != owner->destination) {
+        const auto root = std::filesystem::weakly_canonical(
+            std::filesystem::absolute(owner->destination).parent_path());
+        const auto relative = std::filesystem::weakly_canonical(destination).lexically_relative(root);
+        if (relative.empty() || *relative.begin() == "..") {
+          throw std::invalid_argument{"Generated output must remain inside its output directory"};
+        }
+      }
+      destinations.push_back(destination);
+    }
     for (const auto& destination : destinations) {
       for (const auto& dependency : dependencies) {
         if (same_file(destination, dependency)) {
@@ -532,43 +606,18 @@ int main(const int argc, const char* argv[]) {
       }
       dependency_text += '\n';
     }
-    std::vector<std::unique_ptr<rohit::full_stream_auto_alloc>> outputs{};
-    for (const auto& request : requests) {
-      const auto& options = configurations[request.configuration_index].options;
-      auto output = std::make_unique<rohit::full_stream_auto_alloc>();
-      if (request.language == "java") {
-        output->write(writer::java::generate_schema(schema, request.destination.stem().string(),
-                                                    options.java));
-      } else if (request.language == "cpp") {
-        output->write(writer::cpp::generate_schema(schema, options.cpp));
-      } else {
-        const auto& language = request.language;
-        auto settings = language == "go"       ? options.go
-                               : language == "csharp" ? options.csharp
-                               : language == "kotlin" ? options.kotlin
-                                                      : options.js;
-        if (const auto found = options.class_comparisons.find(language);
-            found != options.class_comparisons.end()) {
-          settings.class_comparisons = found->second;
-        }
-        if (const auto found = options.class_auto_sizes.find(language);
-            found != options.class_auto_sizes.end()) {
-          settings.class_auto_sizes = found->second;
-        }
-        output->write(writer::portable::generate_schema(schema, language,
-            request.destination.stem().string(), settings));
-      }
-      outputs.push_back(std::move(output));
-    }
     // Backend/formatter failures leave all destinations intact. Filesystem writes can still fail.
-    for (std::size_t index = 0; index < requests.size(); ++index) {
-      const auto& request = requests[index];
-      const auto& options = configurations[request.configuration_index].options;
-      outputs[index]->write_to_file_till_offset(request.destination);
-      std::cout << "Generated " << request.destination << " (" << request.language << ", "
-                << (request.language == "java"
+    for (const auto& artifact : artifacts) {
+      const auto& options = configurations[artifact.configuration_index].options;
+      const auto parent = artifact.file.path.parent_path();
+      if (!parent.empty()) { std::filesystem::create_directories(parent); }
+      rohit::full_stream_auto_alloc output{};
+      output.write(artifact.file.contents);
+      output.write_to_file_till_offset(artifact.file.path);
+      std::cout << "Generated " << artifact.file.path << " (" << artifact.language << ", "
+                << (artifact.language == "java"
                         ? writer::java_coding_standard_name(options.java.standard)
-                    : request.language == "cpp" ? writer::coding_standard_name(options.cpp.standard)
+                    : artifact.language == "cpp" ? writer::coding_standard_name(options.cpp.standard)
                                                 : "native")
                 << ")\n";
     }

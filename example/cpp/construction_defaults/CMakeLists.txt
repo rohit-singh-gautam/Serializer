@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.28)
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   project(serializer_construction_defaults_example LANGUAGES CXX)
-  find_package(Serializer 1.19 CONFIG REQUIRED)
+  find_package(Serializer 2.0 CONFIG REQUIRED)
   enable_testing()
 endif()
 

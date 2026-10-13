@@ -247,6 +247,33 @@ test('active CMake configuration isolates outputs without configuring or buildin
   assert.equal(targets[0].uri.fsPath, path.join(root, 'debug/account.hpp'));
 });
 
+test('active CMake entry outputs retain transitive split headers and their exact source identities', async () => {
+  const state = harness({ active: true, model: { configurations: [{ name: 'Debug', projects: [{
+    sourceDirectory: root, targets: [{ name: 'app', fileGroups: [
+      { isGenerated: true, sources: ['debug/request.hpp'] }
+    ] }] }] }] } });
+  state.put('request.serializer', 'serializer version 1; include middle; class request { public data::account owner; }');
+  state.put('middle.serializer', 'serializer version 1; include types/account;');
+  state.put('types/account.serializer', 'serializer version 1; namespace data { class account {} }');
+  state.put('elsewhere/account.serializer', 'serializer version 1; namespace data { class account {} }');
+  state.put('debug/request.hpp', banner + `// Serializer source: ${path.join(root, 'request.serializer')}\n` +
+    '#include "request.hpp.includes/middle.hpp"\nclass request {};');
+  state.put('debug/request.hpp.includes/middle.hpp', banner + `// Serializer source: ${path.join(root, 'middle.serializer')}\n` +
+    '#include "types/account.hpp"\n#include "ordinary.hpp"\n');
+  const output = 'debug/request.hpp.includes/types/account.hpp';
+  state.put(output, banner + `// Serializer source: ${path.join(root, 'types/account.serializer')}\n` +
+    'namespace data { class account {}; }');
+  state.put('debug/request.hpp.includes/ordinary.hpp', 'namespace data { class account {}; }');
+  state.put('release/account.hpp', banner + 'namespace data { class account {}; }');
+  const targets = await state.request('request.serializer', 'data::account', true);
+  assert.equal(targets.length, 1);
+  assert.equal(targets[0].uri.fsPath, path.join(root, output));
+  const reverse = await state.request(output, 'class account', false);
+  assert.equal(reverse.length, 1);
+  assert.equal(reverse[0].uri.fsPath, path.join(root, 'types/account.serializer'));
+  assert.ok(state.calls.every(call => call === 'getExtension'), 'split lookup stays passive');
+});
+
 test('disk cache observes changes and missing destinations do not offer generation', async () => {
   const state = harness();
   state.put('account.serializer', 'serializer version 1; class account {}');

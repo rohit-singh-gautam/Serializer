@@ -1,5 +1,35 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.0.0
+
+The compiler/runtime release is **2.0.0**; the schema language remains **1.17.0**
+and both editor packages remain **1.1.48**. The concrete migration boundaries are
+the default C++ artifact layout and versioned CMake package discovery. Supported
+1.x schema meanings, generated model names, runtime APIs and serialized formats
+retain their existing contracts.
+
+- Update versioned installed-package requests to
+  `find_package(Serializer 2.0 CONFIG REQUIRED)`, or use `2.0.0 EXACT` when pinning
+  this release. The package's `SameMajorVersion` policy rejects requests for
+  Serializer 1.x; removing `EXACT` does not allow crossing that major boundary.
+  Existing unversioned package discovery remains available.
+- Regenerate C++ output through the consuming project's build rules and rebuild
+  its consumers. Separate mode is now the default: keep each entry header and
+  its adjacent `<entry-output-filename>.includes/` tree together when copying or
+  installing generated APIs. Preserve their relative paths. To retain one
+  combined header, select `--include-mode inline`, `[output] include_mode = inline`,
+  or CMake `INCLUDE_MODE inline`. Other language backends retain their existing
+  combined compilation units/modules.
+- Keep schema headers at their supported 1.x language contracts. New schemas may
+  use `serializer version 1.17.0;`; the original `serializer version 1;` still
+  means exactly `1.0.0`. Do not select `serializer version 2.0.0;` for this compiler
+  release: compiler and language versions are independent. A release-number
+  change alone does not require new field IDs, payload revisions or wire data.
+
+See [generated include layout](docs/guides/usage.md#share-declarations-with-includes),
+[CMake integration](docs/guides/cmake_integration.md), and
+[version reporting](docs/guides/command_line.md).
+
 ## Generic owner-parameter defaults (12 October 2026)
 
 Compiler/runtime **1.21.0** supports language **1.16.0**. Raise each declaring

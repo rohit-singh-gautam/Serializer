@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.28)
 
-project(serializer VERSION 1.22.1 LANGUAGES CXX)
+project(serializer VERSION 2.0.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
 set(serializer_schema_language_version 1.17.0)
@@ -251,6 +251,7 @@ if(SERIALIZER_INSTALL)
     "${CMAKE_CURRENT_BINARY_DIR}/SerializerConfigVersion.cmake"
     cmake/serializer_generate.cmake cmake/serializer_generate_java.cmake
     cmake/serializer_generate_source.cmake
+    cmake/serializer_include_outputs.cmake
     cmake/serializer_compression.cmake
     DESTINATION "${serializer_package_directory}")
   install(FILES LICENSE LICENSE-RUNTIME LICENSE-GENERATED

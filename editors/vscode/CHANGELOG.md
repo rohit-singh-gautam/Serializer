@@ -1,3 +1,10 @@
+# 1.1.48
+
+- Navigate included schema declarations and fields into their separate C++ generated headers.
+- Read exact compiler source identities to disambiguate included headers with duplicate basenames.
+- Retain transitive generated headers from the active CMake entry output without selecting another output configuration.
+- Preserve inline outputs and generated navigation in all eleven supported languages; synchronize the Visual Studio package version.
+
 # 1.1.47
 
 - Resolve Go to Definition on typed external schema function names to available authored C++ out-of-class definitions.

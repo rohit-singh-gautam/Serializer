@@ -26,6 +26,10 @@ Both helpers accept entry schemas containing `include common;`.
 The compiler emits a depfile, and CMake tracks direct and transitive included files
 automatically; they do not need to be listed manually in `DEPENDS`. Only list entry
 schemas in `SCHEMAS`/`SCHEMA`, since included declarations join the entry's output.
+For C++, generation emits separate dependency headers by default; use
+`CONFIG project.ini` with `[output] include_mode = inline` or pass
+`INCLUDE_MODE inline` when one combined header is required. Other
+backends retain a combined entry output.
 See [include usage](usage.md#share-declarations-with-includes) and
 [C++/Java examples](../../example/includes/README.md).
 Each helper explicitly selects its own backend, so both may share a configuration
@@ -33,9 +37,15 @@ with `[output] language = cpp,java`. Schema paths use `.serializer`, and every
 schema starts with a supported language header; use `serializer version 1.3.0;`
 for inferred arrays and typed magic. The original `1` header remains an exact
 alias for `1.0.0`. The installed package supports
-`find_package(Serializer 1.5.0 EXACT CONFIG REQUIRED)`; omit `EXACT` to accept a
+`find_package(Serializer 2.0.0 EXACT CONFIG REQUIRED)`; omit `EXACT` to accept a
 newer compatible release within the same major version. See
 [compiler and schema versioning](command_line.md).
+The 2.0.0 package uses `SameMajorVersion` discovery and rejects 1.x requests.
+Update a versioned consumer to `find_package(Serializer 2.0 CONFIG REQUIRED)`;
+existing unversioned discovery remains valid. Regenerate through the consumer's
+build rules, and distribute the default separate-header bundle or select
+`INCLUDE_MODE inline`. Schema language headers remain 1.x. See
+[2.0 migration](../../migration.md#compilerruntime-200).
 
 Serializer ships a `serializer_generate` function with both its source tree and
 its installable CMake package. Use CMake 3.28+, a C++20 compiler and standard
@@ -498,6 +508,7 @@ serializer_generate(TARGET my_app
 | `SCHEMAS` | Required list of existing schema files; each produces `<stem>.hpp` |
 | `OUTPUT_DIRECTORY` | Defaults to `${CMAKE_CURRENT_BINARY_DIR}/generated/<target>`; relative paths use the current build directory |
 | `CONFIG` | Generator INI file; tracked for regeneration |
+| `INCLUDE_MODE` | `separate` or `inline`; overrides `[output] include_mode` for C++ generated dependency headers; also supported by `serializer_generate_variants` and `serializer_generate_source` |
 | `CODING_STANDARD` | Overrides the C++ profile from the config |
 | `FORMAT_FILE` | Overrides and tracks a custom clang-format YAML file |
 | `CLANG_FORMAT` | Overrides the formatter executable; otherwise uses `SERIALIZER_CLANG_FORMAT_EXECUTABLE` when set, then the generator's config/default |
@@ -614,6 +625,10 @@ consumers. `INTERFACE` propagates it only to consumers, not the target's own sou
 If publishing such a library, install its generated public headers and provide
 the matching install include directory yourself; this helper attaches generated
 headers and their include directory to the build interface only.
+With the default separate include mode, install each entry header's adjacent
+`<entry-output-filename>.includes/` tree at the same relative location. Installing
+only the entry header leaves its generated includes unresolved. Use
+`INCLUDE_MODE inline` when distribution requires a single header.
 
 ## Generate headers before editing
 

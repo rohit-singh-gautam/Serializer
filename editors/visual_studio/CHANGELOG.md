@@ -1,3 +1,10 @@
+# 1.1.48
+
+- Navigate included schema declarations and fields into their separate C++ generated headers.
+- Read exact compiler source identities to disambiguate included headers with duplicate basenames.
+- Share transitive generated include resolution with VS Code while preserving inline outputs and all eleven supported languages.
+- Synchronize the VS Code package version and validate the shared resolver through the .NET interpreter.
+
 # 1.1.47
 
 - Resolve F12 and Ctrl+click on typed external schema function names to available authored C++ out-of-class definitions through the shared resolver.

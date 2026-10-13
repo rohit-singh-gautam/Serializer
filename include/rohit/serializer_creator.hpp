@@ -124,6 +124,8 @@ struct syntax_node {
   std::string name;
   namespace_node* parent_namespace{nullptr};
   std::string source_path{};
+  // Lowered applications are emitted where first used while diagnostics retain their definition.
+  std::string output_source_path{};
   // Shared leading source notices belong to the compilation unit, not its wire identities.
   std::shared_ptr<const std::vector<std::string>> source_notices{};
   // Initialize this object from the supplied storage or value state.
@@ -132,7 +134,9 @@ struct syntax_node {
   // Initialize this object from the supplied storage or value state.
   syntax_node(syntax_node&& base)
       : type{base.type}, name{std::move(base.name)}, parent_namespace{base.parent_namespace},
-        source_path{std::move(base.source_path)}, source_notices{std::move(base.source_notices)} {}
+        source_path{std::move(base.source_path)},
+        output_source_path{std::move(base.output_source_path)},
+        source_notices{std::move(base.source_notices)} {}
   // Release resources owned by this object.
   virtual ~syntax_node() = default;
   // Initialize this object from the supplied storage or value state.
@@ -841,6 +845,8 @@ struct parsed_schema {
   std::vector<std::filesystem::path> dependencies{};
   // Retain file-level notices even when the complete schema has no declarations.
   std::shared_ptr<const std::vector<std::string>> source_notices{};
+  // Canonical source paths in declaration visibility order, including empty files.
+  std::vector<std::filesystem::path> source_files{};
 };
 
 // Load versioned files with unquoted, file-relative includes and include-once semantics.
@@ -953,6 +959,16 @@ std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements
                      const cpp_options& options = {});
 // Preserve file-level source notices, including those from declaration-free schemas.
 std::string generate_schema(const parser::parsed_schema& schema, const cpp_options& options = {});
+// Own one generated artifact; generation does not write to its destination.
+struct generated_file {
+  std::filesystem::path path{};
+  std::string contents{};
+};
+// Generate a complete header bundle, retaining existing single-string APIs as inline output.
+// Separate children live beneath <destination filename>.includes; callers publish all files.
+std::vector<generated_file> generate_files(const parser::parsed_schema& schema,
+    const std::filesystem::path& destination, const cpp_options& options = {},
+    include_mode mode = include_mode::separate);
 // Append validated generated text to any concept-conforming buffer or byte sink.
 inline void write(rohit::type_check::output_stream auto& output,
                   const std::vector<std::unique_ptr<syntax_node>>& statements,

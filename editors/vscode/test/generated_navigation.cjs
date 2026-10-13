@@ -5,7 +5,7 @@ const { execFileSync } = require('node:child_process');
 const { Navigator } = require('../out/navigator');
 const { indexSource, managedNames, resolveType } = require('../out/navigation_model');
 const { fileKey } = require('../out/model');
-const { generatedMember, indexGeneratedSource, outputMemberNames } = require('../out/generated_navigation');
+const { generatedIncludes, generatedMember, generatedSource, indexGeneratedSource, outputMemberNames } = require('../out/generated_navigation');
 
 const repository = path.resolve(__dirname, '../../..');
 const compiler = process.env.SERIALIZER_COMPILER;
@@ -16,7 +16,7 @@ const outputs = { cpp: 'model.hpp', java: 'Schema.java', js: 'schema.mjs', types
 /** Check both directions against freshly generated types, rather than handwritten output approximations. */
 async function verify(entry, directory, options = [], selectedOutputs = outputs, typeReferences = false,
   memberDeclarations = false) {
-  const args = ['--input', entry, '--language', Object.keys(selectedOutputs).join(','), '--cpp.format', 'false',
+  const args = ['--input', entry, '--language', Object.keys(selectedOutputs).join(','), '--include-mode', 'inline', '--cpp.format', 'false',
     '--depfile', path.join(directory, 'all.d'), ...options];
   fs.mkdirSync(directory, { recursive: true });
   for (const [language, name] of Object.entries(selectedOutputs)) {
@@ -142,6 +142,68 @@ async function verify(entry, directory, options = [], selectedOutputs = outputs,
   return checks;
 }
 
+/** Exercise real split header ownership and every transitive type/include selection boundary. */
+async function verifySeparate(entry, directory, options = [], extension = '.hpp') {
+  fs.mkdirSync(directory, { recursive: true });
+  const output = path.join(directory, `renamed${extension}`);
+  execFileSync(compiler, ['--input', entry, '--language', 'cpp', '--output', output,
+    '--cpp.format', 'false', '--depfile', path.join(directory, 'all.d'), ...options], { stdio: 'pipe' });
+  const files = fs.readdirSync(directory, { recursive: true })
+    .filter(name => path.extname(name) === extension).map(name => path.join(directory, name));
+  const schemas = files.map(file => {
+    const origin = generatedSource(fs.readFileSync(file, 'utf8'));
+    assert.ok(origin, `exact source metadata for ${file}`);
+    const text = fs.readFileSync(origin, 'utf8');
+    return { file: origin, output: file, text, index: indexSource(text, true) };
+  });
+  assert.ok(schemas.length > 1, 'included schemas generate separate C++ headers by default');
+  const resolver = new Navigator({ read: async file => {
+    try { return fs.readFileSync(file, 'utf8'); } catch { return undefined; }
+  }, files: async () => ({ schemas: schemas.map(schema => schema.file), headers: files }),
+  cancelled: () => false, includeDirectories: [] });
+  const symbols = schemas.flatMap(schema => schema.index.symbols);
+  let checks = 0;
+  for (const schema of schemas) {
+    for (const symbol of schema.index.symbols.filter(symbol => !symbol.typeParameter)) {
+      const definitions = await resolver.schema(schema.file, symbol.end, true);
+      assert.deepEqual([...new Set(definitions.map(target => fileKey(target.file)))], [fileKey(schema.output)],
+        `${symbol.qualified}: separate source owns its generated declaration`);
+      for (const definition of definitions) {
+        for (const cursor of [definition.start, definition.end]) {
+          const origins = await resolver.generatedDeclaration(definition.file, cursor);
+          assert.deepEqual(origins.map(origin => [fileKey(origin.file), origin.start, origin.end]),
+            [[fileKey(schema.file), symbol.start, symbol.end]], 'split declaration origin boundaries');
+          ++checks;
+        }
+      }
+    }
+    for (const reference of schema.index.references) {
+      const declaration = resolveType(reference, symbols).find(symbol => !symbol.typeParameter);
+      if (!declaration) { continue; }
+      const owner = schemas.find(source => source.index.symbols.includes(declaration));
+      for (let cursor = reference.start; cursor <= reference.end; ++cursor) {
+        const definitions = await resolver.schema(schema.file, cursor, true);
+        assert.deepEqual([...new Set(definitions.map(target => fileKey(target.file)))], [fileKey(owner.output)],
+          'split transitive type definition boundaries');
+        ++checks;
+      }
+    }
+    const text = fs.readFileSync(schema.output, 'utf8');
+    for (const include of generatedIncludes(text)) {
+      const included = path.resolve(path.dirname(schema.output), include);
+      const owner = generatedSource(fs.readFileSync(included, 'utf8'));
+      const start = text.indexOf(`"${include}"`) + 1;
+      for (const cursor of [start, start + include.length]) {
+        const targets = await resolver.cppInclude(schema.output, cursor, false);
+        assert.deepEqual(targets.map(target => fileKey(target.file)), [fileKey(owner)],
+          'split generated include opens its own schema');
+        ++checks;
+      }
+    }
+  }
+  return checks;
+}
+
 /** Generate into an isolated directory; no language SDK, build or modification of existing output is needed. */
 async function main() {
   assert.ok(compiler, 'Set SERIALIZER_COMPILER to the current built Serializer executable.');
@@ -149,6 +211,10 @@ async function main() {
   fs.mkdirSync(parent, { recursive: true });
   const directory = fs.mkdtempSync(path.join(parent, 'generated-navigation-'));
   let checks = await verify(path.join(repository, 'example/schemas/complex/model.serializer'), path.join(directory, 'complex'));
+  checks += await verifySeparate(path.join(repository, 'example/schemas/complex/model.serializer'),
+    path.join(directory, 'complex-separate'));
+  checks += await verifySeparate(path.join(repository, 'example/schemas/complex/model.serializer'),
+    path.join(directory, 'complex-separate-hxx'), ['--include-mode', 'separate'], '.hxx');
   checks += await verify(path.join(repository, 'example/schemas/versioning/model.serializer'), path.join(directory, 'versioning'));
   checks += await verify(path.join(repository, 'example/generics/result.serializer'), path.join(directory, 'generics'));
   checks += await verify(path.join(repository, 'example/schemas/union_variant/model.serializer'),
@@ -298,7 +364,7 @@ namespace Names_ { class Value_Type {} }
     checks += await verify(path.join(repository, `test/resources/${name}.serializer`),
       path.join(directory, name), ['--cpp.naming', 'preserve'], { cpp: outputs.cpp }, true, true);
   }
-  console.log(`Fresh compiler navigation passed: ${checks} bidirectional type/field checks across all 11 ordinary output languages; language 1.15 fresh constructor/factory record defaults and nested positional defaults; language 1.14 C++ readonly getters and deleted temporary overloads; language 1.13 C++ noexcept signature types; C++ language 1.12 native/factory contracts, constructor overloads and generic readonly signatures; projected readonly record calls, generic record map keys, owning generic inheritance and inherited declarations, nested optionals and generic containers, unnamed revisions and warning suppression, unions and variants, digest fields, compact fields, typed magic and inferred arrays, identical codecs for legacy/dotted headers, transitive includes, acronyms, preserved names, and direct/separated managed classes across all C++ profiles.`);
+  console.log(`Fresh compiler navigation passed: ${checks} bidirectional type/field checks across all 11 ordinary output languages; default/explicit separate C++ headers and exact source ownership with .hpp/.hxx outputs; language 1.15 fresh constructor/factory record defaults and nested positional defaults; language 1.14 C++ readonly getters and deleted temporary overloads; language 1.13 C++ noexcept signature types; C++ language 1.12 native/factory contracts, constructor overloads and generic readonly signatures; projected readonly record calls, generic record map keys, owning generic inheritance and inherited declarations, nested optionals and generic containers, unnamed revisions and warning suppression, unions and variants, digest fields, compact fields, typed magic and inferred arrays, identical codecs for legacy/dotted headers, transitive includes, acronyms, preserved names, and direct/separated managed classes across all C++ profiles.`);
 }
 
 main().catch(error => { console.error(error.stderr?.toString() || error); process.exitCode = 1; });

@@ -4,7 +4,7 @@ const path = require('node:path');
 const { test } = require('node:test');
 const { Navigator } = require('../out/navigator');
 const { indexSource, generatedNames, dependencySchemas, cppIncludeAt, resolveType } = require('../out/navigation_model');
-const { indexGeneratedSource, outputNames } = require('../out/generated_navigation');
+const { generatedIncludes, generatedSource, indexGeneratedSource, outputNames } = require('../out/generated_navigation');
 
 const root = path.resolve('navigation workspace');
 const file = name => path.join(root, name);
@@ -739,6 +739,54 @@ test('extensionless includes and qualified class references navigate into source
   assert.deepEqual(selected(state, await resolver.schema(file('request.serializer'), state.at('request.serializer', 'data::account'), true)),
     [['build/request.hpp', 'account']]);
   assert.deepEqual(selected(state, await resolver.headers(file('types/account.serializer'))), [['build/request.hpp', '']]);
+});
+
+test('split C++ include trees retain source ownership, fields and qualified cursor boundaries', async () => {
+  const source = 'serializer version 1; include middle; class request { public data::account owner; }';
+  const output = 'build/request.hpp.includes/types/account.hpp';
+  const state = fixture({
+    'request.serializer': source,
+    'middle.serializer': 'serializer version 1; include types/account;',
+    'types/account.serializer': 'serializer version 1; namespace data { class account { public uint32 id; } }',
+    'elsewhere/account.serializer': 'serializer version 1; namespace data { class account {} }',
+    'build/request.hpp': banner + `// Serializer source: ${file('request.serializer')}\n` +
+      '#include "request.hpp.includes/middle.hpp"\nclass request {};',
+    'build/request.hpp.includes/middle.hpp': banner + `// Serializer source: ${file('middle.serializer')}\n` +
+      '#include "types/account.hpp"\n',
+    [output]: banner + `// Serializer source: ${file('types/account.serializer')}\n` +
+      'namespace data { class account { uint32_t id; }; }',
+    'build/request.hpp.d': `${escapeDependency(file('build/request.hpp'))} ${escapeDependency(file(output))}: ` +
+      `${escapeDependency(file('request.serializer'))} ${escapeDependency(file('types/account.serializer'))}`,
+    'release/account.hpp': banner + `// Serializer source: ${file('elsewhere/account.serializer')}\n` +
+      'namespace data { class account {}; }'
+  });
+  const start = source.indexOf('data::account');
+  for (let cursor = start; cursor <= start + 'data::account'.length; ++cursor) {
+    assert.deepEqual(selected(state, await state.resolver().schema(file('request.serializer'), cursor, true)),
+      [[output, 'account']]);
+  }
+  assert.deepEqual(selected(state, await state.resolver().headers(file('types/account.serializer'))), [[output, '']]);
+  assert.deepEqual(selected(state, await state.resolver().generatedDeclaration(file(output), state.at(output, 'class account'))),
+    [['types/account.serializer', 'account']]);
+  assert.deepEqual(selected(state, await state.resolver().schema(file('types/account.serializer'),
+    state.at('types/account.serializer', 'id;'), true)), [[output, 'id']]);
+  assert.deepEqual(selected(state, await state.resolver().cppInclude(file('build/request.hpp.includes/middle.hpp'),
+    state.at('build/request.hpp.includes/middle.hpp', 'types/account'), false)), [['types/account.serializer', '']]);
+  state.files.set(file('types/account.serializer'), 'serializer version 1; namespace data { class renamed {} }');
+  assert.deepEqual(selected(state, await state.resolver().schema(file('request.serializer'), start, true)), []);
+});
+
+test('generated source metadata and quoted links reject unrelated text and literal directives', () => {
+  const origin = file('schemas #1/account.serializer');
+  assert.equal(generatedSource(banner + `// Serializer source: ${origin}\nclass account {};`), origin);
+  assert.equal(generatedSource('// Serializer-authored support is available under 0BSD; see LICENSE-GENERATED.\n\n' +
+    banner + `// Serializer source: ${origin}\nclass account {};`), origin);
+  assert.equal(generatedSource(`// Serializer source: ${origin}\nclass account {};`), undefined);
+  assert.equal(generatedSource(banner + '// Serializer source: relative/account.serializer\n'), undefined);
+  assert.equal(generatedSource(banner + `// Serializer source: ${file('account.hpp')}\n`), undefined);
+  const text = banner + '#include "types/account.hpp"\n#include <runtime.hpp>\n' +
+    '/*\n#include "fake.hpp"\n*/\nconst auto text = R"(\n#include "literal.hpp"\n)";\n';
+  assert.deepEqual(generatedIncludes(text), ['types/account.hpp']);
 });
 
 test('extensionless include navigation never falls back to an extensionless file', async () => {

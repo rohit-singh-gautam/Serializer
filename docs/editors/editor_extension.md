@@ -17,10 +17,18 @@ Serializer provides separate packages for VS Code and Visual Studio. Both use
 to the VS Code extension. For the Visual Studio VSIX, see
 [Visual Studio](#visual-studio-extension) below.
 
-Both extensions use release version **1.1.47**. Keep their versions equal and
+Both extensions use release version **1.1.48**. Keep their versions equal and
 increment them together for future changes, including changes to only one package.
 Their release number is independent of the compiler/runtime release and the schema
 language version; only the two editor packages are synchronized.
+
+Version **1.1.48** supports separate C++ generated headers. Included types and
+fields navigate to their own generated files, with transitive include traversal,
+renamed entry outputs and exact schema ownership from
+`// Serializer source: <absolute-schema-path>`. VS Code retains linked child
+headers in the active CMake entry's output tree even when the model registers
+only the entry header. Inline C++ output remains supported. See
+[navigation behavior](editor_navigation.md#separate-c-generated-headers-1148).
 
 Version **1.1.47** adds **Go to Definition** from typed external schema function
 names to available authored C++ out-of-class definitions. The shared resolver
@@ -190,7 +198,7 @@ Both resolve either spelling for navigation; VS Code also supplies a shorthand
 
 ## VS Code
 
-The [Rohit Serializer extension](../../editors/vscode/README.md), version **1.1.47**, provides `.serializer`
+The [Rohit Serializer extension](../../editors/vscode/README.md), version **1.1.48**, provides `.serializer`
 syntax highlighting, snippets, declaration/definition navigation, and CMake generated-header commands. Schemas use
 the current `serializer version 1.17.0;` header, older compatible headers, and the original
 `1` alias for language `1.0.0`. Schema
@@ -248,13 +256,13 @@ Packaging compiles and bundles TypeScript, copies the canonical grammar, logo,
 and repository license into the extension, and writes:
 
 ```text
-out/extensions/serializer-vscode-1.1.47.vsix
+out/extensions/serializer-vscode-1.1.48.vsix
 ```
 
 From the repository root, install it with:
 
 ```sh
-code --install-extension out/extensions/serializer-vscode-1.1.47.vsix
+code --install-extension out/extensions/serializer-vscode-1.1.48.vsix
 ```
 
 Alternatively run **Extensions: Install from VSIX** and select the file. The
@@ -471,15 +479,27 @@ The fixture disables generated-output formatting so it does not need clang-forma
 
 ### Verification performed
 
-The current **1.1.47** source passed **138** shared/provider tests, **37,967**
+The current **1.1.48** source passed **141** shared/provider tests, including
+transitive split headers, qualified cursor/field navigation and an active CMake
+model registering only the entry header. Fresh compiler output passed **39,219**
+bidirectional type/field navigation checks across all eleven languages, including
+separate `.hpp` and `.hxx` headers and the retained inline layout.
+The .NET/Jint shared resolver passed
+**1,167** source/output checks, including exact source ownership with equal
+schema basenames. Visual Studio grammar asset/boundary checks passed **424**
+cases across **48** scopes. Both canonical packages rebuilt and passed package
+validation. The 1.1.48 packages were not installed; these checks do not claim a
+current native Visual Studio host run.
+
+The previous **1.1.47** source passed **138** shared/provider tests, **37,967**
 fresh-compiler bidirectional navigation checks across all eleven outputs, and
 **1,116** .NET/Jint source/output checks. Installed Visual Studio grammar assets
 passed **424** cases across **48** scopes. The isolated VS Code host passed the
 native Go to Definition action for authored templated definitions, cursor and
 selection boundaries, and live unsaved C++ buffers without CMake or generation.
 Both canonical packages rebuilt through `./make.ps1 extension` and passed
-validation. VS Code 1.1.47 is installed in the normal profile and verified through
-its CLI; reload a running window to activate it. The Visual Studio package was
+validation. At that release's verification, VS Code 1.1.47 was installed in the
+normal profile and verified through its CLI. The Visual Studio package was
 not installed. See the [qualification record](../verification/verification-deferred-navigation-2026-10-13.md)
 for commands, retained logs and editor-host boundaries.
 
@@ -773,7 +793,7 @@ outside this extension's implementation.
 ## Visual Studio extension
 
 The separate [Visual Studio package](../../editors/visual_studio/README.md), version
-**1.1.47**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
+**1.1.48**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
 grammar, editing configuration and a native MEF navigation component using the
 same resolver as VS Code. The grammar's `fileTypes` associates `.serializer` files;
 a `.pkgdef` registers its grammar and editing configuration.
@@ -786,7 +806,7 @@ npm ci --prefix editors/vscode
 ```
 
 The script restores locked NuGet dependencies, rebuilds package intermediates, and writes
-`out/extensions/serializer-visual-studio-1.1.47.vsix`. Close Visual Studio,
+`out/extensions/serializer-visual-studio-1.1.48.vsix`. Close Visual Studio,
 double-click this VSIX, install into the desired instance, and restart Visual
 Studio. The root `install_extension.ps1` remains the VS Code installer.
 

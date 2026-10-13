@@ -35,11 +35,19 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **1.22.1**. Bug fixes and minor updates
+The current compiler and runtime release is **2.0.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.17.0**;
 see [release and schema versions](docs/guides/command_line.md).
+
+Release 2.0.0 changes the default generated C++ artifact layout and the CMake
+package major version. Copy or install each entry header's adjacent `.includes/`
+tree, or select `--include-mode inline` for one combined header. Versioned
+consumers should request `find_package(Serializer 2.0 CONFIG REQUIRED)` and
+regenerate through their build rules. Supported 1.x schema headers, generated
+model names, runtime APIs and wire contracts retain their existing behavior;
+see [2.0 migration](migration.md#compilerruntime-200).
 
 Use `serializer version 1.17.0;` for new schemas. Older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, `1.11.0`, `1.12.0`, `1.13.0`, `1.14.0`, `1.15.0`, and `1.16.0` schemas remain supported. The original
 `serializer version 1;` is an exact compatibility alias for `1.0.0`, exclusive to
@@ -89,8 +97,9 @@ arithmetic operator mappings with owning constructor calls in portable expressio
 Existing fields, wire formats and managed protocols retain their contracts.
 Run the [four focused examples](example/README.md#owning-record-apis) and consult
 [qualification](docs/verification/verification-owning-api-2026-10-12.md) for tested
-backends and limits. Both current editor packages are **1.1.47**; their canonical builds and package
-checks passed. See the [deferred navigation qualification](docs/verification/verification-deferred-navigation-2026-10-13.md).
+backends and limits. Both current editor packages are **1.1.48**, with separate
+C++ generated-header navigation. Their canonical builds and package checks
+passed; see [current editor verification](docs/editors/editor_extension.md#verification-performed).
 
 Language `1.13.0` adds the C++ function qualifier `noexcept(cpp)` for readonly
 native bodies and external declarations, including dispatched member contracts.
@@ -305,6 +314,12 @@ compiler to generate a C++ header:
 serializer --input person.serializer --output person.hpp
 ```
 
+When the entry schema includes other schemas, C++ generation emits separate
+dependency headers by default and includes them from the entry header. Use
+`--include-mode inline` or `[output] include_mode = inline` to keep one combined
+header. See [schema includes](docs/guides/usage.md#share-declarations-with-includes)
+for output layout and migration details.
+
 Use [output configuration](docs/languages/output_configuration.md) to choose a language or
 naming profile. The [command-line guide](docs/guides/command_line.md) lists all options.
 
@@ -518,8 +533,8 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editors/editor_extension.md) |
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
-Both extensions use source release version **1.1.47**, independent of compiler version
-**1.22.1**. Embedded `cpp { ... }`, `java { ... }`, and other target blocks reuse
+Both extensions use source release version **1.1.48**, independent of compiler version
+**2.0.0**. Embedded `cpp { ... }`, `java { ... }`, and other target blocks reuse
 available language grammars for syntax highlighting. Install the language's grammar
 provider where the editor does not bundle it; this does not add embedded IntelliSense.
 See [embedded source highlighting](docs/editors/editor_extension.md#embedded-source-highlighting)

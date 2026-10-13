@@ -33,6 +33,9 @@ function(reject expected)
 endfunction()
 
 succeed(--version)
+string(REPLACE "." "[.]" compiler_version_pattern "${VERSION}")
+string(REPLACE "." ";" compiler_version_components "${VERSION}")
+list(GET compiler_version_components 0 compiler_major)
 string(REPLACE "." "[.]" schema_language_version_pattern "${SCHEMA_LANGUAGE_VERSION}")
 string(REPLACE "." ";" schema_language_version_components "${SCHEMA_LANGUAGE_VERSION}")
 list(GET schema_language_version_components 0 schema_language_major)
@@ -40,7 +43,7 @@ list(GET schema_language_version_components 1 schema_language_minor)
 list(GET schema_language_version_components 2 schema_language_patch)
 math(EXPR next_schema_language_minor "${schema_language_minor} + 1")
 math(EXPR next_schema_language_patch "${schema_language_patch} + 1")
-if(NOT last_output MATCHES "Serializer compiler ${VERSION}" OR
+if(NOT last_output MATCHES "Serializer compiler ${compiler_version_pattern}[\r\n]" OR
     NOT last_output MATCHES "Supported schema language version: ${schema_language_version_pattern}[\r\n]")
   message(FATAL_ERROR "Incorrect compiler version: ${last_output}")
 endif()
@@ -201,7 +204,8 @@ succeed(-i "${schema}" -o "${cpp}" --cpp.format=false)
 
 # The legacy alias and full language version must produce identical C++ and Java codecs.
 foreach(language_version IN ITEMS 1 1.0.0 1.0.1 1.1.0 1.1.1 1.2.0 1.2.1 1.3.0
-    1.4.0 1.4.1 1.4.999 1.5.0)
+    1.4.0 1.4.1 1.4.999 1.5.0 1.6.0 1.7.0 1.8.0 1.9.0 1.10.0 1.11.0 1.12.0
+    1.13.0 1.14.0 1.15.0 1.16.0 "${SCHEMA_LANGUAGE_VERSION}")
   file(WRITE "${schema}" "serializer version ${language_version};\n"
     "class account stable_ids { public uint32 id (7); }\n")
   succeed(-i "${schema}" -l cpp,java --cpp.output "${cpp}" --java.output "${java}"
@@ -215,6 +219,14 @@ foreach(language_version IN ITEMS 1 1.0.0 1.0.1 1.1.0 1.1.1 1.2.0 1.2.1 1.3.0
     message(FATAL_ERROR "Schema language alias changed generated codecs")
   endif()
 endforeach()
+
+# A newer compiler major does not authorize that major as a schema language contract.
+if(compiler_major GREATER schema_language_major)
+  file(WRITE "${schema}" "serializer version ${VERSION};\n"
+    "class account stable_ids { public uint32 id (7); }\n")
+  reject("Unsupported schema language version" -i "${schema}" -l cpp,java
+    --cpp.output "${cpp}" --java.output "${java}" --cpp.format false)
+endif()
 
 # Both backends consume one include graph, and dependency output tracks the entire graph.
 file(MAKE_DIRECTORY "${DIRECTORY}/shared")

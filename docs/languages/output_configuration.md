@@ -15,6 +15,7 @@ Save a UTF-8 file without a BOM, such as `serializer_output.ini`:
 ```ini
 [output]
 language = cpp
+include_mode = separate
 
 [cpp]
 coding_standard = serializer
@@ -46,6 +47,7 @@ and the [CMake variants helper](../guides/cmake_integration.md#generate-several-
 | Setting | Default | Meaning |
 | --- | --- | --- |
 | `[output] language` | `cpp` | Select `cpp`, `java`, `js`, `typescript`, `go`, `csharp`, or a comma-separated list. |
+| `[output] include_mode` | `separate` | C++ schema include layout: `separate` emits dependency headers; `inline` keeps the combined entry header. |
 | `[cpp] coding_standard` | `serializer` | Select a profile from the table below. |
 | `[cpp] naming` | `profile` | Rename target identifiers; `preserve` retains schema spellings. |
 | `[cpp] protobuf` | `false` | Generate direct Protobuf binary, ProtoJSON, and TextProto codecs; validate the [compatible schema subset](../serialization/protobuf.md). |
@@ -67,6 +69,53 @@ there are no escape sequences, inline comments, environment expansion, or includ
 File paths in the config resolve relative to its directory. A bare executable
 name is searched on `PATH`; a relative executable path containing a directory is
 resolved relative to the config. CLI paths resolve from the current working directory.
+
+## Generated schema include layout
+
+Compiler/runtime 2.0.0 defaults to `include_mode = separate` for C++ generation.
+The entry header contains its own definitions and includes generated dependency
+headers. Generate the entry schema once; the compiler generates its transitive
+dependencies with the same naming, runtime, codec and formatting settings.
+Headers may also retain shared forward declarations needed by supported callable
+signatures; the declaration guards below protect these reusable declarations.
+For `--output out/d.hpp` and same-directory source dependencies `a.serializer`,
+`b.serializer` and `c.serializer`, the additional outputs are
+`out/d.hpp.includes/a.hpp`, `out/d.hpp.includes/b.hpp` and
+`out/d.hpp.includes/c.hpp`. The child directory tree preserves paths relative to
+the common canonical ancestor of all source files; child headers use the entry
+header's extension. Generated files remain inside the output bundle even when
+source includes use `../`.
+Canonical source paths must share a filesystem root in separate mode; inline
+mode supports include graphs that span different filesystem roots.
+
+Use the INI setting above or `--include-mode separate|inline`. Command-line
+overrides apply after the INI file, including to every variant in a batch.
+`inline` preserves the previous combined C++ header layout. This setting changes
+generated file organization; schema versions, public model names and wire data
+remain unchanged. Other language backends retain their combined entry output.
+Separate-file generation for those backends is not implemented.
+
+When upgrading a workflow that copies, packages or installs only the entry
+header, retain all generated dependency headers too, or select `inline`.
+This distribution change is part of the compiler/runtime 2.0.0 major release;
+schema language headers remain 1.x. Versioned CMake consumers must also move
+their package request to 2.x. See [2.0 migration](../../migration.md#compilerruntime-200).
+See [include usage](../guides/usage.md#share-declarations-with-includes) for
+paths, generated includes and the full schema dependency contract.
+
+### Generated declaration guards
+
+C++ output wraps each reusable declaration in a
+`SERIALIZER_GENERATED_<hex-identity>` guard. The suffix encodes the declaration's
+qualified identity as hexadecimal; the macro value is a decimal fingerprint of
+its generated body, followed by `ULL`. The first copy emits the declaration.
+An identical copy from another independently generated bundle is skipped, while
+a different fingerprint produces `#error` for incompatible definitions.
+
+`#pragma once` protects an individual header, so it cannot deduplicate the same
+declaration in distinct entry bundles. These declaration guards cover that case
+without adding object storage, runtime work or serialized bytes. Keep naming,
+runtime and codec settings consistent when sharing generated declarations.
 
 ## Class-specific comparison settings
 

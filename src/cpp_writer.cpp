@@ -35,6 +35,7 @@
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <map>
 #include <memory>
 #include <set>
@@ -42,6 +43,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace rohit::serializer::writer::cpp {
@@ -89,6 +91,8 @@ class emitter : private naming {
   bool rename_behavior_identifiers{true};
   std::map<std::string, class_comparison_options> class_comparisons;
   auto_size::configuration class_auto_sizes;
+  std::string source_filter{};
+  std::vector<std::string> included_headers{};
   friend class managed_writer<emitter>;
   managed_writer<emitter> managed_;
   // Keep compiler metadata names independent of presentation profiles.
@@ -96,6 +100,33 @@ class emitter : private naming {
     return field.fixed_name ? field.name : field_name(field.name);
   }
 public:
+  // Restrict definitions to one source file while validating against the complete schema.
+  bool owns_source(const syntax_node* node) const {
+    return source_filter.empty() ||
+        (node->output_source_path.empty() ? node->source_path : node->output_source_path) == source_filter;
+  }
+
+  // Bind a file's output context; relative includes refer only to generated bundle artifacts.
+  void select_source(std::string source, std::vector<std::string> headers) {
+    source_filter = std::move(source);
+    included_headers = std::move(headers);
+  }
+
+  // Identify the owning schema before any authored preamble text reaches the header.
+  void write_source_marker(rohit::type_check::output_buffer auto& output) const {
+    if (!source_filter.empty()) {
+      output.write("// Serializer source: ", source_filter, "\n\n");
+    }
+  }
+
+  // Emit dependency headers before this source's declarations, including empty sources.
+  void write_included_headers(rohit::type_check::output_buffer auto& output) const {
+    for (const auto& header : included_headers) {
+      output.write("#include \"", header, "\"\n");
+    }
+    if (!source_filter.empty()) { output.write("\n"); }
+  }
+
   // Bind the per-output C++ naming policy.
   explicit emitter(const cpp_options& options)
       : naming{options}, protobuf_enabled{options.protobuf},
@@ -501,6 +532,7 @@ public:
                                     const std::vector<std::unique_ptr<syntax_node>>& statements,
                                     std::set<std::string>& emitted) {
     for (const auto& statement : statements) {
+      if (!owns_source(statement.get())) { continue; }
       if (statement->type == object_type::namespace_type) {
         write_optional_applications(output,
             static_cast<const namespace_node&>(*statement).statements, emitted);
@@ -3129,6 +3161,7 @@ public:
 
     bool emission_namespace_open{false};
     for (const auto& statement : statements) {
+      if (!owns_source(statement.get())) { continue; }
       if (emission_only) {
         if (statement->type == object_type::namespace_type && emission_namespace_open) {
           out_stream.write("} // namespace emission\n\n");
@@ -3368,6 +3401,9 @@ public:
           })) {
         out_stream.write("#include <rohit/auto_size.hpp>\n\n");
       }
+      write_source_marker(out_stream);
+      write_included_headers(out_stream);
+      contains_functions(statements);
       write_statement_list(out_stream, statements);
       return;
     }
@@ -3407,8 +3443,11 @@ public:
           "#error \"Serializer expected callable results require C++23 std::expected\"\n"
           "#endif\n\n");
     }
+    write_source_marker(out_stream);
     out_stream.write(behavior::helpers("cpp"));
     out_stream.write(behavior::helpers_predicate("cpp"));
+    // File preambles historically apply to the entire compilation unit, including imports.
+    // Hoist them ahead of generated includes so native dependency bodies keep that visibility.
     for (const auto& statement : statements) {
       if (statement->type != object_type::native_code) { continue; }
       const auto& code = static_cast<const native_code_node&>(*statement).code;
@@ -3419,6 +3458,7 @@ public:
       const auto identity = "preamble:" + code.source_path + ":" + std::to_string(code.source_offset);
       write_reusable_unit(out_stream, identity, native_hook);
     }
+    write_included_headers(out_stream);
     if (contains_functions(statements)) {
       for (unsigned phase{}; phase < 3; ++phase) { write_function_inventory(out_stream, statements, phase); }
     }
@@ -3448,5 +3488,63 @@ std::string generate_schema(const parser::parsed_schema& schema, const cpp_optio
   const auto source = generate(schema.statements, options);
   return schema.statements.empty()
       ? generated_source_notices(schema.source_notices) + source : source;
+}
+
+// Plan safe relative paths, then format every artifact before the caller can publish any file.
+std::vector<generated_file> generate_files(const parser::parsed_schema& schema,
+    const std::filesystem::path& destination, const cpp_options& options, include_mode mode) {
+  if (mode != include_mode::separate && mode != include_mode::inline_output) {
+    throw std::invalid_argument{"Invalid include mode"};
+  }
+  if (mode == include_mode::inline_output || schema.source_files.size() <= 1) {
+    return {{destination, generate_schema(schema, options)}};
+  }
+  static_cast<void>(coding_standard_name(options.standard));
+  static_cast<void>(cpp_protocols_name(options.protocols));
+  auto source_root = schema.source_files.back().parent_path();
+  for (const auto& file : schema.source_files) {
+    auto relative = file.lexically_relative(source_root);
+    while (relative.empty() || (!relative.empty() && *relative.begin() == "..")) {
+      const auto parent = source_root.parent_path();
+      if (parent == source_root) {
+        throw std::invalid_argument{"Separate includes require a common source filesystem root"};
+      }
+      source_root = parent;
+      relative = file.lexically_relative(source_root);
+    }
+  }
+  const auto bundle = destination.parent_path() / (destination.filename().string() + ".includes");
+  std::vector<generated_file> files{};
+  for (std::size_t index{}; index < schema.source_files.size(); ++index) {
+    const auto& source_file = schema.source_files[index];
+    auto path = destination;
+    if (index + 1 != schema.source_files.size()) {
+      auto relative = source_file.lexically_relative(source_root);
+      relative.replace_extension(destination.extension());
+      path = bundle / relative;
+    }
+    std::vector<std::string> headers{};
+    for (const auto& previous : files) {
+      const auto header = previous.path.lexically_relative(path.parent_path()).generic_string();
+      if (header.empty() || header.find_first_of("\"\r\n") != std::string::npos) {
+        throw std::invalid_argument{"Generated include paths must not contain quotes or line breaks"};
+      }
+      headers.push_back(header);
+    }
+    const auto source_path = source_file.generic_string();
+    if (source_path.find_first_of("\r\n") != std::string::npos) {
+      throw std::invalid_argument{"Schema paths must not contain line breaks"};
+    }
+    full_stream_auto_alloc raw{};
+    // Every artifact retains all compilation-unit notices, including declaration-free includes.
+    raw.write(generated_license_notice(schema.statements));
+    if (schema.statements.empty()) { raw.write(generated_source_notices(schema.source_notices)); }
+    emitter generator{options};
+    generator.select_source(source_path, std::move(headers));
+    generator.emit(raw, schema.statements);
+    const std::string_view text{reinterpret_cast<const char*>(raw.begin()), raw.current_offset()};
+    files.push_back({std::move(path), behavior::finalize_mappings(format_cpp(text, options))});
+  }
+  return files;
 }
 } // namespace rohit::serializer::writer::cpp

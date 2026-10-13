@@ -71,6 +71,11 @@ add_executable(core_serializer_test
 serializer_generate(TARGET core_serializer_test
   SCHEMAS ${schemas}
   OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+serializer_generate_source(TARGET include_separation_generated
+  SCHEMA resources/include_separation.serializer LANGUAGE cpp
+  CONFIG resources/include_separation.ini
+  OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/include_separation.hpp")
+add_dependencies(core_serializer_test include_separation_generated)
 target_link_libraries(core_serializer_test PRIVATE Serializer::serializer_lib GTest::gtest_main)
 target_compile_definitions(core_serializer_test PRIVATE ROHIT_SERIALIZER_ENABLE_GTEST)
 if(MSVC)

@@ -3,7 +3,7 @@ import * as path from 'node:path';
 import { fileKey, includeCandidates } from './model';
 import { cppIncludeAt, dependencySchemas, indexSource, resolveType, spanAt,
   SourceIndex, Span, TypeSymbol } from './navigation_model';
-import { generatedBanner, generatedMember, indexGeneratedSource, outputMemberNames,
+import { generatedBanner, generatedIncludes, generatedMember, generatedSource, indexGeneratedSource, outputMemberNames,
   outputNames } from './generated_navigation';
 import { callableMatches, cppCallables } from './callable_navigation';
 import type { CallableSymbol } from './navigation_model';
@@ -34,6 +34,7 @@ export class Navigator {
   private readonly sources = new Map<string, Promise<Source | undefined>>();
   private readonly graphs = new Map<string, Promise<Source[]>>();
   private readonly owners = new Map<string, Promise<string[]>>();
+  private readonly outputTrees = new Map<string, Promise<string[]>>();
   private inventory?: Promise<NavigationFiles>;
 
   /** Keep request state isolated so cancellation or file changes cannot publish stale locations. */
@@ -103,6 +104,8 @@ export class Navigator {
   private async findHeaderEntries(header: string): Promise<string[]> {
     const text = await this.host.read(header);
     if (text === undefined) { return []; }
+    const origin = generatedSource(text);
+    if (origin) { return [origin]; }
     const depfile = await this.host.read(`${header}.d`);
     if (depfile !== undefined) {
       // An invalid/mismatched depfile must not fall back to an unrelated same-name schema.
@@ -115,6 +118,37 @@ export class Navigator {
     const stem = fileKey(path.basename(header, path.extname(header)));
     return inventory.schemas.filter(file =>
       fileKey(path.basename(file, '.serializer')) === stem);
+  }
+
+  /** Follow split C++ output links while keeping unrelated native includes outside navigation. */
+  private outputTree(entry: string): Promise<string[]> {
+    const key = fileKey(entry);
+    let tree = this.outputTrees.get(key);
+    if (!tree) {
+      tree = this.loadOutputTree(entry);
+      this.outputTrees.set(key, tree);
+    }
+    return tree;
+  }
+
+  /** Bound cyclic generated-header links and retain only existing banner-marked destinations. */
+  private async loadOutputTree(entry: string): Promise<string[]> {
+    const result: string[] = [];
+    const seen = new Set<string>();
+    const pending = [{ file: entry, depth: 0 }];
+    while (pending.length && seen.size < maximumSchemaFiles && !this.host.cancelled()) {
+      const item = pending.pop()!;
+      const key = fileKey(item.file);
+      if (seen.has(key) || item.depth >= maximumIncludeDepth) { continue; }
+      seen.add(key);
+      const source = await this.source(item.file);
+      if (!source || !generatedBanner(source.text)) { continue; }
+      result.push(item.file);
+      for (const include of generatedIncludes(source.text)) {
+        pending.push({ file: path.resolve(path.dirname(item.file), include), depth: item.depth + 1 });
+      }
+    }
+    return result;
   }
 
   /** Keep duplicate include paths and provider locations from appearing more than once. */
@@ -148,6 +182,13 @@ export class Navigator {
         if (fileKey(entry) === fileKey(context)) { preferred.push(header); }
       }
     }
+    // A separate included schema owns a different header, but belongs to the selected entry's
+    // generated include tree. Keep that tree alongside its root instead of switching profiles.
+    const linked = new Set<string>();
+    for (const header of preferred) {
+      for (const output of await this.outputTree(header)) { linked.add(fileKey(output)); }
+    }
+    preferred.push(...available.filter(output => linked.has(fileKey(output))));
     return [...new Set(preferred.length ? preferred : available)];
   }
 

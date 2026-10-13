@@ -12,7 +12,7 @@ in their guide.
 
 [Back to the project overview](../../README.md)
 
-Current compiler/runtime **1.22.1** supports language **1.17.0** and includes
+Current compiler/runtime **2.0.0** supports language **1.17.0** and includes
 `constexpr` ordinary C++ codec templates and a native positional/integer-key
 scalar decoder subset for constexpr-safe typed streams. Eligible checked
 arithmetic and dotted-value construction/conversions also constant-evaluate.
@@ -20,6 +20,27 @@ Useful value results are `[[nodiscard]]`; proven nonthrowing value operations us
 `noexcept`, with conditional guarantees for generic comparisons/observers.
 See [direct codecs and qualifiers](../serialization/constant_evaluation.md#34-direct-generated-codecs-and-value-qualifiers)
 for limitations and executed qualification.
+
+Compiler/runtime **2.0.0** adds separate C++ generated headers for schema
+includes, enabled by default. Select `--include-mode inline` or
+`[output] include_mode = inline` for the previous combined header layout.
+Other language backends retain their existing compilation units and modules;
+separate-file generation for them is not implemented. See
+[include layout and migration](../guides/usage.md#share-declarations-with-includes).
+
+The 2.0.0 package's `SameMajorVersion` policy rejects 1.x package requests;
+update versioned consumers to `find_package(Serializer 2.0 CONFIG REQUIRED)`.
+Supported schema language headers remain 1.x, with 1.17.0 as the current
+language release. See [2.0 migration](../../migration.md#compilerruntime-200).
+
+Separate-header Windows Release verification passed all 134 native CTest entries, including
+CLI/INI overrides, Ninja dependency regeneration, generic and managed
+roundtrips, and library artifact/preamble tests. Both **1.1.48** editor packages
+were built and validated; **39,219** fresh compiler navigation checks passed
+across all eleven output languages, including separate C++ headers. Compiler
+2.0.0 release verification also passed three CLI/package checks and fresh
+installed-package builds and tests for all three updated standalone C++ examples.
+Non-Windows rebuilds and live editor-host checks were not run for this change.
 
 Language `1.17.0` adds [array and callable APIs](../schema/array_and_callable_api.md).
 Array exposure and explicit axes, deferred owner field factories, callable-local
@@ -276,13 +297,14 @@ Future versions require all three components. Share declarations with `include
 common;` before any declarations. Paths are unquoted and relative to the including file;
 `.serializer` is appended when the filename has no extension. Explicit `include
 common.serializer;` remains supported. Includes are loaded once per entry schema and
-emitted together in its generated output.
+emitted as separate C++ headers by default; inline C++ mode and other backends
+combine them in the entry output.
 
 Namespace scopes are reused during parsing; duplicate types and namespace/type conflicts
 are rejected. See [schema includes](../guides/usage.md#share-declarations-with-includes) and the
 [paired C++/Java examples](../../example/includes/README.md). Quoted defaults preserve
 literal spaces, for example `public string label { "schema default" };`; escaping the
-space is unnecessary. Run `serializer --version` for compiler version **1.22.1** and
+space is unnecessary. Run `serializer --version` for compiler version **2.0.0** and
 supported schema versions. See [command-line options](../guides/command_line.md) for
 multi-language generation and overrides.
 

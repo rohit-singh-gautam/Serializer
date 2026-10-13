@@ -1,0 +1,24 @@
+serializer version 1.6.0;
+include include_separation/middle;
+
+cpp preamble {
+  #include <cstdint>
+  namespace include_separation_host {
+    // Derive the native result used by a method declared in the included library schema.
+    constexpr std::uint32_t increment_identifier(std::uint32_t value) {
+      return value + 1;
+    }
+  }
+}
+
+namespace include_separation {
+  class root_value stable_ids {
+    public uint32 marker (4);
+  }
+  instantiate root_box = box<root_value>;
+  class request stable_ids : public base ("base", 5) {
+    public root_box payload (6);
+    public intermediate branch (7);
+    public box<uint32> reused (8);
+  }
+}

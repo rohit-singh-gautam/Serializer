@@ -24,6 +24,7 @@ endforeach()
 set(headers_0 unrelated_header.hpp)
 serializer_generate_variants(TARGETS managed32 managed64 separate64 SCHEMAS root.serializer
   CONFIGS managed32.ini managed64.ini separate64.ini GENERATOR "@GENERATOR@"
+  INCLUDE_MODE inline
   OUTPUT_DIRECTORIES "${CMAKE_CURRENT_BINARY_DIR}/generated/managed32"
     "${CMAKE_CURRENT_BINARY_DIR}/generated/managed64"
     "${CMAKE_CURRENT_BINARY_DIR}/generated/separate64")
@@ -130,6 +131,36 @@ if(NOT last_output MATCHES "no work to do")
   message(FATAL_ERROR "Restored outputs did not remain up to date: ${last_output}")
 endif()
 
+# Configurations in one shared invocation may choose different include layouts.
+string(REPLACE "  INCLUDE_MODE inline\n" "" source "${source}")
+file(WRITE "${source_directory}/CMakeLists.txt" "${source}")
+file(APPEND "${source_directory}/managed32.ini" "\n[output]\ninclude_mode = inline\n")
+foreach(profile IN ITEMS managed64 separate64)
+  file(APPEND "${source_directory}/${profile}.ini" "\n[output]\ninclude_mode = separate\n")
+endforeach()
+run("${CMAKE_COMMAND}" --build "${build_directory}" --target serializer_generated_headers)
+file(READ "${build_directory}/generated/managed32/root.hpp" inline_source)
+if(NOT inline_source MATCHES "class entry")
+  message(FATAL_ERROR "Inline batch configuration lost an included declaration")
+endif()
+foreach(profile IN ITEMS managed64 separate64)
+  file(READ "${build_directory}/generated/${profile}/root.hpp" separate_source)
+  set(child "${build_directory}/generated/${profile}/root.hpp.includes/shared/leaf.hpp")
+  if(separate_source MATCHES "class entry" OR NOT EXISTS "${child}")
+    message(FATAL_ERROR "Separate batch configuration did not emit child headers for ${profile}")
+  endif()
+endforeach()
+set(missing_child "${build_directory}/generated/managed64/root.hpp.includes/shared/leaf.hpp")
+file(REMOVE "${missing_child}")
+run("${CMAKE_COMMAND}" --build "${build_directory}" --target managed32_serializer_headers)
+if(NOT EXISTS "${missing_child}")
+  message(FATAL_ERROR "Building the inline variant did not restore another variant's missing child")
+endif()
+run("${CMAKE_COMMAND}" --build "${build_directory}" --target serializer_generated_headers)
+if(NOT last_output MATCHES "no work to do")
+  message(FATAL_ERROR "Mixed-layout batch outputs did not remain up to date: ${last_output}")
+endif()
+
 # Configure-time contract errors are isolated from the working fixture and its outputs.
 function(reject_configuration name expected statement)
   set(rejection_source "${DIRECTORY}/reject_${name}")
@@ -166,3 +197,5 @@ reject_configuration(duplicate_directories "already generated"
   "serializer_generate_variants(TARGETS first second ${common_arguments} CONFIGS \"${first_config}\" \"${second_config}\" OUTPUT_DIRECTORIES shared shared/../shared)")
 reject_configuration(registered_target "once per target"
   "serializer_generate_variants(TARGETS first ${common_arguments} CONFIGS \"${first_config}\")\nserializer_generate_variants(TARGETS first second ${common_arguments} CONFIGS \"${first_config}\" \"${second_config}\")")
+reject_configuration(include_mode "must be separate or inline"
+  "serializer_generate_variants(TARGETS first ${common_arguments} CONFIGS \"${first_config}\" INCLUDE_MODE invalid)")

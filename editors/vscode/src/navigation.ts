@@ -3,13 +3,14 @@ import * as vscode from 'vscode';
 import type { CMakeToolsExtensionExports, CodeModel } from 'vscode-cmake-tools';
 import { activeConfiguration, fileKey, generatedHeaders, sourceIncludes } from './model';
 import { cppIncludeAt, dependencyFiles } from './navigation_model';
-import { navigationLanguages, outputLanguage } from './generated_navigation';
+import { generatedBanner, generatedIncludes, navigationLanguages, outputLanguage } from './generated_navigation';
 import { NavigationFiles, NavigationTarget, Navigator } from './navigator';
 
 const excludedDirectories = /(?:^|[\\/])(?:\.git|node_modules|\.venv|\.vscode-test)(?:[\\/]|$)/;
 const maximumCachedFiles = 96;
 const maximumCachedCharacters = 16 * 1024 * 1024;
 const maximumFileBytes = 16 * 1024 * 1024;
+const maximumGeneratedHeaders = 4096;
 interface CachedFile { stamp: string; text: string }
 
 /** Map a Git snapshot to its working path; its query retains the real path when the tab adds .git. */
@@ -97,6 +98,26 @@ export function registerNavigation(context: vscode.ExtensionContext): void {
               registered.push(path.resolve(target.sourceDirectory ?? project.sourceDirectory, source));
             }
           }
+        }
+      }
+    }
+    // CMake may register only the entry output. Its quoted generated includes belong to the same
+    // active configuration and must remain discoverable when included schemas emit separate files.
+    const registeredKeys = new Set(registered.map(fileKey));
+    for (let next = 0; next < registered.length && next < maximumGeneratedHeaders; ++next) {
+      if (token.isCancellationRequested) { return { schemas: [], headers: [] }; }
+      const owner = registered[next];
+      if (outputLanguage(owner) !== 'cpp') { continue; }
+      const text = await read(owner);
+      if (text === undefined || !generatedBanner(text)) { continue; }
+      for (const include of generatedIncludes(text)) {
+        const header = path.resolve(path.dirname(owner), include);
+        const key = fileKey(header);
+        if (registeredKeys.has(key) || registered.length >= maximumGeneratedHeaders) { continue; }
+        const child = await read(header);
+        if (child !== undefined && generatedBanner(child)) {
+          registeredKeys.add(key);
+          registered.push(header);
         }
       }
     }

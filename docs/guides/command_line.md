@@ -1,6 +1,6 @@
 # Serializer compiler and schema versions
 
-The compiler and runtime release is **1.22.1**, defined by `project(... VERSION ...)` in the
+The compiler and runtime release is **2.0.0**, defined by `project(... VERSION ...)` in the
 root CMake file. `serializer --version` (or `-v`) prints that release and the
 supported schema language version. CMake generates `<rohit/version.hpp>` with
 `rohit::serializer::compiler_version`, `schema_language_version_text`, and
@@ -11,6 +11,14 @@ packages also provide `SerializerConfigVersion.cmake` for versioned discovery.
 Package discovery accepts earlier minor and patch releases within the same major
 version; requests for newer releases or a different major version are rejected.
 Use `EXACT` to require a specific release.
+
+For the 2.0.0 package, request `find_package(Serializer 2.0 CONFIG REQUIRED)`.
+The `SameMajorVersion` discovery policy rejects 1.x requests even without
+`EXACT`. The compiler still supports schema language 1.17.0 and older compatible
+1.x headers, including the original `version 1;` alias. Release 2.0.0 adds the
+default separate C++ header bundle without changing supported schema meanings,
+model names, runtime APIs or wire contracts. See [migration](../../migration.md#compilerruntime-200)
+for generated-header distribution and the inline fallback.
 
 Releases use `major.minor.patch`. Bug fixes and minor updates increment the third
 (patch) number. New features increment the second (minor) number and reset patch
@@ -55,10 +63,15 @@ header and before declarations. Paths are relative to the including file; a file
 without an extension resolves to `.serializer`. Explicit `include common.serializer;`
 also works. CLI input filenames still require `.serializer`. Each
 dependency has its own version header; repeated files are loaded once and their
-declarations join the entry schema's output. See [schema includes](usage.md#share-declarations-with-includes)
+declarations join the parsed model. C++ generation emits separate dependency headers
+by default; `--include-mode inline` retains a combined header. Other backends retain
+their combined entry output. See [schema includes](usage.md#share-declarations-with-includes)
 for path restrictions, namespace handling, duplicate detection, and output limitations.
 Library callers use `parser::parse_file(path)` for includes; its result owns the
 combined `statements` and records canonical `dependencies` (including the entry).
+It also records dependency-first `source_files` to preserve generated file
+boundaries. Use `writer::cpp::generate_files` for the separate header bundle;
+existing single-string/stream writer APIs retain inline output.
 Existing stream-only parsing does not read files.
 The parsed result also retains leading source copyright/license comments in
 `source_notices`. Pass the complete result to the C++, Java, or portable
@@ -71,7 +84,7 @@ the complete parsed result. See [licensing and notice rules](../project/licensin
 The repository's [schema language versioning policy](../../AGENTS.md#schema-language-versioning)
 uses `major.minor.patch` for language releases, independently of the compiler
 release. `serializer_schema_language_version` in the root CMake file defines the
-language release separately from `project(... VERSION ...)`. Compiler **1.22.1**
+language release separately from `project(... VERSION ...)`. Compiler **2.0.0**
 currently supports language **1.17.0**; `serializer --version` reports both.
 
 Language `1.17.0` adds [array and callable APIs](../schema/array_and_callable_api.md);
@@ -195,6 +208,7 @@ values, and repeated non-repeatable options are errors.
 | `--depfile` | | Optional Make-style dependency file for all selected outputs and their transitive schema/configuration inputs |
 | `--config` | `-c` | Optional generator INI configuration; repeat for independent variants from one schema parse |
 | `--language` | `-l` | `cpp`, `java`, `js`, `typescript`, `go`, `csharp`, `rust`, `python`, `swift`, `kotlin`, `c`, or a comma-separated list; repeatable |
+| `--include-mode` | | `separate` (default) or `inline`; selects separate dependency headers or a combined entry header for C++ |
 | `--cpp.output` | | C++ `.h`, `.hpp`, or `.hxx` destination |
 | `--java.output` | | Java `.java` destination; filename supplies the outer class |
 | `--js.output` | | JavaScript ES module `.js` or `.mjs` destination |
@@ -225,8 +239,10 @@ values, and repeated non-repeatable options are errors.
 | `--java.naming` | | `profile` or `preserve` |
 | `--java.package` | | Package name; `--java.package=` clears a configured package |
 
-Defaults are C++ output, Serializer presentation, and profile naming. Config values
-override defaults; CLI values override config regardless of argument order. An
+Defaults are C++ output, separate C++ dependency headers, Serializer presentation,
+and profile naming. `[output] include_mode = separate|inline` controls schema include
+layout. Config values override defaults; CLI values override config regardless of
+argument order. An
 explicit CLI language selection replaces the config selection. Config paths are
 relative to the configuration file; command-line paths are relative to the working
 directory. `[output] language = cpp, java` also selects both languages. Duplicate

@@ -22,9 +22,13 @@ Paths resolve from the including file, appending `.serializer` when the filename
 has no extension. Explicit `.serializer` includes remain valid. Each included file
 has its own version header. Include files before declarations; do not wrap includes
 inside namespaces.
-Generate the entry schema only: included declarations become part of that entry's
-header or Java outer class. Overlapping generated C++ headers can redefine shared
-types if used together. See the [complete include contract](../../docs/guides/usage.md#share-declarations-with-includes).
+Generate the entry schema only. C++ emits a separate header for each included
+schema by default and includes those headers from the entry header. Use
+`--include-mode inline` or `[output] include_mode = inline` for one combined C++
+header. Java continues to combine declarations in its entry outer class.
+Matching overlapping C++ entry graphs can share generated types; differing
+definitions of the same type produce a preprocessor error. See the
+[complete include contract](../../docs/guides/usage.md#share-declarations-with-includes).
 
 ## Build and run all six consumers
 

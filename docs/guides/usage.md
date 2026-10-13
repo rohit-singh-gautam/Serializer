@@ -2,7 +2,7 @@
 
 [Documentation index](../README.md) · [Application and build guides](README.md)
 
-Compiler/runtime **1.22.1** supports language **1.17.0**.
+Compiler/runtime **2.0.0** supports language **1.17.0**.
 Use [array and callable APIs](../schema/array_and_callable_api.md) to select
 ordinary array storage, exact const indexing policy and explicit axes.
 Preserve native borrow lifetimes, field defaults, direct copy-only binding
@@ -435,7 +435,7 @@ leave the editor on the same line. Field names and primitives have no schema typ
 destination; generated-language type lookup remains with its language service.
 Enum type references inside field defaults, such as `AccountState` in
 `AccountState::WaitingForReview`, support both actions.
-Both **1.1.47** editor packages also provide **Go to Definition** from a typed
+Both **1.1.48** editor packages also provide **Go to Definition** from a typed
 external function declaration to available authored C++ out-of-class definitions.
 The bounded workspace lookup matches qualified owners and overload signatures
 and reads unsaved buffers. See
@@ -575,18 +575,73 @@ namespace demo {
   Including files cannot provide
   missing types to their dependencies. Including a file does not inject its
   declarations into the caller's namespace or change field IDs or wire names.
-- One entry schema produces one combined C++ header or Java compilation unit.
-  Java emits one static container per logical namespace. Compile only the entry
-  schema for a combined model; generated C++ headers from overlapping entry graphs
-  can contain duplicate definitions if included together. Separate generated-file
-  imports are not implemented.
+- C++ generation emits one header per source schema by default. The requested
+  entry output keeps its exact path; dependencies go beneath
+  `<entry-output-filename>.includes/` beside it, using the entry header's
+  extension. Paths beneath that directory preserve the source tree relative to
+  the common canonical ancestor of the entry and every dependency. Same-named
+  source files in different directories therefore remain distinct, and `../`
+  schema includes never make generated files escape the output bundle.
+  Canonical source paths must share a filesystem root; use inline mode for
+  dependencies resolved onto different filesystem roots.
+- Generated headers include earlier source files in dependency-first parse
+  order, preserving the declarations visible at each source boundary. Definitions
+  are separated by source file; shared forward declarations may remain for
+  supported callable signatures. Repeated
+  and diamond dependencies produce one generated header each. Matching
+  overlapping C++ entry graphs retain per-type guards; different definitions of
+  the same C++ type diagnose instead of being silently selected. Use matching
+  naming, runtime and codec settings for shared types. See
+  [generated declaration guards](../languages/output_configuration.md#generated-declaration-guards)
+  for the emitted macro names and body fingerprints.
+- File-level `cpp preamble { ... }` hooks retain compilation-unit scope outside
+  `cpp.emission_only`: every artifact
+  emits all preambles before its generated includes. A dependency's native body
+  can therefore use helpers declared in the entry file's preamble.
+- `--include-mode inline` or `[output] include_mode = inline` retains the previous
+  combined C++ header. The default is `separate`. Java and the other backends
+  continue to emit their existing combined entry compilation unit or module;
+  Java emits one static container per logical namespace. Their separate-file
+  generation is not implemented. This output option does not change the schema
+  language version, generated public model names or wire data.
+
+For `d.serializer` including `a.serializer`, `b.serializer` and `c.serializer`
+in the same source directory:
+
+```sh
+serializer --input d.serializer --output out/d.hpp
+```
+
+The compiler produces `out/d.hpp` plus `out/d.hpp.includes/a.hpp`,
+`out/d.hpp.includes/b.hpp` and `out/d.hpp.includes/c.hpp`. Consumers still use
+`#include <d.hpp>`. Copy or install the entire `d.hpp.includes/` directory with
+`d.hpp`; workflows that need a single deliverable can select inline mode:
+
+```sh
+serializer --input d.serializer --output out/d.hpp --include-mode inline
+```
+
+```ini
+[output]
+include_mode = inline
+```
 
 Use `serializer_generate(TARGET app SCHEMAS schemas/request.serializer)` or
 `serializer_generate_java` as usual. Both helpers track transitive schema dependencies
-through compiler depfiles and regenerate when an included file changes. Direct CLI
-callers can request `--depfile output.d`. Library callers use
+through compiler depfiles and regenerate when an included file changes. For C++,
+`INCLUDE_MODE separate|inline` overrides the configuration. Direct CLI callers can
+request `--depfile output.d`; all generated bundle files are depfile targets. Library callers use
 `parser::parse_file(path)`, which returns owning `statements` and canonical
-`dependencies`; pass `statements` to either existing writer. The stream-only
+`dependencies`, plus dependency-first `source_files` for generation boundaries.
+Pass the complete parsed result to
+`writer::cpp::generate_files(schema, destination, options, include_mode)` for a
+vector of `generated_file` records containing `path` and `contents`; the mode
+defaults to `writer::include_mode::separate`; use
+`writer::include_mode::inline_output` for one header. This API generates and
+validates the bundle without writing files; callers publish the returned artifacts.
+Existing single-string/stream C++ writer APIs retain inline output.
+Pass the complete parsed result to other writers to preserve source notices.
+The stream-only
 `parser::parse` APIs reject includes because they have no source directory.
 
 The [include examples](../../example/includes/README.md) contain three runnable pairs
