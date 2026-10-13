@@ -35,11 +35,15 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **2.0.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.0.1**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.17.0**;
 see [release and schema versions](docs/guides/command_line.md).
+
+Release 2.0.1 fixes strict Clang builds of the digest runtime on 32-bit ARM.
+Schemas, public APIs, generated output, digest results and wire formats are unchanged;
+see [2.0.1 compatibility](migration.md#compilerruntime-201).
 
 Release 2.0.0 changes the default generated C++ artifact layout and the CMake
 package major version. Copy or install each entry header's adjacent `.includes/`
@@ -535,7 +539,7 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
 Both extensions use source release version **2.0.0**, independent of compiler version
-**2.0.0**. Embedded `cpp { ... }`, `java { ... }`, and other target blocks reuse
+**2.0.1**. Embedded `cpp { ... }`, `java { ... }`, and other target blocks reuse
 available language grammars for syntax highlighting. Install the language's grammar
 provider where the editor does not bundle it; this does not add embedded IntelliSense.
 See [embedded source highlighting](docs/editors/editor_extension.md#embedded-source-highlighting)

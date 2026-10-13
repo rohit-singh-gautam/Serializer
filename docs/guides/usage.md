@@ -2,7 +2,7 @@
 
 [Documentation index](../README.md) · [Application and build guides](README.md)
 
-Compiler/runtime **2.0.0** supports language **1.17.0**.
+Compiler/runtime **2.0.1** supports language **1.17.0**.
 Use [array and callable APIs](../schema/array_and_callable_api.md) to select
 ordinary array storage, exact const indexing policy and explicit axes.
 Preserve native borrow lifetimes, field defaults, direct copy-only binding

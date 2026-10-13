@@ -42,7 +42,10 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
-Compiler/runtime 2.0.0 supports schema language 1.17.0. C++ schema includes
+Compiler/runtime 2.0.1 supports schema language 1.17.0. The patch preserves
+schemas, public APIs, generated output and wire formats; existing 2.0.0
+integrations need no migration. See [2.0.1 compatibility](../../../migration.md#compilerruntime-201).
+C++ schema includes
 generate separate dependency headers by default; use `--include-mode inline`,
 `[output] include_mode = inline`, or CMake `INCLUDE_MODE inline` for a combined
 header. Preserve the entry header's adjacent `.includes/` directory when copying
@@ -794,12 +797,12 @@ feature as a prerequisite without the user's request.
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
   remains available through `parser::parse(input)`. Schema language version 1.17.0 is
-  independent of compiler release 2.0.0 and wire protocols. Bug fixes and minor
+  independent of compiler release 2.0.1 and wire protocols. Bug fixes and minor
   updates increment the patch number; new features increment the minor number.
   Minor and patch releases preserve full compatibility. Developers change the
   major number manually, with best-effort compatibility across major releases.
   Installed CMake packages accept earlier minor and patch versions in the same
-  major release. Compiler/runtime 2.0.0 packages reject 1.x discovery requests;
+  major release. Compiler/runtime 2.x packages reject 1.x discovery requests;
   update versioned consumers to `find_package(Serializer 2.0 CONFIG REQUIRED)`.
   Keep schema language headers at their supported 1.x contracts.
   Use `serializer --version` to inspect the compiler and schema

@@ -437,7 +437,8 @@ void compute_digest(digest_algorithm algorithm, std::span<const std::uint8_t> in
   }
   if ((algorithm == digest_algorithm::sha1 || algorithm == digest_algorithm::sha224 ||
        algorithm == digest_algorithm::sha256) &&
-      input.size() > (std::numeric_limits<std::uint64_t>::max() >> 3)) {
+      static_cast<std::uint64_t>(input.size()) >
+          std::numeric_limits<std::uint64_t>::max() / bits_per_byte) {
     throw std::invalid_argument{"Digest input exceeds the algorithm's 64-bit bit-length limit"};
   }
   switch (algorithm) {

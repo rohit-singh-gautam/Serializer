@@ -1,5 +1,13 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.0.1
+
+Compiler/runtime **2.0.1** fixes strict Clang builds of the digest runtime on
+32-bit ARM by comparing the input length as an explicit 64-bit value.
+The schema language remains **1.17.0** and both editor packages remain **2.0.0**.
+Schemas, public APIs, generated output, digest results and serialized formats
+are unchanged. Existing 2.0.0 integrations need no schema regeneration or data migration.
+
 ## Compiler/runtime 2.0.0
 
 The compiler/runtime release is **2.0.0**; the schema language remains **1.17.0**
