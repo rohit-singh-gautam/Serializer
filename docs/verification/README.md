@@ -12,6 +12,7 @@ that later changes or untested backend combinations passed the same checks.
 | Record | Scope |
 | --- | --- |
 | [Array and callable APIs](verification-array-callable-api-2026-10-13.md) | Native array borrowing, checked logical helpers, field factory defaults, conditional/delegating construction and richer signatures; completed qualification. |
+| [Deferred function navigation](verification-deferred-navigation-2026-10-13.md) | Typed external schema functions to authored C++ definitions, bounded lookup and current editor qualification status. |
 
 ## 12 October 2026
 

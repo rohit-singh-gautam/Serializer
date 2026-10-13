@@ -1,3 +1,9 @@
+# 1.1.47
+
+- Resolve Go to Definition on typed external schema function names to available authored C++ out-of-class definitions.
+- Match qualified templated owners and overload signatures, retaining ambiguous candidates and live unsaved buffers in bounded passive lookup.
+- Preserve native block opacity, existing type/include/generated navigation and the synchronized Visual Studio package version.
+
 # 1.1.46
 
 - Support language 1.17.0 array exposure, explicit dimensions, borrowed function inputs, static functions and callable guards/delegation/generation metadata.

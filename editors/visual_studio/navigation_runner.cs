@@ -79,7 +79,7 @@ namespace Rohit.Serializer.VisualStudio {
       var pending = new Stack<string>();
       pending.Push(root);
       var excluded = new HashSet<string>(new[] { ".git", "node_modules", ".venv", ".vscode-test", ".vs" }, StringComparer.OrdinalIgnoreCase);
-      var extensions = new HashSet<string>(new[] { ".serializer", ".d", ".hpp", ".h", ".hh", ".hxx", ".java", ".js", ".mjs", ".cjs", ".ts", ".mts", ".cts", ".go", ".cs", ".rs", ".py", ".swift", ".kt" }, StringComparer.OrdinalIgnoreCase);
+      var extensions = new HashSet<string>(new[] { ".serializer", ".d", ".hpp", ".h", ".hh", ".hxx", ".cpp", ".cc", ".cxx", ".ipp", ".inl", ".java", ".js", ".mjs", ".cjs", ".ts", ".mts", ".cts", ".go", ".cs", ".rs", ".py", ".swift", ".kt" }, StringComparer.OrdinalIgnoreCase);
       while (pending.Count > 0 && files.Count < MaximumInventoryFiles) {
         token.ThrowIfCancellationRequested();
         var directory = pending.Pop();

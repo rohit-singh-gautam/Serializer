@@ -32,14 +32,16 @@ async function files(): Promise<NavigationFiles> {
       outputs.add(candidate);
     }
   }
-  return { schemas, outputs: [...outputs], headers: [...outputs].filter(file => /\.(hpp|h|hh|hxx)$/i.test(file)), dependencies };
+  return { schemas, outputs: [...outputs], headers: [...outputs].filter(file => /\.(hpp|h|hh|hxx)$/i.test(file)), dependencies,
+    sources: candidates.filter(file => /\.(hpp|h|hh|hxx|cpp|cc|cxx|ipp|inl)$/i.test(file)) };
 }
 
 /** Expose exact schema token ranges to Visual Studio's Ctrl+click provider. */
 export function reference(file: string, text: string, offset: number): string {
   if (!file.endsWith('.serializer')) { return 'null'; }
   const index = indexSource(text, true);
-  return JSON.stringify(spanAt([...index.references, ...index.includes, ...(index.memberReferences ?? [])], offset) ?? null);
+  return JSON.stringify(spanAt([...index.references, ...index.includes, ...(index.memberReferences ?? []),
+    ...(index.callables ?? [])], offset) ?? null);
 }
 
 /** Reuse the tested resolver; all file reads remain passive and use captured live buffers first. */

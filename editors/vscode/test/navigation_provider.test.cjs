@@ -51,7 +51,7 @@ function harness({ trusted = true, active = false, model } = {}) {
       findFiles: async (pattern, exclude) => {
         assert.equal(exclude, null, 'navigation must bypass hidden build-directory exclusions');
         return [...files.keys()].filter(file => pattern.pattern.endsWith('*.serializer')
-          ? file.endsWith('.serializer') : /\.(hpp|h|hxx|hh|java|js|mjs|ts|mts|go|cs|rs|py|swift|kt|d)$/.test(file)).map(uri);
+          ? file.endsWith('.serializer') : /\.(hpp|h|hxx|hh|cpp|cc|cxx|ipp|inl|java|js|mjs|ts|mts|go|cs|rs|py|swift|kt|d)$/.test(file)).map(uri);
       },
       openTextDocument: async uri => {
         if (!files.has(uri.fsPath)) { throw new Error('missing'); }
@@ -99,6 +99,45 @@ test('navigation works in Restricted Mode and never accesses build APIs or saves
   assert.equal((await state.request('account.serializer', 'account', true)).length, 1);
   await state.commands.get('serializer.openGeneratedHeader')(doc.uri);
   assert.deepEqual(state.calls, ['open:account.hpp']);
+});
+
+test('right-click definition finds authored deferred functions in live sources without CMake or generated headers', async () => {
+  const state = harness({ trusted: false });
+  const source = 'serializer version 1.17.0; include middle; namespace demo::records { class shape<T> { public function bool valid() readonly; } }';
+  state.put('schemas/model.serializer', source);
+  state.put('schemas/middle.serializer', 'include types;');
+  state.put('schemas/types.serializer', 'namespace demo::records { class input {} }');
+  state.put('include/shape_behavior.hpp', 'namespace demo::records { template<class U> inline bool shape<U>::valid() const { return true; } }');
+  const disk = state.document('include/shape_behavior.hpp');
+  const live = '\r\n// \u{1f642} unsaved\r\n' + disk.getText();
+  const liveDocument = { ...disk, getText: () => live,
+    positionAt: offset => { const lines = live.slice(0, offset).split('\n'); return { line: lines.length - 1, character: lines.at(-1).length }; },
+    save: () => assert.fail('deferred navigation saved a live native definition') };
+  state.vscode.workspace.textDocuments.push(liveDocument);
+  const open = state.vscode.workspace.openTextDocument;
+  state.vscode.workspace.openTextDocument = async uri => uri.fsPath === disk.uri.fsPath ? liveDocument : open(uri);
+  const schema = state.document('schemas/model.serializer');
+  const start = source.indexOf('valid()');
+  for (let offset = start; offset <= start + 'valid'.length; ++offset) {
+    const targets = await state.providers.definition.provideDefinition(schema, schema.positionAt(offset), state.cancellation);
+    assert.equal(targets.length, 1);
+    assert.equal(targets[0].uri.fsPath, disk.uri.fsPath);
+    assert.equal(targets[0].range.start.line, 2);
+  }
+  assert.deepEqual(state.calls, [], 'definition lookup cannot activate CMake, invoke commands or prompt');
+});
+
+test('same-basename authored headers and sources remain definitions rather than guessed generated outputs', async () => {
+  for (const extension of ['hpp', 'cpp']) {
+    const state = harness({ trusted: false });
+    state.put('model.serializer', 'serializer version 1; namespace demo { class model { public function bool valid() readonly; } }');
+    state.put(`src/model.${extension}`, 'inline bool demo::model::valid() const { return true; }');
+    const targets = await state.request('model.serializer', 'valid()', true);
+    assert.equal(targets.length, 1);
+    assert.equal(targets[0].uri.fsPath, path.join(root, `src/model.${extension}`),
+      'a schema basename alone cannot establish generated ownership');
+    assert.deepEqual(state.calls, []);
+  }
 });
 
 test('ledger declaration, definition and type definition accept names, keywords and selection endpoints', async () => {

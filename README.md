@@ -85,7 +85,8 @@ arithmetic operator mappings with owning constructor calls in portable expressio
 Existing fields, wire formats and managed protocols retain their contracts.
 Run the [four focused examples](example/README.md#owning-record-apis) and consult
 [qualification](docs/verification/verification-owning-api-2026-10-12.md) for tested
-backends and limits. Both editor packages are **1.1.46**.
+backends and limits. Both current editor packages are **1.1.47**; their canonical builds and package
+checks passed. See the [deferred navigation qualification](docs/verification/verification-deferred-navigation-2026-10-13.md).
 
 Language `1.13.0` adds the C++ function qualifier `noexcept(cpp)` for readonly
 native bodies and external declarations, including dispatched member contracts.
@@ -513,7 +514,7 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editors/editor_extension.md) |
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
-Both extensions use source release version **1.1.46**, independent of compiler version
+Both extensions use source release version **1.1.47**, independent of compiler version
 **1.22.0**. Embedded `cpp { ... }`, `java { ... }`, and other target blocks reuse
 available language grammars for syntax highlighting. Install the language's grammar
 provider where the editor does not bundle it; this does not add embedded IntelliSense.
@@ -522,6 +523,11 @@ and the [navigation coverage matrix](docs/editors/editor_navigation.md#navigatio
 for supported destinations and language-service prerequisites.
 VS Code also supports navigation from read-only Git index/history tabs, using
 the displayed snapshot and current workspace destinations.
+From a typed external function declaration in a schema, **Go to Definition**
+also locates available authored C++ out-of-class definitions. Lookup matches the
+qualified owner and overload signature, reads live buffers, and never builds.
+See [deferred function definitions](docs/editors/editor_navigation.md#deferred-function-definitions-1147)
+for lexical matching limits and verification status.
 See the [custom code and highlighting verification](docs/verification/verification-custom-code-2026-10-11.md)
 for the completed native, editor, grammar-provider, and package checks.
 

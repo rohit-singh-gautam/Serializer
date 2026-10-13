@@ -1,5 +1,14 @@
 # Rohit Serializer for Visual Studio
 
+Version **1.1.47** adds **Go to Definition** (F12) and **Ctrl+click** from typed
+external schema function names to available authored C++ out-of-class definitions.
+The shared resolver matches qualified templated owners and overload signatures,
+reads live unsaved buffers, and exposes ambiguous matches as choices. Lookup is
+bounded and never builds or generates. Native blocks remain opaque; this is
+lexical navigation, not a C++ language service. See
+[supported forms and limits](../../docs/editors/editor_navigation.md#deferred-function-definitions-1147)
+and [qualification status](../../docs/verification/verification-deferred-navigation-2026-10-13.md).
+
 Version **1.1.46** supports schema language **1.17.0** array exposure,
 `readonly`/`const_value`, explicit `dimensions`, trailing `const_ref` inputs,
 static/expected callable signatures and `when`, `delegates`, `generate` metadata.
@@ -93,6 +102,9 @@ the `1.3.0` schema header. See the [digest contract](../../docs/schema/digest.md
 - **Go to Definition** (F12) and **Ctrl+click** on schema types prefer existing generated
   output; types fall back to their schema declaration when no output matches.
   Several destinations produce a picker.
+- On a typed external schema function name, **Go to Definition** and **Ctrl+click**
+  locate available authored C++ out-of-class definitions by owner and overload
+  signature, using live buffers without generation.
 - **Go to Declaration** on a generated type declaration maps it to its originating
   schema. C++, Java, JavaScript, TypeScript, Go, C#, Rust, Python, Swift, Kotlin
   and C output are supported, including naming profiles and flattened names.
@@ -106,8 +118,9 @@ CMake generation helpers already produce dependency metadata. Navigation only
 reads existing files; it never saves, configures, builds or prompts to generate.
 
 The extension also configures comment toggling, bracket/quote pairs and indentation.
-It does not provide semantic diagnostics, completion, member/function navigation,
-snippets or VS Code's CMake commands. Use existing CMake targets for generation.
+It does not provide semantic diagnostics, completion, general expression/member-call
+navigation, snippets or VS Code's CMake commands. Typed external functions have
+the bounded C++ definition lookup above. Use existing CMake targets for generation.
 See [usage](../../docs/guides/usage.md), [CMake integration](../../docs/guides/cmake_integration.md)
 and the [navigation investigation](../../docs/editors/editor_navigation.md).
 
@@ -176,7 +189,7 @@ installation. It uses full-framework MSBuild with locked dependencies, bundles
 the current shared resolver, rebuilds and validates:
 
 ```text
-out/extensions/serializer-visual-studio-1.1.46.vsix
+out/extensions/serializer-visual-studio-1.1.47.vsix
 ```
 
 Close Visual Studio, double-click the VSIX, select the installation and restart

@@ -7,6 +7,35 @@ Version 1.1.4 synchronized both editor extension release versions. Subsequent
 build-tooling releases keep them equal. Version 1.1.11 additionally registers schema
 type-definition navigation and accepts declaration keywords/whole declarations.
 
+## Deferred function definitions (1.1.47)
+
+Both editor packages provide **Go to Definition** from the name of a typed
+external function declaration in a `.serializer` file to its authored C++
+out-of-class definition. Put the cursor on `valid` in a declaration such as
+`public function bool valid() readonly;`, then use the context menu or F12.
+The result lands on the function name in the available C++ implementation file.
+Declaration and type navigation retain their existing behavior, and type
+references in the signature retain schema/generated-output navigation.
+
+Lookup matches the schema's qualified owner, including namespace-qualified
+templated owners, and compares overload signatures. It reads available workspace
+files and live editor buffers in a bounded passive search; it does not require
+generated output or an active CMake configuration. Unsaved implementation changes
+participate without saving the document. If signature information is insufficient
+to distinguish valid candidates, all matching definitions remain choices. Missing
+definitions fall back to the exact schema function name without a generation
+prompt. Functions defined by a schema expression or native body stay at their
+schema function name.
+
+This is lexical navigation, not a C++ parser or replacement for a native language
+service. Arbitrary C++ aliases, macro expansion, dependent type equivalence and
+functions hidden inside native schema blocks are outside this resolver's contract.
+Native blocks remain opaque. General expression/member-call navigation and
+semantic diagnostics remain unavailable. Existing includes, types, fields and
+generated-output mappings retain their behavior across all eleven output languages.
+See the [qualification record](../verification/verification-deferred-navigation-2026-10-13.md)
+for actual checks and remaining editor-host boundaries.
+
 ## Simplicity warning metadata (1.1.31)
 
 Both editor packages recognize schema language `1.5.0` field suffixes such as
@@ -147,8 +176,9 @@ language; a recognized generated declaration can be mapped directly.
 See the [current verification record](editor_extension.md#verification-performed)
 for completed runs. Linux/macOS, remote extension hosts and the remaining external
 language services have not been exercised interactively. Semantic diagnostics,
-completion and schema member/function navigation remain outside the implemented
-feature set.
+completion and general schema expression/member-call navigation remain outside
+the implemented feature set. Typed external function definitions have the
+bounded lookup described above.
 
 ## Navigation coverage matrix
 
@@ -168,6 +198,7 @@ The project test verifies this before it explicitly builds the fixture headers.
 | Case | Required result | Automated coverage |
 | --- | --- | --- |
 | Schema class/enum declaration, keyword or qualified reference | Declaration/type definition select the source; definition selects available generated output, otherwise source | Shared/provider tests and native VS Code/Visual Studio commands |
+| Typed external function declaration in a schema | Definition lands on available authored C++ out-of-class definitions by qualified owner and overload signature; missing definitions fall back to the schema function name | Shared/provider, .NET resolver and isolated VS Code host coverage; current results in the deferred navigation record |
 | Every identifier cursor position, selection endpoint and forward/reversed selection | Exact destination identifier; comments/whitespace do not become types | Shared/provider tests; 6,007 fresh-output checks; both editor hosts |
 | CRLF, Unicode before a symbol, unsaved schema/include edits | Correct UTF-16 ranges from live buffers; never save | Provider, shared and editor-host tests |
 | Direct/transitive, extensionless, diamond/cyclic and missing includes | Resolve the owning schema; deduplicate cycles; no fabricated destination | Shared tests and native schema/include checks |

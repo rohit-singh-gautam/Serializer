@@ -5,6 +5,8 @@ import { cppIncludeAt, dependencySchemas, indexSource, resolveType, spanAt,
   SourceIndex, Span, TypeSymbol } from './navigation_model';
 import { generatedBanner, generatedMember, indexGeneratedSource, outputMemberNames,
   outputNames } from './generated_navigation';
+import { callableMatches, cppCallables } from './callable_navigation';
+import type { CallableSymbol } from './navigation_model';
 
 export interface NavigationTarget extends Span { file: string }
 export interface NavigationFiles {
@@ -12,6 +14,7 @@ export interface NavigationFiles {
   headers: string[];
   outputs?: string[];
   dependencies?: Map<string, string[]>;
+  sources?: string[];
 }
 export interface NavigationHost {
   read(file: string): Promise<string | undefined>;
@@ -23,6 +26,8 @@ interface Source { file: string; text: string; index: SourceIndex }
 interface Declaration extends TypeSymbol { file: string }
 const maximumIncludeDepth = 128;
 const maximumSchemaFiles = 4096;
+const maximumCallableFiles = 4096;
+const maximumCallableCharacters = 32 * 1024 * 1024;
 
 /** Resolve read-only navigation from existing source, headers and optional dependency files. */
 export class Navigator {
@@ -176,6 +181,42 @@ export class Navigator {
     return this.unique(targets.length ? targets : [{ file, start: member.start, end: member.end }]);
   }
 
+  /** Resolve a typed external method to authored C++ bodies without requiring generated output or CMake. */
+  private async callableDefinitions(file: string, callable: CallableSymbol): Promise<NavigationTarget[]> {
+    const fallback = [{ file, start: callable.start, end: callable.end }];
+    if (!callable.external) { return fallback; }
+    const inventory = await this.files();
+    const source = await this.source(file);
+    const ownerInputs = (source?.index.symbols ?? []).filter(symbol => symbol.typeParameter &&
+      symbol.qualified.startsWith(callable.owner + '::') &&
+      !symbol.qualified.slice(callable.owner.length + 2).includes('::')).map(symbol => symbol.name);
+    const owners = new Set<string>([callable.owner]);
+    for (const output of await this.outputs(file, file)) {
+      if (!/\.(hpp|h|hh|hxx)$/i.test(output)) { continue; }
+      const text = await this.host.read(output);
+      if (text !== undefined) { outputNames(callable.owner, output, text).forEach(owner => owners.add(owner)); }
+    }
+    const candidates = [...new Set(inventory.sources ?? inventory.headers)].filter(candidate =>
+      /\.(hpp|h|hh|hxx|cpp|cc|cxx|ipp|inl)$/i.test(candidate));
+    const targets: NavigationTarget[] = [];
+    let characters = 0;
+    for (const candidate of candidates.slice(0, maximumCallableFiles)) {
+      if (this.host.cancelled()) { return []; }
+      const text = await this.host.read(candidate);
+      if (text === undefined || generatedBanner(text) || (await this.headerEntries(candidate)).length) { continue; }
+      characters += text.length;
+      if (characters > maximumCallableCharacters) { break; }
+      // Most files cannot implement this method; avoid tokenizing unrelated native sources.
+      if (!text.includes(callable.name)) { continue; }
+      for (const definition of cppCallables(text)) {
+        if (callableMatches(callable, definition, [...owners], ownerInputs)) {
+          targets.push({ file: candidate, start: definition.start, end: definition.end });
+        }
+      }
+    }
+    return this.unique(targets.length ? targets : fallback);
+  }
+
   /** Resolve each conversion projection against current included declarations, including unsaved field types. */
   private async conversionMember(file: string, offset: number): Promise<(NavigationTarget & { name: string; owner: string })[]> {
     const source = await this.source(file);
@@ -223,6 +264,8 @@ export class Navigator {
       // An include identifies a schema, which may contribute many generated declarations.
       return [{ file: included, start: 0, end: 0 }];
     }
+    const callable = definition && source && spanAt(source.index.callables ?? [], offset);
+    if (callable) { return this.callableDefinitions(file, callable); }
     const projected = await this.conversionMember(file, offset);
     if (projected.length) {
       return definition ? this.unique((await Promise.all(projected.map(member =>

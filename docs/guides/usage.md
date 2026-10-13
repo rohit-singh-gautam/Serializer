@@ -435,6 +435,12 @@ leave the editor on the same line. Field names and primitives have no schema typ
 destination; generated-language type lookup remains with its language service.
 Enum type references inside field defaults, such as `AccountState` in
 `AccountState::WaitingForReview`, support both actions.
+Both **1.1.47** editor packages also provide **Go to Definition** from a typed
+external function declaration to available authored C++ out-of-class definitions.
+The bounded workspace lookup matches qualified owners and overload signatures
+and reads unsaved buffers. See
+[deferred function definitions](../editors/editor_navigation.md#deferred-function-definitions-1147)
+for supported forms and lexical limits.
 For an entire schema, right-click its file in Explorer or its editor tab and
 choose **Serializer: Go to Implementation** to open existing output in any of the
 11 generated languages. Use the built-in declaration menu for qualified names

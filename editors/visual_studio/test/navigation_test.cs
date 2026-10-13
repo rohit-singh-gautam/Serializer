@@ -16,6 +16,43 @@ internal static class NavigationTest {
       var text = File.ReadAllText(model).Replace("serializer version 1;", "serializer version 1.0.0;");
       var live = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [model] = text };
       var checks = 0;
+      var deferredText = "serializer version 1.17.0; include sales/order; namespace demo::records { class shape<uint64 N, T> { " +
+        "public function bool valid() readonly; public function bool valid(double tolerance = 0.01) readonly; " +
+        "public function array[N] T copy(array[N] T input const_ref) readonly; " +
+        "public function Vector apply<Vector>(Vector input const_ref) readonly; } }";
+      var authored = Path.Combine(generated, "deferred_behavior.hpp");
+      var authoredText = "\r\n// live Unicode \u263a\r\nnamespace demo::records { " +
+        "template<std::uint64_t Dimension, class Scalar> inline bool shape<Dimension, Scalar>::valid() const { return true; } " +
+        "template<std::uint64_t Dimension, class Scalar> inline bool shape<Dimension, Scalar>::valid(double epsilon) const noexcept { return true; } " +
+        "template<std::uint64_t Dimension, class Scalar> inline std::array<Scalar, Dimension> shape<Dimension, Scalar>::copy(const std::array<Scalar, Dimension>& values) const { return values; } " +
+        "template<std::uint64_t Dimension, class Scalar> template<class V> inline V shape<Dimension, Scalar>::apply(V const& value) const { return value; } " +
+        "inline bool other::valid() const { return false; } inline bool shape<3, double>::valid(double epsilon) { return false; } " +
+        "inline bool shape<3, double>::valid() const; /* bool shape<3, double>::valid() const { } */ }";
+      live[model] = deferredText;
+      live[authored] = authoredText;
+      foreach (var method in new[] { "valid()", "valid(double", "copy(", "apply<Vector>" }) {
+        var name = method.Split('(', '<')[0];
+        var start = deferredText.IndexOf(method, StringComparison.Ordinal);
+        var marker = method == "valid()" ? "valid() const" : method == "valid(double" ? "valid(double epsilon) const" :
+          method == "copy(" ? "copy(const" : "apply(V const&";
+        for (var cursor = start; cursor <= start + name.Length; ++cursor) {
+          var destination = NavigationRunner.Resolve(model, cursor, true, generated, live, CancellationToken.None);
+          Require(destination.Length == 1 && destination[0].file == authored &&
+            destination[0].start == authoredText.IndexOf(marker, StringComparison.Ordinal),
+            "deferred method definition selects exact authored owner, overload and template inputs");
+          var reference = NavigationRunner.Reference(model, deferredText, cursor, CancellationToken.None);
+          Require(reference != null && reference.start == start && reference.end == start + name.Length,
+            "deferred method links expose every selection endpoint to native Ctrl+click");
+          checks += 2;
+        }
+      }
+      live[authored] = authoredText.Replace("valid() const { return true; }", "renamed() const { return true; }");
+      Require(NavigationRunner.Resolve(model, deferredText.IndexOf("valid()", StringComparison.Ordinal), true,
+        generated, live, CancellationToken.None).Single().file == model,
+        "unsaved authored definition rename falls back to its schema without stale navigation");
+      ++checks;
+      live.Remove(authored);
+      live[model] = text;
       var arrayCallableText = "serializer version 1.17.0; include sales/order; class holder<uint64 Rows, uint64 Cols, T> { " +
         "private array[Rows * Cols] demo::order stored expose array(public, const_value) dimensions(Rows, Cols); " +
         "public function static expected<demo::order, demo::order> make(array[Rows] demo::order input const_ref) readonly; " +

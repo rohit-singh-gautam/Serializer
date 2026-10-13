@@ -49,6 +49,37 @@ async function runSuite() {
     assert.equal(definitions[0].uri.fsPath, word === 'types/account' ? common : header);
   }
 
+  // The native right-click/F12 command follows a deferred typed method to its authored body.
+  const deferred = path.join(workspace, 'deferred.serializer');
+  const authored = path.join(workspace, 'include/deferred_behavior.hpp');
+  fs.mkdirSync(path.dirname(authored), { recursive: true });
+  fs.writeFileSync(deferred, 'serializer version 1.17.0;\ninclude types/account;\nnamespace data { class shape<T> { public function bool valid() readonly; } }\n');
+  fs.writeFileSync(authored, 'namespace data {\ntemplate<class U> inline bool shape<U>::valid() const { return true; }\n' +
+    'inline bool other::valid() const { return false; }\n}\n');
+  const deferredDocument = await vscode.workspace.openTextDocument(deferred);
+  const authoredDocument = await vscode.workspace.openTextDocument(authored);
+  const prefix = new vscode.WorkspaceEdit();
+  prefix.insert(authoredDocument.uri, new vscode.Position(0, 0), '// \u{1f642} unsaved authored definition\n');
+  await vscode.workspace.applyEdit(prefix);
+  const deferredStart = deferredDocument.getText().indexOf('valid()');
+  const authoredStart = authoredDocument.getText().indexOf('valid()');
+  for (const [left, right] of [[deferredStart, deferredStart], [deferredStart, deferredStart + 'valid'.length]]) {
+    for (const reversed of [false, true]) {
+      const editor = await vscode.window.showTextDocument(deferredDocument);
+      const start = deferredDocument.positionAt(left);
+      const end = deferredDocument.positionAt(right);
+      editor.selection = reversed ? new vscode.Selection(end, start) : new vscode.Selection(start, end);
+      await vscode.commands.executeCommand('editor.action.revealDefinition');
+      const target = vscode.window.activeTextEditor;
+      assert.equal(target.document.uri.fsPath, authored, 'native definition command opens authored C++ body');
+      assert.equal(target.document.offsetAt(target.selection.start), authoredStart, 'exact live body identifier');
+      const word = target.document.getWordRangeAtPosition(target.selection.active);
+      assert.equal(word && target.document.getText(word), 'valid');
+    }
+  }
+  assert.ok(authoredDocument.isDirty && !fs.readFileSync(authored, 'utf8').includes('unsaved'),
+    'definition navigation never saves authored buffers');
+
   // Exercise all three actual editor actions on the reported class, including reversed selections.
   const ledger = path.join(workspace, 'ledger.serializer');
   const ledgerHeader = path.join(workspace, 'build/ledger.hpp');

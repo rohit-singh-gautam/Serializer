@@ -1,5 +1,14 @@
 # Rohit Serializer for Visual Studio Code
 
+Version **1.1.47** adds **Go to Definition** from typed external schema function
+names to available authored C++ out-of-class definitions. The shared resolver
+matches qualified templated owners and overload signatures, reads live unsaved
+buffers, and exposes ambiguous matches as choices. Lookup is bounded and never
+builds or generates. Native blocks remain opaque; this is lexical navigation,
+not a C++ language service. See
+[supported forms and limits](../../docs/editors/editor_navigation.md#deferred-function-definitions-1147)
+and [qualification status](../../docs/verification/verification-deferred-navigation-2026-10-13.md).
+
 Version **1.1.46** supports schema language **1.17.0** array exposure,
 `readonly`/`const_value`, explicit `dimensions`, trailing `const_ref` inputs,
 static/expected callable signatures and `when`, `delegates`, `generate` metadata.
@@ -201,6 +210,7 @@ available outputs produce a picker; missing output produces no result or build p
 | --- | --- | --- |
 | Schema `include types/account;` | Included schema | Included schema |
 | Class/enum declaration or type reference in a schema | Original schema declaration | Matching generated type definition; schema declaration if unavailable |
+| Typed external schema function name | Existing declaration behavior | Available authored C++ out-of-class definitions matching the owner and overload signature; schema function name if unavailable |
 | C/C++ `#include <account.hpp>` | Entry schema | Existing generated header |
 | Generated class/enum type reference in any supported language | Original schema declaration | Normal language-service definition |
 
@@ -312,8 +322,9 @@ definition. See [schema generics](https://github.com/rohit-singh-gautam/Serializ
   macro-expanded include directives are not inspected.
 - clangd users should point clangd at their build's `compile_commands.json`; the
   IntelliSense settings command is specific to Microsoft C/C++.
-- Syntax highlighting and schema indexing are lexical. Semantic diagnostics,
-  completion, member/function navigation and a language server are not implemented.
+- Syntax highlighting and schema indexing are lexical. Typed external function
+  names support authored C++ definition lookup; general expression/member-call
+  navigation, semantic diagnostics, completion and a language server are unavailable.
   Navigation skips unopened files larger than 16 MiB and bounds include traversal.
 - For Visual Studio 2022/2026, use the separate
   [Visual Studio extension](https://github.com/rohit-singh-gautam/Serializer/tree/main/editors/visual_studio).

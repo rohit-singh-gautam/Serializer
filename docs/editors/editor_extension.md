@@ -17,10 +17,18 @@ Serializer provides separate packages for VS Code and Visual Studio. Both use
 to the VS Code extension. For the Visual Studio VSIX, see
 [Visual Studio](#visual-studio-extension) below.
 
-Both extensions use release version **1.1.46**. Keep their versions equal and
+Both extensions use release version **1.1.47**. Keep their versions equal and
 increment them together for future changes, including changes to only one package.
 Their release number is independent of the compiler/runtime release and the schema
 language version; only the two editor packages are synchronized.
+
+Version **1.1.47** adds **Go to Definition** from typed external schema function
+names to available authored C++ out-of-class definitions. The shared resolver
+matches qualified templated owners and overload signatures, reads live buffers,
+and retains ambiguous matches as choices. It uses bounded passive workspace
+lookup without building or generating; native blocks remain opaque. See
+[supported forms and limits](editor_navigation.md#deferred-function-definitions-1147)
+and [qualification status](../verification/verification-deferred-navigation-2026-10-13.md).
 
 Version **1.1.46** supports schema language **1.17.0** array exposure,
 `readonly`/`const_value`, explicit `dimensions`, trailing `const_ref` inputs,
@@ -182,7 +190,7 @@ Both resolve either spelling for navigation; VS Code also supplies a shorthand
 
 ## VS Code
 
-The [Rohit Serializer extension](../../editors/vscode/README.md), version **1.1.46**, provides `.serializer`
+The [Rohit Serializer extension](../../editors/vscode/README.md), version **1.1.47**, provides `.serializer`
 syntax highlighting, snippets, declaration/definition navigation, and CMake generated-header commands. Schemas use
 the current `serializer version 1.17.0;` header, older compatible headers, and the original
 `1` alias for language `1.0.0`. Schema
@@ -240,13 +248,13 @@ Packaging compiles and bundles TypeScript, copies the canonical grammar, logo,
 and repository license into the extension, and writes:
 
 ```text
-out/extensions/serializer-vscode-1.1.46.vsix
+out/extensions/serializer-vscode-1.1.47.vsix
 ```
 
 From the repository root, install it with:
 
 ```sh
-code --install-extension out/extensions/serializer-vscode-1.1.46.vsix
+code --install-extension out/extensions/serializer-vscode-1.1.47.vsix
 ```
 
 Alternatively run **Extensions: Install from VSIX** and select the file. The
@@ -309,6 +317,13 @@ may be emitted in `request.hpp`, so navigation follows include relationships.
 Caller definitions continue to use their language service. The extension
 also supplies generated-header locations for literal C/C++ includes.
 
+On the name of a typed external function declaration, **Go to Definition** locates
+available authored C++ out-of-class definitions by qualified owner and overload
+signature. Unsaved implementation buffers participate in the bounded passive
+lookup, and ambiguous candidates remain choices. Native blocks are opaque. See
+[deferred function definitions](editor_navigation.md#deferred-function-definitions-1147)
+for supported forms and remaining lexical limits.
+
 **Go to Type Definition** on schema types selects their source class/enum declaration,
 including qualified references and unsaved transitive includes. On an include it
 opens the included schema. The provider is restricted to `.serializer`; native type
@@ -345,7 +360,8 @@ lets Python declarations map back to their entry and included schemas. A shared
 `--depfile generated/model.d` supports multiple outputs. Renamed outputs and
 native outputs without a banner (Python, Swift, Kotlin and C) need this metadata.
 This is a lexical schema index, not a full language
-server. Member/function navigation and semantic diagnostics remain unimplemented.
+server. General expression/member-call navigation and semantic diagnostics remain
+unimplemented; typed external functions have the bounded definition lookup above.
 See the [extension README](../../editors/vscode/README.md#limits) for discovery limits.
 See the [navigation investigation](editor_navigation.md) for the reported failure,
 editor API findings, regression coverage and remaining verification boundaries.
@@ -455,12 +471,24 @@ The fixture disables generated-output formatting so it does not need clang-forma
 
 ### Verification performed
 
-The current **1.1.46** packages rebuilt through `./make.ps1 extension`, with the
+The current **1.1.47** source passed **138** shared/provider tests, **37,967**
+fresh-compiler bidirectional navigation checks across all eleven outputs, and
+**1,116** .NET/Jint source/output checks. Installed Visual Studio grammar assets
+passed **424** cases across **48** scopes. The isolated VS Code host passed the
+native Go to Definition action for authored templated definitions, cursor and
+selection boundaries, and live unsaved C++ buffers without CMake or generation.
+Both canonical packages rebuilt through `./make.ps1 extension` and passed
+validation. VS Code 1.1.47 is installed in the normal profile and verified through
+its CLI; reload a running window to activate it. The Visual Studio package was
+not installed. See the [qualification record](../verification/verification-deferred-navigation-2026-10-13.md)
+for commands, retained logs and editor-host boundaries.
+
+The **1.1.46** packages rebuilt through `./make.ps1 extension`, with the
 Visual Studio package validation passing. The source suite passed **133** tests,
 and installed Visual Studio grammar/fallback checks passed **424** cases across
 all eleven native language tags. See the
-[current qualification record](../verification/verification-array-callable-api-2026-10-13.md)
-for .NET navigation and completed runtime/SDK checks. No current editor-host UI
+[1.1.46 qualification record](../verification/verification-array-callable-api-2026-10-13.md)
+for .NET navigation and completed runtime/SDK checks. No 1.1.46 editor-host UI
 run or IDE package installation is claimed.
 The refreshed .NET/Jint resolver passed **1,103** source/output checks against
 retained actual fixtures in all eleven languages.
@@ -745,7 +773,7 @@ outside this extension's implementation.
 ## Visual Studio extension
 
 The separate [Visual Studio package](../../editors/visual_studio/README.md), version
-**1.1.46**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
+**1.1.47**, targets Visual Studio 2022/2026 on Windows x64. It includes the canonical
 grammar, editing configuration and a native MEF navigation component using the
 same resolver as VS Code. The grammar's `fileTypes` associates `.serializer` files;
 a `.pkgdef` registers its grammar and editing configuration.
@@ -758,7 +786,7 @@ npm ci --prefix editors/vscode
 ```
 
 The script restores locked NuGet dependencies, rebuilds package intermediates, and writes
-`out/extensions/serializer-visual-studio-1.1.46.vsix`. Close Visual Studio,
+`out/extensions/serializer-visual-studio-1.1.47.vsix`. Close Visual Studio,
 double-click this VSIX, install into the desired instance, and restart Visual
 Studio. The root `install_extension.ps1` remains the VS Code installer.
 
@@ -781,8 +809,9 @@ The resolver runs in-process; Node.js is only required at build time. Navigation
 captures unsaved documents and performs bounded, cancellable background lookup.
 No navigation action builds or changes files. This package also configures comment
 toggling, bracket/quote pairs and indentation. Use existing CMake targets for
-generation. Semantic diagnostics, completion, member/function navigation, VS Code
-CMake commands and snippets remain outside this package.
+generation. Typed external function names support the authored C++ definition
+lookup described above. Semantic diagnostics, completion, general expression/member-call
+navigation, VS Code CMake commands and snippets remain outside this package.
 
 Package checks verify identity, architecture, grammar/MEF registration, interpreter
 dependencies and notices, and byte-for-byte agreement with canonical assets.

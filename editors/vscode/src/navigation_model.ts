@@ -9,6 +9,15 @@ export function spanAt<T extends Span>(spans: T[], offset: number): T | undefine
 }
 interface Token extends Span { text: string }
 export interface SchemaInclude extends Span { name: string }
+export interface CallableSymbol extends Span {
+  name: string;
+  owner: string;
+  parameters: string[];
+  inputs: string[];
+  readonly: boolean;
+  static: boolean;
+  external: boolean;
+}
 export interface TypeSymbol extends Span {
   name: string;
   qualified: string;
@@ -27,6 +36,7 @@ export interface SourceIndex {
   references: Array<Span & { name: string; scope: string[]; kind?: TypeSymbol['kind'] }>;
   members?: Array<Span & { name: string; owner: string; type?: { name: string; scope: string[] }; wireOnly?: boolean; getter?: boolean }>;
   memberReferences?: Array<Span & { name: string; owner: { name: string; scope: string[] }; path: string[] }>;
+  callables?: CallableSymbol[];
 }
 
 /** Resolve schema include shorthand without searching for alternate files or extensions. */
@@ -57,7 +67,7 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
     (Number(language[1]) === 1 && Number(language[2] ?? 0) >= 17));
   const tokens: Token[] = [...code.matchAll(/[A-Za-z_][A-Za-z_0-9]*|::|[^\s]/g)]
     .map(match => ({ text: match[0], start: match.index!, end: match.index! + match[0].length }));
-  const result: SourceIndex = { symbols: [], includes: [], references: [], members: [], memberReferences: [] };
+  const result: SourceIndex = { symbols: [], includes: [], references: [], members: [], memberReferences: [], callables: [] };
   const scopes: string[][] = [[]];
   const namespaceBodies = new Map<number, string[]>();
   let referenceScope: string[] | undefined;
@@ -199,13 +209,18 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
     return next;
   }
 
-  /** Index generic readonly signatures without exposing method names or native implementations. */
+  /** Index typed signatures and exact callable names while keeping native implementations opaque. */
   function functionSignature(start: number): void {
     let next = start + 1;
+    const owner = currentScope().join('::');
+    const isStatic = tokens[next]?.text === 'static' && owningApiContract;
     if (['virtual', 'abstract', 'override'].includes(tokens[next]?.text) ||
         (tokens[next]?.text === 'static' && owningApiContract)) { ++next; }
     const returnStart = result.references.length;
     next = typeReference(next);
+    const name = tokens[next];
+    const parameters: string[] = [];
+    const inputStart = result.symbols.length;
     if (tokens[next + 1]?.text === '<') {
       const scope = [...currentScope(), `$function_${tokens[start].start}`];
       referenceScope = scope;
@@ -227,10 +242,35 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
     if (tokens[next]?.text === '(') {
       ++next;
       while (next < tokens.length && ![')', ';', '}'].includes(tokens[next].text)) {
-        next = typeReference(next) + 1;
-        if (owningApiContract && tokens[next]?.text === 'const_ref') { ++next; }
+        const parameter = next;
+        next = typeReference(next);
+        const typeEnd = tokens[next - 1]?.end ?? tokens[parameter].end;
+        ++next;
+        const borrowed = owningApiContract && tokens[next]?.text === 'const_ref';
+        if (borrowed) { ++next; }
+        parameters.push(text.slice(tokens[parameter].start, typeEnd) + (borrowed ? ' const_ref' : ''));
+        if (tokens[next]?.text === '=') {
+          // Default expressions cannot change the overload's parameter identity.
+          const groups: string[] = [];
+          while (++next < tokens.length) {
+            const current = tokens[next].text;
+            if (!groups.length && [',', ')', ';', '}'].includes(current)) { break; }
+            if (['(', '[', '{', '<'].includes(current)) { groups.push(current); }
+            else if ([')', ']', '}', '>'].includes(current)) { groups.pop(); }
+          }
+        }
         if (tokens[next]?.text === ',') { ++next; }
       }
+    }
+    let suffix = next + 1;
+    while (suffix < tokens.length && ![';', '{', '}'].includes(tokens[suffix].text)) { ++suffix; }
+    const metadata = tokens.slice(next + 1, suffix).map(token => token.text);
+    if (name && /^[A-Za-z_]\w*$/.test(name.text)) {
+      result.callables!.push({ start: name.start, end: name.end, name: name.text, owner, parameters,
+        inputs: result.symbols.slice(inputStart).filter(symbol => symbol.typeParameter).map(symbol => symbol.name),
+        readonly: metadata.includes('readonly'), static: isStatic,
+        external: tokens[suffix]?.text === ';' && !metadata.some(value =>
+          ['expression', 'predicate', 'abstract'].includes(value)) });
     }
     referenceScope = undefined;
   }

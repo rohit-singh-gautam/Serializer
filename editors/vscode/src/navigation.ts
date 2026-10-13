@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 import type { CMakeToolsExtensionExports, CodeModel } from 'vscode-cmake-tools';
 import { activeConfiguration, fileKey, generatedHeaders, sourceIncludes } from './model';
 import { cppIncludeAt, dependencyFiles } from './navigation_model';
-import { navigationLanguages, outputLanguage, outputPattern } from './generated_navigation';
+import { navigationLanguages, outputLanguage } from './generated_navigation';
 import { NavigationFiles, NavigationTarget, Navigator } from './navigator';
 
 const excludedDirectories = /(?:^|[\\/])(?:\.git|node_modules|\.venv|\.vscode-test)(?:[\\/]|$)/;
@@ -77,7 +77,8 @@ export function registerNavigation(context: vscode.ExtensionContext): void {
     // glob still inherits files.exclude in VS Code and can hide every build output.
     const [schemaUris, candidates] = await Promise.all([
       vscode.workspace.findFiles(new vscode.RelativePattern(base, '**/*.serializer'), null, undefined, token),
-      vscode.workspace.findFiles(new vscode.RelativePattern(base, outputPattern), null, undefined, token)
+      vscode.workspace.findFiles(new vscode.RelativePattern(base,
+        '**/*.{hpp,h,hxx,hh,cpp,cc,cxx,ipp,inl,java,js,mjs,cjs,ts,mts,cts,go,cs,rs,py,swift,kt,d}'), null, undefined, token)
     ]);
     const schemas = [...new Set([...schemaUris, ...vscode.workspace.textDocuments.map(item => item.uri)]
       .filter(uri => uri.scheme === 'file' && uri.fsPath.endsWith('.serializer') && !excludedDirectories.test(uri.fsPath))
@@ -131,7 +132,9 @@ export function registerNavigation(context: vscode.ExtensionContext): void {
     const configured = new Set(registered.map(fileKey));
     const available = [...outputs].filter(output => !configuredLanguages.has(outputLanguage(output)) || configured.has(fileKey(output)));
     return { schemas, headers: available.filter(output => /\.(hpp|h|hxx|hh)$/i.test(output)),
-      outputs: available, dependencies };
+      outputs: available, dependencies, sources: [...new Set([...candidates, ...vscode.workspace.textDocuments.map(item => item.uri)]
+        .filter(uri => uri.scheme === 'file' && !excludedDirectories.test(uri.fsPath) &&
+          /\.(hpp|h|hh|hxx|cpp|cc|cxx|ipp|inl)$/i.test(uri.fsPath)).map(uri => uri.fsPath))] };
   }
 
   /** Create a cancellable request using only available files and an optional CMake snapshot. */

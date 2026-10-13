@@ -29,6 +29,9 @@ navigation for projects using Serializer — State Framework.
   and from a generated type declaration to its originating schema.
 - **Go to Definition** and **Ctrl+click** in schemas to existing generated output,
   with a source-declaration fallback when output is unavailable.
+- **Go to Definition** and **Ctrl+click** on typed external schema function names
+  to available authored C++ out-of-class definitions, matching qualified owners
+  and overload signatures in bounded passive lookup with live buffers.
 - **Go to Type Definition** in schemas to the source class, enum, or included file.
 - Qualified names, declaration keywords, forward and reversed selections,
   transitive and extensionless includes, and unsaved schema text.
@@ -45,8 +48,10 @@ the solution tree or beside generated output, especially for renamed files and
 Python, Swift, Kotlin, and C output without a generated-file banner. Serializer's
 CMake generation helpers already produce this metadata.
 
-This extension does not provide semantic diagnostics, completion, member/function
-navigation, snippets, or the separate VS Code extension's CMake commands. Use
+This extension does not provide semantic diagnostics, completion, general
+expression/member-call navigation, snippets, or the separate VS Code extension's
+CMake commands. Native blocks remain opaque; deferred function lookup is lexical.
+Use
 your project's build targets to generate code. ARM64 and earlier Visual Studio
 versions are not targeted. See the
 [extension guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/editors/visual_studio/README.md)

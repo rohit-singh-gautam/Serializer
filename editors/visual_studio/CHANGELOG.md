@@ -1,3 +1,9 @@
+# 1.1.47
+
+- Resolve F12 and Ctrl+click on typed external schema function names to available authored C++ out-of-class definitions through the shared resolver.
+- Match qualified templated owners and overload signatures, retaining ambiguous candidates and live unsaved buffers in bounded passive lookup.
+- Preserve native block opacity, existing type/include/generated navigation and the synchronized VS Code package version.
+
 # 1.1.46
 
 - Support language 1.17.0 array exposure, explicit dimensions, borrowed function inputs, static functions and callable guards/delegation/generation metadata.

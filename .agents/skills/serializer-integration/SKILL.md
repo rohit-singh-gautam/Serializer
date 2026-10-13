@@ -1175,7 +1175,7 @@ versioned snippets, and invokes the same targets through CMake Tools. Run the ro
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 1.1.46 is shared with the Visual Studio extension and is independent of
+version 1.1.47 is shared with the Visual Studio extension and is independent of
 compiler and schema versions. Keep both editor extension versions equal.
 Embedded target blocks reuse available editor language grammars for highlighting;
 install a grammar provider for targets the host does not bundle. This does not
@@ -1227,6 +1227,26 @@ editor tab and choose `Serializer: Go to Implementation`. It uses the clicked
 file's URI and the same available-output lookup without building or prompting.
 See [navigation and limits](../../../docs/editors/editor_extension.md#navigate-available-schemas-and-headers).
 Semantic schema diagnostics remain unavailable.
+From a typed external schema function declaration, use Go to Definition on the
+function name to locate available authored C++ out-of-class definitions. Both
+1.1.47 editors match qualified templated owners and overload signatures, read
+live unsaved buffers, and retain ambiguous candidates as choices. Lookup is
+bounded and passive; do not build, generate, save or activate CMake to satisfy it.
+Native schema blocks remain opaque. This lexical resolver does not implement
+arbitrary C++ alias/macro resolution, dependent type equivalence or general
+expression/member-call navigation. Keep ordinary native language services in
+control of caller expressions. Follow
+[deferred function navigation](../../../docs/editors/editor_navigation.md#deferred-function-definitions-1147)
+and its [qualification record](../../../docs/verification/verification-deferred-navigation-2026-10-13.md)
+for actual checks and editor-host boundaries.
+The current editor source passed 138 shared/provider tests, 37,967 fresh-compiler
+navigation checks across all eleven outputs, 1,116 .NET/Jint resolver checks and
+the isolated native VS Code definition host. Missing authored definitions fall
+back to the exact schema function name; declaration/type navigation keeps its
+existing behavior. Both packages rebuilt through `./make.ps1 extension` and
+passed package checks. VS Code 1.1.47 is installed in the normal profile; reload
+a running window to activate it. The Visual Studio package was not installed,
+and its resolver test is not a current native Visual Studio UI run.
 For Visual Studio 2022/2026 on Windows x64, use `editors/visual_studio` instead.
 Run its `build.ps1` with Visual Studio's MSBuild to package and validate the VSIX,
 then install it using Visual Studio's VSIX Installer. It shares the canonical
