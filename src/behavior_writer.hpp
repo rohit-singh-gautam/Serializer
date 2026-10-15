@@ -126,10 +126,11 @@ inline std::string expression(const behavior_expression& node, std::string_view 
     const std::function<std::string(std::string_view)>& symbol, const checked_helpers& names = {},
     const expression_context& context = {});
 
-// Choose helper spellings after backend conversion without reserving otherwise-valid schema names.
+// Choose unreserved backend helper spellings; collision_suffix must be nonempty.
 inline checked_helpers select_helpers(const std::vector<const syntax_node*>& nodes,
     const std::function<std::string(const syntax_node&)>& declaration,
-    const std::function<std::string(std::string_view)>& identifier) {
+    const std::function<std::string(std::string_view)>& identifier,
+    std::string_view collision_suffix = "_") {
   std::set<std::string> symbols;
   for (const auto* node : nodes) {
     symbols.insert(declaration(*node));
@@ -166,7 +167,10 @@ inline checked_helpers select_helpers(const std::vector<const syntax_node*>& nod
         symbols.contains(helper + "_numeric_single");
   };
   while (collides(result.checked) || collides(result.divide) || collides(result.square_root)) {
-    result.checked += '_'; result.divide += '_'; result.square_root += '_';
+    // A backend may need a word suffix to keep derived helper names valid snake_case.
+    result.checked += collision_suffix;
+    result.divide += collision_suffix;
+    result.square_root += collision_suffix;
   }
   return result;
 }

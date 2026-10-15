@@ -1078,7 +1078,7 @@ public:
   explicit rust_emitter(const schema& value) : model{value} {
     arithmetic_helpers = behavior::select_helpers(model.nodes,
         [&](const auto& node) { return model.names.at(&node); },
-        [&](const auto name) { return field(name); });
+        [&](const auto name) { return field(name); }, "_internal");
     output += runtime;
     output += behavior::helpers("rust", arithmetic_helpers);
     output += behavior::helpers_predicate("rust", arithmetic_helpers);

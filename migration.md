@@ -1,5 +1,22 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.0.2
+
+Compiler/runtime **2.0.2** fixes private arithmetic helper collisions in generated
+Rust output that trigger `non_snake_case` diagnostics with `rustc 1.99` and
+`-D warnings` on native Windows. Internal collision names use `_internal`
+suffixes, repeated as needed to avoid authored names. Regenerate affected Rust
+output through the consuming project's build rules and rebuild its consumers.
+Private helper names may differ; authored schemas, public model and function
+names, arithmetic semantics and serialized formats remain unchanged. The schema
+language stays **1.17.0** and both editor packages stay **2.0.0**. No payload
+revision or data migration is needed. See
+[Rust qualification](docs/verification/verification-rust-windows-2026-10-15.md).
+
+The shared example runner now executes conversion consumers directly without a
+fixture argument. Conversion examples perform their own checks; the ordinary
+codec examples retain the fixture-based four-protocol producer/consumer checks.
+
 ## Compiler/runtime 2.0.1
 
 Compiler/runtime **2.0.1** fixes strict Clang builds of the digest runtime on

@@ -42,9 +42,13 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
-Compiler/runtime 2.0.1 supports schema language 1.17.0. The patch preserves
-schemas, public APIs, generated output and wire formats; existing 2.0.0
-integrations need no migration. See [2.0.1 compatibility](../../../migration.md#compilerruntime-201).
+Compiler/runtime 2.0.2 supports schema language 1.17.0. The patch fixes private
+arithmetic helper collisions in strict Rust builds and execution of self-checking
+conversion examples through the shared example runner. Regenerate affected Rust
+output and rebuild consumers; private helper names may change, while schemas,
+public model/function names and wire formats retain their contracts. See
+[2.0.2 compatibility](../../../migration.md#compilerruntime-202) and
+[native Windows Rust qualification](../../../docs/verification/verification-rust-windows-2026-10-15.md).
 C++ schema includes
 generate separate dependency headers by default; use `--include-mode inline`,
 `[output] include_mode = inline`, or CMake `INCLUDE_MODE inline` for a combined
@@ -797,7 +801,7 @@ feature as a prerequisite without the user's request.
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
   remains available through `parser::parse(input)`. Schema language version 1.17.0 is
-  independent of compiler release 2.0.1 and wire protocols. Bug fixes and minor
+  independent of compiler release 2.0.2 and wire protocols. Bug fixes and minor
   updates increment the patch number; new features increment the minor number.
   Minor and patch releases preserve full compatibility. Developers change the
   major number manually, with best-effort compatibility across major releases.
@@ -1858,6 +1862,10 @@ Serializer and public sources.
 - Use `Default` in Rust and constructors in Python/Swift/Kotlin. Preserve full
   unsigned widths and Swift `WireString` map-key identity. Python underscores
   express nonpublic fields by convention; C structs cannot enforce access control.
+- For strict native Windows Rust builds with `rustc 1.99` and `-D warnings`,
+  regenerate collision-prone arithmetic output with compiler/runtime 2.0.2 or
+  newer. Private helpers use snake_case collision suffixes; keep authored public
+  APIs unchanged. See [Rust qualification](../../../docs/verification/verification-rust-windows-2026-10-15.md).
 - Initialize or zero C destinations and buffers; free owned strings, collections,
   and models using generated lifecycle functions. Never shallow-copy owning C
   models. Decode replaces the destination only after exact-message success.

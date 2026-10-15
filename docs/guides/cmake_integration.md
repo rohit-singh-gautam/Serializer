@@ -37,10 +37,10 @@ with `[output] language = cpp,java`. Schema paths use `.serializer`, and every
 schema starts with a supported language header; use `serializer version 1.3.0;`
 for inferred arrays and typed magic. The original `1` header remains an exact
 alias for `1.0.0`. The installed package supports
-`find_package(Serializer 2.0.1 EXACT CONFIG REQUIRED)`; omit `EXACT` to accept a
+`find_package(Serializer 2.0.2 EXACT CONFIG REQUIRED)`; omit `EXACT` to accept a
 newer compatible release within the same major version. See
 [compiler and schema versioning](command_line.md).
-The 2.0.1 package uses `SameMajorVersion` discovery and rejects 1.x requests.
+The 2.0.2 package uses `SameMajorVersion` discovery and rejects 1.x requests.
 Update a versioned consumer to `find_package(Serializer 2.0 CONFIG REQUIRED)`;
 existing unversioned discovery remains valid. Regenerate through the consumer's
 build rules, and distribute the default separate-header bundle or select

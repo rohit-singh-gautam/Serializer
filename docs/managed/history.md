@@ -2075,5 +2075,4 @@ of the complete proposal:
 | --- | --- |
 | [Boost.Serialization](https://www.boost.org/doc/libs/latest/libs/serialization/doc/special.html) | Archive object tracking preserves shared references; application identity and transactional history require additional design. |
 | [Qt Undo Framework](https://doc.qt.io/qt-6/qundostack.html) | Commands, macros, and compression group undo actions; a new command after undo discards the linear redo future. |
-| [Open CASCADE OCAF](https://occt3d.com/dev/doc/overview/html/occt_user_guides__ocaf.html) | Combines document ownership, persistent reference keys, transactions, undo/redo, and persistence. Its data hierarchy is distinct from a branching history tree. |
 | [Automerge](https://automerge.org/automerge/automerge/struct.Automerge.html) | Supports document changes, historical forks, merging, and binary persistence through its own document model. |

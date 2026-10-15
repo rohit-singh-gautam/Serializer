@@ -57,6 +57,8 @@ runtime names, so combining overlapping schemas in one module is unsupported.
 | C | C11, standard library, IEEE binary32/binary64 | `interop_message`, `big_unsigned` | Typed owning arrays and map-entry arrays |
 
 The tested versions and platforms are in the [verification record](../verification/verification-native-2026-09-18.md).
+Native Windows x64 Rust **1.99.0** with compiler/runtime **2.0.2** also passed
+[strict SDK and codec qualification](../verification/verification-rust-windows-2026-10-15.md).
 Minimum versions other than those tested need their own qualification. Kotlin/JS,
 Kotlin/Native, `no_std` Rust, Python extensions, and Apple device packaging are
 not separate qualified targets in this change.

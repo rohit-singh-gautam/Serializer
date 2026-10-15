@@ -49,6 +49,9 @@ python example/run.py --compiler out/build/make-Release/Release/serializer.exe -
 ```
 
 On Linux use the corresponding compiler/runtime paths and omit the WSL option.
+The shared runner executes conversion consumers without fixture arguments; each
+consumer checks its conversion behavior directly. `--example all` includes these
+checks alongside the fixture-based codec examples.
 See [conversion rules](../docs/schema/conversions.md) for supported value shapes.
 
 ## Derived sizes and stateless layout

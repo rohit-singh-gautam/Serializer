@@ -461,6 +461,29 @@ class Sample {
   EXPECT_NE(go.find("portable_arithmetic_checked(Input * 2.0)"), std::string::npos);
 }
 
+// Rust helper collisions must keep both base and derived spellings valid under strict SDK builds.
+TEST(behavior, rust_private_arithmetic_helpers_preserve_snake_case) {
+  const auto parsed = parse_schema(R"SCHEMA(serializer version 1.8.0;
+class sample {
+  public function double result(double portable_arithmetic_checked) readonly
+    expression(portable_arithmetic_checked * 2.0);
+  public function bool valid(double portable_arithmetic_checked_internal_predicate,
+      double portable_arithmetic_checked_internal_internal_numeric_cast) readonly
+    predicate(portable_arithmetic_checked_internal_predicate / 2.0 >
+        portable_arithmetic_checked_internal_internal_numeric_cast);
+})SCHEMA");
+  const auto rust = codec::writer::portable::generate(parsed.statements, "rust", "Schema");
+  constexpr std::string_view checked = "portable_arithmetic_checked_internal_internal_internal";
+  constexpr std::string_view divide = "portable_arithmetic_divide_internal_internal_internal";
+  EXPECT_NE(rust.find("fn " + std::string{checked} + "(value: f64)"), std::string::npos);
+  EXPECT_NE(rust.find("fn " + std::string{checked} + "_predicate("), std::string::npos);
+  EXPECT_NE(rust.find("fn " + std::string{divide} + "_predicate("), std::string::npos);
+  EXPECT_NE(rust.find("= " + std::string{checked} + "("),
+      std::string::npos);
+  EXPECT_NE(rust.find("= " + std::string{divide} + "_predicate("), std::string::npos);
+  EXPECT_EQ(rust.find("__predicate"), std::string::npos);
+}
+
 // New declarations cannot silently change an older schema's grammar contract.
 TEST(behavior, language_gate_and_unterminated_blocks) {
   EXPECT_THROW(parse_schema("serializer version 1.5.0; class document { public function double size() readonly; }"), rohit::exception::base_parser);

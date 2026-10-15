@@ -2,7 +2,9 @@
 
 [Documentation index](../README.md) · [Application and build guides](README.md)
 
-Compiler/runtime **2.0.1** supports language **1.17.0**.
+Compiler/runtime **2.0.2** supports language **1.17.0**. Regenerate affected Rust
+arithmetic output and rebuild consumers for strict Rust builds; only private
+collision helper names change. See [2.0.2 compatibility](../../migration.md#compilerruntime-202).
 Use [array and callable APIs](../schema/array_and_callable_api.md) to select
 ordinary array storage, exact const indexing policy and explicit axes.
 Preserve native borrow lifetimes, field defaults, direct copy-only binding

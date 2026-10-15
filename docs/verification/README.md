@@ -7,6 +7,12 @@ configurations, and toolchains named in each report. They retain historical
 release metadata and outstanding qualification limits; a result does not imply
 that later changes or untested backend combinations passed the same checks.
 
+## 15 October 2026
+
+| Record | Scope |
+| --- | --- |
+| [Native Windows Rust](verification-rust-windows-2026-10-15.md) | Strict Rust SDK builds, helper collision and example runner corrections, codec fixtures and cross-language records. |
+
 ## 13 October 2026
 
 | Record | Scope |

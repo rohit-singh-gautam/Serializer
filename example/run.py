@@ -181,6 +181,12 @@ class Runner:
                 if language not in selected:
                     raise ValueError('--big-endian requires cpp and c in --language')
                 commands[language + '_s390x'] = self.build_big_endian(language, build / language)
+        if example == 'conversions':
+            # Conversion consumers assert their own results and do not read fixture files.
+            for command in commands.values():
+                run(command)
+            print(f'PASS: conversions, {len(selected)} languages, explicit record conversions', flush=True)
+            return
         fixtures = build / 'fixtures'
         fixtures.mkdir(parents=True, exist_ok=True)
         if example == 'interoperability':
