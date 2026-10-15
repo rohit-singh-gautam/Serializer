@@ -1,5 +1,54 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.1.1
+
+Compiler/runtime **2.1.1** corrects the Go examples' native project workflow.
+Every maintained Go consumer now keeps `go.mod`, `main.go`, `main_test.go`,
+`generate.go`, a `model.serializer` entry, and a separate `internal/model` package. Put the
+installed `serializer` executable on `PATH`, then run these commands from the
+example directory:
+
+```sh
+go generate .
+go build -o build/ .
+go test ./...
+```
+
+Generation writes the ignored `internal/model/model_gen.go` and its `.go.d`
+depfile. Run generation before the first build/test and after schema changes;
+Go does not run it automatically. Applications import the model package through
+their existing module path. No external Go dependency, CMake, Python, C++ runtime,
+or cgo is required for the native workflow once the CLI is installed.
+The native test packages verify independent fixtures, codec behavior, and relevant
+rejection paths; the interoperability example also checks frozen positional bytes.
+
+CMake wrappers invoke the same native workflow and can provide the compiler.
+The Python qualification runners remain independent fixture and interoperability
+tools: they copy the Go project and regenerate its internal package in an
+isolated validation directory. The managed wire-record Go source module defaults
+to history; its matrix copies select the other feature schemas independently.
+
+Existing module identities, schemas, generated model APIs, and wire formats are
+preserved. The only application source adaptation is importing the generated
+model package and qualifying its symbols. Package discovery still accepts older
+2.x requests such as `find_package(Serializer 2.0 CONFIG REQUIRED)`; use
+`2.1.1 EXACT` to pin this patch. CMake source builds retain the 4.0 minimum,
+schema language remains **1.17.0**, and editor packages remain **2.0.1**.
+See [native Go projects](example/go/README.md).
+
+Verification passed with Go **1.26.4**, Windows amd64: all twelve source modules
+generated, built, and passed their native tests; `go build -o build/ .` also
+passed. All twelve explicit-CLI CMake leaves passed configuration, build, and
+CTest, as did the basic example with PATH discovery and an installed 2.1.0
+package. Source fallback was configured but not built. The rebuilt Release CLI
+reports compiler/runtime **2.1.1** and language **1.17.0**; CMake version metadata
+accepted 2.0.0, 2.1.0, and exact 2.1.1 while rejecting 1.99.0 and newer 2.1.2.
+Go/Python qualification passed all nine standard examples, generics, custom IDs,
+all four managed wire features, and the affected conversion and magic suites;
+interoperability included 48 exchanges and frozen positional bytes. Compilers
+ran sequentially. The full C++ suite and eleven-SDK matrix were not rerun for
+this patch.
+
 ## Compiler/runtime 2.1.0
 
 Compiler/runtime **2.1.0** requires **CMake 4.0 or newer** for source and example

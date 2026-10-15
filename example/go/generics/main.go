@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+
+	"serializer.example/go/generics/internal/model"
 )
 
 // run edits one owning model and checks complete values using every wire protocol.
 func run() error {
-	integer, floating := NewIntegerNumber(), NewFloatingNumber()
+	integer, floating := model.NewIntegerNumber(), model.NewFloatingNumber()
 	integer.Value, floating.Value = -7, 12.5
 	if integer.Value != -7 || floating.Value != 12.5 {
 		return fmt.Errorf("Constrained generic mismatch")
@@ -17,27 +19,27 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	value, err := DecodeExampleModel(input, JSON)
+	value, err := model.DecodeExampleModel(input, model.JSON)
 	if err != nil {
 		return err
 	}
 	value.Revision++
 	// Edit the uint32 key inside envelope<box<pair<uint32, string>>>.
 	value.Payload.Value.Key = 7
-	canonical, err := value.Encode(BINARY_NONE)
+	canonical, err := value.Encode(model.BINARY_NONE)
 	if err != nil {
 		return err
 	}
-	for _, protocol := range []Protocol{JSON, BINARY_NONE, BINARY_INTEGER, BINARY_STRING} {
+	for _, protocol := range []model.Protocol{model.JSON, model.BINARY_NONE, model.BINARY_INTEGER, model.BINARY_STRING} {
 		encoded, err := value.Encode(protocol)
 		if err != nil {
 			return err
 		}
-		copy, err := DecodeExampleModel(encoded, protocol)
+		copy, err := model.DecodeExampleModel(encoded, protocol)
 		if err != nil {
 			return err
 		}
-		decoded, err := copy.Encode(BINARY_NONE)
+		decoded, err := copy.Encode(model.BINARY_NONE)
 		if err != nil {
 			return err
 		}
@@ -45,7 +47,7 @@ func run() error {
 			return fmt.Errorf("Value mismatch")
 		}
 	}
-	output, err := value.Encode(JSON)
+	output, err := value.Encode(model.JSON)
 	if err != nil {
 		return err
 	}

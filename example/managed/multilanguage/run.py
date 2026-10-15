@@ -50,7 +50,8 @@ def qualify(args, feature, languages):
     selected = list(languages)
     # Python supplies an exact, structured oracle even when it is not a participant.
     targets = {('js' if language == 'javascript' else language):
-               directory / language / examples.OUTPUTS[language] for language in selected}
+               examples.generated_output(language, directory / language, HERE / 'clients' / language)
+               for language in selected}
     targets.setdefault('python', directory / 'oracle/schema.py')
     if 'typescript' in selected and 'js' not in targets:
         targets['js'] = directory / 'typescript/schema.mjs'
@@ -58,7 +59,8 @@ def qualify(args, feature, languages):
         target.parent.mkdir(parents=True, exist_ok=True)
     command = [args.compiler, '--input', HERE / feature / 'model.serializer',
                '--language', ','.join(targets), '--cpp.format', 'false',
-               '--go.package', 'main', '--kotlin.package=']
+               '--kotlin.package=']
+    command += examples.go_generation_options(HERE / 'clients/go', targets.get('go'))
     for language, target in targets.items():
         command += [f'--{language}.output', target]
     examples.run(command)

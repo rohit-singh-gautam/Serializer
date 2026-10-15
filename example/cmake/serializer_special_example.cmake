@@ -35,10 +35,15 @@ endfunction()
 
 # Build one custom-ID registry consumer using its maintained schema and SDK checks.
 function(serializer_add_custom_id_example language)
-  serializer_example_dependency()
-  enable_testing()
   get_filename_component(directory "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../custom_ids" ABSOLUTE)
   set(target "serializer_custom_ids_${language}")
+  if(language STREQUAL "go")
+    include("${CMAKE_CURRENT_FUNCTION_LIST_DIR}/serializer_go_example.cmake")
+    serializer_add_go_example("${target}" "${directory}/go")
+    return()
+  endif()
+  serializer_example_dependency()
+  enable_testing()
   if(language STREQUAL "cpp" OR language STREQUAL "c")
     serializer_special_native_consumer("${target}" "${language}"
       "${directory}/model.serializer" "${directory}/${language}")

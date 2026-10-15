@@ -8,13 +8,15 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"serializer-interoperability/internal/model"
 )
 
 var protocols = []string{"JSON", "BINARY_NONE", "BINARY_INTEGER", "BINARY_STRING"}
 
 // fixture constructs the shared values independently of the other implementations.
-func fixture(variant int) *InteropMessage {
-	value := NewInteropMessage()
+func fixture(variant int) *model.InteropMessage {
+	value := model.NewInteropMessage()
 	value.Text = "Ada \"Lovelace\" 🚀\n"
 	for i := 0; i < 64; i++ {
 		value.Text += "x"
@@ -23,19 +25,19 @@ func fixture(variant int) *InteropMessage {
 	value.Decimals = []float32{float32(math.Copysign(0, -1)), 1.5, -2.25}
 	value.Flags = []bool{false, true}
 	value.Labels = []string{"", "é", "🚀"}
-	child := NewInteropDetail()
+	child := model.NewInteropDetail()
 	child.Code = -9
 	child.Note = "child"
-	value.Children = []*InteropDetail{NewInteropDetail(), child}
-	value.States = []InteropState{InteropStatePaused, InteropStateReady}
+	value.Children = []*model.InteropDetail{model.NewInteropDetail(), child}
+	value.States = []model.InteropState{model.InteropStatePaused, model.InteropStateReady}
 	value.Counts = map[string]uint64{"🚀": math.MaxUint64, "é": 7, "a": 0}
-	value.Indexed = map[uint64]*InteropDetail{math.MaxUint64: child, 0: NewInteropDetail()}
+	value.Indexed = map[uint64]*model.InteropDetail{math.MaxUint64: child, 0: model.NewInteropDetail()}
 	value.Toggles = map[bool]string{true: "yes", false: "no"}
-	value.Enums = map[InteropState]int32{InteropStatePaused: -2, InteropStateReady: 1}
+	value.Enums = map[model.InteropState]int32{model.InteropStatePaused: -2, model.InteropStateReady: 1}
 	value.PayloadIndex = variant
 	value.PayloadNumber = -1234567890123456789
 	value.PayloadRatio = -3.5
-	value.PayloadState = InteropStatePaused
+	value.PayloadState = model.InteropStatePaused
 	return value
 }
 
@@ -51,12 +53,12 @@ func exchange(directory, mode string) error {
 	}
 	for variant := 0; variant < 3; variant++ {
 		expected := fixture(variant)
-		canonical, err := expected.Encode(BINARY_NONE)
+		canonical, err := expected.Encode(model.BINARY_NONE)
 		if err != nil {
 			return err
 		}
 		for p, name := range protocols {
-			protocol := Protocol(p)
+			protocol := model.Protocol(p)
 			encoded, err := expected.Encode(protocol)
 			if err != nil {
 				return err
@@ -71,18 +73,18 @@ func exchange(directory, mode string) error {
 					if err != nil {
 						return err
 					}
-					actual, err := DecodeInteropMessage(input, protocol)
+					actual, err := model.DecodeInteropMessage(input, protocol)
 					if err != nil {
 						return fmt.Errorf("%s -> go %s: %w", language, name, err)
 					}
-					output, err := actual.Encode(BINARY_NONE)
+					output, err := actual.Encode(model.BINARY_NONE)
 					if err != nil {
 						return err
 					}
 					if !bytes.Equal(output, canonical) {
 						return fmt.Errorf("%s -> go %s/%d value mismatch", language, name, variant)
 					}
-					if protocol != JSON && !bytes.Equal(input, encoded) {
+					if protocol != model.JSON && !bytes.Equal(input, encoded) {
 						return fmt.Errorf("Canonical binary mismatch")
 					}
 				}
@@ -97,13 +99,13 @@ func benchmark() error {
 	value := fixture(0)
 	const iterations = 10000
 	for p, name := range protocols {
-		protocol := Protocol(p)
+		protocol := model.Protocol(p)
 		encoded, err := value.Encode(protocol)
 		if err != nil {
 			return err
 		}
 		for i := 0; i < 1000; i++ {
-			if _, err := DecodeInteropMessage(encoded, protocol); err != nil {
+			if _, err := model.DecodeInteropMessage(encoded, protocol); err != nil {
 				return err
 			}
 		}
@@ -116,7 +118,7 @@ func benchmark() error {
 		encode := time.Since(start)
 		start = time.Now()
 		for i := 0; i < iterations; i++ {
-			if _, err := DecodeInteropMessage(encoded, protocol); err != nil {
+			if _, err := model.DecodeInteropMessage(encoded, protocol); err != nil {
 				return err
 			}
 		}

@@ -46,10 +46,14 @@ def main():
     for language in languages:
         directory = args.build / language
         directory.mkdir(parents=True, exist_ok=True)
+        source = ROOT / 'example' / language / 'generics'
+        output = examples.generated_output(language, directory, source)
+        output.parent.mkdir(parents=True, exist_ok=True)
         target = 'js' if language == 'javascript' else language
-        command = [args.compiler, '--input', ROOT / 'example' / language / 'generics/model.serializer',
-                   '--language', target, '--output', directory / examples.OUTPUTS[language],
-                   '--cpp.format', 'false', '--go.package', 'main', '--kotlin.package=']
+        command = [args.compiler, '--input', source / 'model.serializer',
+                   '--language', target, '--output', output,
+                   '--cpp.format', 'false', '--kotlin.package=']
+        command += examples.go_generation_options(source, output if language == 'go' else None)
         examples.run(command)
         if language == 'typescript':
             examples.run([args.compiler, '--input', ROOT / 'example' / language / 'generics/model.serializer',

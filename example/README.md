@@ -130,7 +130,8 @@ protocols. The [complex contract](schemas/complex/model.serializer) spans 13
 schema files with nested and diamond includes, reopened namespaces, inheritance,
 arrays, maps, enums, and audit unions. The [shared fixtures](schemas/) are the
 same for every language; the C++ compiler produces all selected outputs from
-one entry schema. Generated artifacts stay in the build tree.
+one entry schema. Qualification outputs stay in the build tree. Native Go source
+projects keep their ignored generated package under `internal/model`.
 
 ## Build an individual example with CMake
 
@@ -145,17 +146,51 @@ ctest --test-dir out/build/cpp-basic -C Release --output-on-failure
 
 Replace `cpp/basic` with another language and example, such as `java/collections`,
 `python/complex`, `rust/conversions`, or `c/interoperability`. C and C++ consumers
-are native CMake executable targets. Other languages use their existing SDK
+are native CMake executable targets. Go delegates to its maintained native
+project as described below. Other languages use their existing SDK
 commands through a CMake build target; the build also executes their fixture
 checks. CTest runs the selected example's checks. Generated code, SDK projects,
-executables and verification output stay in the chosen build directory.
+executables and verification output for those wrappers stay in the chosen build
+directory. The Go wrapper keeps generated model code in the source module's
+ignored `internal/model` directory and writes its executable in the chosen build
+directory.
 
-Go examples keep their own `go.mod`; CMake prepares the generated module and
-delegates compilation to `go build`. See [native Go builds](go/README.md).
+Go examples keep a complete native project: `go.mod`, `main.go`, `generate.go`,
+the entry schema, and an imported `internal/model` package. With the installed
+`serializer` CLI on `PATH`, work directly in a Go folder:
 
-By default, these projects build the schema compiler from this checkout and
-disable unrelated tests, managed runtime and compression dependencies unless
-explicitly enabled. Source bootstrap requires a C++20 compiler; the shared
+```sh
+cd example/go/basic
+go generate .
+go build -o build/ .
+go test ./...
+```
+
+No CMake, Python, C++ runtime, or cgo is needed for this workflow. Go does not
+run generation automatically during a build or test. The optional CMake wrapper
+invokes the same native commands. The Python runners below remain independent
+matrix qualifiers: they copy the maintained project and regenerate the internal
+model package in an isolated validation directory. See
+[native Go builds](go/README.md) for the layout and each program's arguments.
+
+The Go wrapper accepts an explicit CLI path:
+
+```sh
+cmake -S example/go/basic -B out/build/go-basic -DSERIALIZER_EXAMPLE_COMPILER=/path/to/serializer
+cmake --build out/build/go-basic --config Release
+ctest --test-dir out/build/go-basic -C Release --output-on-failure
+```
+
+Otherwise it reuses a parent compiler target, a requested installed package, or
+`serializer` on `PATH`, with a source-build fallback. Its native Go package tests
+do not require Python. The managed wire `clients/go` wrapper builds the history
+client by default; the managed per-feature CMake directories remain explicit
+cross-language qualification harnesses and require Python.
+
+Source dependency builds, the default for non-Go wrappers, build the schema
+compiler from this checkout and disable unrelated tests, managed runtime and
+compression dependencies unless explicitly enabled. Source bootstrap requires a
+C++20 compiler; the shared
 language checks and SDK runners also require Python 3.10+ and the selected SDK
 listed below. C++ generation for the shared language examples uses
 an explicit configuration with formatting disabled; specialized style and API
@@ -179,8 +214,10 @@ runners on Windows. Missing SDKs are errors; they are never silently skipped.
 
 Schema-only folders such as `config`, `managed/design`, and `managed/wordpad`
 generate C++ headers without an executable. Managed wire feature folders accept
-`SERIALIZER_EXAMPLE_LANGUAGES` as a CMake list; their `clients/<language>` folders
-select that language across all four managed wire fixtures.
+`SERIALIZER_EXAMPLE_LANGUAGES` as a CMake list and run the Python qualification
+harness. Their non-Go `clients/<language>` folders select that language across
+all four managed wire fixtures. The native `clients/go` project and its optional
+CMake wrapper select history; use the per-feature qualifier for other records.
 
 ## Run
 

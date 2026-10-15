@@ -33,8 +33,9 @@ repository's `AGENTS.md` and README.
 - Follow the adopting repository's established source, include, test, and fixture
   directories. Use `<component>_test.cpp` for new C++ test files. Preserve input
   formats and required extensions such as `.serializer`.
-- Keep generated build output in the build directory. Modify the generator or
-  its inputs and regenerate through the real build pipeline.
+- Keep generated build output in the build directory. Native Go consumers may
+  generate ignored module-local packages so Go tooling can resolve source imports.
+  Modify the generator or its inputs and regenerate through the real build pipeline.
 - Preserve tool-required and established document names such as `CMakeLists.txt`,
   `CMakePresets.json`, `README.md`, `AGENTS.md`, and `CodingStandard.md`. Other
   languages and documentation collections follow their framework or local naming

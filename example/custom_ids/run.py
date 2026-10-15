@@ -27,12 +27,14 @@ def main():
     languages = list(examples.LANGUAGES if args.language == "all" else args.language.split(","))
     if not languages or len(set(languages)) != len(languages) or any(x not in examples.LANGUAGES for x in languages):
         parser.error("Select unique supported language names, or all")
-    targets = {("js" if language == "javascript" else language): args.build / language / examples.OUTPUTS[language]
+    targets = {("js" if language == "javascript" else language):
+               examples.generated_output(language, args.build / language, HERE / language)
                for language in languages}
     if "typescript" in languages and "javascript" not in languages:
         targets["js"] = args.build / "typescript/schema.mjs"
     command = [args.compiler, "--input", HERE / "model.serializer", "--language", ",".join(targets),
-               "--cpp.format=false", "--go.package=main", "--kotlin.package="]
+               "--cpp.format=false", "--kotlin.package="]
+    command += examples.go_generation_options(HERE / "go", targets.get("go"))
     for language, destination in targets.items():
         destination.parent.mkdir(parents=True, exist_ok=True)
         command += [f"--{language}.output", destination]

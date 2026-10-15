@@ -4,161 +4,265 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+
+	"serializer.example/go/versioning/internal/model"
 )
 
 // run edits one owning model and checks complete values using every wire protocol.
 func run() error {
 	{
-		typed := NewUint16Version()
-		encoded, err := typed.Encode(BINARY_NONE)
-		if err != nil { return err }
-		if !bytes.Equal(encoded, []byte{44, 1}) { return fmt.Errorf("Revision width") }
-		for _, protocol := range []Protocol{JSON, BINARY_NONE, BINARY_INTEGER, BINARY_STRING} {
+		typed := model.NewUint16Version()
+		encoded, err := typed.Encode(model.BINARY_NONE)
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(encoded, []byte{44, 1}) {
+			return fmt.Errorf("Revision width")
+		}
+		for _, protocol := range []model.Protocol{model.JSON, model.BINARY_NONE, model.BINARY_INTEGER, model.BINARY_STRING} {
 			payload, err := typed.Encode(protocol)
-			if err != nil { return err }
-			copy, err := DecodeUint16Version(payload, protocol)
-			if err != nil { return err }
-			decoded, err := copy.Encode(BINARY_NONE)
-			if err != nil { return err }
-			if !bytes.Equal(encoded, decoded) { return fmt.Errorf("Revision mismatch") }
+			if err != nil {
+				return err
+			}
+			copy, err := model.DecodeUint16Version(payload, protocol)
+			if err != nil {
+				return err
+			}
+			decoded, err := copy.Encode(model.BINARY_NONE)
+			if err != nil {
+				return err
+			}
+			if !bytes.Equal(encoded, decoded) {
+				return fmt.Errorf("Revision mismatch")
+			}
 		}
 	}
 	{
-		typed := NewUint32Version()
-		encoded, err := typed.Encode(BINARY_NONE)
-		if err != nil { return err }
-		if !bytes.Equal(encoded, []byte{112, 17, 1, 0}) { return fmt.Errorf("Revision width") }
-		for _, protocol := range []Protocol{JSON, BINARY_NONE, BINARY_INTEGER, BINARY_STRING} {
+		typed := model.NewUint32Version()
+		encoded, err := typed.Encode(model.BINARY_NONE)
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(encoded, []byte{112, 17, 1, 0}) {
+			return fmt.Errorf("Revision width")
+		}
+		for _, protocol := range []model.Protocol{model.JSON, model.BINARY_NONE, model.BINARY_INTEGER, model.BINARY_STRING} {
 			payload, err := typed.Encode(protocol)
-			if err != nil { return err }
-			copy, err := DecodeUint32Version(payload, protocol)
-			if err != nil { return err }
-			decoded, err := copy.Encode(BINARY_NONE)
-			if err != nil { return err }
-			if !bytes.Equal(encoded, decoded) { return fmt.Errorf("Revision mismatch") }
+			if err != nil {
+				return err
+			}
+			copy, err := model.DecodeUint32Version(payload, protocol)
+			if err != nil {
+				return err
+			}
+			decoded, err := copy.Encode(model.BINARY_NONE)
+			if err != nil {
+				return err
+			}
+			if !bytes.Equal(encoded, decoded) {
+				return fmt.Errorf("Revision mismatch")
+			}
 		}
 	}
 	{
-		typed := NewUint64Version()
-		encoded, err := typed.Encode(BINARY_NONE)
-		if err != nil { return err }
-		if !bytes.Equal(encoded, []byte{255, 255, 255, 255, 255, 255, 255, 255}) { return fmt.Errorf("Revision width") }
-		for _, protocol := range []Protocol{JSON, BINARY_NONE, BINARY_INTEGER, BINARY_STRING} {
+		typed := model.NewUint64Version()
+		encoded, err := typed.Encode(model.BINARY_NONE)
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(encoded, []byte{255, 255, 255, 255, 255, 255, 255, 255}) {
+			return fmt.Errorf("Revision width")
+		}
+		for _, protocol := range []model.Protocol{model.JSON, model.BINARY_NONE, model.BINARY_INTEGER, model.BINARY_STRING} {
 			payload, err := typed.Encode(protocol)
-			if err != nil { return err }
-			copy, err := DecodeUint64Version(payload, protocol)
-			if err != nil { return err }
-			decoded, err := copy.Encode(BINARY_NONE)
-			if err != nil { return err }
-			if !bytes.Equal(encoded, decoded) { return fmt.Errorf("Revision mismatch") }
+			if err != nil {
+				return err
+			}
+			copy, err := model.DecodeUint64Version(payload, protocol)
+			if err != nil {
+				return err
+			}
+			decoded, err := copy.Encode(model.BINARY_NONE)
+			if err != nil {
+				return err
+			}
+			if !bytes.Equal(encoded, decoded) {
+				return fmt.Errorf("Revision mismatch")
+			}
 		}
 	}
 	{
-		typed := NewFloatVersion()
-		encoded, err := typed.Encode(BINARY_NONE)
-		if err != nil { return err }
-		if !bytes.Equal(encoded, []byte{205, 204, 204, 61}) { return fmt.Errorf("Revision width") }
-		for _, protocol := range []Protocol{JSON, BINARY_NONE, BINARY_INTEGER, BINARY_STRING} {
+		typed := model.NewFloatVersion()
+		encoded, err := typed.Encode(model.BINARY_NONE)
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(encoded, []byte{205, 204, 204, 61}) {
+			return fmt.Errorf("Revision width")
+		}
+		for _, protocol := range []model.Protocol{model.JSON, model.BINARY_NONE, model.BINARY_INTEGER, model.BINARY_STRING} {
 			payload, err := typed.Encode(protocol)
-			if err != nil { return err }
-			copy, err := DecodeFloatVersion(payload, protocol)
-			if err != nil { return err }
-			decoded, err := copy.Encode(BINARY_NONE)
-			if err != nil { return err }
-			if !bytes.Equal(encoded, decoded) { return fmt.Errorf("Revision mismatch") }
+			if err != nil {
+				return err
+			}
+			copy, err := model.DecodeFloatVersion(payload, protocol)
+			if err != nil {
+				return err
+			}
+			decoded, err := copy.Encode(model.BINARY_NONE)
+			if err != nil {
+				return err
+			}
+			if !bytes.Equal(encoded, decoded) {
+				return fmt.Errorf("Revision mismatch")
+			}
 		}
 	}
 	{
-		typed := NewDoubleVersion()
-		encoded, err := typed.Encode(BINARY_NONE)
-		if err != nil { return err }
-		if !bytes.Equal(encoded, []byte{0, 0, 0, 0, 0, 0, 4, 64}) { return fmt.Errorf("Revision width") }
-		for _, protocol := range []Protocol{JSON, BINARY_NONE, BINARY_INTEGER, BINARY_STRING} {
+		typed := model.NewDoubleVersion()
+		encoded, err := typed.Encode(model.BINARY_NONE)
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(encoded, []byte{0, 0, 0, 0, 0, 0, 4, 64}) {
+			return fmt.Errorf("Revision width")
+		}
+		for _, protocol := range []model.Protocol{model.JSON, model.BINARY_NONE, model.BINARY_INTEGER, model.BINARY_STRING} {
 			payload, err := typed.Encode(protocol)
-			if err != nil { return err }
-			copy, err := DecodeDoubleVersion(payload, protocol)
-			if err != nil { return err }
-			decoded, err := copy.Encode(BINARY_NONE)
-			if err != nil { return err }
-			if !bytes.Equal(encoded, decoded) { return fmt.Errorf("Revision mismatch") }
+			if err != nil {
+				return err
+			}
+			copy, err := model.DecodeDoubleVersion(payload, protocol)
+			if err != nil {
+				return err
+			}
+			decoded, err := copy.Encode(model.BINARY_NONE)
+			if err != nil {
+				return err
+			}
+			if !bytes.Equal(encoded, decoded) {
+				return fmt.Errorf("Revision mismatch")
+			}
 		}
 	}
 	{
-		typed := NewDotted2Version()
-		encoded, err := typed.Encode(BINARY_NONE)
-		if err != nil { return err }
-		if !bytes.Equal(encoded, []byte{1, 0, 10, 0}) { return fmt.Errorf("Revision width") }
-		for _, protocol := range []Protocol{JSON, BINARY_NONE, BINARY_INTEGER, BINARY_STRING} {
+		typed := model.NewDotted2Version()
+		encoded, err := typed.Encode(model.BINARY_NONE)
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(encoded, []byte{1, 0, 10, 0}) {
+			return fmt.Errorf("Revision width")
+		}
+		for _, protocol := range []model.Protocol{model.JSON, model.BINARY_NONE, model.BINARY_INTEGER, model.BINARY_STRING} {
 			payload, err := typed.Encode(protocol)
-			if err != nil { return err }
-			copy, err := DecodeDotted2Version(payload, protocol)
-			if err != nil { return err }
-			decoded, err := copy.Encode(BINARY_NONE)
-			if err != nil { return err }
-			if !bytes.Equal(encoded, decoded) { return fmt.Errorf("Revision mismatch") }
+			if err != nil {
+				return err
+			}
+			copy, err := model.DecodeDotted2Version(payload, protocol)
+			if err != nil {
+				return err
+			}
+			decoded, err := copy.Encode(model.BINARY_NONE)
+			if err != nil {
+				return err
+			}
+			if !bytes.Equal(encoded, decoded) {
+				return fmt.Errorf("Revision mismatch")
+			}
 		}
 	}
 	{
-		typed := NewDotted3Version()
-		encoded, err := typed.Encode(BINARY_NONE)
-		if err != nil { return err }
-		if !bytes.Equal(encoded, []byte{1, 0, 10, 0, 0, 0}) { return fmt.Errorf("Revision width") }
-		for _, protocol := range []Protocol{JSON, BINARY_NONE, BINARY_INTEGER, BINARY_STRING} {
+		typed := model.NewDotted3Version()
+		encoded, err := typed.Encode(model.BINARY_NONE)
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(encoded, []byte{1, 0, 10, 0, 0, 0}) {
+			return fmt.Errorf("Revision width")
+		}
+		for _, protocol := range []model.Protocol{model.JSON, model.BINARY_NONE, model.BINARY_INTEGER, model.BINARY_STRING} {
 			payload, err := typed.Encode(protocol)
-			if err != nil { return err }
-			copy, err := DecodeDotted3Version(payload, protocol)
-			if err != nil { return err }
-			decoded, err := copy.Encode(BINARY_NONE)
-			if err != nil { return err }
-			if !bytes.Equal(encoded, decoded) { return fmt.Errorf("Revision mismatch") }
+			if err != nil {
+				return err
+			}
+			copy, err := model.DecodeDotted3Version(payload, protocol)
+			if err != nil {
+				return err
+			}
+			decoded, err := copy.Encode(model.BINARY_NONE)
+			if err != nil {
+				return err
+			}
+			if !bytes.Equal(encoded, decoded) {
+				return fmt.Errorf("Revision mismatch")
+			}
 		}
 	}
 	{
-		typed := NewDotted4Version()
-		encoded, err := typed.Encode(BINARY_NONE)
-		if err != nil { return err }
-		if !bytes.Equal(encoded, []byte{1, 0, 10, 0, 0, 0, 4, 0}) { return fmt.Errorf("Revision width") }
-		for _, protocol := range []Protocol{JSON, BINARY_NONE, BINARY_INTEGER, BINARY_STRING} {
+		typed := model.NewDotted4Version()
+		encoded, err := typed.Encode(model.BINARY_NONE)
+		if err != nil {
+			return err
+		}
+		if !bytes.Equal(encoded, []byte{1, 0, 10, 0, 0, 0, 4, 0}) {
+			return fmt.Errorf("Revision width")
+		}
+		for _, protocol := range []model.Protocol{model.JSON, model.BINARY_NONE, model.BINARY_INTEGER, model.BINARY_STRING} {
 			payload, err := typed.Encode(protocol)
-			if err != nil { return err }
-			copy, err := DecodeDotted4Version(payload, protocol)
-			if err != nil { return err }
-			decoded, err := copy.Encode(BINARY_NONE)
-			if err != nil { return err }
-			if !bytes.Equal(encoded, decoded) { return fmt.Errorf("Revision mismatch") }
+			if err != nil {
+				return err
+			}
+			copy, err := model.DecodeDotted4Version(payload, protocol)
+			if err != nil {
+				return err
+			}
+			decoded, err := copy.Encode(model.BINARY_NONE)
+			if err != nil {
+				return err
+			}
+			if !bytes.Equal(encoded, decoded) {
+				return fmt.Errorf("Revision mismatch")
+			}
 		}
 	}
 	input, err := os.ReadFile(os.Args[1])
 	if err != nil {
 		return err
 	}
-	limits := DefaultLimits()
-	limits.ReadPolicy = COMPATIBLE
-	value, err := DecodeExampleModel(input, JSON, limits)
+	limits := model.DefaultLimits()
+	limits.ReadPolicy = model.COMPATIBLE
+	value, err := model.DecodeExampleModel(input, model.JSON, limits)
 	if err != nil {
 		return err
 	}
-	oldBytes, err := value.Encode(BINARY_NONE)
-	if err != nil { return err }
-	old, err := DecodeExampleModel(oldBytes, BINARY_NONE, limits)
-	if err != nil { return err }
-	if old.Version != 8 || old.OldName != "Ada" { return fmt.Errorf("Historical mismatch") }
+	oldBytes, err := value.Encode(model.BINARY_NONE)
+	if err != nil {
+		return err
+	}
+	old, err := model.DecodeExampleModel(oldBytes, model.BINARY_NONE, limits)
+	if err != nil {
+		return err
+	}
+	if old.Version != 8 || old.OldName != "Ada" {
+		return fmt.Errorf("Historical mismatch")
+	}
 	value.Name = value.OldName
 	value.Version = 10
-	canonical, err := value.Encode(BINARY_NONE)
+	canonical, err := value.Encode(model.BINARY_NONE)
 	if err != nil {
 		return err
 	}
-	for _, protocol := range []Protocol{JSON, BINARY_NONE, BINARY_INTEGER, BINARY_STRING} {
+	for _, protocol := range []model.Protocol{model.JSON, model.BINARY_NONE, model.BINARY_INTEGER, model.BINARY_STRING} {
 		encoded, err := value.Encode(protocol)
 		if err != nil {
 			return err
 		}
-		copy, err := DecodeExampleModel(encoded, protocol)
+		copy, err := model.DecodeExampleModel(encoded, protocol)
 		if err != nil {
 			return err
 		}
-		decoded, err := copy.Encode(BINARY_NONE)
+		decoded, err := copy.Encode(model.BINARY_NONE)
 		if err != nil {
 			return err
 		}
@@ -166,7 +270,7 @@ func run() error {
 			return fmt.Errorf("Value mismatch")
 		}
 	}
-	output, err := value.Encode(JSON)
+	output, err := value.Encode(model.JSON)
 	if err != nil {
 		return err
 	}

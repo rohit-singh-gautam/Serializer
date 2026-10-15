@@ -4,6 +4,11 @@ enable_testing()
 
 # Build one maintained language consumer and register its existing fixture checks with CTest.
 function(serializer_add_language_example language example)
+  if(language STREQUAL "go")
+    include("${CMAKE_CURRENT_FUNCTION_LIST_DIR}/serializer_go_example.cmake")
+    serializer_add_go_example("serializer_go_${example}_example" "${CMAKE_CURRENT_SOURCE_DIR}")
+    return()
+  endif()
   serializer_example_dependency()
   find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
   get_filename_component(example_root "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/.." ABSOLUTE)

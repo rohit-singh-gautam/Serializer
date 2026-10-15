@@ -14,6 +14,13 @@ in the same matrix as every other language; non-C++ pairs are included too.
 Every client additionally checks all four codecs. Truncated and trailing input
 must fail without publishing output.
 
+The [Go client](clients/go/README.md) is also a native Go module. Its local
+`model.serializer` selects history records; `go generate .` creates its imported
+`internal/model` package, followed by ordinary `go build` and `go test` commands.
+With the installed Serializer CLI on `PATH`, that workflow needs no CMake,
+Python, C++ runtime, or cgo. The matrix below generates the selected feature
+schema in separate validation copies and preserves the source module's default.
+
 ```sh
 python example/managed/multilanguage/run.py --compiler <serializer> --language all
 python example/managed/multilanguage/run.py --compiler <serializer> --feature history --language cpp,python

@@ -35,11 +35,19 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **2.1.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.1.1**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.17.0**;
 see [release and schema versions](docs/guides/command_line.md).
+
+Release 2.1.1 makes every maintained Go example a native Go project. With Go
+1.22+ and the installed `serializer` CLI on `PATH`, run `go generate .`,
+`go build -o build/ .`, and `go test ./...` in an example folder. Application code
+imports its generated `internal/model` package. This workflow needs no CMake,
+Python, C++ runtime, or cgo; the repository matrix runners remain independent
+qualification tools. See [Go projects](example/go/README.md) and
+[2.1.1 migration](migration.md#compilerruntime-211).
 
 Release 2.1.0 requires CMake 4.0 or newer and adds standalone CMake entry points
 for individual examples in every supported language. Configure a folder such as
@@ -556,7 +564,7 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
 Both extensions use source release version **2.0.1**, independent of compiler version
-**2.1.0**. Embedded `cpp { ... }`, `java { ... }`, and other target blocks reuse
+**2.1.1**. Embedded `cpp { ... }`, `java { ... }`, and other target blocks reuse
 available language grammars for syntax highlighting. Install the language's grammar
 provider where the editor does not bundle it; this does not add embedded IntelliSense.
 See [embedded source highlighting](docs/editors/editor_extension.md#embedded-source-highlighting)

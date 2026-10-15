@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+
+	"serializer.example/managed/multilanguage/clients/go/internal/model"
 )
 
 // run edits one owning model and checks complete values using every wire protocol.
@@ -12,25 +14,25 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	value, err := DecodeExampleModel(input, BINARY_INTEGER)
+	value, err := model.DecodeExampleModel(input, model.BINARY_INTEGER)
 	if err != nil {
 		return err
 	}
 	value.Revision++
-	canonical, err := value.Encode(BINARY_NONE)
+	canonical, err := value.Encode(model.BINARY_NONE)
 	if err != nil {
 		return err
 	}
-	for _, protocol := range []Protocol{JSON, BINARY_NONE, BINARY_INTEGER, BINARY_STRING} {
+	for _, protocol := range []model.Protocol{model.JSON, model.BINARY_NONE, model.BINARY_INTEGER, model.BINARY_STRING} {
 		encoded, err := value.Encode(protocol)
 		if err != nil {
 			return err
 		}
-		copy, err := DecodeExampleModel(encoded, protocol)
+		copy, err := model.DecodeExampleModel(encoded, protocol)
 		if err != nil {
 			return err
 		}
-		decoded, err := copy.Encode(BINARY_NONE)
+		decoded, err := copy.Encode(model.BINARY_NONE)
 		if err != nil {
 			return err
 		}
@@ -38,7 +40,7 @@ func run() error {
 			return fmt.Errorf("Value mismatch")
 		}
 	}
-	output, err := value.Encode(BINARY_INTEGER)
+	output, err := value.Encode(model.BINARY_INTEGER)
 	if err != nil {
 		return err
 	}

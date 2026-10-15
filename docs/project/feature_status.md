@@ -12,7 +12,7 @@ in their guide.
 
 [Back to the project overview](../../README.md)
 
-Current compiler/runtime **2.1.0** supports language **1.17.0** and includes
+Current compiler/runtime **2.1.1** supports language **1.17.0** and includes
 `constexpr` ordinary C++ codec templates and a native positional/integer-key
 scalar decoder subset for constexpr-safe typed streams. Eligible checked
 arithmetic and dotted-value construction/conversions also constant-evaluate.
@@ -21,9 +21,14 @@ Useful value results are `[[nodiscard]]`; proven nonthrowing value operations us
 See [direct codecs and qualifiers](../serialization/constant_evaluation.md#34-direct-generated-codecs-and-value-qualifiers)
 for limitations and executed qualification.
 
+Release **2.1.1** makes the maintained Go consumers native modules with their
+own `go.mod`, entry schema, `go:generate` directive, and imported `internal/model`
+package. An installed Serializer CLI and Go are sufficient for generation,
+builds, and package tests; Python runners remain independent matrix qualifiers.
+See [Go projects](../../example/go/README.md).
+
 Release **2.1.0** requires CMake 4.0+ and adds standalone CMake entry points for
-individual examples across all supported languages. Go consumers keep native
-`go.mod` manifests and build through `go build`; CMake prepares generated inputs.
+individual examples across all supported languages.
 See [example builds](../../example/README.md#build-an-individual-example-with-cmake).
 
 Compiler/runtime **2.0.0** adds separate C++ generated headers for schema
@@ -309,7 +314,7 @@ Namespace scopes are reused during parsing; duplicate types and namespace/type c
 are rejected. See [schema includes](../guides/usage.md#share-declarations-with-includes) and the
 [paired C++/Java examples](../../example/includes/README.md). Quoted defaults preserve
 literal spaces, for example `public string label { "schema default" };`; escaping the
-space is unnecessary. Run `serializer --version` for compiler version **2.1.0** and
+space is unnecessary. Run `serializer --version` for compiler version **2.1.1** and
 supported schema versions. See [command-line options](../guides/command_line.md) for
 multi-language generation and overrides.
 

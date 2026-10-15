@@ -137,6 +137,35 @@ Generated sources target **Go 1.22+** and use only the standard library. Generat
 one combined entry schema per Go package; each standalone output embeds package
 runtime declarations. Use includes to combine shared types in that entry.
 
+The maintained [Go examples](../../example/go/README.md) are native modules.
+With the installed `serializer` executable on `PATH`, use Go's own tools:
+
+```sh
+cd example/go/basic
+go generate .
+go build -o build/ .
+go test ./...
+```
+
+Each module keeps `go.mod`, `main.go`, `generate.go`, and its `model.serializer`
+entry. The generation directive is:
+
+```go
+//go:generate serializer --input model.serializer --language go --go.package model --output internal/model/model_gen.go --depfile internal/model/model_gen.go.d
+```
+
+Create `internal/model` before generation in a new project; the CLI requires
+the output and depfile parent directory to exist. Maintained examples keep a
+`README.md` in that directory so it exists after checkout.
+
+The application imports its own module's `internal/model` package. Generated
+code and its depfile are ignored; regenerate before the first build/test and
+after schema changes. `go build` and `go test` do not invoke `go generate`
+automatically. An installed CLI and Go are sufficient for this workflow;
+no CMake, Python, C++ runtime, or cgo is required. Optional CMake wrappers invoke
+the same native commands. Repository qualification runners work in isolated
+copies to compare fixture results and cross-language exchanges.
+
 ```go
 value := generated.NewInteropMessage()
 value.BigUnsigned = math.MaxUint64
@@ -237,6 +266,12 @@ in `serializer_generate_java`; transitive includes are tracked with depfiles.
 Cross builds must supply a host compiler executable. `serializer_generated_sources`
 is the aggregate generation target. Native npm/Go/MSBuild consumers can invoke
 the same C++ executable directly during their build; no compiler port is required.
+
+For a native Go application, prefer a `go:generate` directive and a separate
+generated model package as shown [above](#go). CMake integration is optional;
+the example wrappers delegate to the maintained Go project instead of building
+a flattened copy in `package main`. The Python matrix runners are separate
+qualification tools and regenerate their own validation copies.
 
 Enable `SERIALIZER_BUILD_INTEROP_EXAMPLES=ON` for the runnable
 [five-language example](../../example/interoperability/README.md). Its CTest covers

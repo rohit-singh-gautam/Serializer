@@ -37,6 +37,20 @@ def suppress_windows_error_dialogs():
 suppress_windows_error_dialogs()
 
 
+def generated_output(language, directory, source):
+    """Select a maintained Go module's internal package or the existing SDK fixture layout."""
+    if language == 'go' and (source / 'generate.go').is_file():
+        return directory / 'internal/model/model_gen.go'
+    return directory / OUTPUTS[language]
+
+
+def go_generation_options(source, output=None):
+    """Keep external fixtures in package main and trace maintained model packages with a depfile."""
+    if output is not None and (source / 'generate.go').is_file():
+        return ['--go.package', 'model', '--depfile', output.with_name(output.name + '.d')]
+    return ['--go.package', 'main']
+
+
 def run(command, *, cwd=None, capture=False):
     """Execute an argument vector without a shell and fail on any SDK or example error."""
     return subprocess.run([str(x) for x in command], cwd=cwd, check=True,
@@ -186,13 +200,17 @@ class Runner:
         """Generate every selected output from one entry schema, then run all consumers."""
         build = self.args.build / example
         selected = list(languages)
-        targets = {('js' if language == 'javascript' else language): build / language / OUTPUTS[language] for language in selected}
+        targets = {('js' if language == 'javascript' else language):
+                   generated_output(language, build / language, ROOT / 'example' / language / example)
+                   for language in selected}
         if 'typescript' in selected and 'javascript' not in selected:
             targets['js'] = build / 'typescript/schema.mjs'
         for destination in targets.values():
             destination.parent.mkdir(parents=True, exist_ok=True)
         schema = ROOT / 'example/interoperability/message.serializer' if example == 'interoperability' else ROOT / 'example/schemas' / example / 'model.serializer'
-        command = [self.args.compiler, '--input', schema, '--language', ','.join(targets), '--cpp.format', 'false', '--go.package', 'main', '--kotlin.package=']
+        command = [self.args.compiler, '--input', schema, '--language', ','.join(targets),
+                   '--cpp.format', 'false', '--kotlin.package=']
+        command += go_generation_options(ROOT / 'example/go' / example, targets.get('go'))
         if getattr(self.args, 'version_policy_as_of', None):
             command += ['--version-policy-as-of', self.args.version_policy_as_of]
         for language, destination in targets.items():

@@ -2,10 +2,15 @@
 
 [Documentation index](../README.md) · [Application and build guides](README.md)
 
-Compiler/runtime **2.1.0** supports language **1.17.0** and requires CMake 4.0+.
+Compiler/runtime **2.1.1** supports language **1.17.0**. Source builds and CMake
+integration require CMake 4.0+.
 Every language's individual examples have standalone CMake entry points; see
 [example builds](../../example/README.md#build-an-individual-example-with-cmake)
-and [2.1.0 migration](../../migration.md#compilerruntime-210).
+and [2.1.1 migration](../../migration.md#compilerruntime-211).
+Go examples are native modules: with an installed `serializer` CLI on `PATH`,
+run `go generate .`, `go build -o build/ .`, and `go test ./...` in the example
+folder. They import generated code from `internal/model` and require no CMake,
+Python, C++ runtime, or cgo. See [the Go project guide](../../example/go/README.md).
 Use [array and callable APIs](../schema/array_and_callable_api.md) to select
 ordinary array storage, exact const indexing policy and explicit axes.
 Preserve native borrow lifetimes, field defaults, direct copy-only binding

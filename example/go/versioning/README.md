@@ -1,10 +1,41 @@
-# go versioning example
+# Go: versioning
 
-Generate and run this example with `python example/run.py --compiler <serializer> --example versioning --language go`.
-The [shared schema](../../schemas/versioning/model.serializer) declares uint8/16/32/64, float/double and two/three/four-component versions, custom names, visibility, IDs, compatibility, lifecycle annotations, replacement metadata and reservations.
+With Go 1.22+ and the installed `serializer` executable on `PATH`, run from this
+folder:
 
-The program reads revision 8 with the compatible read policy, round-trips its historical positional binary layout, explicitly copies `old_name` into `name`, sets revision 10, and verifies all four native protocols with strict reads. Replacement conversion is application code; retained definitions describe historical bytes.
+```sh
+go generate .
+go build -o build/ .
+go test ./...
+go run . ../../schemas/versioning/fixture.json build/result.json
+```
 
-Every consumer also constructs all eight explicit revision types, checks independent positional byte fixtures, and round-trips each type through all four protocols. The float uses `0.1` to verify declared binary32 precision; uint64 uses its maximum value.
+The [entry schema](model.serializer) includes the shared contract. Generation
+writes the ignored `internal/model/model_gen.go` package imported by `main.go`;
+rerun generation after schema changes. No CMake, Python, C++ runtime, or cgo is
+needed for this native workflow. `go test ./...` checks independent fixture
+results and relevant rejection paths. The program can also be run directly with
+the fixture arguments above.
+See the [Go project guide](../README.md) for layout and optional build wrappers.
 
-The shared schema also declares release dates and nested `any`/`all` policies with age, count, and compatibility leaves. They resolve to minimum version 8 entirely during generation. Add `--version-policy-as-of 2026-10-06` to pin the example; generated consumers contain no dates, catalogs, clocks, or policy trees.
+The [shared schema](../../schemas/versioning/model.serializer) declares all eight
+revision types, custom names, visibility, compatibility, lifecycle annotations,
+replacement metadata, and reservations. The consumer reads revision 8 with the
+compatible policy, round-trips its historical positional layout, explicitly
+copies `old_name` into `name`, and sets revision 10 before strict four-protocol
+checks. Replacement conversion remains application code.
+
+It also constructs every revision type and checks independent positional bytes,
+including binary32 `0.1` precision and the maximum uint64 value. Release catalogs
+and nested age/count/compatibility policies resolve during generation. The
+qualification runner accepts `--version-policy-as-of 2026-10-06` to pin evaluation;
+generated models contain no clocks or policy trees.
+
+For the independent repository qualification, run from the repository root:
+
+```sh
+python example/run.py --compiler <serializer-executable> --language go --example versioning
+```
+
+That harness builds a separate validation copy and checks its output against
+independent expected data. It does not replace this source module.

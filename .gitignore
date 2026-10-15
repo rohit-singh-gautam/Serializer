@@ -65,6 +65,27 @@ Testing/
 *.rmeta
 *.test
 
+# Native Go example generation stays inside each module for normal Go tooling.
+/example/go/*/internal/model/model_gen.go
+/example/go/*/internal/model/model_gen.go.d
+/example/custom_ids/go/internal/model/model_gen.go
+/example/custom_ids/go/internal/model/model_gen.go.d
+/example/managed/multilanguage/clients/go/internal/model/model_gen.go
+/example/managed/multilanguage/clients/go/internal/model/model_gen.go.d
+# Default `go build .` executable names on platforms without an .exe suffix.
+/example/go/basic/basic
+/example/go/collections/collections
+/example/go/complex/complex
+/example/go/conversions/conversions
+/example/go/document_collections/document_collections
+/example/go/generics/generics
+/example/go/interoperability/serializer-interoperability
+/example/go/optional/optional
+/example/go/union_variant/union_variant
+/example/go/versioning/versioning
+/example/custom_ids/go/go
+/example/managed/multilanguage/clients/go/go
+
 # Python bytecode, virtual environments, package metadata, and tool caches.
 __pycache__/
 *.py[cod]

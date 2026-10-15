@@ -363,6 +363,15 @@ using flexible_magic_json = rohit::serializer::json<Direction, rohit::stream,
         marker = 'public static void main(String[] args) throws Exception {' if language == 'java' else 'private static void Main(string[] args) {'
         return text.replace(marker, marker + '\n' + added, 1)
     if language == 'go':
+        # This isolated SDK fixture stays in package main; adapt only the maintained model APIs.
+        text = text.replace('\t"serializer.example/go/versioning/internal/model"\n', '', 1)
+        for name in ('Protocol', 'JSON', 'BINARY_NONE', 'BINARY_INTEGER', 'BINARY_STRING',
+                     'DefaultLimits', 'COMPATIBLE', 'DecodeExampleModel',
+                     'NewUint16Version', 'DecodeUint16Version', 'NewUint32Version', 'DecodeUint32Version',
+                     'NewUint64Version', 'DecodeUint64Version', 'NewFloatVersion', 'DecodeFloatVersion',
+                     'NewDoubleVersion', 'DecodeDoubleVersion', 'NewDotted2Version', 'DecodeDotted2Version',
+                     'NewDotted3Version', 'DecodeDotted3Version', 'NewDotted4Version', 'DecodeDotted4Version'):
+            text = text.replace('model.' + name, name)
         return text.replace('func run() error {', 'func run() error {\n' + added, 1)
     if language == 'rust':
         return text.replace('let args: Vec<String> = env::args().collect();', 'let args: Vec<String> = env::args().collect();\n' + added, 1)

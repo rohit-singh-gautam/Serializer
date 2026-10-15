@@ -42,17 +42,24 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
-Compiler/runtime 2.1.0 supports schema language 1.17.0 and requires CMake 4.0+.
-Every maintained language example has a standalone CMake entry point. Configure
-an individual folder, build it, then run CTest; use
-`SERIALIZER_EXAMPLE_USE_INSTALLED=ON` to select an installed package instead of
-this source checkout. Only the selected language's SDK is required in addition
-to the C++ schema compiler and Python 3.10+. See
+Compiler/runtime 2.1.1 supports schema language 1.17.0. Source builds and CMake
+integration require CMake 4.0+. Every maintained language example has an optional
+standalone CMake entry point. Configure a folder, build it, then run CTest; use
+`SERIALIZER_EXAMPLE_USE_INSTALLED=ON` for package discovery. Non-Go SDK wrappers
+also require Python 3.10+. See
 [individual example builds](../../../example/README.md#build-an-individual-example-with-cmake)
-and [2.1.0 migration](../../../migration.md#compilerruntime-210).
-Go example directories retain native `go.mod` manifests; CMake prepares their
-generated modules and delegates compilation to `go build` instead of replacing
-Go module tooling. See [Go examples](../../../example/go/README.md).
+and [2.1.1 migration](../../../migration.md#compilerruntime-211).
+Go examples are native modules. With the installed `serializer` CLI on `PATH`,
+run `go generate .`, `go build -o build/ .`, and `go test ./...` in the example
+folder. Keep the maintained `go.mod`, `main.go`, `main_test.go`, `generate.go`, and entry schema;
+generate the ignored `internal/model/model_gen.go` and depfile, then import that
+model package from the application. Regenerate after schema changes; Go builds
+and tests do not automatically run generation. Native tests exercise fixtures,
+codec behavior, and rejection paths. No CMake, Python, C++ runtime,
+or cgo is required for this native workflow. Optional CMake wrappers run the
+same native commands and accept `SERIALIZER_EXAMPLE_COMPILER` for an explicit CLI.
+Python matrix runners build isolated validation copies, separate from the native
+source project. See [Go examples](../../../example/go/README.md).
 For standalone compression examples, installed shared runtimes require 2.1.0+
 backend metadata; older 2.x static packages retain dependency-based detection.
 See [compression example requirements](../../../example/compression/README.md#build-and-run).
@@ -816,7 +823,7 @@ feature as a prerequisite without the user's request.
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
   remains available through `parser::parse(input)`. Schema language version 1.17.0 is
-  independent of compiler release 2.1.0 and wire protocols. Bug fixes and minor
+  independent of compiler release 2.1.1 and wire protocols. Bug fixes and minor
   updates increment the patch number; new features increment the minor number.
   Minor and patch releases preserve full compatibility. Developers change the
   major number manually, with best-effort compatibility across major releases.
@@ -1486,6 +1493,16 @@ user instruction to defer generation/builds/tests and report what remains unveri
   schema defaults, and C# uses an output-file outer class. Namespace flattening
   must remain collision-free. Preserve wire names and IDs across all targets.
 - Generate one combined schema per Go package. Use includes for shared types.
+  For native Go projects, keep a `go.mod`, an entry `model.serializer`, and a
+  `generate.go` directive invoking `serializer --input model.serializer
+  --language go --go.package model --output internal/model/model_gen.go
+  --depfile internal/model/model_gen.go.d`. Create `internal/model` first in a
+  new project: the CLI requires the output and depfile parent directory to exist.
+  Maintained examples keep `README.md` there so checkout preserves the directory.
+  Import the generated internal package from the application; preserve the module identity and keep generated output
+  ignored. Prefer the native generate/build/test workflow; CMake and Python are
+  optional integration and qualification tools. The managed wire Go client
+  defaults to history; regenerate feature variants only in isolated matrix copies.
   Native maps are sorted during output. Use owning schemas with portable literal
   defaults, valid UTF-8 strings, supported map keys, and ASCII JSON characters.
   Views, packed storage, arbitrary C++ expressions, native acceleration, Protobuf,
@@ -1495,7 +1512,7 @@ user instruction to defer generation/builds/tests and report what remains unveri
   Missing fields retain defaults, nested duplicates merge, and collections replace.
   Do not route JS messages through ordinary JSON.parse/stringify because full-width
   integers and duplicate-field semantics require generated codecs.
-- Integrate with `serializer_generate_source(TARGET name SCHEMA file LANGUAGE go
+- When using CMake, integrate with `serializer_generate_source(TARGET name SCHEMA file LANGUAGE go
   OUTPUT generated/schema.go OPTIONS --go.package app)` or invoke the C++ compiler
   directly from npm, Go, or MSBuild build steps. The CMake helper tracks includes;
   supply a host `GENERATOR` when cross-compiling.

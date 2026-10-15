@@ -37,10 +37,10 @@ with `[output] language = cpp,java`. Schema paths use `.serializer`, and every
 schema starts with a supported language header; use `serializer version 1.3.0;`
 for inferred arrays and typed magic. The original `1` header remains an exact
 alias for `1.0.0`. The installed package supports
-`find_package(Serializer 2.1.0 EXACT CONFIG REQUIRED)`; omit `EXACT` to accept a
+`find_package(Serializer 2.1.1 EXACT CONFIG REQUIRED)`; omit `EXACT` to accept a
 newer compatible release within the same major version. See
 [compiler and schema versioning](command_line.md).
-The 2.1.0 package uses `SameMajorVersion` discovery and rejects 1.x requests.
+The 2.1.1 package uses `SameMajorVersion` discovery and rejects 1.x requests.
 Update a versioned consumer to `find_package(Serializer 2.0 CONFIG REQUIRED)`;
 existing unversioned discovery remains valid. Regenerate through the consumer's
 build rules, and distribute the default separate-header bundle or select
@@ -58,10 +58,23 @@ Each maintained example can be configured directly, for example
 `cmake -S example/cpp/basic -B out/build/cpp-basic`, followed by
 `cmake --build out/build/cpp-basic --config Release` and
 `ctest --test-dir out/build/cpp-basic -C Release --output-on-failure`.
-The default builds the compiler from this checkout. Set
+For languages other than Go, the default builds the compiler from this checkout. Set
 `SERIALIZER_EXAMPLE_USE_INSTALLED=ON` and `CMAKE_PREFIX_PATH` to reuse a package.
 See [all-language example builds](../../example/README.md#build-an-individual-example-with-cmake)
 for SDK requirements and selected-language options.
+
+Go examples are native modules and can be built without CMake. With the
+installed `serializer` CLI on `PATH`, run `go generate .`, `go build -o build/ .`,
+and `go test ./...` in a Go example folder. Its `main.go` imports the generated
+`internal/model` package. These commands require no Python, C++ runtime, or cgo.
+The optional CMake entry points invoke this same native workflow; source
+compiler fallback remains available when a CLI is not already supplied.
+Set `SERIALIZER_EXAMPLE_COMPILER` to an explicit CLI path. Otherwise the wrapper
+reuses `Serializer::serializer` from a parent build, uses a requested installed
+package, searches `PATH`, then falls back to the source dependency. The Go wrapper
+needs no Python. Its CTest runs the native Go package tests; the Python
+cross-language qualifier remains a separate command.
+See [Go project layout](../../example/go/README.md).
 
 ## Build this repository
 

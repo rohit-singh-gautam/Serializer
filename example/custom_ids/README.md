@@ -48,7 +48,13 @@ binding-record array. See [state registries](../../docs/managed/state_registry.m
 generated C++ runtime and [paged indexing](../../docs/design/paged_indexing.md) for the
 separate disk-backed proposal.
 
-Build Serializer first, then generate, compile, and execute all installed SDKs:
+The [Go consumer](go/README.md) is a native module: with `serializer` on `PATH`,
+run `go generate .`, `go build -o build/ .`, `go test ./...`, and `go run .` in
+its folder. It imports the generated `internal/model` package and needs no
+CMake, Python, C++ runtime, or cgo.
+
+For the independent repository matrix, build or install Serializer, then
+generate, compile, and execute all selected SDKs in isolated validation copies:
 
 ```powershell
 python example/custom_ids/run.py --compiler out/build/make-Release/Release/serializer.exe --cpp-library out/build/make-Release/Release/serializer_runtime.lib --language all --wsl-languages rust,swift

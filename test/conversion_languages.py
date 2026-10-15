@@ -24,12 +24,15 @@ def main():
     if args.cpp_library:
         args.cpp_library = args.cpp_library.resolve()
     selected = list(examples.LANGUAGES if args.language == "all" else args.language.split(","))
-    targets = {("js" if language == "javascript" else language): args.build / language / examples.OUTPUTS[language]
+    targets = {("js" if language == "javascript" else language):
+               examples.generated_output(language, args.build / language,
+                                         ROOT / "example" / language / "conversions")
                for language in selected}
     if "typescript" in selected and "javascript" not in selected:
         targets["js"] = args.build / "typescript/schema.mjs"
     command = [args.compiler, "--input", ROOT / "example/schemas/conversions/model.serializer", "--language", ",".join(targets),
-               "--cpp.format=false", "--go.package=main", "--kotlin.package="]
+               "--cpp.format=false", "--kotlin.package="]
+    command += examples.go_generation_options(ROOT / "example/go/conversions", targets.get("go"))
     for language, destination in targets.items():
         destination.parent.mkdir(parents=True, exist_ok=True)
         command += [f"--{language}.output", destination]
