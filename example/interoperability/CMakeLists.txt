@@ -1,3 +1,10 @@
+cmake_minimum_required(VERSION 4.0)
+include("${CMAKE_CURRENT_LIST_DIR}/../cmake/serializer_example_dependency.cmake")
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  project(serializer_interoperability_examples LANGUAGES CXX)
+  serializer_example_dependency()
+  enable_testing()
+endif()
 # Build the C++ schema compiler first; target-language tools only compile generated examples.
 find_package(Java 17 REQUIRED COMPONENTS Development Runtime)
 find_program(serializer_node NAMES node REQUIRED)
@@ -11,7 +18,7 @@ set(outputs "${generated}/cpp/message.hpp" "${generated}/java/Schema.java"
   "${generated}/javascript/schema.mjs" "${generated}/javascript/schema.d.mts"
   "${generated}/go/schema.go" "${generated}/csharp/Schema.cs")
 add_custom_command(OUTPUT ${outputs}
-  COMMAND "$<TARGET_FILE:serializer>" --input "${CMAKE_CURRENT_SOURCE_DIR}/message.serializer"
+  COMMAND "$<TARGET_FILE:Serializer::serializer>" --input "${CMAKE_CURRENT_SOURCE_DIR}/message.serializer"
     --language cpp,java,js,typescript,go,csharp
     --cpp.output "${generated}/cpp/message.hpp" --cpp.format false
     --java.output "${generated}/java/Schema.java"
@@ -20,11 +27,12 @@ add_custom_command(OUTPUT ${outputs}
     --go.output "${generated}/go/schema.go" --go.package main
     --csharp.output "${generated}/csharp/Schema.cs"
     --depfile "${generated}/schema.d"
-  DEPENDS serializer message.serializer common.serializer
+  DEPENDS Serializer::serializer message.serializer common.serializer
   DEPFILE "${generated}/schema.d" VERBATIM)
 add_custom_target(serializer_interop_sources DEPENDS ${outputs})
 
 add_executable(serializer_interop_cpp ../cpp/interoperability/main.cpp "${generated}/cpp/message.hpp")
+serializer_example_runtime_dlls(serializer_interop_cpp)
 target_include_directories(serializer_interop_cpp PRIVATE "${generated}/cpp")
 target_link_libraries(serializer_interop_cpp PRIVATE Serializer::runtime)
 add_dependencies(serializer_interop_cpp serializer_interop_sources)
@@ -74,7 +82,7 @@ find_program(serializer_browser NAMES chromium chromium-browser google-chrome ch
 if(Python3_Interpreter_FOUND AND serializer_browser)
   set_tests_properties(serializer_all_language_interoperability PROPERTIES FIXTURES_SETUP serializer_wire_fixtures)
   add_test(NAME serializer_browser_interoperability
-    COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/test/browser_interop_test.py"
+    COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/../../test/browser_interop_test.py"
       --browser "${serializer_browser}" --directory "${CMAKE_CURRENT_BINARY_DIR}")
   set_tests_properties(serializer_browser_interoperability PROPERTIES
     FIXTURES_REQUIRED serializer_wire_fixtures TIMEOUT 60)

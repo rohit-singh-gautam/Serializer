@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.28)
+cmake_minimum_required(VERSION 4.0)
 project(serializer_extension_smoke LANGUAGES CXX)
 set(SERIALIZER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(SERIALIZER_INSTALL OFF CACHE BOOL "" FORCE)

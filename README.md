@@ -35,11 +35,20 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **2.0.2**. Bug fixes and minor updates
+The current compiler and runtime release is **2.1.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.17.0**;
 see [release and schema versions](docs/guides/command_line.md).
+
+Release 2.1.0 requires CMake 4.0 or newer and adds standalone CMake entry points
+for individual examples in every supported language. Configure a folder such as
+`example/cpp/basic` directly, then build and run its checks with CTest. See
+[individual example builds](example/README.md#build-an-individual-example-with-cmake)
+and [2.1.0 migration](migration.md#compilerruntime-210).
+
+Installed packages expose their enabled compression backends so standalone
+examples can detect capabilities in both static and shared runtimes.
 
 Release 2.0.2 fixes private arithmetic helper names in generated Rust output for
 strict native Windows builds with `rustc 1.99` and `-D warnings`, and runs the
@@ -109,7 +118,7 @@ arithmetic operator mappings with owning constructor calls in portable expressio
 Existing fields, wire formats and managed protocols retain their contracts.
 Run the [four focused examples](example/README.md#owning-record-apis) and consult
 [qualification](docs/verification/verification-owning-api-2026-10-12.md) for tested
-backends and limits. Both current editor packages are **2.0.0**, with separate
+backends and limits. Both current editor packages are **2.0.1**, with separate
 C++ generated-header navigation. See
 [editor verification](docs/editors/editor_extension.md#verification-performed)
 for package checks and navigation qualification.
@@ -461,7 +470,7 @@ manifest acquires them through its default features. Existing caches retain thei
 settings; use `-U SERIALIZER_BUILD_MANAGED -U SERIALIZER_WITH_*` to adopt the new
 defaults, or set each option explicitly.
 
-The default development build needs CMake 3.28+, a C++20 compiler and standard
+The default development build needs CMake 4.0+, a C++20 compiler and standard
 library, clang-format 19+, and GoogleTest 1.18.0 or newer. See the
 [requirements and setup guide](docs/guides/cmake_integration.md#build-this-repository)
 for dependency installation and optional tools.
@@ -546,8 +555,8 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editors/editor_extension.md) |
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
-Both extensions use source release version **2.0.0**, independent of compiler version
-**2.0.2**. Embedded `cpp { ... }`, `java { ... }`, and other target blocks reuse
+Both extensions use source release version **2.0.1**, independent of compiler version
+**2.1.0**. Embedded `cpp { ... }`, `java { ... }`, and other target blocks reuse
 available language grammars for syntax highlighting. Install the language's grammar
 provider where the editor does not bundle it; this does not add embedded IntelliSense.
 See [embedded source highlighting](docs/editors/editor_extension.md#embedded-source-highlighting)

@@ -42,6 +42,21 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
+Compiler/runtime 2.1.0 supports schema language 1.17.0 and requires CMake 4.0+.
+Every maintained language example has a standalone CMake entry point. Configure
+an individual folder, build it, then run CTest; use
+`SERIALIZER_EXAMPLE_USE_INSTALLED=ON` to select an installed package instead of
+this source checkout. Only the selected language's SDK is required in addition
+to the C++ schema compiler and Python 3.10+. See
+[individual example builds](../../../example/README.md#build-an-individual-example-with-cmake)
+and [2.1.0 migration](../../../migration.md#compilerruntime-210).
+Go example directories retain native `go.mod` manifests; CMake prepares their
+generated modules and delegates compilation to `go build` instead of replacing
+Go module tooling. See [Go examples](../../../example/go/README.md).
+For standalone compression examples, installed shared runtimes require 2.1.0+
+backend metadata; older 2.x static packages retain dependency-based detection.
+See [compression example requirements](../../../example/compression/README.md#build-and-run).
+
 Compiler/runtime 2.0.2 supports schema language 1.17.0. The patch fixes private
 arithmetic helper collisions in strict Rust builds and execution of self-checking
 conversion examples through the shared example runner. Regenerate affected Rust
@@ -63,7 +78,7 @@ even without `EXACT`; unversioned discovery remains available. Keep supported
 1.x schema headers and their meanings, model names, runtime APIs and wire contracts.
 The original `serializer version 1;` remains exactly the 1.0.0 language baseline;
 do not select schema language 2.0.0 to match this compiler release. Both editor
-packages use the separately versioned 2.0.0 release. See [2.0 migration](../../../migration.md#compilerruntime-200).
+packages use the separately versioned 2.0.1 release. See [2.0 migration](../../../migration.md#compilerruntime-200).
 For new integrations, review [derived wire sizes](../../../docs/schema/derived_sizes.md),
 [explicit value conversions](../../../docs/schema/conversions.md), and
 [stateless generic constraints](../../../docs/schema/generics.md#stateless-type-constraints).
@@ -801,7 +816,7 @@ feature as a prerequisite without the user's request.
   (leading comments are allowed). Rename older `.def`/`.struct` inputs and update
   build references. The compiler requires this header; library fragment parsing
   remains available through `parser::parse(input)`. Schema language version 1.17.0 is
-  independent of compiler release 2.0.2 and wire protocols. Bug fixes and minor
+  independent of compiler release 2.1.0 and wire protocols. Bug fixes and minor
   updates increment the patch number; new features increment the minor number.
   Minor and patch releases preserve full compatibility. Developers change the
   major number manually, with best-effort compatibility across major releases.
@@ -1048,7 +1063,7 @@ Use the consuming project's existing dependency mechanism. When using CMake,
 `Serializer::runtime`, `Serializer::serializer`, and `serializer_generate`.
 Use `serializer_generate(TARGET app SCHEMAS schemas/person.serializer)` after creating the
 consumer. It supplies generation dependencies, the generated include directory,
-runtime linkage, and the C++20 minimum. CMake 3.28+ is required; keep a newer C++
+runtime linkage, and the C++20 minimum. CMake 4.0+ is required; keep a newer C++
 mode if the application already uses one. Source dependencies build the generator
 as needed; installed packages use their installed executable. `SERIALIZER_INSTALL`
 controls installation and defaults off when Serializer is embedded.
@@ -1228,7 +1243,7 @@ versioned snippets, and invokes the same targets through CMake Tools. Run the ro
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 2.0.0 is shared with the Visual Studio extension and is independent of
+version 2.0.1 is shared with the Visual Studio extension and is independent of
 compiler and schema versions. Keep both editor extension versions equal.
 Embedded target blocks reuse available editor language grammars for highlighting;
 install a grammar provider for targets the host does not bundle. This does not

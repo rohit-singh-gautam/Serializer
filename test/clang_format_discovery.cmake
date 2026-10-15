@@ -1,12 +1,12 @@
 # Exercise host discovery and override failures in separate CMake scopes/caches.
-cmake_minimum_required(VERSION 3.28)
+cmake_minimum_required(VERSION 4.0)
 file(MAKE_DIRECTORY "${DIRECTORY}")
 set(helper "${CMAKE_CURRENT_LIST_DIR}/../cmake/serializer_find_clang_format.cmake")
 
 # Run one isolated discovery scenario and check either its result or its diagnostic.
 function(check_discovery name setup expected_error)
   set(script "${DIRECTORY}/${name}.cmake")
-  file(WRITE "${script}" "cmake_minimum_required(VERSION 3.28)\n"
+  file(WRITE "${script}" "cmake_minimum_required(VERSION 4.0)\n"
     "include([==[${helper}]==])\n${setup}\nserializer_find_clang_format()\n")
   if(expected_error STREQUAL "")
     file(APPEND "${script}"

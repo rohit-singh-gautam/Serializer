@@ -112,6 +112,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--compiler', type=Path, required=True)
     parser.add_argument('--cpp-library', type=Path)
+    parser.add_argument('--executable', type=Path, help='Use an already-built native consumer')
     parser.add_argument('--build', type=Path, default=ROOT / 'out/managed_multilanguage')
     parser.add_argument('--language', default='all')
     parser.add_argument('--feature', choices=(*FEATURES, 'all'), default='all')
@@ -120,10 +121,14 @@ def main():
     args = parser.parse_args()
     args.compiler = args.compiler.resolve()
     args.build = args.build.resolve()
+    if args.executable:
+        args.executable = args.executable.resolve()
     languages = examples.LANGUAGES if args.language == 'all' else tuple(args.language.split(','))
     if (not languages or len(set(languages)) != len(languages) or
             any(language not in examples.LANGUAGES for language in languages)):
         parser.error('Choose distinct supported language folder names')
+    if args.executable and (len(languages) != 1 or languages[0] not in ('cpp', 'c') or args.feature == 'all'):
+        parser.error('--executable requires one cpp or c language and one feature')
     for feature in FEATURES if args.feature == 'all' else (args.feature,):
         qualify(args, feature, languages)
 

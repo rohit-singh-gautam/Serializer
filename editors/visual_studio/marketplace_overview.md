@@ -7,8 +7,8 @@ and existing generated code in **Visual Studio 2022 and Visual Studio 2026 on
 Windows x64**. It provides syntax highlighting, editing assistance, and native
 navigation for projects using Serializer — State Framework.
 
-The current source release is **2.0.0**, supporting schema language **1.17.0**
-and navigation for Serializer **2.0.0**'s default separate C++ generated headers.
+The current source release is **2.0.1**, supporting schema language **1.17.0**
+and navigation for Serializer **2.1.0**'s default separate C++ generated headers.
 The compiler/runtime, schema language, and editor extension have independent
 versions; existing 1.x schema language headers remain supported.
 
@@ -92,6 +92,8 @@ Install **Rohit Serializer** from the existing
 [Visual Studio Marketplace listing](https://marketplace.visualstudio.com/items?itemName=rohitjairajsingh.rohitserializervisualstudio)
 and restart Visual Studio. Install the compiler and runtime separately using the
 [source-build and installation guide](https://github.com/rohit-singh-gautam/Serializer/blob/main/docs/guides/cmake_integration.md#use-an-installed-package).
+Serializer source builds and individual example CMake projects require CMake **4.0+**;
+each selected output language also requires its own SDK.
 Open a `.serializer` schema and build your project's generation targets when you
 need generated-output destinations.
 

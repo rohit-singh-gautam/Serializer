@@ -5,7 +5,7 @@ execute_process(COMMAND "${GENERATOR}" --input "${SOURCE}/resources/optional_c.s
 if(NOT generated EQUAL 0)
   message(FATAL_ERROR "C optional generation failed")
 endif()
-file(WRITE "${DIRECTORY}/CMakeLists.txt" "cmake_minimum_required(VERSION 3.20)\nproject(optional_c LANGUAGES C)\nadd_executable(optional_c \"${SOURCE}/native/c_optional/main.c\")\ntarget_include_directories(optional_c PRIVATE \"${DIRECTORY}\")\nset_target_properties(optional_c PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF RUNTIME_OUTPUT_DIRECTORY \"${DIRECTORY}/bin\" RUNTIME_OUTPUT_DIRECTORY_RELEASE \"${DIRECTORY}/bin\")\nif(MSVC)\n  target_compile_options(optional_c PRIVATE /W4 /WX /utf-8)\nelse()\n  target_compile_options(optional_c PRIVATE -Wall -Wextra -Wpedantic -Werror)\n  target_link_libraries(optional_c PRIVATE m)\nendif()\n")
+file(WRITE "${DIRECTORY}/CMakeLists.txt" "cmake_minimum_required(VERSION 4.0)\nproject(optional_c LANGUAGES C)\nadd_executable(optional_c \"${SOURCE}/native/c_optional/main.c\")\ntarget_include_directories(optional_c PRIVATE \"${DIRECTORY}\")\nset_target_properties(optional_c PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF RUNTIME_OUTPUT_DIRECTORY \"${DIRECTORY}/bin\" RUNTIME_OUTPUT_DIRECTORY_RELEASE \"${DIRECTORY}/bin\")\nif(MSVC)\n  target_compile_options(optional_c PRIVATE /W4 /WX /utf-8)\nelse()\n  target_compile_options(optional_c PRIVATE -Wall -Wextra -Wpedantic -Werror)\n  target_link_libraries(optional_c PRIVATE m)\nendif()\n")
 execute_process(COMMAND "${CMAKE_COMMAND}" -S "${DIRECTORY}" -B "${DIRECTORY}/build"
   RESULT_VARIABLE configured)
 if(NOT configured EQUAL 0)

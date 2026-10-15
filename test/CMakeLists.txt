@@ -804,6 +804,11 @@ add_test(NAME serializer_clang_format_discovery
     -P "${CMAKE_CURRENT_SOURCE_DIR}/clang_format_discovery.cmake")
 
 if(SERIALIZER_INSTALL AND NOT CMAKE_CROSSCOMPILING)
+  find_package(Python3 3.10 COMPONENTS Interpreter QUIET)
+  set(serializer_installed_example_python "")
+  if(Python3_Interpreter_FOUND)
+    set(serializer_installed_example_python "${Python3_EXECUTABLE}")
+  endif()
   add_test(NAME serializer_package_version
     COMMAND "${CMAKE_COMMAND}"
       "-DVERSION_FILE=${PROJECT_BINARY_DIR}/SerializerConfigVersion.cmake"
@@ -817,6 +822,7 @@ if(SERIALIZER_INSTALL AND NOT CMAKE_CROSSCOMPILING)
       "-DWITH_zlib=${SERIALIZER_WITH_ZLIB}" "-DDEPENDENCY_PREFIXES=${CMAKE_PREFIX_PATH}"
       "-DGENERATOR=${CMAKE_GENERATOR}" "-DPLATFORM=${CMAKE_GENERATOR_PLATFORM}"
       "-DGENERATOR_INSTANCE=${CMAKE_GENERATOR_INSTANCE}" "-DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
+      "-DEXAMPLE_PYTHON=${serializer_installed_example_python}"
       -P "${CMAKE_CURRENT_SOURCE_DIR}/install_package.cmake")
 endif()
 

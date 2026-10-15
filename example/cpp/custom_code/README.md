@@ -48,7 +48,7 @@ On Linux use `make test`, then run
 `./out/build/make-Release/example/cpp/custom_code/serializer_custom_code_example`
 for a single-configuration build. An installed Serializer CMake package also
 allows this folder to be configured as a standalone project. It requires a
-C++20 compiler, CMake 3.28+, and clang-format 19+ for the default profile; generated
+C++20 compiler, CMake 4.0+, and clang-format 19+ for the default profile; generated
 headers remain in the chosen build directory.
 
 Rohit Serializer extension 1.1.38 highlights these native blocks in VS Code and

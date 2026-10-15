@@ -2,9 +2,10 @@
 
 [Documentation index](../README.md) · [Application and build guides](README.md)
 
-Compiler/runtime **2.0.2** supports language **1.17.0**. Regenerate affected Rust
-arithmetic output and rebuild consumers for strict Rust builds; only private
-collision helper names change. See [2.0.2 compatibility](../../migration.md#compilerruntime-202).
+Compiler/runtime **2.1.0** supports language **1.17.0** and requires CMake 4.0+.
+Every language's individual examples have standalone CMake entry points; see
+[example builds](../../example/README.md#build-an-individual-example-with-cmake)
+and [2.1.0 migration](../../migration.md#compilerruntime-210).
 Use [array and callable APIs](../schema/array_and_callable_api.md) to select
 ordinary array storage, exact const indexing policy and explicit axes.
 Preserve native borrow lifetimes, field defaults, direct copy-only binding
@@ -387,7 +388,7 @@ is outside the allocation budget; also set input, string/token, and work limits.
 
 Serializer compiles a schema into a C++ header, then reads or writes generated
 objects through JSON or binary protocols. Use a C++20-or-newer compiler and
-standard library; the CMake project requires CMake 3.28 or newer. Header generation
+standard library; the CMake project requires CMake 4.0 or newer. Header generation
 uses clang-format 19+ by default. Applications using existing headers do not need it.
 When building this repository's tests/examples with `make all` or `./make.ps1 all`,
 install that host tool first; see [formatter setup](cmake_integration.md#formatter-setup).
@@ -680,7 +681,7 @@ Assume a Serializer checkout is already available at `vendor/Serializer`. Add th
 following to your application's `CMakeLists.txt`, adapting the target and paths:
 
 ```cmake
-cmake_minimum_required(VERSION 3.28)
+cmake_minimum_required(VERSION 4.0)
 project(serializer_example LANGUAGES CXX)
 
 set(SERIALIZER_BUILD_TESTS OFF CACHE BOOL "Build Serializer's own tests")

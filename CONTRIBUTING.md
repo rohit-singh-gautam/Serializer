@@ -23,7 +23,7 @@ to using the project, see the [accessibility statement](ACCESSIBILITY.md).
 ## Set up a development checkout
 
 Fork the repository, clone your fork, and create a branch for your change.
-The default development build requires CMake 3.28+, a C++20 compiler and standard
+The default development build requires CMake 4.0+, a C++20 compiler and standard
 library, clang-format 19+, and GoogleTest. Follow the
 [build requirements](docs/guides/cmake_integration.md#build-this-repository) to install
 dependencies and select a toolchain.

@@ -46,7 +46,7 @@ foreach(header IN LISTS managed_headers)
   endif()
 endforeach()
 
-file(WRITE "${source}/CMakeLists.txt" "cmake_minimum_required(VERSION 3.28)\n"
+file(WRITE "${source}/CMakeLists.txt" "cmake_minimum_required(VERSION 4.0)\n"
   "project(installed_serializer_headers LANGUAGES CXX)\n"
   "set(CMAKE_PREFIX_PATH [=[${prefix};${DEPENDENCY_PREFIXES}]=])\n"
   "find_package(Serializer ${installed_release} EXACT CONFIG REQUIRED)\n")
@@ -75,6 +75,23 @@ if(runtime_dependencies MATCHES "serializer_lib")
   message(FATAL_ERROR "The permissive runtime links the GPL compiler library")
 endif()
 ]=])
+foreach(backend IN ITEMS zstd lz4 zlib)
+  string(TOUPPER "${backend}" backend_name)
+  if(WITH_${backend})
+    set(expected ON)
+  else()
+    set(expected OFF)
+  endif()
+  file(APPEND "${source}/CMakeLists.txt"
+    "get_property(runtime_capability_set TARGET Serializer::runtime PROPERTY SERIALIZER_WITH_${backend_name} SET)\n"
+    "if(NOT runtime_capability_set)\n"
+    "  message(FATAL_ERROR \"Missing exported ${backend} capability\")\n"
+    "endif()\n"
+    "get_target_property(runtime_capability Serializer::runtime SERIALIZER_WITH_${backend_name})\n"
+    "if(${expected} AND NOT runtime_capability OR NOT ${expected} AND runtime_capability)\n"
+    "  message(FATAL_ERROR \"Incorrect exported ${backend} capability\")\n"
+    "endif()\n")
+endforeach()
 if(BUILD_MANAGED)
   file(APPEND "${source}/CMakeLists.txt"
     "if(NOT TARGET Serializer::managed)\n  message(FATAL_ERROR \"Missing managed target\")\nendif()\n")
@@ -125,20 +142,52 @@ file(APPEND "${source}/CMakeLists.txt"
 endforeach()
 ]=])
 
-set(configure_arguments -S "${source}" -B "${build}" -G "${GENERATOR}"
-  "-DCMAKE_BUILD_TYPE=${CONFIGURATION}")
+set(generator_arguments -G "${GENERATOR}")
 if(PLATFORM)
-  list(APPEND configure_arguments -A "${PLATFORM}")
+  list(APPEND generator_arguments -A "${PLATFORM}")
 endif()
 if(GENERATOR_INSTANCE)
-  list(APPEND configure_arguments "-DCMAKE_GENERATOR_INSTANCE=${GENERATOR_INSTANCE}")
+  list(APPEND generator_arguments "-DCMAKE_GENERATOR_INSTANCE=${GENERATOR_INSTANCE}")
 endif()
 if(MAKE_PROGRAM)
-  list(APPEND configure_arguments "-DCMAKE_MAKE_PROGRAM=${MAKE_PROGRAM}")
+  list(APPEND generator_arguments "-DCMAKE_MAKE_PROGRAM=${MAKE_PROGRAM}")
 endif()
+set(configure_arguments -S "${source}" -B "${build}" ${generator_arguments}
+  "-DCMAKE_BUILD_TYPE=${CONFIGURATION}")
 run_checked("${CMAKE_COMMAND}" ${configure_arguments})
 run_checked("${CMAKE_COMMAND}" --build "${build}" --config "${CONFIGURATION}" --parallel 2)
 get_filename_component(cmake_directory "${CMAKE_COMMAND}" DIRECTORY)
 run_checked("${cmake_directory}/ctest" --test-dir "${build}" -C "${CONFIGURATION}"
   --output-on-failure)
 message(STATUS "Verified installed Serializer headers, targets, and compression capabilities")
+
+if(EXAMPLE_PYTHON)
+  get_filename_component(repository "${CMAKE_CURRENT_LIST_DIR}/.." ABSOLUTE)
+  set(example_cache "${DIRECTORY}/example_cache.cmake")
+  # Initial cache entries preserve semicolon-separated prefixes through command argument lists.
+  file(WRITE "${example_cache}"
+    "set(CMAKE_PREFIX_PATH [==[${prefix};${DEPENDENCY_PREFIXES}]==] CACHE STRING \"Installed example dependency prefixes\")\n"
+    "set(Python3_EXECUTABLE [==[${EXAMPLE_PYTHON}]==] CACHE FILEPATH \"Verified Python interpreter\")\n")
+  if(CMAKE_HOST_WIN32)
+    # Installed compiler generation also needs the selected compression runtime DLLs.
+    foreach(dependency_prefix IN ITEMS "${prefix}" ${DEPENDENCY_PREFIXES})
+      set(ENV{PATH} "${dependency_prefix}/bin;$ENV{PATH}")
+      if(CONFIGURATION STREQUAL "Debug")
+        set(ENV{PATH} "${dependency_prefix}/debug/bin;$ENV{PATH}")
+      endif()
+    endforeach()
+  endif()
+  foreach(example IN ITEMS cpp/basic c/interoperability python/basic)
+    set(example_build "${DIRECTORY}/examples/${example}")
+    run_checked("${CMAKE_COMMAND}" -S "${repository}/example/${example}" -B "${example_build}"
+      ${generator_arguments} -C "${example_cache}" "-DCMAKE_BUILD_TYPE=${CONFIGURATION}"
+      -DSERIALIZER_EXAMPLE_USE_INSTALLED=ON)
+    run_checked("${CMAKE_COMMAND}" --build "${example_build}"
+      --config "${CONFIGURATION}" --parallel 2)
+    run_checked("${cmake_directory}/ctest" --test-dir "${example_build}"
+      -C "${CONFIGURATION}" --output-on-failure --no-tests=error)
+  endforeach()
+  message(STATUS "Verified standalone C++, C, and Python examples against the installed package")
+else()
+  message(STATUS "Standalone installed examples require Python 3.10+; interpreter unavailable")
+endif()

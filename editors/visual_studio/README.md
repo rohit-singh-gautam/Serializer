@@ -1,5 +1,10 @@
 # Rohit Serializer for Visual Studio
 
+Version **2.0.1** updates the [Marketplace overview](marketplace_overview.md) for
+compiler/runtime **2.1.0**, which requires CMake **4.0+** and provides standalone
+CMake entry points for individual examples in every output language. Both editor
+packages remain synchronized; schema language **1.17.0** remains current.
+
 Version **2.0.0** refreshes the [Marketplace overview](marketplace_overview.md)
 for schema language **1.16.0/1.17.0** and the default separate C++ generated headers
 in compiler/runtime **2.0.0**. Editor, schema language, and compiler release numbers
@@ -203,7 +208,7 @@ installation. It uses full-framework MSBuild with locked dependencies, bundles
 the current shared resolver, rebuilds and validates:
 
 ```text
-out/extensions/serializer-visual-studio-2.0.0.vsix
+out/extensions/serializer-visual-studio-2.0.1.vsix
 ```
 
 Close Visual Studio, double-click the VSIX, select the installation and restart

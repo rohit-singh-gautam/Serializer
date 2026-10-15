@@ -1,3 +1,9 @@
+# 2.0.1
+
+- Require CMake 4.0+ in the editor's project fixtures and documented Serializer build prerequisites.
+- Document compiler/runtime 2.1.0 and standalone CMake projects for individual examples in every output language.
+- Keep both editor package versions synchronized; schema language and navigation behavior remain unchanged.
+
 # 2.0.0
 
 - Refresh Marketplace documentation for schema language 1.16.0/1.17.0 and the compiler's default separate C++ include headers.

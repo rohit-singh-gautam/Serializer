@@ -1,7 +1,8 @@
-cmake_minimum_required(VERSION 3.28)
+cmake_minimum_required(VERSION 4.0)
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/serializer_example_dependency.cmake")
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   project(serializer_construction_defaults_example LANGUAGES CXX)
-  find_package(Serializer 2.0 CONFIG REQUIRED)
+  serializer_example_dependency()
   enable_testing()
 endif()
 
@@ -17,3 +18,5 @@ endif()
 if(SERIALIZER_BUILD_TESTS OR CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   add_test(NAME serializer_construction_defaults_cpp COMMAND serializer_construction_defaults_cpp)
 endif()
+
+serializer_example_runtime_dlls(serializer_construction_defaults_cpp)

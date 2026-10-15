@@ -1,7 +1,8 @@
-cmake_minimum_required(VERSION 3.28)
+cmake_minimum_required(VERSION 4.0)
+include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/serializer_example_dependency.cmake")
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
   project(serializer_arithmetic_operators_example LANGUAGES CXX)
-  find_package(Serializer 2.0 CONFIG REQUIRED)
+  serializer_example_dependency()
   enable_testing()
 endif()
 
@@ -16,3 +17,5 @@ else()
   target_compile_options(serializer_arithmetic_operators PRIVATE -Wall -Wextra -Wpedantic -Werror)
 endif()
 add_test(NAME serializer_arithmetic_operators COMMAND serializer_arithmetic_operators)
+
+serializer_example_runtime_dlls(serializer_arithmetic_operators)

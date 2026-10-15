@@ -1,0 +1,71 @@
+include_guard(GLOBAL)
+
+# Stage shared runtime dependencies beside a Windows example without changing its global PATH.
+function(serializer_example_runtime_dlls target)
+  if(WIN32)
+    add_custom_command(TARGET "${target}" POST_BUILD
+      COMMAND "${CMAKE_COMMAND}" "-DDLL_FILES=$<TARGET_RUNTIME_DLLS:${target}>"
+        "-DOUTPUT_DIRECTORY=$<TARGET_FILE_DIR:${target}>"
+        -P "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../../cmake/copy_runtime_dlls.cmake"
+      VERBATIM)
+  endif()
+endfunction()
+
+# Reuse a parent dependency, an installed package, or this checkout for a standalone example.
+function(serializer_example_dependency)
+  if(TARGET Serializer::serializer)
+    return()
+  endif()
+  option(SERIALIZER_EXAMPLE_USE_INSTALLED "Use an installed Serializer package for this example" OFF)
+  if(SERIALIZER_EXAMPLE_USE_INSTALLED)
+    find_package(Serializer 2.0 CONFIG REQUIRED)
+    return()
+  endif()
+
+  get_filename_component(serializer_source "${CMAKE_CURRENT_FUNCTION_LIST_DIR}/../.." ABSOLUTE)
+  # Plain examples need only the compiler and runtime; explicit caller choices take precedence.
+  foreach(option_name IN ITEMS SERIALIZER_BUILD_TESTS SERIALIZER_BUILD_MANAGED SERIALIZER_INSTALL
+      SERIALIZER_WITH_ZSTD SERIALIZER_WITH_LZ4 SERIALIZER_WITH_ZLIB)
+    if(NOT DEFINED ${option_name})
+      set(${option_name} OFF)
+    endif()
+  endforeach()
+  add_subdirectory("${serializer_source}" "${CMAKE_BINARY_DIR}/serializer" EXCLUDE_FROM_ALL)
+endfunction()
+
+# Diagnose missing SDKs during configuration while honoring the existing runner's overrides.
+function(serializer_example_sdk language)
+  string(REPLACE "," ";" wsl_languages "${SERIALIZER_EXAMPLE_WSL_LANGUAGES}")
+  if(WIN32 AND language IN_LIST wsl_languages)
+    find_program(serializer_wsl NAMES wsl REQUIRED)
+    return()
+  endif()
+  set(programs)
+  if(language STREQUAL "java")
+    set(programs javac java)
+  elseif(language STREQUAL "javascript")
+    set(programs node)
+  elseif(language STREQUAL "typescript")
+    set(programs tsc node)
+  elseif(language STREQUAL "csharp")
+    set(programs dotnet)
+  elseif(language STREQUAL "kotlin")
+    set(programs kotlinc java)
+  elseif(language STREQUAL "swift")
+    set(programs swiftc)
+  elseif(language STREQUAL "rust")
+    set(programs rustc)
+  elseif(language STREQUAL "go")
+    set(programs go)
+  endif()
+  foreach(program IN LISTS programs)
+    string(TOUPPER "${program}" override)
+    set(override "$ENV{SERIALIZER_${override}}")
+    unset(serializer_sdk CACHE)
+    if(override)
+      find_program(serializer_sdk NAMES "${override}" REQUIRED)
+    else()
+      find_program(serializer_sdk NAMES "${program}" REQUIRED)
+    endif()
+  endforeach()
+endfunction()

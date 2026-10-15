@@ -1,5 +1,10 @@
 # Rohit Serializer for Visual Studio Code
 
+Version **2.0.1** updates CMake project fixtures and build prerequisites for
+compiler/runtime **2.1.0**, which requires CMake **4.0+** and provides standalone
+CMake entry points for individual examples in every output language. Both editor
+packages remain synchronized; schema language **1.17.0** remains current.
+
 Version **2.0.0** refreshes Marketplace documentation for schema language
 **1.16.0/1.17.0** and the default separate C++ generated headers in compiler/runtime
 **2.0.0**. Editor, schema language, and compiler release numbers are independent;
@@ -186,7 +191,7 @@ add_executable(my_app main.cpp)
 serializer_generate(TARGET my_app SCHEMAS schemas/account.serializer)
 ```
 
-The project still needs Serializer, a C++20 compiler, CMake 3.28+, and clang-format
+The project still needs Serializer, a C++20 compiler, CMake 4.0+, and clang-format
 19+ when output formatting is enabled. This extension does not bundle those tools.
 
 ## Declaration and definition navigation

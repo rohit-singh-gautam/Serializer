@@ -10,7 +10,7 @@ file(WRITE "${DIRECTORY}/source/output.ini" "[cpp]\nformat = false\n")
 file(WRITE "${DIRECTORY}/source/policy.serializer"
   "serializer version 1; class record { public version { 10 } releases { 8 { \"2024-10-01\" }; 9 { \"2025-04-01\" }; 10 { \"2026-10-01\" }; } policy { max_age { 2 years }; }; }\n")
 set(source [=[
-cmake_minimum_required(VERSION 3.28)
+cmake_minimum_required(VERSION 4.0)
 project(include_dependencies LANGUAGES NONE)
 add_library(Serializer::runtime INTERFACE IMPORTED)
 include("@REPOSITORY@/cmake/serializer_generate.cmake")

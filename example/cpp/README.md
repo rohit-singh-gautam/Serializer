@@ -1,5 +1,8 @@
 # C++ examples
 
+Each example can also be configured and built directly with CMake 4.0+; see
+[individual CMake builds](../README.md#build-an-individual-example-with-cmake).
+
 The following maintained examples live directly under `example/cpp`:
 
 | Folder | What it demonstrates |

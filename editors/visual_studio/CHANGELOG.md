@@ -1,3 +1,9 @@
+# 2.0.1
+
+- Update the Marketplace overview and README for compiler/runtime 2.1.0, CMake 4.0+, and individual example CMake projects.
+- Keep both editor package versions synchronized with the VS Code CMake fixture update.
+- Preserve schema language 1.17.0 and existing navigation behavior.
+
 # 2.0.0
 
 - Refresh the dedicated Marketplace overview for schema language 1.16.0/1.17.0 and the compiler's default separate C++ include headers.

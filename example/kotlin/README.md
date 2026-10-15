@@ -1,5 +1,8 @@
 # Kotlin examples
 
+Each example can also be configured and built directly with CMake 4.0+; see
+[individual CMake builds](../README.md#build-an-individual-example-with-cmake).
+
 Four standard examples and a generic example live directly under `example/kotlin`:
 
 | Folder | What it demonstrates |

@@ -61,7 +61,7 @@ The fixture produced 1,799,682 binary bytes and 2,470,757 JSON bytes on Windows.
 
 ## Build and run
 
-Run from the repository root with CMake 3.28+, a C++20 compiler, and
+Run from the repository root with CMake 4.0+, a C++20 compiler, and
 [clang-format 19+](../../docs/guides/cmake_integration.md#formatter-setup).
 On Windows, use an x64 Visual Studio developer shell.
 

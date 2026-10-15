@@ -1,5 +1,22 @@
 # Go examples
 
+Each example can also be configured and built directly with CMake 4.0+; see
+[individual CMake builds](../README.md#build-an-individual-example-with-cmake).
+
+Every Go example has its own checked-in `go.mod` targeting Go 1.22+. Go builds
+the module with `go build`; CMake generates the schema and prepares the module
+inside its build directory before invoking Go and checking the result:
+
+```sh
+cmake -S example/go/basic -B out/build/go-basic
+cmake --build out/build/go-basic --config Release
+```
+
+The prepared module contains the maintained `go.mod`, `main.go` and generated
+`schema.go` under `out/build/go-basic/verification/basic/go`. You can run
+`go build .` there directly after generation. The runner uses the same module
+manifest, without adding dependencies or changing source files.
+
 Four standard examples and a generic example live directly under `example/go`:
 
 | Folder | What it demonstrates |

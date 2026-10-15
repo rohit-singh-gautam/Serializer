@@ -132,6 +132,56 @@ arrays, maps, enums, and audit unions. The [shared fixtures](schemas/) are the
 same for every language; the C++ compiler produces all selected outputs from
 one entry schema. Generated artifacts stay in the build tree.
 
+## Build an individual example with CMake
+
+Each individual example has a short `CMakeLists.txt`. With CMake 4.0+, configure
+its directory directly from the repository root:
+
+```sh
+cmake -S example/cpp/basic -B out/build/cpp-basic
+cmake --build out/build/cpp-basic --config Release
+ctest --test-dir out/build/cpp-basic -C Release --output-on-failure
+```
+
+Replace `cpp/basic` with another language and example, such as `java/collections`,
+`python/complex`, `rust/conversions`, or `c/interoperability`. C and C++ consumers
+are native CMake executable targets. Other languages use their existing SDK
+commands through a CMake build target; the build also executes their fixture
+checks. CTest runs the selected example's checks. Generated code, SDK projects,
+executables and verification output stay in the chosen build directory.
+
+Go examples keep their own `go.mod`; CMake prepares the generated module and
+delegates compilation to `go build`. See [native Go builds](go/README.md).
+
+By default, these projects build the schema compiler from this checkout and
+disable unrelated tests, managed runtime and compression dependencies unless
+explicitly enabled. Source bootstrap requires a C++20 compiler; the shared
+language checks and SDK runners also require Python 3.10+ and the selected SDK
+listed below. C++ generation for the shared language examples uses
+an explicit configuration with formatting disabled; specialized style and API
+examples retain their documented formatter requirements. On Windows, use Visual
+Studio Developer PowerShell for SDK runners that invoke MSVC directly.
+
+To reuse an installed Serializer compiler and runtime:
+
+```sh
+cmake -S example/cpp/basic -B out/build/cpp-basic-installed \
+  -DSERIALIZER_EXAMPLE_USE_INSTALLED=ON -DCMAKE_PREFIX_PATH=/path/to/serializer
+cmake --build out/build/cpp-basic-installed --config Release
+ctest --test-dir out/build/cpp-basic-installed -C Release --output-on-failure
+```
+
+On PowerShell, put the configure arguments on one line or use its backtick line
+continuation. Managed examples require a package with `SERIALIZER_BUILD_MANAGED=ON`;
+compression examples require their selected backend. Pass
+`-DSERIALIZER_EXAMPLE_WSL_LANGUAGES=rust,swift` for explicitly selected WSL SDK
+runners on Windows. Missing SDKs are errors; they are never silently skipped.
+
+Schema-only folders such as `config`, `managed/design`, and `managed/wordpad`
+generate C++ headers without an executable. Managed wire feature folders accept
+`SERIALIZER_EXAMPLE_LANGUAGES` as a CMake list; their `clients/<language>` folders
+select that language across all four managed wire fixtures.
+
 ## Run
 
 Build `serializer` in Release first, then select any installed target SDKs:

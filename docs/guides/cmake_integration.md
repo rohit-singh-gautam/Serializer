@@ -37,10 +37,10 @@ with `[output] language = cpp,java`. Schema paths use `.serializer`, and every
 schema starts with a supported language header; use `serializer version 1.3.0;`
 for inferred arrays and typed magic. The original `1` header remains an exact
 alias for `1.0.0`. The installed package supports
-`find_package(Serializer 2.0.2 EXACT CONFIG REQUIRED)`; omit `EXACT` to accept a
+`find_package(Serializer 2.1.0 EXACT CONFIG REQUIRED)`; omit `EXACT` to accept a
 newer compatible release within the same major version. See
 [compiler and schema versioning](command_line.md).
-The 2.0.2 package uses `SameMajorVersion` discovery and rejects 1.x requests.
+The 2.1.0 package uses `SameMajorVersion` discovery and rejects 1.x requests.
 Update a versioned consumer to `find_package(Serializer 2.0 CONFIG REQUIRED)`;
 existing unversioned discovery remains valid. Regenerate through the consumer's
 build rules, and distribute the default separate-header bundle or select
@@ -48,9 +48,20 @@ build rules, and distribute the default separate-header bundle or select
 [2.0 migration](../../migration.md#compilerruntime-200).
 
 Serializer ships a `serializer_generate` function with both its source tree and
-its installable CMake package. Use CMake 3.28+, a C++20 compiler and standard
+its installable CMake package. Use CMake 4.0+, a C++20 compiler and standard
 library, and clang-format 19+ for the default output formatting. The integration
 has no editor dependency and requires no `.vscode` files.
+
+## Build individual examples
+
+Each maintained example can be configured directly, for example
+`cmake -S example/cpp/basic -B out/build/cpp-basic`, followed by
+`cmake --build out/build/cpp-basic --config Release` and
+`ctest --test-dir out/build/cpp-basic -C Release --output-on-failure`.
+The default builds the compiler from this checkout. Set
+`SERIALIZER_EXAMPLE_USE_INSTALLED=ON` and `CMAKE_PREFIX_PATH` to reuse a package.
+See [all-language example builds](../../example/README.md#build-an-individual-example-with-cmake)
+for SDK requirements and selected-language options.
 
 ## Build this repository
 
@@ -78,7 +89,7 @@ configuration, then uses CMake's `--clean-first` before building.
 | Requirement | When it is needed |
 | --- | --- |
 | Git | `clean` and `rebuild`, which remove untracked and ignored files repository-wide; no CMake installation is needed for `clean`. |
-| CMake 3.28+ | Every source build; CTest is included with CMake. |
+| CMake 4.0+ | Every source build; CTest is included with CMake. |
 | Zstandard, LZ4, and zlib CMake packages | Default runtime build; the repository vcpkg manifest acquires them automatically. Disable individual backends with `SERIALIZER_WITH_*=OFF`. |
 | C++20 compiler and standard library | Library, schema compiler, and C++ consumers; the selected compiler must support the target architecture. |
 | Native build tool | GNU Make for `make all`; Ninja for the Linux and Windows presets; MSBuild/Visual Studio C++ tools or another configured generator for the Windows wrapper. |
@@ -284,7 +295,7 @@ fails, check that the required Visual Studio C++ build tools are installed.
 
 Install Visual Studio's **Desktop development with C++** workload, including the
 MSVC compiler, Windows SDK, and C++ CMake tools for Windows. The repository needs
-CMake 3.28+ and clang-format 19+ for its default tests/examples; see
+CMake 4.0+ and clang-format 19+ for its default tests/examples; see
 [formatter setup](#formatter-setup). Set `VCPKG_ROOT` to a vcpkg installation
 before launching Visual Studio so the presets can load its toolchain and obtain
 GoogleTest from the repository manifest.
@@ -399,7 +410,7 @@ Linux package checks do not establish macOS, Android, or ARM compatibility.
 With a Serializer checkout at `vendor/Serializer`, a complete consumer build is:
 
 ```cmake
-cmake_minimum_required(VERSION 3.28)
+cmake_minimum_required(VERSION 4.0)
 project(my_app LANGUAGES CXX)
 
 set(SERIALIZER_BUILD_TESTS OFF CACHE BOOL "Build Serializer's own tests")
@@ -464,7 +475,7 @@ It does not install a compiler, editor extension, or clang-format.
 The consumer then uses:
 
 ```cmake
-cmake_minimum_required(VERSION 3.28)
+cmake_minimum_required(VERSION 4.0)
 project(my_app LANGUAGES CXX)
 
 find_package(Serializer CONFIG REQUIRED)

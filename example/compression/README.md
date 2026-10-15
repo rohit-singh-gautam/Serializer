@@ -18,11 +18,18 @@ uncompressed output, and the custom-backend interface. Each folder has a
 
 ## Build and run
 
-Run from the repository root with CMake 3.28+, a C++20 compiler/standard library,
+Run from the repository root with CMake 4.0+, a C++20 compiler/standard library,
 and clang-format 19+. Make the selected dependencies available through
 `CMAKE_PREFIX_PATH` or the matching vcpkg features described in the
 [compression dependency guide](../../docs/serialization/compression.md#build-and-dependency-options).
 For Ninja on Windows, use an initialized MSVC developer shell.
+
+To configure one example directly, use
+`cmake -S example/compression/zlib -B out/build/compression-zlib`, then build and
+run CTest in that directory. See [standalone build options](../README.md#build-an-individual-example-with-cmake)
+to select an installed package. Installed shared-runtime packages require
+Serializer 2.1.0+ for backend capability metadata; older 2.x static packages remain
+supported through their dependency metadata.
 
 All three backend dependencies are enabled by default. Build all seven examples:
 

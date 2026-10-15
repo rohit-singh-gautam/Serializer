@@ -131,7 +131,7 @@ targets to keep the separate observation function opaque to the optimizer.
 ## Fuzzing
 
 Use Clang's GNU-style driver with libFuzzer, AddressSanitizer, and
-UndefinedBehaviorSanitizer runtimes, CMake 3.28+, and clang-format 19+. Configuration
+UndefinedBehaviorSanitizer runtimes, CMake 4.0+, and clang-format 19+. Configuration
 checks that all three runtimes link. Clang-cl/MSVC are not supported by these targets.
 GoogleTest, Java, and the external Protobuf runtime are not required.
 

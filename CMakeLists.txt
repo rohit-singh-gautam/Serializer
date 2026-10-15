@@ -1,6 +1,6 @@
-cmake_minimum_required(VERSION 3.28)
+cmake_minimum_required(VERSION 4.0)
 
-project(serializer VERSION 2.0.2 LANGUAGES CXX)
+project(serializer VERSION 2.1.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
 set(serializer_schema_language_version 1.17.0)
@@ -145,6 +145,13 @@ target_compile_definitions(serializer_runtime PRIVATE
   SERIALIZER_WITH_ZSTD=$<BOOL:${SERIALIZER_WITH_ZSTD}>
   SERIALIZER_WITH_LZ4=$<BOOL:${SERIALIZER_WITH_LZ4}>
   SERIALIZER_WITH_ZLIB=$<BOOL:${SERIALIZER_WITH_ZLIB}>)
+# Installed shared runtimes must expose capabilities without their private dependency links.
+foreach(backend IN ITEMS ZSTD LZ4 ZLIB)
+  set_property(TARGET serializer_runtime PROPERTY "SERIALIZER_WITH_${backend}"
+    "${SERIALIZER_WITH_${backend}}")
+  set_property(TARGET serializer_runtime APPEND PROPERTY EXPORT_PROPERTIES
+    "SERIALIZER_WITH_${backend}")
+endforeach()
 target_compile_definitions(serializer_lib PRIVATE
   SERIALIZER_ENABLE_SIMD=$<BOOL:${SERIALIZER_ENABLE_SIMD}>)
 target_link_libraries(serializer_runtime PRIVATE ${serializer_compression_libraries})
@@ -185,6 +192,14 @@ set_target_properties(serializer_lib PROPERTIES EXPORT_NO_SYSTEM TRUE)
 add_library(Serializer::serializer_lib ALIAS serializer_lib)
 
 add_executable(serializer src/serializer.cpp src/command_line.hpp)
+if(WIN32)
+  # Source-based example generation must find enabled shared compression runtimes.
+  add_custom_command(TARGET serializer POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" "-DDLL_FILES=$<TARGET_RUNTIME_DLLS:serializer>"
+      "-DOUTPUT_DIRECTORY=$<TARGET_FILE_DIR:serializer>"
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/copy_runtime_dlls.cmake"
+    VERBATIM)
+endif()
 target_link_libraries(serializer PRIVATE serializer_lib)
 add_executable(Serializer::serializer ALIAS serializer)
 

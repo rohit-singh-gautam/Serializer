@@ -15,6 +15,26 @@ OUTPUTS = {'cpp': 'message.hpp', 'java': 'Schema.java', 'javascript': 'schema.mj
            'rust': 'schema.rs', 'python': 'schema.py', 'swift': 'Schema.swift',
            'kotlin': 'Schema.kt', 'c': 'schema.h'}
 PROCESS_CREATION_FLAGS = subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0
+SEM_FAILCRITICALERRORS = 0x0001
+SEM_NOGPFAULTERRORBOX = 0x0002
+SEM_NOOPENFILEERRORBOX = 0x8000
+
+
+def suppress_windows_error_dialogs():
+    """Let failing child consumers exit without interactive Windows error-reporting dialogs."""
+    if os.name != 'nt':
+        return
+    import ctypes
+    kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
+    kernel32.GetErrorMode.argtypes = ()
+    kernel32.GetErrorMode.restype = ctypes.c_uint
+    kernel32.SetErrorMode.argtypes = (ctypes.c_uint,)
+    kernel32.SetErrorMode.restype = ctypes.c_uint
+    kernel32.SetErrorMode(kernel32.GetErrorMode() | SEM_FAILCRITICALERRORS |
+                          SEM_NOGPFAULTERRORBOX | SEM_NOOPENFILEERRORBOX)
+
+
+suppress_windows_error_dialogs()
 
 
 def run(command, *, cwd=None, capture=False):
@@ -74,6 +94,8 @@ class Runner:
 
     def build(self, language, example, directory, source=None):
         """Compile handwritten consumers against freshly generated sources using the real SDK."""
+        if getattr(self.args, 'executable', None):
+            return self.launch(language, str(self.args.executable))
         source = source or ROOT / 'example' / language / example
         for file in source.iterdir():
             if file.suffix in ('.cpp', '.c', '.java', '.mjs', '.mts', '.go', '.cs', '.rs', '.py', '.swift', '.kt', '.mod', '.csproj'):
@@ -95,8 +117,11 @@ class Runner:
                              '-d', path('classes'), path('Schema.java'), path('Main.java')))
             return self.command(language, 'java', '-cp', path('classes'), 'Main')
         if language == 'go':
-            (directory / 'go.mod').write_text('module serializer.example\n\ngo 1.22\n')
-            run(self.command(language, 'go', 'build', '-trimpath', '-o', executable, path('schema.go'), path('main.go')))
+            if not (source / 'go.mod').is_file():
+                (directory / 'go.mod').write_text('module serializer.example\n\ngo 1.22\n')
+            # Compile the prepared module so its maintained manifest also works with direct go build.
+            run(self.command(language, 'go', '-C', path('.'), 'build', '-trimpath', '-o', executable, '.'))
+            print(f'Prepared Go module: {directory} (go build .)', flush=True)
             return self.launch(language, executable)
         if language == 'csharp':
             (directory / 'Example.csproj').write_text('<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType><TargetFramework>net8.0</TargetFramework><Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors></PropertyGroup></Project>')
@@ -258,6 +283,7 @@ def main():
     parser.add_argument('--example', choices=(*EXAMPLES, 'all'), default='all')
     parser.add_argument('--version-policy-as-of', help='Pin compiler-only release-policy evaluation to YYYY-MM-DD')
     parser.add_argument('--cpp-library', type=Path)
+    parser.add_argument('--executable', type=Path, help='Use an already-built C or C++ consumer')
     parser.add_argument('--wsl-languages', default='', help='Explicit Windows-to-WSL SDK selection, e.g. c,rust,swift')
     parser.add_argument('--sanitize', action='store_true', help='Enable address/undefined sanitizers for C')
     parser.add_argument('--big-endian', action='store_true',
@@ -269,6 +295,10 @@ def main():
     languages = LANGUAGES if args.language == 'all' else tuple(args.language.split(','))
     if not languages or len(set(languages)) != len(languages) or any(x not in LANGUAGES for x in languages):
         parser.error('Choose distinct supported language folder names')
+    if args.executable:
+        if len(languages) != 1 or languages[0] not in ('cpp', 'c') or args.example == 'all':
+            parser.error('--executable requires one C or C++ language and one example')
+        args.executable = args.executable.resolve()
     if args.big_endian and (not {'cpp', 'c'}.issubset(languages) or args.example not in ('all', 'interoperability')):
         parser.error('--big-endian requires cpp and c and the interoperability example')
     runner = Runner(args)

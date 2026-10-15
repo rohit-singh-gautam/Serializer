@@ -18,15 +18,20 @@ def main():
     parser.add_argument('--language', default='python')
     parser.add_argument('--wsl-languages', default='')
     parser.add_argument('--cpp-library', type=Path)
+    parser.add_argument('--executable', type=Path, help='Use an already-built native consumer')
     args = parser.parse_args()
     args.compiler = args.compiler.resolve()
     args.build = args.build.resolve()
+    if args.executable:
+        args.executable = args.executable.resolve()
     if args.cpp_library:
         args.cpp_library = args.cpp_library.resolve()
     args.sanitize = False
     languages = examples.LANGUAGES if args.language == 'all' else args.language.split(',')
     if any(language not in examples.LANGUAGES for language in languages):
         parser.error('Choose supported language names')
+    if args.executable and (len(languages) != 1 or languages[0] not in ('cpp', 'c')):
+        parser.error('--executable requires exactly one cpp or c language')
     runner = examples.Runner(args)
     pair = {'key': 4294967295, 'value': 'generic \u00e9\u0000'}
     box = {'value': pair, 'items': [pair, {'key': 0, 'value': ''}]}

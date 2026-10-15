@@ -1,5 +1,23 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.1.0
+
+Compiler/runtime **2.1.0** requires **CMake 4.0 or newer** for source and example
+builds. Upgrade CMake before reconfiguring an existing build; the presets advertise
+the same minimum. Individual examples now have their own `CMakeLists.txt`, including
+every supported language's `basic`, `collections`, and other maintained consumers.
+See [individual example builds](example/README.md#build-an-individual-example-with-cmake)
+for source-checkout and installed-package commands and SDK prerequisites.
+
+Every Go consumer directory retains its own `go.mod`. The runner copies that
+manifest into the generated build module and invokes `go build` there. Existing
+module identities remain unchanged; no external Go dependencies are added.
+
+Versioned package discovery continues to accept older 2.x requests, including
+`find_package(Serializer 2.0 CONFIG REQUIRED)`. Use `2.1.0 EXACT` to pin this release.
+The schema language remains **1.17.0**; schemas, generated APIs and wire formats
+retain their existing contracts. Both editor packages are **2.0.1**.
+
 ## Compiler/runtime 2.0.2
 
 Compiler/runtime **2.0.2** fixes private arithmetic helper collisions in generated

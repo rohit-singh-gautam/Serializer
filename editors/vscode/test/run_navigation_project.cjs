@@ -24,7 +24,7 @@ async function main() {
     'ledger_example::ledger direct_value;\nstruct local_type {};\nlocal_type local_value;\n}\n';
   for (const file of ['direct.cpp', 'journal.cpp', 'other.cpp']) { fs.writeFileSync(path.join(workspace, file), source); }
   fs.writeFileSync(path.join(workspace, 'output.ini'), '[cpp]\nformat = false\n');
-  fs.writeFileSync(path.join(workspace, 'CMakeLists.txt'), `cmake_minimum_required(VERSION 3.28)
+  fs.writeFileSync(path.join(workspace, 'CMakeLists.txt'), `cmake_minimum_required(VERSION 4.0)
 project(serializer_navigation LANGUAGES CXX)
 include("\${SERIALIZER_SOURCE_DIR}/cmake/serializer_generate.cmake")
 add_library(serializer_runtime INTERFACE)
