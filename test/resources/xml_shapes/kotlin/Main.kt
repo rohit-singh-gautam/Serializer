@@ -4,6 +4,12 @@ import java.util.Optional
 
 // Qualify typed XML values and both prepared runtime-XSD directions.
 fun main() {
+    val catalogXml = "<catalog xmlns='urn:serializer:vocabulary'><prices><price currency='USD'>12.5</price></prices><labels><label>A&amp;B</label><label/></labels></catalog>"
+    val catalog = ShapesCatalog.decodeXml(catalogXml.toByteArray(Charsets.UTF_8))
+    check(catalog.prices.size == 1 && catalog.prices[0].value == 12.5 && catalog.prices[0].currency == "USD" && catalog.labels == mutableListOf("A&B", ""))
+    check(catalog.encode(Protocol.BINARY_NONE).contentEquals(ShapesCatalog.decodeXml(catalog.encodeXml()).encode(Protocol.BINARY_NONE)))
+    check(ShapesCatalog.decodeXml(ShapesCatalog().encodeXml()).prices.isEmpty())
+    check(runCatching { ShapesCatalog.decodeXml(catalogXml.replace("<prices>", "<prices extra='1'>").toByteArray(Charsets.UTF_8)) }.isFailure)
     val value = ShapesRecord()
     value.big = ULong.MAX_VALUE
     value.label = "\tX\r\n\ud83d\ude00"

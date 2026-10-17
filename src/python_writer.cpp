@@ -106,6 +106,12 @@ class python_emitter {
       const auto access = "self." + field(source_field.name, source_field.access);
       const bool optional = source_field.type_name_list.front().is_optional();
       std::string selected = access;
+      if (item.wrapper) {
+        line("wrapper = budget.node(" + expanded(*item.wrapper) + ", depth + 1)");
+        line("node[2].append(wrapper)");
+      }
+      const auto parent = item.wrapper ? std::string{"wrapper"} : std::string{"node"};
+      const auto child_depth = item.wrapper ? "depth + 2" : "depth + 1";
       if (optional) { line("if not isinstance(" + access + ", tuple) or len(" + access + ") > 1: raise ValueError('Invalid XML optional')"); open("if " + access); selected += "[0]"; }
       if (item.repeated) {
         line("if len(" + access + ") < " + std::to_string(item.min_occurs) +
@@ -113,14 +119,16 @@ class python_emitter {
         if (source_field.fixed_extent) { line("if len(" + access + ") != " + std::to_string(source_field.fixed_extent) + ": raise ValueError('XML fixed extent mismatch')"); }
         open("for item in " + access); selected = "item";
       }
-      if (item.attribute) {
+      if (item.text) {
+        line("node[3] = budget.text(" + xml_scalar(leaf, selected, true) + ")");
+      } else if (item.attribute) {
         line("_xml_attribute(node, " + expanded(item.qualified_name) + ", " + xml_scalar(leaf, selected, true) + ", budget)");
       } else if (leaf.type == object_type::class_type) {
-        line("node[2].append(" + selected + "._xml_node(" + expanded(item.qualified_name) + ", budget, depth + 1))");
+        line(parent + "[2].append(" + selected + "._xml_node(" + expanded(item.qualified_name) + ", budget, " + child_depth + "))");
       } else {
-        line("child = budget.node(" + expanded(item.qualified_name) + ", depth + 1)");
+        line("child = budget.node(" + expanded(item.qualified_name) + ", " + child_depth + ")");
         line("child[3] = budget.text(" + xml_scalar(leaf, selected, true) + ")");
-        line("node[2].append(child)");
+        line(parent + "[2].append(child)");
       }
       if (item.repeated) { --indent; }
       if (optional) { --indent; }
@@ -128,7 +136,7 @@ class python_emitter {
     line("return node"); --indent;
     line("@classmethod"); open("def _xml_from_node(cls, node)");
     line("\"\"\"Read exact generated members into an unpublished owning candidate.\"\"\"");
-    line("fields, result = _XmlFields(node), cls()");
+    line("fields, result = _XmlFields(node, " + std::string{std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& item) { return item.text; }) ? "True" : "False"} + "), cls()");
     for (const auto& item : contract.fields) {
       const auto& source_field = *item.source;
       const auto& leaf = xml_leaf(source_field);
@@ -136,13 +144,15 @@ class python_emitter {
       const auto access = "result." + field(source_field.name, source_field.access);
       const auto read_value = [&](const std::string& expression) {
         return leaf.type == object_type::class_type ? model.names.at(leaf.resolved_node) + "._xml_from_node(" + expression + ")" :
-            xml_scalar(leaf, item.attribute ? expression : "_xml_read_scalar(" + expression + ")", false);
+            xml_scalar(leaf, item.attribute || item.text ? expression : "_xml_read_scalar(" + expression + ")", false);
       };
-      if (item.attribute) {
+      if (item.text) {
+        line(access + " = " + read_value("fields.text()"));
+      } else if (item.attribute) {
         line("text = fields.attribute(" + expanded(item.qualified_name) + ", " + (optional ? "True" : "False") + ")");
         line(access + " = " + (optional ? "() if text is None else (" + read_value("text") + ",)" : read_value("text")));
       } else {
-        line("children = fields.children(" + expanded(item.qualified_name) + ", " + std::to_string(item.min_occurs) + ", " +
+        line("children = fields." + std::string{item.wrapper ? "wrapped(" + expanded(*item.wrapper) + ", " : "children("} + expanded(item.qualified_name) + ", " + std::to_string(item.min_occurs) + ", " +
             (item.max_occurs ? std::to_string(*item.max_occurs) : "None") + ")");
         if (item.repeated) {
           if (source_field.fixed_extent) { line("if len(children) != " + std::to_string(source_field.fixed_extent) + ": raise ValueError('XML fixed extent mismatch')"); }
@@ -878,6 +888,9 @@ class python_emitter {
         [&](auto item, auto access) { return field(item, access); }), indent * 4);
     open("def encode(self, protocol: Protocol) -> bytes");
     line("\"\"\"Encode one complete message into independent bytes.\"\"\"");
+    if (model.protocols == output_protocols::binary_none) {
+      line("if _protocol(protocol) != Protocol.BINARY_NONE: raise ValueError('Protocol disabled during generation')");
+    }
     line("out = _Writer(protocol)");
     line("self._write(out)");
     line("return bytes(out.data)");
@@ -885,6 +898,9 @@ class python_emitter {
     line("@classmethod");
     open("def decode(cls, data, protocol: Protocol, limits: Limits | None = None) -> " + name);
     line("\"\"\"Return a fresh value after exact-message validation.\"\"\"");
+    if (model.protocols == output_protocols::binary_none) {
+      line("if _protocol(protocol) != Protocol.BINARY_NONE: raise ValueError('Protocol disabled during generation')");
+    }
     line("input = _Reader(data, protocol, limits)");
     line("result = cls._read(input)");
     line("input.finish()");
@@ -1049,7 +1065,7 @@ class python_emitter {
     }
     for (const auto& item : wire_members(value)) {
       open("case " + std::to_string(item.id) +
-           (item.modifier == member::modifier_type::variant ? ""
+           (item.modifier == member::modifier_type::variant || model.protocols == output_protocols::binary_none ? ""
                                                             : " | " + quote(item.display_name)));
       if (!item.auto_size_formats.empty()) {
         open("if " + omitted_condition(item.auto_size_formats, "input"));
@@ -1067,7 +1083,7 @@ class python_emitter {
         line("_srl_size_field_bytes_" + std::to_string(item.id) + " = input.offset - _srl_size_field_start");
       }
       --indent;
-      if (item.modifier == member::modifier_type::variant) {
+      if (item.modifier == member::modifier_type::variant && model.protocols == output_protocols::all) {
         for (std::size_t i = 0; i < item.type_name_list.size(); ++i) {
           open("case " + quote(item.display_name + ":" + item.type_name_list[i].enum_name));
           read_versioned_member(value, item, static_cast<int>(i));

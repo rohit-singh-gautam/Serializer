@@ -11,8 +11,10 @@ namespace rohit::serializer::writer {
 // Presentation profiles select layout and naming, not whole-standard compliance.
 enum class coding_standard { serializer, core, google, llvm, gnu, cert, misra, autosar, qt };
 
-// Select generated C++ protocol entry points independently of constant evaluation.
+// Preserve the established C++ protocol-selection type and binary API.
 enum class cpp_protocols { all, binary_none };
+// Select native codec entry points independently of XML and constant evaluation.
+using output_protocols = cpp_protocols;
 
 // Select whether filesystem generation emits one C++ header per source schema.
 enum class include_mode { separate, inline_output };
@@ -39,6 +41,8 @@ struct xml_class_options {
   std::string namespace_uri{};
   std::vector<std::string> attributes{};
   std::map<std::string, std::string> names{};
+  std::string text{};
+  std::map<std::string, std::string> wrappers{};
 };
 
 // XML generation is opt-in and does not alter other codec layouts or wire identities.
@@ -48,6 +52,7 @@ struct xml_options {
   std::string validation_scope{"input"};
   std::filesystem::path xsd{};
   std::map<std::string, xml_class_options> classes{};
+  std::string bundle_sha256{};
 };
 
 struct cpp_options {
@@ -76,6 +81,7 @@ struct java_options {
   std::map<std::string, class_comparison_options> class_comparisons{};
   std::map<std::string, class_auto_size_options> class_auto_sizes{};
   xml_options xml{};
+  output_protocols protocols{output_protocols::all};
 };
 
 // Native naming and module configuration for portable owning backends.
@@ -86,6 +92,7 @@ struct portable_options {
   std::map<std::string, class_comparison_options> class_comparisons{};
   std::map<std::string, class_auto_size_options> class_auto_sizes{};
   xml_options xml{};
+  output_protocols protocols{output_protocols::all};
 };
 
 struct output_options {
@@ -101,7 +108,14 @@ struct output_options {
   std::map<std::string, std::map<std::string, class_comparison_options>> class_comparisons{};
   std::map<std::string, std::map<std::string, class_auto_size_options>> class_auto_sizes{};
   include_mode includes{include_mode::separate};
+  output_protocols protocols{output_protocols::all};
 };
+
+// Apply a common native codec selection to all output backends; XML remains independent.
+void select_output_protocols(output_options& options, output_protocols protocols);
+
+// Parse an exact native protocol profile, rejecting unsupported selections.
+output_protocols parse_output_protocols(std::string_view name);
 
 // Parse a nonempty comma-separated language list; reject unknown, empty, or repeated names.
 std::vector<std::string> parse_output_languages(std::string_view names);

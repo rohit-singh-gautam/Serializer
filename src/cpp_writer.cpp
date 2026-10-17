@@ -2485,16 +2485,30 @@ public:
           output.write(") { throw ::std::invalid_argument{\"XML collection violates XSD occurrence bounds\"}; }\n");
         }
       }
-      output.write("    ::rohit::serializer::xml::", std::string_view{field.attribute ? "add_attribute" : "add_child"},
-                   "(", node, ", ", qualified(field.qualified_name), ", this->", member_name(*field.source), ", ", budget, ");\n");
+      if (field.text) {
+        output.write("    ::rohit::serializer::xml::set_text(", node, ", this->", member_name(*field.source), ", ", budget, ");\n");
+      } else if (field.wrapper) {
+        output.write("    ::rohit::serializer::xml::add_wrapped_children(", node, ", ", qualified(*field.wrapper), ", ",
+                     qualified(field.qualified_name), ", this->", member_name(*field.source), ", ", budget, ");\n");
+      } else {
+        output.write("    ::rohit::serializer::xml::", std::string_view{field.attribute ? "add_attribute" : "add_child"},
+                     "(", node, ", ", qualified(field.qualified_name), ", this->", member_name(*field.source), ", ", budget, ");\n");
+      }
     }
     output.write("  }\n"
                  "  // Decode into a candidate; use xml::deserialize for transactional public loading.\n"
                  "  void serialize_xml_in(const ::rohit::serializer::xml::element& ", node, ") {\n"
-                 "    ::rohit::serializer::xml::field_reader ", reader, "{", node, "};\n");
+                 "    ::rohit::serializer::xml::field_reader ", reader, "{", node, ", ",
+                 std::string_view{std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) { return field.text; }) ? "true" : "false"}, "};\n");
     for (const auto& field : contract.fields) {
-      output.write("    ", reader, std::string_view{field.attribute ? ".attribute_value(" : ".child_value("},
-                   qualified(field.qualified_name), ", this->", member_name(*field.source), ");\n");
+      if (field.text) {
+        output.write("    ", reader, ".text_value(this->", member_name(*field.source), ");\n");
+      } else if (field.wrapper) {
+        output.write("    ", reader, ".wrapped_child_value(", qualified(*field.wrapper), ", ", qualified(field.qualified_name), ", this->", member_name(*field.source), ");\n");
+      } else {
+        output.write("    ", reader, std::string_view{field.attribute ? ".attribute_value(" : ".child_value("},
+                     qualified(field.qualified_name), ", this->", member_name(*field.source), ");\n");
+      }
       if (field.repeated && (field.min_occurs > 0U || field.max_occurs)) {
         const auto size = "this->" + member_name(*field.source) + ".size()";
         output.write("    if (");

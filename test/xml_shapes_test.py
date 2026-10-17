@@ -73,6 +73,7 @@ def main():
     parser.add_argument('--compiler', type=Path, required=True)
     parser.add_argument('--build', type=Path, required=True)
     parser.add_argument('--language', default=','.join(sdk.LANGUAGES))
+    parser.add_argument('--protocols', choices=('all', 'binary_none'), default='all')
     parser.add_argument('--wsl-languages', default='')
     parser.add_argument('--python-dependencies', type=Path)
     parser.add_argument('--cpp-executable', type=Path)
@@ -110,7 +111,8 @@ def main():
     if 'typescript' in languages and 'javascript' not in languages:
         targets['js'] = args.build / 'typescript/schema.mjs'
     command = [args.compiler, '--input', SOURCE / 'model.serializer', '--config', SOURCE / 'options.ini',
-               '--language', ','.join(targets), '--cpp.format', 'false', '--go.package', 'main', '--kotlin.package=']
+               '--language', ','.join(targets), '--protocols', args.protocols,
+               '--cpp.format', 'false', '--go.package', 'main', '--kotlin.package=']
     for language, output in targets.items():
         command += [f'--{language}.output', output]
     sdk.run(command)

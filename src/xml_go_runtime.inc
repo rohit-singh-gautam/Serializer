@@ -97,19 +97,24 @@ func (w *srlXmlSink) Write(data []byte)(int,error) { if len(data)>w.maximum-w.te
 // Emit deterministic data XML without a private envelope or external resources.
 func srlXmlWrite(node *srlXmlNode, limits XmlLimits)([]byte,error) {
   sink:=srlXmlSink{maximum:limits.MaxBytes}; output:=srlxml.NewEncoder(&sink)
-  var visit func(*srlXmlNode,int)error
-  visit=func(n *srlXmlNode,depth int)error {
+  var visit func(*srlXmlNode,int,string)error
+  visit=func(n *srlXmlNode,depth int,inheritedNamespace string)error {
     if depth>limits.MaxDepth { return fmt.Errorf("XML depth limit exceeded") }
-    start:=srlxml.StartElement{Name:n.name,Attr:n.attrs}; if err:=output.EncodeToken(start); err!=nil { return err }
+    start:=srlxml.StartElement{Name:n.name,Attr:n.attrs}
+    // encoding/xml does not reset an inherited default namespace for empty Name.Space.
+    if n.name.Space==""&&inheritedNamespace!="" { start.Attr=append(start.Attr,srlxml.Attr{Name:srlxml.Name{Local:"xmlns"},Value:""}) }
+    if err:=output.EncodeToken(start); err!=nil { return err }
     if err:=output.EncodeToken(srlxml.CharData(n.text)); err!=nil { return err }
-    for _,child:=range n.children { if err:=visit(child,depth+1); err!=nil { return err } }
+    for _,child:=range n.children { if err:=visit(child,depth+1,n.name.Space); err!=nil { return err } }
     return output.EncodeToken(start.End())
   }
-  if err:=visit(node,1); err!=nil { return nil,err }; if err:=output.Flush(); err!=nil { return nil,err }; return []byte(sink.text.String()),nil
+  if err:=visit(node,1,""); err!=nil { return nil,err }; if err:=output.Flush(); err!=nil { return nil,err }; return []byte(sink.text.String()),nil
 }
 type srlXmlFields struct { node *srlXmlNode; next int; attrs map[srlxml.Name]bool }
 // Require element-only record content before any field is decoded.
-func srlXmlReader(node *srlXmlNode)(*srlXmlFields,error) { if strings.Trim(node.text," \r\n\t")!="" { return nil,fmt.Errorf("Unexpected XML record text") }; return &srlXmlFields{node:node,attrs:map[srlxml.Name]bool{}},nil }
+func srlXmlReader(node *srlXmlNode,hasText ...bool)(*srlXmlFields,error) { if (len(hasText)==0||!hasText[0])&&strings.Trim(node.text," \r\n\t")!="" { return nil,fmt.Errorf("Unexpected XML record text") }; return &srlXmlFields{node:node,attrs:map[srlxml.Name]bool{}},nil }
+// Read simple content while rejecting element children and retaining mapped attributes.
+func (r *srlXmlFields) text()([]*srlXmlNode,error) { if len(r.node.children)!=0{return nil,fmt.Errorf("XML simple content contains children")};return []*srlXmlNode{{text:r.node.text}},nil }
 // Select an exact expanded-name attribute, keeping absent optionals distinct.
 func (r *srlXmlFields) attribute(name srlxml.Name,required bool)([]*srlXmlNode,error) {
   for _,a:=range r.node.attrs { if a.Name==name { if r.attrs[name] { return nil,fmt.Errorf("Duplicate XML field mapping") }; r.attrs[name]=true; return []*srlXmlNode{{name:name,text:a.Value}},nil } }
@@ -122,6 +127,8 @@ func (r *srlXmlFields) children(name srlxml.Name,minimum,maximum int)([]*srlXmlN
 }
 // Reject all unknown attributes and leftover duplicate, misplaced or unknown children.
 func (r *srlXmlFields) finish()error { if len(r.attrs)!=len(r.node.attrs)||r.next!=len(r.node.children) { return fmt.Errorf("Unexpected XML field") }; return nil }
+// Require one wrapper and exhaust its exact item contract.
+func (r *srlXmlFields) wrapped(wrapper,name srlxml.Name,minimum,maximum int)([]*srlXmlNode,error) { nodes,err:=r.children(wrapper,1,1);if err!=nil{return nil,err};fields,err:=srlXmlReader(nodes[0]);if err!=nil{return nil,err};result,err:=fields.children(name,minimum,maximum);if err!=nil{return nil,err};if err=fields.finish();err!=nil{return nil,err};return result,nil }
 // Scalars have no attribute or nested-element representation in this mapping.
 func srlXmlText(node *srlXmlNode)(string,error) { if len(node.attrs)!=0||len(node.children)!=0 { return "",fmt.Errorf("XML scalar has markup") }; return node.text,nil }
 var srlXmlInteger=regexp.MustCompile(`^[+-]?[0-9]+$`)

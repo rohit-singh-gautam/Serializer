@@ -7,9 +7,11 @@
 
 #include <algorithm>
 #include <cctype>
+#include <exception>
 #include <limits>
 #include <map>
 #include <set>
+#include <tuple>
 #include <utility>
 
 namespace rohit::serializer::package {
@@ -587,8 +589,8 @@ const std::shared_ptr<budget>& opc_writer::shared_budget() const noexcept {
 }
 
 // Read OPC manifests/rels through the shared XML provider; defer only payload decompression.
-opc_reader::opc_reader(std::istream& input, std::shared_ptr<budget> shared)
-    : archive_{input, std::move(shared)} {
+opc_reader::opc_reader(std::istream& input, std::shared_ptr<budget> shared, input_options options)
+    : archive_{input, std::move(shared), std::move(options)} {
   require_xml();
   const auto manifest = read_metadata(archive_, manifest_name);
   require_name(manifest, "Types", content_types_namespace);
@@ -722,5 +724,193 @@ void opc_reader::validate_all() { archive_.validate_all(); }
 // Preserve one cumulative operation budget when a profile invokes additional typed codecs.
 const std::shared_ptr<budget>& opc_reader::shared_budget() const noexcept {
   return archive_.shared_budget();
+}
+
+// Keep aggregate selection and extension handling on the archive's original budget.
+profile_loader::profile_loader(opc_reader& reader, extension_policy policy)
+    : reader_{reader}, policy_{std::move(policy)} {}
+
+// Resolve one expected role, retaining precise source diagnostics across caller codec failures.
+void profile_loader::read_related(std::string_view source, std::string_view relationship_type,
+    std::string_view expected_content_type,
+    const std::function<void(std::span<const std::uint8_t>, const part&, budget&)>& decode,
+    std::size_t minimum, std::size_t maximum) {
+  if (finished_ || failed_ || minimum > maximum || !decode) {
+    throw error{error_code::invalid_state, "Invalid or finished package profile"};
+  }
+  struct failure_guard {
+    bool& failed;
+    bool complete{};
+    // Any unsuccessful selected-part operation permanently fences this candidate loader.
+    ~failure_guard() { if (!complete) { failed = true; } }
+  } guard{failed_};
+  auto& shared = shared_budget();
+  const auto links = reader_.find_relationships(source, relationship_type);
+  if (links.size() < minimum || links.size() > maximum) {
+    throw error{error_code::invalid_relationship, "Profile relationship cardinality mismatch",
+                std::string{source}, 0, links.size(), maximum, {}, {},
+                std::string{relationship_type}};
+  }
+  for (const auto* link : links) {
+    shared.consume(resource::work_units, 1, source);
+    if (link->mode != target_mode::internal) {
+      throw error{error_code::invalid_relationship, "Typed profile requires an internal target",
+                  link->source, 0, 0, 0, {}, link->target, link->id};
+    }
+    const auto name = resolve_target(link->source, link->target);
+    const auto* selected = reader_.find(name);
+    if (!selected) {
+      throw error{error_code::missing_part, "Profile target is absent", name,
+                  0, 0, 0, {}, link->target, link->id};
+    }
+    if (selected->content_type != expected_content_type) {
+      throw error{error_code::invalid_metadata, "Profile target has an unexpected content type",
+                  selected->name, 0, 0, 0, {}, {}, link->id};
+    }
+    if (decoded_.contains(selected->name)) {
+      throw error{error_code::invalid_state, "Profile selects a typed part more than once",
+                  selected->name, 0, 0, 0, {}, {}, link->id};
+    }
+    shared.consume(resource::metadata_bytes,
+        sizeof(std::string) + selected->name.size() + sizeof(link), selected->name);
+    decoded_.insert(selected->name);
+    selected_.insert(link);
+    const auto bytes = reader_.read(selected->name);
+    try {
+      decode(bytes, *selected, shared);
+    } catch (const error& failure) {
+      throw error{failure.code, failure.what(), failure.part.empty() ? selected->name : failure.part,
+                  failure.offset_bytes, failure.required, failure.permitted, failure.field_path,
+                  failure.reference, failure.relationship_id.empty() ? link->id : failure.relationship_id};
+    } catch (const std::exception&) {
+      throw error{error_code::codec, "Profile part decoding failed", selected->name,
+                  0, 0, 0, {}, {}, link->id};
+    }
+    shared.check_cancelled();
+  }
+  guard.complete = true;
+}
+
+// Finish full aggregate validation without hiding corrupt or required unknown capabilities.
+preserved_extensions profile_loader::finish() {
+  if (finished_ || failed_) {
+    throw error{error_code::invalid_state, "Package profile is finished or failed"};
+  }
+  struct failure_guard {
+    bool& failed;
+    bool complete{};
+    // A failed integrity/preservation pass cannot be retried on the same candidate loader.
+    ~failure_guard() { if (!complete) { failed = true; } }
+  } guard{failed_};
+  preserved_extensions extensions;
+  auto& shared = shared_budget();
+  for (const auto& item : reader_.parts()) {
+    shared.consume(resource::work_units, 1, item.name);
+    if (decoded_.contains(item.name)) { continue; }
+    if ((policy_.is_required_part && policy_.is_required_part(item)) ||
+        policy_.parts == unknown_policy::reject) {
+      throw error{error_code::unsupported_feature, "Profile does not support this part", item.name};
+    }
+    // Charge retention before expanding, so a small preservation bound cannot stage a huge part.
+    if (policy_.parts == unknown_policy::preserve) {
+      shared.consume(resource::preserved_bytes, item.expanded_bytes, item.name);
+      shared.consume(resource::metadata_bytes,
+          sizeof(opaque_part) + item.name.size() + item.content_type.size(), item.name);
+    }
+    auto bytes = reader_.read(item.name);
+    if (policy_.parts == unknown_policy::preserve) {
+      extensions.parts.push_back({item, std::move(bytes), {}});
+    }
+  }
+  for (const auto& link : reader_.relationships()) {
+    shared.consume(resource::work_units, 1, link.source);
+    if (selected_.contains(&link)) { continue; }
+    if ((policy_.is_required_relationship && policy_.is_required_relationship(link)) ||
+        policy_.relationships == unknown_policy::reject) {
+      throw error{error_code::unsupported_feature, "Profile does not support this relationship",
+                  link.source, 0, 0, 0, {}, link.target, link.id};
+    }
+    if (policy_.relationships == unknown_policy::preserve) {
+      const auto bytes = sizeof(relationship) + link.source.size() + link.id.size() +
+          link.type.size() + link.target.size();
+      shared.consume(resource::preserved_bytes, bytes, link.source);
+      shared.consume(resource::metadata_bytes, bytes, link.source);
+      extensions.relationships.push_back(link);
+    }
+  }
+  shared.check_cancelled();
+  finished_ = true;
+  guard.complete = true;
+  return extensions;
+}
+
+// Return the single budget used by archive, metadata, typed callbacks and references.
+budget& profile_loader::shared_budget() const noexcept { return *reader_.shared_budget(); }
+
+// Retain opaque bytes and authored links without introducing a second XML representation.
+void write_preserved(opc_writer& writer, const preserved_extensions& extensions) {
+  for (const auto& item : extensions.parts) {
+    writer.add_part(item.metadata.name, item.metadata.content_type, item.bytes, item.storage);
+  }
+  for (const auto& link : extensions.relationships) { writer.add_relationship(link); }
+}
+
+// Sort borrowed part pointers, bounding auxiliary storage independently of caller-owned payloads.
+void write_canonical_zip(std::ostream& output, std::span<const opaque_part> parts,
+                          std::shared_ptr<budget> shared) {
+  if (!shared) { shared = std::make_shared<budget>(); }
+  if (parts.size() > shared->available_buffer_bytes() / sizeof(const opaque_part*)) {
+    throw error{error_code::resource_limit, "Canonical ZIP index exceeds scratch limit"};
+  }
+  shared->consume(resource::metadata_bytes, parts.size() * sizeof(const opaque_part*));
+  buffer_reservation scratch{*shared, parts.size() * sizeof(const opaque_part*)};
+  std::vector<const opaque_part*> ordered;
+  ordered.reserve(parts.size());
+  for (const auto& item : parts) { shared->check_cancelled(); ordered.push_back(&item); }
+  std::sort(ordered.begin(), ordered.end(), [&](const auto* left, const auto* right) {
+    shared->check_cancelled();
+    return left->metadata.name < right->metadata.name;
+  });
+  zip_writer writer{output, shared};
+  for (const auto* item : ordered) { writer.add(item->metadata.name, item->bytes, item->storage); }
+  writer.finish();
+}
+
+// Canonical OPC uses fixed ZIP metadata, sorted logical names and source-local relationship IDs.
+void write_canonical_opc(std::ostream& output, std::span<const opaque_part> parts,
+                          std::span<const relationship> relationships,
+                          std::shared_ptr<budget> shared) {
+  if (!shared) { shared = std::make_shared<budget>(); }
+  constexpr auto part_pointer_bytes = sizeof(const opaque_part*);
+  constexpr auto link_pointer_bytes = sizeof(const relationship*);
+  const auto maximum = shared->available_buffer_bytes();
+  if (parts.size() > maximum / part_pointer_bytes ||
+      relationships.size() > (maximum - parts.size() * part_pointer_bytes) / link_pointer_bytes) {
+    throw error{error_code::resource_limit, "Canonical OPC index exceeds scratch limit"};
+  }
+  shared->consume(resource::metadata_bytes,
+      parts.size() * part_pointer_bytes + relationships.size() * link_pointer_bytes);
+  buffer_reservation scratch{*shared,
+      parts.size() * part_pointer_bytes + relationships.size() * link_pointer_bytes};
+  std::vector<const opaque_part*> ordered_parts;
+  std::vector<const relationship*> ordered_links;
+  ordered_parts.reserve(parts.size());
+  ordered_links.reserve(relationships.size());
+  for (const auto& item : parts) { shared->check_cancelled(); ordered_parts.push_back(&item); }
+  for (const auto& link : relationships) { shared->check_cancelled(); ordered_links.push_back(&link); }
+  std::sort(ordered_parts.begin(), ordered_parts.end(), [&](const auto* left, const auto* right) {
+    shared->check_cancelled();
+    return left->metadata.name < right->metadata.name;
+  });
+  std::sort(ordered_links.begin(), ordered_links.end(), [&](const auto* left, const auto* right) {
+    shared->check_cancelled();
+    return std::tie(left->source, left->id) < std::tie(right->source, right->id);
+  });
+  opc_writer writer{output, shared};
+  for (const auto* item : ordered_parts) {
+    writer.add_part(item->metadata.name, item->metadata.content_type, item->bytes, item->storage);
+  }
+  for (const auto* link : ordered_links) { writer.add_relationship(*link); }
+  writer.finish();
 }
 } // namespace rohit::serializer::package

@@ -69,13 +69,17 @@ R"xmlcs(
   private sealed class SrlXmlFields {
     private readonly SrlXmlNode node; private readonly System.Collections.Generic.HashSet<string> used = new(); private int next;
     // Allow indentation but reject scalar text where record fields are required.
-    internal SrlXmlFields(SrlXmlNode node) { this.node = node; if (SrlXmlTrim(node.Text.ToString()).Length != 0) throw new System.FormatException("Unexpected XML record text"); }
+    internal SrlXmlFields(SrlXmlNode node, bool hasText = false) { this.node = node; if (!hasText && SrlXmlTrim(node.Text.ToString()).Length != 0) throw new System.FormatException("Unexpected XML record text"); }
+    // Read simple content without accepting element children.
+    internal string Text() { if (node.Children.Count != 0) throw new System.FormatException("XML simple content contains children"); return node.Text.ToString(); }
     // Preserve required/optional attribute presence without defaulting missing values.
     internal string? Attribute(string name, bool optional) { if (!node.Attributes.TryGetValue(name, out var value)) { if (optional) return null; throw new System.FormatException("Required XML attribute missing"); } if (!used.Add(name)) throw new System.FormatException("Duplicate XML attribute mapping"); return value; }
     // Consume only adjacent children with the statically selected expanded name.
     internal System.Collections.Generic.List<SrlXmlNode> Children(string name, int minimum, int maximum) { int begin = next; while (next < node.Children.Count && node.Children[next].Name == name) ++next; int count = next - begin; if (count < minimum || maximum >= 0 && count > maximum) throw new System.FormatException("XML occurrence mismatch"); return node.Children.GetRange(begin, count); }
     // Reject unknown or reordered fields before publishing the fresh model.
     internal void Finish() { if (used.Count != node.Attributes.Count || next != node.Children.Count) throw new System.FormatException("Unexpected XML field"); }
+    // Require a collection wrapper and validate its complete member sequence.
+    internal System.Collections.Generic.List<SrlXmlNode> Wrapped(string wrapper, string name, int minimum, int maximum) { var fields = new SrlXmlFields(Children(wrapper, 1, 1)[0]); var result = fields.Children(name, minimum, maximum); fields.Finish(); return result; }
   }
   // Encode deterministic escaped XML through a bounded whole-document byte sink.
   private static byte[] SrlXmlWrite(SrlXmlNode root, Limits limits) {

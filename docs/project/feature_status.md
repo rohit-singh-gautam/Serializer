@@ -14,7 +14,7 @@ coverage and verification. Proposals are not delivery commitments.
 | C++ output optimization | Binary views, constant evaluation, protocol selection and emission models; [constant evaluation](../serialization/constant_evaluation.md) and [performance](../serialization/performance.md). |
 | XML and XSD | Optional generated owning XML mappings across all outputs, fixed XSD subset and explicit prepared validation; [usage and backend scope](../serialization/xml_packages.md). |
 | Streams and compression | C++ stream adapters, whole-message helpers and composable whole-object compression streams; [compression](../serialization/compression.md). General backend parity remains pending. |
-| ZIP and OPC | Codec-independent C++ ZIP32, OPC metadata/relationships, shared budgets and full-Save helpers; [package APIs](../serialization/xml_packages.md#plain-zip-and-opc). Backend parity and typed profiles remain pending. |
+| ZIP and OPC | Codec-independent C++ ZIP32/ZIP64, bounded nonseekable spooling, OPC metadata, caller-authored transactional profiles, preservation and canonical ordering; [package APIs](../serialization/xml_packages.md#plain-zip-and-opc). General backend parity and generated profiles remain pending. |
 | Managed application state | C++ identity, transactions, snapshot history, journals, collaboration and typed registries; [managed index](../managed/README.md). Other outputs exchange records without native managed engines. |
 | Builds and examples | CLI/INI generation, CMake integration, standalone examples and native Go projects; [build guide](../guides/build_and_generation.md) and [examples](../../example/README.md). |
 | Editors | Visual Studio and VS Code schema editing and navigation; [editor index](../editors/README.md). |
@@ -23,7 +23,7 @@ coverage and verification. Proposals are not delivery commitments.
 
 | Capability | Proposal and boundary |
 | --- | --- |
-| Broader XML and XSD | [Pending report](../xml_pending.md): tree-free optimized tokens, richer vocabularies, XSD bundles/facets, export and wider model coverage. |
+| Broader XML and XSD | [Pending report](../xml_pending.md): tree-free optimized tokens, richer vocabularies, XSD facets/identity constraints, broader export and wider model coverage. |
 | ZIP/OPC parity and profiles | [Package requirements](../design/xml_support.md#multipart-packages-and-opc): all-language APIs/qualification, generated typed profiles, preservation and reproducibility. |
 | Reusable document-file profiles | [Proposed profile](../design/xml_support.md#reusable-document-file-profiles): complete saved files, side-channel-only history/recovery and independent external/internal codecs. Current native C++ formats remain unchanged. |
 | Compression parity | Whole-object stream wrappers across outputs with exact framing, limits and optional providers. Incremental records/object serialization are not required. |
@@ -60,7 +60,7 @@ changes no schema language or existing wire format.
 
 [Back to the project overview](../../README.md)
 
-Current compiler/runtime **2.3.1** supports language **1.17.0** and includes
+Current compiler/runtime **2.4.0** supports language **1.17.0** and includes
 `constexpr` ordinary C++ codec templates and a native positional/integer-key
 scalar decoder subset for constexpr-safe typed streams. Eligible checked
 arithmetic and dotted-value construction/conversions also constant-evaluate.
@@ -582,6 +582,9 @@ integer references are not remapped.
 
 ### XML and multipart packages
 
+Release **2.4.0** adds configured simple text with attributes and wrappers across
+all outputs, pinned local XSD bundles and [export/compatibility tools](../serialization/xsd_tooling.md).
+Native `binary_none` selection now covers all backends independently of XML.
 Release **2.3.0** implements generated owning XML mappings across all outputs,
 a deliberately bounded fixed-XSD subset and explicit runtime validation support.
 See the [actual APIs](../serialization/xml_packages.md) and
@@ -589,7 +592,9 @@ See the [actual APIs](../serialization/xml_packages.md) and
 members are children, and a supported supplied XSD takes authority over placement
 and constraints. Changes to a fixed schema require regeneration/recompilation.
 
-C++ implements whole-object compression streams, ZIP32 and an OPC metadata subset.
+C++ implements whole-object compression streams, ZIP32/ZIP64, explicit bounded
+nonseekable spooling and an OPC metadata subset with caller-authored aggregate
+profiles, opaque extension policies and canonical ordering.
 Plain ZIP stores arbitrary codec bytes without XML metadata. OPC adds content types
 and scoped relationships; this does not establish Office document semantics.
 Full-Save helpers stage complete files and add no Serializer history/session parts.

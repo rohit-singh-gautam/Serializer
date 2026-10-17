@@ -229,7 +229,8 @@ values, and repeated non-repeatable options are errors.
 | `--cpp.naming` | | `profile` or `preserve` |
 | `--cpp.format` | | `true` or `false` |
 | `--cpp.constant_evaluation` | | `true` or `false` (default); add the separate constexpr positional traversal |
-| `--cpp.protocols` | | `all` (default) or `binary_none`; restrict generated C++ codecs independently of constant evaluation |
+| `--protocols` | | `all` (default) or `binary_none`; restrict native codecs for every output, independently of XML |
+| `--cpp.protocols` | | `all` or `binary_none`; override common native codec selection for C++ independently of constant evaluation |
 | `--cpp.emission_only` | | `true` or `false` (default); borrowed models with only concrete positional output; requires enabled constant evaluation and binary_none protocols |
 | `--managed.id_type` | | Document-local persistent ID width: `uint32` (default) or `uint64`; overrides `[managed] id_type` |
 | `--managed.separate_values` | | `true` generates ID-free values plus managed wrappers; `false` (default) puts IDs on the schema classes |

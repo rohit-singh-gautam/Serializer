@@ -31,13 +31,16 @@ namespace {
 // Accumulate chunks with an overflow-safe limit before growing owned output storage.
 class vector_sink final : public output_sink {
   const std::size_t maximum;
+  const cancellation_callback check_cancelled;
 
 public:
   std::vector<std::uint8_t> bytes{};
   // Retain the caller's logical byte limit for every backend emission.
-  explicit vector_sink(std::size_t maximum) : maximum{maximum} {}
+  explicit vector_sink(std::size_t maximum, cancellation_callback cancellation)
+      : maximum{maximum}, check_cancelled{cancellation} {}
   // Reject over-limit chunks without changing the current prefix.
   void append(std::span<const std::uint8_t> input) override {
+    if (check_cancelled) { check_cancelled(); }
     if (input.size() > maximum - bytes.size()) {
       throw error{error_code::resource_limit, "Compression output limit exceeded"};
     }
@@ -395,7 +398,7 @@ std::vector<std::uint8_t> compress(std::span<const std::uint8_t> input,
   if (input.size() > limits.max_input_bytes) {
     throw error{error_code::resource_limit, "Compression input limit exceeded"};
   }
-  vector_sink output{limits.max_output_bytes};
+  vector_sink output{limits.max_output_bytes, limits.check_cancelled};
   std::visit(
       [&](const auto& option) {
         using T = std::decay_t<decltype(option)>;
@@ -432,7 +435,7 @@ std::vector<std::uint8_t> decompress(std::span<const std::uint8_t> input,
   if (input.size() > options.max_compressed_bytes) {
     throw error{error_code::resource_limit, "Compressed input limit exceeded"};
   }
-  vector_sink output{options.max_decompressed_bytes};
+  vector_sink output{options.max_decompressed_bytes, options.check_cancelled};
   switch (options.format) {
   case format::none:
     output.append(input);

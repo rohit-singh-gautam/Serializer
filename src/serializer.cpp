@@ -93,6 +93,7 @@ constexpr rohit::serializer::cli::commandline_option command_options[] = {
     {'\0', "cpp.constant_evaluation", "true|false",
      "Enable generated positional constant evaluation (default false)."},
     {'\0', "cpp.protocols", "all|binary_none", "Select generated C++ protocols (default all)."},
+    {'\0', "protocols", "all|binary_none", "Select native protocols for every output; XML is independent."},
     {'\0', "cpp.emission_only", "true|false",
      "Generate borrowed emission models (default false; requires constant evaluation and binary_none)."},
     {'\0', "cpp.protobuf", "true|false",
@@ -101,6 +102,9 @@ constexpr rohit::serializer::cli::commandline_option command_options[] = {
     {'\0', "xml.runtime_xsd", "true|false", "Allow prepared runtime XSD validation for XML models."},
     {'\0', "xml.validation_scope", "input|output|both", "Choose prepared XSD validation directions (default input)."},
     {'\0', "xml.xsd", "file.xsd", "Bind a fixed supported XSD subset during XML generation."},
+    {'\0', "xml.bundle_sha256", "sha256", "Require the exact fixed XSD bundle identity."},
+    {'\0', "xml.export-xsd", "file.xsd", "Export one configuration's supported bound XML contract."},
+    {'\0', "xml.compare-xsd", "previous.xsd", "Require the current bound XML reader to accept the previous XSD subset."},
     {'\0', "managed.id_type", "uint32|uint64", "Persistent managed ID type (default uint32)."},
     {'\0', "managed.separate_values", "true|false",
      "Generate separate ID-free values and managed storage (default false)."},
@@ -115,6 +119,9 @@ constexpr rohit::serializer::cli::commandline_option command_options[] = {
 void apply_output_overrides(rohit::serializer::writer::output_options& options,
                             const rohit::serializer::cli::arguments& arguments) {
   using namespace rohit::serializer;
+  if (arguments.contains("protocols")) {
+    writer::select_output_protocols(options, writer::parse_output_protocols(cli::first(arguments, "protocols")));
+  }
   for (const auto* key : {"xml.enabled", "xml.runtime_xsd"}) {
     if (!arguments.contains(key)) { continue; }
     const auto& value = cli::first(arguments, key);
@@ -125,6 +132,9 @@ void apply_output_overrides(rohit::serializer::writer::output_options& options,
     else { options.cpp.xml.runtime_xsd = value == "true"; }
   }
   if (arguments.contains("xml.xsd")) { options.cpp.xml.xsd = cli::first(arguments, "xml.xsd"); }
+  if (arguments.contains("xml.bundle_sha256")) {
+    options.cpp.xml.bundle_sha256 = cli::first(arguments, "xml.bundle_sha256");
+  }
   if (arguments.contains("xml.validation_scope")) {
     const auto& value = cli::first(arguments, "xml.validation_scope");
     if (value != "input" && value != "output" && value != "both") {
@@ -293,6 +303,13 @@ read_configurations(const rohit::serializer::cli::arguments& arguments) {
 std::vector<generation_request>
 resolve_generation_requests(const rohit::serializer::cli::arguments& arguments,
                             const std::vector<generation_configuration>& configurations) {
+  if (arguments.contains("xml.export-xsd") || arguments.contains("xml.compare-xsd")) {
+    bool has_output = arguments.contains("output");
+    for (const auto* language : {"cpp", "java", "js", "typescript", "go", "csharp", "rust", "python", "swift", "kotlin", "c"}) {
+      has_output = has_output || arguments.contains(std::string{language} + ".output");
+    }
+    if (!has_output) { return {}; }
+  }
   std::map<std::string, std::size_t> language_counts{};
   for (const auto& configuration : configurations) {
     if (arguments.contains("output") && configuration.languages.size() != 1) {
@@ -473,8 +490,15 @@ int main(const int argc, const char* argv[]) {
       throw std::invalid_argument{
           "Input must use .serializer; rename the schema and add serializer version 1.0.0;"};
     }
-    const auto requests = resolve_generation_requests(parsed, configurations);
+    if ((parsed.contains("xml.export-xsd") || parsed.contains("xml.compare-xsd")) && configurations.size() != 1U) {
+      throw std::invalid_argument{"XML export/compatibility tools require exactly one configuration"};
+    }
+    auto requests = resolve_generation_requests(parsed, configurations);
+    if (parsed.contains("xml.export-xsd")) {
+      requests.push_back({0U, "xsd", cli::first(parsed, "xml.export-xsd")});
+    }
     std::vector<std::filesystem::path> configuration_dependencies{input_file};
+    std::vector<writer::xml_binding::schema> xml_contracts{};
     if (parsed.contains("config")) {
       for (const auto& file : parsed.at("config")) {
         configuration_dependencies.emplace_back(file);
@@ -484,8 +508,11 @@ int main(const int argc, const char* argv[]) {
       if (!configuration.options.cpp.format_file.empty()) {
         configuration_dependencies.push_back(configuration.options.cpp.format_file);
       }
-      if (!configuration.options.cpp.xml.xsd.empty()) {
-        configuration_dependencies.push_back(configuration.options.cpp.xml.xsd);
+      xml_contracts.emplace_back(configuration.options.cpp.xml);
+      const auto bundle_dependencies = xml_contracts.back().dependencies();
+      configuration_dependencies.insert(configuration_dependencies.end(), bundle_dependencies.begin(), bundle_dependencies.end());
+      if (parsed.contains("verbose") && !xml_contracts.back().bundle_identity().empty()) {
+        std::cout << "Serializer: XSD bundle SHA-256 " << xml_contracts.back().bundle_identity() << '\n';
       }
     }
     std::vector<std::filesystem::path> destinations{};
@@ -530,6 +557,41 @@ int main(const int argc, const char* argv[]) {
       destinations.push_back(output_file);
     }
     const auto schema = parser::parse_file(input_file, parse_options);
+    std::vector<const class_node*> xml_records{};
+    const auto collect_xml_records = [&](auto&& self, const auto& statements) -> void {
+      for (const auto& node : statements) {
+        if (node->type == object_type::namespace_type) { self(self, static_cast<const namespace_node&>(*node).statements); }
+        else if (node->type == object_type::class_type) { xml_records.push_back(&static_cast<const class_node&>(*node)); }
+      }
+    };
+    if (parsed.contains("xml.export-xsd") || parsed.contains("xml.compare-xsd")) {
+      if (!configurations.front().options.cpp.xml.enabled) {
+        throw std::invalid_argument{"XML export/compatibility tools require xml.enabled = true"};
+      }
+      collect_xml_records(collect_xml_records, schema.statements);
+      if (xml_records.empty()) { throw std::invalid_argument{"XML tooling requires at least one ordinary record"}; }
+    }
+    if (parsed.contains("xml.compare-xsd")) {
+      auto previous_options = configurations.front().options.cpp.xml;
+      if (previous_options.xsd.empty()) { throw std::invalid_argument{"--xml.compare-xsd requires the current --xml.xsd contract"}; }
+      previous_options.xsd = cli::first(parsed, "xml.compare-xsd");
+      previous_options.bundle_sha256.clear();
+      const writer::xml_binding::schema previous{previous_options};
+      bool compatible{true};
+      for (const auto* record : xml_records) {
+        for (const auto& diagnostic : writer::xml_binding::compare_contracts(
+            previous.bind(*record), xml_contracts.front().bind(*record))) {
+          std::cerr << "XML incompatibility: " << record->get_full_name();
+          if (!diagnostic.member.empty()) { std::cerr << '.' << diagnostic.member; }
+          std::cerr << ": " << diagnostic.message << '\n';
+          compatible = false;
+        }
+      }
+      if (!compatible) { return 1; }
+      const auto previous_dependencies = previous.dependencies();
+      configuration_dependencies.insert(configuration_dependencies.end(), previous_dependencies.begin(), previous_dependencies.end());
+      std::cout << "XML compatibility: current reader accepts the previous bound contract\n";
+    }
     for (const auto& configuration : configurations) {
       writer::xml_binding::validate_options(schema.statements, configuration.options.cpp.xml);
     }
@@ -544,7 +606,10 @@ int main(const int argc, const char* argv[]) {
     std::vector<generation_artifact> artifacts{};
     for (const auto& request : requests) {
       const auto& options = configurations[request.configuration_index].options;
-      if (request.language == "cpp") {
+      if (request.language == "xsd") {
+        artifacts.push_back({request.configuration_index, request.language,
+            {request.destination, xml_contracts.at(request.configuration_index).export_xsd(xml_records)}});
+      } else if (request.language == "cpp") {
         for (auto& file : writer::cpp::generate_files(schema, request.destination, options.cpp,
                                                      options.includes)) {
           artifacts.push_back({request.configuration_index, request.language, std::move(file)});

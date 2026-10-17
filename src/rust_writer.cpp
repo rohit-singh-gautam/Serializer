@@ -818,6 +818,9 @@ class rust_emitter {
     }
     line("/// Encode one complete message into independent owned bytes.");
     open("pub fn encode(&self, protocol: Protocol) -> Result<Vec<u8>, Error>");
+    if (model.protocols == output_protocols::binary_none) {
+      line("if protocol != Protocol::BinaryNone { return Err(Error(\"Protocol disabled during generation\")); }");
+    }
     line("let mut out = SrlWriter::new(protocol);");
     line("self.srl_write(&mut out)?;");
     line("Ok(out.bytes)");
@@ -829,6 +832,9 @@ class rust_emitter {
     line("/// Apply explicit resource limits; no partial value escapes on failure.");
     open("pub fn decode_with_limits(bytes: &[u8], protocol: Protocol, limits: Limits) -> "
          "Result<Self, Error>");
+    if (model.protocols == output_protocols::binary_none) {
+      line("if protocol != Protocol::BinaryNone { return Err(Error(\"Protocol disabled during generation\")); }");
+    }
     line("let mut input = SrlReader::new(bytes, protocol, limits)?;");
     line("let mut value = Self::default();");
     line("value.srl_read(&mut input)?;");
@@ -991,25 +997,29 @@ class rust_emitter {
     line("let (id, alternative): (u32, Option<usize>) = match key {");
     ++indent;
     line("SrlKey::Id(value) => (value, None),");
-    open("SrlKey::Name(name) => match name.as_str()");
-    if (value.has_magic()) {
-      line("\"magic\" => (" + std::to_string(value.magic_id) + ", None),");
-    }
-    for (const auto& base : value.parents) {
-      line(quote(base.display_name) + " => (" + std::to_string(base.id) + ", None),");
-    }
-    for (const auto& f : wire_members(value)) {
-      if (f.modifier == member::modifier_type::variant) {
-        for (std::size_t i = 0; i < f.type_name_list.size(); ++i) {
-          line(quote(f.display_name + ":" + f.type_name_list[i].enum_name) + " => (" +
-               std::to_string(f.id) + ", Some(" + std::to_string(i) + ")),");
-        }
-      } else {
-        line(quote(f.display_name) + " => (" + std::to_string(f.id) + ", None),");
+    if (model.protocols == output_protocols::binary_none) {
+      line("SrlKey::Name(_) => return Err(Error(\"Protocol disabled during generation\")),");
+    } else {
+      open("SrlKey::Name(name) => match name.as_str()");
+      if (value.has_magic()) {
+        line("\"magic\" => (" + std::to_string(value.magic_id) + ", None),");
       }
+      for (const auto& base : value.parents) {
+        line(quote(base.display_name) + " => (" + std::to_string(base.id) + ", None),");
+      }
+      for (const auto& f : wire_members(value)) {
+        if (f.modifier == member::modifier_type::variant) {
+          for (std::size_t i = 0; i < f.type_name_list.size(); ++i) {
+            line(quote(f.display_name + ":" + f.type_name_list[i].enum_name) + " => (" +
+                 std::to_string(f.id) + ", Some(" + std::to_string(i) + ")),");
+          }
+        } else {
+          line(quote(f.display_name) + " => (" + std::to_string(f.id) + ", None),");
+        }
+      }
+      line("_ => { input.skip_value()?; continue; },");
+      close();
     }
-    line("_ => { input.skip_value()?; continue; },");
-    close();
     --indent;
     line("};");
     line("let _ = alternative;");

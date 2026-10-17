@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
 // SPDX-License-Identifier: 0BSD
 #include <rohit/package.hpp>
+#include <rohit/package_profile.hpp>
 
 #include <rohit/compression.hpp>
 #include <rohit/xml.hpp>
@@ -8,13 +9,16 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <sstream>
+#include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -22,6 +26,32 @@ namespace {
 namespace package = rohit::serializer::package;
 namespace compression = rohit::serializer::compression;
 using bytes = std::vector<std::uint8_t>;
+
+// Preserve the previously valid compile-time policies and their literal copied state.
+constexpr compression::encode_limits legacy_compression_encode_limits{1024, 2048};
+constexpr compression::decode_options legacy_compression_decode_options{
+    compression::format::none, 1024, 2048, 4096, nullptr};
+constexpr auto copied_compression_encode_limits = legacy_compression_encode_limits;
+constexpr auto copied_compression_decode_options = legacy_compression_decode_options;
+static_assert(copied_compression_encode_limits.max_output_bytes == 2048);
+static_assert(copied_compression_decode_options.max_window_bytes == 4096);
+static_assert(!copied_compression_encode_limits.check_cancelled);
+static_assert(!copied_compression_decode_options.check_cancelled);
+static_assert(std::is_trivially_copyable_v<compression::cancellation_callback>);
+static_assert(std::is_trivially_copyable_v<compression::encode_limits>);
+static_assert(std::is_trivially_copyable_v<compression::decode_options>);
+using mutable_cancellation_probe = decltype([count = 0]() mutable { return ++count; });
+using const_cancellation_probe = decltype([] {});
+static_assert(std::is_nothrow_constructible_v<compression::cancellation_callback,
+    mutable_cancellation_probe&>);
+static_assert(std::is_constructible_v<compression::cancellation_callback,
+    const const_cancellation_probe&>);
+static_assert(!std::is_constructible_v<compression::cancellation_callback,
+    const mutable_cancellation_probe&>);
+static_assert(!std::is_constructible_v<compression::cancellation_callback,
+    const_cancellation_probe&&>);
+static_assert(!std::is_constructible_v<compression::cancellation_callback,
+    const const_cancellation_probe&&>);
 
 // Borrow string bytes only for the duration of a complete package call.
 std::span<const std::uint8_t> as_bytes(std::string_view value) {
@@ -97,6 +127,37 @@ struct temporary_directory {
 };
 } // namespace
 
+// Borrowed hooks share the original callable state while retaining safe empty behavior.
+TEST(package_compression, cancellation_hooks_borrow_const_and_mutable_lvalues) {
+  compression::cancellation_callback empty;
+  EXPECT_FALSE(empty);
+  EXPECT_NO_THROW(empty());
+  auto mutable_check = [count = std::size_t{}]() mutable { return ++count; };
+  compression::cancellation_callback first{mutable_check};
+  const auto second = first;
+  ASSERT_TRUE(first);
+  first();
+  second();
+  EXPECT_EQ(mutable_check(), 3U);
+
+  std::size_t polls{};
+  const auto const_check = [&polls] { ++polls; };
+  compression::encode_limits limits{1024, 2048, const_check};
+  const auto copied = limits;
+  copied.check_cancelled();
+  compression::decode_options options{
+      compression::format::none, 1024, 2048, 4096, nullptr, const_check};
+  options.check_cancelled();
+  EXPECT_EQ(polls, 2U);
+  limits.check_cancelled = nullptr;
+  EXPECT_FALSE(limits.check_cancelled);
+  EXPECT_NO_THROW(limits.check_cancelled());
+
+  const auto throw_cancelled = [] { throw std::runtime_error{"cancelled"}; };
+  const compression::cancellation_callback throwing{throw_cancelled};
+  EXPECT_THROW(throwing(), std::runtime_error);
+}
+
 // Plain ZIP carries arbitrary codec bytes without requiring XML or OPC metadata.
 TEST(package_zip, stored_parts_complete_directory_and_exact_names) {
   std::istringstream input{make_archive()};
@@ -127,7 +188,7 @@ TEST(package_zip, complete_stream_producer_and_failed_callback) {
 }
 
 // Unsupported archive features are errors even when their payload bytes resemble stored data.
-TEST(package_zip, rejects_unsupported_flags_methods_zip64_and_conflicting_headers) {
+TEST(package_zip, rejects_unsupported_flags_methods_missing_zip64_and_conflicting_headers) {
   const auto archive = make_archive();
   const auto central = central_offset(archive);
   ASSERT_NE(central, std::string::npos);
@@ -143,13 +204,100 @@ TEST(package_zip, rejects_unsupported_flags_methods_zip64_and_conflicting_header
   bytes zip64{archive.begin(), archive.end()};
   overwrite(zip64, central + 24, 0xffffffff, 4);
   std::istringstream zip64_input{to_string(zip64)};
-  expect_error(package::error_code::unsupported_feature,
+  expect_error(package::error_code::invalid_archive,
       [&] { package::zip_reader reader{zip64_input}; });
   bytes mismatched{archive.begin(), archive.end()};
   mismatched[30] = 'x';
   std::istringstream mismatched_input{to_string(mismatched)};
   expect_error(package::error_code::invalid_archive,
       [&] { package::zip_reader reader{mismatched_input}; });
+}
+
+// ZIP64 uses standard extra/end records even when a profile deliberately requests small entries.
+TEST(package_zip, zip64_sizes_end_records_and_malformed_extra) {
+  const auto encoded = make_archive({.force_zip64 = true});
+  std::istringstream input{encoded};
+  package::zip_reader reader{input};
+  EXPECT_TRUE(reader.entries().front().zip64_sizes);
+  EXPECT_EQ(as_text(reader.read("data/model.json")), "{\"count\":7}");
+  EXPECT_NE(encoded.find(std::string{"PK\x06\x06", 4}), std::string::npos);
+  EXPECT_NE(encoded.find(std::string{"PK\x06\x07", 4}), std::string::npos);
+  bytes corrupt{encoded.begin(), encoded.end()};
+  // The local ZIP64 field must include both expanded and compressed sizes.
+  overwrite(corrupt, 30 + std::string_view{"data/model.json"}.size() + 2, 8, 2);
+  std::istringstream malformed{to_string(corrupt)};
+  expect_error(package::error_code::invalid_archive,
+      [&] { package::zip_reader rejected{malformed}; });
+}
+
+// Independent Python output covers both expanded end records and signed 64-bit descriptors.
+TEST(package_zip, independent_zip64_end_and_descriptor_fixtures) {
+  for (const auto fixture : {"package_python_zip64.zip", "package_python_zip64_descriptor.zip"}) {
+    auto input = independent_fixture(fixture);
+    ASSERT_TRUE(input.is_open());
+    package::zip_reader reader{input};
+    ASSERT_EQ(reader.entries().size(), 1U);
+    EXPECT_EQ(as_text(reader.read("data/model.json")), "{\"count\":7}");
+  }
+}
+
+// Nonseekable input never triggers implicit memory buffering or filesystem extraction.
+TEST(package_zip, nonseekable_input_requires_bounded_explicit_disk_spooling) {
+  struct nonseekable_buffer final : std::stringbuf {
+    std::size_t requested_bytes{};
+    // Expose ordinary input bytes while refusing random-access positioning.
+    explicit nonseekable_buffer(const std::string& bytes) : std::stringbuf{bytes} {}
+    // Deliberately model a network/pipe source with no positioning capability.
+    pos_type seekoff(off_type, std::ios_base::seekdir, std::ios_base::openmode) override {
+      return pos_type{off_type{-1}};
+    }
+    // Refuse absolute seeking just as the offset-based capability does.
+    pos_type seekpos(pos_type, std::ios_base::openmode) override {
+      return pos_type{off_type{-1}};
+    }
+    // Record physical read requests to verify staging never requests an unbounded excess suffix.
+    std::streamsize xsgetn(char* output, std::streamsize count) override {
+      requested_bytes += static_cast<std::size_t>(count);
+      return std::stringbuf::xsgetn(output, count);
+    }
+  };
+  temporary_directory directory;
+  const auto encoded = make_archive({.force_zip64 = true});
+  nonseekable_buffer unsupported_buffer{encoded};
+  std::istream unsupported{&unsupported_buffer};
+  expect_error(package::error_code::unsupported_feature,
+      [&] { package::zip_reader rejected{unsupported}; });
+  {
+    nonseekable_buffer buffer{encoded};
+    std::istream source{&buffer};
+    package::zip_reader reader{source, {}, {directory.path, encoded.size()}};
+    EXPECT_EQ(as_text(reader.read("data/model.json")), "{\"count\":7}");
+    EXPECT_FALSE(std::filesystem::is_empty(directory.path));
+  }
+  EXPECT_TRUE(std::filesystem::is_empty(directory.path));
+  {
+    nonseekable_buffer throwing_buffer{encoded};
+    std::istream throwing_source{&throwing_buffer};
+    const auto mask = std::ios::failbit | std::ios::badbit;
+    throwing_source.exceptions(mask);
+    package::zip_reader reader{throwing_source, {}, {directory.path, encoded.size() + 1}};
+    EXPECT_EQ(as_text(reader.read("data/model.json")), "{\"count\":7}");
+    EXPECT_EQ(throwing_source.exceptions(), mask);
+  }
+  EXPECT_TRUE(std::filesystem::is_empty(directory.path));
+  nonseekable_buffer limited_buffer{encoded};
+  std::istream limited{&limited_buffer};
+  expect_error(package::error_code::resource_limit, [&] {
+    package::zip_reader rejected{limited, {}, {directory.path, encoded.size() - 1}};
+  });
+  EXPECT_TRUE(std::filesystem::is_empty(directory.path));
+  nonseekable_buffer overflow_buffer{encoded};
+  std::istream overflow_source{&overflow_buffer};
+  expect_error(package::error_code::resource_limit, [&] {
+    package::zip_reader rejected{overflow_source, {}, {directory.path, 16}};
+  });
+  EXPECT_EQ(overflow_buffer.requested_bytes, 17U);
+  EXPECT_TRUE(std::filesystem::is_empty(directory.path));
 }
 
 // CRC checks occur on access; a corrupt unrelated attachment does not force decompression.
@@ -434,4 +582,208 @@ TEST(package_opc, rejects_empty_relationship_set_for_absent_source) {
   writer.finish();
   std::istringstream input{output.str()};
   expect_error(package::error_code::missing_part, [&] { package::opc_reader reader{input}; });
+}
+
+// Aggregate publication waits for typed callbacks, semantic checks and optional opaque integrity.
+TEST(package_profile, aggregate_rollback_preservation_and_shared_callback_budget) {
+  if (!rohit::serializer::xml::available()) { GTEST_SKIP(); }
+  std::ostringstream encoded;
+  package::opc_writer writer{encoded};
+  writer.add_part("/renamed/model.json", "application/json", as_bytes("7"));
+  writer.add_part("/extensions/other.xml", "application/xml",
+                  as_bytes("<e:extra xmlns:e='urn:extension' e:flag='yes'/>"));
+  writer.add_relationship({"/", "main", "urn:test:main", "renamed/model.json"});
+  writer.add_relationship({"/renamed/model.json", "extension", "urn:test:optional",
+                           "../extensions/other.xml"});
+  writer.finish();
+  package::aggregate_result<int> destination{42, {}};
+  const auto decode = [](int& model, package::profile_loader& loader) {
+    loader.read_related("/", "urn:test:main", "application/json",
+        [&](std::span<const std::uint8_t> bytes, const package::part&, package::budget& shared) {
+          shared.consume(package::resource::decoder_allocation_bytes, sizeof(int));
+          shared.consume(package::resource::work_units, bytes.size());
+          model = std::stoi(std::string{bytes.begin(), bytes.end()});
+        });
+  };
+  std::istringstream rejected_source{encoded.str()};
+  package::opc_reader rejected{rejected_source};
+  expect_error(package::error_code::unsupported_feature, [&] {
+    package::load_opc_into(rejected, destination, decode);
+  });
+  EXPECT_EQ(destination.value, 42);
+  EXPECT_TRUE(destination.extensions.parts.empty());
+  std::istringstream source{encoded.str()};
+  package::opc_reader reader{source};
+  package::load_opc_into(reader, destination, decode,
+      {.parts = package::unknown_policy::preserve,
+       .relationships = package::unknown_policy::preserve});
+  EXPECT_EQ(destination.value, 7);
+  ASSERT_EQ(destination.extensions.parts.size(), 1U);
+  ASSERT_EQ(destination.extensions.relationships.size(), 1U);
+  const auto opaque = destination.extensions.parts.front().bytes;
+  std::ostringstream edited;
+  package::opc_writer saved{edited};
+  saved.add_part("/renamed/model.json", "application/json", as_bytes("8"));
+  saved.add_relationship({"/", "main", "urn:test:main", "renamed/model.json"});
+  package::write_preserved(saved, destination.extensions);
+  saved.finish();
+  std::istringstream reopened_source{edited.str()};
+  package::opc_reader reopened{reopened_source};
+  EXPECT_EQ(reopened.read("/extensions/other.xml"), opaque);
+  EXPECT_EQ(as_text(reopened.read("/renamed/model.json")), "8");
+  EXPECT_EQ(reopened.relationships().size(), 2U);
+
+  std::istringstream limited_source{encoded.str()};
+  package::opc_reader limited{limited_source, std::make_shared<package::budget>(
+      package::limits{.max_decoder_allocation_bytes = 0})};
+  expect_error(package::error_code::resource_limit, [&] {
+    package::load_opc_into(limited, destination, decode,
+        {.parts = package::unknown_policy::skip, .relationships = package::unknown_policy::skip});
+  });
+  EXPECT_EQ(destination.value, 7);
+  EXPECT_EQ(destination.extensions.parts.front().bytes, opaque);
+}
+
+// A required unknown capability cannot be silently skipped/preserved, and failures retain paths.
+TEST(package_profile, required_extensions_and_codec_diagnostics) {
+  if (!rohit::serializer::xml::available()) { GTEST_SKIP(); }
+  std::ostringstream encoded;
+  package::opc_writer writer{encoded};
+  writer.add_part("/model", "application/json", as_bytes("7"));
+  writer.add_relationship({"/", "main", "urn:test:main", "model"});
+  writer.finish();
+  for (const auto policy : {package::unknown_policy::skip, package::unknown_policy::preserve}) {
+    std::istringstream source{encoded.str()};
+    package::opc_reader reader{source};
+    expect_error(package::error_code::unsupported_feature, [&] {
+      static_cast<void>(package::load_opc<int>(reader, [](int&, package::profile_loader&) {},
+          {.parts = policy, .relationships = policy,
+           .is_required_part = [](const package::part&) { return true; }}));
+    });
+  }
+  std::istringstream source{encoded.str()};
+  package::opc_reader reader{source};
+  package::profile_loader loader{reader};
+  try {
+    loader.read_related("/", "urn:test:main", "application/json",
+        [](auto, const auto&, auto&) {
+          throw package::error{package::error_code::invalid_reference, "Missing referenced item",
+                               {}, 0, 0, 0, "items[2].target", "missing-id"};
+        });
+    FAIL() << "Expected reference failure";
+  } catch (const package::error& failure) {
+    EXPECT_EQ(failure.code, package::error_code::invalid_reference);
+    EXPECT_EQ(failure.part, "/model");
+    EXPECT_EQ(failure.field_path, "items[2].target");
+    EXPECT_EQ(failure.reference, "missing-id");
+    EXPECT_EQ(failure.relationship_id, "main");
+  }
+  expect_error(package::error_code::invalid_state, [&] { static_cast<void>(loader.finish()); });
+  std::istringstream finish_source{encoded.str()};
+  package::opc_reader finish_reader{finish_source};
+  package::profile_loader finish_loader{finish_reader};
+  expect_error(package::error_code::unsupported_feature,
+      [&] { static_cast<void>(finish_loader.finish()); });
+  expect_error(package::error_code::invalid_state,
+      [&] { static_cast<void>(finish_loader.finish()); });
+}
+
+// Canonical output is equal for independently reordered parts and authored relationship sets.
+TEST(package_profile, canonical_ordering_is_independent_of_input_order) {
+  std::vector<package::opaque_part> parts{
+      {{"z.bin", "application/octet-stream", 1}, {'z'}, {.force_zip64 = true}},
+      {{"a.bin", "application/octet-stream", 1}, {'a'}, {}}};
+  std::ostringstream zip_first;
+  package::write_canonical_zip(zip_first, parts);
+  std::reverse(parts.begin(), parts.end());
+  std::ostringstream zip_second;
+  package::write_canonical_zip(zip_second, parts);
+  EXPECT_EQ(zip_first.str(), zip_second.str());
+  std::istringstream zip_input{zip_first.str()};
+  package::zip_reader archive{zip_input};
+  EXPECT_EQ(archive.entries().front().name, "a.bin");
+  archive.validate_all();
+  if (!rohit::serializer::xml::available()) { return; }
+  for (auto& item : parts) { item.metadata.name.insert(0, "/"); }
+  std::vector<package::relationship> links{
+      {"/", "z", "urn:test:attachment", "z.bin"},
+      {"/", "a", "urn:test:attachment", "a.bin"}};
+  std::ostringstream opc_first;
+  package::write_canonical_opc(opc_first, parts, links);
+  std::reverse(parts.begin(), parts.end());
+  std::reverse(links.begin(), links.end());
+  std::ostringstream opc_second;
+  package::write_canonical_opc(opc_second, parts, links);
+  EXPECT_EQ(opc_first.str(), opc_second.str());
+}
+
+// Typed key scopes permit forward references and distinguish payload types without model pointers.
+TEST(package_profile, typed_reference_indexes_validate_forward_scoped_and_wrong_type_keys) {
+  package::budget shared;
+  package::reference_index<std::uint32_t> index{shared};
+  index.require_target<int>("document", 7, {"/source.xml", "items[0].target"});
+  index.add_target<int>("document", 7, {"/target.xml", "id"});
+  index.add_target<double>("other-scope", 7, {"/other.xml", "id"});
+  index.validate();
+  expect_error(package::error_code::invalid_reference, [&] {
+    index.add_target<double>("document", 7, {"/duplicate.xml", "id"});
+  });
+  package::reference_index<std::string> missing{shared};
+  missing.require_target<int>("document", "absent", {"/source.xml", "items[1].target"});
+  try {
+    missing.validate();
+    FAIL() << "Expected missing target";
+  } catch (const package::error& failure) {
+    EXPECT_EQ(failure.part, "/source.xml");
+    EXPECT_EQ(failure.field_path, "items[1].target");
+    EXPECT_EQ(failure.reference, "absent");
+  }
+  package::reference_index<std::string> wrong_type{shared};
+  wrong_type.require_target<int>("document", "key", {"/source.xml", "target"});
+  wrong_type.add_target<double>("document", "key");
+  expect_error(package::error_code::invalid_reference, [&] { wrong_type.validate(); });
+  package::budget bounded{package::limits{.max_references = 1}};
+  package::reference_index<std::uint64_t> limited{bounded};
+  limited.add_target<int>("", 1);
+  expect_error(package::error_code::resource_limit, [&] { limited.require_target<int>("", 1); });
+}
+
+// Live canonical indexes reserve scratch that remains unavailable to nested compression calls.
+TEST(package_profile, live_scratch_reservations_share_capacity_and_release_on_failure) {
+  package::budget shared{package::limits{.max_buffer_bytes = 10}};
+  EXPECT_EQ(shared.available_buffer_bytes(), 10U);
+  {
+    package::buffer_reservation retained{shared, 6};
+    EXPECT_EQ(shared.available_buffer_bytes(), 4U);
+    shared.check_buffer(4);
+    expect_error(package::error_code::resource_limit, [&] { shared.check_buffer(5); });
+  }
+  EXPECT_EQ(shared.available_buffer_bytes(), 10U);
+}
+
+// New resource fields append after the legacy aggregate callback to preserve positional callers.
+TEST(package_profile, legacy_limit_initializers_and_resource_ordinals_remain_compatible) {
+  const package::limits configured{1, 2, 3, 4, 5, 6, 7, 8, [] { return true; }};
+  EXPECT_EQ(configured.max_relationships, 8U);
+  EXPECT_TRUE(configured.is_cancelled());
+  EXPECT_EQ(configured.max_references, package::limits{}.max_references);
+  static_assert(static_cast<int>(package::resource::relationships) == 4);
+  static_assert(static_cast<int>(package::error_code::publication_uncertain) == 14);
+  static_assert(!std::is_copy_constructible_v<package::zip_reader>);
+  static_assert(!std::is_move_constructible_v<package::zip_reader>);
+}
+
+// A DEFLATE cancellation signal is observed inside provider work, before candidate publication.
+TEST(package_zip, deflate_cancellation_checks_provider_batches) {
+  if (!compression::available(compression::format::deflate)) { GTEST_SKIP(); }
+  std::size_t polls{};
+  const std::vector<std::uint8_t> payload(4 * package::mebibyte, 'x');
+  auto shared = std::make_shared<package::budget>(package::limits{
+      .is_cancelled = [&] { return ++polls > 70; }});
+  std::ostringstream encoded;
+  package::zip_writer writer{encoded, shared};
+  expect_error(package::error_code::cancelled, [&] {
+    writer.add("large", payload, {.method = package::zip_method::deflate});
+  });
+  EXPECT_TRUE(encoded.str().empty());
 }

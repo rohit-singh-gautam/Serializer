@@ -16,6 +16,16 @@ static void require(bool success, const char* message) {
 }
 /* Qualify native typed XML mappings and both optional prepared-XSD validation directions. */
 int main(void) {
+  const char* catalog_xml = "<catalog xmlns='urn:serializer:vocabulary'><prices><price currency='USD'>12.5</price></prices><labels><label>A&amp;B</label><label/></labels></catalog>";
+  shapes_catalog catalog = {0}, catalog_copy = {0}, empty_catalog = {0}; srl_buffer catalog_bytes = {0};
+  require(shapes_catalog_init(&catalog) == srl_ok && shapes_catalog_init(&catalog_copy) == srl_ok && shapes_catalog_init(&empty_catalog) == srl_ok, "Vocabulary init");
+  require(shapes_catalog_decode_xml(&catalog, (const uint8_t*)catalog_xml, strlen(catalog_xml), NULL, NULL) == srl_ok, "Vocabulary decode");
+  require(catalog.prices.size == 1 && catalog.prices.data[0].value == 12.5 && strcmp(catalog.prices.data[0].currency.data, "USD") == 0 && strcmp(catalog.labels.data[0].data, "A&B") == 0, "Simple content/wrappers");
+  require(shapes_catalog_encode_xml(&catalog, &catalog_bytes, NULL, NULL) == srl_ok && shapes_catalog_decode_xml(&catalog_copy, catalog_bytes.data, catalog_bytes.size, NULL, NULL) == srl_ok && catalog_copy.prices.size == 1 && catalog_copy.prices.data[0].value == 12.5, "Vocabulary roundtrip");
+  require(shapes_catalog_encode_xml(&empty_catalog, &catalog_bytes, NULL, NULL) == srl_ok && shapes_catalog_decode_xml(&catalog_copy, catalog_bytes.data, catalog_bytes.size, NULL, NULL) == srl_ok && catalog_copy.prices.size == 0, "Empty wrappers");
+  const char* invalid_wrapper = "<catalog xmlns='urn:serializer:vocabulary'><prices extra='1'/><labels/></catalog>";
+  require(shapes_catalog_decode_xml(&catalog_copy, (const uint8_t*)invalid_wrapper, strlen(invalid_wrapper), NULL, NULL) != srl_ok, "Unknown wrapper attribute");
+  shapes_catalog_free(&catalog); shapes_catalog_free(&catalog_copy); shapes_catalog_free(&empty_catalog); srl_buffer_free(&catalog_bytes);
   shapes_record value = {0}, copy = {0};
   require(shapes_record_init(&value) == srl_ok, "Initialization failed");
   value.big = UINT64_MAX;

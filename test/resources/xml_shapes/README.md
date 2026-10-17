@@ -9,6 +9,12 @@ Java, Python, C#, JavaScript, TypeScript and Rust also reject authored functions
 factories and conversions that collide with XML APIs, with XML-disabled
 generation as the compatibility control.
 
+The same fixture checks configured simple text with scalar attributes, collection
+wrappers with escaped/empty values, empty collections, namespace identity and
+malformed wrapper rejection. Pass `--protocols binary_none` to verify XML remains
+usable alongside restricted native format selection; the C++ executable is built
+separately with its configured native selection.
+
 ```text
 python -m pip install --target out/xml-deps \
   -r test/resources/xml_shapes/requirements.txt

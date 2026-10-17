@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 4.0)
 
-project(serializer VERSION 2.3.1 LANGUAGES CXX)
+project(serializer VERSION 2.4.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
 set(serializer_schema_language_version 1.17.0)
@@ -65,6 +65,7 @@ add_library(serializer_runtime
   src/package.cpp
   src/package_opc.cpp
   include/rohit/package.hpp
+  include/rohit/package_profile.hpp
   src/simd_dispatch.cpp
   src/simd_dispatch.hpp
   src/runtime_simd.cpp

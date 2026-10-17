@@ -917,7 +917,32 @@ else()
 endif()
 add_test(NAME package_test COMMAND package_test)
 
+add_executable(package_interop package_interop.cpp)
+target_link_libraries(package_interop PRIVATE Serializer::runtime)
+if(MSVC)
+  target_compile_options(package_interop PRIVATE /W4 /WX)
+else()
+  target_compile_options(package_interop PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+if(Python3_Interpreter_FOUND)
+  add_test(NAME package_independent_interop COMMAND "${Python3_EXECUTABLE}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/package_interop_test.py" "$<TARGET_FILE:package_interop>")
+endif()
+
 if(SERIALIZER_WITH_XML)
+  add_executable(xml_schema_test xml_schema_test.cpp)
+  target_link_libraries(xml_schema_test PRIVATE Serializer::serializer_lib GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(xml_schema_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(xml_schema_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME xml_schema_test COMMAND xml_schema_test)
+  if(Python3_Interpreter_FOUND)
+    add_test(NAME xml_schema_tools_test
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_schema_tools_test.py"
+        "$<TARGET_FILE:serializer>")
+  endif()
   add_executable(xml_test xml_test.cpp)
   add_library(xml_fixture_models INTERFACE)
   serializer_generate(TARGET xml_fixture_models SCHEMAS resources/xml_fixture.serializer

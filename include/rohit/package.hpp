@@ -14,6 +14,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -23,7 +24,8 @@ inline constexpr std::size_t mebibyte = 1024 * 1024;
 enum class error_code {
   unavailable, unsupported_feature, invalid_archive, invalid_name, duplicate_name,
   integrity, resource_limit, cancelled, io, invalid_state, invalid_metadata,
-  missing_part, invalid_relationship, publication, publication_uncertain
+  missing_part, invalid_relationship, publication, publication_uncertain,
+  codec, invalid_reference, semantic
 };
 
 // A package error separates archive offsets from the logical source part.
@@ -34,10 +36,14 @@ public:
   const std::uint64_t offset_bytes;
   const std::uint64_t required;
   const std::uint64_t permitted;
+  const std::string field_path;
+  const std::string reference;
+  const std::string relationship_id;
   // Capture bounded diagnostics; messages never include payload contents.
   error(error_code code, const char* message, std::string part = {},
         std::uint64_t offset_bytes = 0, std::uint64_t required = 0,
-        std::uint64_t permitted = 0);
+        std::uint64_t permitted = 0, std::string field_path = {},
+        std::string reference = {}, std::string relationship_id = {});
 };
 
 struct limits {
@@ -50,19 +56,32 @@ struct limits {
   std::uint64_t max_entries{4096};
   std::uint64_t max_relationships{16384};
   std::function<bool()> is_cancelled{};
+  std::uint64_t max_decoder_allocation_bytes{128 * mebibyte};
+  std::uint64_t max_work_units{512 * mebibyte};
+  std::uint64_t max_references{65536};
+  std::uint64_t max_preserved_bytes{64 * mebibyte};
 };
 
-enum class resource { io_bytes, metadata_bytes, expanded_bytes, entries, relationships };
+enum class resource {
+  io_bytes, metadata_bytes, expanded_bytes, entries, relationships,
+  decoder_allocation_bytes, work_units, references, preserved_bytes
+};
 
 // One caller-owned, non-thread-safe budget follows nested archive/OPC operations.
 // Counters are cumulative, including repeated reads; failed work is not refunded.
 class budget {
+  friend class buffer_reservation;
   limits limits_;
   std::uint64_t io_bytes_{};
   std::uint64_t metadata_bytes_{};
   std::uint64_t expanded_bytes_{};
   std::uint64_t entries_{};
   std::uint64_t relationships_{};
+  std::uint64_t decoder_allocation_bytes_{};
+  std::uint64_t work_units_{};
+  std::uint64_t references_{};
+  std::uint64_t preserved_bytes_{};
+  std::uint64_t reserved_buffer_bytes_{};
 public:
   // Keep the cancellation callback and immutable limits for this operation.
   explicit budget(limits configured = {});
@@ -70,6 +89,8 @@ public:
   [[nodiscard]] const limits& configured() const noexcept;
   // Inspect unspent cumulative capacity before a nested provider allocates storage.
   [[nodiscard]] std::uint64_t remaining(resource selected) const noexcept;
+  // Inspect unreserved simultaneous scratch capacity for composable nested operations.
+  [[nodiscard]] std::uint64_t available_buffer_bytes() const noexcept;
   // Check cancellation at a bounded processing boundary.
   void check_cancelled() const;
   // Charge work before allocation/I/O; failure never wraps a counter.
@@ -78,10 +99,25 @@ public:
   void check_buffer(std::uint64_t count, std::string_view part = {}) const;
 };
 
+// Reserve caller-owned scratch across nested archive/compression operations on the same budget.
+class buffer_reservation {
+  budget& budget_;
+  std::uint64_t bytes_;
+public:
+  // Refuse an over-limit reservation before the caller allocates its scratch storage.
+  buffer_reservation(budget& shared, std::uint64_t bytes, std::string_view part = {});
+  // Release only this live reservation; cumulative work counters are unaffected.
+  ~buffer_reservation();
+  buffer_reservation(const buffer_reservation&) = delete;
+  buffer_reservation& operator=(const buffer_reservation&) = delete;
+};
+
 enum class zip_method : std::uint16_t { stored = 0, deflate = 8 };
 struct entry_options {
   zip_method method{zip_method::stored};
   int compression_level{6};
+  // Force standard ZIP64 size fields even for small entries (for fixed profile requirements).
+  bool force_zip64{};
 };
 struct zip_entry {
   std::string name;
@@ -92,6 +128,13 @@ struct zip_entry {
   std::uint16_t flags{};
   std::uint64_t header_offset_bytes{};
   std::uint64_t data_offset_bytes{};
+  bool zip64_sizes{};
+};
+
+struct input_options {
+  // Nonseekable input is rejected unless this explicit caller-owned staging policy is set.
+  std::filesystem::path spool_directory{};
+  std::uint64_t max_spool_bytes{};
 };
 
 // An archive writer borrows its sink; failure can leave a partial stream.
@@ -124,19 +167,25 @@ public:
   [[nodiscard]] const std::shared_ptr<budget>& shared_budget() const noexcept;
 };
 
-// A ZIP32 reader borrows a seekable input for its entire lifetime. Construction
+// A ZIP32/ZIP64 reader borrows a seekable input for its entire lifetime. Construction
 // checks metadata and extents without decompressing payloads; read checks only
 // the selected payload's integrity. No filesystem extraction ever occurs.
 class zip_reader {
-  std::istream& input_;
+  struct spool_state;
+  std::unique_ptr<spool_state> spool_{};
+  std::istream* input_;
   std::shared_ptr<budget> budget_;
   std::vector<zip_entry> entries_{};
   std::uint64_t archive_bytes_{};
   // Read an exactly bounded archive range and preserve structured I/O failures.
   [[nodiscard]] std::vector<std::uint8_t> read_at(std::uint64_t offset, std::size_t count);
 public:
-  // Reject nonseekable sources, ZIP64, encryption, split archives and unsupported methods.
-  explicit zip_reader(std::istream& input, std::shared_ptr<budget> shared = {});
+  // Optional nonseekable input is spooled to an exclusively created, bounded temporary file.
+  // Reject encryption, split archives and unsupported methods; never spool implicitly.
+  explicit zip_reader(std::istream& input, std::shared_ptr<budget> shared = {},
+                      input_options options = {});
+  // Release a private spool file, if selected, without affecting the borrowed source.
+  ~zip_reader();
   zip_reader(const zip_reader&) = delete;
   zip_reader& operator=(const zip_reader&) = delete;
   // Enumerate borrowed metadata; entries remain valid for the reader lifetime.
@@ -208,7 +257,8 @@ class opc_reader {
   std::vector<relationship> relationships_{};
 public:
   // Require a content-types manifest and namespace-aware, bounded XML metadata parsing.
-  explicit opc_reader(std::istream& input, std::shared_ptr<budget> shared = {});
+  explicit opc_reader(std::istream& input, std::shared_ptr<budget> shared = {},
+                      input_options options = {});
   // Inspect non-infrastructure parts without decompressing their payloads.
   [[nodiscard]] const std::vector<part>& parts() const noexcept;
   // Inspect source-local relationships, including external targets as inert data.
@@ -225,6 +275,95 @@ public:
   // Share cumulative budgets with profile/codec validation performed by the caller.
   [[nodiscard]] const std::shared_ptr<budget>& shared_budget() const noexcept;
 };
+
+enum class unknown_policy { reject, skip, preserve };
+
+struct opaque_part {
+  part metadata;
+  std::vector<std::uint8_t> bytes;
+  entry_options storage{};
+};
+
+// Own optional unknown payloads verbatim with their authored relationship context.
+// XML bytes retain their own namespace declarations; no lexical/signature guarantee is made
+// for known rewritten parts or for the enclosing archive.
+struct preserved_extensions {
+  std::vector<opaque_part> parts{};
+  std::vector<relationship> relationships{};
+};
+
+struct extension_policy {
+  unknown_policy parts{unknown_policy::reject};
+  unknown_policy relationships{unknown_policy::reject};
+  // Profiles identify required capabilities explicitly; preserve/skip never accepts these.
+  std::function<bool(const part&)> is_required_part{};
+  std::function<bool(const relationship&)> is_required_relationship{};
+};
+
+// A caller-authored profile selects expected types by relationships, decodes fresh candidates,
+// and supplies vocabulary/reference semantics. Callback codecs must charge allocations/work
+// to shared_budget(); generated automatic codec-budget integration remains a separate feature.
+class profile_loader {
+  opc_reader& reader_;
+  extension_policy policy_;
+  std::set<std::string, std::less<>> decoded_{};
+  std::set<const relationship*> selected_{};
+  bool finished_{};
+  bool failed_{};
+public:
+  // Borrow an OPC reader and its cumulative budget for one aggregate load.
+  explicit profile_loader(opc_reader& reader, extension_policy policy = {});
+  // Discover and decode a declared role; callback failure reports its source part/link.
+  // A callback may throw package::error with field/reference details for precise diagnostics.
+  void read_related(std::string_view source, std::string_view relationship_type,
+      std::string_view expected_content_type,
+      const std::function<void(std::span<const std::uint8_t>, const part&, budget&)>& decode,
+      std::size_t minimum = 1, std::size_t maximum = 1);
+  // Validate every remaining payload's integrity, then apply optional extension policies.
+  // Call only after application references and semantic checks succeed; no destination is changed.
+  [[nodiscard]] preserved_extensions finish();
+  // Share cumulative accounting with nested codecs, references and application validation.
+  [[nodiscard]] budget& shared_budget() const noexcept;
+};
+
+template <typename Model>
+struct aggregate_result {
+  Model value{};
+  preserved_extensions extensions{};
+};
+
+// Build a complete candidate and retained extensions before returning any typed result.
+// The callback decodes required parts and performs reference/semantic checks on the candidate.
+template <typename Model, typename Decode>
+[[nodiscard]] aggregate_result<Model> load_opc(opc_reader& reader, Decode&& decode,
+                                              extension_policy policy = {}) {
+  aggregate_result<Model> candidate;
+  profile_loader loader{reader, std::move(policy)};
+  std::forward<Decode>(decode)(candidate.value, loader);
+  candidate.extensions = loader.finish();
+  return candidate;
+}
+
+// Commit the whole aggregate with one nonthrowing swap; every preparation failure preserves it.
+template <typename Model, typename Decode>
+  requires std::is_nothrow_swappable_v<aggregate_result<Model>>
+void load_opc_into(opc_reader& reader, aggregate_result<Model>& destination, Decode&& decode,
+                   extension_policy policy = {}) {
+  auto candidate = load_opc<Model>(reader, std::forward<Decode>(decode), std::move(policy));
+  using std::swap;
+  swap(destination, candidate);
+}
+
+// Append retained opaque bytes/links after known edits; finish revalidates all target identities.
+void write_preserved(opc_writer& writer, const preserved_extensions& extensions);
+// Canonical writers sort complete supplied parts and relationships, use fixed ZIP metadata and
+// preserve authored IDs. Byte identity requires identical codec bytes, compressor/version/options.
+// The caller owns part bytes; aggregate scratch is bounded before any archive output is emitted.
+void write_canonical_zip(std::ostream& output, std::span<const opaque_part> parts,
+                          std::shared_ptr<budget> shared = {});
+void write_canonical_opc(std::ostream& output, std::span<const opaque_part> parts,
+                          std::span<const relationship> relationships,
+                          std::shared_ptr<budget> shared = {});
 
 // Stage a full ZIP Save beside the destination and publish only after finish/close.
 // Replacement syncs the file and parent directory; this is not a sidecar transaction.

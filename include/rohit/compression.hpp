@@ -3,10 +3,14 @@
 // See LICENSE-RUNTIME for permission to use this runtime in proprietary applications.
 #pragma once
 
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <memory>
 #include <span>
 #include <stdexcept>
+#include <type_traits>
 #include <variant>
 #include <vector>
 
@@ -24,9 +28,47 @@ public:
   error(error_code code, const char* message) : std::runtime_error{message}, code{code} {}
 };
 
+// Borrow a callable object without allocation; copies retain the same non-owning reference.
+// The callable must remain valid at a stable address for every invocation, including through
+// a streaming encoder. No synchronization is added; callable exceptions propagate unchanged.
+class cancellation_callback {
+  const void* context_{};
+  void (*invoke_)(const void*){};
+
+  // Invoke the original lvalue while preserving its const or mutable call operator.
+  template <typename Callback>
+  static void invoke_callback(const void* context) {
+    std::invoke(*static_cast<Callback*>(const_cast<void*>(context)));
+  }
+
+public:
+  // Keep the disabled state literal so existing constexpr limit policies remain valid.
+  constexpr cancellation_callback() noexcept = default;
+  // Accept an explicit disabled hook without retaining any callable.
+  constexpr cancellation_callback(std::nullptr_t) noexcept {}
+  // Borrow only lvalue callable objects; temporary callables would leave dangling references.
+  template <typename Callback>
+    requires(std::is_lvalue_reference_v<Callback&&> &&
+             std::is_object_v<std::remove_reference_t<Callback>> &&
+             !std::is_volatile_v<std::remove_reference_t<Callback>> &&
+             !std::same_as<std::remove_cvref_t<Callback>, cancellation_callback> &&
+             std::invocable<Callback&>)
+  constexpr cancellation_callback(Callback&& callback) noexcept
+      : context_{std::addressof(callback)},
+        invoke_{&invoke_callback<std::remove_reference_t<Callback>>} {}
+  // Report whether a callable object was supplied.
+  constexpr explicit operator bool() const noexcept { return invoke_ != nullptr; }
+  // Poll the borrowed callable, or do nothing for an empty hook.
+  void operator()() const {
+    if (invoke_) { invoke_(context_); }
+  }
+};
+
 struct encode_limits {
   std::size_t max_input_bytes{64 * mebibyte};
   std::size_t max_output_bytes{64 * mebibyte};
+  // Throw to cancel at each built-in provider output boundary; custom providers must cooperate.
+  cancellation_callback check_cancelled{};
 };
 
 // Implementations emit chunks through this bounded sink; it owns no backend state.
@@ -82,6 +124,8 @@ struct decode_options {
   std::size_t max_decompressed_bytes{64 * mebibyte};
   std::size_t max_window_bytes{8 * mebibyte};
   const backend* custom_backend{};
+  // Throw to cancel at each built-in provider output boundary, including empty output batches.
+  cancellation_callback check_cancelled{};
 };
 
 // Report compiled-in built-in formats; custom adapters are selected explicitly per call.

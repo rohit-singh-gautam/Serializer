@@ -95,6 +95,21 @@ validation; a later assignment to an existing object can itself throw.
 exceptions retain their existing types. Compression storage is separate from the
 inner decoder's object-allocation accounting.
 
+`encode_limits::check_cancelled` and `decode_options::check_cancelled` are optional
+callbacks that throw to cancel. Built-in backends invoke them at every output
+boundary, including batches producing zero bytes; streaming encoders use the same
+hook. The allocation-free `cancellation_callback` borrows a named callable object;
+const and mutable lvalues are supported, while temporary callables are rejected.
+Copies refer to the same original object. Keep that callable valid at a stable
+address through the complete call, or through the streaming encoder's lifetime.
+The default/empty hook is a no-op and preserves literal `constexpr` limit policies.
+No synchronization is added around application callbacks.
+ZIP/OPC supply their shared operation-budget cancellation hook for DEFLATE.
+Cancellation exceptions retain their original type, and failed streaming writers
+remain fenced. This bounds polling between backend calls, not the execution time
+of one backend call. Custom adapters must emit/check bounded batches themselves;
+they cannot be preempted while executing arbitrary application code.
+
 ## Backend options and extensibility
 
 `zstd_options` defaults to level 3; `lz4_options` to level 0. Both enable content

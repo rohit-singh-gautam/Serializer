@@ -125,6 +125,14 @@ public:
 };
 } // namespace
 
+// Preserve positional initialization of the XML options that predate bundle pins.
+TEST(output_options, xml_options_preserve_aggregate_initialization) {
+  const writer::xml_options options{true, false, "input", {}, {{"legacy", {}}}};
+  EXPECT_TRUE(options.enabled);
+  EXPECT_TRUE(options.classes.contains("legacy"));
+  EXPECT_TRUE(options.bundle_sha256.empty());
+}
+
 // Profiles rename symbols by role while preserving the schema's field and enum wire spellings.
 TEST(output_options, profiles_preserve_wire_names) {
   constexpr std::string_view schema =
@@ -380,6 +388,66 @@ TEST(output_options, constant_evaluation_configuration) {
                              "[cpp]\nprotocols = all\nprotocols = binary_none\n"}) {
     EXPECT_THROW(writer::read_output_options(file.write(invalid)), std::invalid_argument);
   }
+}
+
+// Global native selection reaches every SDK independently of XML and C++ overrides.
+TEST(output_options, common_protocol_selection) {
+  configuration_file file;
+  for (const auto text : {"[output]\nprotocols = binary_none\n[cpp]\nprotocols = all\n",
+                          "[cpp]\nprotocols = all\n[output]\nprotocols = binary_none\n"}) {
+    const auto options = writer::read_output_options(file.write(text));
+    EXPECT_EQ(options.cpp.protocols, writer::output_protocols::all);
+    EXPECT_EQ(options.protocols, writer::output_protocols::binary_none);
+    EXPECT_EQ(options.java.protocols, writer::output_protocols::binary_none);
+    for (const auto* portable : {&options.js, &options.go, &options.csharp, &options.kotlin}) {
+      EXPECT_EQ(portable->protocols, writer::output_protocols::binary_none);
+      EXPECT_FALSE(portable->xml.enabled);
+    }
+  }
+  const auto options = writer::read_output_options(file.write(
+      "[output]\nprotocols = binary_none\n[xml]\nenabled = true\n"));
+  EXPECT_TRUE(options.java.xml.enabled);
+  EXPECT_EQ(options.cpp.protocols, writer::output_protocols::binary_none);
+  EXPECT_THROW(writer::read_output_options(file.write("[output]\nprotocols = json\n")), std::invalid_argument);
+  EXPECT_THROW(writer::read_output_options(file.write("[output]\nprotocols = all\nprotocols = binary_none\n")), std::invalid_argument);
+}
+
+// Existing C++ callers retain their option-specific diagnostic alongside the common parser.
+TEST(output_options, protocol_selection_diagnostics) {
+  const auto check = [](auto parse, std::string_view expected) {
+    try {
+      static_cast<void>(parse("json"));
+      FAIL() << "Expected unsupported native protocol selection to fail";
+    } catch (const std::invalid_argument& failure) {
+      EXPECT_EQ(std::string_view{failure.what()}, expected);
+    }
+  };
+  check(writer::parse_cpp_protocols, "cpp.protocols must be all or binary_none");
+  check(writer::parse_output_protocols, "protocols must be all or binary_none");
+}
+
+// Restricted codecs diagnose before reading or writing, and omit keyed record dispatch where supported.
+TEST(output_options, portable_protocol_selection) {
+  const std::string schema{"class sample { public uint32 value { 7 }; }"};
+  const auto input = rohit::make_constant_stream(schema);
+  const auto statements = rohit::serializer::parser::parse(input);
+  for (const auto language : {"js", "typescript", "go", "csharp", "rust", "python", "swift", "kotlin", "c"}) {
+    SCOPED_TRACE(language);
+    writer::portable_options options{};
+    options.protocols = writer::output_protocols::binary_none;
+    const auto source = writer::portable::generate(statements, language, "Schema", options);
+    EXPECT_NE(source.find(language == std::string_view{"typescript"} ? "encode(protocol: 1)" :
+        language == std::string_view{"c"} ? "out->protocol != srl_binary_none" : "Protocol disabled during generation"), std::string::npos);
+    if (language == std::string_view{"js"} || language == std::string_view{"go"} ||
+        language == std::string_view{"csharp"}) {
+      EXPECT_EQ(source.find("else if (input.protocol == "), std::string::npos);
+    }
+  }
+  writer::java_options options{};
+  options.protocols = writer::output_protocols::binary_none;
+  const auto source = writer::java::generate(statements, "Schema", options);
+  EXPECT_NE(source.find("Protocol disabled during generation"), std::string::npos);
+  EXPECT_EQ(source.find("else if (in.protocol == Protocol.BINARY_INTEGER)"), std::string::npos);
 }
 
 // Enabling constant output leaves the established runtime traversal unchanged.

@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
 // SPDX-License-Identifier: 0BSD
 mod schema;
-use schema::{Error, Protocol, ShapesChild, ShapesRecord, ShapesState, XmlLimits, XmlValidator};
+use schema::{Error, Protocol, ShapesChild, ShapesRecord, ShapesState, ShapesCatalog, XmlLimits, XmlValidator};
 
 /// A caller-prepared validator that proves both generated hook directions are enforced.
 struct RejectSchema;
@@ -12,6 +12,13 @@ impl XmlValidator for RejectSchema {
 
 /// Qualify generated nested, optional, fixed enum, exact numeric and scalar text mappings.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let catalog_xml = "<catalog xmlns='urn:serializer:vocabulary'><prices><price currency='USD'>12.5</price></prices><labels><label>A&amp;B</label><label/></labels></catalog>";
+    let catalog = ShapesCatalog::decode_xml(catalog_xml)?;
+    assert_eq!(catalog.prices[0].currency, "USD"); assert_eq!(catalog.prices[0].value, 12.5);
+    assert_eq!(catalog.labels, vec!["A&B", ""]);
+    assert_eq!(catalog.encode(Protocol::BinaryNone)?, ShapesCatalog::decode_xml(&catalog.encode_xml()?)?.encode(Protocol::BinaryNone)?);
+    assert!(ShapesCatalog::decode_xml(&ShapesCatalog::default().encode_xml()?)?.prices.is_empty());
+    assert!(ShapesCatalog::decode_xml(&catalog_xml.replace("<prices>", "<prices extra='1'>")).is_err());
     let mut value = ShapesRecord::default();
     value.big = u64::MAX;
     value.label = "\tX\r\n\u{1f600}".to_owned();

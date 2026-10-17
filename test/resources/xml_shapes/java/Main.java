@@ -16,6 +16,12 @@ public final class Main {
 
   /** Check complete model values and selected prepared runtime XSD enforcement. */
   public static void main(String[] args) {
+    String catalogXml = "<catalog xmlns='urn:serializer:vocabulary'><prices><price currency='USD'>12.5</price></prices><labels><label>A&amp;B</label><label/></labels></catalog>";
+    var catalog = Schema.Shapes.Catalog.decodeXml(catalogXml.getBytes(StandardCharsets.UTF_8));
+    if (catalog.prices.length != 1 || catalog.prices[0].value != 12.5 || !catalog.prices[0].currency.equals("USD") || !catalog.labels[0].equals("A&B")) throw new AssertionError("Simple content/wrappers");
+    if (!Arrays.equals(catalog.encode(Schema.Protocol.BINARY_NONE), Schema.Shapes.Catalog.decodeXml(catalog.encodeXml()).encode(Schema.Protocol.BINARY_NONE))) throw new AssertionError("Vocabulary roundtrip");
+    if (Schema.Shapes.Catalog.decodeXml(new Schema.Shapes.Catalog().encodeXml()).prices.length != 0) throw new AssertionError("Empty wrappers");
+    try { Schema.Shapes.Catalog.decodeXml(catalogXml.replace("<prices>", "<prices extra='1'>").getBytes(StandardCharsets.UTF_8)); throw new AssertionError("Unknown wrapper attribute"); } catch (IllegalArgumentException expected) { /* Expected contract rejection. */ }
     var value = new Schema.Shapes.Record();
     value.big = -1L;
     value.label = "\tX\r\n\ud83d\ude00";

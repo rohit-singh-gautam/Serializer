@@ -134,13 +134,19 @@ private static final class SrlXmlFields {
   final java.util.Set<String> used = new java.util.HashSet<>();
   int next;
   /** Reject text where a generated record expects fields. */
-  SrlXmlFields(SrlXmlNode node) { this.node = node; if (!srlXmlTrim(node.text.toString()).isEmpty()) throw new IllegalArgumentException("Unexpected XML record text"); }
+  SrlXmlFields(SrlXmlNode node) { this(node, false); }
+  /** Bind simple content only when explicitly selected by the fixed mapping. */
+  SrlXmlFields(SrlXmlNode node, boolean hasText) { this.node = node; if (!hasText && !srlXmlTrim(node.text.toString()).isEmpty()) throw new IllegalArgumentException("Unexpected XML record text"); }
+  /** Read simple text without accepting element children. */
+  String text() { if (!node.children.isEmpty()) throw new IllegalArgumentException("XML simple content contains children"); return node.text.toString(); }
   /** Read a required or optional attribute without losing absence. */
   String attribute(String name, boolean optional) { String value = node.attributes.get(name); if (value == null && !optional) throw new IllegalArgumentException("Required XML attribute missing"); if (value != null && !used.add(name)) throw new IllegalArgumentException("Repeated XML attribute mapping"); return value; }
   /** Consume only contiguous children under statically selected cardinality. */
   java.util.List<SrlXmlNode> children(String name, int minimum, int maximum) { int begin = next; while (next < node.children.size() && node.children.get(next).name.equals(name)) ++next; int count = next - begin; if (count < minimum || maximum >= 0 && count > maximum) throw new IllegalArgumentException("XML field occurrence mismatch"); return node.children.subList(begin, next); }
   /** Reject unknown, duplicate and misplaced members before model publication. */
   void finish() { if (used.size() != node.attributes.size() || next != node.children.size()) throw new IllegalArgumentException("Unexpected XML field"); }
+  /** Require one collection wrapper and consume all of its attributes and children. */
+  java.util.List<SrlXmlNode> wrapped(String wrapper, String name, int minimum, int maximum) { var fields = new SrlXmlFields(children(wrapper, 1, 1).get(0)); var result = fields.children(name, minimum, maximum); fields.finish(); return result; }
 }
 /** Emit deterministic XML1.0 bytes with bounded escaped output. */
 private static byte[] srlXmlWrite(SrlXmlNode root, Limits limits) {

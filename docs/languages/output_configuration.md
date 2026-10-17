@@ -48,6 +48,8 @@ and the [CMake variants helper](../guides/cmake_integration.md#generate-several-
 | --- | --- | --- |
 | `[output] language` | `cpp` | Select supported backends listed above, individually or as a comma-separated list. |
 | `[output] include_mode` | `separate` | C++ schema include layout: `separate` emits dependency headers; `inline` keeps the combined entry header. |
+| `[output] protocols` | `all` | Select `all` native codecs or `binary_none` for every selected backend; XML remains independently opt-in. |
+| `[cpp] protocols` | Inherit `[output] protocols` | Override native codec selection for C++ alone. |
 | `[cpp] coding_standard` | `serializer` | Select a profile from the table below. |
 | `[cpp] naming` | `profile` | Rename target identifiers; `preserve` retains schema spellings. |
 | `[cpp] protobuf` | `false` | Generate direct Protobuf binary, ProtoJSON, and TextProto codecs; validate the [compatible schema subset](../serialization/protobuf.md). |
@@ -72,6 +74,23 @@ selects scalar attributes; `root`, `namespace` and `name.<member>` configure nam
 A supported fixed XSD is authoritative for placement and order. See
 [XML configuration and APIs](../serialization/xml_packages.md) and the
 [all-language examples](../../example/xml/README.md).
+
+Use `--protocols binary_none` or `[output] protocols = binary_none` to restrict
+native encode/decode entry points across every output. `--cpp.protocols` remains
+a C++ override and takes precedence over the common CLI selection. Configuration
+section order does not affect this inheritance. Defaults retain all four native
+formats and their existing public APIs and wire bytes.
+
+Restricted C++ output constrains the concrete protocol methods at compile time.
+Other generated SDKs keep their established protocol-parameter APIs and reject
+excluded formats before serializing or decoding an object; TypeScript declarations
+also restrict that parameter to the positional protocol literal. Generated record
+decoders omit redundant keyed/name dispatch paths where supported. Shared runtime
+helpers remain present, so this selection does not promise complete source-level runtime pruning
+or a particular code-size reduction. `xml.enabled = true` still generates XML
+entry points with this native selection; native selection never enables XML.
+The existing C++ restrictions on managed/view models and Protobuf combinations
+continue to apply.
 
 INI keys, section names, profile names, and boolean values are case-sensitive.
 Each section/key may appear once. Blank lines and whole-line `#` or `;` comments

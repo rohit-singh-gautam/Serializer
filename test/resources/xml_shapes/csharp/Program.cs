@@ -17,6 +17,12 @@ internal static class Program {
 
   // Check complete model values and selected prepared runtime XSD enforcement.
   private static void Main() {
+    string catalogXml = "<catalog xmlns='urn:serializer:vocabulary'><prices><price currency='USD'>12.5</price></prices><labels><label>A&amp;B</label><label/></labels></catalog>";
+    var catalog = ShapesCatalog.DecodeXml(Encoding.UTF8.GetBytes(catalogXml));
+    if (catalog.Prices.Count != 1 || catalog.Prices[0].Value != 12.5 || catalog.Prices[0].Currency != "USD" || catalog.Labels[0] != "A&B") throw new Exception("Simple content/wrappers");
+    if (!catalog.Encode(Protocol.BINARY_NONE).AsSpan().SequenceEqual(ShapesCatalog.DecodeXml(catalog.EncodeXml()).Encode(Protocol.BINARY_NONE))) throw new Exception("Vocabulary roundtrip");
+    if (ShapesCatalog.DecodeXml(new ShapesCatalog().EncodeXml()).Prices.Count != 0) throw new Exception("Empty wrappers");
+    try { ShapesCatalog.DecodeXml(Encoding.UTF8.GetBytes(catalogXml.Replace("<prices>", "<prices extra='1'>"))); throw new Exception("Unknown wrapper attribute"); } catch (FormatException) { /* Expected contract rejection. */ }
     var value = new ShapesRecord {
       Big = ulong.MaxValue,
       Label = "\tX\r\n\U0001f600",

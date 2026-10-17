@@ -1499,7 +1499,7 @@ class emitter {
       if (verify_size) { local("srlRecordStart", "input.position()"); }
       if (payload_size) {
         local("srlSizeExcludedBytes", "0");
-        local("srlKeyStart", "0");
+        if (options.protocols == output_protocols::all) { local("srlKeyStart", "0"); }
       }
       if (verify_size) {
         for (const auto* item : derived_fields) {
@@ -1547,7 +1547,9 @@ class emitter {
       read_versioned_member(value, item, -1, true);
       close();
     }
+    const auto keyed_protocols = options.protocols == output_protocols::all;
     for (const bool numeric : {true, false}) {
+      if (!keyed_protocols) { break; }
       --level;
       line(numeric ? "} else if (input.protocol == " + protocol("BINARY_INTEGER") + ") {"
                    : "} else {");
@@ -2397,8 +2399,9 @@ class emitter {
     }
     if (language == target::typescript) {
       line("constructor();");
-      line("encode(protocol: Protocol): Uint8Array;");
-      line("static decode(bytes: Uint8Array, protocol: Protocol, limits?: Limits): " + identifier +
+      const auto protocol_type = options.protocols == output_protocols::binary_none ? "1" : "Protocol";
+      line("encode(protocol: " + std::string{protocol_type} + "): Uint8Array;");
+      line("static decode(bytes: Uint8Array, protocol: " + std::string{protocol_type} + ", limits?: Limits): " + identifier +
            ";");
       if (options.xml.enabled) {
         source += xml_binding::js_methods(value, xml_schema_.bind(value),
@@ -2456,6 +2459,11 @@ class emitter {
     open(choose("encode(protocol)",
                 "func (value *" + identifier + ") Encode(protocol Protocol) ([]byte, error)",
                 "public byte[] Encode(Protocol protocol)"));
+    if (options.protocols == output_protocols::binary_none) {
+      line(choose("if (protocol !== Protocol.BINARY_NONE) { throw new RangeError('Protocol disabled during generation'); }",
+                  "if protocol != BINARY_NONE { return nil, fmt.Errorf(\"Protocol disabled during generation\") }",
+                  "if (protocol != Protocol.BINARY_NONE) { throw new System.ArgumentException(\"Protocol disabled during generation\"); }"));
+    }
     local("output",
           choose("new SrlWriter(protocol)", "srlNewWriter(protocol)", "new SrlWriter(protocol)"));
     statement(choose("this.write(output)", "value.write(output)", "this.Write(output)"));
@@ -2476,6 +2484,11 @@ class emitter {
                 "public static " + identifier +
                     " Decode(System.ReadOnlyMemory<byte> bytes, Protocol protocol, Limits? limits "
                     "= null)"));
+    if (options.protocols == output_protocols::binary_none) {
+      line(choose("if (protocol !== Protocol.BINARY_NONE) { throw new RangeError('Protocol disabled during generation'); }",
+                  "if protocol != BINARY_NONE { return nil, fmt.Errorf(\"Protocol disabled during generation\") }",
+                  "if (protocol != Protocol.BINARY_NONE) { throw new System.ArgumentException(\"Protocol disabled during generation\"); }"));
+    }
     if (language == target::go) {
       local("limits", "DefaultLimits()");
       condition("len(policies) > 1");
@@ -2504,6 +2517,9 @@ class emitter {
     line("// Write schema fields directly in declaration order.");
     open(choose("write(output)", "func (value *" + identifier + ") write(output *srlWriter)",
                 "internal void Write(SrlWriter output)"));
+    if (language == target::js && options.protocols == output_protocols::binary_none) {
+      line("if (output.protocol !== Protocol.BINARY_NONE) { throw new RangeError('Protocol disabled during generation'); }");
+    }
     if (language == target::go) {
       condition("value == nil");
       statement("output.fail(\"Nil object\")");
@@ -2517,6 +2533,9 @@ class emitter {
         "static read(input, result)",
         "func read" + identifier + "(input *srlReader, result *" + identifier + ") *" + identifier,
         "internal static " + identifier + " Read(SrlReader input, " + identifier + " result)"));
+    if (language == target::js && options.protocols == output_protocols::binary_none) {
+      line("if (input.protocol !== Protocol.BINARY_NONE) { throw new RangeError('Protocol disabled during generation'); }");
+    }
     if (language == target::go) {
       condition("input.err != nil");
       statement("return result");
@@ -2687,6 +2706,7 @@ std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements
     comparison_schema.class_comparisons = options.class_comparisons;
     comparison_schema.class_auto_sizes = options.class_auto_sizes;
     comparison_schema.xml = options.xml;
+    comparison_schema.protocols = options.protocols;
     if (language == "c") {
       return behavior::finalize_mappings(generated_license_notice(statements) + native::c(comparison_schema) +
           (options.xml.enabled ? xml_codegen::generate_native(comparison_schema, options.xml, language) : ""));

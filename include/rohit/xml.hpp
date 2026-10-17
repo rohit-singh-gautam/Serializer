@@ -305,6 +305,28 @@ template <typename T> void add_child(element& node, const name& field_name, cons
   }
 }
 
+// Encode a scalar as simple record content while retaining its separately mapped attributes.
+template <typename T> void set_text(element& node, const T& value, build_budget& budget) {
+  if constexpr (std::same_as<T, std::string>) {
+    budget.text(value.size());
+    node.text = value;
+  } else {
+    auto text = detail::scalar_text(value);
+    budget.text(text.size());
+    node.text = std::move(text);
+  }
+}
+
+// Retain an explicit collection wrapper even when the collection is empty.
+template <typename T> void add_wrapped_children(element& node, const name& wrapper_name,
+    const name& item_name, const T& value, build_budget& budget) {
+  const auto depth = budget.enter(wrapper_name);
+  element wrapper{};
+  wrapper.qualified_name = wrapper_name;
+  add_child(wrapper, item_name, value, budget);
+  node.children.push_back(std::move(wrapper));
+}
+
 // Ordered field decoder enforces exact attribute membership and child sequence/cardinality.
 class field_reader {
   const element& node_;
@@ -312,9 +334,14 @@ class field_reader {
   std::size_t next_child_{};
 public:
   // Bind one record; indentation whitespace is accepted but mixed scalar text is rejected.
-  explicit field_reader(const element& node)
+  explicit field_reader(const element& node, bool has_text = false)
       : node_{node}, used_attributes_(node.attributes.size(), false) {
-    if (!detail::trim(node.text).empty()) { throw std::invalid_argument{"Unexpected XML record text"}; }
+    if (!has_text && !detail::trim(node.text).empty()) { throw std::invalid_argument{"Unexpected XML record text"}; }
+  }
+  // Decode simple content; child markup is forbidden even when its text would be empty.
+  template <typename T> void text_value(T& value) {
+    if (!node_.children.empty()) { throw std::invalid_argument{"XML simple content contains children"}; }
+    detail::read_scalar(node_.text, value);
   }
   // Decode one required/optional attribute; duplicate attributes are rejected by the parser/writer.
   template <typename T> void attribute_value(const name& field_name, T& value) {
@@ -361,6 +388,15 @@ public:
       if (!present()) { throw std::invalid_argument{"Required XML child missing or out of order"}; }
       get_value(node_.children[next_child_++], value);
     }
+  }
+  // Require one wrapper, then apply the same exact item contract within its own scope.
+  template <typename T> void wrapped_child_value(const name& wrapper_name, const name& item_name, T& value) {
+    if (next_child_ >= node_.children.size() || node_.children[next_child_].qualified_name != wrapper_name) {
+      throw std::invalid_argument{"Required XML collection wrapper missing or out of order"};
+    }
+    field_reader wrapper{node_.children[next_child_++]};
+    wrapper.child_value(item_name, value);
+    wrapper.finish();
   }
   // Reject every undeclared attribute and every unknown, duplicate or misplaced child.
   void finish() const {

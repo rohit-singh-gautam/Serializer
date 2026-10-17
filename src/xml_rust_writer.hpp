@@ -5,6 +5,7 @@
 #include "native_schema.hpp"
 #include "xml_schema.hpp"
 
+#include <algorithm>
 #include <functional>
 #include <string>
 #include <string_view>
@@ -196,12 +197,17 @@ fn srl_xml_text<'a,'input:'a>(node:roxmltree::Node<'a,'input>) -> Result<String,
     if node.attributes().len() != 0 || node.children().any(|child| child.is_element()) { return Err(Error("XML scalar contains markup")); }
     let mut result=String::new(); for child in node.children().filter(|child| child.is_text()) { result.push_str(child.text().unwrap_or("")); } Ok(result)
 }
+/// Read simple content while retaining separately checked record attributes.
+fn srl_xml_simple_text(node:roxmltree::Node<'_, '_>) -> Result<String,Error> {
+    if node.children().any(|child| child.is_element()) { return Err(Error("XML simple content contains children")); }
+    Ok(node.children().filter(|child| child.is_text()).filter_map(|child| child.text()).collect())
+}
 /// Ordered field state borrows the bounded parsed tree and publishes no model before finish.
 struct SrlXmlFields<'a,'input:'a> { attributes:Vec<roxmltree::Attribute<'a,'input>>, used:Vec<bool>, children:Vec<roxmltree::Node<'a,'input>>, next:usize }
 impl<'a,'input:'a> SrlXmlFields<'a,'input> {
     /// Reject record text and collect only direct child elements.
-    fn new(node:roxmltree::Node<'a,'input>) -> Result<Self,Error> {
-        if node.children().any(|child| child.is_text() && !child.text().unwrap_or("").trim_matches([' ','\t','\r','\n']).is_empty()) { return Err(Error("Unexpected XML record text")); }
+    fn new(node:roxmltree::Node<'a,'input>,has_text:bool) -> Result<Self,Error> {
+        if !has_text && node.children().any(|child| child.is_text() && !child.text().unwrap_or("").trim_matches([' ','\t','\r','\n']).is_empty()) { return Err(Error("Unexpected XML record text")); }
         let attributes:Vec<_>=node.attributes().collect(); let used=vec![false;attributes.len()];
         Ok(Self {attributes,used,children:node.children().filter(|child| child.is_element()).collect(),next:0})
     }
@@ -220,6 +226,12 @@ impl<'a,'input:'a> SrlXmlFields<'a,'input> {
     }
     /// Require every direct attribute/child to have one declared consumer.
     fn finish(&self) -> Result<(),Error> { if self.used.iter().any(|used| !used) || self.next != self.children.len() { Err(Error("Unexpected XML member")) } else { Ok(()) } }
+    /// Require one wrapper and consume all of its item content.
+    fn wrapped(&mut self,wrapper_uri:&str,wrapper_local:&str,uri:&str,local:&str,minimum:usize,maximum:Option<usize>) -> Result<Vec<roxmltree::Node<'a,'input>>,Error> {
+        let wrapper=self.children(wrapper_uri,wrapper_local,1,Some(1))?[0];
+        let mut fields=Self::new(wrapper,false)?;
+        let result=fields.children(uri,local,minimum,maximum)?; fields.finish()?; Ok(result)
+    }
 }
 )xml";
 }
@@ -279,7 +291,7 @@ inline std::string rust_methods(const class_node& owner, const record& contract,
   else { line("let _=validator;"); }
   line("let node=document.root_element(); if !srl_xml_name(node," + quote(contract.root.namespace_uri) + "," + quote(contract.root.local) + ") { return Err(Error(\"Unexpected XML root\")); } Self::srl_xml_read(node) }");
   line("/// Read generated field assignments directly, preserving transactionality.");
-  line("fn srl_xml_read(node:roxmltree::Node<'_, '_>) -> Result<Self,Error> { let mut fields=SrlXmlFields::new(node)?; let mut value=Self::default();");
+  line("fn srl_xml_read(node:roxmltree::Node<'_, '_>) -> Result<Self,Error> { let mut fields=SrlXmlFields::new(node," + std::string{std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) { return field.text; }) ? "true" : "false"} + ")?; let mut value=Self::default();");
   std::size_t index{};
   for (const auto& field : contract.fields) {
     const auto& source = *field.source;
@@ -290,7 +302,9 @@ inline std::string rust_methods(const class_node& owner, const record& contract,
     const auto uri = quote(field.qualified_name.namespace_uri);
     const auto temporary = "field_" + std::to_string(index++);
     const auto destination = "value." + field_name(source);
-    if (field.attribute) {
+    if (field.text) {
+      line(destination + " = " + read_scalar(leaf, "srl_xml_simple_text(node)?") + ";");
+    } else if (field.attribute) {
       line("let " + temporary + "=fields.attribute(" + uri + "," + local + "," + (optional ? "true" : "false") + ")?;");
       const auto conversion = read_scalar(leaf, "text.to_owned()");
       line(destination + "=" + (optional ? "match " + temporary + " { Some(text) => Some(" + conversion + "),None=>None }"
@@ -298,7 +312,7 @@ inline std::string rust_methods(const class_node& owner, const record& contract,
     } else {
       const auto minimum = source.fixed_extent != 0 ? source.fixed_extent : field.min_occurs;
       const auto maximum = source.fixed_extent != 0 ? std::optional<std::size_t>{source.fixed_extent} : field.max_occurs;
-      line("let " + temporary + "=fields.children(" + uri + "," + local + "," + std::to_string(minimum) + "," +
+      line("let " + temporary + "=fields." + std::string{field.wrapper ? "wrapped(" + quote(field.wrapper->namespace_uri) + "," + quote(field.wrapper->local) + "," : "children("} + uri + "," + local + "," + std::to_string(minimum) + "," +
           (maximum ? "Some(" + std::to_string(*maximum) + ")" : "None") + ")?;");
       const auto conversion = leaf.type == object_type::class_type ? type_identifier(leaf) + "::srl_xml_read(child)?"
           : read_scalar(leaf, "srl_xml_text(child)?");
@@ -335,6 +349,7 @@ inline std::string rust_methods(const class_node& owner, const record& contract,
     const auto& leaf = optional || original.is_sequence() ? original.arguments.front() : original;
     auto expression = "(&self." + field_name(source) + ")";
     if (optional) { line("if let Some(item)=" + expression + ".as_ref() {"); expression = "item"; }
+    if (field.wrapper) { line("output.open(" + quote(field.wrapper->local) + "," + quote(field.wrapper->namespace_uri) + ")?; output.put(\">\")?;"); }
     if (field.repeated) {
       const auto minimum = source.fixed_extent != 0 ? source.fixed_extent : field.min_occurs;
       const auto maximum = source.fixed_extent != 0 ? std::optional<std::size_t>{source.fixed_extent} : field.max_occurs;
@@ -344,12 +359,15 @@ inline std::string rust_methods(const class_node& owner, const record& contract,
       if (!condition.empty()) { line("if " + condition + " { return Err(Error(\"XML array cardinality\")); }"); }
       line("for item in " + expression + ".iter() { "); expression = "item";
     }
-    if (leaf.type == object_type::class_type) {
+    if (field.text) {
+      line("output.escaped(" + scalar(leaf, expression) + ",false)?;");
+    } else if (leaf.type == object_type::class_type) {
       line(expression + ".srl_xml_write(output," + quote(field.qualified_name.local) + "," + quote(field.qualified_name.namespace_uri) + ")?;");
     } else {
       line("output.child(" + quote(field.qualified_name.local) + "," + quote(field.qualified_name.namespace_uri) + "," + scalar(leaf, expression) + ")?;");
     }
     if (field.repeated) { line("}"); }
+    if (field.wrapper) { line("output.close(" + quote(field.wrapper->local) + ")?;"); }
     if (optional) { line("}"); }
   }
   line("output.close(local) }");

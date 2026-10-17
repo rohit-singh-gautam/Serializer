@@ -1,13 +1,19 @@
 # XML and package support design
 
 Status: implementation specification and remaining requirements, **2026-10-17**.
-Compiler/runtime **2.3.0**, schema language **1.17.0**. See the
+Compiler/runtime **2.4.0**, schema language **1.17.0**. See the
 [implemented API and exact subset](../serialization/xml_packages.md),
 [generated-language examples](../../example/xml/README.md) and concise
 [pending report](../xml_pending.md). XML generation now covers all output
 backends; compression streams and ZIP/OPC have a C++ implementation. Cross-language
 parity and qualification remain completion gates. Examples marked **proposed**
 remain design sketches, not accepted syntax or options.
+
+The 2.4.0 implementation adds configured simple text with attributes and wrappers,
+pinned local XSD bundles and subset export/compatibility tools, native positional
+format selection across backends, and C++ ZIP64/spooling/aggregate profiles.
+The pending report remains authoritative for unimplemented requirements; these
+increments do not complete all phases of this specification.
 
 [XML and XSD](#recommended-scope) ·
 [Multipart packages and OPC](#multipart-packages-and-opc) ·

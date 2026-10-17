@@ -42,6 +42,32 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
+Compiler/runtime **2.4.0** supports XML simple text with scalar attributes and
+explicit collection wrappers across every generated language. Configure
+`[xml.class.source::type] text = member` for one required scalar and
+`wrapper.member = element` for a repeated field. Text mappings permit attributes
+but no child fields; wrappers are required even for empty collections. Regenerate
+every selected output and verify the application's external XML contract.
+Use [pinned XSD bundles and tools](../../../docs/serialization/xsd_tooling.md)
+for local import/include allowlists, SHA-256 identity, dependency tracking,
+supported nested complex types, export and directional reader compatibility.
+Facets, identity constraints and richer models still reject; runtime providers
+do not inherit the compiler bundle resolver.
+
+Select `[output] protocols = binary_none` or `--protocols binary_none` to restrict
+native formats across all backends; defaults remain all formats. XML stays
+independently opt-in. Shared runtime helpers may remain in generated source;
+selection does not promise complete code removal. C++ ZIP64, explicitly bounded
+nonseekable spooling, caller-authored transactional OPC loads, opaque extension
+policies and canonical ordering are documented in the
+[package guide](../../../docs/serialization/xml_packages.md). Codec callbacks must
+share the package budget explicitly. Compression cancellation hooks borrow a named
+callable that must outlive the operation or streaming encoder; see the
+[compression guide](../../../docs/serialization/compression.md).
+These additions do not implement backend
+package/compression parity, generated profiles or managed document-sidecar recovery;
+keep [remaining coverage](../../../docs/xml_pending.md) explicit.
+
 Compiler/runtime **2.3.1** preserves input schema copyright/license notices and
 adds only the minimal Serializer provenance banner. Do not add a Serializer
 license identifier or permission statement to generated application files.

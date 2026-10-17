@@ -1,5 +1,32 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.4.0
+
+Regenerate and rebuild consumers to select `[output] protocols = binary_none`
+across all languages, or use XML `text = member` and `wrapper.member = element`
+mappings. Defaults remain all four native formats and XML opt-in. Existing
+protocol IDs and bytes are unchanged. The new vocabulary mappings require explicit
+configuration and change only that selected XML contract.
+
+Fixed XSD inputs can use pinned local includes/imports; changing any bundle source
+regenerates the codecs through depfiles. Use the
+[XSD tooling guide](docs/serialization/xsd_tooling.md) for path/budget rules,
+SHA-256 pins, supported nested types, export and reader compatibility checks.
+Unsupported facets, identities and content models still reject.
+
+C++ ZIP readers accept ZIP64 and can explicitly spool nonseekable input to a
+bounded private file. ZIP32 output stays the default until its limits require
+ZIP64 or an entry explicitly forces it. New OPC aggregate and preservation APIs
+are caller-authored profiles; generated pipeline/backend parity and the managed
+document-state bridge remain [pending](docs/xml_pending.md).
+
+Recompile compiler-library clients completely because output-option and XML-binding
+structures gained members. Rebuild runtime clients using the changed compression
+options and package classes. Existing named APIs, prior positional aggregate
+initializers and `constexpr` compression policies remain supported. Require
+`find_package(Serializer 2.4 CONFIG REQUIRED)` for these additions; earlier 2.x
+requests remain compatible. Schema language **1.17.0** is unchanged.
+
 ## Compiler/runtime 2.3.1
 
 Regenerate outputs to remove the injected Serializer support-permission banner.

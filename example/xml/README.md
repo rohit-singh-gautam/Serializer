@@ -6,6 +6,11 @@ and [XML fixture](order.xml). No example-local mapping or JSON intermediary is
 required. The separate [C++ package example](../cpp/xml/README.md) also demonstrates
 whole-object compression, ZIP and OPC; their other backend paths remain pending.
 
+The [typed regression fixture](../../test/resources/xml_shapes/README.md) also
+exercises 2.4.0 simple text with attributes, explicit collection wrappers and
+native `binary_none` selection. Use [XSD bundle tooling](../../docs/serialization/xsd_tooling.md)
+for pinned local schemas, export and directional compatibility diagnostics.
+
 ```text
 shared .serializer model
          |

@@ -2,6 +2,13 @@
 
 [Documentation index](../README.md) · [Application and build guides](README.md)
 
+Compiler/runtime **2.4.0** adds configured XML text with attributes and collection
+wrappers in every output, [pinned XSD bundle tools](../serialization/xsd_tooling.md),
+and shared [native format selection](../languages/output_configuration.md).
+The [XML/package guide](../serialization/xml_packages.md) documents C++ ZIP64,
+explicit bounded spooling and transactional caller-authored OPC profiles.
+General backend parity and the managed document-state bridge remain pending.
+
 Compiler/runtime **2.3.0** adds optional generated XML codecs across the language
 outputs, fixed XSD bindings and explicit prepared runtime validation. See
 [XML/package APIs](../serialization/xml_packages.md),

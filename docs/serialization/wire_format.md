@@ -1,5 +1,15 @@
 # Wire format and decoding contract
 
+Compiler/runtime **2.4.0** adds explicitly configured XML simple text/attribute
+and collection-wrapper representations, pinned fixed-XSD bundles and contract
+tools. Existing mappings retain their bytes unless configuration changes their
+XML contract. `[output] protocols = binary_none` restricts generated native entry
+points across outputs without renumbering protocols or changing enabled codec
+bytes. C++ ZIP64 is a standard outer archive representation; ZIP32 remains the
+default until required or explicitly forced. These additions do not change inner
+native codecs, payload revisions, managed history or journal formats. See
+[the XML/package contract](xml_packages.md) and [XSD bundle tools](xsd_tooling.md).
+
 Compiler/runtime **2.3.0** adds opt-in generated XML entry points with a separate
 expanded-name/attribute/ordered-child mapping. Existing JSON/binary protocol IDs,
 native bytes, default selection and managed journal records are unchanged.

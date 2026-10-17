@@ -1178,6 +1178,10 @@ class mobile_emitter {
     line("// Encode one complete message into independent byte storage.");
     open(select("public func encode(_ protocolValue: Protocol) throws -> [UInt8]",
                 "fun encode(protocolValue: Protocol): ByteArray"));
+    if (model.protocols == output_protocols::binary_none) {
+      line(select("guard protocolValue == .BINARY_NONE else { throw SerializerError.invalid(\"Protocol disabled during generation\") }",
+                  "require(protocolValue == Protocol.BINARY_NONE) { \"Protocol disabled during generation\" }"));
+    }
     line(select("let ", "val ") + "out = SrlWriter(protocolValue)");
     line(attempt() + "srlWrite(out)");
     line("return out." + select("bytes", "bytes()"));
@@ -1218,6 +1222,10 @@ class mobile_emitter {
              "Limits = Limits()) throws -> ",
              "fun decode(bytes: ByteArray, protocolValue: Protocol, limits: Limits = Limits()): ") +
          name);
+    if (model.protocols == output_protocols::binary_none) {
+      line(select("guard protocolValue == .BINARY_NONE else { throw SerializerError.invalid(\"Protocol disabled during generation\") }",
+                  "require(protocolValue == Protocol.BINARY_NONE) { \"Protocol disabled during generation\" }"));
+    }
     line(select("let ", "val ") + "input = " + attempt() +
          "SrlReader(bytes, protocolValue, limits)");
     line(select("let ", "val ") + "result = " + attempt() + "srlCreate(input)");
@@ -1386,41 +1394,45 @@ class mobile_emitter {
           "val key = input.key(srlIds, cursor) ?: break"));
     }
     line("cursor += 1");
-    line((swift && value.parents.empty() && value.member_list.empty() && !value.has_magic() ? "let " : "var ") +
+    line((swift && (model.protocols == output_protocols::binary_none ||
+          (value.parents.empty() && value.member_list.empty() && !value.has_magic())) ? "let " : "var ") +
          std::string{"id = key.id"});
     const bool has_union =
         std::any_of(value.member_list.begin(), value.member_list.end(), [](const auto& item) {
           return item.modifier == member::modifier_type::variant;
         });
     if (has_union) {
-      line("var alternative: Int? = " + select("nil", "null"));
+      line(select(model.protocols == output_protocols::binary_none ? "let " : "var ",
+                  model.protocols == output_protocols::binary_none ? "val " : "var ") + "alternative: Int? = " + select("nil", "null"));
     }
-    open(select("if let name = key.name", "if (key.name != null)"));
-    open(select("switch WireString(name)", "when (key.name)"));
-    const auto branch = [&](const std::string& text, std::uint32_t id, int alt) {
-      const auto assignment =
-          "id = " + std::to_string(id) + (alt < 0 ? "" : "; alternative = " + std::to_string(alt));
-      line(select("case " + quote(text) + ": " + assignment,
-                  quote(text) + " -> { " + assignment + " }"));
-    };
-    if (value.has_magic()) { branch("magic", value.magic_id, -1); }
-    for (const auto& base : value.parents) {
-      branch(base.display_name, base.id, -1);
-    }
-    for (const auto& item : wire_members(value)) {
-      if (item.modifier == member::modifier_type::variant) {
-        for (std::size_t i = 0; i < item.type_name_list.size(); ++i) {
-          branch(item.display_name + ":" + item.type_name_list[i].enum_name, item.id,
-                 static_cast<int>(i));
-        }
-      } else {
-        branch(item.display_name, item.id, -1);
+    if (model.protocols == output_protocols::all) {
+      open(select("if let name = key.name", "if (key.name != null)"));
+      open(select("switch WireString(name)", "when (key.name)"));
+      const auto branch = [&](const std::string& text, std::uint32_t id, int alt) {
+        const auto assignment =
+            "id = " + std::to_string(id) + (alt < 0 ? "" : "; alternative = " + std::to_string(alt));
+        line(select("case " + quote(text) + ": " + assignment,
+                    quote(text) + " -> { " + assignment + " }"));
+      };
+      if (value.has_magic()) { branch("magic", value.magic_id, -1); }
+      for (const auto& base : value.parents) {
+        branch(base.display_name, base.id, -1);
       }
+      for (const auto& item : wire_members(value)) {
+        if (item.modifier == member::modifier_type::variant) {
+          for (std::size_t i = 0; i < item.type_name_list.size(); ++i) {
+            branch(item.display_name + ":" + item.type_name_list[i].enum_name, item.id,
+                   static_cast<int>(i));
+          }
+        } else {
+          branch(item.display_name, item.id, -1);
+        }
+      }
+      line(select("default: try input.skipValue(); continue",
+                  "else -> { input.skipValue(); continue }"));
+      close();
+      close();
     }
-    line(select("default: try input.skipValue(); continue",
-                "else -> { input.skipValue(); continue }"));
-    close();
-    close();
     open(select("switch id", "when (id)"));
     if (magic_json) {
       if (swift) {

@@ -1547,6 +1547,9 @@ class c_emitter {
     line("/* Encode in schema order; the source retains ownership of all its fields. */");
     open("static inline void " + n + "_srl_write(srl_writer* out, const " + n + "* value)");
     line("(void)value; if (out->status != srl_ok) { return; }");
+    if (model.protocols == output_protocols::binary_none) {
+      line("if (out->protocol != srl_binary_none) { out->status = srl_invalid; return; }");
+    }
     if (!auto_size::fields(value).empty()) {
       line("const size_t srl_size_start = out->buffer.size;");
       for (const auto* item : auto_size::fields(value)) {
@@ -1648,6 +1651,9 @@ class c_emitter {
     line("/* Decode into a private candidate; public decoding commits only complete messages. */");
     open("static inline void " + n + "_srl_read(srl_reader* in, " + n + "* value)");
     line("(void)value; if (in->status != srl_ok) { return; }");
+    if (model.protocols == output_protocols::binary_none) {
+      line("if (in->protocol != srl_binary_none) { in->status = srl_invalid; return; }");
+    }
     if (!auto_size::fields(value).empty()) {
       line("const size_t srl_size_start = in->offset; (void)srl_size_start;");
       for (const auto* item : auto_size::fields(value)) {
@@ -1710,30 +1716,32 @@ class c_emitter {
       line("if (!srl_read_key(in, ids, sizeof(ids)/sizeof(ids[0])-1, cursor++, &key)) { break; }");
     }
     line("uint32_t id = key.id; int alternative = -1;");
-    open("if (key.named)");
-    bool branch_first = true;
-    const auto branch = [&](const std::string& text, std::uint32_t id, int alt) {
-      line(std::string{branch_first ? "if" : "else if"} + " (srl_string_equal(&key.name, " +
-           quote(text) + ")) { id = " + std::to_string(id) +
-           "; alternative = " + std::to_string(alt) + "; }");
-      branch_first = false;
-    };
-    if (value.has_magic()) { branch("magic", value.magic_id, -1); }
-    for (const auto& base : value.parents) {
-      branch(base.display_name, base.id, -1);
-    }
-    for (const auto& f : wire_members(value)) {
-      if (f.modifier == member::modifier_type::variant) {
-        for (std::size_t i = 0; i < f.type_name_list.size(); ++i) {
-          branch(f.display_name + ":" + f.type_name_list[i].enum_name, f.id, static_cast<int>(i));
-        }
-      } else {
-        branch(f.display_name, f.id, -1);
+    if (model.protocols == output_protocols::all) {
+      open("if (key.named)");
+      bool branch_first = true;
+      const auto branch = [&](const std::string& text, std::uint32_t id, int alt) {
+        line(std::string{branch_first ? "if" : "else if"} + " (srl_string_equal(&key.name, " +
+             quote(text) + ")) { id = " + std::to_string(id) +
+             "; alternative = " + std::to_string(alt) + "; }");
+        branch_first = false;
+      };
+      if (value.has_magic()) { branch("magic", value.magic_id, -1); }
+      for (const auto& base : value.parents) {
+        branch(base.display_name, base.id, -1);
       }
+      for (const auto& f : wire_members(value)) {
+        if (f.modifier == member::modifier_type::variant) {
+          for (std::size_t i = 0; i < f.type_name_list.size(); ++i) {
+            branch(f.display_name + ":" + f.type_name_list[i].enum_name, f.id, static_cast<int>(i));
+          }
+        } else {
+          branch(f.display_name, f.id, -1);
+        }
+      }
+      line(std::string{branch_first ? "" : "else "} +
+           "{ srl_string_free(&key.name); srl_skip_value(in); continue; }");
+      close();
     }
-    line(std::string{branch_first ? "" : "else "} +
-         "{ srl_string_free(&key.name); srl_skip_value(in); continue; }");
-    close();
     line("srl_string_free(&key.name); (void)alternative; if (in->status != srl_ok) { break; }");
     open("switch (id)");
     if (magic_json) {

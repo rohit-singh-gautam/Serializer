@@ -5,6 +5,7 @@
 #include "native_schema.hpp"
 #include "xml_schema.hpp"
 
+#include <algorithm>
 #include <functional>
 #include <set>
 #include <stdexcept>
@@ -195,13 +196,16 @@ function srlXmlScalar(text, kind, encoding = false) {
 }
 // Track exact attribute membership and ordered repeated child consumption for a generated record.
 class SrlXmlFields {
-  constructor(node) {
+  constructor(node, hasText = false) {
+    this.node = node;
     this.attributes = Array.from(node.attributes).filter(attr => attr.namespaceURI !== 'http://www.w3.org/2000/xmlns/');
     this.used = new Set(); this.children = Array.from(node.childNodes).filter(child => child.nodeType === 1); this.next = 0;
     for (const child of Array.from(node.childNodes)) {
-      if ((child.nodeType === 3 || child.nodeType === 4) && srlXmlTrim(child.data)) throw new Error('Unexpected XML record text');
+      if (!hasText && (child.nodeType === 3 || child.nodeType === 4) && srlXmlTrim(child.data)) throw new Error('Unexpected XML record text');
     }
   }
+  // Read simple content without accepting nested elements.
+  text() { if (this.children.length) throw new Error('XML simple content contains children'); return this.node.textContent || ''; }
   attribute(uri, local, optional) {
     const index = this.attributes.findIndex(attr => (attr.namespaceURI || '') === uri && attr.localName === local);
     if (index < 0) { if (optional) return null; throw new Error('Required XML attribute missing'); }
@@ -215,6 +219,8 @@ class SrlXmlFields {
     if (result.length < minimum) throw new Error('Required XML child missing or out of order'); return result;
   }
   finish() { if (this.used.size !== this.attributes.length || this.next !== this.children.length) throw new Error('Unexpected XML member'); }
+  // Require one wrapper and consume its entire item sequence.
+  wrapped(wrapperUri, wrapperLocal, uri, local, minimum, maximum) { const fields = new SrlXmlFields(this.childrenFor(wrapperUri, wrapperLocal, 1, 1)[0]); const result = fields.childrenFor(uri, local, minimum, maximum); fields.finish(); return result; }
 }
 // Reject nested markup/attributes in statically scalar fields.
 function srlXmlText(node) {
@@ -309,7 +315,7 @@ inline std::string js_methods(const class_node& owner, const record& contract,
       quote(contract.root.namespace_uri) + "," + quote(contract.root.local) +
       ")) throw new Error('Unexpected XML root'); return this._srlXmlRead(root); }");
   line("// Read statically bound attributes and children in contract order.");
-  line("static _srlXmlRead(node) { const fields = new SrlXmlFields(node); const value = new " + generated_name + "();");
+  line("static _srlXmlRead(node) { const fields = new SrlXmlFields(node," + std::string{std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) { return field.text; }) ? "true" : "false"} + "); const value = new " + generated_name + "();");
   std::size_t index{};
   for (const auto& field : contract.fields) {
     const auto& source = *field.source;
@@ -320,7 +326,9 @@ inline std::string js_methods(const class_node& owner, const record& contract,
     const auto uri = quote(field.qualified_name.namespace_uri);
     const auto temporary = "field" + std::to_string(index++);
     const auto destination = "value." + field_name(source);
-    if (field.attribute) {
+    if (field.text) {
+      line(destination + " = " + read(leaf, "fields.text()", true) + ";");
+    } else if (field.attribute) {
       line("const " + temporary + " = fields.attribute(" + uri + "," + local + "," +
           (optional ? "true" : "false") + ");");
       line(destination + " = " + (optional ? temporary + " === null ? [] : [" : "") +
@@ -329,7 +337,7 @@ inline std::string js_methods(const class_node& owner, const record& contract,
       auto minimum = field.min_occurs;
       auto maximum = field.max_occurs;
       if (source.fixed_extent != 0) { minimum = source.fixed_extent; maximum = source.fixed_extent; }
-      line("const " + temporary + " = fields.childrenFor(" + uri + "," + local + "," +
+      line("const " + temporary + " = fields." + std::string{field.wrapper ? "wrapped(" + quote(field.wrapper->namespace_uri) + "," + quote(field.wrapper->local) + "," : "childrenFor("} + uri + "," + local + "," +
           std::to_string(minimum) + "," + (maximum ? std::to_string(*maximum) : "null") + ");");
       if (field.repeated) {
         line(destination + " = " + temporary + ".map(child => " + read(leaf, "child", false) + ");");
@@ -375,6 +383,7 @@ inline std::string js_methods(const class_node& owner, const record& contract,
       line("if (" + expression + ".length === 1) {");
       expression += "[0]";
     }
+    if (field.wrapper) { line("output.open(" + quote(field.wrapper->local) + "," + quote(field.wrapper->namespace_uri) + "); output.put('>');"); }
     if (field.repeated) {
       const auto minimum = source.fixed_extent != 0 ? source.fixed_extent : field.min_occurs;
       const auto maximum = source.fixed_extent != 0 ? std::optional<std::size_t>{source.fixed_extent} : field.max_occurs;
@@ -384,12 +393,15 @@ inline std::string js_methods(const class_node& owner, const record& contract,
       line("for (const item of " + expression + ") {");
     }
     const auto item = field.repeated ? std::string{"item"} : expression;
-    if (leaf.type == object_type::class_type) {
+    if (field.text) {
+      line("output.escaped(" + scalar(leaf, item) + ",false);");
+    } else if (leaf.type == object_type::class_type) {
       line(item + "._srlXmlWrite(output," + local + "," + uri + ");");
     } else {
       line("output.child(" + local + "," + uri + "," + scalar(leaf, item) + ");");
     }
     if (field.repeated) { line("}"); }
+    if (field.wrapper) { line("output.close(" + quote(field.wrapper->local) + ");"); }
     if (optional) { line("}"); }
     ++index;
   }

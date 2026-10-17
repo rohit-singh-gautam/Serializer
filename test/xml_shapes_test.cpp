@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 namespace xml = rohit::serializer::xml;
@@ -27,6 +28,24 @@ template <typename Operation> void require_failure(Operation operation) {
 
 // Qualify nested, optional, numeric and fixed-array XML with the real generated C++ model.
 int main() {
+  constexpr std::string_view catalog_xml{
+      "<catalog xmlns='urn:serializer:vocabulary'><prices><price currency='USD'>12.5</price>"
+      "<price currency='EUR'>0</price></prices><labels><label>A&amp;B</label><label/></labels></catalog>"};
+  const auto catalog = xml::deserialize<shapes::catalog>(catalog_xml);
+  require(catalog.prices.size() == 2U && catalog.prices.front().value == 12.5 &&
+      catalog.prices.front().currency == "USD" && catalog.labels == std::vector<std::string>{"A&B", ""},
+      "XML simple content and wrappers differ");
+  const auto catalog_copy = xml::deserialize<shapes::catalog>(xml::serialize(catalog));
+  require(catalog_copy.prices.size() == 2U && catalog_copy.prices.front().value == 12.5 &&
+      catalog_copy.labels == catalog.labels, "XML vocabulary round trip differs");
+  const auto empty_catalog = xml::deserialize<shapes::catalog>(xml::serialize(shapes::catalog{}));
+  require(empty_catalog.prices.empty() && empty_catalog.labels.empty(), "Empty wrappers lost");
+  require_failure([] { (void)xml::deserialize<shapes::catalog>(
+      "<catalog xmlns='urn:serializer:vocabulary'><labels/></catalog>"); });
+  require_failure([] { (void)xml::deserialize<shapes::price>(
+      "<price xmlns='urn:serializer:vocabulary' currency='USD'><value>1</value></price>"); });
+  require_failure([] { (void)xml::deserialize<shapes::catalog>(
+      "<catalog xmlns='urn:serializer:vocabulary'><prices extra='1'/><labels/></catalog>"); });
   shapes::record value{};
   value.big = std::numeric_limits<decltype(value.big)>::max();
   value.label = "\tX\r\n\xf0\x9f\x98\x80";

@@ -4,6 +4,7 @@
 
 #include "xml_schema.hpp"
 
+#include <algorithm>
 #include <functional>
 #include <limits>
 #include <stdexcept>
@@ -112,6 +113,12 @@ inline std::string methods(const class_node&, const xml_binding::record& contrac
     const bool optional = value.type_name_list.front().is_optional();
     std::string selected = access;
     line("{"); ++indent;
+    if (item.wrapper) {
+      line("var wrapper = budget.Node(" + expanded(*item.wrapper) + ", depth + 1);");
+      line("node.Children.Add(wrapper);");
+    }
+    const auto parent = item.wrapper ? std::string{"wrapper"} : std::string{"node"};
+    const auto child_depth = item.wrapper ? "depth + 2" : "depth + 1";
     if (optional) { line("if (" + access + ".HasValue) {"); ++indent; selected += ".Value.Item1"; }
     if (item.repeated) {
       line("if (" + access + ".Count < " + std::to_string(item.min_occurs) +
@@ -120,12 +127,13 @@ inline std::string methods(const class_node&, const xml_binding::record& contrac
       if (value.fixed_extent) { line("if (" + access + ".Count != " + std::to_string(value.fixed_extent) + ") throw new System.FormatException(\"XML fixed extent mismatch\");"); }
       line("foreach (var item in " + access + ") {"); ++indent; selected = "item";
     }
-    if (item.attribute) { line("budget.Attribute(node, " + expanded(item.qualified_name) + ", " + scalar(type, selected, true) + ");"); }
-    else if (type.type == object_type::class_type) { line("node.Children.Add(" + selected + ".XmlNode(" + expanded(item.qualified_name) + ", budget, depth + 1));"); }
+    if (item.text) { line("node.Text.Append(budget.Text(" + scalar(type, selected, true) + "));"); }
+    else if (item.attribute) { line("budget.Attribute(node, " + expanded(item.qualified_name) + ", " + scalar(type, selected, true) + ");"); }
+    else if (type.type == object_type::class_type) { line(parent + ".Children.Add(" + selected + ".XmlNode(" + expanded(item.qualified_name) + ", budget, " + child_depth + "));"); }
     else {
-      line("var child = budget.Node(" + expanded(item.qualified_name) + ", depth + 1);");
+      line("var child = budget.Node(" + expanded(item.qualified_name) + ", " + child_depth + ");");
       line("child.Text.Append(budget.Text(" + scalar(type, selected, true) + "));");
-      line("node.Children.Add(child);");
+      line(parent + ".Children.Add(child);");
     }
     if (item.repeated) { --indent; line("}"); }
     if (optional) { --indent; line("}"); }
@@ -134,7 +142,7 @@ inline std::string methods(const class_node&, const xml_binding::record& contrac
   line("return node;"); --indent; line("}");
   line("// Decode exact members into an unpublished candidate and reject all unconsumed input.");
   line("internal static " + std::string{model_name} + " XmlFromNode(SrlXmlNode node) {"); ++indent;
-  line("var fields = new SrlXmlFields(node);"); line("var result = new " + std::string{model_name} + "();");
+  line("var fields = new SrlXmlFields(node, " + std::string{std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& item) { return item.text; }) ? "true" : "false"} + ");"); line("var result = new " + std::string{model_name} + "();");
   for (const auto& item : contract.fields) {
     if (item.min_occurs > static_cast<std::size_t>(std::numeric_limits<int>::max()) ||
         (item.max_occurs && *item.max_occurs > static_cast<std::size_t>(std::numeric_limits<int>::max()))) {
@@ -146,14 +154,16 @@ inline std::string methods(const class_node&, const xml_binding::record& contrac
     const auto access = "result." + field_name(value);
     const auto read_value = [&](const std::string& expression) {
       return type.type == object_type::class_type ? native_type(type) + ".XmlFromNode(" + expression + ")" :
-          scalar(type, item.attribute ? expression : "SrlXmlScalarText(" + expression + ")", false);
+          scalar(type, item.attribute || item.text ? expression : "SrlXmlScalarText(" + expression + ")", false);
     };
     line("{"); ++indent;
-    if (item.attribute) {
+    if (item.text) {
+      line(access + " = " + read_value("fields.Text()") + ";");
+    } else if (item.attribute) {
       line("var text = fields.Attribute(" + expanded(item.qualified_name) + ", " + (optional ? "true" : "false") + ");");
       line(access + " = " + (optional ? "text == null ? null : new System.ValueTuple<" + native_type(type) + ">(" + read_value("text") + ")" : read_value("text!")) + ";");
     } else {
-      line("var children = fields.Children(" + expanded(item.qualified_name) + ", " + std::to_string(item.min_occurs) + ", " +
+      line("var children = fields." + std::string{item.wrapper ? "Wrapped(" + expanded(*item.wrapper) + ", " : "Children("} + expanded(item.qualified_name) + ", " + std::to_string(item.min_occurs) + ", " +
            (item.max_occurs ? std::to_string(*item.max_occurs) : "-1") + ");");
       if (item.repeated) {
         if (value.fixed_extent) { line("if (children.Count != " + std::to_string(value.fixed_extent) + ") throw new System.FormatException(\"XML fixed extent mismatch\");"); }

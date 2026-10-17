@@ -198,9 +198,14 @@ fileprivate final class SrlXmlReader {
     let node: SrlXmlNode
     var used: Set<Int> = []
     var cursor = 0
-    init(_ node: SrlXmlNode) throws {
+    init(_ node: SrlXmlNode, _ hasText: Bool = false) throws {
         self.node = node
-        guard srlXmlWhitespace(node.text) else { throw SerializerError.invalid("Unexpected XML text") }
+        guard hasText || srlXmlWhitespace(node.text) else { throw SerializerError.invalid("Unexpected XML text") }
+    }
+    // Read simple content only when no element children are present.
+    func text() throws -> String {
+        guard node.children.isEmpty else { throw SerializerError.invalid("XML simple content contains children") }
+        return node.text
     }
     func attribute(_ name: SrlXmlName, _ optional: Bool = false) throws -> String? {
         guard let index = node.attributes.firstIndex(where: { $0.name == name }) else {
@@ -222,6 +227,13 @@ fileprivate final class SrlXmlReader {
     }
     func finish() throws {
         guard used.count == node.attributes.count && cursor == node.children.count else { throw SerializerError.invalid("Unexpected XML member") }
+    }
+    // Require exactly one wrapper and exhaust its own item contract.
+    func wrapped(_ wrapper: SrlXmlName, _ item: SrlXmlName) throws -> [SrlXmlNode] {
+        let fields = try SrlXmlReader(child(wrapper)!)
+        let result = fields.repeated(item)
+        try fields.finish()
+        return result
     }
 }
 // Decode scalar content only after rejecting nested markup and attributes.

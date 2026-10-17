@@ -1,9 +1,16 @@
 // Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
 // SPDX-License-Identifier: 0BSD
 import assert from 'node:assert/strict';
-import {Protocol, ShapesRecord, ShapesChild, ShapesState, XmlLimits, type XmlValidator} from './schema.mjs';
+import {Protocol, ShapesRecord, ShapesChild, ShapesState, ShapesCatalog, XmlLimits, type XmlValidator} from './schema.mjs';
 
 // Verify generated declarations match complete typed XML behavior, including optional tuple shapes.
+const catalogXml: string = "<catalog xmlns='urn:serializer:vocabulary'><prices><price currency='USD'>12.5</price></prices><labels><label>A&amp;B</label><label/></labels></catalog>";
+const catalog: ShapesCatalog = ShapesCatalog.decodeXml(catalogXml);
+assert.deepEqual(catalog.prices[0].value, 12.5); assert.deepEqual(catalog.prices[0].currency, 'USD');
+assert.deepEqual(catalog.labels, ['A&B', '']);
+assert.deepEqual(catalog.encode(Protocol.BINARY_NONE), ShapesCatalog.decodeXml(catalog.encodeXml()).encode(Protocol.BINARY_NONE));
+assert.deepEqual(ShapesCatalog.decodeXml(new ShapesCatalog().encodeXml()).prices, []);
+assert.throws(() => ShapesCatalog.decodeXml(catalogXml.replace('<prices>', "<prices extra='1'>")));
 const value: ShapesRecord = new ShapesRecord();
 value.big = (1n << 64n) - 1n;
 value.label = '\tX\r\n\u{1f600}';

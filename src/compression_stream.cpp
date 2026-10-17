@@ -45,6 +45,7 @@ protected:
   virtual void encode_end() = 0;
   // Check every emission before invoking the borrowed destination.
   void append(std::span<const std::uint8_t> bytes) override {
+    if (limits_.check_cancelled) { limits_.check_cancelled(); }
     if (bytes.size() > limits_.max_output_bytes - output_bytes) {
       throw error{error_code::resource_limit, "Compression output limit exceeded"};
     }

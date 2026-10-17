@@ -104,15 +104,20 @@ class generator {
   // Add one supported scalar/record XML child or scalar attribute.
   void emit_mobile_value(const xml_binding::field& field, const std::string& expression) {
     const auto& value_type = leaf(*field.source);
+    if (field.text) {
+      line(select("try ", "") + "node.setValueText(" + scalar_text(value_type, expression) + ")");
+      return;
+    }
     if (field.attribute) {
       line(swift_ ? "try node.addAttribute(SrlXmlAttribute(name: " + name(field.qualified_name) + ", value: " + scalar_text(value_type, expression) + "))" :
           "node.addAttribute(SrlXmlAttribute(" + name(field.qualified_name) + ", " + scalar_text(value_type, expression) + "))");
       return;
     }
-    line(select("let ", "val ") + "child = " + select("try ", "") + "node.makeChild(" + name(field.qualified_name) + ")");
+    const auto parent = field.wrapper ? std::string{"wrapper"} : std::string{"node"};
+    line(select("let ", "val ") + "child = " + select("try ", "") + parent + ".makeChild(" + name(field.qualified_name) + ")");
     if (value_type.type == object_type::class_type) { line(select("try ", "") + expression + ".srlXmlFill(child)"); }
     else { line(select("try ", "") + "child.setValueText(" + scalar_text(value_type, expression) + ")"); }
-    line(select("node.children.append(child)", "node.children.add(child)"));
+    line(parent + select(".children.append(child)", ".children.add(child)"));
   }
   // Emit complete-object XML methods for one native Swift/Kotlin owning record.
   void mobile_record(const class_node& source, const xml_binding::record& contract) {
@@ -148,6 +153,11 @@ class generator {
     for (const auto& field : contract.fields) {
       const auto value = swift_ ? "self." + field_name(field.source->name) :
           "this.srlXmlField" + native::pascal(field.source->name);
+      if (field.wrapper) {
+        open(swift_ ? "do" : "run");
+        line(select("let ", "val ") + "wrapper = " + select("try ", "") + "node.makeChild(" + name(*field.wrapper) + ")");
+        line(select("node.children.append(wrapper)", "node.children.add(wrapper)"));
+      }
       if (field.repeated) {
         const auto count = value + select(".count", ".size");
         if (field.source->fixed_extent != 0U) {
@@ -168,12 +178,14 @@ class generator {
       } else {
         open(swift_ ? "do" : "run"); emit_mobile_value(field, value); close();
       }
+      if (field.wrapper) { close(); }
     }
     close();
     line("// Read every required/optional field and reject all remaining XML members.");
     open(swift_ ? "fileprivate static func srlXmlRead(_ node: SrlXmlNode) throws -> " + model_name :
         "internal fun " + model_name + ".Companion.srlXmlRead(node: SrlXmlNode): " + model_name);
-    line(select("let reader = try SrlXmlReader(node)", "val reader = SrlXmlReader(node)"));
+    const auto has_text = std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) { return field.text; });
+    line(select("let reader = try SrlXmlReader(node, ", "val reader = SrlXmlReader(node, ") + (has_text ? "true)" : "false)"));
     line(select("var ", "val ") + "result = " + model_name + "()");
     std::size_t index{};
     for (const auto& field : contract.fields) {
@@ -181,8 +193,11 @@ class generator {
           "result.srlXmlField" + native::pascal(field.source->name);
       const auto& value_type = leaf(*field.source);
       const auto raw = "raw" + std::to_string(index++);
-      if (field.repeated) {
-        line(select("let ", "val ") + raw + " = reader.repeated(" + name(field.qualified_name) + ")");
+      if (field.text) {
+        line(select("let ", "val ") + raw + " = " + select("try ", "") + "reader.text()");
+        line(target + " = " + read_value(value_type, raw, true));
+      } else if (field.repeated) {
+        line(select("let ", "val ") + raw + " = " + std::string{field.wrapper ? select("try ", "") + "reader.wrapped(" + name(*field.wrapper) + ", " : "reader.repeated("} + name(field.qualified_name) + ")");
         if (field.source->fixed_extent != 0U) {
           line(swift_ ? "guard " + raw + ".count == " + std::to_string(field.source->fixed_extent) + " else { throw SerializerError.invalid(\"XML fixed array size\") }" :
               "require(" + raw + ".size == " + std::to_string(field.source->fixed_extent) + ") { \"XML fixed array size\" }");
@@ -259,7 +274,7 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
            quote(field.qualified_name.local) + ", " + quote(field.qualified_name.namespace_uri) + ")) { return false; }");
       return;
     }
-    if (!field.attribute) {
+    if (!field.attribute && !field.text) {
       line("if (++out->nodes > out->limits.max_elements || out->writer.depth >= out->limits.max_depth || xmlTextWriterStartElementNS(writer, " +
            std::string{field.qualified_name.namespace_uri.empty() ? "NULL" : "BAD_CAST \"srl\""} + ", BAD_CAST " + quote(field.qualified_name.local) + ", " +
            (field.qualified_name.namespace_uri.empty() ? "NULL" : "BAD_CAST " + quote(field.qualified_name.namespace_uri)) + ") < 0) { return false; }");
@@ -287,7 +302,7 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
          quote(field.qualified_name.namespace_uri) + ", " + quote("a" + std::to_string(prefix)) + ", text, text_size);");
     if (value_type.name == "float" || value_type.name == "double") { line("srl_buffer_free(&number.buffer);"); }
     line("if (!emitted) { return false; }");
-    if (!field.attribute) { line("if (xmlTextWriterEndElement(writer) < 0) { return false; }"); }
+    if (!field.attribute && !field.text) { line("if (xmlTextWriterEndElement(writer) < 0) { return false; }"); }
   };
   const auto read_leaf = [&](const type_name& value_type, const std::string& target, const std::string& raw) {
     if (value_type.name == "string") {
@@ -317,6 +332,11 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
       if (field.attribute != attributes) { continue; }
       const auto expression = "value->" + field_name(field.source->name);
       const auto& source_type = field.source->type_name_list.front();
+      if (field.wrapper) {
+        line("if (++out->nodes > out->limits.max_elements || ++out->writer.depth > out->limits.max_depth || xmlTextWriterStartElementNS(writer, " +
+            std::string{field.wrapper->namespace_uri.empty() ? "NULL" : "BAD_CAST \"srl\""} + ", BAD_CAST " + quote(field.wrapper->local) + ", " +
+            (field.wrapper->namespace_uri.empty() ? "NULL" : "BAD_CAST " + quote(field.wrapper->namespace_uri)) + ") < 0) { return false; }");
+      }
       if (field.repeated) {
         line("if ((" + expression + ".size && !" + expression + ".data) || " + expression + ".size > out->limits.max_elements) { return false; }");
         if (field.min_occurs > 0U) { line("if (" + expression + ".size < " + std::to_string(field.min_occurs) + "u) { return false; }"); }
@@ -327,13 +347,16 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
       } else if (source_type.is_optional()) {
         open("if (" + expression + ".has_value)"); emit_leaf(field, expression + ".value", prefix++); close();
       } else { open(""); emit_leaf(field, expression, prefix++); close(); }
+      if (field.wrapper) { line("--out->writer.depth; if (xmlTextWriterEndElement(writer) < 0) { return false; }"); }
     }
   }
   line("--out->writer.depth; return xmlTextWriterEndElement(writer) >= 0;"); close();
   line("/* Decode a complete record into candidate-owned fields without publishing partial state. */");
   open("static inline bool " + n + "_srl_xml_read(xmlNodePtr node, " + n + "* value, const srl_limits* limits)");
   line("(void)limits;");
-  line("if (!srl_xml_record(node)) { return false; } xmlNodePtr cursor = srl_xml_next(node->children); size_t used_attributes = 0;");
+  const auto has_text = std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) { return field.text; });
+  if (!has_text) { line("if (!srl_xml_record(node)) { return false; }"); }
+  line("xmlNodePtr cursor = srl_xml_next(node->children); size_t used_attributes = 0;");
   if (contract.fields.empty()) { line("(void)value; (void)limits;"); }
   for (const auto& field : contract.fields) {
     const auto target = "value->" + field_name(field.source->name);
@@ -341,7 +364,14 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
     const auto& source_type = field.source->type_name_list.front();
     const auto matches = "srl_xml_name(cursor, " + quote(field.qualified_name.local) + ", " + quote(field.qualified_name.namespace_uri) + ")";
     open("");
-    if (field.repeated) {
+    if (field.wrapper) {
+      line("if (!srl_xml_name(cursor, " + quote(field.wrapper->local) + ", " + quote(field.wrapper->namespace_uri) + ") || !srl_xml_record(cursor) || cursor->properties) { return false; }");
+      line("xmlNodePtr after_wrapper = srl_xml_next(cursor->next); cursor = srl_xml_next(cursor->children);");
+    }
+    if (field.text) {
+      line("if (cursor) { return false; } xmlChar* text = xmlNodeGetContent(node); if (!text) { return false; }");
+      read_leaf(value_type, target, "text"); line("xmlFree(text);");
+    } else if (field.repeated) {
       const auto collection_name = field.source->modifier == member::modifier_type::array ?
           n + "_" + field_name(field.source->name) + "_array" : storage_type(storage_type, source_type);
       line(collection_name + "_clear(&" + target + ");");
@@ -394,6 +424,7 @@ void generator::c_record(const class_node& source, const xml_binding::record& co
         line("cursor = srl_xml_next(cursor->next);"); close();
       }
     }
+    if (field.wrapper) { line("if (cursor) { return false; } cursor = after_wrapper;"); }
     close();
   }
   line("size_t attribute_count = 0; for (xmlAttrPtr attribute = node->properties; attribute; attribute = attribute->next) { ++attribute_count; }");

@@ -170,10 +170,12 @@ internal fun srlXmlParse(bytes: ByteArray, limits: XmlLimits): SrlXmlNode {
     return convert(document.documentElement, 1)
 }
 // Consume record attributes and ordered children exactly once.
-internal class SrlXmlReader(val node: SrlXmlNode) {
+internal class SrlXmlReader(val node: SrlXmlNode, hasText: Boolean = false) {
     private val used = BooleanArray(node.attributes.size)
     private var cursor = 0
-    init { require(node.text.all { it == ' ' || it == '\t' || it == '\r' || it == '\n' }) { "Unexpected XML text" } }
+    init { require(hasText || node.text.all { it == ' ' || it == '\t' || it == '\r' || it == '\n' }) { "Unexpected XML text" } }
+    // Read simple content without accepting element children.
+    fun text(): String { require(node.children.isEmpty()) { "XML simple content contains children" }; return node.text }
     fun attribute(name: SrlXmlName, optional: Boolean = false): String? {
         val index = node.attributes.indexOfFirst { it.name == name }
         if (index < 0) { require(optional) { "Required XML attribute missing" }; return null }
@@ -192,6 +194,13 @@ internal class SrlXmlReader(val node: SrlXmlNode) {
         return result
     }
     fun finish() { require(used.all { it } && cursor == node.children.size) { "Unexpected XML member" } }
+    // Require exactly one wrapper and exhaust its item contract.
+    fun wrapped(wrapper: SrlXmlName, item: SrlXmlName): List<SrlXmlNode> {
+        val fields = SrlXmlReader(child(wrapper)!!)
+        val result = fields.repeated(item)
+        fields.finish()
+        return result
+    }
 }
 // Scalar slots reject nested markup and all attributes.
 internal fun srlXmlText(node: SrlXmlNode): String {

@@ -167,11 +167,16 @@ def _xml_attribute(node, name, value, budget):
 
 class _XmlFields:
     """Consume exact attributes and ordered children from one declared record."""
-    def __init__(self, node):
+    def __init__(self, node, has_text=False):
         """Reject record text while preserving insignificant indentation."""
-        if node[3].strip(' \t\r\n'):
+        if not has_text and node[3].strip(' \t\r\n'):
             raise ValueError('Unexpected XML record text')
         self.node, self.used, self.next = node, set(), 0
+    def text(self):
+        """Read simple content while rejecting all element children."""
+        if self.node[2]:
+            raise ValueError('XML simple content contains children')
+        return self.node[3]
     def attribute(self, name, optional):
         """Read one exact required or optional attribute without coercing absence."""
         if name not in self.node[1]:
@@ -191,6 +196,12 @@ class _XmlFields:
         if count < minimum or (maximum is not None and count > maximum):
             raise ValueError('XML field occurrence mismatch')
         return self.node[2][start:self.next]
+    def wrapped(self, wrapper, name, minimum, maximum):
+        """Require one wrapper and consume its complete ordered item sequence."""
+        fields = _XmlFields(self.children(wrapper, 1, 1)[0])
+        result = fields.children(name, minimum, maximum)
+        fields.finish()
+        return result
     def finish(self):
         """Reject unknown, duplicate, or reordered members before publishing a model."""
         if len(self.used) != len(self.node[1]) or self.next != len(self.node[2]):

@@ -284,6 +284,12 @@ class emitter {
       const bool optional = source_field.type_name_list.front().is_optional();
       std::string selected = access;
       line("{"); ++level;
+      if (item.wrapper) {
+        line("var wrapper = budget.node(" + expanded(*item.wrapper) + ", depth + 1);");
+        line("node.children.add(wrapper);");
+      }
+      const auto parent = item.wrapper ? std::string{"wrapper"} : std::string{"node"};
+      const auto child_depth = item.wrapper ? "depth + 2" : "depth + 1";
       if (optional) { line("if (" + access + ".isPresent()) {"); ++level; selected += ".get()"; }
       if (item.repeated) {
         const auto count = access + (source_field.modifier == member::modifier_type::array ? ".length" : ".size()");
@@ -293,12 +299,13 @@ class emitter {
         if (source_field.fixed_extent) { line("if (" + count + " != " + std::to_string(source_field.fixed_extent) + ") throw new IllegalArgumentException(\"XML fixed extent mismatch\");"); }
         line("for (var item : " + access + ") {"); ++level; selected = "item";
       }
-      if (item.attribute) { line("budget.attribute(node, " + expanded(item.qualified_name) + ", " + xml_scalar(leaf, selected, true) + ");"); }
-      else if (leaf.type == object_type::class_type) { line("node.children.add(" + selected + ".xmlNode(" + expanded(item.qualified_name) + ", budget, depth + 1));"); }
+      if (item.text) { line("node.text.append(budget.text(" + xml_scalar(leaf, selected, true) + "));"); }
+      else if (item.attribute) { line("budget.attribute(node, " + expanded(item.qualified_name) + ", " + xml_scalar(leaf, selected, true) + ");"); }
+      else if (leaf.type == object_type::class_type) { line(parent + ".children.add(" + selected + ".xmlNode(" + expanded(item.qualified_name) + ", budget, " + child_depth + "));"); }
       else {
-        line("var child = budget.node(" + expanded(item.qualified_name) + ", depth + 1);");
+        line("var child = budget.node(" + expanded(item.qualified_name) + ", " + child_depth + ");");
         line("child.text.append(budget.text(" + xml_scalar(leaf, selected, true) + "));");
-        line("node.children.add(child);");
+        line(parent + ".children.add(child);");
       }
       if (item.repeated) { --level; line("}"); }
       if (optional) { --level; line("}"); }
@@ -307,7 +314,7 @@ class emitter {
     line("return node;"); --level; line("}");
     line("/** Decode exact generated fields without assigning a partially checked value. */");
     line("private static " + name + " xmlFromNode(SrlXmlNode node) {"); ++level;
-    line("var fields = new SrlXmlFields(node);"); line("var result = new " + name + "();");
+    line("var fields = new SrlXmlFields(node, " + std::string{std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& item) { return item.text; }) ? "true" : "false"} + ");"); line("var result = new " + name + "();");
     for (const auto& item : contract.fields) {
       if (item.min_occurs > static_cast<std::size_t>(std::numeric_limits<int>::max()) ||
           (item.max_occurs && *item.max_occurs > static_cast<std::size_t>(std::numeric_limits<int>::max()))) {
@@ -319,14 +326,16 @@ class emitter {
       const auto access = "result." + field(source_field.name);
       const auto read_value = [&](const std::string& expression) {
         return leaf.type == object_type::class_type ? type(leaf) + ".xmlFromNode(" + expression + ")" :
-            xml_scalar(leaf, item.attribute ? expression : "srlXmlScalarText(" + expression + ")", false);
+            xml_scalar(leaf, item.attribute || item.text ? expression : "srlXmlScalarText(" + expression + ")", false);
       };
       line("{"); ++level;
-      if (item.attribute) {
+      if (item.text) {
+        line(access + " = " + read_value("fields.text()") + ";");
+      } else if (item.attribute) {
         line("var text = fields.attribute(" + expanded(item.qualified_name) + ", " + (optional ? "true" : "false") + ");");
         line(access + " = " + (optional ? "text == null ? java.util.Optional.empty() : java.util.Optional.of(" + read_value("text") + ")" : read_value("text")) + ";");
       } else {
-        line("var children = fields.children(" + expanded(item.qualified_name) + ", " + std::to_string(item.min_occurs) + ", " +
+        line("var children = fields." + std::string{item.wrapper ? "wrapped(" + expanded(*item.wrapper) + ", " : "children("} + expanded(item.qualified_name) + ", " + std::to_string(item.min_occurs) + ", " +
             (item.max_occurs ? std::to_string(*item.max_occurs) : "-1") + ");");
         if (item.repeated) {
           if (source_field.fixed_extent) { line("if (children.size() != " + std::to_string(source_field.fixed_extent) + ") throw new IllegalArgumentException(\"XML fixed extent mismatch\");"); }
@@ -1399,6 +1408,9 @@ class emitter {
     line("/** Encode this value into an independent exact-size message. */");
     line("public byte[] encode(Protocol protocol) {");
     ++level;
+    if (options.protocols == output_protocols::binary_none) {
+      line("if (protocol != Protocol.BINARY_NONE) throw new IllegalArgumentException(\"Protocol disabled during generation\");");
+    }
     line("Writer out = new Writer(protocol);");
     line("write(out);");
     line("return out.bytes.toByteArray();");
@@ -1413,6 +1425,9 @@ class emitter {
     line("/** Decode transactionally into a fresh value; malformed input throws. */");
     line("public static " + name + " decode(byte[] bytes, Protocol protocol, Limits limits) {");
     ++level;
+    if (options.protocols == output_protocols::binary_none) {
+      line("if (protocol != Protocol.BINARY_NONE) throw new IllegalArgumentException(\"Protocol disabled during generation\");");
+    }
     line("Reader in = new Reader(bytes, protocol, limits);");
     line(name + " result = read(in);");
     line("in.finish();");
@@ -1661,92 +1676,96 @@ class emitter {
       line("}");
     }
     --level;
-    line("} else if (in.protocol == Protocol.BINARY_INTEGER) {");
-    ++level;
-    line("while (true) {");
-    ++level;
-    if (payload_size) { line("autoSizeFieldStart = in.offset;"); }
-    line("int key = in.compact();");
-    line("if (key == 0) { break; }");
-    line("switch (key) {");
-    ++level;
-    for (std::size_t index = 0; index < value.parents.size(); ++index) {
-      line("case " + std::to_string(value.parents[index].id) + ": result.base" +
-           std::to_string(index) + " = " + names.at(value.parents[index].parent_class) +
-           ".read(in, result.base" + std::to_string(index) + "); break;");
-    }
-    for (const auto& item : wire_members(value)) {
-      line("case " + std::to_string(item.id) + ": {");
+    if (options.protocols == output_protocols::all) {
+      line("} else if (in.protocol == Protocol.BINARY_INTEGER) {");
       ++level;
-      read_versioned_member(value, item);
-      line("break;");
-      --level;
-      line("}");
-    }
-    line("default: throw in.error(\"Unknown field ID\");");
-    --level;
-    line("}");
-    --level;
-    line("}");
-    --level;
-    line("} else {");
-    ++level;
-    line("boolean first = true;");
-    line("while (!in.json() || in.nextObject(first)) {");
-    ++level;
-    line("first = false;");
-    if (payload_size) { line("autoSizeFieldStart = in.offset;"); }
-    line("String key = in.key();");
-    line("if (!in.json() && key.isEmpty()) { break; }");
-    line("switch (key) {");
-    ++level;
-    if (magic_json) {
-      line("case \"magic\": {");
+      line("while (true) {");
       ++level;
-      const auto comparison = value.magic_field
-          ? read_value(value.magic_field->type_name_list.front(), "in", false) + " != MAGIC"
-          : "!in.text().equals(" + magic_text(value) + ")";
-      line("if (!in.json() || magicSeen || " + comparison +
-           ") { throw in.error(\"Incorrect or duplicate schema magic\"); }");
-      line("magicSeen = true; break;");
-      --level;
-      line("}");
-    }
-    if (value.has_magic() && !magic_json) {
-      line("case \"magic\": throw in.error(\"Field omitted from selected format\");");
-    }
-    for (std::size_t index = 0; index < value.parents.size(); ++index) {
-      line("case " + quote(value.parents[index].display_name) + ": result.base" +
-           std::to_string(index) + " = " + names.at(value.parents[index].parent_class) +
-           ".read(in, result.base" + std::to_string(index) + "); break;");
-    }
-    for (const auto& item : wire_members(value)) {
-      if (item.modifier == member::modifier_type::variant) {
-        for (std::size_t index = 0; index < item.type_name_list.size(); ++index) {
-          line("case " + quote(item.display_name + ":" + item.type_name_list[index].enum_name) +
-               ": {");
-          ++level;
-          read_versioned_member(value, item, static_cast<int>(index));
-          line("break;");
-          --level;
-          line("}");
-        }
-      } else {
-        line("case " + quote(item.display_name) + ": {");
+      if (payload_size) { line("autoSizeFieldStart = in.offset;"); }
+      line("int key = in.compact();");
+      line("if (key == 0) { break; }");
+      line("switch (key) {");
+      ++level;
+      for (std::size_t index = 0; index < value.parents.size(); ++index) {
+        line("case " + std::to_string(value.parents[index].id) + ": result.base" +
+             std::to_string(index) + " = " + names.at(value.parents[index].parent_class) +
+             ".read(in, result.base" + std::to_string(index) + "); break;");
+      }
+      for (const auto& item : wire_members(value)) {
+        line("case " + std::to_string(item.id) + ": {");
         ++level;
         read_versioned_member(value, item);
         line("break;");
         --level;
         line("}");
       }
+      line("default: throw in.error(\"Unknown field ID\");");
+      --level;
+      line("}");
+      --level;
+      line("}");
+      --level;
+      line("} else {");
+      ++level;
+      line("boolean first = true;");
+      line("while (!in.json() || in.nextObject(first)) {");
+      ++level;
+      line("first = false;");
+      if (payload_size) { line("autoSizeFieldStart = in.offset;"); }
+      line("String key = in.key();");
+      line("if (!in.json() && key.isEmpty()) { break; }");
+      line("switch (key) {");
+      ++level;
+      if (magic_json) {
+        line("case \"magic\": {");
+        ++level;
+        const auto comparison = value.magic_field
+            ? read_value(value.magic_field->type_name_list.front(), "in", false) + " != MAGIC"
+            : "!in.text().equals(" + magic_text(value) + ")";
+        line("if (!in.json() || magicSeen || " + comparison +
+             ") { throw in.error(\"Incorrect or duplicate schema magic\"); }");
+        line("magicSeen = true; break;");
+        --level;
+        line("}");
+      }
+      if (value.has_magic() && !magic_json) {
+        line("case \"magic\": throw in.error(\"Field omitted from selected format\");");
+      }
+      for (std::size_t index = 0; index < value.parents.size(); ++index) {
+        line("case " + quote(value.parents[index].display_name) + ": result.base" +
+             std::to_string(index) + " = " + names.at(value.parents[index].parent_class) +
+             ".read(in, result.base" + std::to_string(index) + "); break;");
+      }
+      for (const auto& item : wire_members(value)) {
+        if (item.modifier == member::modifier_type::variant) {
+          for (std::size_t index = 0; index < item.type_name_list.size(); ++index) {
+            line("case " + quote(item.display_name + ":" + item.type_name_list[index].enum_name) +
+                 ": {");
+            ++level;
+            read_versioned_member(value, item, static_cast<int>(index));
+            line("break;");
+            --level;
+            line("}");
+          }
+        } else {
+          line("case " + quote(item.display_name) + ": {");
+          ++level;
+          read_versioned_member(value, item);
+          line("break;");
+          --level;
+          line("}");
+        }
+      }
+      line("default: in.skipValue(); break;");
+      --level;
+      line("}");
+      --level;
+      line("}");
+      --level;
+      line("}");
+    } else {
+      line("}");
     }
-    line("default: in.skipValue(); break;");
-    --level;
-    line("}");
-    --level;
-    line("}");
-    --level;
-    line("}");
     line("in.endObject();");
     for (const auto* item : sized_fields) {
       const auto selected = omitted_condition(item->auto_size_formats, "in.protocol", "Protocol.",

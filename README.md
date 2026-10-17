@@ -35,11 +35,23 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **2.3.1**. Bug fixes and minor updates
+The current compiler and runtime release is **2.4.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.17.0**;
 see [release and schema versions](docs/guides/command_line.md).
+
+Compiler/runtime **2.4.0** adds XML text with scalar attributes and explicit
+collection wrappers across all generated languages, pinned local XSD bundles and
+[XSD export/compatibility tools](docs/serialization/xsd_tooling.md).
+[Native format selection](docs/languages/output_configuration.md) now supports
+`binary_none` across all backends while XML remains independently selectable.
+C++ adds cooperative compression cancellation, ZIP64, opt-in bounded spooling,
+transactional OPC aggregate loading,
+opaque extension policies and canonical package ordering. See
+[the API contract](docs/serialization/xml_packages.md) and the
+[remaining requirements](docs/xml_pending.md); the full XML/package design is
+not yet implemented. Schema language 1.17.0 and existing wire formats are unchanged.
 
 Compiler/runtime **2.3.1** preserves schema license notices without adding an
 output-license banner. Generated files retain the minimal Serializer provenance
@@ -597,8 +609,8 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editors/editor_extension.md) |
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
-Both extensions use source release version **2.0.2**, independent of compiler version
-**2.3.1**. Embedded `cpp { ... }`, `java { ... }`, and other target blocks reuse
+Both extensions use source release version **2.0.2**, versioned independently from
+the compiler/runtime. Embedded `cpp { ... }`, `java { ... }`, and other target blocks reuse
 available language grammars for syntax highlighting. Install the language's grammar
 provider where the editor does not bundle it; this does not add embedded IntelliSense.
 See [embedded source highlighting](docs/editors/editor_extension.md#embedded-source-highlighting)

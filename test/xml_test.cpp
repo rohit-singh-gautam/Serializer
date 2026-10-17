@@ -69,6 +69,19 @@ TEST(xml, owning_round_trip_and_prefix_independence) {
   EXPECT_FALSE(aliased.note);
 }
 
+TEST(xml, simple_string_text_charges_before_replacing_node_storage) {
+  xml::limits bounds{};
+  bounds.max_text_bytes = 3U;
+  xml::build_budget budget{bounds};
+  xml::element node{};
+  node.text = "old";
+  EXPECT_THROW(xml::set_text(node, std::string{"long"}, budget), std::length_error);
+  EXPECT_EQ(node.text, "old");
+  xml::build_budget valid_budget{bounds};
+  EXPECT_NO_THROW(xml::set_text(node, std::string{"new"}, valid_budget));
+  EXPECT_EQ(node.text, "new");
+}
+
 TEST(xml, rejects_wrong_shape_cardinality_scalar_and_trailing_input) {
   const std::string_view documents[]{
       "<order id='7'><customer>A</customer></order>",

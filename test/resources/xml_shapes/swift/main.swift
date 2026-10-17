@@ -9,6 +9,14 @@ struct RejectingXmlValidator: XmlValidator {
 }
 
 // Qualify complete typed XML values against the independent binary codec.
+let catalogXml = "<catalog xmlns='urn:serializer:vocabulary'><prices><price currency='USD'>12.5</price></prices><labels><label>A&amp;B</label><label/></labels></catalog>"
+let catalog = try ShapesCatalog.decodeXml(Array(catalogXml.utf8))
+guard catalog.prices.count == 1 && catalog.prices[0].value == 12.5 && catalog.prices[0].currency == "USD" && catalog.labels == ["A&B", ""] else { throw SerializerError.invalid("Simple content/wrappers") }
+guard try catalog.encode(.BINARY_NONE) == ShapesCatalog.decodeXml(catalog.encodeXml()).encode(.BINARY_NONE) else { throw SerializerError.invalid("Vocabulary roundtrip") }
+guard try ShapesCatalog.decodeXml(ShapesCatalog().encodeXml()).prices.isEmpty else { throw SerializerError.invalid("Empty wrappers") }
+var rejectedWrapper = false
+do { _ = try ShapesCatalog.decodeXml(Array(catalogXml.replacingOccurrences(of: "<prices>", with: "<prices extra='1'>").utf8)) } catch { rejectedWrapper = true }
+guard rejectedWrapper else { throw SerializerError.invalid("Unknown wrapper attribute") }
 var value = ShapesRecord()
 value.big = UInt64.max
 value.label = "\tX\r\n\u{1f600}"

@@ -10,6 +10,14 @@ namespace shapes {
   class child {
     public int16 value;
   }
+  class price {
+    public string currency;
+    public double value;
+  }
+  class catalog {
+    public array price prices;
+    public array string labels;
+  }
   class record {
     public uint64 big;
     public string label;

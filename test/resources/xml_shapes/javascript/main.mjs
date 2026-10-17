@@ -1,9 +1,16 @@
 // Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
 // SPDX-License-Identifier: 0BSD
 import assert from 'node:assert/strict';
-import {Protocol, ShapesRecord, ShapesChild, ShapesState, XmlLimits} from './schema.mjs';
+import {Protocol, ShapesRecord, ShapesChild, ShapesState, ShapesCatalog, XmlLimits} from './schema.mjs';
 
 // Qualify generated nested, optional, fixed, enum and exact scalar mappings without a JSON bridge.
+const catalogXml = "<catalog xmlns='urn:serializer:vocabulary'><prices><price currency='USD'>12.5</price></prices><labels><label>A&amp;B</label><label/></labels></catalog>";
+const catalog = ShapesCatalog.decodeXml(catalogXml);
+assert.equal(catalog.prices[0].value, 12.5); assert.equal(catalog.prices[0].currency, 'USD');
+assert.deepEqual(catalog.labels, ['A&B', '']);
+assert.deepEqual(catalog.encode(Protocol.BINARY_NONE), ShapesCatalog.decodeXml(catalog.encodeXml()).encode(Protocol.BINARY_NONE));
+assert.deepEqual(ShapesCatalog.decodeXml(new ShapesCatalog().encodeXml()).prices, []);
+assert.throws(() => ShapesCatalog.decodeXml(catalogXml.replace('<prices>', "<prices extra='1'>")));
 const value = new ShapesRecord();
 value.big = (1n << 64n) - 1n;
 value.label = '\tX\r\n\u{1f600}';

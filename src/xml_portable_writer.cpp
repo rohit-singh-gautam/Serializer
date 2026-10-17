@@ -3,6 +3,7 @@
 #include "xml_portable_writer.hpp"
 #include "native_schema.hpp"
 
+#include <algorithm>
 #include <stdexcept>
 
 namespace rohit::serializer::writer::xml_portable {
@@ -103,6 +104,10 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
     const auto min = source.fixed_extent != 0 ? source.fixed_extent : mapped.min_occurs;
     const auto max = source.fixed_extent != 0 ? std::optional<std::size_t>{static_cast<std::size_t>(source.fixed_extent)} : mapped.max_occurs;
     out += "{\n";
+    if (mapped.wrapper) {
+      out += "if b.depth>=b.limits.MaxDepth{return nil,fmt.Errorf(\"XML wrapper depth limit exceeded\")}\nsrlParent,srlErr:=b.node(" + qualified(*mapped.wrapper) + ");if srlErr!=nil{return nil,srlErr}\nnode.children=append(node.children,srlParent)\nb.depth++\n";
+    }
+    const auto parent = mapped.wrapper ? std::string{"srlParent"} : std::string{"node"};
     auto expression = access;
     if (optional) { out += "if " + access + "!=nil{\n"; expression = "(*" + access + ")"; }
     if (mapped.repeated) {
@@ -112,19 +117,22 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
       expression = "srlItem";
     }
     if (scalar.type == object_type::class_type) {
-      out += "child,srlErr:=" + expression + ".srlXmlNode(b);if srlErr!=nil{return nil,srlErr}\nchild.name=" + qualified(mapped.qualified_name) + "\nnode.children=append(node.children,child)\n";
+      out += "child,srlErr:=" + expression + ".srlXmlNode(b);if srlErr!=nil{return nil,srlErr}\nchild.name=" + qualified(mapped.qualified_name) + "\n" + parent + ".children=append(" + parent + ".children,child)\n";
     } else {
       out += encode_scalar(scalar, expression, type);
-      if (mapped.attribute) {
+      if (mapped.text) {
+        out += "if srlErr:=b.textValue(srlText);srlErr!=nil{return nil,srlErr}\nnode.text=srlText\n";
+      } else if (mapped.attribute) {
         out += "if srlErr:=srlXmlAttribute(node," + qualified(mapped.qualified_name) + ",srlText,b);srlErr!=nil{return nil,srlErr}\n";
       } else {
-        out += "child,srlErr:=b.node(" + qualified(mapped.qualified_name) + ");if srlErr!=nil{return nil,srlErr}\nif srlErr=b.textValue(srlText);srlErr!=nil{return nil,srlErr}\nchild.text=srlText;node.children=append(node.children,child)\n";
+        out += "if b.depth>=b.limits.MaxDepth{return nil,fmt.Errorf(\"XML scalar depth limit exceeded\")}\nchild,srlErr:=b.node(" + qualified(mapped.qualified_name) + ");if srlErr!=nil{return nil,srlErr}\nif srlErr=b.textValue(srlText);srlErr!=nil{return nil,srlErr}\nchild.text=srlText;" + parent + ".children=append(" + parent + ".children,child)\n";
       }
     }
     if (mapped.repeated || optional) { out += "}\n"; }
+    if (mapped.wrapper) { out += "b.depth--\n"; }
     out += "}\n";
   }
-  out += "return node,nil\n}\n// Decode each statically known field into a private owning candidate.\nfunc srlXmlDecode" + identifier + "(node *srlXmlNode)(*" + identifier + ",error){\nreader,err:=srlXmlReader(node);if err!=nil{return nil,err}\nvalue:=New" + identifier + "()\n";
+  out += "return node,nil\n}\n// Decode each statically known field into a private owning candidate.\nfunc srlXmlDecode" + identifier + "(node *srlXmlNode)(*" + identifier + ",error){\nreader,err:=srlXmlReader(node," + std::string{std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) { return field.text; }) ? "true" : "false"} + ");if err!=nil{return nil,err}\nvalue:=New" + identifier + "()\n";
   for (const auto& mapped : contract.fields) {
     const auto& source = *mapped.source;
     const auto& scalar = leaf(source);
@@ -133,8 +141,8 @@ std::string methods(const class_node& object, const xml_binding::record& contrac
     const auto min = source.fixed_extent != 0 ? source.fixed_extent : mapped.min_occurs;
     const auto max = source.fixed_extent != 0 ? std::optional<std::size_t>{static_cast<std::size_t>(source.fixed_extent)} : mapped.max_occurs;
     out += "{\nitems,srlErr:=reader.";
-    out += mapped.attribute ? "attribute(" + qualified(mapped.qualified_name) + "," + (min ? "true" : "false") + ")" :
-        "children(" + qualified(mapped.qualified_name) + "," + std::to_string(min) + "," + (max ? std::to_string(*max) : "-1") + ")";
+    out += mapped.text ? "text()" : mapped.attribute ? "attribute(" + qualified(mapped.qualified_name) + "," + (min ? "true" : "false") + ")" :
+        (mapped.wrapper ? "wrapped(" + qualified(*mapped.wrapper) + "," : "children(") + qualified(mapped.qualified_name) + "," + std::to_string(min) + "," + (max ? std::to_string(*max) : "-1") + ")";
     out += "\nif srlErr!=nil{return nil,srlErr}\n";
     if (mapped.repeated && source.fixed_extent == 0) { out += access + "=make([]" + type(scalar) + ",0,len(items))\n"; }
     if (optional) { out += access + "=nil\n"; }

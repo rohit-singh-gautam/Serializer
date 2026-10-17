@@ -217,15 +217,35 @@ std::string_view coding_standard_name(coding_standard standard) {
   return profile_names.at(static_cast<std::size_t>(standard));
 }
 
-// Resolve the opt-in protocol profile without silently widening its scope.
-cpp_protocols parse_cpp_protocols(std::string_view name) {
+// Resolve the common native protocol profile without silently widening its scope.
+output_protocols parse_output_protocols(std::string_view name) {
   if (name == "all") {
     return cpp_protocols::all;
   }
   if (name == "binary_none") {
     return cpp_protocols::binary_none;
   }
-  throw std::invalid_argument{"cpp.protocols must be all or binary_none"};
+  throw std::invalid_argument{"protocols must be all or binary_none"};
+}
+
+// Preserve the established parser and option-specific diagnostic for C++ overrides.
+cpp_protocols parse_cpp_protocols(std::string_view name) {
+  try {
+    return parse_output_protocols(name);
+  } catch (const std::invalid_argument&) {
+    throw std::invalid_argument{"cpp.protocols must be all or binary_none"};
+  }
+}
+
+// Configure every native codec backend without changing independent XML options.
+void select_output_protocols(output_options& options, output_protocols protocols) {
+  options.protocols = protocols;
+  options.cpp.protocols = protocols;
+  options.java.protocols = protocols;
+  options.js.protocols = protocols;
+  options.go.protocols = protocols;
+  options.csharp.protocols = protocols;
+  options.kotlin.protocols = protocols;
 }
 
 // Reject invalid protocol enum values supplied through the library API.
@@ -356,10 +376,16 @@ output_options read_output_options(const std::filesystem::path& file) {
         else if (key == "namespace") { mapping.namespace_uri = value; }
         else if (key == "attributes") { mapping.attributes = comparison_fields(value); }
         else if (key.starts_with("name.")) { mapping.names.emplace(key.substr(5U), value); }
+        else if (key == "text") {
+          if (!source_identifier(value)) { throw std::invalid_argument{"Expected XML text member name"}; }
+          mapping.text = value;
+        }
+        else if (key.starts_with("wrapper.")) { mapping.wrappers.emplace(key.substr(8U), value); }
         else { throw std::invalid_argument{"Unknown XML class configuration key: " + key}; }
       } else if (section == "xml") {
         if (key == "enabled") { result.cpp.xml.enabled = read_bool(value); }
         else if (key == "runtime_xsd") { result.cpp.xml.runtime_xsd = read_bool(value); }
+        else if (key == "bundle_sha256") { result.cpp.xml.bundle_sha256 = value; }
         else if (key == "validation_scope") {
           if (value != "input" && value != "output" && value != "both") {
             throw std::invalid_argument{"XML validation_scope must be input, output or both"};
@@ -404,6 +430,8 @@ output_options read_output_options(const std::filesystem::path& file) {
         parse_output_languages(value);
       } else if (section == "output" && key == "include_mode") {
         result.includes = parse_include_mode(value);
+      } else if (section == "output" && key == "protocols") {
+        result.protocols = parse_output_protocols(value);
       } else if ((section == "js" || section == "go" || section == "csharp") && key == "naming") {
         if (value != "profile" && value != "preserve") {
           throw std::invalid_argument{"Expected naming = profile or preserve"};
@@ -478,6 +506,10 @@ output_options read_output_options(const std::filesystem::path& file) {
   result.go.xml = result.cpp.xml;
   result.csharp.xml = result.cpp.xml;
   result.kotlin.xml = result.cpp.xml;
+  // Global selection is independent of INI section order; a C++ override stays local.
+  const auto cpp_selection = result.cpp.protocols;
+  select_output_protocols(result, result.protocols);
+  if (keys.contains({"cpp", "protocols"})) { result.cpp.protocols = cpp_selection; }
   return result;
 }
 
