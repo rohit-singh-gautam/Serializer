@@ -60,3 +60,21 @@ Disposable probes and the temporary generated-navigation directory were removed.
 Native editor-host integration, extension installation, and publication were not
 performed. These checks verify the current source build; they do not update or
 relicense older published packages.
+
+## Generated-notice follow-up: 17 October 2026
+
+Compiler/runtime **2.3.1** removes the injected support-permission prose while
+retaining input copyright/license notices and the exact two-line Serializer
+identification. Serializer's existing GPL/0BSD source licensing is unchanged.
+
+The Windows MSVC build passed all nine notice regressions across eleven generated
+languages, including proprietary/GPL/notice-free inputs, included notices,
+declaration-free schemas, separate C++ headers and borrowed emission. The full
+core executable passed 550 cases with one existing formatter-availability skip.
+Runtime-template checks, package-version compatibility and the regenerated C++
+XML/package example passed. CLI output reports **2.3.1**, language **1.17.0**.
+
+The regenerated `example/cpp/xml/generated/model.hpp` build artifact preserves
+the example schema's GPL notice followed by the two provenance lines. Logs are
+retained under ignored `out/build/generated-notices-*.log`; this follow-up
+qualifies notice generation rather than repeating the earlier full SDK matrix.

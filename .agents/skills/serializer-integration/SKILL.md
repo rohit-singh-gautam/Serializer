@@ -42,6 +42,10 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
+Compiler/runtime **2.3.1** preserves input schema copyright/license notices and
+adds only the minimal Serializer provenance banner. Do not add a Serializer
+license identifier or permission statement to generated application files.
+
 Compiler/runtime **2.3.0** adds optional generated XML codecs and a fixed build-time
 XSD subset across all generated outputs. Read the
 [XML/package usage contract](../../../docs/serialization/xml_packages.md), use
@@ -428,11 +432,17 @@ there instead of relying on the relative links.
   differs; prefer a source build of the needed revision rather than assuming a
   published port contains current managed APIs or generation helpers.
 - For compiler/runtime 1.7.0 and newer, follow the
-  [licensing contract](../../../docs/project/licensing.md): generated output permits
-  proprietary licensing through `LICENSE-GENERATED`, and application runtime
-  headers/compiled helpers and managed support use `LICENSE-RUNTIME` (0BSD).
-  Preserve schema copyright/license notices, including those from included files;
-  generation does not change their ownership or license. Use `Serializer::runtime`
+  [licensing contract](../../../docs/project/licensing.md): the schema/application
+  author selects the generated output's license, including proprietary terms.
+  Preserve the exact authored copyright/license notice text and required notices
+  from included schemas; adapt only target-language comment framing and necessary
+  syntax escaping. Current generation adds minimal provenance, no output license
+  or permission preamble, and no inferred license when schema notices are absent.
+  `LICENSE-GENERATED` supplies upstream 0BSD permission for Serializer-authored
+  emitted support; this does not label the whole generated file, transfer ownership
+  of that support, or override included-schema or third-party conditions.
+  Application runtime headers/compiled helpers and managed support use
+  `LICENSE-RUNTIME` (0BSD). Use `Serializer::runtime`
   for application linkage or `Serializer::managed` when needed. The compiler and
   `Serializer::serializer_lib` parser/generator API remain GPL-3.0-or-later. Check
   third-party dependency licenses separately, and do not apply these permissions

@@ -12,6 +12,7 @@ that later changes or untested backend combinations passed the same checks.
 | Record | Scope |
 | --- | --- |
 | [XML and packages](verification-xml-packages-2026-10-17.md) | Generated XML across eleven outputs, fixed-XSD/typed probes, native compression/package checks and explicit remaining gates. |
+| [Generated notice follow-up](verification-proprietary-licensing-2026-10-09.md#generated-notice-follow-up-17-october-2026) | Compiler 2.3.1 schema-license preservation and minimal provenance across eleven outputs. |
 
 ## 15 October 2026
 

@@ -35,11 +35,15 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **2.3.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.3.1**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.17.0**;
 see [release and schema versions](docs/guides/command_line.md).
+
+Compiler/runtime **2.3.1** preserves schema license notices without adding an
+output-license banner. Generated files retain the minimal Serializer provenance
+comments; see [generated-output licensing](docs/project/licensing.md).
 
 Compiler/runtime **2.3.0** adds optional generated XML mappings and fixed XSD
 bindings across all output languages, optional prepared runtime validation,
@@ -310,12 +314,16 @@ Value results use `[[nodiscard]]`; proven nonthrowing operations use `noexcept`.
 
 ## Proprietary applications and licensing
 
-Generated output may be used, modified, and distributed under your application's
-license, including a proprietary license. Serializer-authored generated code is
-covered by [LICENSE-GENERATED](LICENSE-GENERATED); copyright and license notices
-from the input schemas remain applicable and are preserved in generated output.
-Generation does not transfer ownership of your schema to Serializer or transfer
-ownership of Serializer-authored support code to you.
+The schema/application author selects the generated output's license, including
+proprietary terms. Generated files preserve the schemas' copyright and license
+notice text, including required notices from included schemas, with minimal
+generation provenance. Serializer adds no output license or permission preamble;
+a schema with no notices receives no inferred license notice.
+
+[LICENSE-GENERATED](LICENSE-GENERATED) grants permission to use Serializer-authored
+emitted support under your application's chosen terms. Its upstream 0BSD permission
+does not label the whole generated file or override input/dependency conditions.
+Generation does not transfer ownership of either the schema or Serializer support.
 
 Application runtime headers, compiled helpers, and managed support use the
 [Zero-Clause BSD license](LICENSE-RUNTIME). Link `Serializer::runtime` for generated
@@ -590,7 +598,7 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
 Both extensions use source release version **2.0.2**, independent of compiler version
-**2.3.0**. Embedded `cpp { ... }`, `java { ... }`, and other target blocks reuse
+**2.3.1**. Embedded `cpp { ... }`, `java { ... }`, and other target blocks reuse
 available language grammars for syntax highlighting. Install the language's grammar
 provider where the editor does not bundle it; this does not add embedded IntelliSense.
 See [embedded source highlighting](docs/editors/editor_extension.md#embedded-source-highlighting)

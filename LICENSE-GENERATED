@@ -13,6 +13,10 @@ even when the compiler or generator source that produces it is licensed under
 the GNU General Public License. The compiler's GPL license does not impose GPL
 licensing or source-disclosure requirements on that generated output.
 
+This upstream 0BSD grant applies to Serializer-authored contributions. It does
+not prescribe the license of a complete generated file or change the terms of
+schema-derived and third-party contributions.
+
 The schema author's existing copyright and license rights are preserved.
 Copyright/license notices supplied in a schema are carried into generated
 output as documented in docs/project/licensing.md. Serializer does not assign a new

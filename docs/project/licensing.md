@@ -1,14 +1,18 @@
 # Generated output and application runtime licensing
 
-Serializer permits proprietary applications to use and distribute its generated
-models and application runtime. The schema compiler remains GPL-3.0-or-later.
+Serializer remains open source: its schema compiler uses GPL-3.0-or-later, and its
+application runtime and emitted support have upstream 0BSD permissions. Application
+authors may choose proprietary terms for their own schemas and generated files,
+subject to applicable input conditions. The examples below concern that application
+licensing choice.
 Compiler/runtime release **1.7.0** introduces this explicit separation; it does
 not change schema syntax, generated APIs, or serialized formats.
 
 | Component | Terms | Application integration |
 | --- | --- | --- |
 | Application runtime headers under `include/rohit/`, compiled runtime helpers, and managed support | [`LICENSE-RUNTIME`](../../LICENSE-RUNTIME), Zero-Clause BSD (0BSD), except identified compiler API headers | Link `Serializer::runtime`, or `Serializer::managed` for managed support; proprietary distribution is permitted |
-| Serializer-authored generated models and embedded language runtime support | [`LICENSE-GENERATED`](../../LICENSE-GENERATED), explicit permission to distribute under any license | Choose your application's license, including proprietary terms |
+| Generated application files | Terms selected by the schema/application author, subject to applicable input conditions | Preserve authored schema notices, including required included-schema notices; proprietary terms are permitted |
+| Serializer-authored emitted support and embedded language runtimes | [`LICENSE-GENERATED`](../../LICENSE-GENERATED), upstream 0BSD permission for those contributions | Use under your application's chosen terms; the grant does not label the whole generated file |
 | Schema compiler, parser, generators, and compiler API library | [`LICENSE`](../../LICENSE), GPL-3.0-or-later | Run the generator as a build tool; deliberate compiler API linkage uses `Serializer::serializer_lib` |
 | Input `.serializer` schemas | Terms chosen by their copyright holders | Their notices and any applicable conditions remain in force |
 | Third-party dependencies | Each dependency's own license | Preserve any conditions applicable to the dependencies you distribute |
@@ -52,6 +56,13 @@ permissively licensed Serializer support while being distributed as part of a
 proprietary application. Preserved schema notices record the input authors' terms;
 they do not automatically assign every part of a generated file to one owner.
 
+The support's 0BSD terms are the upstream permission for Serializer-authored
+contributions. The generator does not apply a 0BSD license label or permission
+preamble to the whole generated file. Its output carries the schema authors'
+notices and minimal generation provenance. Required notices from included schemas
+remain applicable to their contributions; the entry schema's license does not
+replace them.
+
 Third-party schemas and dependencies keep their own conditions. These permissions
 cover Serializer-authored code and do not certify that every algorithm, provider,
 or application is free of third-party patents or other rights. Serializer's
@@ -68,16 +79,19 @@ independently authored runtime or generator contributions to you: the runtime
 license and generated-code permission grant you the rights needed to use them
 in your own application.
 
-Consequently, an application built from your proprietary schema may keep
-proprietary output and remain closed source. A schema obtained from someone else
-retains that owner's applicable terms; generating code is not a way to remove
-those terms. The same consideration applies to user-supplied code or templates.
+The schema/application author selects the generated output's license, including
+proprietary terms. Generated files preserve the authored copyright and license
+notice text, with only the comment framing and syntax escaping required by the
+target language. A schema obtained from someone else retains that owner's
+applicable terms. The same consideration applies to included schemas,
+user-supplied code and templates.
 
 Put copyright and license information in schema comments rather than editing
 generated files. For example:
 
 ```text
-// Copyright (c) 2026 Example Application Authors
+// Copyright (C) 2026 Example Application Authors
+// All rights reserved.
 // SPDX-License-Identifier: LicenseRef-Example-Proprietary
 serializer version 1.2.0;
 
@@ -90,6 +104,18 @@ class record {
 license text in your application's distribution. A notice records your chosen
 terms rather than creating or validating the license itself.
 
+A copyright line identifies the rights holder; it does not by itself specify a
+proprietary or open-source license. When the named holder is also the author,
+that notice already credits them and no separate `Author:` line is needed. The
+tool's two-line generation provenance is separate from copyright and licensing.
+
+Generated output carries the example's copyright and proprietary license notices
+with minimal generation provenance. Serializer adds no replacement copyright,
+output license identifier or permission preamble. If the input schemas contain no
+notices, the output notice header contains only the two provenance lines; the
+generator does not infer a license. Serializer's upstream support permission
+remains available in `LICENSE-GENERATED` independently of those output notices.
+
 Put notices in leading comments before the first schema token. A contiguous
 `//` comment group or an individual `/* ... */` block is retained when it contains
 `copyright` (case insensitive), `SPDX-FileCopyrightText:`, or
@@ -100,11 +126,11 @@ comment groups are not propagated.
 Notices from the entry schema and included schemas appear in deterministic
 first-encounter order; identical notices appear once. All generated language
 outputs carry them, including TypeScript declarations: Python uses `#` comments,
-and other outputs use `//`. They appear under `Input schema notices:`, alongside
-the Serializer support permission banner. Serializer's compiler GPL notice is not
-inherited by the output. A notice from an included schema does not change the license of
-unrelated inputs or override Serializer's generated-code grant. No schema
-language declaration is needed for these comments.
+and other outputs use `//`. Notice text is retained without substituting another
+license or adding a Serializer permission banner. Serializer's compiler GPL notice
+is not inherited by the output. Included-schema notices are preserved without
+converting them to the entry schema's license or changing unrelated inputs' terms.
+No schema language declaration is needed for these comments.
 
 Notices are rendered as valid comments in the selected language. Embedded CR,
 NEL, U+2028, and U+2029 line separators become separately commented lines. Java

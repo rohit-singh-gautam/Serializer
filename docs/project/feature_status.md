@@ -60,7 +60,7 @@ changes no schema language or existing wire format.
 
 [Back to the project overview](../../README.md)
 
-Current compiler/runtime **2.3.0** supports language **1.17.0** and includes
+Current compiler/runtime **2.3.1** supports language **1.17.0** and includes
 `constexpr` ordinary C++ codec templates and a native positional/integer-key
 scalar decoder subset for constexpr-safe typed streams. Eligible checked
 arithmetic and dotted-value construction/conversions also constant-evaluate.

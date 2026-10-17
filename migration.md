@@ -1,5 +1,15 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.3.1
+
+Regenerate outputs to remove the injected Serializer support-permission banner.
+Generated files preserve the copyright/license notices supplied by their input
+schemas and add only the minimal generator identification and repository URL.
+Inputs without license notices receive no invented license. Notices from included
+schemas remain preserved, as do source markers used for editor navigation.
+Serializer's upstream generated-support permission remains in `LICENSE-GENERATED`;
+this change does not alter generated APIs, wire bytes or schema language 1.17.0.
+
 ## Compiler/runtime 2.3.0
 
 Release **2.3.0** adds optional generated owning XML mappings across all language

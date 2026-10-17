@@ -172,10 +172,16 @@ identifiers match generated members. Native bodies are compiled as C++ and do no
 add wire fields. Both editor extensions can reuse available native language grammars
 for [embedded source highlighting](../editors/editor_extension.md#embedded-source-highlighting).
 
-Generated models may be distributed under your application's license, including
-proprietary terms, subject to the input schemas' copyright and license conditions.
-Serializer's own generated support code is covered by
-[`LICENSE-GENERATED`](../../LICENSE-GENERATED), and application runtime headers and
+Choose the generated output's license in your schema/application, including
+proprietary terms. Put its copyright and license notices in leading schema
+comments; generation preserves their text and required included-schema notices,
+with only target-language comment framing and syntax escaping. Output includes
+minimal provenance and no injected license or permission preamble. With no schema
+notices, the generator does not infer a license.
+
+[`LICENSE-GENERATED`](../../LICENSE-GENERATED) supplies upstream permission for
+Serializer-authored emitted support; its 0BSD terms do not label the whole generated
+file or override other contributors' conditions. Application runtime headers and
 compiled helpers use [`LICENSE-RUNTIME`](../../LICENSE-RUNTIME) (0BSD). Use
 `Serializer::runtime` or `Serializer::managed` for application linkage; the
 compiler API library remains GPL. See [licensing and notices](../project/licensing.md).
