@@ -1,5 +1,14 @@
 # Wire format and decoding contract
 
+Compiler/runtime **2.3.0** adds opt-in generated XML entry points with a separate
+expanded-name/attribute/ordered-child mapping. Existing JSON/binary protocol IDs,
+native bytes, default selection and managed journal records are unchanged.
+C++ exposes `xml::codec` for ordinary whole-object stream/compression helpers;
+other outputs expose dedicated XML methods. ZIP and compression wrap complete
+codec bytes without a private payload envelope. See the
+[XML/package contract](xml_packages.md) and [remaining coverage](../xml_pending.md).
+XML format omission selectors and managed revision bindings are not implemented.
+
 Language `1.17.0` [array and callable APIs](../schema/array_and_callable_api.md)
 add no wire tags or layout metadata. Exposed access, dimensions and callable
 availability operate on the existing stored fields. Typed bindings affect

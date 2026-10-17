@@ -894,6 +894,62 @@ else()
 endif()
 add_test(NAME constructor_delegation_test COMMAND constructor_delegation_test)
 
+add_executable(compression_stream_test compression_stream_test.cpp)
+serializer_generate(TARGET compression_stream_test SCHEMAS resources/person.serializer
+  OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/compression_stream")
+target_link_libraries(compression_stream_test PRIVATE Serializer::runtime GTest::gtest_main)
+if(MSVC)
+  target_compile_options(compression_stream_test PRIVATE /W4 /WX)
+else()
+  target_compile_options(compression_stream_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME compression_stream_test COMMAND compression_stream_test)
+
+add_executable(package_test package_test.cpp)
+target_link_libraries(package_test PRIVATE Serializer::runtime GTest::gtest_main)
+target_compile_definitions(package_test PRIVATE
+  SERIALIZER_TEST_HAS_XML=$<BOOL:${SERIALIZER_WITH_XML}>
+  SERIALIZER_TEST_RESOURCE_DIRECTORY="${CMAKE_CURRENT_SOURCE_DIR}/resources")
+if(MSVC)
+  target_compile_options(package_test PRIVATE /W4 /WX)
+else()
+  target_compile_options(package_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME package_test COMMAND package_test)
+
+if(SERIALIZER_WITH_XML)
+  add_executable(xml_test xml_test.cpp)
+  add_library(xml_fixture_models INTERFACE)
+  serializer_generate(TARGET xml_fixture_models SCHEMAS resources/xml_fixture.serializer
+    CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_fixture.ini"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/xml")
+  add_library(xml_xsd_fixture_models INTERFACE)
+  serializer_generate(TARGET xml_xsd_fixture_models SCHEMAS resources/xml_xsd_fixture.serializer
+    CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_xsd_fixture.ini"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_xsd_fixture.xsd"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/xml_xsd")
+  target_link_libraries(xml_test PRIVATE Serializer::serializer_lib GTest::gtest_main
+    xml_fixture_models xml_xsd_fixture_models)
+  if(MSVC)
+    target_compile_options(xml_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(xml_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME xml_test COMMAND xml_test)
+
+  add_executable(xml_shapes_cpp xml_shapes_test.cpp)
+  serializer_generate(TARGET xml_shapes_cpp SCHEMAS resources/xml_shapes/model.serializer
+    CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_shapes/options.ini"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/xml_shapes_cpp")
+  target_link_libraries(xml_shapes_cpp PRIVATE Serializer::runtime)
+  if(MSVC)
+    target_compile_options(xml_shapes_cpp PRIVATE /W4 /WX)
+  else()
+    target_compile_options(xml_shapes_cpp PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME xml_shapes_cpp COMMAND xml_shapes_cpp)
+endif()
+
 if(WIN32)
   get_property(serializer_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
   foreach(target IN LISTS serializer_test_targets)

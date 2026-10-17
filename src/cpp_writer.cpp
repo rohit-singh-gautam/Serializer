@@ -29,6 +29,7 @@
 #include "arithmetic_writer.hpp"
 #include "auto_size_writer.hpp"
 #include "array_exposure_writer.hpp"
+#include "xml_schema.hpp"
 
 #include <rohit/serializer_creator.hpp>
 
@@ -91,6 +92,8 @@ class emitter : private naming {
   bool rename_behavior_identifiers{true};
   std::map<std::string, class_comparison_options> class_comparisons;
   auto_size::configuration class_auto_sizes;
+  xml_options xml_options_{};
+  xml_binding::schema xml_schema_;
   std::string source_filter{};
   std::vector<std::string> included_headers{};
   friend class managed_writer<emitter>;
@@ -137,6 +140,7 @@ public:
         rename_behavior_identifiers{options.rename_identifiers},
         class_comparisons{options.class_comparisons},
         class_auto_sizes{options.class_auto_sizes},
+        xml_options_{options.xml}, xml_schema_{options.xml},
         managed_{*this, options.managed_id_type, options.managed_separate_values} {
     if (emission_only && (!constant_evaluation_enabled || !positional_only)) {
       throw std::invalid_argument{
@@ -144,6 +148,9 @@ public:
     }
     if (positional_only && protobuf_enabled) {
       throw std::invalid_argument{"cpp.protocols binary_none cannot be combined with cpp.protobuf true"};
+    }
+    if (options.xml.enabled && emission_only) {
+      throw std::invalid_argument{"XML generation requires owning models"};
     }
   }
 
@@ -2402,6 +2409,114 @@ public:
     write_serializer_in_body(out_stream, obj);
     write_static_serializer(out_stream, obj);
     if (protobuf_enabled) { write_protobuf(out_stream, *obj); }
+    if (xml_options_.enabled) { write_xml(out_stream, *obj); }
+  }
+
+  // Quote configured names as C++ byte strings without source-text injection.
+  std::string xml_string(std::string_view value) {
+    std::string result{"\""};
+    for (const auto character : value) { result += escape_magic_byte(static_cast<unsigned char>(character)); }
+    result += '"';
+    return result;
+  }
+
+  // Validate XML member APIs against the complete class before durable-layout filtering removes callables.
+  void validate_xml_names(const class_node& object) {
+    const std::set<std::string> reserved_xml_names{"xml_root_name", "xml_runtime_xsd", "xml_validate_input",
+        "xml_validate_output", "serialize_xml_out", "serialize_xml_in"};
+    if (reserved_xml_names.contains(type_name(object.name))) {
+      throw std::invalid_argument{"XML generated API conflicts with owning class name: " + object.name};
+    }
+    for (const auto& field : object.member_list) {
+      if (reserved_xml_names.contains(member_name(field))) {
+        throw std::invalid_argument{"XML generated member name conflicts with schema field: " + field.name};
+      }
+      if (!field.readonly_getter.empty() && reserved_xml_names.contains(function_name(field.readonly_getter))) {
+        throw std::invalid_argument{"XML generated API conflicts with readonly getter: " + field.readonly_getter};
+      }
+    }
+    for (const auto& method : object.functions) {
+      if (reserved_xml_names.contains(function_name(method.name))) {
+        throw std::invalid_argument{"XML generated member name conflicts with schema function: " + method.name};
+      }
+    }
+    for (const auto& factory : object.constructions) {
+      if (!factory.constructor && reserved_xml_names.contains(function_name(factory.name))) {
+        throw std::invalid_argument{"XML generated API conflicts with named factory: " + factory.name};
+      }
+    }
+    for (const auto& conversion : object.conversions) {
+      if (reserved_xml_names.contains(function_name(conversion.name))) {
+        throw std::invalid_argument{"XML generated API conflicts with conversion: " + conversion.name};
+      }
+    }
+  }
+
+  // Emit direct static field traversal with XSD-derived sequence, placement and occurrence checks.
+  void write_xml(rohit::type_check::output_buffer auto& output, const class_node& object) {
+    const auto contract = xml_schema_.bind(object);
+    const auto qualified = [&](const xml::name& name) {
+      return "::rohit::serializer::xml::name{" + xml_string(name.local) + ", " + xml_string(name.namespace_uri) + "}";
+    };
+    const auto node = local_name("xml_node");
+    const auto reader = local_name("xml_reader");
+    const auto budget = local_name("xml_budget");
+    output.write("\n  // Return the fixed XML root contract; namespace prefixes are not identities.\n"
+                 "  [[nodiscard]] static ::rohit::serializer::xml::name xml_root_name() { return ",
+                 qualified(contract.root), "; }\n"
+                 "  // Runtime validator support is explicitly selected during model generation.\n"
+                 "  static constexpr bool xml_runtime_xsd = ",
+                 std::string_view{xml_options_.runtime_xsd ? "true" : "false"}, ";\n"
+                 "  static constexpr bool xml_validate_input = ",
+                 std::string_view{xml_options_.validation_scope != "output" ? "true" : "false"}, ";\n"
+                 "  static constexpr bool xml_validate_output = ",
+                 std::string_view{xml_options_.validation_scope != "input" ? "true" : "false"}, ";\n"
+                 "  // Encode this owning record using only statically selected XML bindings.\n"
+                 "  void serialize_xml_out(::rohit::serializer::xml::element& ", node,
+                 ", ::rohit::serializer::xml::build_budget& ", budget, ") const {\n");
+    for (const auto& field : contract.fields) {
+      if (field.repeated) {
+        const auto size = "this->" + member_name(*field.source) + ".size()";
+        if (field.min_occurs > 0U || field.max_occurs) {
+          output.write("    if (");
+          if (field.min_occurs > 0U) { output.write(size, " < ", field.min_occurs, "U"); }
+          if (field.min_occurs > 0U && field.max_occurs) { output.write(" || "); }
+          if (field.max_occurs) { output.write(size, " > ", *field.max_occurs, "U"); }
+          output.write(") { throw ::std::invalid_argument{\"XML collection violates XSD occurrence bounds\"}; }\n");
+        }
+      }
+      output.write("    ::rohit::serializer::xml::", std::string_view{field.attribute ? "add_attribute" : "add_child"},
+                   "(", node, ", ", qualified(field.qualified_name), ", this->", member_name(*field.source), ", ", budget, ");\n");
+    }
+    output.write("  }\n"
+                 "  // Decode into a candidate; use xml::deserialize for transactional public loading.\n"
+                 "  void serialize_xml_in(const ::rohit::serializer::xml::element& ", node, ") {\n"
+                 "    ::rohit::serializer::xml::field_reader ", reader, "{", node, "};\n");
+    for (const auto& field : contract.fields) {
+      output.write("    ", reader, std::string_view{field.attribute ? ".attribute_value(" : ".child_value("},
+                   qualified(field.qualified_name), ", this->", member_name(*field.source), ");\n");
+      if (field.repeated && (field.min_occurs > 0U || field.max_occurs)) {
+        const auto size = "this->" + member_name(*field.source) + ".size()";
+        output.write("    if (");
+        if (field.min_occurs > 0U) { output.write(size, " < ", field.min_occurs, "U"); }
+        if (field.min_occurs > 0U && field.max_occurs) { output.write(" || "); }
+        if (field.max_occurs) { output.write(size, " > ", *field.max_occurs, "U"); }
+        output.write(") { throw ::std::invalid_argument{\"XML collection violates XSD occurrence bounds\"}; }\n");
+      }
+    }
+    auto protocol_type = std::string{"SerializerXmlProtocol"};
+    while (protocol_type == type_name(object.name)) { protocol_type += "Type"; }
+    output.write("    ", reader, ".finish();\n  }\n"
+                 "  // Compose this XML mapping with the common complete-object protocol API.\n"
+                 "  template <typename ", protocol_type, ">\n"
+                 "    requires requires(", protocol_type, "& protocol, const ", type_name(object.name),
+                 "& value) { protocol.xml_object(value); }\n"
+                 "  void serialize_out(", protocol_type, "& protocol) const { protocol.xml_object(*this); }\n"
+                 "  // XML decoding uses a fresh candidate before replacing this object.\n"
+                 "  template <typename ", protocol_type, ">\n"
+                 "    requires requires(", protocol_type, "& protocol, ", type_name(object.name),
+                 "& value) { protocol.xml_object(value); }\n"
+                 "  void serialize_in(", protocol_type, "& protocol) { protocol.xml_object(*this); }\n");
   }
 
   // Convert a validated wire identifier to Protobuf's standard JSON spelling.
@@ -2881,6 +2996,7 @@ public:
                        "  using serializer_constant_evaluation_type = ", type_name(obj->name),
                        ";\n\n");
     }
+    if (xml_options_.enabled) { validate_xml_names(*obj); }
     auto durable = native_layout(*obj, std::string_view{});
     write_serializer(out_stream, &durable);
 
@@ -3340,6 +3456,23 @@ public:
   // Generate a complete C++ header while retaining the parsed schema and original wire names.
   void emit(rohit::type_check::output_buffer auto& out_stream,
             const std::vector<std::unique_ptr<syntax_node>>& statements) {
+    if (xml_options_.enabled) {
+      std::set<std::string> source_names{};
+      const auto collect = [&](auto&& self, const auto& nodes) -> void {
+        for (const auto& node : nodes) {
+          if (node->type == object_type::namespace_type) {
+            self(self, static_cast<const namespace_node&>(*node).statements);
+          } else if (node->type == object_type::class_type || node->type == object_type::generic_definition) {
+            source_names.insert(node->get_full_name());
+          }
+        }
+      };
+      collect(collect, statements);
+      for (const auto& [class_name, configuration] : xml_options_.classes) {
+        (void)configuration;
+        if (!source_names.contains(class_name)) { throw std::invalid_argument{"Unknown XML configured class: " + class_name}; }
+      }
+    }
     const auto has_expected_results = [&](const auto& self, const auto& nodes) -> bool {
       return std::any_of(nodes.begin(), nodes.end(), [&](const auto& node) {
         if (node->type == object_type::namespace_type) {
@@ -3416,6 +3549,7 @@ public:
                      "#include <rohit/digest.hpp>\n");
     if (!managed_.empty()) { out_stream.write("#include <rohit/managed.hpp>\n#include <optional>\n"); }
     if (protobuf_enabled) { out_stream.write("#include <rohit/protobuf.hpp>\n"); }
+    if (xml_options_.enabled) { out_stream.write("#include <rohit/xml.hpp>\n"); }
     if (has_views) {
       out_stream.write("#include <rohit/binary_view.hpp>\n");
     }
@@ -3473,6 +3607,7 @@ public:
 // Commit output to the caller only after name validation and formatting both succeed.
 std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,
                      const cpp_options& options) {
+  xml_binding::validate_options(statements, options.xml);
   static_cast<void>(coding_standard_name(options.standard));
   static_cast<void>(cpp_protocols_name(options.protocols));
   full_stream_auto_alloc raw{};
@@ -3496,6 +3631,7 @@ std::vector<generated_file> generate_files(const parser::parsed_schema& schema,
   if (mode != include_mode::separate && mode != include_mode::inline_output) {
     throw std::invalid_argument{"Invalid include mode"};
   }
+  xml_binding::validate_options(schema.statements, options.xml);
   if (mode == include_mode::inline_output || schema.source_files.size() <= 1) {
     return {{destination, generate_schema(schema, options)}};
   }

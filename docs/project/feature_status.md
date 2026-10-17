@@ -1,5 +1,40 @@
 # Features and implementation status
 
+This is the central catalog for supported capabilities and proposed work. The
+overview groups features; linked contracts and backend matrices define exact
+coverage and verification. Proposals are not delivery commitments.
+
+## Capability overview
+
+| Capability | Implemented status and reference |
+| --- | --- |
+| Native serialization | JSON and three native binary protocols; [wire contract](../serialization/wire_format.md) and [language outputs](../languages/README.md). |
+| Optional Protobuf formats | C++ Protobuf binary, ProtoJSON and TextProto; [mapping limits](../serialization/protobuf.md). |
+| Schema models and behavior | Types, collections, generics, construction/defaults, callables, conversions and evolution; [schema reference](../schema/README.md). Backend limits vary. |
+| C++ output optimization | Binary views, constant evaluation, protocol selection and emission models; [constant evaluation](../serialization/constant_evaluation.md) and [performance](../serialization/performance.md). |
+| XML and XSD | Optional generated owning XML mappings across all outputs, fixed XSD subset and explicit prepared validation; [usage and backend scope](../serialization/xml_packages.md). |
+| Streams and compression | C++ stream adapters, whole-message helpers and composable whole-object compression streams; [compression](../serialization/compression.md). General backend parity remains pending. |
+| ZIP and OPC | Codec-independent C++ ZIP32, OPC metadata/relationships, shared budgets and full-Save helpers; [package APIs](../serialization/xml_packages.md#plain-zip-and-opc). Backend parity and typed profiles remain pending. |
+| Managed application state | C++ identity, transactions, snapshot history, journals, collaboration and typed registries; [managed index](../managed/README.md). Other outputs exchange records without native managed engines. |
+| Builds and examples | CLI/INI generation, CMake integration, standalone examples and native Go projects; [build guide](../guides/build_and_generation.md) and [examples](../../example/README.md). |
+| Editors | Visual Studio and VS Code schema editing and navigation; [editor index](../editors/README.md). |
+
+## Proposed capabilities
+
+| Capability | Proposal and boundary |
+| --- | --- |
+| Broader XML and XSD | [Pending report](../xml_pending.md): tree-free optimized tokens, richer vocabularies, XSD bundles/facets, export and wider model coverage. |
+| ZIP/OPC parity and profiles | [Package requirements](../design/xml_support.md#multipart-packages-and-opc): all-language APIs/qualification, generated typed profiles, preservation and reproducibility. |
+| Reusable document-file profiles | [Proposed profile](../design/xml_support.md#reusable-document-file-profiles): complete saved files, side-channel-only history/recovery and independent external/internal codecs. Current native C++ formats remain unchanged. |
+| Compression parity | Whole-object stream wrappers across outputs with exact framing, limits and optional providers. Incremental records/object serialization are not required. |
+| Format parity | C++-only Protobuf APIs and `binary_none`-only generation still need equivalent general backend support. C++ constant evaluation and borrowed native views remain language-specific. |
+| Mostly-disk indexes | [Paged indexing](../design/paged_indexing.md): bounded page cache and later lazy storage. Not implemented. |
+| Database adapters | [Integration guidance](../guides/database_integration.md): storage mappings and a proposed sink boundary; no repository adapter is implemented. |
+| Broader managed capabilities | [Proposals below](#proposals-and-future-work): schema feature selectors, broader authorization/distributed behavior and native managed engines for other outputs. |
+| Other language enhancements | [Remaining roadmap](#other-roadmap-items): expanded default validation, input-member positions and bit fields. |
+
+## Detailed status and release context
+
 Compiler/runtime **1.14.0** and language **1.9.0** add
 [native binary derived sizes](../schema/derived_sizes.md), stored or `wire_only` headers,
 record/payload scope, class-specific decoder validation, complement omission
@@ -25,7 +60,7 @@ changes no schema language or existing wire format.
 
 [Back to the project overview](../../README.md)
 
-Current compiler/runtime **2.2.0** supports language **1.17.0** and includes
+Current compiler/runtime **2.3.0** supports language **1.17.0** and includes
 `constexpr` ordinary C++ codec templates and a native positional/integer-key
 scalar decoder subset for constexpr-safe typed streams. Eligible checked
 arithmetic and dotted-value construction/conversions also constant-evaluate.
@@ -544,6 +579,27 @@ explicit. Offline IDs use persisted local-to-authority mappings; ordinary applic
 integer references are not remapped.
 
 ## Proposals and future work
+
+### XML and multipart packages
+
+Release **2.3.0** implements generated owning XML mappings across all outputs,
+a deliberately bounded fixed-XSD subset and explicit runtime validation support.
+See the [actual APIs](../serialization/xml_packages.md) and
+[generated examples](../../example/xml/README.md). XML remains optional, default
+members are children, and a supported supplied XSD takes authority over placement
+and constraints. Changes to a fixed schema require regeneration/recompilation.
+
+C++ implements whole-object compression streams, ZIP32 and an OPC metadata subset.
+Plain ZIP stores arbitrary codec bytes without XML metadata. OPC adds content types
+and scoped relationships; this does not establish Office document semantics.
+Full-Save helpers stage complete files and add no Serializer history/session parts.
+The managed dual-codec document bridge is not implemented.
+
+The [full design](../design/xml_support.md) retains PKG01–PKG09 and completion
+gates. General features must support every output; missing compression/package
+backends, advanced XML/XSD, typed profiles and preservation remain
+[explicit pending work](../xml_pending.md). Compression handles complete objects;
+incremental record callbacks are not required.
 
 The [managed-state design index](../managed/README.md) groups the proposals under
 `docs/managed/`. The [data-structure design](../managed/data_structures.md) defines store

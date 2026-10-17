@@ -33,6 +33,23 @@ struct class_auto_size_options {
   auto_size_validation validation{auto_size_validation::verify};
 };
 
+// Fixed XML mapping authored in generator configuration rather than schema grammar.
+struct xml_class_options {
+  std::string root{};
+  std::string namespace_uri{};
+  std::vector<std::string> attributes{};
+  std::map<std::string, std::string> names{};
+};
+
+// XML generation is opt-in and does not alter other codec layouts or wire identities.
+struct xml_options {
+  bool enabled{false};
+  bool runtime_xsd{false};
+  std::string validation_scope{"input"};
+  std::filesystem::path xsd{};
+  std::map<std::string, xml_class_options> classes{};
+};
+
 struct cpp_options {
   coding_standard standard{coding_standard::serializer};
   bool rename_identifiers{true};
@@ -47,6 +64,7 @@ struct cpp_options {
   bool emission_only{false};
   std::map<std::string, class_comparison_options> class_comparisons{};
   std::map<std::string, class_auto_size_options> class_auto_sizes{};
+  xml_options xml{};
 };
 
 enum class java_coding_standard { serializer, google, oracle };
@@ -57,6 +75,7 @@ struct java_options {
   std::string package_name{};
   std::map<std::string, class_comparison_options> class_comparisons{};
   std::map<std::string, class_auto_size_options> class_auto_sizes{};
+  xml_options xml{};
 };
 
 // Native naming and module configuration for portable owning backends.
@@ -66,6 +85,7 @@ struct portable_options {
   std::string namespace_name{"SerializerGenerated"};
   std::map<std::string, class_comparison_options> class_comparisons{};
   std::map<std::string, class_auto_size_options> class_auto_sizes{};
+  xml_options xml{};
 };
 
 struct output_options {

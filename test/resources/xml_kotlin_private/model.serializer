@@ -1,0 +1,12 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.17.0;
+
+namespace kotlin_private {
+  class record {
+    private uint32 id;
+    private string label;
+    private optional<bool> enabled;
+    private array int16 samples;
+  }
+}

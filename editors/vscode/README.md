@@ -1,5 +1,13 @@
 # Rohit Serializer for Visual Studio Code
 
+Version **2.0.2** documents compiler/runtime **2.3.0**'s optional generated XML
+codecs and fixed XSD bindings across output languages. Select XML in the compiler's INI/CLI
+configuration; schema language **1.17.0** and existing generated-output navigation
+remain unchanged. XML/XSD validation, ZIP/OPC packaging, and compression run in
+the compiler/runtime; this extension adds no XML, XSD, or HTML language service.
+See the [XML and package support report](../../docs/design/xml_support.md) for
+implemented subsets, provider dependencies, and verification by backend. Both editor package versions match.
+
 Version **2.0.1** updates CMake project fixtures and build prerequisites for
 compiler/runtime **2.1.0**, which requires CMake **4.0+** and provides standalone
 CMake entry points for individual examples in every output language. Both editor

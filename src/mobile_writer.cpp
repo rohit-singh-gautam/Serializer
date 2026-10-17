@@ -1142,6 +1142,25 @@ class mobile_emitter {
         declare(id, collection_type(item), empty(item), item.access);
       }
     }
+    if (!swift && model.xml.enabled) {
+      for (const auto& item : value.member_list) {
+        if (item.omits("xml")) { continue; }
+        const auto bridge = "srlXmlField" + pascal(item.name);
+        if (std::any_of(value.member_list.begin(), value.member_list.end(), [&](const auto& other) {
+              return field(other.name) == bridge;
+            })) {
+          throw std::invalid_argument{"Kotlin XML bridge name conflicts with schema field: " + item.name};
+        }
+        const auto property_type = item.modifier == member::modifier_type::none ?
+            type(item.type_name_list.front()) : collection_type(item);
+        line("// Internal XML access retains the authored field visibility.");
+        line("internal var " + bridge + ": " + property_type);
+        ++indent;
+        line("get() = this." + field(item.name));
+        line("set(value) { this." + field(item.name) + " = value }");
+        --indent;
+      }
+    }
     array_access(value);
     behaviors(value);
     comparisons(value);

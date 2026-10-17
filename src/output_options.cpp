@@ -320,12 +320,12 @@ output_options read_output_options(const std::filesystem::path& file) {
         const auto class_offset = section.find(class_separator);
         bool class_section = class_offset != std::string::npos &&
             source_class_name(std::string_view{section}.substr(class_offset + class_separator.size()));
-        if (class_section) {
+        if (class_section && !section.starts_with("xml.class.")) {
           const auto languages = parse_output_languages(std::string_view{section}.substr(0, class_offset));
           class_section = languages.size() == 1;
         }
         if ((section != "output" && section != "cpp" && section != "java" && section != "js" &&
-             section != "go" && section != "csharp" && section != "kotlin" && section != "managed" &&
+             section != "go" && section != "csharp" && section != "kotlin" && section != "managed" && section != "xml" &&
              !class_section) ||
             !sections.insert(section).second) {
           throw std::invalid_argument{"Unknown or repeated section: " + section};
@@ -350,7 +350,29 @@ output_options read_output_options(const std::filesystem::path& file) {
       if (value.empty()) {
         throw std::invalid_argument{"Empty configuration value: " + key};
       }
-      if (const auto class_offset = section.find(".class."); class_offset != std::string::npos) {
+      if (section.starts_with("xml.class.")) {
+        auto& mapping = result.cpp.xml.classes[section.substr(std::string_view{"xml.class."}.size())];
+        if (key == "root") { mapping.root = value; }
+        else if (key == "namespace") { mapping.namespace_uri = value; }
+        else if (key == "attributes") { mapping.attributes = comparison_fields(value); }
+        else if (key.starts_with("name.")) { mapping.names.emplace(key.substr(5U), value); }
+        else { throw std::invalid_argument{"Unknown XML class configuration key: " + key}; }
+      } else if (section == "xml") {
+        if (key == "enabled") { result.cpp.xml.enabled = read_bool(value); }
+        else if (key == "runtime_xsd") { result.cpp.xml.runtime_xsd = read_bool(value); }
+        else if (key == "validation_scope") {
+          if (value != "input" && value != "output" && value != "both") {
+            throw std::invalid_argument{"XML validation_scope must be input, output or both"};
+          }
+          result.cpp.xml.validation_scope = value;
+        }
+        else if (key == "xsd") {
+          result.cpp.xml.xsd = std::filesystem::path{std::string{value}};
+          if (result.cpp.xml.xsd.is_relative()) {
+            result.cpp.xml.xsd = std::filesystem::absolute(file).parent_path() / result.cpp.xml.xsd;
+          }
+        } else { throw std::invalid_argument{"Unknown XML configuration key: " + key}; }
+      } else if (const auto class_offset = section.find(".class."); class_offset != std::string::npos) {
         constexpr std::string_view class_separator{".class."};
         const auto language = section.substr(0, class_offset);
         const auto name = section.substr(class_offset + class_separator.size());
@@ -451,6 +473,11 @@ output_options read_output_options(const std::filesystem::path& file) {
     throw std::invalid_argument{file.string() + ":" + std::to_string(line_number) + ": " +
                                 error.what()};
   }
+  result.java.xml = result.cpp.xml;
+  result.js.xml = result.cpp.xml;
+  result.go.xml = result.cpp.xml;
+  result.csharp.xml = result.cpp.xml;
+  result.kotlin.xml = result.cpp.xml;
   return result;
 }
 

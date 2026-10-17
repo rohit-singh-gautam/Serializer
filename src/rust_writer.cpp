@@ -9,6 +9,7 @@
 #include "construction_writer.hpp"
 #include "conversion_writer.hpp"
 #include "comparison_writer.hpp"
+#include "xml_rust_writer.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -700,6 +701,22 @@ class rust_emitter {
 
   // Define a class's owned fields, defaults, and transactional public decoding.
   void object(const class_node& value) {
+    if (model.xml.enabled) {
+      const std::set<std::string> reserved{"encode_xml", "decode_xml", "encode_xml_with_validation",
+          "decode_xml_with_validation", "srl_xml_write", "srl_xml_read"};
+      // Reserve selected XML APIs before any authored member or callable is emitted.
+      const auto check_xml_name = [&](std::string_view name) {
+        if (reserved.contains(field(name))) {
+          throw std::invalid_argument{"Rust XML method name collision: " + std::string{name}};
+        }
+      };
+      for (const auto& item : value.member_list) { check_xml_name(item.name); }
+      for (const auto& method : value.functions) { check_xml_name(method.name); }
+      for (const auto& factory : value.constructions) {
+        check_xml_name(factory.constructor ? "create" : factory.name);
+      }
+      for (const auto& conversion : value.conversions) { check_xml_name(conversion.name); }
+    }
     std::set<std::string> array_methods;
     for (const auto& item : value.member_list) {
       if (!item.array_exposure) { continue; }
@@ -768,6 +785,12 @@ class rust_emitter {
     close();
     close();
     open("impl " + name);
+    if (model.xml.enabled) {
+      const xml_binding::schema bindings{model.xml};
+      output += xml_binding::rust_methods(value, bindings.bind(value),
+          [&](const auto& item) { return field(item.name); },
+          [&](const auto& item) { return type(item); }, model.xml);
+    }
     array_access(value);
     behaviors(value);
     comparisons(value);
@@ -1080,6 +1103,7 @@ public:
         [&](const auto& node) { return model.names.at(&node); },
         [&](const auto name) { return field(name); }, "_internal");
     output += runtime;
+    if (model.xml.enabled) { output += xml_binding::rust_runtime(); }
     output += behavior::helpers("rust", arithmetic_helpers);
     output += behavior::helpers_predicate("rust", arithmetic_helpers);
   }
@@ -1105,6 +1129,14 @@ public:
     --indent;
     line("];");
     for (const auto* node : model.nodes) {
+      if (model.xml.enabled) {
+        validate_identifier(model.names.at(node), " XmlLimits XmlValidator SrlXmlWriter SrlXmlFields ");
+        if (node->type == object_type::function_type) {
+          validate_identifier(snake(model.names.at(node)),
+              " srl_xml_name srl_xml_parse srl_xml_header srl_xml_reject_dtd srl_xml_number "
+              "srl_xml_bool srl_xml_float srl_xml_text ");
+        }
+      }
       if (node->type == object_type::function_type) { free_function(static_cast<const function_node&>(*node)); continue; }
       validate_identifier(model.names.at(node), std::string{keywords} + " BTreeMap ");
       if (node->type == object_type::class_type) {

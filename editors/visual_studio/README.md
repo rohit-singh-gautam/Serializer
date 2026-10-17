@@ -1,5 +1,14 @@
 # Rohit Serializer for Visual Studio
 
+Version **2.0.2** updates the [Marketplace overview](marketplace_overview.md) for
+compiler/runtime **2.3.0**'s optional generated XML codecs and fixed XSD
+bindings across output languages. Select XML in the compiler's INI/CLI configuration; schema language
+**1.17.0** and existing generated-output navigation remain unchanged. XML/XSD
+validation, ZIP/OPC packaging, and compression belong to the compiler/runtime;
+this extension adds no XML, XSD, or HTML language service. See the
+[XML and package support report](../../docs/design/xml_support.md) for the
+implemented subsets, provider dependencies, and verification by backend. Both editor package versions match.
+
 Version **2.0.1** updates the [Marketplace overview](marketplace_overview.md) for
 compiler/runtime **2.1.0**, which requires CMake **4.0+** and provides standalone
 CMake entry points for individual examples in every output language. Both editor
@@ -208,7 +217,7 @@ installation. It uses full-framework MSBuild with locked dependencies, bundles
 the current shared resolver, rebuilds and validates:
 
 ```text
-out/extensions/serializer-visual-studio-2.0.1.vsix
+out/extensions/serializer-visual-studio-2.0.2.vsix
 ```
 
 Close Visual Studio, double-click the VSIX, select the installation and restart

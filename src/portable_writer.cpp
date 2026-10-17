@@ -1,5 +1,10 @@
 #include "schema_projection.hpp"
 #include "native_schema.hpp"
+#include "xml_schema.hpp"
+#include "xml_js_writer.hpp"
+#include "xml_csharp_writer.hpp"
+#include "xml_native_writer.hpp"
+#include "xml_portable_writer.hpp"
 #include "generated_notices.hpp"
 #include "version_writer.hpp"
 #include "behavior_writer.hpp"
@@ -35,6 +40,11 @@ constexpr std::string_view csharp_runtime =
 #include "csharp_runtime.inc"
     ;
 enum class target { js, go, csharp, typescript };
+
+// C# nested model members must not shadow unqualified runtime XML helper lookups.
+constexpr std::string_view csharp_xml_identifiers[]{
+    "SrlXmlNode", "SrlXmlBudget", "SrlXmlFields", "SrlXmlName", "SrlXmlTrim", "SrlXmlParse",
+    "SrlXmlBoolean", "SrlXmlInteger", "SrlXmlFloat", "SrlXmlFloatText", "SrlXmlScalarText", "SrlXmlWrite"};
 
 // Quote schema spelling without changing wire names or printable Unicode.
 std::string quote(std::string_view text) {
@@ -131,6 +141,7 @@ int width(std::string_view type) {
 class emitter {
   target language;
   const portable_options& options;
+  xml_binding::schema xml_schema_;
   std::string unit;
   behavior::checked_helpers arithmetic_helpers{};
   std::string source{};
@@ -450,9 +461,42 @@ class emitter {
             throw std::invalid_argument{"Generated helper name collision"};
           }
         }
+        if (options.xml.enabled &&
+            (!globals.insert("Decode" + names.at(node) + "XML").second ||
+             !globals.insert("srlXmlDecode" + names.at(node)).second)) {
+          throw std::invalid_argument{"Generated XML helper name collision"};
+        }
       }
       std::set<std::string> fields{"encode", "decode", "write", "read",        "Encode",
                                    "Decode", "Read",   "Write", names.at(node)};
+      std::set<std::string> xml_methods{};
+      if (options.xml.enabled) {
+        if (language == target::go) {
+          xml_methods = {"EncodeXML", "srlXmlNode"};
+        } else if (language == target::csharp) {
+          xml_methods = {"EncodeXml", "DecodeXml", "XmlNode", "XmlFromNode"};
+          for (const auto identifier : csharp_xml_identifiers) { xml_methods.emplace(identifier); }
+        } else {
+          xml_methods = {"encodeXml", "decodeXml", "_srlXmlRead", "_srlXmlWrite"};
+        }
+        fields.insert(xml_methods.begin(), xml_methods.end());
+        // Authored behavior shares the same member namespace as generated XML methods.
+        const auto reject_xml_method = [&](const std::string& identifier) {
+          const auto checked = identifier.starts_with('#') ? identifier.substr(1) : identifier;
+          if (xml_methods.contains(checked)) {
+            throw std::invalid_argument{"Generated XML method collision: " + identifier};
+          }
+        };
+        for (const auto& method : value.functions) {
+          reject_xml_method(field(method.name, method.access));
+        }
+        for (const auto& factory : value.constructions) {
+          reject_xml_method(field(factory.constructor ? "create" : factory.name, factory.access));
+        }
+        for (const auto& conversion : value.conversions) {
+          reject_xml_method(field(conversion.name, conversion.access));
+        }
+      }
       if (language == target::csharp) {
         // Unqualified type/helper references inside methods must not bind to fields.
         fields.insert(globals.begin(), globals.end());
@@ -2356,6 +2400,11 @@ class emitter {
       line("encode(protocol: Protocol): Uint8Array;");
       line("static decode(bytes: Uint8Array, protocol: Protocol, limits?: Limits): " + identifier +
            ";");
+      if (options.xml.enabled) {
+        source += xml_binding::js_methods(value, xml_schema_.bind(value),
+            identifier, [&](const auto& item) { return field(item.name, item.access); },
+            [&](const auto& item) { return type(item); }, options.xml, true);
+      }
       close();
       dispatch_adapter(value);
       return;
@@ -2475,6 +2524,20 @@ class emitter {
     }
     read_object(value);
     close();
+    if (options.xml.enabled) {
+      const auto contract = xml_schema_.bind(value);
+      const auto field_name = [&](const auto& item) { return field(item.name, item.access); };
+      const auto type_name = [&](const auto& item) { return type(item); };
+      if (language == target::go) {
+        source += xml_portable::methods(value, contract, identifier, field_name, type_name,
+                                        options.xml, "go");
+      } else if (language == target::csharp) {
+        source += xml_csharp::methods(value, contract, options.xml, identifier, field_name, type_name);
+      } else {
+        source += xml_binding::js_methods(value, contract, identifier, field_name, type_name,
+                                          options.xml);
+      }
+    }
     if (language != target::go) {
       close();
     }
@@ -2484,10 +2547,23 @@ class emitter {
 public:
   // Bind immutable generation policy for one compilation unit.
   emitter(target language, const portable_options& options, std::string_view unit_name)
-      : language{language}, options{options},
+      : language{language}, options{options}, xml_schema_{options.xml},
         unit{name(unit_name, true, options.rename_identifiers)} {}
   // Validate all declarations before returning complete native source.
   std::string generate(const std::vector<std::unique_ptr<syntax_node>>& values) {
+    if (options.xml.enabled) {
+      for (const auto identifier : {"XmlLimits", "XmlOptions", "XmlValidator", "XmlSchema",
+                                    "DefaultXmlLimits", "DefaultXmlOptions"}) {
+        globals.insert(identifier);
+      }
+      if (language == target::js || language == target::typescript) {
+        for (const auto identifier : {"SrlXmlParser", "SrlXmlWriter", "SrlXmlFields"}) {
+          globals.insert(identifier);
+        }
+      } else if (language == target::csharp) {
+        for (const auto identifier : csharp_xml_identifiers) { globals.emplace(identifier); }
+      }
+    }
     if (language == target::csharp) {
       validate_name(unit, language);
       if (!globals.insert(unit).second) {
@@ -2527,8 +2603,10 @@ public:
     if (language == target::go) {
       validate_name(options.package_name, language);
       line("package " + options.package_name);
+      if (options.xml.enabled) { source += xml_portable::imports("go"); }
       source += behavior::preambles(values, "go");
       source += go_runtime;
+      if (options.xml.enabled) { source += xml_portable::runtime("go"); }
       source += behavior::helpers("go", arithmetic_helpers);
     } else if (language == target::csharp) {
       line("#nullable enable");
@@ -2549,10 +2627,12 @@ public:
       }
       open("public static partial class " + unit);
       source += csharp_runtime;
+      if (options.xml.enabled) { source += xml_csharp::runtime(); }
       source += behavior::helpers("csharp", arithmetic_helpers);
     } else if (language == target::js) {
       source += behavior::preambles(values, "js");
       source += js_runtime;
+      if (options.xml.enabled) { source += xml_binding::js_runtime(); }
       source += behavior::helpers("js", arithmetic_helpers);
       source += behavior::helpers_typed("js", arithmetic_helpers);
     } else {
@@ -2568,6 +2648,7 @@ public:
       line("  constructor(maxBytes?: number, maxStringBytes?: number, maxElements?: number, "
            "maxDepth?: number, readPolicy?: number);");
       line("}");
+      if (options.xml.enabled) { source += xml_binding::js_declarations(); }
     }
     if (language != target::typescript) {
       emit_fields();
@@ -2596,6 +2677,7 @@ public:
 std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,
                      std::string_view language, std::string_view unit_name,
                      const portable_options& options) {
+  xml_binding::validate_options(statements, options.xml);
   behavior::require_callable_backend(statements, language);
   require_unmanaged_backend(statements);
   auto_size::validate(statements, options.class_auto_sizes);
@@ -2605,15 +2687,19 @@ std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements
     native::schema comparison_schema{statements};
     comparison_schema.class_comparisons = options.class_comparisons;
     comparison_schema.class_auto_sizes = options.class_auto_sizes;
+    comparison_schema.xml = options.xml;
     if (language == "c") {
-      return behavior::finalize_mappings(generated_license_notice(statements) + native::c(comparison_schema));
+      return behavior::finalize_mappings(generated_license_notice(statements) + native::c(comparison_schema) +
+          (options.xml.enabled ? xml_codegen::generate_native(comparison_schema, options.xml, language) : ""));
     }
     if (language == "swift") {
-      return behavior::finalize_mappings(generated_license_notice(statements) + native::swift(comparison_schema));
+      return behavior::finalize_mappings(generated_license_notice(statements) + native::swift(comparison_schema) +
+          (options.xml.enabled ? xml_codegen::generate_native(comparison_schema, options.xml, language) : ""));
     }
     if (language == "kotlin") {
       return behavior::finalize_mappings(generated_license_notice(statements) +
-             native::kotlin(comparison_schema, options.package_name));
+             native::kotlin(comparison_schema, options.package_name) +
+             (options.xml.enabled ? xml_codegen::generate_native(comparison_schema, options.xml, language) : ""));
     }
     if (language == "rust") {
       return behavior::finalize_mappings(generated_license_notice(statements) + native::rust(comparison_schema));

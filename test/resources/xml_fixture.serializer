@@ -1,0 +1,19 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.7.0;
+
+namespace xml_fixture {
+  enum state { open, closed }
+  class item {
+    public string label;
+    public int32 count;
+  }
+  class order {
+    public uint32 id;
+    public string customer;
+    public array item items;
+    public optional<string> note;
+    public state status;
+    public array[2] uint16 codes;
+  }
+}

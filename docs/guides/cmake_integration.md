@@ -89,6 +89,22 @@ features through `VCPKG_MANIFEST_FEATURES`. Cached values are preserved; reset
 for their exported runtime target. See [compression](../serialization/compression.md) for targets,
 limits, and supported format profiles. Missing enabled dependencies are errors.
 
+XML is separately opt-in: `SERIALIZER_WITH_XML=ON` requires the
+`LibXml2::LibXml2` CMake target. With vcpkg also select
+`-DVCPKG_MANIFEST_FEATURES=xml`. This enables the compiler's fixed-XSD binder and
+the C++ XML runtime; generated outputs use their documented language providers.
+`SERIALIZER_BUILD_XML_EXAMPLES=ON` builds the C++ XML and ZIP/OPC example and
+requires XML plus zlib. The [all-language XML runner](../../example/xml/README.md)
+builds every selected generated backend using its native SDK.
+With XML enabled, `SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES=ON` also registers
+the configured and fixed-XSD XML exchange matrices and Kotlin private-field probe.
+When native tests are enabled,
+it adds the typed XML probes; Python's runtime-XSD probe requires the pinned
+`lxml` dependency from
+[`test/resources/xml_shapes/requirements.txt`](../../test/resources/xml_shapes/requirements.txt).
+Install SDK/provider prerequisites before selecting this opt-in qualification;
+missing tools are errors.
+
 The root wrappers forward to CMake and preserve its incremental build and schema
 generation rules. On a fresh build, tests and all C++ style examples are enabled;
 GoogleTest 1.18.0+ and clang-format 19+ must be available. Both platforms provide
@@ -104,6 +120,7 @@ configuration, then uses CMake's `--clean-first` before building.
 | Git | `clean` and `rebuild`, which remove untracked and ignored files repository-wide; no CMake installation is needed for `clean`. |
 | CMake 4.0+ | Every source build; CTest is included with CMake. |
 | Zstandard, LZ4, and zlib CMake packages | Default runtime build; the repository vcpkg manifest acquires them automatically. Disable individual backends with `SERIALIZER_WITH_*=OFF`. |
+| libxml2 CMake package | `SERIALIZER_WITH_XML=ON` (default OFF); select vcpkg feature `xml` or supply `CMAKE_PREFIX_PATH`. |
 | C++20 compiler and standard library | Library, schema compiler, and C++ consumers; the selected compiler must support the target architecture. |
 | Native build tool | GNU Make for `make all`; Ninja for the Linux and Windows presets; MSBuild/Visual Studio C++ tools or another configured generator for the Windows wrapper. |
 | PowerShell | Windows `make.ps1` wrapper. |

@@ -46,11 +46,15 @@ and the [CMake variants helper](../guides/cmake_integration.md#generate-several-
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
-| `[output] language` | `cpp` | Select `cpp`, `java`, `js`, `typescript`, `go`, `csharp`, or a comma-separated list. |
+| `[output] language` | `cpp` | Select supported backends listed above, individually or as a comma-separated list. |
 | `[output] include_mode` | `separate` | C++ schema include layout: `separate` emits dependency headers; `inline` keeps the combined entry header. |
 | `[cpp] coding_standard` | `serializer` | Select a profile from the table below. |
 | `[cpp] naming` | `profile` | Rename target identifiers; `preserve` retains schema spellings. |
 | `[cpp] protobuf` | `false` | Generate direct Protobuf binary, ProtoJSON, and TextProto codecs; validate the [compatible schema subset](../serialization/protobuf.md). |
+| `[xml] enabled` | `false` | Generate the optional typed XML mapping for every selected output. |
+| `[xml] xsd` | Unset | Fixed standalone XSD build input, relative to this INI file; unsupported constructs fail generation. |
+| `[xml] runtime_xsd` | `false` | Permit an explicitly supplied prepared runtime validator. |
+| `[xml] validation_scope` | `input` | Apply a supplied validator to `input`, `output`, or `both`. |
 | `[cpp] format` | `true` | Run `clang-format`; `false` emits intermediate source for a caller-managed formatting pipeline. |
 | `[cpp] clang_format` | `clang-format` | Executable name on `PATH`, or a path to the executable. |
 | `[cpp] format_file` | Unset | Use a custom clang-format YAML file in place of the profile's layout. |
@@ -61,6 +65,13 @@ Use `--cpp.format_file=` to clear an inherited custom format file.
 Output filenames must end in `.h`, `.hpp`, or `.hxx`; `.hpp` is the repository default convention.
 `serializer --help` lists the arguments. Unknown/repeated scalar arguments, unsupported
 settings, malformed configurations, and failed generation return a nonzero exit code.
+
+XML CLI overrides use `--xml.` followed by the setting name. Without an XSD,
+members become children unless `[xml.class.<schema-qualified-name>] attributes`
+selects scalar attributes; `root`, `namespace` and `name.<member>` configure names.
+A supported fixed XSD is authoritative for placement and order. See
+[XML configuration and APIs](../serialization/xml_packages.md) and the
+[all-language examples](../../example/xml/README.md).
 
 INI keys, section names, profile names, and boolean values are case-sensitive.
 Each section/key may appear once. Blank lines and whole-line `#` or `;` comments

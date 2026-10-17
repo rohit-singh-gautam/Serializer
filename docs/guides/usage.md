@@ -2,6 +2,14 @@
 
 [Documentation index](../README.md) · [Application and build guides](README.md)
 
+Compiler/runtime **2.3.0** adds optional generated XML codecs across the language
+outputs, fixed XSD bindings and explicit prepared runtime validation. See
+[XML/package APIs](../serialization/xml_packages.md),
+[runnable generated examples](../../example/xml/README.md) and
+[remaining work](../xml_pending.md). C++ additionally implements composable
+whole-object compression streams and ZIP/OPC APIs; general feature parity remains
+required and the missing backend paths remain pending.
+
 Compiler/runtime **2.2.0** adds `model_store::discard_journal_changes()` for ordinary
 journaled C++ stores. It lazily reads the last full-Save envelope under the native
 writer lock, validates and restores its values and complete saved history, and

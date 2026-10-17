@@ -24,7 +24,7 @@ namespace rohit::serializer {
 enum class read_policy { strict, compatible, flexible };
 
 // Identify the protocol at compile time for schema-owned field exclusions.
-enum class wire_format { json, binary_none, binary_integer, binary_string, protobuf, protojson, textproto };
+enum class wire_format { json, binary_none, binary_integer, binary_string, protobuf, protojson, textproto, xml };
 
 namespace detail {
 // Custom codecs may opt into canonical dotted JSON strings with the same marker.

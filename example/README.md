@@ -1,5 +1,13 @@
 # Serializer examples
 
+## XML and packages
+
+The [generated XML examples](xml/README.md) use one schema/fixture across all eleven
+outputs and exchange documents between producers and consumers. The
+[C++ package example](cpp/xml/README.md) also exercises whole-object compression
+streams, mixed XML/binary ZIP parts and OPC discovery. See the
+[pending report](../docs/xml_pending.md) for format/backend completion gates.
+
 ## Owning record APIs
 
 Compiler/runtime **1.19.0** and language **1.14.0** add four focused consumers:

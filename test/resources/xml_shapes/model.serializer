@@ -1,0 +1,23 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: 0BSD
+serializer version 1.17.0;
+
+namespace shapes {
+  enum state {
+    zero,
+    one
+  }
+  class child {
+    public int16 value;
+  }
+  class record {
+    public uint64 big;
+    public string label;
+    public optional<bool> flag;
+    public child nested;
+    public array child children;
+    public array[2] state states;
+    public double amount;
+    public float small;
+  }
+}

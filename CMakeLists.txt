@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 4.0)
 
-project(serializer VERSION 2.2.0 LANGUAGES CXX)
+project(serializer VERSION 2.3.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
 set(serializer_schema_language_version 1.17.0)
@@ -27,6 +27,7 @@ option(SERIALIZER_BUILD_FUZZERS "Build instrumented Clang libFuzzer targets and 
 option(SERIALIZER_BUILD_STYLE_EXAMPLES "Build one example for each C++ output profile" OFF)
 option(SERIALIZER_BUILD_IOSTREAM_EXAMPLES "Build standard and custom iostream examples" OFF)
 option(SERIALIZER_BUILD_COMPRESSION_EXAMPLES "Build examples for enabled message compression formats" OFF)
+option(SERIALIZER_BUILD_XML_EXAMPLES "Build the XML, compression and package example" OFF)
 option(SERIALIZER_BUILD_JAVA_EXAMPLES "Generate and compile pure Java examples (JDK 17+)" OFF)
 option(SERIALIZER_BUILD_INTEROP_EXAMPLES "Build five-language examples and interoperability tests" OFF)
 option(SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES "Register all language examples and native codec qualification with CTest" OFF)
@@ -38,7 +39,11 @@ option(SERIALIZER_ENABLE_SIMD "Accelerate schema scanning and runtime codecs on 
 option(SERIALIZER_WITH_ZSTD "Enable standard Zstandard frame compression" ON)
 option(SERIALIZER_WITH_LZ4 "Enable standard LZ4 frame compression" ON)
 option(SERIALIZER_WITH_ZLIB "Enable gzip, zlib, and raw DEFLATE compression" ON)
+option(SERIALIZER_WITH_XML "Enable XML parsing and trusted XSD validation with LibXml2" OFF)
 include(cmake/serializer_compression.cmake)
+if(SERIALIZER_WITH_XML)
+  find_package(LibXml2 REQUIRED)
+endif()
 
 # Application support is permissively licensed and contains no schema compiler code.
 add_library(serializer_runtime
@@ -53,6 +58,13 @@ add_library(serializer_runtime
   include/rohit/managed_journal.hpp
   src/compression.cpp
   include/rohit/compression.hpp
+  src/compression_stream.cpp
+  include/rohit/compression_stream.hpp
+  src/xml.cpp
+  include/rohit/xml.hpp
+  src/package.cpp
+  src/package_opc.cpp
+  include/rohit/package.hpp
   src/simd_dispatch.cpp
   src/simd_dispatch.hpp
   src/runtime_simd.cpp
@@ -92,6 +104,22 @@ add_library(serializer_lib
   src/numeric_expression_writer.hpp
   src/auto_size_writer.hpp
   src/schema_formats.hpp
+  src/xml_schema.cpp
+  src/xml_schema.hpp
+  src/xml_portable_writer.cpp
+  src/xml_portable_writer.hpp
+  src/xml_native_writer.cpp
+  src/xml_native_writer.hpp
+  src/xml_js_writer.hpp
+  src/xml_rust_writer.hpp
+  src/xml_csharp_writer.hpp
+  src/xml_go_runtime.inc
+  src/xml_c_runtime.inc
+  src/xml_csharp_runtime.inc
+  src/xml_kotlin_runtime.inc
+  src/xml_swift_runtime.inc
+  src/java_xml_runtime.inc
+  src/python_xml_runtime.inc
   src/conversion_parser.hpp
   src/conversion_contract.hpp
   src/conversion_writer.hpp
@@ -144,17 +172,22 @@ target_compile_definitions(serializer_runtime PRIVATE
   SERIALIZER_ENABLE_SIMD=$<BOOL:${SERIALIZER_ENABLE_SIMD}>
   SERIALIZER_WITH_ZSTD=$<BOOL:${SERIALIZER_WITH_ZSTD}>
   SERIALIZER_WITH_LZ4=$<BOOL:${SERIALIZER_WITH_LZ4}>
-  SERIALIZER_WITH_ZLIB=$<BOOL:${SERIALIZER_WITH_ZLIB}>)
+  SERIALIZER_WITH_ZLIB=$<BOOL:${SERIALIZER_WITH_ZLIB}>
+  SERIALIZER_HAS_XML=$<BOOL:${SERIALIZER_WITH_XML}>)
 # Installed shared runtimes must expose capabilities without their private dependency links.
-foreach(backend IN ITEMS ZSTD LZ4 ZLIB)
+foreach(backend IN ITEMS ZSTD LZ4 ZLIB XML)
   set_property(TARGET serializer_runtime PROPERTY "SERIALIZER_WITH_${backend}"
     "${SERIALIZER_WITH_${backend}}")
   set_property(TARGET serializer_runtime APPEND PROPERTY EXPORT_PROPERTIES
     "SERIALIZER_WITH_${backend}")
 endforeach()
 target_compile_definitions(serializer_lib PRIVATE
-  SERIALIZER_ENABLE_SIMD=$<BOOL:${SERIALIZER_ENABLE_SIMD}>)
+  SERIALIZER_ENABLE_SIMD=$<BOOL:${SERIALIZER_ENABLE_SIMD}>
+  SERIALIZER_HAS_XML=$<BOOL:${SERIALIZER_WITH_XML}>)
 target_link_libraries(serializer_runtime PRIVATE ${serializer_compression_libraries})
+if(SERIALIZER_WITH_XML)
+  target_link_libraries(serializer_runtime PRIVATE LibXml2::LibXml2)
+endif()
 target_link_libraries(serializer_lib PUBLIC Serializer::runtime)
 
 # Keep AVX2 flags off the dispatcher and consumers, including in unity builds.
@@ -297,7 +330,7 @@ endif()
 
 if(SERIALIZER_BUILD_TESTS OR SERIALIZER_BUILD_FUZZERS OR SERIALIZER_BUILD_IOSTREAM_EXAMPLES
     OR SERIALIZER_BUILD_COMPRESSION_EXAMPLES OR SERIALIZER_BUILD_INTEROP_EXAMPLES
-    OR SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
+    OR SERIALIZER_BUILD_XML_EXAMPLES OR SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
   enable_testing()
 endif()
 if(SERIALIZER_BUILD_TESTS)
@@ -322,6 +355,19 @@ endif()
 
 if(SERIALIZER_BUILD_COMPRESSION_EXAMPLES OR SERIALIZER_BUILD_TESTS)
   add_subdirectory(example/compression)
+endif()
+if(SERIALIZER_BUILD_XML_EXAMPLES)
+  if(NOT SERIALIZER_WITH_XML OR NOT SERIALIZER_WITH_ZLIB)
+    message(FATAL_ERROR "XML examples require SERIALIZER_WITH_XML and SERIALIZER_WITH_ZLIB")
+  endif()
+endif()
+if(SERIALIZER_WITH_XML AND SERIALIZER_WITH_ZLIB AND
+    (SERIALIZER_BUILD_XML_EXAMPLES OR SERIALIZER_BUILD_TESTS))
+  add_subdirectory(example/cpp/xml)
+endif()
+if(SERIALIZER_WITH_XML AND (SERIALIZER_BUILD_XML_EXAMPLES OR SERIALIZER_BUILD_TESTS
+    OR SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES))
+  add_subdirectory(example/xml/cpp)
 endif()
 
 if(SERIALIZER_BUILD_JAVA_EXAMPLES)
@@ -348,6 +394,45 @@ endif()
 
 if(SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
   find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
+  if(SERIALIZER_WITH_XML)
+    foreach(profile IN ITEMS configured xsd)
+      if(profile STREQUAL "configured")
+        set(xml_example_target serializer_xml_cpp)
+        set(xml_example_config codegen.ini)
+      else()
+        set(xml_example_target serializer_xml_cpp_xsd)
+        set(xml_example_config xsd.ini)
+      endif()
+      add_test(NAME serializer_xml_languages_${profile}
+        COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/example/xml/run.py"
+          --compiler "$<TARGET_FILE:serializer>"
+          --cpp-executable "$<TARGET_FILE:${xml_example_target}>"
+          --config "${PROJECT_SOURCE_DIR}/example/xml/${xml_example_config}"
+          --build "${PROJECT_BINARY_DIR}/xml_languages_${profile}"
+          "--wsl-languages=${SERIALIZER_EXAMPLE_WSL_LANGUAGES}")
+      set_tests_properties(serializer_xml_languages_${profile} PROPERTIES
+        TIMEOUT 1800 LABELS serializer_xml)
+    endforeach()
+    string(REPLACE "," ";" xml_wsl_languages "${SERIALIZER_EXAMPLE_WSL_LANGUAGES}")
+    set(xml_kotlin_private_options)
+    if("kotlin" IN_LIST xml_wsl_languages)
+      list(APPEND xml_kotlin_private_options --wsl-languages=kotlin)
+    endif()
+    add_test(NAME serializer_xml_kotlin_private
+      COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/test/xml_kotlin_private_test.py"
+        --compiler "$<TARGET_FILE:serializer>"
+        --build "${PROJECT_BINARY_DIR}/xml_kotlin_private" ${xml_kotlin_private_options})
+    set_tests_properties(serializer_xml_kotlin_private PROPERTIES TIMEOUT 1800 LABELS serializer_xml)
+    if(TARGET xml_shapes_cpp)
+      add_test(NAME serializer_xml_shapes_languages
+        COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/test/xml_shapes_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --cpp-executable "$<TARGET_FILE:xml_shapes_cpp>"
+          --build "${PROJECT_BINARY_DIR}/xml_shapes_languages"
+          "--wsl-languages=${SERIALIZER_EXAMPLE_WSL_LANGUAGES}")
+      set_tests_properties(serializer_xml_shapes_languages PROPERTIES
+        TIMEOUT 1800 LABELS serializer_xml)
+    endif()
+  endif()
   set(native_example_options "--wsl-languages=${SERIALIZER_EXAMPLE_WSL_LANGUAGES}")
   if(SERIALIZER_EXAMPLE_SANITIZERS)
     list(APPEND native_example_options --sanitize)

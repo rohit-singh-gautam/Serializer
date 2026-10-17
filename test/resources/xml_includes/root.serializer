@@ -1,0 +1,8 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.17.0;
+include model;
+
+class root {
+  public xml_included::child item;
+}

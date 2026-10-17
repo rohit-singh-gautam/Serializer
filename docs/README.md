@@ -18,13 +18,13 @@ indexes below link to the full reference and recorded verification.
 | --- | --- |
 | [Guides](guides/README.md) | Application usage, build setup, compiler commands, agent setup, and database storage guidance. |
 | [Schema language](schema/README.md) | Syntax, types, construction, behavior, generics, field metadata, and compatibility. |
-| [Serialization](serialization/README.md) | Wire formats, views, compression, Protobuf, constant evaluation, and C++ performance. |
+| [Serialization](serialization/README.md) | Wire formats, XML/XSD, ZIP/OPC, views, compression, Protobuf, constant evaluation, and C++ performance. |
 | [Generated languages](languages/README.md) | Output configuration, coding profiles, target APIs, SDK prerequisites, and backend limits. |
 | [Managed state](managed/README.md) | C++ transactions, identity, typed registries, history, journals, collaboration, and managed design contracts. |
 | [Editors](editors/README.md) | Visual Studio and VS Code setup, schema/generated-output navigation, and IntelliSense. |
 | [Implementation walkthroughs](internals/README.md) | How current C++ transactions and generated editors work. |
 | [Project information](project/README.md) | Feature status, licensing, distribution, and product scope. |
-| [Design work](design/README.md) | Proposed paged indexing and historical implementation specifications. |
+| [Design work](design/README.md) | XML/package requirements and remaining gates, proposed paged indexing and historical implementation specifications. |
 | [Verification records](verification/README.md) | Dated test results, toolchain qualifications, and the historical wire-efficiency assessment. |
 
 ## Status and examples

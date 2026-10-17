@@ -1,6 +1,6 @@
 # Serializer compiler and schema versions
 
-The compiler and runtime release is **2.1.1**, defined by `project(... VERSION ...)` in the
+The compiler and runtime release is **2.3.0**, defined by `project(... VERSION ...)` in the
 root CMake file. `serializer --version` (or `-v`) prints that release and the
 supported schema language version. CMake generates `<rohit/version.hpp>` with
 `rohit::serializer::compiler_version`, `schema_language_version_text`, and
@@ -12,7 +12,8 @@ Package discovery accepts earlier minor and patch releases within the same major
 version; requests for newer releases or a different major version are rejected.
 Use `EXACT` to require a specific release.
 
-For the 2.1.1 package, request `find_package(Serializer 2.0 CONFIG REQUIRED)`.
+For the 2.3.0 package, request `find_package(Serializer 2.0 CONFIG REQUIRED)`;
+require `2.3` when using the new XML/package APIs.
 The `SameMajorVersion` discovery policy rejects 1.x requests even without
 `EXACT`. The compiler still supports schema language 1.17.0 and older compatible
 1.x headers, including the original `version 1;` alias. Release 2.0.0 adds the
@@ -233,6 +234,10 @@ values, and repeated non-repeatable options are errors.
 | `--managed.id_type` | | Document-local persistent ID width: `uint32` (default) or `uint64`; overrides `[managed] id_type` |
 | `--managed.separate_values` | | `true` generates ID-free values plus managed wrappers; `false` (default) puts IDs on the schema classes |
 | `--cpp.protobuf` | | `true` or `false`; enable compile-time [Protobuf codecs](../serialization/protobuf.md) |
+| `--xml.enabled` | | `true` or `false` (default); generate [typed XML codecs](../serialization/xml_packages.md) for selected outputs |
+| `--xml.xsd` | | Fixed standalone XSD build input; changes require regeneration |
+| `--xml.runtime_xsd` | | `true` permits an explicitly supplied runtime validator; default `false` |
+| `--xml.validation_scope` | | `input` (default), `output`, or `both` |
 | `--cpp.clang_format` | | clang-format 19+ executable |
 | `--cpp.format_file` | | Custom layout file; `--cpp.format_file=` clears a configured file |
 | `--java.coding_standard` | | `serializer`, `google`, `oracle` |

@@ -1,3 +1,9 @@
+# 2.0.2
+
+- Update the Marketplace overview and README for compiler/runtime 2.3.0's optional generated XML codecs across output languages, fixed XSD bindings, and backend qualification.
+- Distinguish runtime XML/XSD, ZIP/OPC, and compression support from editor language services.
+- Preserve schema language 1.17.0, navigation, extension IDs, and the synchronized VS Code version.
+
 # 2.0.1
 
 - Update the Marketplace overview and README for compiler/runtime 2.1.0, CMake 4.0+, and individual example CMake projects.

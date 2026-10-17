@@ -35,11 +35,19 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **2.2.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.3.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.17.0**;
 see [release and schema versions](docs/guides/command_line.md).
+
+Compiler/runtime **2.3.0** adds optional generated XML mappings and fixed XSD
+bindings across all output languages, optional prepared runtime validation,
+whole-object C++ compression streams, and codec-independent C++ ZIP/OPC APIs.
+General format features require cross-language coverage; remaining package,
+compression and document-state work is listed explicitly in the
+[pending report](docs/xml_pending.md). See [implemented XML/package APIs](docs/serialization/xml_packages.md)
+and [generated XML examples](example/xml/README.md).
 
 Compiler/runtime **2.2.0** adds `model_store::discard_journal_changes()` for ordinary
 journaled C++ stores. Under the native writer lock it checks the physical file
@@ -144,7 +152,7 @@ arithmetic operator mappings with owning constructor calls in portable expressio
 Existing fields, wire formats and managed protocols retain their contracts.
 Run the [four focused examples](example/README.md#owning-record-apis) and consult
 [qualification](docs/verification/verification-owning-api-2026-10-12.md) for tested
-backends and limits. Both current editor packages are **2.0.1**, with separate
+backends and limits. Both current editor packages are **2.0.2**, with separate
 C++ generated-header navigation. See
 [editor verification](docs/editors/editor_extension.md#verification-performed)
 for package checks and navigation qualification.
@@ -581,8 +589,8 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editors/editor_extension.md) |
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
-Both extensions use source release version **2.0.1**, independent of compiler version
-**2.2.0**. Embedded `cpp { ... }`, `java { ... }`, and other target blocks reuse
+Both extensions use source release version **2.0.2**, independent of compiler version
+**2.3.0**. Embedded `cpp { ... }`, `java { ... }`, and other target blocks reuse
 available language grammars for syntax highlighting. Install the language's grammar
 provider where the editor does not bundle it; this does not add embedded IntelliSense.
 See [embedded source highlighting](docs/editors/editor_extension.md#embedded-source-highlighting)

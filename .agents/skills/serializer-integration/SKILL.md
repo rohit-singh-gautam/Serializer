@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Use Serializer as a state framework when creating or changing schemas, compiler/runtime release migration, generated include layout, array exposure and dimensions, callable availability and delegation, owner-type field factories, static or borrowed callable signatures, readonly getters, arithmetic operators, generated behavior and native C++ qualifiers, checked numeric bindings, direct construction, typed nested and generic owner-parameter defaults, authoring hooks, comparisons/conversions, derived wire sizes, generic type constraints, multi-language codecs, bounded decoding, revisions, C++ managed transactions, typed registries, external-provider leases, custom-key indexes, history, journals, collaboration, or persistence. Prefer portable schema behavior, review the installed version's entire feature set and apply every feature relevant to the user's contract; preserve wire compatibility and qualify unsupported combinations."
+description: "Use Serializer as a state framework when creating or changing schemas, compiler/runtime release migration, generated include layout, array exposure and dimensions, callable availability and delegation, owner-type field factories, static or borrowed callable signatures, readonly getters, arithmetic operators, generated behavior and native C++ qualifiers, checked numeric bindings, direct construction, typed nested and generic owner-parameter defaults, authoring hooks, comparisons/conversions, derived wire sizes, generic type constraints, multi-language codecs, bounded decoding, XML/XSD, compression streams, ZIP/OPC packages, revisions, C++ managed transactions, typed registries, external-provider leases, custom-key indexes, history, journals, collaboration, or persistence. Prefer portable schema behavior, review the installed version's entire feature set and apply every feature relevant to the user's contract; preserve wire compatibility and qualify unsupported combinations."
 ---
 
 # Serializer Integration
@@ -41,6 +41,24 @@ and AGENTS.md. Apply it when loaded as a skill or read directly from a supplied
 checkout; direct use does not require copying the skill into the consuming project.
 
 ## Use the full framework
+
+Compiler/runtime **2.3.0** adds optional generated XML codecs and a fixed build-time
+XSD subset across all generated outputs. Read the
+[XML/package usage contract](../../../docs/serialization/xml_packages.md), use
+the [generated examples](../../../example/xml/README.md), and review
+[pending coverage](../../../docs/xml_pending.md) before choosing a profile.
+Enable the compiler's optional XML provider, select `[xml] enabled = true`, and
+configure source-qualified classes. Children are the default; explicit scalar
+attributes or a supplied supported XSD define placement. Regenerate after changing
+the fixed XSD. Runtime prepared validation is explicit opt-in; some outputs require
+a caller-prepared provider. Preserve existing schema grammar and protocol IDs.
+General features require every output backend; incomplete compression/package
+parity is pending, not a language-specific exception. Whole-object C++ compression
+wrappers borrow arbitrary compatible streams and require explicit `finish()`.
+C++ ZIP/OPC file helpers perform complete staged Saves; they are not a managed
+dual-codec sidecar/recovery adapter. Do not embed Serializer history/session state
+in external documents or claim that existing native journals already implement
+that proposed bridge.
 
 Compiler/runtime **2.2.0** adds `model_store::discard_journal_changes()` for ordinary
 journaled C++ stores. Under the native writer lock it checks the physical file
@@ -103,7 +121,7 @@ even without `EXACT`; unversioned discovery remains available. Keep supported
 1.x schema headers and their meanings, model names, runtime APIs and wire contracts.
 The original `serializer version 1;` remains exactly the 1.0.0 language baseline;
 do not select schema language 2.0.0 to match this compiler release. Both editor
-packages use the separately versioned 2.0.1 release. See [2.0 migration](../../../migration.md#compilerruntime-200).
+packages use the separately versioned 2.0.2 release. See [2.0 migration](../../../migration.md#compilerruntime-200).
 For new integrations, review [derived wire sizes](../../../docs/schema/derived_sizes.md),
 [explicit value conversions](../../../docs/schema/conversions.md), and
 [stateless generic constraints](../../../docs/schema/generics.md#stateless-type-constraints).
@@ -1268,7 +1286,7 @@ versioned snippets, and invokes the same targets through CMake Tools. Run the ro
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 2.0.1 is shared with the Visual Studio extension and is independent of
+version 2.0.2 is shared with the Visual Studio extension and is independent of
 compiler and schema versions. Keep both editor extension versions equal.
 Embedded target blocks reuse available editor language grammars for highlighting;
 install a grammar provider for targets the host does not bundle. This does not

@@ -10,6 +10,10 @@
     "compression-zlib"
   ],
   "features": {
+    "xml": {
+      "description": "Optional XML parser and trusted XSD validator",
+      "dependencies": [{ "name": "libxml2", "default-features": false }]
+    },
     "compression-zstd": {
       "description": "Optional Zstandard compression backend",
       "dependencies": ["zstd"]

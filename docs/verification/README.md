@@ -7,6 +7,12 @@ configurations, and toolchains named in each report. They retain historical
 release metadata and outstanding qualification limits; a result does not imply
 that later changes or untested backend combinations passed the same checks.
 
+## 17 October 2026
+
+| Record | Scope |
+| --- | --- |
+| [XML and packages](verification-xml-packages-2026-10-17.md) | Generated XML across eleven outputs, fixed-XSD/typed probes, native compression/package checks and explicit remaining gates. |
+
 ## 15 October 2026
 
 | Record | Scope |

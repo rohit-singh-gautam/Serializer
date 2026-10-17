@@ -13,6 +13,14 @@ built-in format, identity output, and a custom backend. Build them independently
 with `SERIALIZER_BUILD_COMPRESSION_EXAMPLES=ON` or through the regular test build;
 only formats whose dependencies are enabled receive executable targets.
 
+Release **2.3.0** also provides composable C++ `compression::output_stream` and
+`input_stream` wrappers. They borrow a compatible underlying stream and serialize
+one complete object; byte batches are an internal detail. Output requires an
+explicit fallible `finish()` before finishing underlying wrappers. Input stages
+and validates one bounded complete message. See the
+[stream-wrapper APIs and package composition](xml_packages.md#composable-compression-streams).
+Equivalent generated-language compression helpers remain pending.
+
 ## Build and dependency options
 
 All three backend options default to ON. Compression remains explicit at the

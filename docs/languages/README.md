@@ -12,3 +12,4 @@ outside C++ remain unimplemented.
 | [Java](java.md) | Standalone Java generation, model storage, coding profiles, codec limits, and consumer builds. |
 | [JavaScript, Go, and C#](portable_languages.md) | Owning models and codecs, JavaScript's TypeScript declarations, target mappings, and backend limits. |
 | [Rust, Python, Swift, Kotlin, and C](native_languages.md) | Generation, model APIs, encoding and decoding, SDK requirements, and qualification boundaries. |
+| [XML across all outputs](../serialization/xml_packages.md) | Optional typed XML, fixed XSD mapping, explicit runtime validators and all-language examples. |

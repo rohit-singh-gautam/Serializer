@@ -20,6 +20,7 @@
 #include <rohit/serializer_creator.hpp>
 #include <rohit/stream.hpp>
 #include <rohit/version.hpp>
+#include "xml_schema.hpp"
 
 #include "command_line.hpp"
 #include "schema_policy.hpp"
@@ -96,6 +97,10 @@ constexpr rohit::serializer::cli::commandline_option command_options[] = {
      "Generate borrowed emission models (default false; requires constant evaluation and binary_none)."},
     {'\0', "cpp.protobuf", "true|false",
      "Generate direct Protobuf binary, ProtoJSON, and TextProto codecs."},
+    {'\0', "xml.enabled", "true|false", "Generate statically mapped owning C++ XML codecs."},
+    {'\0', "xml.runtime_xsd", "true|false", "Allow prepared runtime XSD validation for XML models."},
+    {'\0', "xml.validation_scope", "input|output|both", "Choose prepared XSD validation directions (default input)."},
+    {'\0', "xml.xsd", "file.xsd", "Bind a fixed supported XSD subset during XML generation."},
     {'\0', "managed.id_type", "uint32|uint64", "Persistent managed ID type (default uint32)."},
     {'\0', "managed.separate_values", "true|false",
      "Generate separate ID-free values and managed storage (default false)."},
@@ -110,6 +115,23 @@ constexpr rohit::serializer::cli::commandline_option command_options[] = {
 void apply_output_overrides(rohit::serializer::writer::output_options& options,
                             const rohit::serializer::cli::arguments& arguments) {
   using namespace rohit::serializer;
+  for (const auto* key : {"xml.enabled", "xml.runtime_xsd"}) {
+    if (!arguments.contains(key)) { continue; }
+    const auto& value = cli::first(arguments, key);
+    if (value != "true" && value != "false") {
+      throw std::invalid_argument{std::string{key} + " must be true or false"};
+    }
+    if (std::string_view{key} == "xml.enabled") { options.cpp.xml.enabled = value == "true"; }
+    else { options.cpp.xml.runtime_xsd = value == "true"; }
+  }
+  if (arguments.contains("xml.xsd")) { options.cpp.xml.xsd = cli::first(arguments, "xml.xsd"); }
+  if (arguments.contains("xml.validation_scope")) {
+    const auto& value = cli::first(arguments, "xml.validation_scope");
+    if (value != "input" && value != "output" && value != "both") {
+      throw std::invalid_argument{"XML validation_scope must be input, output or both"};
+    }
+    options.cpp.xml.validation_scope = value;
+  }
   if (arguments.contains("include-mode")) {
     options.includes = writer::parse_include_mode(cli::first(arguments, "include-mode"));
   }
@@ -257,6 +279,12 @@ read_configurations(const rohit::serializer::cli::arguments& arguments) {
     apply_output_overrides(configuration.options, arguments);
     configuration.languages =
         rohit::serializer::writer::parse_output_languages(configuration.options.language);
+    // XML mapping is shared across output backends; presentation remains language-specific.
+    configuration.options.java.xml = configuration.options.cpp.xml;
+    configuration.options.js.xml = configuration.options.cpp.xml;
+    configuration.options.go.xml = configuration.options.cpp.xml;
+    configuration.options.csharp.xml = configuration.options.cpp.xml;
+    configuration.options.kotlin.xml = configuration.options.cpp.xml;
   }
   return configurations;
 }
@@ -456,6 +484,9 @@ int main(const int argc, const char* argv[]) {
       if (!configuration.options.cpp.format_file.empty()) {
         configuration_dependencies.push_back(configuration.options.cpp.format_file);
       }
+      if (!configuration.options.cpp.xml.xsd.empty()) {
+        configuration_dependencies.push_back(configuration.options.cpp.xml.xsd);
+      }
     }
     std::vector<std::filesystem::path> destinations{};
     for (const auto& request : requests) {
@@ -499,6 +530,9 @@ int main(const int argc, const char* argv[]) {
       destinations.push_back(output_file);
     }
     const auto schema = parser::parse_file(input_file, parse_options);
+    for (const auto& configuration : configurations) {
+      writer::xml_binding::validate_options(schema.statements, configuration.options.cpp.xml);
+    }
     if (parsed.contains("verbose")) {
       std::cout << "Serializer: Parsed schema once for " << configurations.size()
                 << " configurations\n";

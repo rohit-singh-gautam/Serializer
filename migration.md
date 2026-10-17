@@ -1,5 +1,31 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.3.0
+
+Release **2.3.0** adds optional generated owning XML mappings across all language
+outputs, fixed build-time XSD binding and explicit prepared runtime validation.
+Build the compiler with `SERIALIZER_WITH_XML=ON` and select `[xml] enabled = true`
+in generator configuration; regenerate and rebuild consumers. Unsupported XML/XSD
+constructs fail explicitly. Runtime parser/provider dependencies vary by backend;
+see the [usage contract](docs/serialization/xml_packages.md) and
+[generated examples](example/xml/README.md).
+
+Recompile compiler-library clients completely when upgrading: the output-option
+structures gained XML settings. Older precompiled client objects must not be
+linked against the new compiler library. Existing schema meaning and wire bytes
+remain compatible.
+
+C++ adds whole-object compression streams and ZIP/OPC source/sink/full-Save APIs.
+These preserve existing inner codec bytes and native managed formats. They do not
+implement the proposed managed dual-codec recovery bridge. General compression
+and package parity, advanced XML/XSD and the bridge remain
+[pending](docs/xml_pending.md).
+
+Use `find_package(Serializer 2.3 CONFIG REQUIRED)` when requiring these additions.
+Earlier 2.x requests remain compatible. Schema language **1.17.0**, payload
+revisions, existing protocol IDs and default generated codec selection are unchanged.
+Both editor packages are **2.0.2**; their XML-language-service scope is unchanged.
+
 ## Compiler/runtime 2.2.0
 
 Compiler/runtime **2.2.0** adds `model_store::discard_journal_changes()` for ordinary

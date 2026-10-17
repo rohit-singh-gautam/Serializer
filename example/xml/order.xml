@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<order xmlns="urn:serializer:xml-example" id="7">
+  <customer>R&amp;D</customer>
+  <count>3</count>
+  <tag>A</tag>
+  <tag>B</tag>
+</order>

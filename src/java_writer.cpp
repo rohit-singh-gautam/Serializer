@@ -7,6 +7,7 @@
 #include "format_writer.hpp"
 #include "auto_size_writer.hpp"
 #include "generated_notices.hpp"
+#include "xml_schema.hpp"
 #include <rohit/serializer_creator.hpp>
 
 #include <algorithm>
@@ -27,6 +28,9 @@ namespace rohit::serializer::writer::java {
 namespace {
 constexpr std::string_view runtime_source =
 #include "java_runtime.inc"
+    ;
+constexpr std::string_view xml_runtime_source =
+#include "java_xml_runtime.inc"
     ;
 
 // Escape schema text as a Java string literal without changing wire spelling.
@@ -81,6 +85,11 @@ void validate_identifier(std::string_view value) {
       })) {
     throw std::invalid_argument{"Invalid or reserved Java identifier: " + std::string{value}};
   }
+}
+
+// Protect the external XML packages referenced by fully qualified runtime helper types.
+bool is_xml_package_name(std::string_view value) {
+  return value == "javax" || value == "org";
 }
 
 // Convert schema words to standard Java type, field, or constant spelling.
@@ -186,6 +195,154 @@ class emitter {
   std::size_t level{1};
   std::map<const syntax_node*, std::string> names{};
   std::map<std::string, const syntax_node*> declarations{};
+  xml_binding::schema xml_contract;
+
+  // Select the scalar or record under one supported optional or repeated XML mapping.
+  const rohit::serializer::type_name& xml_leaf(const member& value) const {
+    const auto& selected = value.type_name_list.front();
+    return selected.is_optional() || selected.is_sequence() ? selected.arguments.front() : selected;
+  }
+  // Preserve unsigned Java model bits and strict XML/XSD scalar lexical values.
+  std::string xml_scalar(const rohit::serializer::type_name& value,
+                         const std::string& expression, bool encoding) const {
+    if (value.type == object_type::enum_type) {
+      if (encoding) { return expression + ".wireName"; }
+      std::string result = "(switch (" + expression + ") { ";
+      for (const auto& item : static_cast<const enum_node&>(*value.resolved_node).enum_name_list) {
+        result += "case " + quote(item) + " -> " + type(value) + "." + constant(item) + "; ";
+      }
+      return result + "default -> throw new IllegalArgumentException(\"Invalid XML enum\"); })";
+    }
+    if (value.name == "string") { return expression; }
+    if (value.name == "bool") {
+      return encoding ? "(" + expression + " ? \"true\" : \"false\")" : "srlXmlBoolean(" + expression + ")";
+    }
+    if (value.name == "float" || value.name == "double") {
+      const auto single = value.name == "float" ? "true" : "false";
+      return encoding ? "srlXmlFloatText(" + expression + ", " + single + ")" :
+          (value.name == "float" ? "(float)" : "") + std::string{"srlXmlFloat("} + expression + ", " + single + ")";
+    }
+    if (!encoding) {
+      return (value.name.ends_with("64") ? "" : "(" + type(value) + ")") + std::string{"srlXmlInteger("} + expression + ", " +
+          std::to_string(std::stoi(width(value.name)) * 8) + ", " +
+          (value.name.starts_with('u') ? "true" : "false") + ")";
+    }
+    if (value.name == "uint64") { return "java.lang.Long.toUnsignedString(" + expression + ")"; }
+    if (value.name == "uint32") { return "java.lang.Integer.toUnsignedString(" + expression + ")"; }
+    if (value.name == "uint16") { return "java.lang.Integer.toString(java.lang.Short.toUnsignedInt(" + expression + "))"; }
+    if (value.name == "uint8") { return "java.lang.Integer.toString(java.lang.Byte.toUnsignedInt(" + expression + "))"; }
+    return "java.lang.String.valueOf(" + expression + ")";
+  }
+  // Add whole-object XML entry points and fixed direct field bindings to an owning class.
+  void xml_object(const class_node& value) {
+    if (!options.xml.enabled) { return; }
+    const auto contract = xml_contract.bind(value);
+    // Authored callables share Java's member lookup with the generated codec and runtime calls.
+    const auto reject_method = [&](const std::string& selected) {
+      static const std::set<std::string> methods{
+          "encodeXml", "decodeXml", "xmlNode", "xmlFromNode", "srlXmlName", "srlXmlTrim",
+          "srlXmlParse", "srlXmlScalarText", "srlXmlInteger", "srlXmlBoolean", "srlXmlFloat",
+          "srlXmlFloatText", "srlXmlWrite", "srlXmlEscape"};
+      if (methods.contains(selected)) {
+        throw std::invalid_argument{"Java XML method collides with declared behavior: " + selected};
+      }
+    };
+    for (const auto& method : value.functions) { reject_method(field(method.name)); }
+    for (const auto& factory : value.constructions) {
+      reject_method(field(factory.constructor ? "create" : factory.name));
+    }
+    for (const auto& conversion : value.conversions) { reject_method(field(conversion.name)); }
+    const auto name = type_name(value.name);
+    const auto expanded = [](const xml::name& item) {
+      return quote(item.namespace_uri.empty() ? item.local : "{" + item.namespace_uri + "}" + item.local);
+    };
+    line("/** Encode one complete XML document using the fixed generated mapping. */");
+    line("public byte[] encodeXml() { return encodeXml(Limits.defaults(), null); }");
+    line("/** Bound XML output and optionally reuse an explicitly prepared runtime XSD. */");
+    line("public byte[] encodeXml(Limits limits, XmlSchema schema) {"); ++level;
+    line("var budget = new SrlXmlBudget(limits);");
+    line("byte[] bytes = srlXmlWrite(xmlNode(" + expanded(contract.root) + ", budget, 1), limits);");
+    if (!options.xml.runtime_xsd) { line("if (schema != null) throw new IllegalArgumentException(\"Runtime XSD was not enabled during generation\");"); }
+    else if (options.xml.validation_scope != "input") { line("if (schema != null) schema.validate(bytes, limits);"); }
+    line("return bytes;"); --level; line("}");
+    line("/** Decode exactly one XML document into an unpublished fresh owning value. */");
+    line("public static " + name + " decodeXml(byte[] bytes) { return decodeXml(bytes, Limits.defaults(), null); }");
+    line("/** Enforce fixed mapping, complete resource bounds and selected runtime XSD checks. */");
+    line("public static " + name + " decodeXml(byte[] bytes, Limits limits, XmlSchema schema) {"); ++level;
+    if (!options.xml.runtime_xsd) { line("if (schema != null) throw new IllegalArgumentException(\"Runtime XSD was not enabled during generation\");"); }
+    else if (options.xml.validation_scope != "output") { line("if (schema != null) schema.validate(bytes, limits);"); }
+    line("var node = srlXmlParse(bytes, limits);");
+    line("if (!node.name.equals(" + expanded(contract.root) + ")) throw new IllegalArgumentException(\"Unexpected XML root or namespace\");");
+    line("return xmlFromNode(node);"); --level; line("}");
+    line("/** Build fixed XML fields while sharing a complete-document allocation budget. */");
+    line("private SrlXmlNode xmlNode(String name, SrlXmlBudget budget, int depth) {"); ++level;
+    line("var node = budget.node(name, depth);");
+    for (const auto& item : contract.fields) {
+      const auto& source_field = *item.source;
+      const auto& leaf = xml_leaf(source_field);
+      const auto access = "this." + field(source_field.name);
+      const bool optional = source_field.type_name_list.front().is_optional();
+      std::string selected = access;
+      line("{"); ++level;
+      if (optional) { line("if (" + access + ".isPresent()) {"); ++level; selected += ".get()"; }
+      if (item.repeated) {
+        const auto count = access + (source_field.modifier == member::modifier_type::array ? ".length" : ".size()");
+        line("if (" + count + " < " + std::to_string(item.min_occurs) +
+             (item.max_occurs ? " || " + count + " > " + std::to_string(*item.max_occurs) : "") +
+             ") throw new IllegalArgumentException(\"XML occurrence mismatch\");");
+        if (source_field.fixed_extent) { line("if (" + count + " != " + std::to_string(source_field.fixed_extent) + ") throw new IllegalArgumentException(\"XML fixed extent mismatch\");"); }
+        line("for (var item : " + access + ") {"); ++level; selected = "item";
+      }
+      if (item.attribute) { line("budget.attribute(node, " + expanded(item.qualified_name) + ", " + xml_scalar(leaf, selected, true) + ");"); }
+      else if (leaf.type == object_type::class_type) { line("node.children.add(" + selected + ".xmlNode(" + expanded(item.qualified_name) + ", budget, depth + 1));"); }
+      else {
+        line("var child = budget.node(" + expanded(item.qualified_name) + ", depth + 1);");
+        line("child.text.append(budget.text(" + xml_scalar(leaf, selected, true) + "));");
+        line("node.children.add(child);");
+      }
+      if (item.repeated) { --level; line("}"); }
+      if (optional) { --level; line("}"); }
+      --level; line("}");
+    }
+    line("return node;"); --level; line("}");
+    line("/** Decode exact generated fields without assigning a partially checked value. */");
+    line("private static " + name + " xmlFromNode(SrlXmlNode node) {"); ++level;
+    line("var fields = new SrlXmlFields(node);"); line("var result = new " + name + "();");
+    for (const auto& item : contract.fields) {
+      if (item.min_occurs > static_cast<std::size_t>(std::numeric_limits<int>::max()) ||
+          (item.max_occurs && *item.max_occurs > static_cast<std::size_t>(std::numeric_limits<int>::max()))) {
+        throw std::invalid_argument{"Java XML cardinality exceeds supported collection size"};
+      }
+      const auto& source_field = *item.source;
+      const auto& leaf = xml_leaf(source_field);
+      const bool optional = source_field.type_name_list.front().is_optional();
+      const auto access = "result." + field(source_field.name);
+      const auto read_value = [&](const std::string& expression) {
+        return leaf.type == object_type::class_type ? type(leaf) + ".xmlFromNode(" + expression + ")" :
+            xml_scalar(leaf, item.attribute ? expression : "srlXmlScalarText(" + expression + ")", false);
+      };
+      line("{"); ++level;
+      if (item.attribute) {
+        line("var text = fields.attribute(" + expanded(item.qualified_name) + ", " + (optional ? "true" : "false") + ");");
+        line(access + " = " + (optional ? "text == null ? java.util.Optional.empty() : java.util.Optional.of(" + read_value("text") + ")" : read_value("text")) + ";");
+      } else {
+        line("var children = fields.children(" + expanded(item.qualified_name) + ", " + std::to_string(item.min_occurs) + ", " +
+            (item.max_occurs ? std::to_string(*item.max_occurs) : "-1") + ");");
+        if (item.repeated) {
+          if (source_field.fixed_extent) { line("if (children.size() != " + std::to_string(source_field.fixed_extent) + ") throw new IllegalArgumentException(\"XML fixed extent mismatch\");"); }
+          if (source_field.modifier == member::modifier_type::array) {
+            line(access + " = " + array_initial(leaf, "children.size()") + ";");
+            line("for (int index = 0; index < children.size(); ++index) " + access + "[index] = " + read_value("children.get(index)") + ";");
+          } else {
+            line(access + " = new java.util.ArrayList<>();");
+            line("for (var child : children) " + access + ".add(" + read_value("child") + ");");
+          }
+        } else { line(access + " = " + (optional ? "children.isEmpty() ? java.util.Optional.empty() : java.util.Optional.of(" + read_value("children.get(0)") + ")" : read_value("children.get(0)")) + ";"); }
+      }
+      --level; line("}");
+    }
+    line("fields.finish();"); line("return result;"); --level; line("}");
+  }
 
   // Append one line with the selected profile's indentation.
   void line(const std::string& value = {}) {
@@ -215,6 +372,9 @@ class emitter {
     for (const auto& node : nodes) {
       if (node->type == object_type::generic_definition || node->type == object_type::native_code) { continue; }
       const auto name = node->type == object_type::function_type ? field(node->name) : type_name(node->name);
+      if (options.xml.enabled && is_xml_package_name(name)) {
+        throw std::invalid_argument{"Java XML package name collision: " + name};
+      }
       const auto qualified = prefix + "." + name;
       const auto [previous, inserted] = declarations.emplace(qualified, node.get());
       const bool reopened_namespace = !inserted && node->type == object_type::namespace_type &&
@@ -1235,6 +1395,7 @@ class emitter {
         [&](const auto& item) { return type(item); },
         [&](auto item, auto) { return field(item); });
     comparisons(value);
+    xml_object(value);
     line("/** Encode this value into an independent exact-size message. */");
     line("public byte[] encode(Protocol protocol) {");
     ++level;
@@ -1702,17 +1863,30 @@ class emitter {
 public:
   // Retain generation settings for this compilation unit only.
   emitter(const java_options& options, std::string_view outer_class)
-      : options{options}, outer{outer_class} {}
+      : options{options}, outer{outer_class}, xml_contract{options.xml} {}
 
   // Validate and generate the complete source without external formatting tools.
   std::string generate(const std::vector<std::unique_ptr<syntax_node>>& values) {
     behavior::require_callable_backend(values, "java");
     validate_identifier(outer);
-    const std::set<std::string> reserved{outer,    "ReadPolicy", "Protocol", "Limits",
+    std::set<std::string> reserved{outer,    "ReadPolicy", "Protocol", "Limits",
                                          "Writer", "Reader",     "String"};
+    if (options.xml.enabled) {
+      for (const auto* helper : {"XmlSchema", "SrlXmlNode", "SrlXmlBudget", "SrlXmlFields",
+                                "srlXmlName", "srlXmlTrim", "srlXmlParse", "srlXmlScalarText",
+                                "srlXmlInteger", "srlXmlBoolean", "srlXmlFloat", "srlXmlFloatText",
+                                "srlXmlWrite", "srlXmlEscape"}) {
+        reserved.insert(helper);
+      }
+    }
     if (outer == "ReadPolicy" || outer == "Protocol" || outer == "Limits" || outer == "Writer" ||
         outer == "Reader" || outer == "String") {
       throw std::invalid_argument{"Java output filename conflicts with runtime type: " + outer};
+    }
+    if (options.xml.enabled && reserved.contains(outer) &&
+        (is_xml_package_name(outer) || outer == "XmlSchema" || outer == "SrlXmlNode" ||
+         outer == "SrlXmlBudget" || outer == "SrlXmlFields")) {
+      throw std::invalid_argument{"Java XML output filename conflicts with a runtime helper"};
     }
     register_nodes(values, outer, reserved);
     std::vector<const syntax_node*> helper_nodes;
@@ -1759,6 +1933,7 @@ public:
       start = end + 1;
     }
     level = 1;
+    if (options.xml.enabled) { source += xml_runtime_source; }
     std::vector<const syntax_node*> roots{};
     roots.reserve(values.size());
     for (const auto& value : values) {
@@ -1774,6 +1949,7 @@ public:
 // Publish only a completely validated source file.
 std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,
                      std::string_view outer_class, const java_options& options) {
+  xml_binding::validate_options(statements, options.xml);
   require_unmanaged_backend(statements);
   auto_size::validate(statements, options.class_auto_sizes);
   comparison::validate(statements, options.class_comparisons, true);

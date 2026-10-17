@@ -199,6 +199,23 @@ class buffered_output_stream : public full_stream_auto_alloc {
   bool retain_buffer{};
   bool failed{};
 
+  // Optional bounded sinks expose their remaining message allowance before scratch allocation.
+  static std::size_t maximum_buffer_bytes(Output& output) {
+    if constexpr (requires { { output.max_buffer_bytes() } -> std::same_as<std::size_t>; }) {
+      return std::min(output.max_buffer_bytes(), detail::maximum_buffer_bytes);
+    } else {
+      return detail::maximum_buffer_bytes;
+    }
+  }
+
+  // Preserve the existing invalid-capacity failure before applying an optional smaller sink bound.
+  static std::size_t initial_capacity_bytes(Output& output, std::size_t requested_bytes) {
+    if (requested_bytes > detail::maximum_buffer_bytes) {
+      throw exception::stream_overflow_exception{};
+    }
+    return std::min(requested_bytes, maximum_buffer_bytes(output));
+  }
+
   // Test whether a source borrows storage that a flush must not recycle beneath its writer.
   bool aliases_storage(const std::uint8_t* source) const {
     const auto less = std::less<const std::uint8_t*>{};
@@ -253,7 +270,8 @@ public:
   // Borrow the sink and allocate reusable scratch storage for this encoding session.
   explicit buffered_output_stream(Output& output,
                                   std::size_t capacity_bytes = default_capacity_bytes)
-      : full_stream_auto_alloc{capacity_bytes}, destination{output} {}
+      : full_stream_auto_alloc{initial_capacity_bytes(output, capacity_bytes)},
+        destination{output} {}
 
   // Flush completed batches before growing; a single batch remains contiguous and unwritten on failure.
   void reserve(std::size_t size) override {
@@ -263,10 +281,22 @@ public:
     if (size > detail::maximum_buffer_bytes) {
       throw exception::stream_overflow_exception{};
     }
+    if constexpr (requires { { destination.max_buffer_bytes() } -> std::same_as<std::size_t>; }) {
+      const auto maximum = maximum_buffer_bytes(destination);
+      const auto pending = current_offset();
+      if (pending > maximum || size > maximum - pending) {
+        failed = true;
+        throw exception::stream_overflow_exception{};
+      }
+    }
     if (!retain_buffer && size > remaining_buffer()) {
       drain();
     }
-    full_stream_auto_alloc::reserve(size);
+    if constexpr (requires { { destination.max_buffer_bytes() } -> std::same_as<std::size_t>; }) {
+      grow_storage(size, 0, maximum_buffer_bytes(destination));
+    } else {
+      full_stream_auto_alloc::reserve(size);
+    }
   }
 
   // Deliver the final batch without flushing or closing the caller's underlying stream.

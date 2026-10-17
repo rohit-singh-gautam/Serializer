@@ -7,10 +7,18 @@ and existing generated code in **Visual Studio 2022 and Visual Studio 2026 on
 Windows x64**. It provides syntax highlighting, editing assistance, and native
 navigation for projects using Serializer — State Framework.
 
-The current source release is **2.0.1**, supporting schema language **1.17.0**
-and navigation for Serializer **2.1.0**'s default separate C++ generated headers.
+The current source release is **2.0.2**, supporting schema language **1.17.0**
+and navigation for Serializer **2.3.0**'s default separate C++ generated headers.
 The compiler/runtime, schema language, and editor extension have independent
 versions; existing 1.x schema language headers remain supported.
+
+Compiler/runtime 2.3.0 offers optional generated XML codecs and fixed XSD
+bindings across output languages through generator INI/CLI configuration. Existing generated type
+and field navigation applies. XML/XSD validation, ZIP/OPC packaging, and
+whole-object compression are runtime/compiler features; the extension provides
+no XML, XSD, or HTML language service. See the
+[XML and package support report](../../docs/design/xml_support.md) for the
+implemented subsets, provider dependencies, verification by backend, and pending capabilities.
 
 ## Editor features
 

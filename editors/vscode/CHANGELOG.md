@@ -1,3 +1,9 @@
+# 2.0.2
+
+- Document compiler/runtime 2.3.0's optional generated XML codecs across output languages, fixed XSD bindings, backend qualification, and runtime/package boundaries.
+- Preserve schema language 1.17.0, existing generated C++ navigation, and both extension IDs.
+- Keep both editor package versions synchronized; XML/XSD/HTML language services are not added.
+
 # 2.0.1
 
 - Require CMake 4.0+ in the editor's project fixtures and documented Serializer build prerequisites.
