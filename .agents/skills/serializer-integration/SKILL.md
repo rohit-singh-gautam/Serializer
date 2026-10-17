@@ -42,6 +42,24 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
+Compiler/runtime **2.2.0** adds `model_store::discard_journal_changes()` for ordinary
+journaled C++ stores. Under the native writer lock it checks the physical file
+budget but reads only the fixed header and bounded last full-Save frame, without
+reading or buffering an appended unsaved suffix. It validates and restores the
+saved values and complete history, and
+atomically replaces the journal generation. Object/revision allocation high-water
+marks never decrease, abandoned edits cannot reappear through redo/recovery, and
+the durable operation sequence advances once. Creation is the baseline before the
+first Save. Shared or unattached stores reject this operation. Preparation failures
+preserve the live state; uncertain replacement fences the writer until fresh
+recovery. This operation adds no saved-envelope copy or work to ordinary edits and
+changes no schema language or existing wire format.
+
+The native byte-stream `file_open_mode::read_shared` permits a bounded read while
+an existing Windows writer is open. Callers must supply external synchronization;
+the journal uses its stable writer lock. Ordinary `read`, `update`, `create` and
+`lock` sharing behavior is unchanged.
+
 Compiler/runtime 2.1.1 supports schema language 1.17.0. Source builds and CMake
 integration require CMake 4.0+. Every maintained language example has an optional
 standalone CMake entry point. Configure a folder, build it, then run CTest; use

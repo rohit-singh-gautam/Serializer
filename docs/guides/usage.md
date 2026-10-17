@@ -2,6 +2,22 @@
 
 [Documentation index](../README.md) · [Application and build guides](README.md)
 
+Compiler/runtime **2.2.0** adds `model_store::discard_journal_changes()` for ordinary
+journaled C++ stores. It lazily reads the last full-Save envelope under the native
+writer lock, validates and restores its values and complete saved history, and
+atomically replaces the journal generation. Object/revision allocation high-water
+marks never decrease, abandoned edits cannot reappear through redo/recovery, and
+the durable operation sequence advances once. Creation is the baseline before the
+first Save. Shared or unattached stores reject this operation. Preparation failures
+preserve the live state; uncertain replacement fences the writer until fresh
+recovery. This operation adds no saved-envelope copy or work to ordinary edits and
+changes no schema language or existing wire format.
+
+The native byte-stream `file_open_mode::read_shared` permits a bounded read while
+an existing Windows writer is open. Callers must supply external synchronization;
+the journal uses its stable writer lock. Ordinary `read`, `update`, `create` and
+`lock` sharing behavior is unchanged.
+
 Compiler/runtime **2.1.1** supports language **1.17.0**. Source builds and CMake
 integration require CMake 4.0+.
 Every language's individual examples have standalone CMake entry points; see

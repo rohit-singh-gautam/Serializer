@@ -7,6 +7,7 @@
 #include <rohit/managed_journal.hpp>
 #include <rohit/managed_journal_stream.hpp>
 
+#include <array>
 #include <exception>
 #include <limits>
 #include <random>
@@ -143,6 +144,10 @@ public:
               std::span<const std::uint8_t> snapshot) override;
   // Atomically replace the base and rotate the selected companion.
   void save(const bytes& envelope) override;
+  // Read only the selected full-Save baseline while retaining the existing writer lock.
+  bytes saved_envelope() const override;
+  // Publish a restored envelope with a fresh operation sequence.
+  void discard(const bytes& envelope) override;
   // Return the last acknowledged operation sequence.
   std::uint64_t sequence() const noexcept override;
   // Expose fencing after an uncertain durable operation.
@@ -186,17 +191,22 @@ struct file_journal::implementation {
   }
 
   // Install a fully flushed generation; until replacement, every failure leaves the old base valid.
-  void replace(const bytes& envelope, journal_storage_mode mode, bool existing) {
+  void replace(const bytes& envelope, journal_storage_mode mode, bool existing,
+               bool advance_sequence = false) {
     require_ready();
     if (mode != journal_storage_mode::appended && mode != journal_storage_mode::sidecar) {
       throw std::invalid_argument{"Unsupported managed journal storage mode"};
     }
     check_size(file_header_bytes, envelope.size());
-    auto frame = encode_frame({envelope}, sequence, 0, options);
+    if (advance_sequence && sequence == std::numeric_limits<std::uint64_t>::max()) {
+      throw std::overflow_error{"Managed journal sequence exhausted"};
+    }
+    const auto replacement_sequence = sequence + static_cast<std::uint64_t>(advance_sequence);
+    auto frame = encode_frame({envelope}, replacement_sequence, 0, options);
     std::random_device entropy;
     std::uniform_int_distribution<std::uint64_t> word;
     file_header replacement{mode,          base_file_kind, word(entropy),
-                            word(entropy), sequence,       frame.digest};
+                            word(entropy), replacement_sequence, frame.digest};
     if (replacement.generation_high == 0 && replacement.generation_low == 0) {
       replacement.generation_low = 1;
     }
@@ -250,6 +260,7 @@ struct file_journal::implementation {
     }
     // All throwing preparation is complete before these publication assignments.
     header = replacement;
+    sequence = replacement_sequence;
     append_path.swap(destination);
     writer.swap(next_writer);
     digest = frame.digest;
@@ -409,6 +420,43 @@ void file_journal::append(std::span<const std::uint8_t> prefix, std::span<const 
 // A synchronous full Save covers the current durable sequence and retains the complete envelope.
 void file_journal::save(const bytes& envelope) {
   state_->replace(envelope, state_->header.mode, true);
+}
+
+// Decode the saved frame lazily, without replaying or retaining the unsaved suffix.
+bytes file_journal::saved_envelope() const {
+  const auto& state = *state_;
+  state.require_ready();
+  // The stable journal lock supplies synchronization; normal read sharing remains unchanged.
+  file_stream input{state.path, file_open_mode::read_shared};
+  const auto size = input.size();
+  if (size > state.options.max_file_bytes) {
+    throw std::length_error{"Managed journal file budget exceeded"};
+  }
+  if (size < file_header_bytes) {
+    throw std::invalid_argument{"Incomplete managed journal header"};
+  }
+  std::array<std::uint8_t, file_header_bytes> header_bytes{};
+  read_stream_exact(input, header_bytes);
+  const auto header = decode_header(header_bytes, base_file_kind);
+  if (header.mode != state.header.mode || header.sequence != state.header.sequence ||
+      header.generation_high != state.header.generation_high ||
+      header.generation_low != state.header.generation_low ||
+      header.base_digest != state.header.base_digest) {
+    throw std::invalid_argument{"Saved journal generation changed under its writer lock"};
+  }
+  const auto baseline = read_journal_frame(input, header.sequence, 0, state.options);
+  if (!baseline || baseline->digest != header.base_digest ||
+      (header.mode == journal_storage_mode::sidecar &&
+       (size < file_header_bytes + frame_overhead_bytes ||
+        baseline->payload().size() != size - file_header_bytes - frame_overhead_bytes))) {
+    throw std::invalid_argument{"Incomplete or mismatched saved journal baseline"};
+  }
+  return {baseline->payload().begin(), baseline->payload().end()};
+}
+
+// Restore saved content through the same atomic, fenced generation replacement as full Save.
+void file_journal::discard(const bytes& envelope) {
+  state_->replace(envelope, state_->header.mode, true, true);
 }
 
 // Return the monotonically increasing durable operation position, independently of history cursors.

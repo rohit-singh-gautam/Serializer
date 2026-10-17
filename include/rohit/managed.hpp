@@ -2130,6 +2130,54 @@ public:
     admission.commit();
   }
 
+  // Restore the full saved baseline/history durably; never recycle abandoned object/revision IDs.
+  // Unattached/shared stores reject. Failure before replacement preserves accepted state; uncertain
+  // replacement fences the writer and requires fresh recovery. Saved baseline reads are lazy.
+  void discard_journal_changes()
+    requires(has_journal)
+  {
+    require_idle();
+    if (collaboration_state_.attachment) {
+      throw std::logic_error{"Discard is unavailable while collaboration is attached"};
+    }
+    if (!journal_state_.sink) {
+      throw std::logic_error{"Managed store has no journal"};
+    }
+    event_type event;
+    journal_operation([&] {
+      model_store restored{recovery_tag{}, options_, {}, resident_ledger_};
+      restored.registry_validate_ = registry_validate_;
+      restored.validate_ = validate_;
+      restored.load(journal_state_.sink->saved_envelope());
+      if (restored.document_.high != document_.high || restored.document_.low != document_.low ||
+          restored.current_->persistent_id != current_->persistent_id) {
+        throw std::invalid_argument{"Saved baseline belongs to another managed document"};
+      }
+      restored.allocated_id_ = std::max(restored.allocated_id_, allocated_id_);
+      if constexpr (Mode == history_mode::tree) {
+        restored.history_.revision_high_water =
+            std::max(restored.history_.revision_high_water, history_.revision_high_water);
+      }
+      auto saved = restored.snapshot_;
+      auto bytes = restored.save();
+      check_journal_envelope(bytes);
+      restored.resident_auxiliary_.resize(restored.estimate_auxiliary(
+          restored.snapshot_, restored.identities_, restored.history_, &saved));
+      event = prepare_publication(publication_kind::load, restored.identities_, restored.current_.get());
+      journal_state_.sink->discard(bytes);
+      // Every allocation/validation precedes durable replacement; publication below cannot throw.
+      if constexpr (has_history) { history_.swap(restored.history_); }
+      resident_auxiliary_.swap(restored.resident_auxiliary_);
+      current_.swap(restored.current_);
+      snapshot_.swap(restored.snapshot_);
+      identities_.swap(restored.identities_);
+      journal_state_.saved_snapshot.swap(saved);
+      journal_state_.delta_count = 0;
+      allocated_id_ = restored.allocated_id_;
+    });
+    publish_notification(std::move(event));
+  }
+
   // Compare current persistent values/identities with the last full Save, independently of history.
   bool journal_dirty() const
     requires(has_journal)

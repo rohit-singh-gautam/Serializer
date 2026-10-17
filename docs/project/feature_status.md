@@ -10,9 +10,22 @@ Supported backend combinations and executed checks are recorded in
 not an output protocol; conversions support the ordinary value shapes documented
 in their guide.
 
+Compiler/runtime **2.2.0** adds `model_store::discard_journal_changes()` for ordinary
+journaled C++ stores. Under the native writer lock it checks the physical file
+budget but reads only the fixed header and bounded last full-Save frame, without
+reading or buffering an appended unsaved suffix. It validates and restores the
+saved values and complete history, and
+atomically replaces the journal generation. Object/revision allocation high-water
+marks never decrease, abandoned edits cannot reappear through redo/recovery, and
+the durable operation sequence advances once. Creation is the baseline before the
+first Save. Shared or unattached stores reject this operation. Preparation failures
+preserve the live state; uncertain replacement fences the writer until fresh
+recovery. This operation adds no saved-envelope copy or work to ordinary edits and
+changes no schema language or existing wire format.
+
 [Back to the project overview](../../README.md)
 
-Current compiler/runtime **2.1.1** supports language **1.17.0** and includes
+Current compiler/runtime **2.2.0** supports language **1.17.0** and includes
 `constexpr` ordinary C++ codec templates and a native positional/integer-key
 scalar decoder subset for constexpr-safe typed streams. Eligible checked
 arithmetic and dotted-value construction/conversions also constant-evaluate.

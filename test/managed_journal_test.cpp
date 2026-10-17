@@ -1,5 +1,6 @@
 #include <ledger.hpp>
 #include <rohit/managed.hpp>
+#include <rohit/file_stream.hpp>
 #include <rohit/managed_collaboration.hpp>
 
 #include <gtest/gtest.h>
@@ -165,6 +166,29 @@ TEST_P(managed_journal_test, linear_recovery_and_full_save) {
   }
 }
 
+// History-free stores restore saved values while preserving abandoned ID reservations.
+TEST_P(managed_journal_test, discard_without_history_preserves_reserved_ids) {
+  using plain_store = managed::model_store<ledger, managed::history_mode::disabled>;
+  {
+    plain_store store{ledger{"Base"}};
+    store.create_journal(path_, GetParam());
+    store.execute_transaction([](auto& tx) {
+      EXPECT_EQ(tx.root().entries().insert(10, {"Canceled", 1}), 2u);
+      tx.revert();
+    }).throw_if_failed();
+    rename(store, "Unsaved").throw_if_failed();
+    store.discard_journal_changes();
+    EXPECT_EQ(store.read()->name, "Base");
+    EXPECT_FALSE(store.journal_dirty());
+  }
+  plain_store recovered{ledger{}};
+  recovered.recover_journal(path_);
+  EXPECT_EQ(recovered.read()->name, "Base");
+  recovered.execute_transaction([](auto& tx) {
+    EXPECT_EQ(tx.root().entries().insert(10, {"Next", 1}), 3u);
+  }).throw_if_failed();
+}
+
 // Tree selection, sibling branches, and optional labels remain complete after journal compaction.
 TEST_P(managed_journal_test, labeled_tree_branches_and_reset) {
   using tree_store =
@@ -199,6 +223,336 @@ TEST_P(managed_journal_test, labeled_tree_branches_and_reset) {
   EXPECT_TRUE(store.journal_dirty());
 }
 
+// Discard restores the creation baseline before any full Save and remains a durable clean operation.
+TEST_P(managed_journal_test, discard_restores_creation_baseline_and_advances_clean_sequence) {
+  std::uint64_t sequence{};
+  managed::document_id document;
+  {
+    store_type store{ledger{"Created"}};
+    document = store.document();
+    store.create_journal(path_, GetParam());
+    rename(store, "One").throw_if_failed();
+    const auto memory_only_save = store.save();
+    EXPECT_FALSE(memory_only_save.empty());
+    rename(store, "Two").throw_if_failed();
+    store.undo();
+    const auto pinned = store.read();
+    const auto before = store.journal_sequence();
+    store.discard_journal_changes();
+    EXPECT_EQ(store.read()->name, "Created");
+    EXPECT_EQ(pinned->name, "One");
+    EXPECT_EQ(store.document().high, document.high);
+    EXPECT_EQ(store.document().low, document.low);
+    EXPECT_FALSE(store.journal_dirty());
+    EXPECT_EQ(store.journal_sequence(), before + 1);
+    EXPECT_THROW(store.undo(), std::out_of_range);
+    EXPECT_THROW(store.redo(), std::out_of_range);
+    store.discard_journal_changes();
+    sequence = before + 2;
+    EXPECT_EQ(store.journal_sequence(), sequence);
+    EXPECT_FALSE(store.journal_dirty());
+  }
+  store_type recovered{ledger{}};
+  recovered.recover_journal(path_);
+  EXPECT_EQ(recovered.read()->name, "Created");
+  EXPECT_EQ(recovered.journal_sequence(), sequence);
+  EXPECT_FALSE(recovered.journal_dirty());
+  EXPECT_THROW(recovered.undo(), std::out_of_range);
+  EXPECT_THROW(recovered.redo(), std::out_of_range);
+}
+
+// A saved undone tree retains its labels, redo descendants, and sibling branches after discard.
+TEST_P(managed_journal_test, discard_restores_saved_tree_and_drops_unsaved_branches) {
+  using tree_store =
+      managed::model_store<ledger, managed::history_mode::tree, managed::history_labels::enabled>;
+  std::uint64_t first{};
+  std::uint64_t tip{};
+  std::uint64_t sibling{};
+  std::uint64_t abandoned{};
+  std::uint64_t sequence{};
+  // Visit every saved branch and finish at the saved cursor without accepting the abandoned branch.
+  const auto check_saved_history = [&](tree_store& store) {
+    EXPECT_EQ(store.current_revision(), first);
+    EXPECT_EQ(store.read()->name, "One");
+    EXPECT_FALSE(store.journal_dirty());
+    EXPECT_EQ(store.undo_label(), "First");
+    EXPECT_EQ(store.redo_children(), (std::vector<std::uint64_t>{tip}));
+    EXPECT_EQ(store.redo_label(tip), "Tip");
+    EXPECT_THROW(store.checkout(abandoned), std::out_of_range);
+    store.redo(tip);
+    EXPECT_EQ(store.read()->name, "One tip");
+    store.undo();
+    store.undo();
+    EXPECT_EQ(store.read()->name, "Base");
+    EXPECT_EQ(store.redo_children(), (std::vector<std::uint64_t>{first, sibling}));
+    EXPECT_EQ(store.redo_label(sibling), "Sibling");
+    store.redo(sibling);
+    EXPECT_EQ(store.read()->name, "Two");
+    store.checkout(first);
+    EXPECT_FALSE(store.journal_dirty());
+  };
+  {
+    tree_store store{ledger{"Base"}};
+    store.create_journal(path_, GetParam());
+    first =
+        store.execute_transaction("First", [](auto& tx) { tx.root().set_name("One"); }).revision;
+    tip =
+        store.execute_transaction("Tip", [](auto& tx) { tx.root().set_name("One tip"); }).revision;
+    store.undo();
+    store.undo();
+    sibling =
+        store.execute_transaction("Sibling", [](auto& tx) { tx.root().set_name("Two"); }).revision;
+    store.checkout(first);
+    store.save_journal();
+    store.checkout(sibling);
+    abandoned =
+        store.execute_transaction("Abandoned", [](auto& tx) { tx.root().set_name("Discard"); })
+            .revision;
+    store.reset_history();
+    const auto before = store.journal_sequence();
+    store.discard_journal_changes();
+    EXPECT_EQ(store.journal_sequence(), before + 1);
+    check_saved_history(store);
+    sequence = store.journal_sequence();
+  }
+  tree_store recovered{ledger{}};
+  recovered.recover_journal(path_);
+  EXPECT_EQ(recovered.journal_sequence(), sequence);
+  check_saved_history(recovered);
+  const auto next =
+      recovered.execute_transaction("Next", [](auto& tx) { tx.root().set_name("Next"); });
+  next.throw_if_failed();
+  EXPECT_GT(next.revision, abandoned);
+}
+
+// Failed/canceled object reservations and abandoned revision numbers survive discard and reopening.
+TEST_P(managed_journal_test, discard_preserves_object_and_revision_allocation_watermarks) {
+  using tree_store = managed::model_store<ledger, managed::history_mode::tree>;
+  std::uint64_t abandoned{};
+  {
+    tree_store store{ledger{"Base"}};
+    store.create_journal(path_, GetParam());
+    const auto failed = store.execute_transaction([](auto& tx) {
+      EXPECT_EQ(tx.create_id(), 2u);
+      throw std::runtime_error{"Rejected edit after allocation"};
+    });
+    EXPECT_EQ(failed.status, status::failed);
+    EXPECT_THROW(failed.throw_if_failed(), std::runtime_error);
+    const auto canceled = store.execute_transaction([](auto& tx) {
+      EXPECT_EQ(tx.create_id(), 3u);
+      tx.revert();
+    });
+    EXPECT_EQ(canceled.status, status::reverted);
+    const auto inserted = store.execute_transaction([](auto& tx) {
+      EXPECT_EQ(tx.root().entries().insert(10, {"Abandoned", 1}), 4u);
+    });
+    inserted.throw_if_failed();
+    abandoned = inserted.revision;
+    const auto before = store.journal_sequence();
+    store.discard_journal_changes();
+    EXPECT_EQ(store.journal_sequence(), before + 1);
+    EXPECT_EQ(store.allocated_id(), 4u);
+    EXPECT_TRUE(store.read()->entries.empty());
+    EXPECT_EQ(store.current_revision(), 1u);
+    EXPECT_FALSE(store.journal_dirty());
+  }
+  tree_store recovered{ledger{}};
+  recovered.recover_journal(path_);
+  EXPECT_EQ(recovered.allocated_id(), 4u);
+  EXPECT_TRUE(recovered.read()->entries.empty());
+  EXPECT_FALSE(recovered.journal_dirty());
+  const auto next = recovered.execute_transaction([](auto& tx) {
+    EXPECT_EQ(tx.root().entries().insert(10, {"Next", 2}), 5u);
+  });
+  next.throw_if_failed();
+  EXPECT_GT(next.revision, abandoned);
+}
+
+// Pre-replacement discard errors preserve accepted state; uncertain replacement requires fresh recovery.
+TEST_P(managed_journal_test, discard_faults_preserve_live_state_and_recover_durable_decision) {
+  for (const auto point : {event::before_replace, event::after_replace}) {
+    const auto path = directory_ / ("discard-fault-" + std::to_string(static_cast<int>(point)));
+    bool armed = false;
+    managed::journal_options options;
+    options.fault_injector = [&](auto actual) {
+      if (armed && actual == point) {
+        throw std::system_error{std::make_error_code(std::errc::no_space_on_device)};
+      }
+    };
+    std::uint64_t sequence{};
+    const bool uncertain = point == event::after_replace;
+    {
+      store_type store{ledger{"Base"}};
+      store.create_journal(path, GetParam(), options);
+      rename(store, "Saved").throw_if_failed();
+      store.save_journal();
+      rename(store, "Changed").throw_if_failed();
+      const auto pinned = store.read();
+      const auto memory = store.save();
+      const auto cursor = store.history_cursor();
+      sequence = store.journal_sequence();
+      armed = true;
+      if (uncertain) {
+        EXPECT_THROW(store.discard_journal_changes(), managed::journal_indeterminate_error);
+      } else {
+        EXPECT_THROW(store.discard_journal_changes(), std::system_error);
+        EXPECT_EQ(store.save(), memory);
+      }
+      EXPECT_EQ(store.read(), pinned);
+      EXPECT_EQ(store.history_cursor(), cursor);
+      EXPECT_EQ(store.journal_sequence(), sequence);
+      EXPECT_TRUE(store.journal_dirty());
+      EXPECT_EQ(store.journal_needs_recovery(), uncertain);
+      if (uncertain) {
+        EXPECT_THROW(store.discard_journal_changes(), managed::journal_indeterminate_error);
+        EXPECT_THROW(store.save_journal(), managed::journal_indeterminate_error);
+        EXPECT_EQ(rename(store, "Blocked").status, status::indeterminate);
+      }
+    }
+    store_type recovered{ledger{}};
+    recovered.recover_journal(path);
+    EXPECT_EQ(recovered.read()->name, uncertain ? "Saved" : "Changed");
+    EXPECT_EQ(recovered.journal_sequence(), sequence + static_cast<std::uint64_t>(uncertain));
+    EXPECT_EQ(recovered.journal_dirty(), !uncertain);
+    recovered.undo();
+    EXPECT_EQ(recovered.read()->name, uncertain ? "Base" : "Saved");
+    rename(recovered, "Next").throw_if_failed();
+  }
+}
+
+// A corrupt lazy baseline read cannot replace durable bytes, publish values, or fence a healthy writer.
+TEST_P(managed_journal_test, discard_rejects_corrupt_saved_baseline_without_publication) {
+  store_type store{ledger{"Base"}};
+  store.create_journal(path_, GetParam());
+  rename(store, "Changed").throw_if_failed();
+  const auto pinned = store.read();
+  const auto memory = store.save();
+  const auto sequence = store.journal_sequence();
+  bytes original;
+  {
+    rohit::file_stream input{path_, rohit::file_open_mode::read_shared};
+    original.resize(static_cast<std::size_t>(input.size()));
+    input.read(reinterpret_cast<char*>(original.data()), static_cast<std::streamsize>(original.size()));
+    ASSERT_EQ(input.gcount(), static_cast<std::streamsize>(original.size()));
+  }
+  auto corrupt = original;
+  ASSERT_GT(corrupt.size(), file_header_bytes + frame_header_bytes);
+  corrupt[file_header_bytes + frame_header_bytes] ^= 1;
+  const auto preserved = directory_ / "preserved-base";
+  // Native append handles permit rename but deny a second writer on Windows.
+  std::filesystem::rename(path_, preserved);
+  write_bytes(path_, corrupt);
+  EXPECT_THROW(store.discard_journal_changes(), std::invalid_argument);
+  EXPECT_EQ(store.read(), pinned);
+  EXPECT_EQ(store.save(), memory);
+  EXPECT_EQ(store.journal_sequence(), sequence);
+  EXPECT_TRUE(store.journal_dirty());
+  EXPECT_FALSE(store.journal_needs_recovery());
+  EXPECT_EQ(read_bytes(path_), corrupt);
+  std::filesystem::remove(path_);
+  std::filesystem::rename(preserved, path_);
+  store.discard_journal_changes();
+  EXPECT_EQ(store.read()->name, "Base");
+  EXPECT_FALSE(store.journal_dirty());
+}
+
+// Baseline-only reads retain the physical cap and reject sidecar trailers without parsing appended tails.
+TEST_P(managed_journal_test, discard_saved_prefix_preserves_file_bounds_and_mode_framing) {
+  constexpr std::size_t maximum_file_bytes = 64 * 1024;
+  managed::journal_options options;
+  options.max_file_bytes = maximum_file_bytes;
+  store_type store{ledger{"Base"}};
+  store.create_journal(path_, GetParam(), options);
+  rename(store, "Changed").throw_if_failed();
+  const auto pinned = store.read();
+  const auto sequence = store.journal_sequence();
+  bytes original;
+  {
+    rohit::file_stream input{path_, rohit::file_open_mode::read_shared};
+    original.resize(static_cast<std::size_t>(input.size()));
+    input.read(reinterpret_cast<char*>(original.data()), static_cast<std::streamsize>(original.size()));
+    ASSERT_EQ(input.gcount(), static_cast<std::streamsize>(original.size()));
+  }
+  ASSERT_LT(original.size(), maximum_file_bytes);
+  const auto preserved = directory_ / "preserved-prefix";
+  // Replace only this owned pathname; the locked writer retains its original file handle.
+  std::filesystem::rename(path_, preserved);
+  auto oversized = original;
+  oversized.resize(maximum_file_bytes + 1);
+  write_bytes(path_, oversized);
+  EXPECT_THROW(store.discard_journal_changes(), std::length_error);
+  EXPECT_EQ(store.read(), pinned);
+  EXPECT_EQ(store.journal_sequence(), sequence);
+  EXPECT_FALSE(store.journal_needs_recovery());
+  std::filesystem::remove(path_);
+  auto with_suffix = original;
+  with_suffix.push_back(0);
+  write_bytes(path_, with_suffix);
+  if (GetParam() == mode::sidecar) {
+    EXPECT_THROW(store.discard_journal_changes(), std::invalid_argument);
+    EXPECT_EQ(store.read(), pinned);
+    EXPECT_EQ(store.journal_sequence(), sequence);
+    EXPECT_FALSE(store.journal_needs_recovery());
+    std::filesystem::remove(path_);
+    std::filesystem::rename(preserved, path_);
+  }
+  store.discard_journal_changes();
+  EXPECT_EQ(store.read()->name, "Base");
+  EXPECT_EQ(store.journal_sequence(), sequence + 1);
+  EXPECT_FALSE(store.journal_dirty());
+}
+
+// Only an ordinary attached journal can discard; no local shortcut may bypass collaboration.
+TEST_P(managed_journal_test, discard_rejects_unattached_and_shared_stores) {
+  store_type unattached{ledger{"Unattached"}};
+  const auto pinned = unattached.read();
+  const auto memory = unattached.save();
+  EXPECT_THROW(unattached.discard_journal_changes(), std::logic_error);
+  EXPECT_EQ(unattached.read(), pinned);
+  EXPECT_EQ(unattached.save(), memory);
+  using authority_type = managed::collaboration_authority<ledger>;
+  authority_type authority{ledger{"Shared"}, 1};
+  authority.open_session(10);
+  managed::collaboration_transport<authority_type> transport{authority, 10};
+  store_type shared{ledger{}};
+  shared.collaborate(std::uint64_t{10}).bind(transport);
+  shared.synchronize();
+  shared.create_journal(path_, GetParam());
+  const auto shared_pin = shared.read();
+  const auto shared_memory = shared.save();
+  EXPECT_THROW(shared.discard_journal_changes(), std::logic_error);
+  EXPECT_EQ(shared.read(), shared_pin);
+  EXPECT_EQ(shared.save(), shared_memory);
+  EXPECT_EQ(shared.journal_sequence(), 0u);
+  EXPECT_FALSE(shared.journal_dirty());
+}
+// Validation during discard cannot reenter the original writer while its replacement is prepared.
+TEST_P(managed_journal_test, discard_rejects_validator_reentry_before_publication) {
+  store_type* active{};
+  bool armed = false;
+  bool checking = false;
+  bool checked = false;
+  store_type store{ledger{"Base"}, managed::make_document_id(), {}, [&](const auto&) {
+                     if (armed && !checking) {
+                       checking = true;
+                       checked = true;
+                       EXPECT_THROW(active->discard_journal_changes(), std::logic_error);
+                       EXPECT_THROW(active->save_journal(), std::logic_error);
+                       EXPECT_EQ(rename(*active, "Nested").status, status::failed);
+                       checking = false;
+                     }
+                   }};
+  active = &store;
+  store.create_journal(path_, GetParam());
+  rename(store, "Changed").throw_if_failed();
+  const auto before = store.journal_sequence();
+  armed = true;
+  store.discard_journal_changes();
+  EXPECT_TRUE(checked);
+  EXPECT_EQ(store.read()->name, "Base");
+  EXPECT_EQ(store.journal_sequence(), before + 1);
+  EXPECT_FALSE(store.journal_dirty());
+}
 // Allocation reservations outlive cancellation and deletion even with history disabled.
 TEST_P(managed_journal_test, durable_reservations_without_history) {
   using identity_store = managed::model_store<ledger, managed::history_mode::disabled>;

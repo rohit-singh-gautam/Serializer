@@ -80,6 +80,14 @@ public:
                       std::span<const std::uint8_t> snapshot = {}) = 0;
   // Durably replace the saved baseline, preserving its retained history dependencies.
   virtual void save(const std::vector<std::uint8_t>& envelope) = 0;
+  // Read the last full-Save envelope lazily; custom sinks may explicitly reject this capability.
+  virtual std::vector<std::uint8_t> saved_envelope() const {
+    throw std::logic_error{"Journal backend does not support saved baseline reads"};
+  }
+  // Replace the saved generation as one new durable operation, preserving ordinary Save semantics.
+  virtual void discard(const std::vector<std::uint8_t>&) {
+    throw std::logic_error{"Journal backend does not support discard"};
+  }
   // Return the last acknowledged operation sequence, independently of undo position.
   virtual std::uint64_t sequence() const noexcept = 0;
   // Report an uncertain durable decision that blocks further writes.

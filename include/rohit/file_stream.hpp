@@ -14,8 +14,9 @@
 
 namespace rohit {
 
-// create is exclusive; update preserves existing data; lock owns a stable single-writer lock.
-enum class file_open_mode { read, update, create, lock };
+// create is exclusive; update preserves data; lock owns a stable single-writer lock.
+// read_shared permits an existing writer on Windows; callers provide external synchronization.
+enum class file_open_mode { read, update, create, lock, read_shared };
 
 // An owning, unbuffered byte stream with explicit durability and recovery capabilities.
 // Thread-confined. Reads/writes complete the requested range or report EOF/throw; errors latch.

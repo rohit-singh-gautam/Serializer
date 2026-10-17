@@ -83,6 +83,27 @@ TEST_F(file_stream_test, generated_serialization_uses_file_stream) {
   check_file_codec<codec::binary_string>(path("string"));
 }
 
+// Explicit shared reads coexist with the synchronized writer without moving its append cursor.
+TEST_F(file_stream_test, shared_read_preserves_writer_ownership_and_position) {
+  rohit::file_stream lock{path("lock"), rohit::file_open_mode::lock};
+  rohit::file_stream writer{path(), rohit::file_open_mode::create};
+  writer.write("abc", 3);
+  writer.sync();
+  rohit::file_stream reader{path(), rohit::file_open_mode::read_shared};
+  std::array<char, 6> bytes{};
+  reader.read(bytes.data(), 3);
+  EXPECT_EQ(std::string(bytes.data(), 3), "abc");
+#ifdef _WIN32
+  EXPECT_THROW((rohit::file_stream{path(), rohit::file_open_mode::read}), std::system_error);
+  EXPECT_THROW((rohit::file_stream{path(), rohit::file_open_mode::update}), std::system_error);
+#endif
+  writer.write("def", 3);
+  writer.sync();
+  reader.seek(0);
+  reader.read(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+  EXPECT_EQ(std::string(bytes.data(), bytes.size()), "abcdef");
+}
+
 // EOF/peek state must not shift logical reads or subsequent writes, and recovery can remove a tail.
 TEST_F(file_stream_test, peek_seek_truncate_and_append_preserve_position) {
   rohit::file_stream file{path(), rohit::file_open_mode::create};

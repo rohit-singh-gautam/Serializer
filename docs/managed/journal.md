@@ -104,6 +104,38 @@ using store_type = rohit::managed::model_store<ledger_example::ledger>;
   sequence before deciding whether an application action needs retrying; there
   is no automatic callback retry or external-effect deduplication service.
 
+### Explicitly discard changes since full Save
+
+Call `store.discard_journal_changes()` on an ordinary journaled store to restore
+its last full-Save values and saved history. Before the first Save this is the
+creation baseline. The runtime checks the full physical file-size budget, then
+reads only the fixed container header and bounded saved frame through its existing
+locked native sink. It never reads or buffers the appended unsaved suffix; sidecar
+bases still require an exact saved-frame file length. Applications must not delete
+sidecars, parse journal framing, undo until clean, or substitute an ordinary edit
+followed by Save.
+
+The operation removes post-Save history while retaining saved undo/redo branches,
+object ID reservations and the highest allocated tree revision. Recovery restores
+the saved selection, and future edits never reuse abandoned IDs. Every successful
+call, including one whose current values already match the baseline, advances the
+journal sequence once. Publication uses the normal load event; old read pins remain
+immutable. A new operation is required even when values are clean because retained
+history may differ. Ordinary Save behavior and framing are unchanged.
+
+All validation, allocation and observer preparation precede atomic generation
+replacement. Failure before replacement leaves state/history/sequence untouched;
+indeterminate replacement fences the store and requires destruction and fresh
+recovery. Shared documents reject discard before any journal access. The operation
+is synchronous and owner-thread confined, and does not retain another envelope or
+add work to ordinary editing paths. It uses existing file, decode, history and
+resident limits. Custom sinks without this optional capability reject explicitly.
+
+The native byte-stream `file_open_mode::read_shared` permits a bounded read while
+an existing Windows writer is open. Callers must supply external synchronization;
+the journal uses its stable writer lock. Ordinary `read`, `update`, `create` and
+`lock` sharing behavior is unchanged.
+
 `journal_options` bounds each frame payload (`max_record_bytes`, default 64 MiB)
 and physical file (`max_file_bytes`, default 1 GiB). Store decoding and history
 budgets also apply. Recovery reads bounded files into memory and borrows record

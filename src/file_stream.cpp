@@ -52,7 +52,8 @@ public:
   // Open a bounded file or acquire the stable nonblocking single-writer lock.
   implementation(const std::filesystem::path& path, file_open_mode access) {
     if (access != file_open_mode::read && access != file_open_mode::update &&
-        access != file_open_mode::create && access != file_open_mode::lock) {
+        access != file_open_mode::create && access != file_open_mode::lock &&
+        access != file_open_mode::read_shared) {
       throw std::invalid_argument{"Invalid file stream open mode"};
     }
 #ifdef _WIN32
@@ -60,15 +61,18 @@ public:
                                  ? CREATE_NEW
                                  : (access == file_open_mode::lock ? OPEN_ALWAYS : OPEN_EXISTING);
     const auto rights =
-        access == file_open_mode::read ? GENERIC_READ : GENERIC_READ | GENERIC_WRITE;
-    const DWORD sharing = access == file_open_mode::lock ? 0 : FILE_SHARE_READ | FILE_SHARE_DELETE;
+        (access == file_open_mode::read || access == file_open_mode::read_shared)
+            ? GENERIC_READ : GENERIC_READ | GENERIC_WRITE;
+    const DWORD sharing = access == file_open_mode::lock ? 0 :
+        FILE_SHARE_READ | FILE_SHARE_DELETE |
+            (access == file_open_mode::read_shared ? FILE_SHARE_WRITE : 0);
     handle_ = CreateFileW(path.c_str(), rights, sharing, nullptr, disposition,
                           FILE_ATTRIBUTE_NORMAL, nullptr);
     if (handle_ == INVALID_HANDLE_VALUE) {
       io_error("Open file stream");
     }
 #else
-    const auto flags = access == file_open_mode::read
+    const auto flags = (access == file_open_mode::read || access == file_open_mode::read_shared)
                            ? O_RDONLY
                            : (access == file_open_mode::create
                                   ? O_RDWR | O_CREAT | O_EXCL
