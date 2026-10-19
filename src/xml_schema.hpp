@@ -2,9 +2,13 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
+#include "xml_container_contract.hpp"
+#include "xml_content_contract.hpp"
+
 #include <rohit/output_options.hpp>
 #include <rohit/serializer_creator.hpp>
 #include <rohit/xml.hpp>
+#include <rohit/xml_extensions.hpp>
 
 #include <cstddef>
 #include <filesystem>
@@ -55,6 +59,9 @@ struct field {
   bool list{}, qname{}, prefix_list{};
   bool value_projection{};
   std::optional<xml::name> qname_default{}, qname_fixed{};
+  presence_contract presence{};
+  std::optional<map_contract> map_binding{};
+  std::optional<variant_contract> variant_binding{};
 };
 // One choice branch retains the occurrence interval for a known field or positioned wildcard.
 struct choice_branch {
@@ -89,6 +96,8 @@ struct record {
   std::vector<choice_group> choices{};
   std::vector<wildcard> wildcards{};
   std::optional<xml_unknown_policy> unknown{};
+  std::optional<mixed_contract> mixed{};
+  std::optional<xml::extension_contract> extensions{};
 };
 // Reject newly bound semantics until the selected backend emits their complete validation contract.
 void validate_backend(const record& contract, std::string_view language);

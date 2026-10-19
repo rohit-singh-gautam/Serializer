@@ -23,7 +23,10 @@ transactions/outboxes are runtime states, and dated verification records describ
 their original runs. Explicit format restrictions remain restrictions unless a
 document proposes extending them. A new completion claim needs a source revision,
 selected backend/provider/platform and executed evidence. Keep the original task
-IDs below; close only the scope actually checked.
+IDs for remaining work; remove completed tasks from these tables and retain their
+IDs and executed evidence in the verification records. Dependencies may name
+completed prerequisites whose records are linked below. Close only the scope
+actually checked.
 
 | Find pending work | Section |
 | --- | --- |
@@ -150,11 +153,14 @@ contract. Use this backlog and the newest applicable evidence together.
 
 ## XML and package backlog
 
-Compiler/runtime **2.9.0** adds the shared S01
-[normalized XML event contract](serialization/xml_events.md). This boundary
-defines borrowed payload and bounded structural validation; incremental byte
-parsing (S02) and per-language generated token codecs remain pending. The 2.8
-checkpoint below retains its original scope and evidence.
+Compiler/runtime **2.10.0** adds the incremental C++ XML event reader and shared
+presence, mixed-content, map, variant and extension-slot contracts. The
+[shared-contract guide](serialization/xml_shared_contracts.md) distinguishes
+these APIs from the per-language generated codecs, which remain pending.
+The earlier **2.9.0** S01
+[normalized XML event contract](serialization/xml_events.md) defines borrowed
+payload and bounded structural validation. Earlier checkpoints below retain
+their original scope and evidence.
 
 Compiler/runtime **2.8.0**, schema language **1.20.0**, adds checked C++/Python
 rich XML and Core consumers, Python OPC profiles and XML enabled by default.
@@ -318,22 +324,19 @@ already checks shared XML/package budgets and the generated package subset;
 broader composition/profile contracts and other backends remain pending. JavaScript, Rust
 and C already have direct XML output paths; preserve and qualify them rather than
 replacing them merely to satisfy `X01`/`X02`. Other cells start from the exact
-implemented subset in the usage guide. Closed shared slices below do not close
+implemented subset in the usage guide. Completed shared prerequisites do not close
 their dependent parser, emitter or language-qualification tasks.
 
 ### Shared compiler and contract tasks
 
 Dependencies name earlier task IDs or the existing 2.4.0 implementation.
+Completed prerequisites S01 through S07 have been removed from this backlog.
+Their contracts and executed checks remain in the
+[S01 verification record](verification/verification-xml-events-2026-10-19.md) and
+[S02-S07 verification record](verification/verification-xml-shared-contracts-2026-10-19.md).
 
 | ID | Cap | Depends on | Deliverable and completion check |
 | --- | --- | --- | --- |
-| S01 | 3 h | Existing XML mapping | Verified: provider-independent C++ borrowed event contract and bounded structural validator; golden traces, malformed boundaries, ownership, resource and interruption cases pass with Windows XML ON/OFF and focused Linux XML/zlib. See [event API](serialization/xml_events.md) and [executed evidence](verification/verification-xml-events-2026-10-19.md). S02 and every per-language token codec remain pending. |
-| S02 | 3 h | S01 | Define incremental UTF-8/name/namespace handling; split-byte, scope and DTD rejection fixtures pass. |
-| S03 | 3 h | S01 | Define explicit nil/presence IR and configuration; ambiguous absent/empty/nil mappings reject. |
-| S04 | 4 h | S01 | Define ordered mixed-content IR; text/child/text order fixtures pass. |
-| S05 | 3 h | S01 | Define map entry/key/value mapping; duplicate-key and entry-presence rules have fixtures. |
-| S06 | 3 h | S01 | Define variant/type tags; ambiguous or conflicting tags reject during generation. |
-| S07 | 3 h | S01 | Define XML reject/skip/preserve extension slots; namespace context and required-capability fixtures pass. |
 | S08 | 4 h | Existing XSD binder | Compile numeric inclusive/exclusive facets into IR; exact boundary tests pass. |
 | S09 | 3 h | Existing XSD binder | Compile Unicode length/enumeration facets; empty/code-point/enumeration tests pass. |
 | S10 | 3 h | S09 | Select an explicit portable XSD-regex subset; accepted/rejected corpus and unsupported diagnostics pass. |
@@ -495,7 +498,7 @@ state; internal `binary_none` side channels retain the existing native contract.
 | --- | --- | --- |
 | G01 | 2 h | Independent XML/XSD oracle corpus passes for the landed subset. |
 | G02 | 2 h | Independent ZIP/OPC corpus passes for the landed subset. |
-| G03 | 3 h | Current Windows slice verified: 169/169 CTests through the full wrapper; repeat for changed source/configuration and repair failures separately. |
+| G03 | 3 h | Run the full Windows test wrapper against the selected source/configuration; record that slice's results and repair failures separately. |
 | G04 | 3 h | Linux native regression passes; failures receive separate repair tasks. |
 | G05 | 2 h | XML-disabled build and explicit unavailability behavior pass. |
 | G06 | 2 h | Every bundled provider disabled: build/link and supported identity/stored paths pass. |

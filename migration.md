@@ -1,5 +1,33 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.10.0
+
+Require `find_package(Serializer 2.10 CONFIG REQUIRED)` for
+`<rohit/xml_event_reader.hpp>` and `<rohit/xml_extensions.hpp>`. The incremental
+reader uses the optional LibXml2 provider and delivers borrowed normalized events;
+copy retained data and call `finish()` before publishing a decoded candidate.
+It accepts UTF-8 XML 1.0, arbitrary byte splits and namespace scope, while rejecting
+DTDs, user/external entities, other encodings and malformed/trailing input.
+Provider-private allocations and native parser limits are separate from logical
+event-state bounds. The 2.9 structural event validator remains provider-independent.
+
+New [shared XML configuration contracts](docs/serialization/xml_shared_contracts.md)
+bind explicit presence/nil, ordered mixed content, map entries, variant/type tags
+and positioned extension slots. They validate shared IR and reference behavior;
+their generated token codecs remain pending in every language. Selecting a new
+contract produces an explicit backend capability diagnostic, rather than partial
+generated support. Fixed-XSD overrides, XSD export and directional XML comparison
+for these contracts reject. Existing generated codecs and native wire formats
+require no payload migration or schema regeneration to keep their behavior.
+
+Raw extension helpers require explicit foreign slots, complete namespace context,
+correct positions and understood capabilities. Preserving unknown content does
+not satisfy a required vocabulary. Publish the returned owning candidate only
+after complete decoding and byte EOF validation. Rebuild clients of the compiler
+binding/output-option structures, which gained additive members. Schema language
+remains **1.20.0** and both editor packages remain **2.0.5**; this release changes
+no schema syntax or editor navigation. See [executed checks](docs/verification/verification-xml-shared-contracts-2026-10-19.md).
+
 ## Compiler/runtime 2.9.0
 
 Require `find_package(Serializer 2.9 CONFIG REQUIRED)` for the provider-independent
@@ -40,7 +68,7 @@ which gained members. ZIP entry metadata now exposes its central-directory
 creator system and external attributes; OPC uses them to exclude non-file items
 from logical parts while still validating their payload integrity.
 Read the [backend contracts](docs/serialization/xml_packages.md) and
-[remaining qualification](docs/xml_pending.md) before assuming complete OPC,
+[remaining qualification](docs/pending.md) before assuming complete OPC,
 3MF or backend parity.
 
 ## Compiler/runtime 2.7.0
@@ -64,7 +92,7 @@ structures gained members. Unknown-extension slots and QName bindings are emitte
 only for models selecting those XML contracts; ordinary native models do not
 gain package storage. Other-language OPC profiles and broader XSD constructs remain
 pending. See [the contract and limits](docs/serialization/xml_packages.md) and
-[verification status](docs/xml_pending.md). Both editor packages use **2.0.5**.
+[verification status](docs/pending.md). Both editor packages use **2.0.5**.
 
 ### C++ managed identity and collaboration
 
@@ -188,7 +216,7 @@ C++ ZIP readers accept ZIP64 and can explicitly spool nonseekable input to a
 bounded private file. ZIP32 output stays the default until its limits require
 ZIP64 or an entry explicitly forces it. New OPC aggregate and preservation APIs
 are caller-authored profiles; generated pipeline/backend parity and the managed
-document-state bridge remain [pending](docs/xml_pending.md).
+document-state bridge remain [pending](docs/pending.md).
 
 Recompile compiler-library clients completely because output-option and XML-binding
 structures gained members. Rebuild runtime clients using the changed compression
@@ -226,7 +254,7 @@ C++ adds whole-object compression streams and ZIP/OPC source/sink/full-Save APIs
 These preserve existing inner codec bytes and native managed formats. They do not
 implement the proposed managed dual-codec recovery bridge. General compression
 and package parity, advanced XML/XSD and the bridge remain
-[pending](docs/xml_pending.md).
+[pending](docs/pending.md).
 
 Use `find_package(Serializer 2.3 CONFIG REQUIRED)` when requiring these additions.
 Earlier 2.x requests remain compatible. Schema language **1.17.0**, payload

@@ -1,13 +1,25 @@
 # Using Serializer in a C++ application
 
-Compiler/runtime **2.9.0** adds `<rohit/xml_events.hpp>` for a provider-independent
-normalized XML event boundary. Use the
-[event contract and example](../serialization/xml_events.md) when implementing
-a byte provider or synchronous event consumer: event payload is borrowed, bounds
-apply cumulatively, and success requires explicit `end_document` plus `finish()`.
-This does not change generated codecs or introduce an incremental byte parser;
-those tasks remain in [the backlog](../pending.md). Schema language stays
-**1.20.0** and both editor packages stay **2.0.5**.
+Compiler/runtime **2.10.0** adds `<rohit/xml_event_reader.hpp>` for incremental
+UTF-8 XML 1.0 input without a retained tree. Supply a synchronous callback, call
+`feed()` with arbitrary byte slices and call `finish()` before publishing a
+candidate. Views expire when the callback returns. The LibXml2-backed reader
+validates namespaces, rejects DTD/user/external entities and fences every failure;
+`<rohit/xml_events.hpp>` remains the provider-independent structural boundary.
+See the [event API and complete example](../serialization/xml_events.md).
+
+For explicit absent/empty/nil distinctions, select
+`presence.member = absent_or_nil` with `optional<optional<T>>`. For ordered
+text/child/text, use `mixed = fragments` with one sequence of owning variant
+fragments. Map, variant and foreign-extension selections have corresponding
+shared contracts. These new INI selections bind compiler IR and reference
+validation; their generated codecs remain pending in every language and reject
+with a capability diagnostic. The [complete contract examples](../serialization/xml_shared_contracts.md)
+explain exact storage, names, limits and rejection rules. Raw C++ callers can use
+`<rohit/xml_extensions.hpp>` for explicit skip/preserve slots with full namespace
+context; opaque preservation never establishes required vocabulary understanding.
+Existing generated/native codecs are unchanged. Require Serializer 2.10 for the
+new APIs; schema language stays **1.20.0** and both editor packages stay **2.0.5**.
 
 Compiler/runtime **2.8.0** enables XML support by default in CMake and the vcpkg
 manifest. Provide libxml2, or explicitly select `-DSERIALIZER_WITH_XML=OFF`.
@@ -73,7 +85,7 @@ Compiler/runtime **2.3.0** adds optional generated XML codecs across the languag
 outputs, fixed XSD bindings and explicit prepared runtime validation. See
 [XML/package APIs](../serialization/xml_packages.md),
 [runnable generated examples](../../example/xml/README.md) and
-[remaining work](../xml_pending.md). C++ additionally implements composable
+[remaining work](../pending.md). C++ additionally implements composable
 whole-object compression streams and ZIP/OPC APIs; general feature parity remains
 required and the missing backend paths remain pending.
 

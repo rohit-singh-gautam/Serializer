@@ -1,13 +1,13 @@
 # Normalized XML events
 
-Compiler/runtime **2.9.0** adds the provider-independent C++20 event contract in
-`<rohit/xml_events.hpp>`. This implements shared task S01: borrowed event payload,
-bounded structural validation and an explicit completion boundary. It does not
-parse XML bytes or change generated XML codecs. Incremental UTF-8/name/namespace
-processing is S02; per-language token input/output remains in
-[the backlog](../pending.md#shared-compiler-and-contract-tasks).
-Event validation invokes no XML provider and is available with
-`SERIALIZER_WITH_XML=OFF`.
+Compiler/runtime **2.10.0** includes the provider-independent C++20 S01 contract
+in `<rohit/xml_events.hpp>` (introduced in 2.9) and the S02 incremental UTF-8
+producer in `<rohit/xml_event_reader.hpp>`. The contract defines borrowed event
+payload, bounded structural validation and explicit completion; the LibXml2
+reader establishes byte syntax and namespace scope without building an XML tree.
+Event validation invokes no XML provider and remains available with
+`SERIALIZER_WITH_XML=OFF`; constructing a reader requires XML enabled.
+Generated token input/output remains in [the backlog](../pending.md).
 
 Use this boundary for a byte provider or a synchronous consumer that needs a
 normalized trace without retaining an XML tree. Existing
@@ -183,19 +183,104 @@ allocation. Context counters are cumulative; charges already performed are not
 rolled back after failure. Bound a complete composed operation with the same
 context instead of resetting a budget for each event or nested document.
 
+## Incremental byte reader
+
+Require `find_package(Serializer 2.10 CONFIG REQUIRED)` and link
+`Serializer::runtime`. No LibXml2 declarations appear in the public header.
+`event_reader(callback, event_limits = {}, operation_context* = nullptr)` owns
+one SAX2 push parse and its structural validator. The nonempty callback observes
+each event synchronously after validation; copy any payload retained after it
+returns. The reader owns its callable; storage that the callable borrows and the
+optional context must outlive their use. The reader has a stable address, requires
+external synchronization and forbids reentrant calls.
+
+```cpp
+#include <rohit/xml_event_reader.hpp>
+#include <string>
+#include <string_view>
+
+namespace xml = rohit::serializer::xml;
+
+// Collect an owning text candidate and publish it only after checked byte EOF.
+std::string read_text(std::string_view first, std::string_view last) {
+  std::string candidate;
+  xml::event_reader reader{[&candidate](const xml::event_view& value) {
+    if (value.kind == xml::event_kind::text) {
+      candidate.append(value.text);
+    }
+  }};
+  reader.feed(first);
+  reader.feed(last);
+  reader.finish();
+  return candidate;
+}
+```
+
+`feed()` accepts arbitrary slices, including empty slices, splits within UTF-8
+code points and splits inside names, declarations, references or markup. Only
+UTF-8 XML 1.0 is supported, with an optional UTF-8 BOM and compatible declaration.
+Other declared encodings, UTF-16 BOMs, invalid/overlong UTF-8, surrogate code
+points, forbidden XML characters and unfinished byte sequences reject. The
+legacy whole-object context's UTF-16 opt-in does not change this reader's policy.
+Provider-validated Unicode names and namespace IRIs are accepted. Prefix shadowing,
+scope pop, default-namespace reset, reserved bindings and duplicate expanded
+attributes are checked. Unprefixed ordinary attributes have an empty namespace;
+namespace events contain local declarations only.
+
+The provider decodes predefined entities/character references, normalizes line
+endings and attribute whitespace, emits CDATA as ordinary text and pairs empty
+element starts/closes. Adjacent text events may split differently with different
+input slices. Comments, processing instructions and outside-root whitespace are
+omitted. DTDs, including empty/internal/external subsets, and user/external
+entities reject. External-resource requests cannot reach the provider's loader;
+no document resource is fetched.
+
+`finish()` checks all remaining byte syntax and EOF before delivering
+`end_document`. A closed root, a successful `feed()` or an observed text event
+cannot authorize model publication. `complete()` becomes true only after final
+validation and the completion callback succeed. `finish()` is idempotent while
+the context continues to permit it. Another `feed()` after completion rejects and
+fences the reader. Syntax failures use `std::invalid_argument`, logical resource
+limits use `std::length_error`, and reuse/reentry errors use `std::logic_error`.
+The disabled-provider constructor throws `std::runtime_error`. Observer/context
+exceptions retain their original type; none unwind across LibXml2 C callbacks.
+Every failure is permanent, including a reentrant call caught by an observer.
+
+`input_bytes()` counts cumulatively admitted source bytes; it does not count
+decoded payload sizes. `usage()` exposes the S01 event validator's diagnostic
+admissions. `max_input_bytes` is checked before feeding a slice, and internal
+provider calls receive at most 4,096 bytes at a time. The same operation context
+charges source work, event work and owned logical storage without resetting
+between slices. Reader descriptor scratch, open expanded names, duplicate-index
+scratch and temporary UTF-8 namespace-IRI escaping are admitted together against
+`max_state_bytes` before owned growth. `usage().state_bytes` still reports the
+validator's retained open names, rather than transient reader scratch.
+
+The reader retains no complete source document or XML tree. LibXml2 nevertheless
+owns token/input buffers, namespace structures and a name dictionary, and URI
+validation may allocate provider storage. These allocations, allocator overhead
+and spare capacities are outside exact logical state/context accounting. Total
+admitted input bounds and the provider's normal non-HUGE token/depth limits
+apply; a larger caller limit does not disable native provider limits. This is
+not a process peak-memory bound or a hard interruption-latency guarantee inside
+a provider call. Budget consumer-owned models/preserved trees separately and
+publish a candidate only after complete validation.
+
 ## Provider responsibilities and remaining work
 
 S01 checks normalized event shapes and nesting. It does not verify UTF-8,
 XML 1.0 character/name grammar, prefix binding or namespace resolution. A byte
 provider must establish those properties before producing events, normalize
 line endings and attribute values, enforce its byte limits and disable external
-resource resolution. S02 retains split-byte/token fixtures, namespace scope and
-DTD rejection. No incremental parser is supplied by this header.
+resource resolution. The S02 reader above provides that byte boundary through
+the maintained optional provider; custom producers retain the same obligations.
 
 The event layer's ability to represent mixed text or qualified attributes does
 not close the corresponding schema/compiler/backend tasks. Generated direct
-token codecs, general mixed-content mappings, broader namespace policies and
-cross-language/provider qualification remain pending. Existing generated XML
+token codecs and cross-language/provider qualification remain pending. Shared
+presence/mixed/map/variant/extension IR and reference checks are documented
+[separately](xml_shared_contracts.md); their generated codecs remain pending.
+Existing generated XML
 and ZIP/OPC behavior is unchanged. Schema language remains **1.20.0** and both
 editor versions remain **2.0.5**; this API adds no schema syntax or navigation
 destination.
@@ -206,4 +291,6 @@ golden traces, malformed boundaries, borrowed-buffer reuse, exact resource
 limits, shared-context charges and terminal interruption/callback failures.
 The documentation example compiles, links and runs under strict MSVC and GCC
 C++20 checks. See the [verification record](../verification/verification-xml-events-2026-10-19.md)
-for commands, platform/provider scope and remaining limits.
+for commands, platform/provider scope and remaining limits. That historical
+record covers S01; [the 2.10 record](../verification/verification-xml-shared-contracts-2026-10-19.md)
+records the incremental reader and new shared contracts separately.

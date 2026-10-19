@@ -46,20 +46,32 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
-Compiler/runtime **2.9.0** adds the provider-independent C++
-[XML event contract](../../../docs/serialization/xml_events.md), with borrowed
-event views, bounded structural validation and explicit document completion.
-Require `find_package(Serializer 2.9 CONFIG REQUIRED)` when using
-`<rohit/xml_events.hpp>`. Keep event strings and span storage alive through
-`accept()` and any synchronous consumer; copy data that must be retained.
-The validator owns only open expanded names. Share the operation context and
-bound event payload, counts, depth and retained/scratch state; byte providers
-must separately enforce input/output byte limits. Never treat a closed root as
-parse success: emit `end_document` only after provider EOF checks, then call
-`finish()`. UTF-8/name/namespace byte parsing is S02; generated token codecs and
-their language qualification remain pending. Existing generated XML entry points
-still use their documented whole-object paths. Schema language stays **1.20.0**
-and both editor packages stay **2.0.5**.
+Compiler/runtime **2.10.0** adds the incremental C++
+[XML event reader](../../../docs/serialization/xml_events.md#incremental-byte-reader)
+and checked [shared XML contracts](../../../docs/serialization/xml_shared_contracts.md).
+Require `find_package(Serializer 2.10 CONFIG REQUIRED)` for
+`<rohit/xml_event_reader.hpp>` or `<rohit/xml_extensions.hpp>`; the provider-independent
+`<rohit/xml_events.hpp>` boundary remains available from 2.9. Keep borrowed views
+alive through synchronous use and copy retained data. Feed arbitrary UTF-8 byte
+slices, then call `finish()` before publishing a candidate; root closure alone
+does not certify EOF. The reader requires the optional XML provider and rejects
+DTD/user/external entities, other encodings and unsupported XML versions. Share
+one operation context and cumulative input/event/state budgets. Provider-private
+allocations and native limits are distinct from logical event-state accounting.
+
+Use the shared guide's exact INI selections for explicit presence/nil, ordered
+mixed content, map entry/key/value names, variant/type inventories and positioned
+foreign extension slots. These selections currently validate compiler IR and
+reference contracts only: every backend rejects their generated token codecs
+with an explicit capability diagnostic. Do not promise generated support or
+substitute a fixed-XSD override; X05/X06/X07/X08/X16 remain pending. Keep the
+parsed AST stable while compiler contracts borrow it. For raw extension helpers,
+provide full in-scope bindings, explicit foreign URI permissions and precise
+positions; retain a complete candidate before publication. Required vocabulary
+support means understood, never merely skipped/preserved. See the
+[executed checks](../../../docs/verification/verification-xml-shared-contracts-2026-10-19.md).
+Existing generated entry points retain their documented whole-object paths.
+Schema language stays **1.20.0** and both editor packages stay **2.0.5**.
 
 Compiler/runtime **2.8.0** retains schema language **1.20.0** and enables XML
 support by default in CMake and the vcpkg manifest. Supply libxml2, or explicitly
@@ -176,7 +188,7 @@ callable that must outlive the operation or streaming encoder; see the
 [compression guide](../../../docs/serialization/compression.md).
 Generated package profiles are available in C++ and Python. Remaining backend
 package/compression parity and managed document-sidecar recovery are pending;
-keep [remaining coverage](../../../docs/xml_pending.md) explicit.
+keep [remaining coverage](../../../docs/pending.md) explicit.
 
 For an OPC-based format, follow the
 [OPC/3MF authoring requirements and restricted build example](../../../docs/design/opc_3mf_support.md).
@@ -226,7 +238,7 @@ Compiler/runtime **2.3.0** adds optional generated XML codecs and a fixed build-
 XSD subset across all generated outputs. Read the
 [XML/package usage contract](../../../docs/serialization/xml_packages.md), use
 the [generated examples](../../../example/xml/README.md), and review
-[pending coverage](../../../docs/xml_pending.md) before choosing a profile.
+[pending coverage](../../../docs/pending.md) before choosing a profile.
 Enable the compiler's optional XML provider, select `[xml] enabled = true`, and
 configure source-qualified classes. Children are the default; explicit scalar
 attributes or a supplied supported XSD define placement. Regenerate after changing

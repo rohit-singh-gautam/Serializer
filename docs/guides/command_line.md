@@ -1,6 +1,6 @@
 # Serializer compiler and schema versions
 
-The compiler and runtime release is **2.9.0**, defined by `project(... VERSION ...)` in the
+The compiler and runtime release is **2.10.0**, defined by `project(... VERSION ...)` in the
 root CMake file. `serializer --version` (or `-v`) prints that release and the
 supported schema language version. CMake generates `<rohit/version.hpp>` with
 `rohit::serializer::compiler_version`, `schema_language_version_text`, and
@@ -12,7 +12,9 @@ Package discovery accepts earlier minor and patch releases within the same major
 version; requests for newer releases or a different major version are rejected.
 Use `EXACT` to require a specific release.
 
-For the 2.9.0 package, request `find_package(Serializer 2.0 CONFIG REQUIRED)`;
+For the 2.10.0 package, request `find_package(Serializer 2.0 CONFIG REQUIRED)`;
+require `2.10` for the incremental C++ [XML event reader](../serialization/xml_events.md#incremental-byte-reader)
+and [shared content/extension contracts](../serialization/xml_shared_contracts.md);
 require `2.9` for the provider-independent C++
 [XML event API](../serialization/xml_events.md);
 require `2.8` for default-enabled XML support and generated Python OPC profiles;
@@ -91,7 +93,7 @@ the complete parsed result. See [licensing and notice rules](../project/licensin
 The repository's [schema language versioning policy](../../AGENTS.md#schema-language-versioning)
 uses `major.minor.patch` for language releases, independently of the compiler
 release. `serializer_schema_language_version` in the root CMake file defines the
-language release separately from `project(... VERSION ...)`. Compiler **2.9.0**
+language release separately from `project(... VERSION ...)`. Compiler **2.10.0**
 currently supports language **1.20.0**; `serializer --version` reports both.
 
 Language `1.20.0` adds namespace/class `xml(...)` defaults, field `xml(...)`
@@ -321,6 +323,17 @@ option, or backend failures leave existing destinations unchanged. Filesystem
 write failures are reported but writes across multiple files are not atomic.
 Outputs cannot alias each other, the input schema, the INI file, or custom format
 file. See [output configuration](../languages/output_configuration.md) for profile scope.
+Class-specific `[xml.class.source::qualified_name]` sections also accept the
+shared `presence.<member>`, `mixed`, `mixed.variant`, `mixed.text`,
+`mixed.child.<alternative>`, `map.<member>[.key|.value|.key_placement]`,
+`variant.<member>[.tag.<alternative>|.type.<alternative>]`,
+`extension.<slot>.<property>` and `extensions.required` INI keys. Their exact
+tokens and complete examples are in the [shared XML contract guide](../serialization/xml_shared_contracts.md).
+These are configuration-only additions; they add no CLI flags or schema syntax.
+They bind checked IR but generated codecs for the new selections explicitly
+reject in every output language. Fixed XSD binding, XSD export and directional
+XML comparison do not yet accept these new contracts.
+
 Class-specific `[language.class.source::qualified_name]` sections can enable
 [record comparisons](../schema/record_comparisons.md) for each selected backend. They are
 INI settings; no new comparison CLI option or schema keyword is required.

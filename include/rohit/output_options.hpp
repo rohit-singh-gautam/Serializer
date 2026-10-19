@@ -47,7 +47,12 @@ struct xml_class_options {
   std::map<std::string, std::string> names{};
   std::string text{};
   std::map<std::string, std::string> wrappers{};
+  // Shared XML contracts are bound before backend capability checks, never silently ignored.
+  std::map<std::string, std::string> contracts{};
 };
+
+// Check the closed shared-contract key/value grammar for programmatic and INI clients alike.
+void validate_xml_contract_options(const xml_class_options& options);
 
 // XML generation is opt-in and does not alter other codec layouts or wire identities.
 struct xml_options {

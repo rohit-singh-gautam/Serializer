@@ -35,8 +35,8 @@ foreach(license IN ITEMS LICENSE LICENSE-RUNTIME LICENSE-GENERATED)
   endif()
 endforeach()
 
-set(managed_headers managed.hpp managed_identity.hpp managed_registry.hpp managed_delta.hpp collaboration_history.hpp collaboration_sessions.hpp
-  managed_collaboration.hpp managed_local_collaboration.hpp
+set(managed_headers managed.hpp managed_identity_allocation.hpp managed_editable.hpp managed_registry.hpp managed_delta.hpp collaboration_history.hpp collaboration_sessions.hpp
+  managed_collaboration.hpp managed_collaboration_hooks.hpp managed_local_collaboration.hpp managed_migration.hpp
   managed_records.hpp collaboration_records.hpp)
 foreach(header IN LISTS managed_headers)
   if(BUILD_MANAGED AND NOT EXISTS "${prefix}/include/rohit/${header}")

@@ -59,6 +59,79 @@ bool source_identifier(std::string_view value) {
   });
 }
 
+// Recognize only documented shared-contract keys; their AST-dependent semantics bind later.
+bool read_xml_contract_option(xml_class_options& mapping, std::string_view key,
+    std::string_view value) {
+  const auto identifier = [](std::string_view name) {
+    if (!source_identifier(name)) {
+      throw std::invalid_argument{"Expected XML contract source identifier"};
+    }
+  };
+  if (key == "mixed" || key == "mixed.variant" || key == "mixed.text") {
+    identifier(value);
+  } else if (key.starts_with("presence.")) {
+    identifier(key.substr(std::string_view{"presence."}.size()));
+    if (value != "required" && value != "absent" && value != "nil" && value != "absent_or_nil") {
+      throw std::invalid_argument{"XML presence must be required, absent, nil or absent_or_nil"};
+    }
+  } else if (key.starts_with("mixed.child.")) {
+    identifier(key.substr(std::string_view{"mixed.child."}.size()));
+  } else if (key.starts_with("map.") || key.starts_with("variant.")) {
+    const bool is_map = key.starts_with("map.");
+    auto tail = key.substr(is_map ? std::string_view{"map."}.size() :
+        std::string_view{"variant."}.size());
+    const auto separator = tail.find('.');
+    identifier(tail.substr(0U, separator));
+    if (separator == std::string_view::npos) {
+      if (!is_map && value != "element" && value != "xsi_type") {
+        throw std::invalid_argument{"XML variant selection must be element or xsi_type"};
+      }
+    } else {
+      tail.remove_prefix(separator + 1U);
+      if (is_map) {
+        if (tail != "key" && tail != "value" && tail != "key_placement") {
+          throw std::invalid_argument{"Unknown XML map contract key"};
+        }
+        if (tail == "key_placement" && value != "element" && value != "attribute") {
+          throw std::invalid_argument{"XML map key_placement must be element or attribute"};
+        }
+      } else {
+        const auto part = tail.find('.');
+        if (part == std::string_view::npos ||
+            (tail.substr(0U, part) != "tag" && tail.substr(0U, part) != "type")) {
+          throw std::invalid_argument{"Unknown XML variant contract key"};
+        }
+        identifier(tail.substr(part + 1U));
+      }
+    }
+  } else if (key == "extensions.required") {
+    // Values are vocabulary URI lists, resolved independently of document prefix spelling.
+  } else if (key.starts_with("extension.")) {
+    auto tail = key.substr(std::string_view{"extension."}.size());
+    const auto separator = tail.find('.');
+    if (separator == std::string_view::npos) {
+      throw std::invalid_argument{"XML extension slot requires a property"};
+    }
+    identifier(tail.substr(0U, separator));
+    tail.remove_prefix(separator + 1U);
+    if (tail != "kind" && tail != "before" && tail != "namespaces" && tail != "policy" &&
+        tail != "minimum" && tail != "maximum") {
+      throw std::invalid_argument{"Unknown XML extension slot property"};
+    }
+    if (tail == "kind" && value != "attribute" && value != "element") {
+      throw std::invalid_argument{"XML extension kind must be attribute or element"};
+    }
+    if (tail == "policy" && value != "reject" && value != "skip" && value != "preserve") {
+      throw std::invalid_argument{"XML extension policy must be reject, skip or preserve"};
+    }
+    if (tail == "before" && value != "$end") { identifier(value); }
+  } else {
+    return false;
+  }
+  mapping.contracts.emplace(key, value);
+  return true;
+}
+
 // Require a fully qualified source spelling, with no empty namespace components.
 bool source_class_name(std::string_view value) {
   while (true) {
@@ -322,6 +395,16 @@ include_mode parse_include_mode(std::string_view name) {
   throw std::invalid_argument{"include_mode must be separate or inline"};
 }
 
+// Programmatic callers must receive the same typo and mode checks as the strict INI parser.
+void validate_xml_contract_options(const xml_class_options& options) {
+  xml_class_options checked{};
+  for (const auto& [key, value] : options.contracts) {
+    if (value.empty() || !read_xml_contract_option(checked, key, value)) {
+      throw std::invalid_argument{"Unknown or empty XML shared contract option: " + key};
+    }
+  }
+}
+
 // Parse the documented small INI grammar and report the line responsible for invalid input.
 output_options read_output_options(const std::filesystem::path& file) {
   std::ifstream input{file};
@@ -388,6 +471,7 @@ output_options read_output_options(const std::filesystem::path& file) {
           mapping.text = value;
         }
         else if (key.starts_with("wrapper.")) { mapping.wrappers.emplace(key.substr(8U), value); }
+        else if (read_xml_contract_option(mapping, key, value)) {}
         else { throw std::invalid_argument{"Unknown XML class configuration key: " + key}; }
       } else if (section == "xml") {
         if (key == "enabled") {

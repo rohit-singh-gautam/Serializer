@@ -1,18 +1,25 @@
 # XML, compression streams and packages
 
-Compiler/runtime **2.9.0**, schema language **1.20.0**. Baseline XML generation
+Compiler/runtime **2.10.0**, schema language **1.20.0**. Baseline XML generation
 covers all output languages; the stream and package API examples below use C++20.
 Richer XML mappings and generated OPC profiles have C++ and Python support;
 unsupported backend combinations reject before output publication. Existing
 native wire formats and managed journals are unchanged.
 See [remaining work](../pending.md) and the [full design](../design/xml_support.md).
 
-The provider-independent C++ [XML event API](xml_events.md) defines borrowed
-normalized events and a bounded structural validator. It retains open expanded
-names only. This shared S01 boundary does not replace the whole-object/generated
-APIs below: incremental byte tokenization (S02) and per-language generated token
-codecs remain pending. An accepted root close is not document completion;
-providers must check EOF before `end_document`, and consumers must call `finish()`.
+The C++ [XML event API](xml_events.md) includes a provider-independent bounded
+structural validator and a LibXml2-backed incremental UTF-8 reader. The reader
+retains no XML tree, resolves namespace scope and rejects DTD/user/external
+entities. Root closure is insufficient: call `finish()` to check byte EOF before
+publication. The whole-object/generated APIs below keep their documented paths.
+
+The [shared content contracts](xml_shared_contracts.md) add checked compiler
+IR/configuration and reference validation for presence/nil, ordered mixed
+content, maps, variants and positioned extension slots. Their generated codecs
+remain pending in every language and reject with an explicit capability
+diagnostic. Public raw extension helpers can preserve semantic foreign content
+with full namespace context; preservation never implies required vocabulary
+understanding. These shared contracts do not expand fixed-XSD/backend support.
 
 ```text
 owning model
@@ -410,7 +417,7 @@ profiles must keep that state in side channels. The generic builder accepts
 caller-provided payloads; it does not identify or police their application meaning.
 These helpers are not attached to native managed stores and do not establish an atomic
 document/sidecar transaction. A managed dual-codec document bridge and recovery
-generation binding remain [pending](../xml_pending.md).
+generation binding remain [pending](../pending.md).
 
 ## Inline XML authoring
 
@@ -553,7 +560,7 @@ typed lists, QName/prefix bindings, unions, supported repeated choices and
 positioned lax/skip extensions. XSD patterns use the optional `lxml` provider; a requested pattern
 without that provider rejects explicitly. Unsupported content models still
 reject during generation. Python/container/provider allocations are not a hard
-process-memory bound. Check the [central backlog](../xml_pending.md) for remaining
+process-memory bound. Check the [central backlog](../pending.md) for remaining
 backend and provider qualification.
 
 ## Shared XML/package operation context

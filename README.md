@@ -36,19 +36,22 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **2.9.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.10.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.20.0**;
 see [release and schema versions](docs/guides/command_line.md).
 
-Release **2.9.0** adds the provider-independent C++
-[XML event contract](docs/serialization/xml_events.md): borrowed normalized events,
-bounded structural validation and explicit document completion. It retains only
-open expanded names, with no event payload or XML tree. Incremental byte parsing
-and generated token codecs remain separate pending tasks. Schema language
-**1.20.0**, both editor packages **2.0.5**, and existing generated/wire contracts
-are unchanged.
+Release **2.10.0** adds an incremental LibXml2-backed C++
+[XML event reader](docs/serialization/xml_events.md#incremental-byte-reader)
+without a retained tree, plus checked [shared XML contracts](docs/serialization/xml_shared_contracts.md)
+for presence/nil, ordered mixed content, maps, variants and positioned extension
+slots. The new configured contracts bind shared compiler IR and reference
+validation; their generated codecs remain pending in every language and fail
+with an explicit capability diagnostic. The public extension-slot helper supports
+raw semantic preservation with namespace context. Schema language **1.20.0**,
+both editor packages **2.0.5**, and existing generated/native wire contracts are
+unchanged. See [executed checks](docs/verification/verification-xml-shared-contracts-2026-10-19.md).
 
 XML support is enabled by default in CMake and the vcpkg manifest; use
 `-DSERIALIZER_WITH_XML=OFF` for a build without it. Existing CMake caches retain
@@ -57,7 +60,7 @@ XSDs automatically enable generated XML entry points. Release **2.8.0** also add
 Python OPC package facades and richer C++/Python XML bindings, including the
 supported published Core 1.4 XSD subset. See the
 [current executed checks](docs/verification/verification-opc-backends-2026-10-19.md); qualification and
-remaining backend work are tracked in [the backlog](docs/xml_pending.md).
+remaining backend work are tracked in [the backlog](docs/pending.md).
 
 Compiler/runtime **2.7.0**, language **1.20.0**, adds inline XML defaults and field
 exceptions, `using schema "local.xsd";`, and reviewable XSD declaration import.
@@ -68,7 +71,7 @@ budget, cancellation and deadline through XML and package I/O. Richer C++ XML
 bindings do not establish backend parity; unsupported backend combinations reject.
 See [implemented XML/package contracts](docs/serialization/xml_packages.md),
 [XSD subset and import rules](docs/serialization/xsd_tooling.md) and
-[remaining requirements](docs/xml_pending.md). Both editor packages use **2.0.5**.
+[remaining requirements](docs/pending.md). Both editor packages use **2.0.5**.
 
 Compiler/runtime **2.6.0**, language **1.19.0**, adds
 [inline value references](docs/schema/value_references.md), such as
@@ -108,7 +111,7 @@ C++ adds cooperative compression cancellation, ZIP64, opt-in bounded spooling,
 transactional OPC aggregate loading,
 opaque extension policies and canonical package ordering. See
 [the API contract](docs/serialization/xml_packages.md) and the
-[remaining requirements](docs/xml_pending.md); the full XML/package design is
+[remaining requirements](docs/pending.md); the full XML/package design is
 not yet implemented. Schema language 1.17.0 and existing wire formats are unchanged.
 
 For OPC application/library responsibilities, remaining 3MF authoring requirements
@@ -145,7 +148,7 @@ bindings across all output languages, optional prepared runtime validation,
 whole-object C++ compression streams, and codec-independent C++ ZIP/OPC APIs.
 General format features require cross-language coverage; remaining package,
 compression and document-state work is listed explicitly in the
-[pending report](docs/xml_pending.md). See [implemented XML/package APIs](docs/serialization/xml_packages.md)
+[pending report](docs/pending.md). See [implemented XML/package APIs](docs/serialization/xml_packages.md)
 and [generated XML examples](example/xml/README.md).
 
 Compiler/runtime **2.2.0** adds `model_store::discard_journal_changes()` for ordinary

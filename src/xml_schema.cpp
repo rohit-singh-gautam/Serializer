@@ -490,6 +490,95 @@ std::size_t occurrence(std::string_view value, std::size_t default_value) {
   }
   return result;
 }
+
+// Keep configured URI/IRI references free of characters that require escaping.
+void check_namespace(std::string_view uri) {
+  for (const auto character : uri) {
+    const auto byte = static_cast<unsigned char>(character);
+    if (byte <= 0x20U || byte == 0x7fU || std::string_view{"\"<>^`{}|\\"}.find(character) != std::string_view::npos) {
+      throw std::invalid_argument{"XML namespaces require URI/IRI references with escaped reserved characters"};
+    }
+  }
+}
+
+// Parse an expanded configured name without depending on document prefix bindings.
+xml::name contract_name(std::string_view value, std::string_view default_namespace) {
+  xml::name result{std::string{value}, std::string{default_namespace}};
+  if (value.starts_with('{')) {
+    const auto close = value.find('}');
+    if (close == std::string_view::npos) {
+      throw std::invalid_argument{"XML contract expanded name requires {namespace}local"};
+    }
+    result = {std::string{value.substr(close + 1U)}, std::string{value.substr(1U, close - 1U)}};
+  }
+  check_namespace(result.namespace_uri);
+  xml::element check{};
+  check.qualified_name = result;
+  (void)xml::write(check);
+  return result;
+}
+
+// Split explicit vocabulary URI lists on XML whitespace; URI commas retain their meaning.
+std::vector<std::string> contract_namespaces(std::string_view value) {
+  std::vector<std::string> result{};
+  for (const auto word : lexical_words(value)) { result.emplace_back(word); }
+  return result;
+}
+
+// Bind independent, explicitly positioned unknown-vocabulary slots into owning runtime metadata.
+xml::extension_contract bind_extension_slots(const record& owner,
+    const std::map<std::string, std::string>& options) {
+  xml::extension_contract result{};
+  result.core_namespace = owner.root.namespace_uri;
+  for (const auto& field : owner.fields) {
+    result.known_names.push_back(field.wrapper ? *field.wrapper : field.qualified_name);
+  }
+  std::map<std::string, std::map<std::string, std::string>> slots{};
+  for (const auto& [key, value] : options) {
+    if (key == "extensions.required") { result.required_namespaces = contract_namespaces(value); }
+    if (!key.starts_with("extension.")) { continue; }
+    const auto tail = std::string_view{key}.substr(std::string_view{"extension."}.size());
+    const auto separator = tail.find('.');
+    if (separator == std::string_view::npos) {
+      throw std::invalid_argument{"XML extension slot property is missing"};
+    }
+    slots[std::string{tail.substr(0U, separator)}].emplace(tail.substr(separator + 1U), value);
+  }
+  for (const auto& [id, properties] : slots) {
+    if (!properties.contains("kind") || !properties.contains("namespaces") ||
+        !properties.contains("policy")) {
+      throw std::invalid_argument{"XML extension slot requires kind, namespaces and policy"};
+    }
+    xml::extension_slot_contract slot{};
+    slot.id = id;
+    slot.attribute = properties.at("kind") == "attribute";
+    slot.namespaces = contract_namespaces(properties.at("namespaces"));
+    const auto& policy = properties.at("policy");
+    slot.policy = policy == "preserve" ? xml::unknown_policy::preserve :
+        policy == "skip" ? xml::unknown_policy::skip : xml::unknown_policy::reject;
+    if (properties.contains("minimum")) { slot.minimum = occurrence(properties.at("minimum"), 0U); }
+    if (properties.contains("maximum") && properties.at("maximum") != "unbounded") {
+      slot.maximum = occurrence(properties.at("maximum"), 0U);
+    }
+    slot.before_field = owner.fields.size();
+    if (slot.attribute && properties.contains("before")) {
+      throw std::invalid_argument{"XML attribute extension slots have no field position"};
+    }
+    if (properties.contains("before") && properties.at("before") != "$end") {
+      if (slot.attribute) { throw std::invalid_argument{"XML attribute extension slots have no field position"}; }
+      const auto found = std::find_if(owner.fields.begin(), owner.fields.end(), [&](const auto& field) {
+        return field.source->name == properties.at("before");
+      });
+      if (found == owner.fields.end() || found->attribute || found->text) {
+        throw std::invalid_argument{"XML extension before selector requires an element member"};
+      }
+      slot.before_field = static_cast<std::size_t>(found - owner.fields.begin());
+    }
+    result.slots.push_back(std::move(slot));
+  }
+  xml::validate_extension_contract(result);
+  return result;
+}
 // Preserve inherited restrictions in base-to-derived order after libxml2 checks their legality.
 struct scalar_resolution {
   xml::name primitive{};
@@ -762,6 +851,12 @@ void validate_options(const std::vector<std::unique_ptr<syntax_node>>& statement
           self(self, static_cast<const namespace_node&>(*node).statements);
         } else if (node->type == object_type::class_type || node->type == object_type::generic_definition) {
           const auto& owner = static_cast<const class_node&>(*node);
+          const auto configured = options.classes.find(owner.get_full_name());
+          if (configured != options.classes.end() && !configured->second.contracts.empty() &&
+              (node->type == object_type::generic_definition || owner.reference)) {
+            throw std::invalid_argument{
+                "Shared XML content contracts require ordinary owning records; generic and reference bindings are not implemented"};
+          }
           if (owner.reference && (!owner.reference->value_projection || language != "cpp")) {
             throw std::invalid_argument{
                 "XML value projections are C++ export-only; durable field addresses have no XML binding"};
@@ -851,7 +946,9 @@ record schema::bind(const class_node& source) const {
     mapping.names = selected.names;
     mapping.text = selected.text;
     mapping.wrappers = selected.wrappers;
+    mapping.contracts = selected.contracts;
   }
+  validate_xml_contract_options(mapping);
   if (!bundle_ && declared_schema) {
     auto selected = options_;
     const auto base = std::filesystem::path{declared_schema->source_path}.parent_path();
@@ -867,25 +964,71 @@ record schema::bind(const class_node& source) const {
     return fixed.bind(source);
   }
   record result{{mapping.root.empty() ? source.name : mapping.root, mapping.namespace_uri}, {}};
+  if (bundle_ && !mapping.contracts.empty()) {
+    throw std::invalid_argument{"Shared XML content contracts cannot override a fixed XSD binding"};
+  }
+  if (mapping.contracts.contains("mixed")) {
+    mixed_options content{};
+    content.field = mapping.contracts.at("mixed");
+    if (mapping.contracts.contains("mixed.variant")) { content.variant_member = mapping.contracts.at("mixed.variant"); }
+    if (mapping.contracts.contains("mixed.text")) { content.text_branch = mapping.contracts.at("mixed.text"); }
+    for (const auto& [key, value] : mapping.contracts) {
+      if (key.starts_with("mixed.child.")) {
+        content.children.emplace(key.substr(std::string_view{"mixed.child."}.size()),
+            contract_name(value, mapping.namespace_uri));
+      }
+    }
+    result.mixed = bind_mixed_content(source, content, !mapping.text.empty(), mapping.namespace_uri);
+  } else if (std::any_of(mapping.contracts.begin(), mapping.contracts.end(), [](const auto& item) {
+        return item.first.starts_with("mixed.");
+      })) {
+    throw std::invalid_argument{"XML mixed properties require mixed = source_member"};
+  }
   for (const auto* options : authored) {
     if (options->unknown) { result.unknown = options->unknown; }
   }
   std::set<std::string> member_names{};
   for (const auto& source_field : source.member_list) {
     if (source_field.omits("xml")) { continue; }
+    if (result.mixed && result.mixed->source == &source_field) {
+      if (source_field.xml || mapping.names.contains(source_field.name) ||
+          mapping.wrappers.contains(source_field.name) ||
+          std::any_of(mapping.contracts.begin(), mapping.contracts.end(), [&](const auto& item) {
+            return item.first == "presence." + source_field.name ||
+                item.first == "map." + source_field.name || item.first.starts_with("map." + source_field.name + ".") ||
+                item.first == "variant." + source_field.name || item.first.starts_with("variant." + source_field.name + ".");
+          }) ||
+          std::find(mapping.attributes.begin(), mapping.attributes.end(), source_field.name) != mapping.attributes.end()) {
+        throw std::invalid_argument{"Mixed XML storage cannot also have a regular field mapping"};
+      }
+      member_names.insert(source_field.name);
+      continue;
+    }
     if (std::ranges::any_of(source_field.type_name_list,
             [](const auto& type) { return type.contains_managed_reference(); }) ||
         (source_field.key_type && source_field.key_type->contains_managed_reference())) {
       throw std::invalid_argument{"Managed entity references have no XML binding: " + source_field.name};
     }
-    if (source_field.modifier == member::modifier_type::map || source_field.modifier == member::modifier_type::variant ||
-        source_field.managed || source_field.wire_only) {
+    const auto map_key = "map." + source_field.name;
+    const auto variant_key = "variant." + source_field.name;
+    const bool map_binding = mapping.contracts.contains(map_key);
+    const bool variant_binding = mapping.contracts.contains(variant_key);
+    const bool presence_binding = mapping.contracts.contains("presence." + source_field.name);
+    if (source_field.managed || source_field.wire_only ||
+        (source_field.modifier == member::modifier_type::map && !map_binding) ||
+        (source_field.modifier == member::modifier_type::variant && !variant_binding)) {
       throw std::invalid_argument{"Unsupported XML map, variant, managed or derived-size field: " + source_field.name};
     }
     const bool list = source_field.xml && source_field.xml->list;
     const auto& source_type = source_field.type_name_list.front();
-    const auto& list_container = source_type.is_optional() ? source_type.arguments.front() : source_type;
-    if (list) {
+    const auto* storage_type = &source_type;
+    if (presence_binding) {
+      while (storage_type->is_optional()) { storage_type = &storage_type->arguments.at(0U); }
+    } else if (storage_type->is_optional()) { storage_type = &storage_type->arguments.at(0U); }
+    const auto& list_container = *storage_type;
+    if (map_binding || variant_binding || presence_binding) {
+      // Their dedicated binders validate storage before any backend selects an emitter.
+    } else if (list) {
       if (list_container.is_sequence()) { check_type(list_container.arguments.front(), true); }
       else { check_type(source_type, source_field.modifier == member::modifier_type::array); }
     } else { check_type(source_type, source_field.modifier == member::modifier_type::array); }
@@ -894,8 +1037,8 @@ record schema::bind(const class_node& source) const {
     const auto renamed = mapping.names.find(source_field.name);
     auto local_name = renamed == mapping.names.end() ? source_field.name : renamed->second;
     bool is_attribute = std::find(mapping.attributes.begin(), mapping.attributes.end(), source_field.name) != mapping.attributes.end() ||
-        (scalar_placement == xml_field_placement::attribute && !repeated &&
-         leaf(source_field).type != object_type::class_type);
+        (scalar_placement == xml_field_placement::attribute && !repeated && !map_binding && !variant_binding &&
+         (presence_binding ? storage_type->type : leaf(source_field).type) != object_type::class_type);
     bool text = source_field.name == mapping.text;
     auto field_namespace = is_attribute ? std::string{} : mapping.namespace_uri;
     std::optional<std::string> authored_wrapper;
@@ -918,10 +1061,10 @@ record schema::bind(const class_node& source) const {
          (source_field.xml->qname && source_field.xml->prefix_list))) {
       throw std::invalid_argument{"XML QName/prefix-list mappings require one string field"};
     }
-    if (is_attribute && (repeated || leaf(source_field).type == object_type::class_type || text)) {
+    if (is_attribute && (repeated || (presence_binding ? storage_type->type : leaf(source_field).type) == object_type::class_type || text)) {
       throw std::invalid_argument{"XML attributes require scalar fields: " + source_field.name};
     }
-    if (text && (repeated || leaf(source_field).type == object_type::class_type ||
+    if (text && (repeated || (presence_binding ? storage_type->type : leaf(source_field).type) == object_type::class_type ||
         source_field.type_name_list.front().is_optional())) {
       throw std::invalid_argument{"XML text requires one nonoptional scalar field: " + source_field.name};
     }
@@ -929,7 +1072,7 @@ record schema::bind(const class_node& source) const {
     const auto wrapper_name = authored_wrapper ? *authored_wrapper :
         wrapper != mapping.wrappers.end() ? wrapper->second : std::string{};
     if ((authored_wrapper || wrapper != mapping.wrappers.end()) &&
-        (!repeated || is_attribute || text || wrapper_name.empty())) {
+        ((!repeated && !map_binding && !variant_binding && !presence_binding) || is_attribute || text || wrapper_name.empty())) {
       throw std::invalid_argument{"XML wrappers require repeated element fields and a nonempty wrapper name"};
     }
     result.fields.push_back({&source_field,
@@ -965,7 +1108,66 @@ record schema::bind(const class_node& source) const {
     }
     if (result.fields.back().qname) { result.fields.back().facets.lexical_kind = "QName"; }
     if (!wrapper_name.empty()) {
-      result.fields.back().wrapper = xml::name{wrapper_name, mapping.namespace_uri};
+      result.fields.back().wrapper = contract_name(wrapper_name, mapping.namespace_uri);
+    }
+    auto& bound_field = result.fields.back();
+    if (map_binding && variant_binding) {
+      throw std::invalid_argument{"An XML member cannot be both map and variant"};
+    }
+    if (map_binding || variant_binding) {
+      if (is_attribute || text || list || presence_binding || mapping.names.contains(source_field.name) ||
+          (source_field.xml && (source_field.xml->name || source_field.xml->namespace_uri ||
+              source_field.xml->qname || source_field.xml->prefix_list))) {
+        throw std::invalid_argument{"XML container contracts require dedicated wrapper and payload names without scalar mappings"};
+      }
+      if (map_binding) {
+        const auto selected = [&](std::string_view suffix, std::string_view fallback,
+            std::string_view namespace_uri) {
+          const auto found = mapping.contracts.find(map_key + std::string{suffix});
+          return contract_name(found == mapping.contracts.end() ? fallback : found->second, namespace_uri);
+        };
+        const auto placement = mapping.contracts.find(map_key + ".key_placement");
+        const bool key_attribute = placement != mapping.contracts.end() && placement->second == "attribute";
+        bound_field.map_binding = bind_map_contract(source_field, bound_field.wrapper,
+            contract_name(mapping.contracts.at(map_key), mapping.namespace_uri),
+            selected(".key", "key", key_attribute ? std::string_view{} : mapping.namespace_uri),
+            selected(".value", "value", mapping.namespace_uri),
+            key_attribute ? map_key_placement::attribute : map_key_placement::element);
+      } else {
+        std::map<std::string, variant_tag_override> overrides{};
+        for (const auto& [key, value] : mapping.contracts) {
+          if (key.starts_with(variant_key + ".tag.")) {
+            const auto alias = key.substr(variant_key.size() + std::string_view{".tag."}.size());
+            overrides[alias].alternative = alias;
+            overrides[alias].tag = contract_name(value, mapping.namespace_uri);
+          } else if (key.starts_with(variant_key + ".type.")) {
+            const auto alias = key.substr(variant_key.size() + std::string_view{".type."}.size());
+            overrides[alias].alternative = alias;
+            overrides[alias].type_identity = contract_name(value, mapping.namespace_uri);
+          }
+        }
+        std::vector<variant_tag_override> tags{};
+        for (auto& [alias, value] : overrides) { (void)alias; tags.push_back(std::move(value)); }
+        bound_field.variant_binding = bind_variant_contract(source_field, bound_field.wrapper,
+            mapping.contracts.at(variant_key) == "element" ? variant_selection::element :
+                variant_selection::xsi_type, tags);
+      }
+      bound_field.min_occurs = bound_field.map_binding && bound_field.map_binding->optional_container ? 0U : 1U;
+      bound_field.max_occurs = 1U;
+      bound_field.repeated = false;
+    } else {
+      const auto presence = presence_binding ? std::optional{parse_presence_policy(
+          mapping.contracts.at("presence." + source_field.name))} : std::nullopt;
+      bound_field.presence = bind_presence(source_field, presence, is_attribute, text,
+          bound_field.wrapper.has_value(), list);
+      if (presence_binding) {
+        check_type(*bound_field.presence.value_type);
+        bound_field.min_occurs = bound_field.presence.collection ? 0U :
+            bound_field.presence.allows_absent ? 0U : 1U;
+      }
+    }
+    if (result.mixed && !bound_field.attribute) {
+      throw std::invalid_argument{"Ordered XML mixed content cannot coexist with separate element/text fields"};
     }
     member_names.insert(source_field.name);
   }
@@ -987,6 +1189,29 @@ record schema::bind(const class_node& source) const {
   for (const auto& [key, value] : mapping.names) {
     (void)value;
     if (!member_names.contains(key)) { throw std::invalid_argument{"Unknown XML renamed member: " + key}; }
+  }
+  for (const auto& [key, value] : mapping.contracts) {
+    (void)value;
+    std::string_view tail{key};
+    if (tail.starts_with("presence.")) { tail.remove_prefix(std::string_view{"presence."}.size()); }
+    else if (tail.starts_with("map.")) { tail.remove_prefix(std::string_view{"map."}.size()); }
+    else if (tail.starts_with("variant.")) { tail.remove_prefix(std::string_view{"variant."}.size()); }
+    else { continue; }
+    const auto selector = tail.substr(0U, tail.find('.'));
+    if (!member_names.contains(std::string{selector})) {
+      throw std::invalid_argument{"Unknown XML contract member: " + std::string{selector}};
+    }
+    if (key.starts_with("map.") && !mapping.contracts.contains("map." + std::string{selector})) {
+      throw std::invalid_argument{"XML map properties require an entry mapping"};
+    }
+    if (key.starts_with("variant.") && !mapping.contracts.contains("variant." + std::string{selector})) {
+      throw std::invalid_argument{"XML variant properties require a selection mapping"};
+    }
+  }
+  if (std::any_of(mapping.contracts.begin(), mapping.contracts.end(), [](const auto& item) {
+        return item.first.starts_with("extension.") || item.first == "extensions.required";
+      })) {
+    result.extensions = bind_extension_slots(result, mapping.contracts);
   }
   if (bundle_) {
     if (!mapping.text.empty() || !mapping.wrappers.empty()) {
@@ -1274,17 +1499,10 @@ record schema::bind(const class_node& source) const {
     result.fields = std::move(ordered);
   }
   std::set<std::pair<bool, std::pair<std::string, std::string>>> names{};
-  const auto check_namespace = [](std::string_view uri) {
-    for (const auto character : uri) {
-      const auto byte = static_cast<unsigned char>(character);
-      if (byte <= 0x20U || byte == 0x7fU || std::string_view{"\"<>^`{}|\\"}.find(character) != std::string_view::npos) {
-        throw std::invalid_argument{"XML namespaces require URI/IRI references with escaped reserved characters"};
-      }
-    }
-  };
   check_namespace(result.root.namespace_uri);
   for (const auto& value : result.fields) {
     check_namespace(value.qualified_name.namespace_uri);
+    if (value.wrapper) { check_namespace(value.wrapper->namespace_uri); }
     if (value.text) { continue; }
     const auto& name = value.wrapper ? *value.wrapper : value.qualified_name;
     if (!names.emplace(value.attribute, std::pair{name.namespace_uri, name.local}).second) {
@@ -1327,6 +1545,13 @@ std::string schema::bundle_identity() const {
 
 // Reject unsupported value-space contracts before selecting a backend's implemented XML subset.
 void validate_backend(const record& contract, std::string_view language) {
+  if (contract.mixed || contract.extensions ||
+      std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) {
+        return field.presence.explicit_policy || field.map_binding || field.variant_binding;
+      })) {
+    throw std::invalid_argument{"Shared XML presence/mixed/map/variant/extension contracts are bound; "
+        "generated token codec support is not implemented for " + std::string{language}};
+  }
   const auto namespace_value = [&](auto&& self, const scalar_facets& facets) -> bool {
     return facets.lexical_kind == "QName" || facets.list_item_kind == "QName" ||
         !facets.qname_enumeration.empty() ||
@@ -1428,6 +1653,15 @@ void validate_backend(const record& contract, std::string_view language) {
 }
 
 std::vector<compatibility_diagnostic> compare_contracts(const record& previous, const record& current) {
+  const auto shared_content = [](const record& value) {
+    return value.mixed || value.extensions ||
+        std::any_of(value.fields.begin(), value.fields.end(), [](const auto& field) {
+          return field.presence.explicit_policy || field.map_binding || field.variant_binding;
+        });
+  };
+  if (shared_content(previous) || shared_content(current)) {
+    throw std::invalid_argument{"XML shared-content compatibility comparison is not implemented"};
+  }
   std::vector<compatibility_diagnostic> result{};
   if (previous.root != current.root) { result.push_back({{}, "Root expanded name changed"}); }
   std::map<std::string, const field*> previous_fields{};
@@ -1526,6 +1760,12 @@ std::string schema::export_xsd(const std::vector<const class_node*>& sources) co
   for (const auto* source : sources) {
     if (!source) { throw std::invalid_argument{"XSD export received an empty record"}; }
     records.push_back(bind(*source));
+    if (records.back().mixed || records.back().extensions ||
+        std::any_of(records.back().fields.begin(), records.back().fields.end(), [](const auto& field) {
+          return field.presence.explicit_policy || field.map_binding || field.variant_binding;
+        })) {
+      throw std::invalid_argument{"XSD export of shared XML content contracts is not implemented"};
+    }
     if (records.size() == 1U) { target = records.back().root.namespace_uri; }
     if (records.back().root.namespace_uri != target) { throw std::invalid_argument{"XSD export currently requires one root namespace"}; }
     if (!roots.insert(records.back().root.local).second) { throw std::invalid_argument{"XSD export has duplicate root names"}; }
