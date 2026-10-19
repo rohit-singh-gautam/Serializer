@@ -88,6 +88,48 @@ endif()
 
 add_test(NAME core_serializer_test COMMAND core_serializer_test)
 
+add_executable(xml_authoring_parser_test xml_authoring_parser_test.cpp)
+target_link_libraries(xml_authoring_parser_test PRIVATE Serializer::serializer_lib GTest::gtest_main)
+if(MSVC)
+  target_compile_options(xml_authoring_parser_test PRIVATE /W4 /WX)
+else()
+  target_compile_options(xml_authoring_parser_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME xml_authoring_parser_test COMMAND xml_authoring_parser_test)
+
+add_executable(managed_reference_parser_test managed_reference_parser_test.cpp)
+target_link_libraries(managed_reference_parser_test PRIVATE Serializer::serializer_lib GTest::gtest_main)
+if(MSVC)
+  target_compile_options(managed_reference_parser_test PRIVATE /W4 /WX)
+else()
+  target_compile_options(managed_reference_parser_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME managed_reference_parser_test COMMAND managed_reference_parser_test)
+
+add_executable(managed_reference_codegen_test managed_reference_codegen_test.cpp)
+target_link_libraries(managed_reference_codegen_test PRIVATE Serializer::serializer_lib GTest::gtest_main)
+if(MSVC)
+  target_compile_options(managed_reference_codegen_test PRIVATE /W4 /WX)
+else()
+  target_compile_options(managed_reference_codegen_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME managed_reference_codegen_test COMMAND managed_reference_codegen_test)
+
+if(SERIALIZER_WITH_XML)
+  add_executable(xsd_import_test xsd_import_test.cpp)
+  target_link_libraries(xsd_import_test PRIVATE Serializer::serializer_lib GTest::gtest_main)
+  add_executable(xml_operation_test xml_operation_test.cpp)
+  target_link_libraries(xml_operation_test PRIVATE Serializer::runtime GTest::gtest_main)
+  foreach(opc_test IN ITEMS xsd_import_test xml_operation_test)
+    if(MSVC)
+      target_compile_options(${opc_test} PRIVATE /W4 /WX)
+    else()
+      target_compile_options(${opc_test} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_test(NAME ${opc_test} COMMAND ${opc_test})
+  endforeach()
+endif()
+
 add_executable(reciprocal_constructors_test reciprocal_constructors_test.cpp)
 serializer_generate(TARGET reciprocal_constructors_test
   SCHEMAS resources/reciprocal_constructors.serializer
@@ -153,6 +195,14 @@ endif()
 add_test(NAME native_callable_test COMMAND native_callable_test)
 
 if(SERIALIZER_BUILD_MANAGED)
+  add_executable(managed_identity_allocation_test managed_identity_allocation_test.cpp)
+  target_link_libraries(managed_identity_allocation_test PRIVATE Serializer::managed GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(managed_identity_allocation_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(managed_identity_allocation_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME managed_identity_allocation_test COMMAND managed_identity_allocation_test)
   add_executable(readonly_getters_test readonly_getters_test.cpp)
   serializer_generate(TARGET readonly_getters_test
     SCHEMAS resources/readonly_getters.serializer
@@ -444,6 +494,59 @@ if(SERIALIZER_BUILD_MANAGED)
     target_compile_options(custom_ids_managed_example PRIVATE -Wall -Wextra -Wpedantic -Werror)
   endif()
   add_test(NAME custom_ids_managed_example COMMAND custom_ids_managed_example)
+  # Migrate complete saves and raw models in representative identity widths/storage layouts.
+  foreach(migration_profile IN ITEMS direct32 separate64)
+    add_executable(managed_migration_${migration_profile}_test managed_migration_test.cpp)
+    serializer_generate(TARGET managed_migration_${migration_profile}_test
+      SCHEMAS resources/managed_migration.serializer
+      CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/managed_migration_${migration_profile}.ini"
+      OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed_migration_${migration_profile}")
+    target_link_libraries(managed_migration_${migration_profile}_test PRIVATE Serializer::managed GTest::gtest_main)
+    if(MSVC)
+      target_compile_options(managed_migration_${migration_profile}_test PRIVATE /W4 /WX)
+    else()
+      target_compile_options(managed_migration_${migration_profile}_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_test(NAME managed_migration_${migration_profile}_test COMMAND managed_migration_${migration_profile}_test)
+  endforeach()
+
+  serializer_add_migration_tool(TARGET managed_migration_tool
+    SCHEMA resources/managed_migration.serializer ROOT migration_example::document
+    CONFIG resources/managed_migration_direct32.ini
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed_migration_tool")
+  add_executable(managed_migration_fixture managed_migration_fixture.cpp)
+  serializer_generate(TARGET managed_migration_fixture
+    SCHEMAS resources/managed_migration.serializer CONFIG resources/managed_migration_direct32.ini
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed_migration_fixture")
+  target_link_libraries(managed_migration_fixture PRIVATE Serializer::managed)
+  foreach(migration_target IN ITEMS managed_migration_tool managed_migration_fixture)
+    if(MSVC)
+      target_compile_options(${migration_target} PRIVATE /W4 /WX)
+    else()
+      target_compile_options(${migration_target} PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+  endforeach()
+  add_test(NAME managed_migration_cli_test
+    COMMAND "${CMAKE_COMMAND}" "-DMIGRATOR=$<TARGET_FILE:managed_migration_tool>"
+      "-DFIXTURE=$<TARGET_FILE:managed_migration_fixture>"
+      "-DTEST_BINARY_DIRECTORY=${CMAKE_CURRENT_BINARY_DIR}"
+      -P "${CMAKE_CURRENT_SOURCE_DIR}/managed_migration_cli_test.cmake")
+
+  # Exercise typed tokens and ID payloads with both policies, widths and storage representations.
+  foreach(registry_profile IN ITEMS direct32 separate32 direct64 separate64 fixed32 fixed64 fixed_separate32 fixed_separate64)
+    add_executable(managed_entity_references_${registry_profile}_test managed_entity_references_test.cpp)
+    serializer_generate(TARGET managed_entity_references_${registry_profile}_test
+      SCHEMAS resources/managed_entity_references.serializer
+      CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/managed_entity_references_${registry_profile}.ini"
+      OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/managed_entity_references_${registry_profile}")
+    target_link_libraries(managed_entity_references_${registry_profile}_test PRIVATE Serializer::managed GTest::gtest_main)
+    if(MSVC)
+      target_compile_options(managed_entity_references_${registry_profile}_test PRIVATE /W4 /WX)
+    else()
+      target_compile_options(managed_entity_references_${registry_profile}_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+    endif()
+    add_test(NAME managed_entity_references_${registry_profile}_test COMMAND managed_entity_references_${registry_profile}_test)
+  endforeach()
   # Exercise snapshot-local registries with both identity widths and storage representations.
   foreach(registry_profile IN ITEMS direct32 separate32 direct64 separate64)
     set(registry_config CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/managed_registry_${registry_profile}.ini")
@@ -554,6 +657,17 @@ if(SERIALIZER_BUILD_MANAGED)
     target_compile_options(managed_collaboration_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
   endif()
   add_test(NAME managed_collaboration_test COMMAND managed_collaboration_test)
+  add_executable(managed_strict_identity_test managed_strict_identity_test.cpp)
+  serializer_generate(TARGET managed_strict_identity_test
+    SCHEMAS ../example/managed/ledger/ledger.serializer resources/collaboration_model.serializer
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/strict_identity")
+  target_link_libraries(managed_strict_identity_test PRIVATE Serializer::managed GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(managed_strict_identity_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(managed_strict_identity_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME managed_strict_identity_test COMMAND managed_strict_identity_test)
   add_executable(managed_store_test managed_store_test.cpp managed_generated_test.cpp runtime_features_test.cpp)
   serializer_generate(TARGET managed_store_test SCHEMAS resources/managed_model.serializer resources/managed_generated.serializer resources/runtime_features.serializer
     CONFIG resources/managed_separate.ini
@@ -936,6 +1050,42 @@ if(Python3_Interpreter_FOUND)
 endif()
 
 if(SERIALIZER_WITH_XML)
+  add_executable(xml_projection_test xml_projection_test.cpp)
+  serializer_generate(TARGET xml_projection_test SCHEMAS resources/xml_projection.serializer
+    CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_projection.ini"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/xml_projection")
+  target_link_libraries(xml_projection_test PRIVATE Serializer::runtime GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(xml_projection_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(xml_projection_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME xml_projection_test COMMAND xml_projection_test)
+
+  add_executable(xml_rich_test xml_rich_test.cpp)
+  serializer_generate(TARGET xml_rich_test SCHEMAS resources/xml_rich.serializer
+    CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_rich.ini"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/xml_rich")
+  target_link_libraries(xml_rich_test PRIVATE Serializer::runtime GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(xml_rich_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(xml_rich_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME xml_rich_test COMMAND xml_rich_test)
+
+  add_executable(opc_profile_test opc_profile_test.cpp)
+  serializer_generate(TARGET opc_profile_test SCHEMAS resources/opc_profile.serializer
+    CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/opc_profile.ini"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/opc_profile")
+  target_link_libraries(opc_profile_test PRIVATE Serializer::runtime GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(opc_profile_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(opc_profile_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME opc_profile_test COMMAND opc_profile_test)
+
   add_executable(xml_schema_test xml_schema_test.cpp)
   target_link_libraries(xml_schema_test PRIVATE Serializer::serializer_lib GTest::gtest_main)
   if(MSVC)
@@ -945,6 +1095,9 @@ if(SERIALIZER_WITH_XML)
   endif()
   add_test(NAME xml_schema_test COMMAND xml_schema_test)
   if(Python3_Interpreter_FOUND)
+    add_test(NAME xsd_import_cli_test
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xsd_import_cli_test.py"
+        "$<TARGET_FILE:serializer>" "${CMAKE_CURRENT_BINARY_DIR}")
     add_test(NAME xml_schema_tools_test
       COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/xml_schema_tools_test.py"
         "$<TARGET_FILE:serializer>")

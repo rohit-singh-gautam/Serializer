@@ -1,8 +1,10 @@
 # XML, compression streams and packages
 
-Compiler/runtime **2.4.0**. XML generation covers all output languages; the stream
-and package API examples below use C++20. These are independent, opt-in APIs. Existing
-schema language **1.17.0**, native wire formats and managed journals are unchanged.
+Compiler/runtime **2.7.0**, schema language **1.20.0**. Baseline XML generation
+covers all output languages; the stream and package API examples below use C++20.
+Richer XML mappings and generated OPC profiles currently have C++ support;
+unsupported backend combinations reject before output publication. Existing
+native wire formats and managed journals are unchanged.
 See [remaining work](../xml_pending.md) and the [full design](../design/xml_support.md).
 
 ```text
@@ -23,6 +25,12 @@ feature as well. Its minimal libxml2 dependency omits optional encoding backends
 Public Serializer headers do not expose libxml2 headers. Installed CMake packages
 discover the dependency and export the `SERIALIZER_WITH_XML` target capability.
 Libxml2 uses the [MIT license](https://gnome.pages.gitlab.gnome.org/libxml2/).
+
+Inline XML declarations enable generation automatically. Select `[xml] enabled =
+false` only to deliberately omit those XML entry points; a package declaration
+rejects that conflicting selection. XML without schema-authored declarations
+remains opt-in through configuration. See
+[automatic and manual XSD examples](../../example/xsd/README.md) for all outputs.
 
 ```powershell
 ./make.ps1 configure -CMakeArgs @(
@@ -113,7 +121,7 @@ in declared field order, including for empty collections. Unknown attributes,
 text or children inside a wrapper reject. Fixed arrays retain exact lengths and
 every wrapper counts toward node/depth budgets. Configuration validates conflicting
 names, unknown fields and incompatible shapes before publishing any output.
-These mappings are currently configured without a fixed XSD; explicit text and
+These configuration mappings can be used without a fixed XSD; explicit text and
 wrapper overrides of XSD bindings reject.
 
 ## Whole-object APIs
@@ -291,6 +299,12 @@ source-scoped relationships, then generates `[Content_Types].xml` and `.rels`.
 `opc_reader` discovers relationships by source/type and resolves internal relative
 targets. External links remain inert data. XML metadata uses the shared parser.
 
+Applications supply payload models and package vocabulary; they do not need
+`.serializer` schemas for the standard content-type or relationship metadata.
+The [OPC/3MF authoring requirements](../design/opc_3mf_support.md) distinguish
+remaining generic capabilities from application work and show a restricted schema
+and current build workflow. C++ declarative profiles are described below.
+
 ```cpp
 package::opc_writer document{output};
 document.write_part("/data/order.xml", "application/xml",
@@ -377,3 +391,124 @@ caller-provided payloads; it does not identify or police their application meani
 These helpers are not attached to native managed stores and do not establish an atomic
 document/sidecar transaction. A managed dual-codec document bridge and recovery
 generation binding remain [pending](../xml_pending.md).
+
+## Inline XML authoring
+
+With language 1.20, keep defaults and exceptions beside the fields they describe:
+
+```text
+serializer version 1.20.0;
+namespace geometry {
+  xml(namespace("urn:geometry"), scalars(attribute));
+  class vertex {
+    public double x (1);
+    public double y (2);
+    public double z (3);
+  }
+  class mesh {
+    public array vertex vertices (1) xml(element, name("vertex"), wrapper("vertices"));
+  }
+}
+```
+
+Namespace defaults inherit into nested namespaces and classes. Class `xml(...)`
+can change `root`, `namespace`, `scalars(element|attribute)` and
+`unknown(reject|skip|preserve)`. A field exception can select `attribute`, `element`
+or `text`, and override `name`, `namespace` or a repeated-element `wrapper`.
+Collections and records remain elements under a scalar-attribute default.
+An optional `[xml] namespace = uri` and `scalars = attribute|element` supplies
+configuration defaults; explicit local mappings resolve exceptions. Existing INI
+class entries remain supported and sparse entries retain inherited defaults.
+
+When an XSD supplies the XML contract, prefer namespace `using schema "local.xsd";`
+and omit repeated placement annotations. Paths are relative to the declaring
+Serializer source. See [XSD binding/import](xsd_tooling.md) for associations,
+limits and backend restrictions. Importing model declarations is a separate CLI
+operation; the binding directive alone does not create classes.
+
+C++ additionally supports typed lexical lists, QName/prefix-list context,
+supported scalar facets/defaults, singleton choices and declared foreign XML
+extensions. These richer contracts reject on backends that cannot enforce them.
+Preservation adds an XML-only one-pointer `xml_extensions` slot only when requested;
+its opaque storage allocates on the first retained unknown value. Use `.get()`
+to test whether storage exists and `.value()` to inspect retained data.
+QName/prefix-list mappings similarly retain only their needed namespace bindings.
+Unknown core names remain errors. Extension policies preserve semantic content
+and placement, not original prefixes, formatting or signatures.
+
+## Declarative C++ package profiles
+
+This language 1.20 declaration generates the profile facade as well as XML codecs:
+
+```text
+serializer version 1.20.0;
+namespace files {
+  xml(namespace("urn:files"), scalars(attribute));
+  class model { public string label (1); }
+  package archive {
+    part main : model {
+      name("/3D/model.xml");
+      content_type("application/vnd.example.model+xml");
+      relationship("urn:example:main-model");
+      compression(deflate);
+    }
+    part attachments : bytes {
+      name(dynamic); content_type(dynamic);
+      relationship("urn:example:attachment"); source(main);
+      occurs(0, unbounded); compression(deflate);
+    }
+  }
+}
+```
+
+Generate with the ordinary C++ CLI or `serializer_generate` and link
+`Serializer::runtime` from an XML-enabled build. The generated API is:
+
+```cpp
+files::model model{};
+model.label = "example";
+files::archive::save("example.package", {&model, {}});
+std::ifstream input{"example.package", std::ios::binary};
+auto loaded = files::archive::load(input);
+// loaded.value.main is the decoded model; loaded.extensions holds requested opaque data.
+```
+
+`input` borrows models and attachment spans for synchronous output. Dynamic typed
+roles use `model_part_view<T>`; opaque roles use `binary_part_view`. Each view
+selects its actual name/media type and source occurrence index. A decoded dynamic
+typed role owns `model_part<T>` values with actual discovered metadata. Names and
+media types declared as fixed are compiler defaults; loading discovers the role
+by its relationship type and validates its expected media type. Occurrence bounds
+apply to the complete role across its source instances. Repeated roles require
+dynamic names and generated relationship IDs. Source-role cycles reject.
+
+`write(stream, input, shared_budget)` writes a complete package to a borrowed
+stream; a failed stream write can retain a prefix. `save(path, input, limits)`
+uses staged full-file replacement. `load(stream, limits, extension_policy,
+validate)` constructs an owning aggregate before returning. An optional validation
+callback `(const value&, package::budget&)` checks application references/domain
+rules before publication. It throws on failure and shares the operation budget.
+Pass a retained `preserved_extensions` pointer as `input.extensions` to write
+opaque parts and links after editing; finalization revalidates their targets.
+
+The runtime writes `[Content_Types].xml` and scoped `.rels` automatically.
+Applications do not define Serializer schemas for these infrastructure files.
+Package declarations do not add geometry or format-specific validation and are
+currently C++ only. Other-language package generation rejects explicitly; baseline
+XML generation across all outputs remains available independently.
+
+## Shared XML/package operation context
+
+C++ `xml::serialize`, `deserialize`, `parse` and `write` accept an optional
+`xml::operation_context*`. It carries cooperative cancellation, a caller-selected
+steady-clock deadline and allocation/work accounting. Generated package facades
+bridge these checks to their single `package::budget`; nested XML operations do
+not start a fresh cumulative budget. `package::limits::deadline` is optional.
+Direct builder callbacks can use `budget.xml_context()` for the same composition.
+The borrowed context and callback captures must outlive the synchronous operation.
+
+The current XML path still builds bounded trees and stages complete encoded parts.
+Borrowed model inputs avoid duplicate owning models, but do not promise zero-copy
+XML, bounded constant memory or tree-free streaming. Non-XML generated models gain
+no package fields or runtime checks. Performance qualification and non-C++ context
+parity remain tracked in [pending work](../xml_pending.md).

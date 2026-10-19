@@ -1,0 +1,33 @@
+serializer version 1.20.0;
+
+namespace profile {
+  xml(namespace("urn:serializer:package-test"), scalars(attribute));
+
+  class point {
+    public double x (1);
+    public double y (2);
+    public double z (3);
+  }
+
+  class model {
+    public string name (1);
+    public array point points (2) xml(element, name("point"));
+  }
+
+  package archive {
+    part main : model {
+      name("/3D/model.xml");
+      content_type("application/vnd.serializer.test-model+xml");
+      relationship("urn:serializer:main-model");
+      compression(deflate);
+    }
+    part attachments : bytes {
+      name(dynamic);
+      content_type(dynamic);
+      relationship("urn:serializer:attachment");
+      source(main);
+      occurs(0, unbounded);
+      compression(deflate);
+    }
+  }
+}

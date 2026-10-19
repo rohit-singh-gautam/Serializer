@@ -35,7 +35,8 @@ std::size_t estimate_dynamic_memory(const Value& value) {
   if constexpr (std::is_arithmetic_v<type> || std::is_enum_v<type> || std::is_pointer_v<type> ||
                 std::same_as<type, ::rohit::serializer::version2> ||
                 std::same_as<type, ::rohit::serializer::version3> ||
-                std::same_as<type, ::rohit::serializer::version4>) {
+                std::same_as<type, ::rohit::serializer::version4> ||
+                requires { type::serializer_managed_reference; }) {
     result = 0;
   } else if constexpr (requires { value.has_value(); value.value(); }) {
     if (value) { result = estimate_dynamic_memory(*value); }

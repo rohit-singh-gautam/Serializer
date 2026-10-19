@@ -19,6 +19,7 @@
 #include <limits>
 #include <map>
 #include <memory>
+#include <optional>
 #include <set>
 #include <span>
 #include <stdexcept>
@@ -36,7 +37,7 @@ inline constexpr std::uint32_t collaboration_protocol_version =
     collaboration_record_types<>::command_protocol;
 inline constexpr std::uint32_t collaboration_model_protocol_version =
     collaboration_record_types<>::model_protocol;
-inline constexpr std::uint32_t collaboration_model_change_version = 1;
+inline constexpr std::uint32_t collaboration_model_change_version = 3;
 inline constexpr std::uint32_t collaboration_history_change_version = 2;
 
 enum class collaboration_status {
@@ -71,6 +72,7 @@ struct collaboration_options {
   bool require_edit_lock{false};
   std::size_t max_created_ids{4096};
   std::size_t max_tracked_fields{100000};
+  std::size_t max_identity_leases{4096};
 };
 
 template <typename Session = std::uint64_t,
@@ -385,6 +387,8 @@ private:
   const change_proposal_type* proposal_{};
   result_type* preparing_{};
   const collaboration::model_change* decoded_change_{}; // Borrowed for one synchronous submission.
+  typename store_type::identity_table leased_identities_{};
+  std::optional<records::identity_lease> prepared_lease_{};
   detail::collaboration_entities prepared_entities_{};
   std::shared_ptr<accepted_change_type> prepared_batch_{};
   struct inverse_state {
@@ -764,21 +768,48 @@ private:
       }
       return;
     }
-    if (change.format_version != collaboration_model_change_version || change.history_action != 0 ||
-        change.target_operation != 0 || change.allocated_id < change.base_allocated_id ||
+    if ((change.format_version != collaboration_model_change_version && change.format_version != 1) ||
+        change.history_action != 0 || change.target_operation != 0 ||
+        (change.format_version == collaboration_model_change_version &&
+         change.base_allocated_id == 0 && change.allocated_id != 0) ||
         change.allocated_id > std::numeric_limits<typename Traits::id_type>::max() ||
-        change.allocated_id - change.base_allocated_id > options_.max_created_ids ||
         change.snapshot.size() > store_options_.max_snapshot_bytes) {
       throw std::invalid_argument{"Invalid or over-budget collaboration model change"};
     }
-    // Failed edits can reserve IDs without advancing the accepted sequence. Never reuse those IDs.
-    if (change.base_allocated_id != store_->allocated_id()) {
-      reject_candidate(collaboration_status::conflict);
-    }
     auto candidate = detail::decode<storage_type>(change.snapshot, store_options_.decode);
-    for (auto allocated = change.base_allocated_id; allocated < change.allocated_id; ++allocated) {
-      static_cast<void>(edit.create_id());
+    auto identities = store_->inspect(candidate, store_->allocated_id());
+    if (change.format_version == 1 && change.allocated_id != change.base_allocated_id) {
+      throw std::invalid_argument{"Legacy provisional identity proposals require native identity leases"};
     }
+    records::identity_lease* lease{};
+    if (change.format_version == collaboration_model_change_version && change.base_allocated_id != 0) {
+      const auto owner = SessionTraits::encode(proposal_->session);
+      lease = store_->collaboration_state_.identity_leases
+          ? store_->collaboration_state_.identity_leases->find(
+              SessionTraits::wire_name, owner, change.base_allocated_id) : nullptr;
+      if (!lease || lease->first != change.base_allocated_id ||
+          change.allocated_id < lease->committed || change.allocated_id > lease->last) {
+        throw std::invalid_argument{"Unowned or regressing native collaboration identity lease"};
+      }
+    }
+    leased_identities_.clear();
+    for (const auto& [id, type] : identities) {
+      if (!store_->identities_.contains(id)) {
+        if (!lease || id <= lease->committed || id > change.allocated_id ||
+            leased_identities_.size() >= options_.max_created_ids) {
+          throw std::invalid_argument{"Collaboration entity identity was not issued to this session"};
+        }
+        leased_identities_.emplace(id, type);
+      }
+    }
+    if (lease && change.allocated_id > lease->committed) {
+      prepared_lease_ = *lease;
+      prepared_lease_->committed = change.allocated_id;
+      store_->collaboration_state_.prepared_identity_lease = &*prepared_lease_;
+    }
+    // Only newly admitted identities need restoration authority during publication and replay.
+    store_->collaboration_state_.restoration =
+        leased_identities_.empty() ? nullptr : &leased_identities_;
     edit.update([&](storage_type& value) { value = std::move(candidate); });
   }
 
@@ -964,6 +995,29 @@ public:
     sessions_.emplace(session, std::move(state));
   }
 
+  // Burn a fresh authenticated native range; a configured document journal flushes before return.
+  identity_allocation_context reserve_ids(const session_type& trusted_session,
+                                           std::uint64_t count = 256) {
+    operation_scope guard{*this};
+    const auto found = sessions_.find(trusted_session);
+    if (found == sessions_.end() || !found->second.active || count == 0) {
+      throw std::invalid_argument{"Untrusted or over-budget native identity lease request"};
+    }
+    const auto watermark = store_->allocated_id();
+    if (!found->second.writable || options_.max_created_ids == 0 ||
+        (store_->collaboration_state_.identity_leases &&
+         store_->collaboration_state_.identity_leases->entries().size() >= options_.max_identity_leases)) {
+      return {watermark, 0, 0, 0};
+    }
+    count = std::min<std::uint64_t>(count, options_.max_created_ids);
+    count = std::min<std::uint64_t>(count,
+        std::numeric_limits<typename Traits::id_type>::max() - watermark);
+    if (count == 0) { return {watermark, 0, 0, 0}; }
+    const auto owner = SessionTraits::encode(trusted_session);
+    return store_->reserve_identity_range(SessionTraits::wire_name, owner, count,
+                                           options_.max_identity_leases);
+  }
+
   // Update host permission for future operations; retries retain their original outcome.
   void set_session_writable(const session_type& session, bool writable) {
     operation_scope guard{*this};
@@ -1045,6 +1099,21 @@ public:
     proposal_ = nullptr;
     preparing_ = nullptr;
     decoded_change_ = nullptr;
+    if (outcome.status == transaction_status::no_change && prepared_lease_) {
+      try {
+        store_->commit_identity_cursor(*prepared_lease_);
+      } catch (...) {
+        store_->collaboration_state_.prepared_identity_lease = nullptr;
+        store_->collaboration_state_.restoration = nullptr;
+        prepared_lease_.reset();
+        leased_identities_.clear();
+        throw;
+      }
+    }
+    store_->collaboration_state_.prepared_identity_lease = nullptr;
+    store_->collaboration_state_.restoration = nullptr;
+    prepared_lease_.reset();
+    leased_identities_.clear();
     if constexpr (has_history) {
       store_->collaboration_state_.restoration = nullptr;
       inverse_.reversing = nullptr;
@@ -1401,7 +1470,11 @@ public:
   using editing_presence_type = typename records_type::editing_presence;
 
 private:
-  using store_type = model_store<Root, history_mode::disabled, history_labels::disabled, Traits,
+  struct proposal_traits : Traits {
+    static constexpr bool isolated_allocation_context = true;
+    static constexpr bool requires_identity_lease = true;
+  };
+  using store_type = model_store<Root, history_mode::disabled, history_labels::disabled, proposal_traits,
                                  store_features::none>;
   store_type store_;
   store_options options_{};
@@ -1410,6 +1483,7 @@ private:
   std::vector<std::uint8_t> last_batch_{};
   std::uint64_t allocated_id_{};
   bool initialized_{};
+  mutable std::optional<std::pair<session_type, identity_allocation_context>> identity_lease_{};
 
   // Validate protocol/schema/ID widths before constructing a bounded ordinary managed envelope.
   std::vector<std::uint8_t> envelope(const accepted_change_type& batch) const {
@@ -1437,8 +1511,25 @@ public:
   explicit collaboration_replica(store_options options = {})
       : store_{Root{}, make_document_id(), options}, options_{options} {}
 
+  // Bind one freshly authority-burned range; a recovered/new replica must obtain a fresh range.
+  // Rebinding an old range is rejected even if its previously consumed IDs are absent from the model.
+  void initialize_identity_lease(const session_type& session,
+                                  const identity_allocation_context& context) {
+    static_cast<void>(store_.read());
+    context.validate(std::numeric_limits<typename Traits::id_type>::max());
+    if (!initialized_ || !SessionTraits::valid(session) || !context.available() ||
+        context.first <= allocated_id_ || context.consumed != context.first - 1U) {
+      throw std::invalid_argument{"Replica requires a fresh authenticated native identity lease"};
+    }
+    auto baseline = envelope({domain_, sequence_, session_type{}, 0, context.watermark, last_batch_});
+    store_.load(baseline);
+    allocated_id_ = context.watermark;
+    identity_lease_.emplace(session, context);
+  }
+
   // Edit an isolated draft with generated editors and encode a proposal without changing this replica.
-  // IDs created in the callback are provisional until acceptance. Keep the returned proposal for
+  // Created IDs use a prefetched native authority lease and remain identical after acceptance.
+  // Keep the returned proposal for
   // exact retries; refresh the replica and use a new operation ID after a conflict. Callback errors
   // and explicit revert produce no proposal. The host still binds sessions and sends the result.
   template <typename Callable>
@@ -1456,22 +1547,32 @@ public:
     // Capture the base before running application code; even a reentrant delivery cannot rebase it.
     const auto context = domain_;
     const auto base_sequence = sequence_;
-    const auto base_allocated_id = allocated_id_;
     // The placeholder belongs to a fresh document: its default graph may assign the same numeric
     // IDs to different entity types. Loading the real baseline establishes the draft's namespace.
     store_type draft{Root{}, make_document_id(), options_};
     draft.load(store_.save());
+    const bool leased = identity_lease_ &&
+        !SessionTraits::less(identity_lease_->first, session) &&
+        !SessionTraits::less(session, identity_lease_->first);
+    auto base_cursor = leased ? identity_lease_->second
+        : identity_allocation_context{allocated_id_, 0, 0, 0};
+    base_cursor.watermark = allocated_id_;
+    draft.initialize_allocation_context(base_cursor);
     const auto outcome = draft.execute_transaction(std::forward<Callable>(callback));
+    const auto cursor = draft.allocation_context();
+    if (leased) {
+      identity_lease_->second = cursor;
+    }
     outcome.throw_if_failed();
     if (outcome.status == transaction_status::reverted) {
       throw std::logic_error{"Collaboration proposal was reverted"};
     }
-    const auto allocated_id = draft.allocated_id();
-    if (allocated_id - base_allocated_id > options.max_created_ids) {
+    if (cursor.consumed - base_cursor.consumed > options.max_created_ids) {
       throw std::length_error{"Collaboration proposal identity budget exceeded"};
     }
-    collaboration::model_change change{collaboration_model_change_version, base_allocated_id,
-                                       allocated_id,
+    collaboration::model_change change{collaboration_model_change_version,
+                                        leased ? cursor.first : 0,
+                                        leased ? cursor.consumed : 0,
                                        detail::encode(*draft.read(), options_.max_snapshot_bytes)};
     return {context,
             session,

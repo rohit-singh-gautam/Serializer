@@ -332,6 +332,9 @@ void budget::check_cancelled() const {
   if (limits_.is_cancelled && limits_.is_cancelled()) {
     throw error{error_code::cancelled, "Package operation cancelled"};
   }
+  if (limits_.deadline && std::chrono::steady_clock::now() >= *limits_.deadline) {
+    throw error{error_code::deadline_exceeded, "Package operation deadline exceeded"};
+  }
 }
 
 // Reject cumulative overflow before charging the selected category.

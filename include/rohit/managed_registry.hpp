@@ -4,6 +4,7 @@
 
 #include <rohit/managed_editor.hpp>
 #include <rohit/managed_identity.hpp>
+#include <rohit/managed_reference.hpp>
 #include <rohit/managed_resident.hpp>
 
 #include <algorithm>
@@ -33,7 +34,7 @@ template <typename Plain> struct fields;
 template <typename Plain> struct value_fields;
 enum class registry_error_code { missing_id, wrong_type, missing_member, wrong_member_type,
                                  duplicate_key, invalid_identity, expired_editor,
-                                 expired_lease, wrong_version };
+                                 expired_lease, wrong_version, foreign_document };
 
 // Preserve a machine-readable failure without exposing a mutable catalog.
 class registry_error : public std::logic_error {
@@ -162,6 +163,52 @@ auto& resolve_registry_entity(Root& root, Id id) {
   }
   return *result;
 }
+// Validate a complete candidate once so forward/cyclic target edges do not depend on decode order.
+// The selected models pay for one bounded derived catalog, with expected O(entities + references) work.
+template <typename Traits, typename Storage>
+void validate_entity_references(const Storage& storage, document_id document,
+    const serializer::decode_limits& limits, const std::shared_ptr<resident_ledger>& ledger) {
+  using id_type = typename Traits::id_type;
+  struct target { std::uint64_t class_id; const void* type_token; };
+  std::unordered_map<id_type, target> targets;
+  constexpr auto node_bytes = sizeof(typename decltype(targets)::value_type) + 8U * sizeof(void*);
+  resident_charge charge{ledger};
+  std::size_t work{};
+  // Bound both traversal passes independently of target graph shape.
+  const auto consume_work = [&] {
+    if (work >= limits.max_work_units) { throw std::length_error{"Managed reference validation work limit exceeded"}; }
+    ++work;
+  };
+  visit_registry_entities<Traits>(storage, [&]<typename Plain>(const auto& node) {
+    consume_work();
+    if (targets.size() >= limits.max_collection_elements ||
+        targets.size() >= limits.max_allocation_bytes / node_bytes) {
+      throw std::length_error{"Managed reference catalog budget exceeded"};
+    }
+    charge.resize(multiply_memory_estimate(targets.size() + 1U, node_bytes));
+    if (node.persistent_id == 0U || !targets.emplace(node.persistent_id,
+        target{model_traits<Plain>::class_id, &registry_type_token<Plain>}).second) {
+      throw registry_error{registry_error_code::invalid_identity, "Invalid managed reference target identity"};
+    }
+  });
+  Traits::visit_references(storage, [&](const auto& reference) {
+    consume_work();
+    reference.validate_envelope();
+    if (reference.document().high != document.high || reference.document().low != document.low) {
+      throw registry_error{registry_error_code::foreign_document, "Managed reference belongs to another document"};
+    }
+    using plain_type = typename std::remove_cvref_t<decltype(reference)>::target_type;
+    const auto found = targets.find(reference.id());
+    if (found == targets.end()) {
+      throw registry_error{registry_error_code::missing_id, "Managed reference target is not live in the candidate"};
+    }
+    if (found->second.class_id != reference.class_id() ||
+        found->second.type_token != &registry_type_token<plain_type>) {
+      throw registry_error{registry_error_code::wrong_type, "Managed reference target has a different exact type"};
+    }
+  });
+}
+
 } // namespace detail
 
 // Own one reusable exact-type ordinary-member path for binding and secondary indexing.
@@ -200,9 +247,11 @@ template <typename Plain>
 class entity_read {
   using storage_type = typename model_traits<Plain>::storage_type;
   std::shared_ptr<const storage_type> storage_;
+  document_id document_{};
 public:
   // Alias the selected snapshot; ownership keeps storage valid across undo/load/commit.
-  explicit entity_read(std::shared_ptr<const storage_type> storage) : storage_{std::move(storage)} {
+  explicit entity_read(std::shared_ptr<const storage_type> storage, document_id document = {})
+      : storage_{std::move(storage)}, document_{document} {
     if (!storage_) { throw std::invalid_argument{"Entity read needs a snapshot pin"}; }
   }
   // Borrow immutable storage while this handle or another snapshot pin remains alive.
@@ -211,6 +260,8 @@ public:
   const auto& value() const noexcept { return model_traits<Plain>::payload(*storage_); }
   // Read its stable document-local identity independently of application map keys.
   auto id() const noexcept { return storage_->persistent_id; }
+  // Return the exact typed identity of this pinned occurrence; ownerless legacy handles reject.
+  auto get_id() const { return managed_ref<Plain, typename model_traits<Plain>::id_type>{document_, id()}; }
 };
 
 // Bound derived catalog construction separately from payload/decode budgets.
@@ -336,7 +387,22 @@ public:
     }
     using entity_storage = typename model_traits<Plain>::storage_type;
     return entity_read<Plain>{std::shared_ptr<const entity_storage>{
-        root_, static_cast<const entity_storage*>(found->second.pointer)}};
+        root_, static_cast<const entity_storage*>(found->second.pointer)}, document_};
+  }
+  // Create an exact typed token only after checking membership in this pinned document snapshot.
+  template <typename Plain>
+  managed_ref<Plain, id_type> reference(id_type id) const {
+    static_cast<void>(find<Plain>(id));
+    return managed_ref<Plain, id_type>{document_, id};
+  }
+  // Reject foreign document/type metadata before lookup, then pin the exact live occurrence.
+  template <typename Plain>
+  entity_read<Plain> resolve(const managed_ref<Plain, id_type>& reference) const {
+    reference.validate_envelope();
+    if (reference.document().high != document_.high || reference.document().low != document_.low) {
+      throw registry_error{registry_error_code::foreign_document, "Managed reference belongs to another document"};
+    }
+    return find<Plain>(reference.id());
   }
   // Inspect the catalog synchronously without exposing its mutable membership table.
   template <typename Callback>
@@ -422,22 +488,136 @@ public:
   }
 };
 
+// A callback-scoped factory for required/self/cyclic edges after native IDs are assigned.
+// It lends no entity pointers and cannot outlive the staged storage owned by the constructor.
+template <typename Root, typename Traits = model_traits<Root>>
+class reference_builder {
+  using storage_type = typename Traits::storage_type;
+  using id_type = typename Traits::id_type;
+  registry_view<Root, Traits> registry_;
+public:
+  // The no-op pin is private: only value tokens can escape this synchronous initialization scope.
+  reference_builder(const storage_type& storage, document_id document, registry_options options = {},
+                    std::shared_ptr<detail::resident_ledger> ledger = {})
+      : registry_{std::shared_ptr<const storage_type>{std::addressof(storage), [](const auto*) {}},
+                  options, std::move(ledger), document} {}
+  reference_builder(const reference_builder&) = delete;
+  reference_builder& operator=(const reference_builder&) = delete;
+  // Build only an exact live token from the complete set of initial native identities.
+  template <typename Plain>
+  managed_ref<Plain, id_type> reference(id_type id) const { return registry_.template reference<Plain>(id); }
+};
+
 // An edit catalog holds only an invalidatable channel; each operation resolves the current candidate.
 template <typename Root, typename Traits = model_traits<Root>>
 class registry_edit {
   using storage_type = typename Traits::storage_type;
   using id_type = typename Traits::id_type;
   std::shared_ptr<detail::edit_channel<storage_type, id_type>> channel_;
+  document_id document_{};
   // Convert only registry lifetime failures to typed errors; normal editor contracts stay unchanged.
   void require_active() const {
     if (!channel_ || !channel_->owner) {
       throw registry_error{registry_error_code::expired_editor, "Registry transaction is closed"};
     }
   }
+  // Reassign every owning ID first, then rewrite only schema-declared tokens in a second pass.
+  // Source-document external edges need a typed resolver; destination-document external edges retain identity.
+  template <typename Plain, typename Imported, typename External>
+  void prepare_import(Imported& imported, id_type root_id, document_id source,
+                      bool require_saved_ids, External&& external) const {
+    using imported_traits = model_traits<Plain>;
+    if constexpr (requires { imported_traits::has_entity_references; }) {
+      if constexpr (imported_traits::has_entity_references) {
+        struct mapped_identity { id_type id; const void* type_token; };
+        std::map<id_type, mapped_identity> remapping;
+        const serializer::decode_limits bounds{};
+        constexpr auto mapping_node_bytes = sizeof(typename decltype(remapping)::value_type) + 6U * sizeof(void*);
+        detail::visit_registry_entities<imported_traits>(imported, [&]<typename Actual>(auto& node) {
+          const auto old_id = node.persistent_id;
+          if (require_saved_ids && old_id == 0U) {
+            throw registry_error{registry_error_code::invalid_identity, "Imported managed storage requires assigned source IDs"};
+          }
+          const auto replacement = static_cast<const void*>(std::addressof(node)) ==
+              static_cast<const void*>(std::addressof(imported)) ? root_id : reserve();
+          if (old_id != 0U) {
+            if (remapping.size() >= bounds.max_collection_elements ||
+                remapping.size() >= bounds.max_allocation_bytes / mapping_node_bytes) {
+              throw std::length_error{"Managed reference import mapping budget exceeded"};
+            }
+            if (!remapping.emplace(old_id,
+                mapped_identity{replacement, &detail::registry_type_token<Actual>}).second) {
+              throw registry_error{registry_error_code::invalid_identity, "Imported source IDs are duplicated"};
+            }
+          }
+          node.persistent_id = replacement;
+        });
+        imported_traits::visit_references(imported, [&](auto& reference) {
+          const auto scope = reference.document();
+          // New values may be linked after attachment in the same transaction; imported saved
+          // storage still requires complete envelopes, and publication validates every required edge.
+          if (!require_saved_ids && scope.high == 0U && scope.low == 0U &&
+              reference.class_id() == 0U && reference.id() == 0U) { return; }
+          reference.validate_envelope();
+          using reference_type = std::remove_cvref_t<decltype(reference)>;
+          using target_type = typename reference_type::target_type;
+          if (scope.high == source.high && scope.low == source.low) {
+            const auto found = remapping.find(reference.id());
+            if (found != remapping.end()) {
+              if (found->second.type_token != &detail::registry_type_token<target_type>) {
+                throw registry_error{registry_error_code::wrong_type, "Imported reference target has a different exact type"};
+              }
+              reference = reference_type{document_, found->second.id};
+              return;
+            }
+          }
+          if (scope.high == document_.high && scope.low == document_.low) { return; }
+          auto replacement = std::invoke(external, std::as_const(reference));
+          static_assert(std::same_as<decltype(replacement), reference_type>,
+              "External managed reference mappings must preserve the exact target type");
+          replacement.validate_envelope();
+          if (replacement.document().high != document_.high || replacement.document().low != document_.low) {
+            throw registry_error{registry_error_code::foreign_document, "Imported external mapping belongs to another document"};
+          }
+          reference = std::move(replacement);
+        });
+        return;
+      }
+    }
+    detail::visit_registry_entities<imported_traits>(imported, [&]<typename Actual>(auto& node) {
+      static_cast<void>(sizeof(Actual));
+      node.persistent_id = static_cast<const void*>(std::addressof(node)) ==
+          static_cast<const void*>(std::addressof(imported)) ? root_id : reserve();
+    });
+  }
 public:
   // Share the normal transaction lifetime/failure channel, without owning its mutable candidate.
-  explicit registry_edit(std::shared_ptr<detail::edit_channel<storage_type, id_type>> channel)
-      : channel_{std::move(channel)} {}
+  explicit registry_edit(std::shared_ptr<detail::edit_channel<storage_type, id_type>> channel,
+                         document_id document = {})
+      : channel_{std::move(channel)}, document_{document} {}
+  // Create tokens for existing candidate entities without exposing an unchecked integer constructor.
+  template <typename Plain>
+  managed_ref<Plain, id_type> reference(id_type id) const {
+    require_active();
+    channel_->guard([&] {
+      channel_->update([&](storage_type& root) {
+        static_cast<void>(detail::resolve_registry_entity<Plain, Traits>(root, id));
+      });
+    });
+    return managed_ref<Plain, id_type>{document_, id};
+  }
+  // Resolve a scoped token through the same invalidatable candidate editor contract.
+  template <typename Plain>
+  auto resolve(const managed_ref<Plain, id_type>& reference) const {
+    require_active();
+    channel_->guard([&] {
+      reference.validate_envelope();
+      if (reference.document().high != document_.high || reference.document().low != document_.low) {
+        throw registry_error{registry_error_code::foreign_document, "Managed reference belongs to another document"};
+      }
+    });
+    return edit<Plain>(reference.id());
+  }
   // Select a generated editor which revalidates identity/type after every structural mutation.
   template <typename Plain>
   auto edit(id_type id) const {
@@ -496,7 +676,7 @@ public:
     });
     return result;
   }
-  // Adopt values under a fresh managed reservation; ordinary application references are not remapped.
+  // Adopt values under fresh IDs; only declared internal managed tokens are remapped.
   template <typename Plain, typename Attach>
   id_type adopt(Plain value, Attach attach) const {
     const auto id = reserve();
@@ -515,11 +695,10 @@ public:
       // Consume before initialization/attachment; retirement never makes this reservation reusable.
       std::erase(*reservations, id);
       auto imported = model_traits<Plain>::make_storage(std::move(value));
-      detail::visit_registry_entities<model_traits<Plain>>(imported, [&]<typename Actual>(auto& node) {
-        static_cast<void>(sizeof(Actual));
-        node.persistent_id = static_cast<const void*>(std::addressof(node)) ==
-            static_cast<const void*>(std::addressof(imported)) ? id : reserve();
-      });
+      prepare_import<Plain>(imported, id, document_, false,
+          [](const auto& reference) -> std::remove_cvref_t<decltype(reference)> {
+            throw registry_error{registry_error_code::foreign_document, "Foreign managed references require explicit import mapping"};
+          });
       channel_->update([&](storage_type& root) {
         std::invoke(attach, root, std::move(imported));
         // Require the imported occurrence to become owned model state before accepting adoption.
@@ -527,6 +706,34 @@ public:
       });
       return id;
     });
+  }
+  // Import identified storage in either native layout; the optional typed mapper handles external edges.
+  template <typename Plain, typename Attach, typename External>
+  id_type import_storage(document_id source, typename model_traits<Plain>::storage_type imported,
+                         Attach attach, External external) const {
+    require_active();
+    return channel_->guard([&] {
+      if (source.high == 0U && source.low == 0U) {
+        throw registry_error{registry_error_code::invalid_identity, "Import needs the source document namespace"};
+      }
+      const auto id = reserve();
+      std::erase(*channel_->registry_reservations, id);
+      prepare_import<Plain>(imported, id, source, true, external);
+      channel_->update([&](storage_type& root) {
+        std::invoke(attach, root, std::move(imported));
+        static_cast<void>(detail::resolve_registry_entity<Plain, Traits>(root, id));
+      });
+      return id;
+    });
+  }
+  // Reject external source-document references unless the caller supplies an explicit typed mapping.
+  template <typename Plain, typename Attach>
+  id_type import_storage(document_id source, typename model_traits<Plain>::storage_type imported,
+                         Attach attach) const {
+    return import_storage<Plain>(source, std::move(imported), std::move(attach),
+        [](const auto& reference) -> std::remove_cvref_t<decltype(reference)> {
+          throw registry_error{registry_error_code::foreign_document, "Imported external reference needs explicit mapping"};
+        });
   }
   // Retire an occurrence through a trusted owning-container edit; its logical ID remains consumed.
   template <typename Plain, typename Remove>

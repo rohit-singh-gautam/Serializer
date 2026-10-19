@@ -3,6 +3,7 @@
 // See LICENSE-RUNTIME for permission to use this runtime in proprietary applications.
 #pragma once
 #include <rohit/managed_owned.hpp>
+#include <rohit/managed_reference.hpp>
 
 #include <algorithm>
 #include <concepts>
@@ -27,6 +28,14 @@ template <typename Value>
 struct runtime_traits;
 
 namespace detail {
+// Empty-base specialization keeps document scope out of ordinary transaction channels.
+template <typename Root, typename = void>
+struct reference_scope { static constexpr bool has_reference_scope = false; };
+template <typename Root>
+struct reference_scope<Root, std::void_t<decltype(Root::serializer_has_entity_references)>> {
+  static constexpr bool has_reference_scope = Root::serializer_has_entity_references;
+  document_id reference_document{};
+};
 // Defer trait lookup until generated specializations and the concrete access type are complete.
 template <typename Plain, typename Access>
 auto make_editor(Access access) {
@@ -35,7 +44,7 @@ auto make_editor(Access access) {
 
 // One invalidatable channel per edited transaction; handles never retain a transaction pointer.
 template <typename Root, typename Id>
-struct edit_channel {
+struct edit_channel : reference_scope<Root> {
   void* owner{};
   void (*mutate)(void*, void*, void (*)(void*, Root&)){};
   Id (*allocate)(void*){};
@@ -106,6 +115,7 @@ public:
   using id_type = decltype(Root::persistent_id);
   static constexpr bool is_managed = Managed;
   static constexpr bool is_runtime_access = Runtime;
+  static constexpr bool has_reference_scope = channel_type::has_reference_scope;
 
   // Keep only the channel and an owning resolver; no mutable candidate references escape.
   editor_access(std::shared_ptr<channel_type> channel, Resolve resolve)
@@ -116,6 +126,14 @@ public:
   void update(Callable&& callback) const {
     channel_->update(
         [&](Root& root) { std::forward<Callable>(callback)(payload(resolve_(root))); });
+  }
+
+  // Borrow resolved immutable storage for generated identity checks; no alias may escape.
+  template <typename Callable>
+  void with_storage(Callable&& callback) const {
+    channel_->update([&](Root& root) {
+      std::forward<Callable>(callback)(std::as_const(resolve_(root)));
+    });
   }
 
   // Return a copy so callers cannot bypass the managed mutation boundary through a getter.
@@ -132,6 +150,12 @@ public:
     id_type result{};
     channel_->update([&](Root& root) { result = resolve_(root).persistent_id; });
     return result;
+  }
+
+  // Create a typed document-scoped identity only for a live managed resolver in an opted-in root.
+  template <typename Plain>
+  auto get_id() const requires (Managed && has_reference_scope) {
+    return managed_ref<Plain, id_type>{channel_->reference_document, id()};
   }
 
   // Allocate monotonically, outside the mutable candidate callback.

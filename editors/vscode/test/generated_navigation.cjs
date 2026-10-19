@@ -211,6 +211,47 @@ async function main() {
   fs.mkdirSync(parent, { recursive: true });
   const directory = fs.mkdtempSync(path.join(parent, 'generated-navigation-'));
   let checks = await verify(path.join(repository, 'example/schemas/complex/model.serializer'), path.join(directory, 'complex'));
+  const xmlAuthoringInput = path.join(directory, 'xml-authoring.serializer');
+  fs.writeFileSync(xmlAuthoringInput, `serializer version 1.20.0;
+namespace xml_models {
+  xml(namespace("urn:serializer:editor-xml"), scalars(attribute));
+  class point stable_ids { public double x (1); public double y (2); }
+  class drawing stable_ids {
+    public uint32 id (1);
+    public array xml_models::point points (2) xml(element, name("point"), wrapper("points"));
+  }
+}
+`);
+  checks += await verify(xmlAuthoringInput, path.join(directory, 'xml-authoring'),
+    ['--xml.enabled', 'true'], outputs, true, true);
+  const packageInput = path.join(directory, 'package.serializer');
+  fs.writeFileSync(packageInput, `serializer version 1.20.0;
+namespace package_models {
+  xml(namespace("urn:serializer:editor-package"), scalars(attribute));
+  class model stable_ids { public uint32 id (1); }
+  package document {
+    part main : package_models::model {
+      name("/data/model.xml"); content_type("application/xml");
+      relationship("urn:serializer:main"); compression(deflate);
+    }
+  }
+}
+`);
+  checks += await verify(packageInput, path.join(directory, 'package'),
+    ['--xml.enabled', 'true'], { cpp: outputs.cpp }, true);
+  const managedReferenceInput = path.join(directory, 'managed-reference.serializer');
+  fs.writeFileSync(managedReferenceInput, `serializer version 1.20.0;
+namespace managed_models {
+  class first managed class_id(1001) {
+    public managed_ref<managed_models::second> next (1);
+    public optional<managed_ref<managed_models::first>> previous (2);
+    public array managed_ref<managed_models::second> items (3);
+  }
+  class second managed class_id(1002) { public managed_ref<managed_models::first> previous (1); }
+}
+`);
+  checks += await verify(managedReferenceInput, path.join(directory, 'managed-reference'),
+    [], { cpp: outputs.cpp }, true, true);
   checks += await verifySeparate(path.join(repository, 'example/schemas/complex/model.serializer'),
     path.join(directory, 'complex-separate'));
   checks += await verifySeparate(path.join(repository, 'example/schemas/complex/model.serializer'),

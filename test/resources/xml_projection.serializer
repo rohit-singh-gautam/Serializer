@@ -1,0 +1,21 @@
+serializer version 1.20.0;
+
+namespace xml_projection {
+  xml(namespace("urn:serializer:xml-projection"), scalars(attribute));
+
+  class payload stable_ids {
+    public uint32 number (1);
+    public string label (2);
+  }
+  class source stable_ids {
+    public payload current (1);
+    public translator payload as project {
+      number = current.number;
+      label = current.label;
+    };
+  }
+  class envelope stable_ids {
+    public shared(source.current) value (1);
+    public borrowed(source.current.label) label (2);
+  }
+}

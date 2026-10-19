@@ -298,6 +298,11 @@ export class Navigator {
   /** Prefer generated type and field definitions, falling back to their schema without generating output. */
   async schema(file: string, offset: number, definition: boolean): Promise<NavigationTarget[]> {
     const source = await this.source(file);
+    const binding = source && spanAt(source.index.schemaBindings ?? [], offset);
+    if (binding) {
+      const dependency = path.resolve(path.dirname(file), binding.name);
+      return await this.host.read(dependency) === undefined ? [] : [{ file: dependency, start: 0, end: 0 }];
+    }
     const include = source && spanAt(source.index.includes, offset);
     if (include) {
       const included = path.resolve(path.dirname(file), include.name);

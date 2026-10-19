@@ -14,6 +14,7 @@ constexpr std::uint64_t session_id = 10;
 
 // The host owns sessions and authenticates each connection.
 managed::collaboration_authority<ledger> authority{ledger{"Shared"}, 1};
+authority.create_journal("authority.srj", managed::journal_storage_mode::sidecar);
 authority.open_session(session_id);
 managed::collaboration_transport connection{authority, session_id};
 
@@ -36,7 +37,7 @@ store.synchronize(); // The authority validates the inverse like any other chang
 ```
 
 `model_store` owns the typed session, local history, outbox, acknowledged cursor,
-identity mapping and journal attachment. Application session creation, authentication,
+native identity lease cursor and journal attachment. Application session creation, authentication,
 transport and connection lifetime remain host responsibilities. Use a fresh placeholder
 store for initial join: the baseline replaces its constructor value. Attach before
 editing or creating the client journal. Transactions before join are rejected.
@@ -112,9 +113,16 @@ collaboration::domain context(); // Trusted endpoint binding, not an untrusted m
 accepted_type snapshot();
 std::vector<std::shared_ptr<const accepted_type>> accepted_since(std::uint64_t cursor);
 std::shared_ptr<const result_type> submit_change(const proposal_type& request);
+managed::identity_allocation_context reserve_ids(std::uint64_t count);
 ```
 
 Use the session's `accepted_type`, `proposal_type` and `result_type` aliases.
+`reserve_ids` must bind the authenticated connection's session independently of
+proposal contents, forwarding to `authority.reserve_ids(session, count)`.
+The authority may grant fewer IDs than requested to respect configured/native
+capacity. Store-owned clients prefetch on synchronization, before disconnected
+creation. Four-method adapters remain usable without creation capacity; they
+cannot make offline entity creation allocate a provisional identity.
 `accepted_since` must supply the complete contiguous accepted history since the cursor;
 snapshot-only polling cannot detect intervening write-away/write-back conflicts.
 The transport must outlive its binding. All callbacks run synchronously on the store's
@@ -178,13 +186,31 @@ publishing a local inverse. If the client has not received that change yet, undo
 can commit locally; subsequent synchronization detects the conflict, retains the
 local inverse, and exposes the remote state through `acknowledged_read()`.
 
-Offline creation uses the existing local ID allocator. Local handles never renumber;
-a persisted mapping translates generated `persistent_id` fields into authoritative
-IDs. Concurrent clients can allocate the same numeric local ID without representing
-the same entity. `session.remote_id(local)` and `session.local_id(remote)` return zero
-when no mapping is known. Use authoritative IDs for server locks/presence and translate
-at the UI boundary. Ordinary integer fields, map keys and application foreign-key
-references are **not** interpreted as persistent IDs or automatically rewritten.
+Compiler/runtime **2.7.0** keeps the same native document ID and `persistent_id`
+at every participant. The authority reserves disjoint native ranges for
+authenticated writers before the IDs can escape a creation callback. The store
+consumes its prefetched range offline; `identity_lease_size` defaults to 256.
+Read-only or exhausted clients can receive a baseline without a usable range;
+creation then fails before returning an ID. A later synchronization can replenish
+capacity when available. Existing entities retain their IDs through reconciliation
+and acceptance, and canceled allocations remain consumed.
+
+There is no active local/remote ID translation table. Compatibility helpers
+`session.remote_id(id)` and `session.local_id(id)` return the same native ID when
+the entity is present in the working view, and zero otherwise. Use native IDs for
+server locks/presence directly. Ordinary integer fields and map keys retain their
+application values; they do not become declared entity references implicitly.
+
+Crash nonreuse requires durable allocation state. Attach the authority journal
+before issuing ranges: its lease ledger and burned high-water mark are persisted
+before a grant returns, even when no accepted edit or later full Save follows.
+The client journal persists each consumed reservation before exposure, including
+allocations whose transaction later fails or reverts. Recover both sides from
+their appropriate retained state. An in-memory authority guarantees allocation
+within its live context; restoring an older snapshot alone cannot remember ranges
+issued after that snapshot. A standalone replica explicitly initializes a fresh
+authenticated range after synchronization with
+`replica.initialize_identity_lease(session, authority.reserve_ids(session, count))`.
 
 The existing store journal pointer wraps the native file adapter. One durable frame
 pairs each native transaction/reservation with its client state. Synchronization
@@ -195,7 +221,7 @@ are reused. This stores full client metadata/snapshots; it is not a compact delt
 Applications keep using `model_store::create_journal`, `save_journal`, and
 `recover_journal` for ordinary edits and undo/redo. The internal adapter adds a
 checkpoint envelope containing session identity, local history, pending changes,
-acknowledgements, identity mappings and exact retry bytes. A model-only snapshot
+acknowledgements, native lease cursors and exact retry bytes. A model-only snapshot
 cannot tell recovery whether an edit still needs sending or was already accepted.
 Pairing those records atomically prevents a recovered document from losing its
 pending send or retrying an accepted operation under a new identity. The envelope
@@ -211,21 +237,24 @@ recovered.synchronize();
 
 `save()`/`load()` checkpoint the complete model, session, local history and outbox.
 Load/recover into a fresh attached store with the same session policy, ID, model and
-history specialization; live replacement is rejected. Client wrapper format 1 has
+history specialization; live replacement is rejected. Client wrapper format 2 has
 its own binding and is not readable as an ordinary model save. `save_journal()`
 preserves synchronization state, including unsent work. `journal_dirty()` still tracks
 document values relative to Save; it does not mean the outbox is empty.
 
-History-enabled client checkpoints retain their existing binding and bytes. History-free
-clients use `serializer.collaboration.pending.v1` and generated pending-only records;
-rebuild the managed target and follow [migration](../../migration.md#independent-managed-features).
+History-enabled clients use `serializer.collaboration.client.v2`; history-free
+clients use `serializer.collaboration.pending.v2` and pending-only records. Both
+require state format 2, empty reserved mapping slots, and validated native lease
+cursors. Earlier mapped checkpoints reject rather than enabling a translated-ID
+mode. Preserve/export outstanding work with the earlier release before a fresh
+authoritative join; see [migration](../../migration.md#compilerruntime-270).
 
 ## Host coordination and operation IDs
 
 Presence and lease acquisition/renewal/release remain host coordination APIs; all
-document edits still use `model_store` transactions. Translate local entity handles
-with `session.remote_id(local)` before using them in authority lock/presence calls,
-and pass acquired `{target, generation}` grants to `session.set_grants(...)`.
+document edits still use `model_store` transactions. Use their native entity IDs
+in authority lock/presence calls and pass acquired `{target, generation}` grants
+to `session.set_grants(...)`.
 After recovery, refresh host lease state and supply grants for new edits again;
 the journal preserves grants on retained transactions, not a live lease for future edits.
 See the [store locks example](../../example/managed/collaboration/locks.cpp).

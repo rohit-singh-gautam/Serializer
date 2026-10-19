@@ -101,6 +101,13 @@ publish independent bindings or change a live immutable reader.
 
 ## Scoped keys and secondary indexes
 
+Language 1.20 adds C++ typed managed references, generated editable reconciliation
+and isolated editing previews. See the
+[entity-reference and identity contract](../design/managed_entity_references.md)
+for `managed_ref<T>`, static class tags, checked tokens, complete-candidate
+validation, reference-aware imports and exact-base preview acceptance. These use
+the existing native allocator, registry and transaction engine.
+
 Application keys are ordinary schema fields. A composite generated record can
 contain a scope and local key; the descriptor's entity type supplies the typed
 key domain. Opt in to compatible generated comparisons for ordered record keys,

@@ -4,6 +4,7 @@
 #pragma once
 
 #include <rohit/managed_journal.hpp>
+#include <rohit/managed_identity_allocation.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -19,6 +20,7 @@ struct collaboration_client_options {
   std::size_t max_transactions{4096};
   std::size_t max_state_bytes{256 * journal_options::mebibyte};
   std::size_t max_flush_operations{256};
+  std::uint64_t identity_lease_size{256};
 };
 
 template <typename Session>
@@ -31,6 +33,16 @@ namespace detail {
 class collaboration_attachment {
 public:
   virtual ~collaboration_attachment() = default;
+  // Observe the exact leased cursor; a copy is not permission to publish or reuse its IDs.
+  virtual identity_allocation_context allocation_context() const { return {}; }
+  // Allocate only from a prefetched durable native lease; never run transport inside a transaction.
+  virtual std::uint64_t allocate_identity() {
+    throw std::logic_error{"Collaboration identity allocation requires a native authority lease"};
+  }
+  // Burn an exact preview's isolated cursor through the same durable client metadata boundary.
+  virtual void advance_identity_context(const identity_allocation_context&) {
+    throw std::logic_error{"Collaboration identity cursor admission is unavailable"};
+  }
   // Prepare one local transaction before durable publication; cleanup never throws.
   virtual void prepare(const std::vector<std::uint8_t>& snapshot, std::string_view label) = 0;
   virtual void publish() noexcept = 0;

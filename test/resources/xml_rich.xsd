@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:t="urn:serializer:xml-rich" xmlns:n="urn:serializer:names"
+           targetNamespace="urn:serializer:xml-rich" elementFormDefault="qualified">
+  <xs:simpleType name="ResourceId">
+    <xs:restriction base="xs:unsignedLong">
+      <xs:minInclusive value="1"/>
+      <xs:maxInclusive value="18446744073709551614"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="Label">
+    <xs:restriction base="xs:string">
+      <xs:whiteSpace value="collapse"/>
+      <xs:minLength value="1"/>
+      <xs:maxLength value="4"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="Name">
+    <xs:restriction base="xs:QName">
+      <xs:enumeration value="n:thing"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:simpleType name="Transform">
+    <xs:restriction>
+      <xs:simpleType><xs:list itemType="xs:double"/></xs:simpleType>
+      <xs:length value="3"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:complexType name="Metadata">
+    <xs:simpleContent>
+      <xs:extension base="xs:string">
+        <xs:attribute name="name" type="t:Name" use="required"/>
+        <xs:attribute name="category" type="xs:QName" default="n:thing"/>
+        <xs:anyAttribute namespace="##other" processContents="lax"/>
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:element name="metadata" type="t:Metadata"/>
+  <xs:element name="document">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:choice>
+          <xs:element name="number" type="t:ResourceId"/>
+          <xs:element name="label" type="t:Label"/>
+        </xs:choice>
+        <xs:any namespace="##other" processContents="lax" minOccurs="0" maxOccurs="2"/>
+        <xs:element ref="t:metadata" minOccurs="0"/>
+      </xs:sequence>
+      <xs:attribute name="unit" type="xs:string" default="millimeter"/>
+      <xs:attribute name="mode" type="xs:string" fixed="model"/>
+      <xs:attribute name="transform" type="t:Transform" use="required"/>
+      <xs:attribute name="required" type="xs:string"/>
+      <xs:attribute name="optional_transform" type="t:Transform"/>
+      <xs:anyAttribute namespace="##other" processContents="lax"/>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

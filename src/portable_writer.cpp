@@ -2816,8 +2816,10 @@ public:
 // Dispatch native owning output while preserving the compiler's C++-only implementation.
 std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,
                      std::string_view language, std::string_view unit_name,
-                     const portable_options& options) {
-  xml_binding::validate_options(statements, options.xml);
+                     const portable_options& requested) {
+  auto options = requested;
+  options.xml = xml_binding::effective_options(statements, options.xml);
+  xml_binding::validate_options(statements, options.xml, language);
   behavior::require_callable_backend(statements, language);
   require_unmanaged_backend(statements);
   auto_size::validate(statements, options.class_auto_sizes);

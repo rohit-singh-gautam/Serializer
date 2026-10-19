@@ -308,6 +308,13 @@ std::vector<std::string> parse_output_languages(std::string_view names) {
   }
 }
 
+// Match only supported payload encodings so typos never change persistent bytes silently.
+persistent_id_encoding parse_managed_id_encoding(std::string_view name) {
+  if (name == "fixed") { return persistent_id_encoding::fixed; }
+  if (name == "compact_varint") { return persistent_id_encoding::compact_varint; }
+  throw std::invalid_argument{"managed.id_encoding must be fixed or compact_varint"};
+}
+
 // Resolve the include layout without silently accepting misspelled modes.
 include_mode parse_include_mode(std::string_view name) {
   if (name == "separate") { return include_mode::separate; }
@@ -383,7 +390,17 @@ output_options read_output_options(const std::filesystem::path& file) {
         else if (key.starts_with("wrapper.")) { mapping.wrappers.emplace(key.substr(8U), value); }
         else { throw std::invalid_argument{"Unknown XML class configuration key: " + key}; }
       } else if (section == "xml") {
-        if (key == "enabled") { result.cpp.xml.enabled = read_bool(value); }
+        if (key == "enabled") {
+          result.cpp.xml.enabled = read_bool(value);
+          result.cpp.xml.enabled_selection = result.cpp.xml.enabled;
+        }
+        else if (key == "namespace") { result.cpp.xml.namespace_uri = value; }
+        else if (key == "scalars") {
+          if (value != "attribute" && value != "element") {
+            throw std::invalid_argument{"XML scalars must be attribute or element"};
+          }
+          result.cpp.xml.scalar_attributes = value == "attribute";
+        }
         else if (key == "runtime_xsd") { result.cpp.xml.runtime_xsd = read_bool(value); }
         else if (key == "bundle_sha256") { result.cpp.xml.bundle_sha256 = value; }
         else if (key == "validation_scope") {
@@ -451,6 +468,8 @@ output_options read_output_options(const std::filesystem::path& file) {
         result.cpp.managed_id_type = value;
       } else if (section == "managed" && key == "separate_values") {
         result.cpp.managed_separate_values = read_bool(value);
+      } else if (section == "managed" && key == "id_encoding") {
+        result.cpp.managed_id_encoding = parse_managed_id_encoding(value);
       } else if (section == "cpp" && key == "constant_evaluation") {
         result.cpp.constant_evaluation = read_bool(value);
       } else if (section == "cpp" && key == "emission_only") {

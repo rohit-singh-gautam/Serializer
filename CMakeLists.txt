@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 4.0)
 
-project(serializer VERSION 2.6.0 LANGUAGES CXX)
+project(serializer VERSION 2.7.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
-set(serializer_schema_language_version 1.19.0)
+set(serializer_schema_language_version 1.20.0)
 string(REPLACE "." ";" serializer_schema_language_version_components
   "${serializer_schema_language_version}")
 list(GET serializer_schema_language_version_components 0 serializer_schema_language_version_major)
@@ -66,6 +66,7 @@ add_library(serializer_runtime
   src/package_opc.cpp
   include/rohit/package.hpp
   include/rohit/package_profile.hpp
+  include/rohit/opc_generated.hpp
   src/simd_dispatch.cpp
   src/simd_dispatch.hpp
   src/runtime_simd.cpp
@@ -106,6 +107,10 @@ add_library(serializer_lib
   src/auto_size_writer.hpp
   src/schema_formats.hpp
   src/xml_schema.cpp
+  src/xsd_import.cpp
+  src/xsd_import.hpp
+  src/xml_authoring_parser.hpp
+  src/package_writer.hpp
   src/xml_schema.hpp
   src/xml_portable_writer.cpp
   src/xml_portable_writer.hpp
@@ -290,8 +295,8 @@ if(SERIALIZER_INSTALL)
   # Install record-dependent APIs only when their generated dependencies are available.
   set(serializer_disabled_header_patterns)
   if(NOT SERIALIZER_BUILD_MANAGED)
-    foreach(header IN ITEMS managed.hpp managed_identity.hpp managed_registry.hpp managed_delta.hpp collaboration_history.hpp collaboration_sessions.hpp
-        managed_collaboration.hpp managed_local_collaboration.hpp)
+    foreach(header IN ITEMS managed.hpp managed_identity_allocation.hpp managed_editable.hpp managed_registry.hpp managed_delta.hpp collaboration_history.hpp collaboration_sessions.hpp
+        managed_collaboration.hpp managed_collaboration_hooks.hpp managed_local_collaboration.hpp managed_migration.hpp)
       list(APPEND serializer_disabled_header_patterns PATTERN "${header}" EXCLUDE)
     endforeach()
   endif()

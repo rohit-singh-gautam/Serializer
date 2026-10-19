@@ -57,7 +57,9 @@ enum class journal_record_kind : std::uint8_t {
   reset = 4,
   restore_edit = 5,
   delta_edit = 6,
-  delta_restore_edit = 7
+  delta_restore_edit = 7,
+  leased_edit = 8,
+  reserve_range = 9
 };
 
 // Write a little-endian word into a caller-owned fixed prefix without allocation.

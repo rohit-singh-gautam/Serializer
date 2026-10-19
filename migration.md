@@ -1,5 +1,94 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.7.0
+
+Select language **1.20.0** for inline XML defaults/overrides, `using schema` and
+`package` declarations. Existing 1.x schemas and ordinary native JSON/binary bytes
+remain compatible; the C++ managed-ID binary policy below now defaults to compact
+encoding. Require `find_package(Serializer 2.7 CONFIG REQUIRED)` for the new
+compiler/runtime APIs; earlier same-major package requests remain valid.
+
+Use [XSD import or manual binding](example/xsd/README.md) to avoid repeating
+attribute/element placement in INI. Import into a new file when output differs,
+then review native field identities and application edits. Keep existing explicit
+IDs when migrating a handwritten model; automatically imported declarations are
+not a promise of an identical native binary layout.
+
+C++ package declarations generate synchronous borrowed-input Save and owning
+typed load. Existing builder/callback APIs remain supported. Rebuild runtime and
+compiler-library clients because optional XML/package context and binding
+structures gained members. Unknown-extension slots and QName bindings are emitted
+only for models selecting those XML contracts; ordinary native models do not
+gain package storage. Other-language OPC profiles and broader XSD constructs remain
+pending. See [the contract and limits](docs/serialization/xml_packages.md) and
+[verification status](docs/xml_pending.md). Both editor packages use **2.0.5**.
+
+### C++ managed identity and collaboration
+
+Select language **1.20.0** for `managed_ref<T>` fields and
+`class ... managed class_id(decimal)`. Typed entity tokens use the existing
+native document/object IDs and a stable uint64 class discriminator; they do not
+replace `persistent_id` or allocate a second object identity. The default class
+discriminator hashes the canonical qualified concrete schema type, independently
+of field layout. Preserve a published discriminator with an explicit nonzero
+`class_id` when renaming a class. Distinct emitted managed classes cannot share
+an explicit discriminator; generation checks collisions. Keep the configured
+native object-ID width unchanged.
+
+C++ generated `persistent_id` values now default to canonical unsigned LEB128 in
+all three native binary protocols. `[managed] id_encoding = compact_varint` is
+the default; `id_encoding = fixed` or `--managed.id_encoding fixed` selects
+width-based payloads. `id_type = uint32|uint64` continues
+to select the native numeric type and allocation limit, independently of encoding.
+JSON identities remain numeric. Typed token object IDs follow the same policy;
+their document halves and uint64 class discriminator retain fixed-width encoding.
+Ordinary application integer fields and `binary_integer` field tags are unchanged.
+
+Generated managed schema identities distinguish ID-encoding policies. Changing
+the policy changes binary wire bytes; select one consistently across participants
+and stored data. Ordinary Load performs neither encoding autodetection nor
+conversion; use the explicit offline migration tool for supported saves or raw
+models.
+This option adds no schema grammar or separate language-version bump; no
+backward-compatibility qualification is claimed for this new default.
+Follow the [persistent-ID migration guide](docs/guides/persistent_id_migration.md)
+for generation commands and the requirements for converting an existing data set
+without changing its identities or allocation state.
+
+Targets must be concrete, unpacked, owning managed classes. Ordinary
+`optional<managed_ref<T>>` represents absence. Concrete self/forward/cyclic
+references are nonowning edges; complete candidates validate document, class and
+target liveness before publication. The C++ backend explicitly rejects the
+pending named-instantiation combination whose self-token still refers to an
+internal generic specialization. Packed/view targets, unresolved emitted generic
+targets and non-C++ managed-reference output remain unsupported.
+
+Collaborating clients now reserve native identity ranges from the authenticated
+authority before creating entities. `collaboration_transport::reserve_ids(count)`
+forwards that authenticated operation; custom transports must supply it for
+offline creation. Store-owned clients prefetch on synchronization and consume the
+range locally. A standalone replica calls
+`initialize_identity_lease(session, authority.reserve_ids(session, count))` after
+synchronizing and before creation. Exhausted or unavailable capacity rejects
+creation before the editor returns an ID. Failed/canceled allocations remain
+consumed; retain the native checkpoint/journal and authority lease ledger during
+recovery. Allocate another fresh range instead of reusing a saved old grant.
+Attach the authority journal before issuing persistent ranges: reservations are
+checkpointed before return, including ranges never used by an accepted edit.
+An in-memory authority provides uniqueness for its live allocation context; an
+older snapshot cannot remember ranges issued after that snapshot. Store-owned
+client journal recovery restores consumed reservations even when their edits
+were canceled and no full Save followed.
+
+Client checkpoint format **2** preserves identical document/object IDs across
+optimistic edits, authority acceptance and replicas; it has no active local/remote
+ID translation table. Format-1 mapped client checkpoints reject instead of being
+silently converted. Preserve/export outstanding work with the earlier release
+before rejoining from an authoritative snapshot under the new contract. Unleased
+native envelopes do not gain allocation-lease records. Keep transport
+authentication, session permissions and durable storage configuration explicit;
+copying a range value does not grant authority to publish its IDs.
+
 ## Compiler/runtime 2.6.0
 
 Select `serializer version 1.19.0;` for inline value-reference fields such as

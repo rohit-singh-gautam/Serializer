@@ -1,3 +1,11 @@
+# 2.0.5
+
+- Support language 1.20.0 XML defaults/overrides, fixed-schema declarations and package roles.
+- Navigate local XSD paths and qualified part model types, including live included schemas and token boundaries.
+- Keep XML metadata outside type navigation and synchronize both editor package versions and listing payloads.
+- Add VS Code snippets for XML defaults, field overrides, XSD bindings and OPC package declarations.
+- Highlight and navigate C++ typed managed entity references and explicit stable class identities.
+
 # 2.0.4
 
 - Support language 1.19.0 inline borrowed/shared/weak value-reference fields.

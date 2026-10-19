@@ -69,7 +69,7 @@ class generic_lowering {
 
   // Produce a canonical schema identity, independent of generated names and namespace spelling.
   std::string identity(const type_name& type) const {
-    if (type.is_optional() || type.is_sequence() || type.is_associative()) {
+    if (type.is_optional() || type.is_sequence() || type.is_associative() || type.is_managed_reference()) {
       std::string result = type.name + "<";
       for (const auto& argument : type.arguments) {
         result += identity(argument) + ",";
@@ -201,15 +201,20 @@ class generic_lowering {
 
   // Recognize only unshadowed generic syntax and keep each included file's language contract.
   bool bind_builtin(type_name& type, const syntax_node* declaration) const {
-    if ((declaration && !type.is_optional() && !type.is_sequence() && !type.is_associative() && !type.is_expected()) ||
+    if ((declaration && !type.is_optional() && !type.is_sequence() && !type.is_associative() &&
+         !type.is_expected() && !type.is_managed_reference()) ||
         !type.application ||
-        (type.name != "optional" && type.name != "array" && type.name != "map" && type.name != "expected")) {
+        (type.name != "optional" && type.name != "array" && type.name != "map" &&
+         type.name != "expected" && type.name != "managed_ref")) {
       return false;
     }
     if (type.name == "expected" && !type.expected_language_supported) {
       throw exception::bad_member_type{input, "Expected callable results require serializer version 1.17.0"};
     }
-    if (type.name != "expected" && !type.optional_language_supported) {
+    if (type.name == "managed_ref" && !type.managed_reference_language_supported) {
+      throw exception::bad_member_type{input, "Typed managed references require serializer version 1.20.0 or newer"};
+    }
+    if (type.name != "expected" && type.name != "managed_ref" && !type.optional_language_supported) {
       throw exception::bad_member_type{input,
           "Built-in optional and collection type arguments require serializer version 1.7.0 or newer"};
     }
@@ -228,6 +233,7 @@ class generic_lowering {
     const auto& key = type.arguments.front();
     if (dependent && key.type == object_type::unresolved) { return; }
     if (key.is_optional() || key.is_sequence() || key.is_associative() || key.is_digest() ||
+        key.is_managed_reference() ||
         key.name == "float" || key.name == "double") {
       throw exception::bad_member_type{input, "Generic map keys require a scalar, enum, or owning record"};
     }
@@ -383,6 +389,8 @@ class generic_lowering {
       if (type.is_expected()) {
         throw exception::bad_member_type{input, "Expected is supported only as a direct native C++ callable result"};
       }
+      // Entity tokens do not own the target. Bind them after the complete declaration inventory.
+      if (type.is_managed_reference()) { return; }
       for (auto& argument : type.arguments) {
         validate_expression(argument, owner);
       }
@@ -459,7 +467,8 @@ class generic_lowering {
       throw exception::bad_member_type{input, "Type/value kind mismatch: expected type"};
     }
     if (type.type == object_type::primitive &&
-        !type.is_optional() && !type.is_sequence() && !type.is_associative() && !type.is_expected()) { return; }
+        !type.is_optional() && !type.is_sequence() && !type.is_associative() &&
+        !type.is_expected() && !type.is_managed_reference()) { return; }
     if (const auto found = bindings.find(type.name); found != bindings.end()) {
       if (found->second.kind != generic_argument_kind::type) {
         throw exception::bad_member_type{input, "Type/value kind mismatch: expected type"};
@@ -476,6 +485,30 @@ class generic_lowering {
     if (bind_builtin(type, node)) {
       if (type.is_expected()) {
         throw exception::bad_member_type{input, "Expected is supported only as a direct native C++ callable result"};
+      }
+      if (type.is_managed_reference()) {
+        // Substitution is lexical; target layout and forward declarations remain deferred.
+        const auto substitute_dimension = [&](const auto& self, dimension_expression& expression) -> void {
+          if (expression.kind == dimension_expression::operation::parameter) {
+            const auto found = bindings.find(expression.name);
+            if (found != bindings.end() && found->second.kind == generic_argument_kind::dimension) {
+              expression.kind = dimension_expression::operation::literal;
+              expression.value = found->second.dimension;
+              expression.name.clear();
+            }
+          }
+          for (auto& operand : expression.operands) { self(self, operand); }
+        };
+        const auto substitute = [&](const auto& self, type_name& target) -> void {
+          const auto found = bindings.find(target.name);
+          if (found != bindings.end() && !target.application && target.expression.empty()) {
+            target = found->second;
+          }
+          for (auto& expression : target.expression) { substitute_dimension(substitute_dimension, expression); }
+          for (auto& argument : target.arguments) { self(self, argument); }
+        };
+        substitute(substitute, type.arguments.front());
+        return;
       }
       for (auto& argument : type.arguments) {
         if (argument.common_numeric) {
@@ -573,6 +606,8 @@ class generic_lowering {
     concrete->generic_arguments = type.arguments;
     concrete->generic_parameters = definition->generic_parameters;
     concrete->member_list = definition->member_list;
+    concrete->xml = definition->xml;
+    concrete->explicit_class_id = definition->explicit_class_id;
     concrete->functions = definition->functions;
     concrete->constructions = definition->constructions;
     concrete->conversions = definition->conversions;
@@ -1065,6 +1100,8 @@ class generic_lowering {
             object.attributes = source.attributes;
             object.parents = source.parents;
             object.member_list = source.member_list;
+            object.xml = source.xml;
+            object.explicit_class_id = source.explicit_class_id;
             object.functions = source.functions;
             object.constructions = source.constructions;
             object.conversions = source.conversions;
@@ -1081,6 +1118,7 @@ class generic_lowering {
             object.reserved_variables = source.reserved_variables;
             object.reserved_names = source.reserved_names;
             object.named_generic_source = source.generic_name;
+            object.named_generic_arguments = source.generic_arguments;
             auto& bindings = named_bindings[&object];
             for (std::size_t index{}; index < source.generic_arguments.size(); ++index) {
               bindings.emplace(source.generic_parameters[index].name, source.generic_arguments[index]);
@@ -1178,6 +1216,84 @@ class generic_lowering {
     }
   }
 
+  // Resolve phantom entity edges only after finite ownership and all declarations are known.
+  void resolve_managed_references(syntax_node& node) {
+    if (node.type == object_type::namespace_type) {
+      for (auto& child : static_cast<namespace_node&>(node).statements) {
+        resolve_managed_references(*child);
+      }
+      return;
+    }
+    if (node.type != object_type::class_type && node.type != object_type::function_type) { return; }
+    const auto bind_tokens = [&](const auto& self, type_name& type,
+        const std::vector<generic_parameter>& parameters) -> void {
+      if (type.is_managed_reference()) {
+        auto& target = type.arguments.front();
+        const auto dependent_dimension = [&](const auto& inspect, const dimension_expression& expression) -> bool {
+          return (expression.kind == dimension_expression::operation::parameter &&
+              std::any_of(parameters.begin(), parameters.end(),
+                  [&](const auto& parameter) { return parameter.name == expression.name; })) ||
+              std::any_of(expression.operands.begin(), expression.operands.end(),
+                  [&](const auto& operand) { return inspect(inspect, operand); });
+        };
+        const auto dependent = [&](const auto& inspect, const type_name& value) -> bool {
+          return (!value.application && !value.resolved_node && value.type == object_type::unresolved &&
+              std::any_of(parameters.begin(), parameters.end(),
+              [&](const auto& parameter) { return parameter.name == value.name; })) ||
+              std::any_of(value.expression.begin(), value.expression.end(),
+                  [&](const auto& expression) { return dependent_dimension(dependent_dimension, expression); }) ||
+              std::any_of(value.arguments.begin(), value.arguments.end(),
+                  [&](const auto& argument) { return inspect(inspect, argument); });
+        };
+        // Retained open C++ templates are checked through each concrete specialization.
+        if (dependent(dependent, target)) { return; }
+        resolve(target, {}, 0);
+        if (!target.resolved_node || target.type != object_type::class_type) {
+          throw exception::bad_member_type{input, "managed_ref requires a concrete managed class target"};
+        }
+        const auto& object = static_cast<const class_node&>(*target.resolved_node);
+        if (!object.type_parameters.empty() || !object.supports_managed() ||
+            object.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
+            (object.attributes & class_attributes::packed) != class_attributes::none) {
+          throw exception::bad_member_type{input, "managed_ref requires a concrete unpacked owning managed class target"};
+        }
+        return;
+      }
+      for (auto& argument : type.arguments) { self(self, argument, parameters); }
+    };
+    const auto bind_callable = [&](function_declaration& function,
+        const std::vector<generic_parameter>& owner_parameters) {
+      auto parameters = owner_parameters;
+      parameters.insert(parameters.end(), function.generic_parameters.begin(), function.generic_parameters.end());
+      bind_tokens(bind_tokens, function.return_type, parameters);
+      for (auto& parameter : function.parameters) { bind_tokens(bind_tokens, parameter.type, parameters); }
+    };
+    if (node.type == object_type::function_type) {
+      bind_callable(static_cast<function_node&>(node).function, {});
+      return;
+    }
+    auto& owner = static_cast<class_node&>(node);
+    for (auto& field : owner.member_list) {
+      for (auto& type : field.type_name_list) {
+        if (type.contains_managed_reference() &&
+            (owner.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
+             (owner.attributes & class_attributes::packed) != class_attributes::none ||
+             field.managed || !field.default_value.empty() || !field.default_factory.empty())) {
+          throw exception::bad_member_type{input,
+              "managed_ref fields require ordinary unpacked owning storage and no schema value default"};
+        }
+        bind_tokens(bind_tokens, type, owner.generic_parameters);
+      }
+      if (field.key_type) { bind_tokens(bind_tokens, *field.key_type, owner.generic_parameters); }
+    }
+    for (auto& function : owner.functions) { bind_callable(function, owner.generic_parameters); }
+    for (auto& construction : owner.constructions) {
+      auto parameters = owner.generic_parameters;
+      parameters.insert(parameters.end(), construction.generic_parameters.begin(), construction.generic_parameters.end());
+      for (auto& parameter : construction.parameters) { bind_tokens(bind_tokens, parameter.type, parameters); }
+    }
+  }
+
 public:
   // Keep diagnostics associated with the compilation input; all caches are per compilation.
   explicit generic_lowering(const Input& source) : input{source} {}
@@ -1191,6 +1307,7 @@ public:
     // New concrete signature types may append output; their fields are checked before reuse.
     for (std::size_t index{}; index < output.size(); ++index) {
       resolve_deferred_constructors(*output[index]);
+      resolve_managed_references(*output[index]);
     }
     for (auto* definition : retained_templates) {
       definition->type = object_type::generic_definition;

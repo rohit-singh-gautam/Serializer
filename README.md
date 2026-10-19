@@ -35,11 +35,22 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **2.6.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.7.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
-compatibility across major releases. The schema language version is **1.19.0**;
+compatibility across major releases. The schema language version is **1.20.0**;
 see [release and schema versions](docs/guides/command_line.md).
+
+Compiler/runtime **2.7.0**, language **1.20.0**, adds inline XML defaults and field
+exceptions, `using schema "local.xsd";`, and reviewable XSD declaration import.
+Start with the [automatic and manual XSD examples](example/xsd/README.md) for all
+eleven outputs. Existing schemas keep their native codecs and wire identities.
+C++ additionally generates typed OPC package facades and propagates one operation
+budget, cancellation and deadline through XML and package I/O. Richer C++ XML
+bindings do not establish backend parity; unsupported backend combinations reject.
+See [implemented XML/package contracts](docs/serialization/xml_packages.md),
+[XSD subset and import rules](docs/serialization/xsd_tooling.md) and
+[remaining requirements](docs/xml_pending.md). Both editor packages use **2.0.5**.
 
 Compiler/runtime **2.6.0**, language **1.19.0**, adds
 [inline value references](docs/schema/value_references.md), such as
@@ -53,7 +64,7 @@ an independent payload, while `shared(owner.field)` retains its complete owner.
 These references are export-only; read their output with an ordinary owning schema.
 Existing named durable address
 references remain a separate supported API.
-Both editor packages use version **2.0.4**.
+This feature was introduced with editor packages **2.0.4**.
 The [reference export examples](example/references/README.md) demonstrate the
 one-argument bindings, value-only wire equivalence and scoped translation.
 
@@ -81,6 +92,31 @@ opaque extension policies and canonical package ordering. See
 [the API contract](docs/serialization/xml_packages.md) and the
 [remaining requirements](docs/xml_pending.md); the full XML/package design is
 not yet implemented. Schema language 1.17.0 and existing wire formats are unchanged.
+
+For OPC application/library responsibilities, remaining 3MF authoring requirements
+and a restricted schema/build example, see the
+[OPC and 3MF authoring design](docs/design/opc_3mf_support.md). The C++ OPC runtime
+generates standard content-type and relationship metadata; application schemas
+describe payloads. C++ package declarations generate complete assembly and typed
+loading through the existing OPC runtime; other-language package parity remains
+pending. The design also covers
+[schema-first binding and XSD declaration import](docs/design/opc_3mf_support.md#schema-first-authoring-and-declaration-import),
+which remove duplicate field placement lists for the supported XSD subset.
+The [XML authoring workflow](docs/design/opc_3mf_support.md#schema-first-authoring-and-declaration-import)
+declares placement once in XSD or alongside Serializer fields. Existing INI
+mappings remain available for applications that explicitly choose them.
+
+The [managed entity-reference contract](docs/design/managed_entity_references.md)
+describes C++ typed tokens, stable class tags, identity-preserving editable values
+and isolated previews. Collaboration now reserves native ID ranges and retains
+identical document/object IDs across participants. Generated `persistent_id`
+payloads default to `compact_varint`; select `[managed] id_encoding = fixed` when
+fixed-width encoding is wanted. Memory width still defaults to `uint32`.
+See the [persistent-ID migration guide](docs/guides/persistent_id_migration.md).
+Build a schema-specific offline converter with
+`serializer_add_migration_tool(TARGET migrate_model SCHEMA model.serializer ROOT app::document)`.
+It supports explicit fixed/compact ID policies for managed saves and raw models;
+raw input/output binary formats can also differ.
 
 Compiler/runtime **2.3.1** preserves schema license notices without adding an
 output-license banner. Generated files retain the minimal Serializer provenance
@@ -149,7 +185,8 @@ regenerate through their build rules. Supported 1.x schema headers, generated
 model names, runtime APIs and wire contracts retain their existing behavior;
 see [2.0 migration](migration.md#compilerruntime-200).
 
-Use `serializer version 1.19.0;` for new schemas. Older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, `1.11.0`, `1.12.0`, `1.13.0`, `1.14.0`, `1.15.0`, `1.16.0`, `1.17.0`, and `1.18.0` schemas remain supported. The original
+Use `serializer version 1.20.0;` for new schemas. Older 1.x schemas through
+`1.19.0` remain supported. The original
 `serializer version 1;` is an exact compatibility alias for `1.0.0`, exclusive to
 version 1. Future versions require all three components; see the
 [schema language policy](docs/guides/command_line.md#schema-language-version-policy).
@@ -197,7 +234,7 @@ arithmetic operator mappings with owning constructor calls in portable expressio
 Existing fields, wire formats and managed protocols retain their contracts.
 Run the [four focused examples](example/README.md#owning-record-apis) and consult
 [qualification](docs/verification/verification-owning-api-2026-10-12.md) for tested
-backends and limits. Both current editor packages are **2.0.4**, with separate
+backends and limits. Both current editor packages are **2.0.5**, with separate
 C++ generated-header navigation. See
 [editor verification](docs/editors/editor_extension.md#verification-performed)
 for package checks and navigation qualification.
@@ -638,7 +675,7 @@ The extensions are separate from the compiler and runtime.
 | Visual Studio Code | Highlighting, snippets, schema navigation, CMake generation commands, and missing-include assistance | [VS Code guide](docs/editors/editor_extension.md) |
 | Visual Studio 2022 / 2026, Windows x64 | Highlighting, editing configuration, native declaration/type-definition navigation, F12, and Ctrl+click | [Visual Studio guide](editors/visual_studio/README.md) |
 
-Both extensions use source release version **2.0.2**, versioned independently from
+Both extensions use source release version **2.0.5**, versioned independently from
 the compiler/runtime. Embedded `cpp { ... }`, `java { ... }`, and other target blocks reuse
 available language grammars for syntax highlighting. Install the language's grammar
 provider where the editor does not bundle it; this does not add embedded IntelliSense.

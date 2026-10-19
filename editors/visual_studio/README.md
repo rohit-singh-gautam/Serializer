@@ -1,5 +1,19 @@
 # Rohit Serializer for Visual Studio
 
+Version **2.0.5** supports schema language **1.20.0** XML defaults, field overrides,
+namespace `using schema` declarations and declarative package roles. Qualified
+role model types navigate to their declarations; fixed XSD paths open the local
+file without treating it as a Serializer include or fetching remote resources.
+XML policy/placement tokens do not claim type destinations. VS Code also provides
+XML/package authoring snippets. Compiler/runtime providers and supported vocabulary
+remain prerequisites; editor support does not establish format conformance.
+Typed C++ `managed_ref<T>` tokens navigate to the managed target, including forward
+and included declarations. `class_id(decimal)` preserves explicit class identity;
+its numeric metadata does not become a type reference. VS Code supplies token and
+class-identity snippets. Both local packages share version 2.0.5; building them does
+not install or publish them.
+
+
 Version **2.0.4** supports language **1.19.0** inline value references such as
 `public borrowed(payload) d (1);`, including payload-type and optional owner-field navigation.
 Borrowed views use application-owned storage; shared/weak modes are optional.
@@ -230,7 +244,7 @@ installation. It uses full-framework MSBuild with locked dependencies, bundles
 the current shared resolver, rebuilds and validates:
 
 ```text
-out/extensions/serializer-visual-studio-2.0.4.vsix
+out/extensions/serializer-visual-studio-2.0.5.vsix
 ```
 
 Close Visual Studio, double-click the VSIX, select the installation and restart

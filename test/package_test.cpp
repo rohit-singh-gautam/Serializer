@@ -614,6 +614,8 @@ TEST(package_profile, aggregate_rollback_preservation_and_shared_callback_budget
   EXPECT_TRUE(destination.extensions.parts.empty());
   std::istringstream source{encoded.str()};
   package::opc_reader reader{source};
+  const auto infrastructure_decoder_bytes = reader.shared_budget()->configured().max_decoder_allocation_bytes -
+      reader.shared_budget()->remaining(package::resource::decoder_allocation_bytes);
   package::load_opc_into(reader, destination, decode,
       {.parts = package::unknown_policy::preserve,
        .relationships = package::unknown_policy::preserve});
@@ -634,8 +636,10 @@ TEST(package_profile, aggregate_rollback_preservation_and_shared_callback_budget
   EXPECT_EQ(reopened.relationships().size(), 2U);
 
   std::istringstream limited_source{encoded.str()};
+  // Admit exactly the measured infrastructure parsing cost, then reject the callback allocation.
   package::opc_reader limited{limited_source, std::make_shared<package::budget>(
-      package::limits{.max_decoder_allocation_bytes = 0})};
+      package::limits{.max_decoder_allocation_bytes = infrastructure_decoder_bytes})};
+  EXPECT_EQ(limited.shared_budget()->remaining(package::resource::decoder_allocation_bytes), 0U);
   expect_error(package::error_code::resource_limit, [&] {
     package::load_opc_into(limited, destination, decode,
         {.parts = package::unknown_policy::skip, .relationships = package::unknown_policy::skip});

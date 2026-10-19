@@ -50,6 +50,7 @@ TEST(managed_profile, collaboration_with_uint64_and_disabled_history) {
   authority.open_session(1);
   managed::collaboration_replica<root> replica;
   replica.synchronize(authority.snapshot(), authority.context());
+  replica.initialize_identity_lease(1, authority.reserve_ids(1));
   const auto proposal = replica.propose(1, 1, [](auto& tx) {
     auto paragraphs = tx.root().Notes().Paragraphs();
     paragraphs.edit(paragraphs.append({"Draft"})).SetText("Shared");

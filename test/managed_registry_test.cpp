@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
+#include <functional>
 #include <future>
 #include <memory>
 #include <mutex>
@@ -468,4 +469,285 @@ TEST(managed_registry, collaboration_authorization_and_exact_retries) {
   const auto undo = authority.submit_change(replica.undo(1, 3), 1, 0);
   ASSERT_EQ(undo->status, managed::collaboration_status::accepted);
   EXPECT_EQ(managed::model_traits<entry>::payload(traits::payload(*authority.read()).entries.front()).count, 10);
+}
+
+// Canceling discards private edits while already exposed native IDs remain permanently consumed.
+TEST(managed_registry, preview_cancel_preserves_snapshot_and_burns_reserved_identities) {
+  store_type store{initial()};
+  const auto accepted = store.read();
+  const auto allocation = store.allocated_id();
+  const auto state = store.state();
+  auto proposal = store.preview();
+  EXPECT_EQ(proposal.working().read(), accepted);
+  proposal.working().execute_transaction([](auto& edit) {
+    edit.root().entries().append(entry{});
+    edit.root().set_title("preview");
+  }).throw_if_failed();
+  EXPECT_GT(proposal.working().allocated_id(), allocation);
+  const auto consumed = store.allocated_id();
+  EXPECT_GT(consumed, allocation);
+  EXPECT_EQ(store.read(), accepted);
+  proposal.cancel();
+  EXPECT_FALSE(proposal.active());
+  EXPECT_THROW(proposal.working(), std::logic_error);
+  EXPECT_EQ(store.read(), accepted);
+  EXPECT_EQ(store.state(), state);
+  EXPECT_EQ(store.allocated_id(), consumed);
+}
+
+// Draft tokens cannot retarget live objects, and competing workspaces cannot expose duplicate IDs.
+TEST(managed_registry, preview_tokens_never_alias_later_live_or_concurrent_preview_entities) {
+  store_type store{initial()};
+  auto proposal = store.preview();
+  auto concurrent = store.preview();
+  proposal.working().execute_transaction([](auto& edit) {
+    edit.root().entries().append(entry{});
+  }).throw_if_failed();
+  const auto id = traits::payload(*proposal.working().read()).entries.back().persistent_id;
+  const auto token = proposal.working().registry().template reference<entry>(id);
+  const auto collided = concurrent.working().execute_transaction([](auto& edit) {
+    edit.root().entries().append(entry{});
+  });
+  EXPECT_THROW(collided.throw_if_failed(), std::logic_error);
+  store.execute_transaction([](auto& edit) {
+    edit.root().entries().append(entry{});
+  }).throw_if_failed();
+  EXPECT_GT(traits::payload(*store.read()).entries.back().persistent_id, id);
+  EXPECT_THROW(store.registry().resolve(token), managed::registry_error);
+  proposal.cancel();
+  concurrent.cancel();
+  store.execute_transaction([](auto& edit) {
+    edit.root().entries().append(entry{});
+  }).throw_if_failed();
+  EXPECT_THROW(store.registry().resolve(token), managed::registry_error);
+}
+
+// Failed edits burn their source reservations, and moving a workspace preserves its allocator binding.
+TEST(managed_registry, preview_failed_edit_and_move_keep_identity_reservations) {
+  store_type store{initial()};
+  auto proposal = store.preview();
+  const auto before = store.allocated_id();
+  const auto failed = proposal.working().execute_transaction([](auto& edit) {
+    edit.root().entries().append(entry{});
+    throw std::runtime_error{"Discard the private edit"};
+  });
+  EXPECT_THROW(failed.throw_if_failed(), std::runtime_error);
+  const auto burned = store.allocated_id();
+  EXPECT_GT(burned, before);
+  auto moved = std::move(proposal);
+  moved.working().execute_transaction([](auto& edit) {
+    edit.root().entries().append(entry{});
+  }).throw_if_failed();
+  const auto created = traits::payload(*moved.working().read()).entries.back().persistent_id;
+  EXPECT_GT(created, burned);
+  const auto token = moved.working().registry().template reference<entry>(created);
+  store.accept_preview(moved).throw_if_failed();
+  EXPECT_EQ(store.registry().resolve(token).id(), created);
+}
+
+// Previously borrowed workspace handles cannot mutate or move the proposal during acceptance callbacks.
+TEST(managed_registry, preview_acceptance_fences_workspace_validation_and_publication_reentry) {
+  std::function<void()> reenter;
+  store_type store{initial(), managed::make_document_id(), {}, [&](const auto&) {
+    if (reenter) { reenter(); }
+  }};
+  auto proposal = store.preview();
+  auto& working = proposal.working();
+  working.execute_transaction([](auto& edit) {
+    edit.root().set_title("selected preview");
+  }).throw_if_failed();
+  auto attempts = std::size_t{};
+  reenter = [&] {
+    ++attempts;
+    const auto result = working.execute_transaction([](auto& edit) {
+      edit.root().set_title("reentrant replacement");
+    });
+    EXPECT_THROW(result.throw_if_failed(), std::logic_error);
+    EXPECT_THROW(static_cast<void>(store_type::preview_edit{std::move(proposal)}), std::logic_error);
+    EXPECT_THROW(proposal.cancel(), std::logic_error);
+  };
+  store.set_publication_callback([&](const auto&) { reenter(); });
+  store.accept_preview(proposal).throw_if_failed();
+  EXPECT_GE(attempts, 3U);
+  EXPECT_EQ(traits::payload(*store.read()).title, "selected preview");
+  EXPECT_FALSE(proposal.active());
+}
+
+// Exact-base acceptance transfers identities once and uses ordinary native Undo/Redo.
+TEST(managed_registry, preview_accept_preserves_new_ids_and_native_history) {
+  store_type store{initial()};
+  const auto root_id = store.read()->persistent_id;
+  auto proposal = store.preview();
+  proposal.working().execute_transaction([](auto& edit) {
+    entry value{};
+    value.key = "preview child";
+    edit.root().entries().append(value);
+    edit.root().set_title("accepted preview");
+  }).throw_if_failed();
+  const auto child_id = traits::payload(*proposal.working().read()).entries.back().persistent_id;
+  const auto allocation = proposal.working().allocated_id();
+  store.accept_preview(proposal).throw_if_failed();
+  EXPECT_FALSE(proposal.active());
+  EXPECT_EQ(store.read()->persistent_id, root_id);
+  EXPECT_EQ(store.registry().find<entry>(child_id).value().key, "preview child");
+  EXPECT_EQ(store.allocated_id(), allocation);
+  store.undo();
+  EXPECT_FALSE(store.registry().contains(child_id));
+  EXPECT_TRUE(traits::payload(*store.read()).title.empty());
+  store.redo();
+  EXPECT_EQ(store.registry().find<entry>(child_id).value().key, "preview child");
+  EXPECT_EQ(store.allocated_id(), allocation);
+}
+
+// Allocation-only changes fence acceptance even when the accepted snapshot is unchanged.
+TEST(managed_registry, preview_rejects_stale_allocation_and_foreign_store) {
+  store_type store{initial()};
+  auto proposal = store.preview();
+  store.execute_transaction([](auto& edit) {
+    static_cast<void>(edit.create_id());
+    edit.revert();
+  }).throw_if_failed();
+  const auto before = store.save();
+  EXPECT_THROW(store.accept_preview(proposal).throw_if_failed(), std::logic_error);
+  EXPECT_EQ(store.save(), before);
+  EXPECT_TRUE(proposal.active());
+  store_type other{initial(), store.document()};
+  EXPECT_THROW(other.accept_preview(proposal).throw_if_failed(), std::logic_error);
+}
+
+// The full native snapshot retains accepted preview IDs across fresh-store recovery.
+TEST(managed_registry, accepted_preview_survives_native_recovery) {
+  store_type store{initial()};
+  auto proposal = store.preview();
+  proposal.working().execute_transaction([](auto& edit) {
+    edit.root().entries().append(entry{});
+  }).throw_if_failed();
+  const auto child_id = traits::payload(*proposal.working().read()).entries.back().persistent_id;
+  store.accept_preview(proposal).throw_if_failed();
+  store_type recovered{initial()};
+  recovered.load(store.save());
+  EXPECT_EQ(recovered.document().high, store.document().high);
+  EXPECT_EQ(recovered.document().low, store.document().low);
+  EXPECT_TRUE(recovered.registry().contains(child_id));
+  recovered.undo();
+  EXPECT_FALSE(recovered.registry().contains(child_id));
+  recovered.redo();
+  EXPECT_TRUE(recovered.registry().contains(child_id));
+}
+
+// Editable application preserves the root, retains surviving child IDs and allocates only new ones.
+TEST(managed_registry, apply_editable_reconciles_owned_entities_in_one_action) {
+  store_type store{initial()};
+  const auto root_id = store.read()->persistent_id;
+  const auto removed = first_id(store);
+  auto candidate = *store.read();
+  auto& payload = traits::payload(candidate);
+  payload.entries.erase(payload.entries.begin());
+  const auto retained = payload.entries.front().persistent_id;
+  managed::model_traits<entry>::payload(payload.entries.front()).count = 75;
+  entry added{};
+  added.key = "new editable child";
+  payload.entries.push_back(managed::model_traits<entry>::make_storage(added));
+  payload.title = "editable";
+  candidate.persistent_id = 0;
+  store.execute_transaction([&](auto& edit) {
+    edit.root().apply_editable(std::move(candidate));
+  }).throw_if_failed();
+  EXPECT_EQ(store.read()->persistent_id, root_id);
+  EXPECT_FALSE(store.registry().contains(removed));
+  EXPECT_EQ(store.registry().find<entry>(retained).value().count, 75);
+  const auto created = traits::payload(*store.read()).entries.back().persistent_id;
+  EXPECT_NE(created, removed);
+  EXPECT_NE(created, retained);
+  EXPECT_EQ(store.registry().find<entry>(created).value().key, "new editable child");
+  store.undo();
+  EXPECT_TRUE(store.registry().contains(removed));
+  EXPECT_FALSE(store.registry().contains(created));
+  EXPECT_EQ(store.registry().find<entry>(retained).value().count, 20);
+  store.redo();
+  EXPECT_EQ(store.registry().find<entry>(created).value().key, "new editable child");
+}
+
+// Authored foreign IDs and duplicate ownership poison the transaction without changing live values.
+TEST(managed_registry, apply_editable_rejects_foreign_and_duplicate_owned_ids) {
+  store_type store{initial()};
+  const auto before = store.save();
+  const auto allocation = store.allocated_id();
+  auto candidate = *store.read();
+  traits::payload(candidate).entries.front().persistent_id =
+      static_cast<store_type::id_type>(allocation + 100U);
+  const auto foreign = store.execute_transaction([&](auto& edit) {
+    edit.root().apply_editable(std::move(candidate));
+  });
+  EXPECT_THROW(foreign.throw_if_failed(), std::invalid_argument);
+  EXPECT_EQ(store.allocated_id(), allocation);
+  EXPECT_EQ(store.save(), before);
+  candidate = *store.read();
+  auto& entries = traits::payload(candidate).entries;
+  entries.push_back(entries.front());
+  const auto duplicate = store.execute_transaction([&](auto& edit) {
+    edit.root().apply_editable(std::move(candidate));
+  });
+  EXPECT_THROW(duplicate.throw_if_failed(), std::invalid_argument);
+  EXPECT_EQ(store.save(), before);
+}
+
+// Accepted preview reservations and the single edit replay through both native journal modes.
+TEST(managed_registry, preview_accept_replays_native_journal_and_undo) {
+  journal_directory directory;
+  for (const auto mode : {managed::journal_storage_mode::appended, managed::journal_storage_mode::sidecar}) {
+    const auto path = directory.path / (mode == managed::journal_storage_mode::appended ? "preview-appended" : "preview-sidecar");
+    auto created = store_type::id_type{};
+    auto allocation = std::uint64_t{};
+    {
+      store_type store{initial()};
+      store.create_journal(path, mode);
+      auto proposal = store.preview();
+      proposal.working().execute_transaction([](auto& edit) {
+        edit.root().entries().append(entry{});
+        edit.root().set_title("journal preview");
+      }).throw_if_failed();
+      created = traits::payload(*proposal.working().read()).entries.back().persistent_id;
+      store.accept_preview(proposal).throw_if_failed();
+      allocation = store.allocated_id();
+    }
+    store_type recovered{root{}};
+    recovered.recover_journal(path);
+    EXPECT_TRUE(recovered.registry().contains(created));
+    EXPECT_EQ(recovered.allocated_id(), allocation);
+    recovered.undo();
+    EXPECT_FALSE(recovered.registry().contains(created));
+    recovered.redo();
+    EXPECT_TRUE(recovered.registry().contains(created));
+  }
+}
+
+// Canceled draft identities remain burned after recovery through either native journal layout.
+TEST(managed_registry, preview_cancel_recovery_never_retargets_a_draft_token) {
+  journal_directory directory;
+  for (const auto mode : {managed::journal_storage_mode::appended, managed::journal_storage_mode::sidecar}) {
+    const auto path = directory.path / (mode == managed::journal_storage_mode::appended ? "canceled-appended" : "canceled-sidecar");
+    managed::managed_ref<entry, store_type::id_type> token;
+    auto consumed = std::uint64_t{};
+    {
+      store_type store{initial()};
+      store.create_journal(path, mode);
+      auto proposal = store.preview();
+      proposal.working().execute_transaction([](auto& edit) {
+        edit.root().entries().append(entry{});
+      }).throw_if_failed();
+      const auto created = traits::payload(*proposal.working().read()).entries.back().persistent_id;
+      token = proposal.working().registry().template reference<entry>(created);
+      consumed = store.allocated_id();
+      proposal.cancel();
+    }
+    store_type recovered{root{}};
+    recovered.recover_journal(path);
+    EXPECT_EQ(recovered.allocated_id(), consumed);
+    recovered.execute_transaction([](auto& edit) {
+      edit.root().entries().append(entry{});
+    }).throw_if_failed();
+    EXPECT_GT(traits::payload(*recovered.read()).entries.back().persistent_id, consumed);
+    EXPECT_THROW(recovered.registry().resolve(token), managed::registry_error);
+  }
 }

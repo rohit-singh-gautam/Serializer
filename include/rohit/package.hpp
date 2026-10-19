@@ -4,11 +4,13 @@
 #pragma once
 
 #include <cstddef>
+#include <chrono>
 #include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <iosfwd>
 #include <memory>
+#include <optional>
 #include <set>
 #include <span>
 #include <stdexcept>
@@ -18,6 +20,8 @@
 #include <utility>
 #include <vector>
 
+namespace rohit::serializer::xml { struct operation_context; }
+
 namespace rohit::serializer::package {
 
 inline constexpr std::size_t mebibyte = 1024 * 1024;
@@ -25,7 +29,7 @@ enum class error_code {
   unavailable, unsupported_feature, invalid_archive, invalid_name, duplicate_name,
   integrity, resource_limit, cancelled, io, invalid_state, invalid_metadata,
   missing_part, invalid_relationship, publication, publication_uncertain,
-  codec, invalid_reference, semantic
+  codec, invalid_reference, semantic, deadline_exceeded
 };
 
 // A package error separates archive offsets from the logical source part.
@@ -60,6 +64,7 @@ struct limits {
   std::uint64_t max_work_units{512 * mebibyte};
   std::uint64_t max_references{65536};
   std::uint64_t max_preserved_bytes{64 * mebibyte};
+  std::optional<std::chrono::steady_clock::time_point> deadline{};
 };
 
 enum class resource {
@@ -97,6 +102,8 @@ public:
   void consume(resource selected, std::uint64_t count, std::string_view part = {});
   // Bound a simultaneous per-operation scratch allocation without charging retained metadata.
   void check_buffer(std::uint64_t count, std::string_view part = {}) const;
+  // Borrow this budget into XML codecs; the returned context must not outlive the budget.
+  [[nodiscard]] xml::operation_context xml_context(std::string_view part = {});
 };
 
 // Reserve caller-owned scratch across nested archive/compression operations on the same budget.
@@ -319,6 +326,11 @@ public:
       std::string_view expected_content_type,
       const std::function<void(std::span<const std::uint8_t>, const part&, budget&)>& decode,
       std::size_t minimum = 1, std::size_t maximum = 1);
+  // Dynamic-MIME roles explicitly opt out of exact type matching while retaining OPC validation.
+  void read_related(std::string_view source, std::string_view relationship_type,
+      std::string_view expected_content_type,
+      const std::function<void(std::span<const std::uint8_t>, const part&, budget&)>& decode,
+      std::size_t minimum, std::size_t maximum, bool allow_any_content_type);
   // Validate every remaining payload's integrity, then apply optional extension policies.
   // Call only after application references and semantic checks succeed; no destination is changed.
   [[nodiscard]] preserved_extensions finish();

@@ -1,0 +1,6 @@
+{
+  "name": "serializer-xml-javascript-example",
+  "private": true,
+  "type": "module",
+  "dependencies": { "@xmldom/xmldom": "0.9.12" }
+}

@@ -525,6 +525,7 @@ type_name parse_type_expression(const rohit::type_check::schema_input_buffer aut
   result.source_offset = source_offset;
   result.record_key_language_supported = active_language_version >= language_version{1u, 11u, 0u};
   result.expected_language_supported = active_language_version >= language_version{1u, 17u, 0u};
+  result.managed_reference_language_supported = active_language_version >= language_version{1u, 20u, 0u};
   skip_whitespace_and_comment(input);
   if (result.name == "digest") {
     result.digest_language_supported = active_language_version >= language_version{1u, 3u, 0u};
@@ -1411,6 +1412,8 @@ reference_declaration parse_value_reference(
   return result;
 }
 
+#include "xml_authoring_parser.hpp"
+
 // Parse one ordinary field and retain inline value selection until class lowering.
 member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_stream,
                          const std::uint32_t id, namespace_node* declared_namespace) {
@@ -1683,6 +1686,7 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   std::string readonly_getter{};
   access_type readonly_getter_access{access_type::public_access};
   std::optional<array_exposure_options> array_exposure{};
+  std::optional<xml_field_options> xml_mapping{};
   while (true) {
     skip_whitespace_and_comment(in_stream);
     if (*in_stream == '(') {
@@ -1707,6 +1711,9 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
       } else {
         default_value = get_default_value(in_stream);
       }
+    } else if (next_keyword(in_stream, "xml")) {
+      if (xml_mapping) { throw exception::bad_member_spec{in_stream, "Only one XML mapping is allowed per field"}; }
+      xml_mapping = parse_xml_field_options(in_stream);
     } else if (next_keyword(in_stream, "default")) {
       if (active_language_version < language_version{1u, 8u, 0u}) {
         throw exception::bad_member_spec{in_stream, "Structured defaults require serializer version 1.8.0"};
@@ -1918,6 +1925,7 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   result.readonly_getter = std::move(readonly_getter);
   result.readonly_getter_access = readonly_getter_access;
   result.array_exposure = std::move(array_exposure);
+  result.xml = std::move(xml_mapping);
   result.inferred_extent = infer_extent;
   result.owning_variant = owning_variant;
   result.compact = compact;
@@ -2122,6 +2130,11 @@ void parse_class_body_impl(const rohit::type_check::schema_input_buffer auto& in
     const auto blank_lines = declaration_blank_lines(std::string_view{
         reinterpret_cast<const char*>(preceding_end),
         static_cast<std::size_t>(in_stream.curr() - preceding_end)});
+    if (next_keyword(in_stream, "xml")) {
+      parse_xml_authoring_defaults(in_stream, obj->xml, true);
+      skip_body_spacing();
+      continue;
+    }
     if (next_keyword(in_stream, "arithmetic")) {
       parse_arithmetic(in_stream, *obj);
       skip_whitespace_and_comment(in_stream);
@@ -2481,6 +2494,7 @@ parse_class_header(const rohit::type_check::schema_input_buffer auto& in_stream,
     skip_whitespace_and_comment(in_stream);
   }
   auto attributes{class_attributes::none};
+  std::optional<std::uint64_t> explicit_class_id;
   class_node arithmetic_owner{object_type::class_type, std::string{name}, current_namespace,
                              class_attributes::none, {}};
   bool view{}, owning{}, readonly{}, mutable_view{};
@@ -2491,6 +2505,27 @@ parse_class_header(const rohit::type_check::schema_input_buffer auto& in_stream,
       attributes |= class_attributes::packed;
     } else if (value == "stable_ids") {
       attributes |= class_attributes::stable_ids;
+    } else if (value == "class_id") {
+      if (active_language_version < language_version{1u, 20u, 0u}) {
+        throw exception::bad_class{in_stream, "class_id requires serializer version 1.20.0 or newer"};
+      }
+      if (explicit_class_id) {
+        throw exception::bad_class{in_stream, "Only one class_id is allowed per class"};
+      }
+      skip_whitespace_and_comment(in_stream);
+      check_and_increase(in_stream, '(');
+      skip_whitespace_and_comment(in_stream);
+      const auto* begin = reinterpret_cast<const char*>(in_stream.curr());
+      while (!in_stream.full() && *in_stream >= '0' && *in_stream <= '9') { ++in_stream; }
+      const auto* end = reinterpret_cast<const char*>(in_stream.curr());
+      std::uint64_t parsed{};
+      const auto converted = std::from_chars(begin, end, parsed);
+      if (begin == end || converted.ec != std::errc{} || converted.ptr != end || parsed == 0) {
+        throw exception::bad_class{in_stream, "class_id requires a nonzero uint64 decimal literal"};
+      }
+      explicit_class_id = parsed;
+      skip_whitespace_and_comment(in_stream);
+      check_and_increase(in_stream, ')');
     } else if (value == "managed") {
       attributes |= class_attributes::managed;
     } else if (value == "view") {
@@ -2534,6 +2569,7 @@ parse_class_header(const rohit::type_check::schema_input_buffer auto& in_stream,
       ((!view || owning) ? static_cast<unsigned>(storage_mode::owning) : 0u) |
       (readonly ? static_cast<unsigned>(storage_mode::read_only_view) : 0u) |
       (mutable_view ? static_cast<unsigned>(storage_mode::mutable_view) : 0u));
+  result->explicit_class_id = explicit_class_id;
   result->type_parameters = std::move(parameters);
   result->generic_parameters = std::move(parameter_specs);
   result->arithmetic = std::move(arithmetic_owner.arithmetic);
@@ -2831,6 +2867,23 @@ parse_statement_list(const rohit::type_check::schema_input_buffer auto& in_strea
     if (is_first_identifier(lookahead)) {
       const auto target = parse_identifier_impl(lookahead);
       skip_whitespace_and_comment(lookahead);
+      if (target == "using" && next_keyword(lookahead, "schema")) {
+        parse_xml_schema_binding(in_stream, parent_namespace);
+        continue;
+      }
+      if (target == "xml") {
+        if (!parent_namespace) {
+          throw exception::bad_namespace{in_stream, "Schema XML defaults require a namespace scope"};
+        }
+        parse_xml_authoring_defaults(in_stream, parent_namespace->xml, false);
+        continue;
+      }
+      if (target == "package") {
+        auto package = parse_package(in_stream, parent_namespace);
+        register_declaration(in_stream, *package, declarations);
+        statements.push_back(std::move(package));
+        continue;
+      }
       if (target == "reference") {
         statements.emplace_back(parse_reference(in_stream, parent_namespace, declarations));
         continue;
@@ -2982,6 +3035,9 @@ void resolve_type(const rohit::type_check::schema_input_buffer auto& input, type
   if (auto* node = find_declared_type(type.name, type.declared_namespace, types)) {
     if (node->type == object_type::namespace_type) {
       throw exception::bad_member_type{input, "Namespace cannot be used as a type: " + type.name};
+    }
+    if (node->type == object_type::package_type) {
+      throw exception::bad_member_type{input, "Package cannot be used as a type: " + type.name};
     }
     type.resolved_node = node;
     type.type = node->type;
@@ -3767,6 +3823,17 @@ void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream
       case object_type::enum_type:
         register_declaration(in_stream, *statement, variable_type_map);
         break;
+
+      case object_type::package_type: {
+        auto& package = static_cast<package_node&>(*statement);
+        for (auto& part : package.parts) {
+          if (!part.value_type) { continue; }
+          resolve_type(in_stream, *part.value_type, variable_type_map);
+          if (part.value_type->type != object_type::class_type) {
+            throw exception::bad_member_type{in_stream, "Typed package parts require an ordinary record type"};
+          }
+        }
+      } break;
 
       default:
         break;

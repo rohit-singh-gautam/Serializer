@@ -32,6 +32,7 @@
 #include "array_exposure_writer.hpp"
 #include "reference_writer.hpp"
 #include "xml_schema.hpp"
+#include "package_writer.hpp"
 
 #include <rohit/serializer_creator.hpp>
 
@@ -39,6 +40,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <initializer_list>
 #include <map>
 #include <memory>
 #include <set>
@@ -146,7 +148,7 @@ public:
         class_comparisons{options.class_comparisons},
         class_auto_sizes{options.class_auto_sizes},
         xml_options_{options.xml}, xml_schema_{options.xml},
-        managed_{*this, options.managed_id_type, options.managed_separate_values} {
+        managed_{*this, options.managed_id_type, options.managed_separate_values, options.managed_id_encoding} {
     if (emission_only && (!constant_evaluation_enabled || !positional_only)) {
       throw std::invalid_argument{
           "cpp.emission_only true requires cpp.constant_evaluation true and cpp.protocols binary_none"};
@@ -191,6 +193,10 @@ public:
   // Preserve digest byte cardinality wherever a primitive type appears in generated storage.
   std::string storage_type_name(const ::rohit::serializer::type_name& value,
                                 storage_mode mode = storage_mode::owning) {
+    if (value.is_managed_reference()) {
+      return "::rohit::managed::managed_ref<" + generic_default(value.arguments.front()) +
+          ", " + managed_.id_type_name() + ">";
+    }
     if (value.is_optional()) {
       return "::std::optional<" + storage_type_name(value.arguments.front(), mode) + ">";
     }
@@ -1105,6 +1111,7 @@ public:
     }
     projection_fields_ = std::move(projected);
     write_serializer_out_body(output, &bound_target);
+    if (xml_options_.enabled) { write_xml(output, bound_target, true); }
     projection_fields_.clear();
     projected_target_type_.clear();
     protobuf_enabled = saved_protobuf;
@@ -1238,16 +1245,22 @@ public:
                        std::string_view{key_type == serialize_key_type::none ? ");" : "));"});
       return;
     }
-    if (member.compact != compact_encoding::none) {
+    if (member.persistent_identity || member.compact != compact_encoding::none) {
       if (key_type == serialize_key_type::string) {
         out_stream.write("::std::make_pair(", constant_output_name(member.display_name), ", ");
       } else if (key_type == serialize_key_type::integer) {
         out_stream.write("::std::make_pair(static_cast<::std::uint32_t>(", member.id, "), ");
       }
-      out_stream.write("::rohit::serializer::detail::compact_output<",
-                       std::string_view{member.compact == compact_encoding::prefix ? "true" : "false"}, ", ",
-                       std::string_view{member.compact_strict ? "true" : "false"}, ", ", get_cpp_type(member),
-                       ">{this->", member_name(member), "}");
+      if (member.persistent_identity) {
+        out_stream.write("::rohit::serializer::detail::persistent_identity_output<",
+                         std::string_view{member.compact == compact_encoding::varint ? "true" : "false"},
+                         ", ", get_cpp_type(member), ">{this->", member_name(member), "}");
+      } else {
+        out_stream.write("::rohit::serializer::detail::compact_output<",
+                         std::string_view{member.compact == compact_encoding::prefix ? "true" : "false"}, ", ",
+                         std::string_view{member.compact_strict ? "true" : "false"}, ", ", get_cpp_type(member),
+                         ">{this->", member_name(member), "}");
+      }
       out_stream.write(std::string_view{key_type == serialize_key_type::none ? ");" : "));"});
       return;
     }
@@ -1312,6 +1325,7 @@ public:
     return field.modifier == member::modifier_type::none &&
            field.auto_size_formats.empty() &&
            field.compact == compact_encoding::none &&
+           !field.persistent_identity &&
            field.type_name_list.front().type == object_type::primitive &&
            !field.type_name_list.front().is_digest() &&
            !field.type_name_list.front().is_optional() &&
@@ -1372,6 +1386,9 @@ public:
                       object.attributes, std::vector<parent>{object.parents}};
     result.generic_parameters = object.generic_parameters;
     result.reference = object.reference;
+    result.xml = object.xml;
+    result.explicit_class_id = object.explicit_class_id;
+    result.named_generic_arguments = object.named_generic_arguments;
     result.magic_bytes = object.magic_bytes;
     result.magic_field = object.magic_field;
     result.magic_access = object.magic_access;
@@ -1745,6 +1762,10 @@ public:
                              field.type_name_list[0].type == object_type::class_type ||
                              field.type_name_list[0].type == object_type::unresolved;
     const auto read =
+        field.persistent_identity ?
+        "::rohit::serializer::detail::read_persistent_identity<" +
+            std::string{field.compact == compact_encoding::varint ? "true" : "false"} + ">(" +
+            local_name("serializer_protocol") + ", this->" + member_name(field) + ");\n" :
         field.compact != compact_encoding::none ?
         "::rohit::serializer::detail::read_compact<" +
             std::string{field.compact == compact_encoding::prefix ? "true" : "false"} + ">(" +
@@ -2478,8 +2499,14 @@ public:
 
   // Validate XML member APIs against the complete class before durable-layout filtering removes callables.
   void validate_xml_names(const class_node& object) {
-    const std::set<std::string> reserved_xml_names{"xml_root_name", "xml_runtime_xsd", "xml_validate_input",
+    std::set<std::string> reserved_xml_names{"xml_root_name", "xml_runtime_xsd", "xml_validate_input",
         "xml_validate_output", "serialize_xml_out", "serialize_xml_in"};
+    const auto contract = xml_schema_.bind(object);
+    if (contract.unknown || !contract.wildcards.empty()) { reserved_xml_names.insert("xml_operation_context"); }
+    if (contract.unknown == xml_unknown_policy::preserve) { reserved_xml_names.insert("xml_extensions"); }
+    if (std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) {
+          return field.qname || field.prefix_list || field.facets.list_item_kind == "QName";
+        })) { reserved_xml_names.insert("xml_namespace_bindings"); }
     if (reserved_xml_names.contains(type_name(object.name))) {
       throw std::invalid_argument{"XML generated API conflicts with owning class name: " + object.name};
     }
@@ -2508,15 +2535,174 @@ public:
     }
   }
 
+  // Emit only selected scalar checks; ordinary models and XML records without facets add none.
+  void write_xml_value_checks(rohit::type_check::output_buffer auto& output,
+      const xml_binding::field& field, std::string_view node, std::string_view context, bool input) {
+    const auto& facets = field.facets;
+    if (input && field.value_projection) { return; }
+    if (!facets.patterns.empty()) {
+      throw std::invalid_argument{"XSD pattern facets require a supported portable pattern compiler"};
+    }
+    const bool constraints = facets.min_inclusive || facets.max_inclusive || facets.min_exclusive ||
+        facets.max_exclusive || facets.length || facets.min_length || facets.max_length ||
+        !facets.enumeration.empty() || facets.finite;
+    const auto& source_type = field.source->type_name_list.front();
+    const auto& leaf_type = source_type.is_optional() || source_type.is_sequence() ?
+        source_type.arguments.front() : source_type;
+    const bool string = leaf_type.name == "string";
+    const bool lexical = field.qname || field.prefix_list || !facets.list_item_kind.empty();
+    if (!constraints && !lexical && !field.fixed_value &&
+        !(input && string && !facets.whitespace.empty())) { return; }
+    const auto member = "this->" + member_name(*field.source);
+    auto value = member;
+    output.write("    {\n");
+    if (source_type.is_optional()) {
+      output.write("      if (", member, ") {\n"); value = "*" + member;
+    } else if (field.repeated) {
+      value = local_name("xml_item"); output.write("      for (auto& ", value, " : ", member, ") {\n");
+    }
+    if (field.value_projection) {
+      output.write("      ", value, ".with_value([&](const auto& srl_xml_projected) {\n");
+      value = "srl_xml_projected";
+    }
+    if (input && string && !facets.whitespace.empty()) {
+      output.write("      ", value, " = ::rohit::serializer::xml::normalize_whitespace(", value,
+          ", ::rohit::serializer::xml::whitespace_policy::", facets.whitespace, ");\n");
+    }
+    const auto text = local_name("xml_lexical");
+    output.write("      const auto ", text, " = ::rohit::serializer::xml::",
+        std::string_view{field.list ? "format_list" : "detail::scalar_text"}, "(", value, ");\n");
+    if (constraints) {
+      const auto check = local_name("xml_facets");
+      output.write("      ::rohit::serializer::xml::scalar_constraints ", check, "{};\n");
+      for (const auto& [key, bound] : std::initializer_list<std::pair<std::string_view, const std::optional<std::string>*>>{
+          {"lexical_min_inclusive", &facets.min_inclusive}, {"lexical_max_inclusive", &facets.max_inclusive},
+          {"lexical_min_exclusive", &facets.min_exclusive}, {"lexical_max_exclusive", &facets.max_exclusive}}) {
+        if (*bound) { output.write("      ", check, ".", key, " = ", xml_string(**bound), ";\n"); }
+      }
+      for (const auto& [key, bound] : std::initializer_list<std::pair<std::string_view, const std::optional<std::size_t>*>>{
+          {"length", &facets.length}, {"min_length", &facets.min_length}, {"max_length", &facets.max_length}}) {
+        if (*bound) { output.write("      ", check, ".", key, " = ", **bound, "U;\n"); }
+      }
+      if (!facets.whitespace.empty()) { output.write("      ", check, ".whitespace = ::rohit::serializer::xml::whitespace_policy::", facets.whitespace, ";\n"); }
+      if (!facets.list_item_kind.empty()) { output.write("      ", check, ".list_length = true;\n"); }
+      if (facets.finite) { output.write("      ", check, ".finite = true;\n"); }
+      if (!facets.enumeration.empty() && string && !field.qname && facets.list_item_kind.empty()) {
+        output.write("      static constexpr ::std::array<::std::string_view, ", facets.enumeration.size(), "> srl_xml_enum{{");
+        for (std::size_t index{}; index < facets.enumeration.size(); ++index) {
+          if (index) { output.write(", "); } output.write(xml_string(facets.enumeration[index]));
+        }
+        output.write("}};\n      ", check, ".enumeration = srl_xml_enum;\n");
+      }
+      output.write("      ::rohit::serializer::xml::validate_scalar_constraints(", text, ", ", check, ", ", context, ");\n");
+    }
+    if (field.qname) {
+      output.write("      [[maybe_unused]] const auto srl_xml_qname = ::rohit::serializer::xml::resolve_qname(", text, ", ", node, ");\n");
+      if (!facets.qname_enumeration.empty()) {
+        output.write("      if (");
+        for (std::size_t index{}; index < facets.qname_enumeration.size(); ++index) {
+          const auto& name = facets.qname_enumeration[index];
+          if (index) { output.write(" && "); }
+          output.write("srl_xml_qname != ::rohit::serializer::xml::name{", xml_string(name.local), ", ", xml_string(name.namespace_uri), "}");
+        }
+        output.write(") { throw ::std::invalid_argument{\"XML QName enumeration facet failed\"}; }\n");
+      }
+      if (field.qname_fixed) {
+        output.write("      if (srl_xml_qname != ::rohit::serializer::xml::name{", xml_string(field.qname_fixed->local),
+            ", ", xml_string(field.qname_fixed->namespace_uri), "}) { throw ::std::invalid_argument{\"XML fixed QName differs\"}; }\n");
+      }
+    }
+    if (field.prefix_list) { output.write("      (void)::rohit::serializer::xml::resolve_prefix_list(", text, ", ", node, ");\n"); }
+    if (!facets.list_item_kind.empty()) {
+      output.write("      ::rohit::serializer::xml::validate_lexical_list(", text, ", ", xml_string(facets.list_item_kind), ", ", node, ", ", context, ");\n");
+    }
+    if (field.fixed_value && !field.qname && !field.list && facets.list_item_kind.empty()) {
+      output.write("      ::std::remove_cvref_t<decltype(", value, ")> srl_xml_fixed{};\n"
+          "      ::rohit::serializer::xml::detail::read_scalar(", xml_string(*field.fixed_value), ", srl_xml_fixed);\n");
+      if (string && !facets.whitespace.empty()) {
+        output.write("      srl_xml_fixed = ::rohit::serializer::xml::normalize_whitespace(srl_xml_fixed, ::rohit::serializer::xml::whitespace_policy::", facets.whitespace, ");\n");
+      }
+      output.write("      if (", value, " != srl_xml_fixed) { throw ::std::invalid_argument{\"XML fixed value differs\"}; }\n");
+    }
+    if (!facets.list_item_kind.empty() && field.fixed_value) {
+      if (facets.list_item_kind == "QName") {
+        throw std::invalid_argument{"XSD QName list fixed values require expanded item identities"};
+      }
+      output.write("      if (!::rohit::serializer::xml::lexical_lists_equal(", text, ", ", xml_string(*field.fixed_value),
+          ", ", xml_string(facets.list_item_kind), ", ", node, ")) { throw ::std::invalid_argument{\"XML fixed list value differs\"}; }\n");
+    }
+    if (!facets.enumeration.empty() && !facets.list_item_kind.empty()) {
+      if (facets.list_item_kind == "QName") {
+        throw std::invalid_argument{"XSD QName list enumeration requires expanded item identities"};
+      }
+      output.write("      if (");
+      for (std::size_t index{}; index < facets.enumeration.size(); ++index) {
+        if (index) { output.write(" && "); }
+        output.write("!::rohit::serializer::xml::lexical_lists_equal(", text, ", ", xml_string(facets.enumeration[index]),
+            ", ", xml_string(facets.list_item_kind), ", ", node, ")");
+      }
+      output.write(") { throw ::std::invalid_argument{\"XML list enumeration facet failed\"}; }\n");
+    }
+    if (!facets.enumeration.empty() && !string && facets.list_item_kind.empty()) {
+      output.write("      bool srl_xml_allowed = false;\n");
+      for (const auto& allowed : facets.enumeration) {
+        output.write("      { ::std::remove_cvref_t<decltype(", value, ")> srl_xml_candidate{};\n"
+            "        ::rohit::serializer::xml::detail::read_scalar(", xml_string(allowed), ", srl_xml_candidate);\n"
+            "        srl_xml_allowed = srl_xml_allowed || ", value, " == srl_xml_candidate; }\n");
+      }
+      output.write("      if (!srl_xml_allowed) { throw ::std::invalid_argument{\"XML numeric enumeration facet failed\"}; }\n");
+    }
+    if (field.value_projection) { output.write("      });\n"); }
+    if (source_type.is_optional() || field.repeated) { output.write("      }\n"); }
+    output.write("    }\n");
+  }
+
   // Emit direct static field traversal with XSD-derived sequence, placement and occurrence checks.
-  void write_xml(rohit::type_check::output_buffer auto& output, const class_node& object) {
+  void write_xml(rohit::type_check::output_buffer auto& output, const class_node& object,
+      bool output_only = false) {
     const auto contract = xml_schema_.bind(object);
+    const bool preserve = !output_only && contract.unknown == xml_unknown_policy::preserve;
+    const bool policy = contract.unknown || !contract.wildcards.empty();
+    const bool namespaces = std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) {
+      return field.qname || field.prefix_list || field.facets.list_item_kind == "QName";
+    });
     const auto qualified = [&](const xml::name& name) {
       return "::rohit::serializer::xml::name{" + xml_string(name.local) + ", " + xml_string(name.namespace_uri) + "}";
     };
     const auto node = local_name("xml_node");
     const auto reader = local_name("xml_reader");
     const auto budget = local_name("xml_budget");
+    const auto context = local_name("xml_context");
+    const auto value_scope = namespaces ? local_name("xml_value_scope") : node;
+    const auto write_choices = [&] {
+      for (const auto& choice : contract.choices) {
+        output.write("    { const ::std::size_t srl_xml_choice_count = ");
+        for (std::size_t index{}; index < choice.alternatives.size(); ++index) {
+          if (index) { output.write(" + "); }
+          output.write("static_cast<::std::size_t>(this->", member_name(*choice.alternatives[index]), ".has_value())");
+        }
+        if (choice.alternatives.empty()) { output.write("0U"); }
+        output.write(";\n      if (");
+        if (choice.minimum) { output.write("srl_xml_choice_count < ", choice.minimum, "U || "); }
+        output.write("srl_xml_choice_count > ", choice.maximum,
+            "U) { throw ::std::invalid_argument{\"XML choice occurrence failed\"}; } }\n");
+      }
+    };
+    if (preserve) { output.write("\n  // Opaque XML storage is allocated only when this opted-in record has extensions.\n  ::rohit::serializer::xml::extension_slot xml_extensions{};\n"); }
+    if (namespaces && !output_only) { output.write("\n  // Keep bindings required by QName/prefix-list values without changing native codec fields.\n  ::std::map<::std::string, ::std::string> xml_namespace_bindings{};\n"); }
+    if (policy) {
+      const auto selected = contract.unknown.value_or(xml_unknown_policy::skip);
+      const std::string_view spelling = selected == xml_unknown_policy::preserve ? "preserve" :
+          selected == xml_unknown_policy::skip ? "skip" : "reject";
+      output.write("\n  // Combine this record's explicit extension policy with the caller's namespace permissions.\n"
+          "  [[nodiscard]] static ::rohit::serializer::xml::operation_context xml_operation_context(\n"
+          "      ::rohit::serializer::xml::operation_context* caller = nullptr) {\n"
+          "    auto selected = caller ? *caller : ::rohit::serializer::xml::operation_context{};\n"
+          "    selected.unknown_fields = ::rohit::serializer::xml::unknown_policy::", spelling, ";\n"
+          "    if (!selected.permits_namespace) { selected.permits_namespace = [](::std::string_view uri) {\n"
+          "      return !uri.empty() && uri != ", xml_string(contract.root.namespace_uri), "; }; }\n"
+          "    return selected;\n  }\n");
+    }
     output.write("\n  // Return the fixed XML root contract; namespace prefixes are not identities.\n"
                  "  [[nodiscard]] static ::rohit::serializer::xml::name xml_root_name() { return ",
                  qualified(contract.root), "; }\n"
@@ -2531,7 +2717,19 @@ public:
                  "  void serialize_xml_out(::rohit::serializer::xml::element& ", node,
                  ", ::rohit::serializer::xml::build_budget& ", budget, ") const {\n");
     if (object.reference) { output.write("    validate_address();\n"); }
+    if (namespaces) {
+      if (output_only) {
+        output.write("    if (", budget, ".context() && ", budget, ".context()->namespace_bindings) {\n"
+            "    for (const auto& [prefix, uri] : *", budget, ".context()->namespace_bindings) {\n");
+      } else { output.write("    for (const auto& [prefix, uri] : xml_namespace_bindings) {\n"); }
+      output.write(
+          "      ", budget, ".namespace_binding(prefix, uri);\n"
+          "      ", node, ".namespace_bindings.emplace(prefix, uri);\n    }\n");
+      if (output_only) { output.write("    }\n"); }
+    }
+    write_choices();
     for (const auto& field : contract.fields) {
+      write_xml_value_checks(output, field, node, budget + ".context()", false);
       if (field.repeated) {
         const auto size = "this->" + member_name(*field.source) + ".size()";
         if (field.min_occurs > 0U || field.max_occurs) {
@@ -2543,32 +2741,119 @@ public:
         }
       }
       if (field.text) {
-        output.write("    ::rohit::serializer::xml::set_text(", node, ", this->", member_name(*field.source), ", ", budget, ");\n");
+        output.write("    ::rohit::serializer::xml::", std::string_view{field.list ? "set_list_text" : "set_text"}, "(", node, ", this->", member_name(*field.source), ", ", budget, ");\n");
       } else if (field.wrapper) {
         output.write("    ::rohit::serializer::xml::add_wrapped_children(", node, ", ", qualified(*field.wrapper), ", ",
                      qualified(field.qualified_name), ", this->", member_name(*field.source), ", ", budget, ");\n");
       } else {
-        output.write("    ::rohit::serializer::xml::", std::string_view{field.attribute ? "add_attribute" : "add_child"},
+        output.write("    ::rohit::serializer::xml::", std::string_view{field.attribute ? (field.list ? "add_list_attribute" : "add_attribute") : "add_child"},
                      "(", node, ", ", qualified(field.qualified_name), ", this->", member_name(*field.source), ", ", budget, ");\n");
       }
     }
-    output.write("  }\n"
-                 "  // Decode into a candidate; use xml::deserialize for transactional public loading.\n"
-                 "  void serialize_xml_in(const ::rohit::serializer::xml::element& ", node, ") {\n"
-                 "    ::rohit::serializer::xml::field_reader ", reader, "{", node, ", ",
-                 std::string_view{std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) { return field.text; }) ? "true" : "false"}, "};\n");
+    if (preserve) {
+      output.write("    auto* srl_xml_extension_context = ", budget, ".context();\n"
+          "    ::std::optional<::rohit::serializer::xml::operation_context> srl_xml_extension_owner{};\n"
+          "    if (!srl_xml_extension_context || !srl_xml_extension_context->permits_namespace || srl_xml_extension_context->unknown_fields != ::rohit::serializer::xml::unknown_policy::preserve) {\n"
+          "      srl_xml_extension_owner.emplace(xml_operation_context(srl_xml_extension_context));\n"
+          "      srl_xml_extension_context = &*srl_xml_extension_owner;\n    }\n");
+      if (!contract.wildcards.empty()) {
+        output.write("    static constexpr ::std::array<::rohit::serializer::xml::extension_rule, ", contract.wildcards.size(), "> srl_xml_output_rules{{\n");
+        for (const auto& wildcard : contract.wildcards) {
+          output.write("      {", std::string_view{wildcard.attribute ? "true" : "false"}, ", ", xml_string(wildcard.namespace_rule),
+              ", ", xml_string(contract.root.namespace_uri), ", ", std::string_view{wildcard.process_contents == "strict" ? "true" : "false"}, ", ", wildcard.minimum, "U, ");
+          if (wildcard.maximum) { output.write(*wildcard.maximum, "U"); } else { output.write("::std::nullopt"); }
+          output.write(", ", wildcard.before_field, "U},\n");
+        }
+        output.write("    }};\n");
+      }
+      output.write("    ::rohit::serializer::xml::validate_extensions(xml_extensions.value(), xml_root_name(), srl_xml_extension_context",
+          std::string_view{contract.wildcards.empty() ? "" : ", srl_xml_output_rules"}, ");\n"
+          "    ::rohit::serializer::xml::restore_extensions(", node, ", xml_extensions.value(), ", budget, ");\n");
+    } else {
+      for (const auto& wildcard : contract.wildcards) {
+        if (wildcard.minimum) { throw std::invalid_argument{"Required XSD wildcard content needs explicit XML preservation slots"}; }
+      }
+    }
+    output.write("  }\n");
+    if (output_only) {
+      output.write("  // Export borrowed getters through the XML protocol without owning target storage.\n"
+          "  template <typename SerializerXmlProtocol>\n"
+          "    requires requires(SerializerXmlProtocol& protocol, const ", type_name(object.name), "& value) { protocol.xml_object(value); }\n"
+          "  void serialize_out(SerializerXmlProtocol& protocol) const { protocol.xml_object(*this); }\n");
+      return;
+    }
+    output.write("  // Decode into a candidate; use xml::deserialize for transactional public loading.\n"
+                 "  void serialize_xml_in(const ::rohit::serializer::xml::element& ", node,
+                 ", ::rohit::serializer::xml::operation_context* ", context, " = nullptr) {\n");
+    if (policy) {
+      const auto selected = contract.unknown.value_or(xml_unknown_policy::skip);
+      const std::string_view spelling = selected == xml_unknown_policy::preserve ? "preserve" :
+          selected == xml_unknown_policy::skip ? "skip" : "reject";
+      output.write("    ::std::optional<::rohit::serializer::xml::operation_context> srl_xml_selected_context{};\n"
+          "    if (!", context, " || !", context, "->permits_namespace || ", context, "->unknown_fields != ::rohit::serializer::xml::unknown_policy::", spelling, ") {\n"
+          "      srl_xml_selected_context.emplace(xml_operation_context(", context, "));\n"
+          "      ", context, " = &*srl_xml_selected_context;\n    }\n");
+    }
+    if (namespaces) {
+      output.write("    ::rohit::serializer::xml::element ", value_scope, "{};\n"
+          "    if (", context, ") { for (const auto& [prefix, uri] : ", node, ".namespace_bindings) {\n"
+          "      ", context, "->consume(::rohit::serializer::xml::operation_resource::allocation_bytes, sizeof(::std::pair<const ::std::string, ::std::string>));\n"
+          "      ", context, "->consume(::rohit::serializer::xml::operation_resource::allocation_bytes, prefix.size());\n"
+          "      ", context, "->consume(::rohit::serializer::xml::operation_resource::allocation_bytes, uri.size());\n    } }\n"
+          "    ", value_scope, ".namespace_bindings = ", node, ".namespace_bindings;\n");
+    }
+    std::vector<xml::name> child_names;
+    for (const auto& field : contract.fields) {
+      if (!field.attribute && !field.text) { child_names.push_back(field.wrapper ? *field.wrapper : field.qualified_name); }
+    }
+    if (policy) {
+      output.write("    static const ::std::array<::rohit::serializer::xml::name, ", child_names.size(), "> srl_xml_known{{");
+      for (std::size_t index{}; index < child_names.size(); ++index) {
+        if (index) { output.write(", "); } output.write(qualified(child_names[index]));
+      }
+      output.write("}};\n");
+    }
+    if (!contract.wildcards.empty()) {
+      output.write("    static constexpr ::std::array<::rohit::serializer::xml::extension_rule, ", contract.wildcards.size(), "> srl_xml_rules{{\n");
+      for (const auto& wildcard : contract.wildcards) {
+        output.write("      {", std::string_view{wildcard.attribute ? "true" : "false"}, ", ", xml_string(wildcard.namespace_rule),
+            ", ", xml_string(contract.root.namespace_uri), ", ", std::string_view{wildcard.process_contents == "strict" ? "true" : "false"}, ", ", wildcard.minimum, "U, ");
+        if (wildcard.maximum) { output.write(*wildcard.maximum, "U"); } else { output.write("::std::nullopt"); }
+        output.write(", ", wildcard.before_field, "U},\n");
+      }
+      output.write("    }};\n");
+    }
+    output.write("    ::rohit::serializer::xml::field_reader ", reader, "{", node, ", ",
+        std::string_view{std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) { return field.text; }) ? "true" : "false"},
+        ", ", context, ", ", std::string_view{preserve ? "xml_extensions" : "nullptr"});
+    if (policy) { output.write(", srl_xml_known"); }
+    if (!contract.wildcards.empty()) { output.write(", srl_xml_rules"); }
+    output.write("};\n");
     if (object.reference) {
       output.write("    [[maybe_unused]] auto srl_reference_previous_binding = ::std::move(srl_reference_binding_);\n");
     }
     for (const auto& field : contract.fields) {
       if (field.text) {
-        output.write("    ", reader, ".text_value(this->", member_name(*field.source), ");\n");
+        output.write("    ", reader, std::string_view{field.list ? ".list_text_value(this->" : ".text_value(this->"}, member_name(*field.source), ");\n");
       } else if (field.wrapper) {
         output.write("    ", reader, ".wrapped_child_value(", qualified(*field.wrapper), ", ", qualified(field.qualified_name), ", this->", member_name(*field.source), ");\n");
       } else {
-        output.write("    ", reader, std::string_view{field.attribute ? ".attribute_value(" : ".child_value("},
-                     qualified(field.qualified_name), ", this->", member_name(*field.source), ");\n");
+        output.write("    ", reader, std::string_view{field.attribute ? (field.list ? ".list_attribute_value(" : ".attribute_value(") : ".child_value("},
+                     qualified(field.qualified_name), ", this->", member_name(*field.source));
+        const auto default_value = field.fixed_value ? field.fixed_value : field.default_value;
+        if (default_value && !field.qname) { output.write(", ::std::string_view{", xml_string(*default_value), "}"); }
+        output.write(");\n");
       }
+      if (field.qname && (field.qname_default || field.qname_fixed)) {
+        const auto& default_name = field.qname_fixed ? *field.qname_fixed : *field.qname_default;
+        const auto value = "this->" + member_name(*field.source);
+        const bool optional = field.source->type_name_list.front().is_optional();
+        const auto empty = optional ? (field.attribute ? "(!" + value + " || " + value + "->empty())" :
+            "(" + value + " && " + value + "->empty())") : value + ".empty()";
+        output.write("    if (", empty, ") { ", value, " = ::rohit::serializer::xml::qualify_qname(",
+            qualified(default_name), ", ", value_scope, "); }\n");
+      }
+      write_xml_value_checks(output, field, value_scope, context, true);
       if (field.repeated && (field.min_occurs > 0U || field.max_occurs)) {
         const auto size = "this->" + member_name(*field.source) + ".size()";
         output.write("    if (");
@@ -2578,9 +2863,11 @@ public:
         output.write(") { throw ::std::invalid_argument{\"XML collection violates XSD occurrence bounds\"}; }\n");
       }
     }
+    write_choices();
     auto protocol_type = std::string{"SerializerXmlProtocol"};
     while (protocol_type == type_name(object.name)) { protocol_type += "Type"; }
     output.write("    ", reader, ".finish();\n");
+    if (namespaces) { output.write("    xml_namespace_bindings = ::std::move(", value_scope, ".namespace_bindings);\n"); }
     if (object.reference) { output.write("    validate_address();\n"); }
     output.write("  }\n"
                  "  // Compose this XML mapping with the common complete-object protocol API.\n"
@@ -2972,6 +3259,26 @@ public:
           [&](const auto& value) { return generic_default(value); },
           [&](auto name, auto) { return field_name(name); }, {},
           [&](const auto& value) { return get_cpp_type(value); }));
+      if (xml_options_.enabled && obj->reference->value_type.type == object_type::class_type) {
+        out_stream.write("  // A record projection keeps the owning value's external XML root contract.\n"
+            "  [[nodiscard]] static ::rohit::serializer::xml::name xml_root_name() { return reference_value_type::xml_root_name(); }\n"
+            "  static constexpr bool xml_runtime_xsd = reference_value_type::xml_runtime_xsd;\n"
+            "  static constexpr bool xml_validate_input = reference_value_type::xml_validate_input;\n"
+            "  static constexpr bool xml_validate_output = reference_value_type::xml_validate_output;\n"
+            "  // Reuse optional target extension policy while retaining caller-owned operation budgets.\n"
+            "  template <typename Value = reference_value_type>\n"
+            "  [[nodiscard]] static ::rohit::serializer::xml::operation_context xml_operation_context(\n"
+            "      ::rohit::serializer::xml::operation_context* context = nullptr) {\n"
+            "    if constexpr (requires { Value::xml_operation_context(context); }) { return Value::xml_operation_context(context); }\n"
+            "    else { return context ? *context : ::rohit::serializer::xml::operation_context{}; }\n  }\n"
+            "  // Pin the selected owner only while its known fields are copied into the bounded XML tree.\n"
+            "  void serialize_xml_out(::rohit::serializer::xml::element& node, ::rohit::serializer::xml::build_budget& budget) const {\n"
+            "    with_value([&](const reference_value_type& selected) { ::rohit::serializer::xml::set_value(node, selected, budget); });\n  }\n"
+            "  // Prefer XML's independent owning-value traversal over the native keyed protocol path.\n"
+            "  template <typename XmlProtocol>\n"
+            "    requires requires(XmlProtocol& protocol, const ", type_name(obj->name), "& value) { protocol.xml_object(value); }\n"
+            "  void serialize_out(XmlProtocol& protocol) const { protocol.xml_object(*this); }\n");
+      }
       out_stream.write("}; // class ", type_name(obj->name), "\n\n");
       return;
     }
@@ -3009,6 +3316,11 @@ public:
     auto current_access = access_type::private_access;
     const auto cpp_access_section = [&](auto access) { return access_section(access, current_access); };
     managed_.write_access_friends(out_stream, obj);
+    if (managed_.requires_reference_scope(obj)) {
+      out_stream.write(cpp_access_section(access_type::public_access),
+          "  // Select document scope only for transaction channels containing declared entity references.\n"
+          "  static constexpr bool serializer_has_entity_references = true;\n");
+    }
     if (obj->has_magic()) {
       out_stream.write(cpp_access_section(obj->magic_access),
                        "  // Fixed schema-owned header");
@@ -3453,6 +3765,16 @@ public:
         write_behavior_method(unit_output, nullptr, static_cast<const function_node&>(*statement).function);
         break;
 
+      case object_type::package_type:
+        if (!xml_options_.enabled) {
+          throw std::invalid_argument{"Declared OPC packages require XML generation"};
+        }
+        unit_output.write(package_codegen::cpp(static_cast<const package_node&>(*statement),
+            [&](std::string_view value) { return type_name(value); },
+            [&](const ::rohit::serializer::type_name& value) { return storage_type_name(value); },
+            [&](std::string_view value) { return field_name(value); }));
+        break;
+
       default:
         break;
       }
@@ -3483,6 +3805,7 @@ public:
   // Retain earlier parameter references and declaration-scope type defaults in public aliases.
   std::string generic_default(const ::rohit::serializer::type_name& value) {
     if (value.name == "void" && !value.application) { return "void"; }
+    if (value.is_managed_reference()) { return storage_type_name(value); }
     if (value.is_expected()) {
       return "::std::expected<" + generic_default(value.arguments.at(0)) + ", " +
           generic_default(value.arguments.at(1)) + ">";
@@ -3638,6 +3961,11 @@ public:
       throw std::invalid_argument{"C++ record comparisons require owning output, not cpp.emission_only"};
     }
     managed_.prepare(statements);
+    if (managed_.has_references() && (constant_evaluation_enabled || emission_only || protobuf_enabled)) {
+      throw std::invalid_argument{
+          "C++ managed entity references require ordinary runtime owning native codecs; "
+          "constant evaluation, emission-only and Protobuf profiles are unsupported"};
+    }
     if (emission_only) {
       out_stream.write("#pragma once\n\n"
                        "#include <rohit/constant_binary_output.hpp>\n"
@@ -3664,8 +3992,12 @@ public:
                      "#include <rohit/numeric.hpp>\n"
                      "#include <rohit/digest.hpp>\n");
     if (!managed_.empty()) { out_stream.write("#include <rohit/managed.hpp>\n#include <optional>\n"); }
+    else if (managed_.has_references()) { out_stream.write("#include <rohit/managed_reference.hpp>\n"); }
     if (protobuf_enabled) { out_stream.write("#include <rohit/protobuf.hpp>\n"); }
     if (xml_options_.enabled) { out_stream.write("#include <rohit/xml.hpp>\n"); }
+    if (package_codegen::contains(statements)) {
+      out_stream.write("#include <rohit/opc_generated.hpp>\n#include <limits>\n#include <span>\n");
+    }
     if (has_views) {
       out_stream.write("#include <rohit/binary_view.hpp>\n");
     }
@@ -3714,6 +4046,8 @@ public:
     write_included_headers(out_stream);
     if (contains_functions(statements)) {
       for (unsigned phase{}; phase < 3; ++phase) { write_function_inventory(out_stream, statements, phase); }
+    } else if (managed_.has_references()) {
+      write_function_inventory(out_stream, statements, 0);
     }
     write_statement_list(out_stream, statements);
     std::set<std::string> optional_applications;
@@ -3725,7 +4059,9 @@ public:
 
 // Commit output to the caller only after name validation and formatting both succeed.
 std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,
-                     const cpp_options& options) {
+                     const cpp_options& requested) {
+  auto options = requested;
+  options.xml = xml_binding::effective_options(statements, options.xml);
   xml_binding::validate_options(statements, options.xml);
   static_cast<void>(coding_standard_name(options.standard));
   static_cast<void>(cpp_protocols_name(options.protocols));
@@ -3746,7 +4082,9 @@ std::string generate_schema(const parser::parsed_schema& schema, const cpp_optio
 
 // Plan safe relative paths, then format every artifact before the caller can publish any file.
 std::vector<generated_file> generate_files(const parser::parsed_schema& schema,
-    const std::filesystem::path& destination, const cpp_options& options, include_mode mode) {
+    const std::filesystem::path& destination, const cpp_options& requested, include_mode mode) {
+  auto options = requested;
+  options.xml = xml_binding::effective_options(schema.statements, options.xml);
   if (mode != include_mode::separate && mode != include_mode::inline_output) {
     throw std::invalid_argument{"Invalid include mode"};
   }

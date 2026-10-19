@@ -17,7 +17,7 @@
   "Schema": {
     "prefix": "schema",
     "body": [
-      "serializer version 1.19.0;",
+      "serializer version 1.20.0;",
       "",
       "namespace ${1:models} {",
       "class ${2:account} stable_ids {",
@@ -385,5 +385,45 @@
     "prefix": "function-expected",
     "body": "public function static expected<${1:result}, ${2:error}> ${3:make}(${4:parameters}) readonly cpp { ${5:body} };$0",
     "description": "Declare a callable-only std::expected result on a C++23 host; requires language 1.17.0"
+  },
+  "Typed managed entity reference": {
+    "prefix": "managed-ref",
+    "body": "public managed_ref<${1:target}> ${2:reference} (${3:1});$0",
+    "description": "Store a nonowning token to a managed class; optional<managed_ref<T>> represents absence; C++ language 1.20.0"
+  },
+  "Stable managed class identity": {
+    "prefix": "class-id",
+    "body": "class_id(${1:1})$0",
+    "description": "Preserve a nonzero uint64 managed class identity across schema renames; requires language 1.20.0"
+  },
+  "XML scalar attributes": {
+    "prefix": "xmlattrs",
+    "body": "xml(namespace(\"${1:urn:example}\"), scalars(attribute));$0",
+    "description": "Set namespace/class XML defaults once; requires language 1.20.0"
+  },
+  "XML field override": {
+    "prefix": "xmlfield",
+    "body": "xml(${1|attribute,element,text|}${2:, name(\"${3:external_name}\")})$0",
+    "description": "Override only a field whose XML shape differs from its class defaults; text has no name override"
+  },
+  "Fixed XSD binding": {
+    "prefix": "xmlschema",
+    "body": "using schema \"${1:schemas/model.xsd}\";$0",
+    "description": "Associate this namespace with a trusted fixed local XSD bundle; requires language 1.20.0"
+  },
+  "OPC package declaration": {
+    "prefix": "opcpackage",
+    "body": [
+      "package ${1:document} {",
+      "  part ${2:main} : ${3:model} {",
+      "    name(\"${4:/data/model.xml}\");",
+      "    content_type(\"${5:application/xml}\");",
+      "    relationship(\"${6:urn:example:main}\");",
+      "    compression(deflate);",
+      "  }",
+      "  $0",
+      "}"
+    ],
+    "description": "Generate a typed OPC facade from declared parts; requires language 1.20.0 and enabled providers"
   }
 }

@@ -1,8 +1,11 @@
 # XML and package work still pending
 
-Release **2.4.0** implementation checkpoint, **2026-10-17**.
+Current source **2.7.0**, schema language **1.20.0**. Earlier **2.4.0**
+qualification remains linked below; it does not qualify newly changed code.
 Read the [implemented APIs](serialization/xml_packages.md),
 [examples](../example/xml/README.md) and [complete requirements](design/xml_support.md).
+The [OPC/3MF authoring requirements](design/opc_3mf_support.md) separate framework
+gaps from application models/validation and show the current restricted build route.
 Backend verification is recorded separately; generated code alone is not qualification.
 See the [2.4.0 checkpoint checks](verification/verification-xml-pending-2026-10-17.md)
 and the separate [2.3.0 checks](verification/verification-xml-packages-2026-10-17.md).
@@ -14,6 +17,23 @@ selection; and C++ ZIP64, explicit nonseekable spooling, caller-authored transac
 OPC aggregate loading, extension policies and canonical ordering. These are
 increments toward this specification. The remaining requirements below still
 prevent calling the complete feature finished.
+
+The 2.7.0 implementation adds the following checked slices. General completion
+still requires the remaining backend and release gates; a C++ result does not
+close another backend's task.
+
+| Addition | Implemented and checked | Still pending |
+| --- | --- | --- |
+| Schema-first XML | Inline namespace/class defaults and field exceptions; relative `using schema`; parser version/include checks. | Broader vocabulary and ambiguous association tooling. |
+| XSD declaration import | Real CLI import, stable explicit member IDs, dependency tracking, protected existing source; automatic and manual examples pass all eleven SDKs and 264 XML exchanges. | Arbitrary XSD content models, identity constraints, chameleon includes, portable pattern compilation and schema migration automation. |
+| Rich XSD/XML | C++ generated scalar facets/defaults, singleton choices, typed lists, QName/prefix context and declared foreign extension tests pass. Unsupported non-C++ rich contracts reject before publication. | Equivalent rich emitters and qualification in the other outputs. |
+| Generated packages | C++ declaration generates borrowed-input Save and owning typed load; dynamic attachments and shared-limit tests pass. Existing independent ZIP/OPC interoperability checks pass. | Other-language package facades, declarative payload reference checks, target-mode/profile selection and broad corpus/performance qualification. |
+| Operation context | C++ runtime shared allocation/work, cancellation, deadlines and preservation tests pass; generated package XML uses the same budget. | Full backend propagation and large-model/provider qualification. |
+| Ordinary native path | All eleven ordinary generated outputs are byte-identical to the captured 2.6.0 baseline fixture. | Broader repeatable throughput/peak-memory measurements; source equality is not a universal performance claim. |
+| Windows native checkpoint | Full XML/managed/provider-enabled `make.ps1 test` passes 169/169 CTests; minimal installed header/provider checks also pass. | Latest Linux full build/test, broad performance and complete OPC/3MF qualification. |
+
+See [the new XSD examples](../example/xsd/README.md) and
+[the current verification record](verification/verification-opc-xsd-2026-10-19.md).
 
 **Coverage rule:** general formats/features must support every generated language.
 A missing backend remains pending. Only inherently language-specific features,
@@ -35,17 +55,20 @@ ordinary owning model
 | Area | Remaining requirement |
 | --- | --- |
 | XML performance | Tree-free token codecs; measured CPU, memory, encoded and generated-code size. Current mapping is static; several backends retain bounded trees. |
-| XML vocabulary | `xsi:nil`, ordered mixed content, maps/variants and explicit XML unknown-extension policies. Text with attributes and wrappers currently use configuration without fixed XSD binding. |
-| XSD compilation | Facets, constrained simple types, anonymous nested record associations, chameleon includes, richer content models and identity constraints. Unsupported constructs fail generation. |
-| XSD tooling | Extend export to text/wrappers/enums/foreign field namespaces and broaden import beyond binding a supplied model. Expand bundle/tool stress and SDK qualification beyond the current Windows/Linux checks. Changing a fixed schema still requires regeneration. |
+| XML vocabulary | `xsi:nil`, general ordered mixed content, maps/variants, and non-C++ namespace-aware unknown-extension policies. C++ foreign extension retention is an explicit bounded subset, not general mixed-content modeling. |
+| XSD compilation | Broader facets/pattern dialect, complex-content derivation, repeated/grouped choices, chameleon includes and identity constraints. Port the richer C++ subset to every emitter. Unsupported constructs/backends fail generation. |
+| XSD tooling | Extend export to text/wrappers/enums/foreign field namespaces and choice/wildcard contracts. Expand bundle/tool stress and platform qualification. Changing a fixed schema still requires regeneration; differing imported source requires review. |
+| Schema-first authoring | Broaden the implemented inline association and declaration importer beyond its checked subset. Preserve authored behavior and native ordering through reviewed schema evolution. |
 | Runtime XSD | Qualify prepared providers, limits and concurrency on every backend. Align output/input namespace-declaration accounting across adapters. Some outputs use an explicit caller-prepared validator interface. No automatic remote schema loading. |
 | Model coverage | Generics, inheritance, managed/view/revision/magic/digest mappings require explicit XML contracts. |
+| Referenced XML output | C++ borrowed/shared value and scoped projection tests pass. Broaden their stress/resource qualification and add other-backend support without duplicate owning payloads. Durable field-address XML requires an explicit contract and remains rejected. |
 | Compression parity | Whole-object stream wrappers and identical framing/error/limit contracts for every output; optional Zstandard/LZ4 providers where absent. |
 | Package parity | ZIP/OPC source/sink APIs, metadata, shared budgets and full-Save guarantees across outputs. Current package implementation is C++. |
 | ZIP extensions | Broaden large-archive, stress and provider coverage beyond the bounded C++ ZIP64/spooling cases checked on Windows/Linux; tighten peak-memory/cancellation guarantees and implement other backend paths. Unsupported features keep failing explicitly. |
-| Typed profiles | Generated compression/package pipeline configuration, fixed defaults with optional runtime selection, vocabulary profiles, expected-type dispatch and application reference checks before publication. |
-| Typed package loading | Automatically share one budget across codecs/references and generate transactional aggregate profiles on every backend. C++ caller-authored callbacks must explicitly charge shared budgets. |
-| Preservation | Broaden policy/context qualification beyond the current C++ reject/skip/preserve tests; implement equivalent policies on every backend and XML extension slots. No signature or lexical-preservation claim. |
+| Typed profiles | Broaden the implemented C++ package declaration with pipeline/runtime selection, vocabulary profiles and generated payload reference checks before publication; implement other backends. |
+| Typed package loading | Port generated transactional profiles and automatic codec/reference budgets beyond C++. Caller-authored callbacks must explicitly compose their selected codecs with the shared context. |
+| Complete-operation context | Port the implemented C++ shared XML/package context and deadline across outputs; qualify projection/compression/provider cancellation latency and resource boundaries on large inputs. |
+| Preservation | Broaden C++ XML/package policy and collision qualification and implement equivalent policies on every backend. No signature or lexical-preservation claim. |
 | Reproducibility | Extend independently checked canonical ordering/metadata policies across backends; compressed byte identity depends on provider/version/options. |
 | HTML | Separate HTML syntax/adapter. XML-form XHTML is limited by the implemented XML vocabulary; mixed-content XHTML is not supported. |
 
@@ -64,16 +87,19 @@ It must preserve object identities, allocation marks, retained history and branc
 cursors; bind side channels to the exact saved baseline/layout; and recover a
 coherent old/new generation after interrupted publication. Stale/mismatched state
 must fail before decoding. Final document files must contain no Serializer
-history, active journal or session/outbox state. Existing native managed formats
-retain their compatibility contract; they are not already this adapter.
+history, active journal or session/outbox state. Native managed formats and
+[explicit ID-encoding migration](guides/persistent_id_migration.md) have separate
+contracts; they are not already this adapter.
 
 Compression is for **one complete serialized object**. Backend byte chunks are
 an implementation detail. Incremental record callbacks and incremental object
 serialization are not requirements of this work.
 
-Before marking the complete feature finished: run every SDK, XML-disabled and
-minimal-provider builds, independent XML/XSD/ZIP checks, malformed-input/resource
-tests, cross-language exchanges, Linux/Windows checks and performance measurements.
+Before marking the complete feature finished, qualify the remaining backend
+contracts, independent XML/XSD/ZIP corpus, malformed-input/resource boundaries,
+cross-language/platform exchanges and performance measurements. The current
+eleven-SDK ordinary-XSD baseline, 169-test Windows native run and XML-disabled/minimal-provider build are
+already checked in the linked record; repeat them when relevant inputs change.
 No completion dates or unexecuted verification are implied by this list.
 
 ## Work units capped at five hours
@@ -124,8 +150,9 @@ does not close a run against changed source or providers.
 The 2.4.0 baseline already supplies native format selection on every backend,
 configured simple text/wrappers, and the documented C++ compression/ZIP/OPC APIs.
 For C++, compression `Z01`–`Z10` and package `P01`–`P15`, `P17`–`P19` generally
-start as qualification or contract-alignment work against those APIs. Automatic
-codec budget integration and generated profiles remain pending. JavaScript, Rust
+start as qualification or contract-alignment work against those APIs. C++ 2.7
+already checks shared XML/package budgets and the generated package subset;
+broader composition/profile contracts and other backends remain pending. JavaScript, Rust
 and C already have direct XML output paths; preserve and qualify them rather than
 replacing them merely to satisfy `X01`/`X02`. Other cells start from the exact
 implemented subset in the usage guide. No future task is marked verified here.
@@ -304,7 +331,7 @@ state; internal `binary_none` side channels retain the existing native contract.
 | --- | --- | --- |
 | G01 | 2 h | Independent XML/XSD oracle corpus passes for the landed subset. |
 | G02 | 2 h | Independent ZIP/OPC corpus passes for the landed subset. |
-| G03 | 3 h | Windows native regression passes; failures receive separate repair tasks. |
+| G03 | 3 h | Current Windows slice verified: 169/169 CTests through the full wrapper; repeat for changed source/configuration and repair failures separately. |
 | G04 | 3 h | Linux native regression passes; failures receive separate repair tasks. |
 | G05 | 2 h | XML-disabled build and explicit unavailability behavior pass. |
 | G06 | 2 h | Every bundled provider disabled: build/link and supported identity/stored paths pass. |

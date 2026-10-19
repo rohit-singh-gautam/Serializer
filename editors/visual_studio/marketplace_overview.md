@@ -1,5 +1,19 @@
 # Rohit Serializer for Visual Studio
 
+Version **2.0.5** supports schema language **1.20.0** XML defaults, field overrides,
+namespace `using schema` declarations and declarative package roles. Qualified
+role model types navigate to their declarations; fixed XSD paths open the local
+file without treating it as a Serializer include or fetching remote resources.
+XML policy/placement tokens do not claim type destinations. VS Code also provides
+XML/package authoring snippets. Compiler/runtime providers and supported vocabulary
+remain prerequisites; editor support does not establish format conformance.
+Typed C++ `managed_ref<T>` tokens navigate to the managed target, including forward
+and included declarations. `class_id(decimal)` preserves explicit class identity;
+its numeric metadata does not become a type reference. VS Code supplies token and
+class-identity snippets. Both local packages share version 2.0.5; building them does
+not install or publish them.
+
+
 Version **2.0.4** supports language **1.19.0** inline value references such as
 `public borrowed(payload) d (1);`, including payload-type and optional owner-field navigation.
 Borrowed views use application-owned storage; shared/weak modes are optional.
@@ -20,8 +34,8 @@ and existing generated code in **Visual Studio 2022 and Visual Studio 2026 on
 Windows x64**. It provides syntax highlighting, editing assistance, and native
 navigation for projects using Serializer — State Framework.
 
-The current source release is **2.0.4**, supporting schema language **1.19.0**
-and navigation for Serializer **2.3.0**'s default separate C++ generated headers.
+The current source release is **2.0.5**, supporting schema language **1.20.0**
+and navigation for Serializer **2.7.0**'s default separate C++ generated headers.
 The compiler/runtime, schema language, and editor extension have independent
 versions; existing 1.x schema language headers remain supported.
 

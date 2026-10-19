@@ -169,6 +169,7 @@ TEST(managed_optional, authority_replica_history) {
     return result;
   };
   const auto edit = [&](auto session, auto operation, auto&& callback) {
+    replica.initialize_identity_lease(session, authority.reserve_ids(session));
     return submit(replica.propose(session, operation, callback));
   };
   using status = managed::collaboration_status;

@@ -108,7 +108,45 @@ enum class access_type { error, private_access, protected_access, public_access 
 enum class compact_encoding { none, prefix, varint };
 
 enum class object_type { unresolved, namespace_type, class_type, enum_type, primitive, instantiation,
-                         generic_definition, native_code, function_type };
+                         generic_definition, native_code, function_type, package_type };
+
+// Explicit XML placement never changes a field's native codec identity or storage.
+enum class xml_field_placement { element, attribute, text };
+
+// Choose how a generated XML record handles foreign extension content.
+enum class xml_unknown_policy { reject, skip, preserve };
+
+// A fixed schema declaration retains its source for relative dependency resolution.
+struct xml_schema_binding {
+  std::filesystem::path path{};
+  std::string source_path{};
+  // Compare the authored dependency and its resolution context.
+  bool operator==(const xml_schema_binding&) const = default;
+};
+
+// Sparse namespace/class defaults are resolved only by the optional XML generator.
+struct xml_authoring_options {
+  std::optional<std::string> namespace_uri{};
+  std::optional<std::string> root{};
+  std::optional<xml_field_placement> scalar_placement{};
+  std::optional<xml_unknown_policy> unknown{};
+  std::optional<xml_schema_binding> schema{};
+  // Compare authored XML metadata independently of native field identities.
+  bool operator==(const xml_authoring_options&) const = default;
+};
+
+// Per-field XML overrides retain explicit empty namespaces and ordinary field names.
+struct xml_field_options {
+  std::optional<xml_field_placement> placement{};
+  std::optional<std::string> name{};
+  std::optional<std::string> namespace_uri{};
+  std::optional<std::string> wrapper{};
+  bool list{false};
+  bool qname{false};
+  bool prefix_list{false};
+  // Compare optional XML mappings without inspecting runtime model data.
+  bool operator==(const xml_field_options&) const = default;
+};
 
 enum class class_attributes : std::uint8_t {
   none = 0x00, packed = 0x01, stable_ids = 0x02, managed = 0x04
@@ -158,6 +196,7 @@ struct syntax_node {
 struct namespace_node : public syntax_node {
   // Ordered source-block contents; children of reopened blocks share the first namespace scope.
   std::vector<std::unique_ptr<syntax_node>> statements{};
+  xml_authoring_options xml{};
   // Initialize this object from the supplied storage or value state.
   namespace_node(object_type type, std::string&& name, namespace_node* parent_namespace)
       : syntax_node{type, std::move(name), parent_namespace} {}
@@ -197,6 +236,7 @@ struct type_name {
         digest_language_supported{rhs.digest_language_supported},
         optional_language_supported{rhs.optional_language_supported},
         expected_language_supported{rhs.expected_language_supported},
+        managed_reference_language_supported{rhs.managed_reference_language_supported},
         record_key_language_supported{rhs.record_key_language_supported},
         common_numeric{rhs.common_numeric} {}
   // Assign the documented view or value state from the source object.
@@ -218,6 +258,7 @@ struct type_name {
     digest_language_supported = rhs.digest_language_supported;
     optional_language_supported = rhs.optional_language_supported;
     expected_language_supported = rhs.expected_language_supported;
+    managed_reference_language_supported = rhs.managed_reference_language_supported;
     record_key_language_supported = rhs.record_key_language_supported;
     common_numeric = rhs.common_numeric;
     return *this;
@@ -240,6 +281,7 @@ struct type_name {
   bool digest_language_supported{true}; // The source file's selected contract survives includes.
   bool optional_language_supported{true}; // Built-in generic types require language 1.7.
   bool expected_language_supported{true}; // Callable-only expected results require language 1.17.
+  bool managed_reference_language_supported{true}; // Typed entity tokens require language 1.20.
   bool record_key_language_supported{true}; // Record keys in generic maps require language 1.11.
   bool common_numeric{false}; // Explicit C++ common representation, restricted to callable APIs.
 
@@ -263,6 +305,17 @@ struct type_name {
     return type == object_type::primitive && name == "expected" && application;
   }
 
+  // Identify a nonowning managed entity token; its argument is a phantom target type.
+  bool is_managed_reference() const noexcept {
+    return type == object_type::primitive && name == "managed_ref" && application;
+  }
+
+  // Inspect nested container syntax without following a referenced entity's storage.
+  bool contains_managed_reference() const {
+    return is_managed_reference() || std::any_of(arguments.begin(), arguments.end(),
+        [](const auto& argument) { return argument.contains_managed_reference(); });
+  }
+
   // Identify byte-container primitives without confusing a user declaration named digest.
   bool is_digest() const noexcept {
     return type == object_type::primitive && name == "digest";
@@ -271,7 +324,8 @@ struct type_name {
   // Resolve this syntax node name relative to its containing namespace.
   std::string get_full_name() const {
     if (resolved_node) { return resolved_node->get_full_name(); }
-    if (is_optional() || is_sequence() || is_associative() || is_expected() || common_numeric) {
+    if (is_optional() || is_sequence() || is_associative() || is_expected() ||
+        is_managed_reference() || common_numeric) {
       std::string result = name + "<";
       for (std::size_t index = 0; index < arguments.size(); ++index) {
         if (index != 0) { result += ","; }
@@ -429,6 +483,9 @@ struct member {
   std::optional<array_exposure_options> array_exposure{};
   bool owner_factory_default_enabled{false}; // Source owner-type defaults defer factory use from language 1.17.
   std::optional<reference_declaration> value_reference{}; // Parsed inline selection, consumed by lowering.
+  std::optional<xml_field_options> xml{};
+  // Compiler-owned native identity payload; explicit migration codecs may override its encoding.
+  bool persistent_identity{false};
 
   // Select a computed fixed-width size without storing per-instance codec policy.
   bool auto_sizes(std::string_view format) const {
@@ -447,6 +504,7 @@ struct member {
            readonly_getter_access == rhs.readonly_getter_access &&
            array_exposure == rhs.array_exposure &&
            value_reference == rhs.value_reference &&
+           xml == rhs.xml &&
            owner_factory_default_enabled == rhs.owner_factory_default_enabled &&
            auto_size_formats == rhs.auto_size_formats &&
            wire_only == rhs.wire_only && size_scope == rhs.size_scope &&
@@ -720,6 +778,9 @@ struct class_node : public syntax_node {
   std::vector<std::string> reserved_names{};
   // Named concrete records retain their generic source for output-only behavior selection.
   std::string named_generic_source{};
+  std::vector<type_name> named_generic_arguments{}; // Concrete identity without changing template emission.
+  xml_authoring_options xml{};
+  std::optional<std::uint64_t> explicit_class_id{}; // Stable managed identity override, independent of layout.
   // Initialize this object from the supplied storage or value state.
   class_node(object_type type, std::string&& name, namespace_node* parent_namespace,
              class_attributes attributes, std::vector<parent>&& parents)
@@ -746,7 +807,9 @@ struct class_node : public syntax_node {
         reserved_ids{std::move(rhs.reserved_ids)},
         reserved_variables{std::move(rhs.reserved_variables)},
         reserved_names{std::move(rhs.reserved_names)},
-        named_generic_source{std::move(rhs.named_generic_source)} {}
+        named_generic_source{std::move(rhs.named_generic_source)},
+        named_generic_arguments{std::move(rhs.named_generic_arguments)}, xml{std::move(rhs.xml)},
+        explicit_class_id{rhs.explicit_class_id} {}
   // Return the sole version discriminator, or null for an unchanged unversioned contract.
   const member* version_member() const {
     for (const auto& field : member_list) {
@@ -784,6 +847,29 @@ struct class_node : public syntax_node {
   class_node& operator=(const class_node&) = delete;
 };
 
+// One declared OPC role has typed content or opaque caller-owned bytes.
+struct package_part_declaration {
+  std::string name{};
+  std::optional<type_name> value_type{}; // No value type denotes the package-only bytes kind.
+  std::optional<std::string> part_name{}; // Missing names are supplied for each dynamic instance.
+  std::optional<std::string> content_type{}; // Dynamic media types are supplied with opaque attachments.
+  std::string relationship{};
+  std::string source{"/"}; // Package root or the name of another declared role.
+  std::string codec{"xml"};
+  std::string compression{"stored"};
+  std::optional<std::string> relationship_id{};
+  std::size_t min_occurs{1U};
+  std::optional<std::size_t> max_occurs{1U};
+};
+
+// Compiler-owned package metadata generates a facade; it adds no model-instance fields.
+struct package_node : public syntax_node {
+  std::vector<package_part_declaration> parts{};
+  // Retain the package name and lexical type-resolution scope.
+  package_node(std::string&& name, namespace_node* parent_namespace)
+      : syntax_node{object_type::package_type, std::move(name), parent_namespace} {}
+};
+
 struct enum_node : public syntax_node {
   // Initialize this object from the supplied storage or value state.
   enum_node(object_type type, std::string&& name, namespace_node* parent_namespace,
@@ -814,11 +900,31 @@ inline void require_variable_arrays(const std::vector<std::unique_ptr<syntax_nod
 
 // Refuse C++-only ownership and exposure contracts rather than dropping their declared semantics.
 inline void require_unmanaged_backend(const std::vector<std::unique_ptr<syntax_node>>& statements) {
+  const auto callable_has_token = [](const auto& function) {
+    return function.return_type.contains_managed_reference() ||
+        std::any_of(function.parameters.begin(), function.parameters.end(),
+            [](const auto& parameter) { return parameter.type.contains_managed_reference(); });
+  };
   for (const auto& node : statements) {
     if (node->type == object_type::namespace_type) {
       require_unmanaged_backend(static_cast<const namespace_node*>(node.get())->statements);
+    } else if (node->type == object_type::function_type) {
+      if (callable_has_token(static_cast<const function_node&>(*node).function)) {
+        throw std::invalid_argument{"Typed managed references are currently supported only by the C++ backend"};
+      }
     } else if (node->type == object_type::class_type || node->type == object_type::generic_definition) {
       const auto& object = static_cast<const class_node&>(*node);
+      if (std::any_of(object.member_list.begin(), object.member_list.end(), [](const auto& field) {
+            return std::any_of(field.type_name_list.begin(), field.type_name_list.end(),
+                [](const auto& type) { return type.contains_managed_reference(); }) ||
+                (field.key_type && field.key_type->contains_managed_reference());
+          }) || std::any_of(object.functions.begin(), object.functions.end(), callable_has_token) ||
+          std::any_of(object.constructions.begin(), object.constructions.end(), [](const auto& construction) {
+            return std::any_of(construction.parameters.begin(), construction.parameters.end(),
+                [](const auto& parameter) { return parameter.type.contains_managed_reference(); });
+          })) {
+        throw std::invalid_argument{"Typed managed references are currently supported only by the C++ backend"};
+      }
       if (object.supports_managed()) {
         throw std::invalid_argument{"Managed generation is currently supported only by the C++ backend"};
       }

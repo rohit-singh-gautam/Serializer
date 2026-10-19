@@ -312,6 +312,48 @@ function checkValueReferenceContracts(grammar, label) {
   return 13;
 }
 
+/** Keep namespace/default/package metadata distinct from its referenced model type. */
+function checkXmlAuthoring(grammar, label) {
+  const lines = ['serializer version 1.20.0; namespace sample {',
+    'using schema "schemas/core.xsd";',
+    'xml(namespace("urn:core"), scalars(attribute), unknown(skip));',
+    'class model { public double x (1) xml(attribute, name("axis")); }',
+    'package archive { part main : sample::model {',
+    'name("/model.xml"); content_type("application/xml"); relationship("urn:main"); compression(deflate);',
+    '} part extras : bytes { name(dynamic); content_type(dynamic); relationship("urn:extra"); source(main); occurs(0,unbounded); } }',
+    'class later { public sample::model value (1); } }'];
+  const result = tokenize(grammar, lines);
+  const expected = [[1, 'using', 'keyword.control.serializer'], [1, 'schema ', 'storage.type.serializer'],
+    [1, 'schemas/core.xsd', 'string.quoted.double.serializer'], [2, 'xml', 'storage.modifier.serializer'],
+    [2, 'namespace', 'storage.modifier.serializer'], [2, 'attribute', 'constant.other.xml.serializer'],
+    [4, 'package', 'storage.type.serializer'], [4, 'part ', 'storage.type.serializer'],
+    [4, 'model', 'entity.name.type.serializer'], [5, 'compression', 'storage.modifier.serializer'],
+    [5, 'deflate', 'constant.other.package.serializer'], [6, 'bytes', 'support.type.serializer'],
+    [7, 'model', 'entity.name.type.serializer']];
+  for (const [line, word, scope] of expected) {
+    assert.equal(scopesAt(lines, result, line, word).at(-1), scope, `${label}: ${word}`);
+  }
+  assert.equal(result.state.depth, 1, label);
+  return expected.length + 1;
+}
+
+/** Keep managed target operands as types and stable identity metadata numeric. */
+function checkManagedTokens(grammar, label) {
+  const lines = ['serializer version 1.20.0; class owner managed class_id(18446744073709551615) {',
+    'public managed_ref<lib::target> direct (1);',
+    'public optional<managed_ref<lib::target>> maybe (2);',
+    'public array managed_ref<lib::target> items (3); }'];
+  const result = tokenize(grammar, lines);
+  assert.equal(scopesAt(lines, result, 0, 'class_id').at(-1), 'storage.modifier.serializer', label);
+  assert.equal(scopesAt(lines, result, 0, '18446744073709551615').at(-1), 'constant.numeric.serializer', label);
+  for (const line of [1, 2, 3]) {
+    assert.equal(scopesAt(lines, result, line, 'target').at(-1), 'entity.name.type.serializer', label);
+    assert.equal(scopesAt(lines, result, line, 'managed_ref').at(-1), 'support.type.serializer', label);
+  }
+  assert.equal(result.state.depth, 1, label);
+  return 9;
+}
+
 async function main() {
   const directory = process.argv[2];
   assert.ok(directory && fs.statSync(directory).isDirectory(), 'Pass the Visual Studio TextMate directory.');
@@ -336,6 +378,10 @@ async function main() {
     checkArrayCallableApis(fallback, 'missing grammar fallback') +
     checkValueReferenceContracts(host, 'installed host grammar') +
     checkValueReferenceContracts(fallback, 'missing grammar fallback') +
+    checkXmlAuthoring(host, 'installed host grammar') +
+    checkXmlAuthoring(fallback, 'missing grammar fallback') +
+    checkManagedTokens(host, 'installed host grammar') +
+    checkManagedTokens(fallback, 'missing grammar fallback') +
     checkReferenceContracts(host, 'installed host grammar') +
     checkReferenceContracts(fallback, 'missing grammar fallback');
   console.log(`Installed grammar assets passed ${checks} embedded syntax/boundary checks across all ${nativeLanguages.length} tags.`);

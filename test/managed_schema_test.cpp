@@ -3,8 +3,10 @@
 #include <rohit/stream.hpp>
 
 #include <stdexcept>
+#include <algorithm>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 namespace serializer = rohit::serializer;
@@ -19,6 +21,23 @@ auto parse_managed(std::string_view source) {
 constexpr std::string_view schema =
     "namespace sample { class point stable_ids managed { public int32 x (1); public int32 y (2); } "
     "class shape stable_ids { public managed point position (3); public point offset (4); } }";
+
+// Extract the generated model bindings independently of class layout and pretty-printing profiles.
+std::vector<std::string> generated_schema_bindings(const std::string& generated) {
+  constexpr std::string_view marker = "schema_id = \"";
+  std::vector<std::string> result;
+  std::size_t offset{};
+  while ((offset = generated.find(marker, offset)) != std::string::npos) {
+    offset += marker.size();
+    const auto end = generated.find('"', offset);
+    if (end == std::string::npos) {
+      throw std::runtime_error{"Unterminated generated managed schema binding"};
+    }
+    result.push_back(generated.substr(offset, end - offset));
+    offset = end + 1U;
+  }
+  return result;
+}
 } // namespace
 
 // Incoming references never grant eligibility to unmarked leaf classes or primitive values.
@@ -70,6 +89,70 @@ TEST(managed_schema, configurable_identity_width) {
   EXPECT_NE(generated.find("using id_type = ::std::uint64_t"), std::string::npos);
   options.managed_id_type = "uint16";
   EXPECT_THROW(writer::cpp::generate(parsed, options), std::invalid_argument);
+}
+
+// Persistent-ID encoding is explicit in traits and the managed binding for either width/storage shape.
+TEST(managed_schema, persistent_identity_policy_marks_current_managed_bindings) {
+  EXPECT_EQ(writer::cpp_options{}.managed_id_encoding, writer::persistent_id_encoding::compact_varint);
+  const auto parsed = parse_managed(schema);
+  for (const auto* id_type : {"uint32", "uint64"}) {
+    for (const bool separate : {false, true}) {
+      writer::cpp_options options;
+      options.format = false;
+      options.managed_id_type = id_type;
+      options.managed_separate_values = separate;
+      options.managed_id_encoding = writer::persistent_id_encoding::fixed;
+      const auto fixed = writer::cpp::generate(parsed, options);
+      options.managed_id_encoding = writer::persistent_id_encoding::compact_varint;
+      const auto compact = writer::cpp::generate(parsed, options);
+      EXPECT_NE(fixed.find("id_encoding = ::rohit::managed::identity_encoding::fixed;"), std::string::npos);
+      EXPECT_NE(compact.find("id_encoding = ::rohit::managed::identity_encoding::compact_varint;"), std::string::npos);
+      const auto fixed_bindings = generated_schema_bindings(fixed);
+      const auto compact_bindings = generated_schema_bindings(compact);
+      ASSERT_EQ(fixed_bindings.size(), 2U);
+      ASSERT_EQ(compact_bindings.size(), fixed_bindings.size());
+      for (std::size_t index = 0; index < fixed_bindings.size(); ++index) {
+        EXPECT_TRUE(fixed_bindings[index].starts_with(separate ? "managed.v1:" : "managed.direct.v1:"));
+        EXPECT_TRUE(fixed_bindings[index].ends_with(std::string{":"} + id_type));
+        EXPECT_EQ(compact_bindings[index], fixed_bindings[index] + ":compact_varint");
+      }
+      EXPECT_NE(fixed.find("persistent_identity_output<false, "), std::string::npos);
+      EXPECT_NE(compact.find("persistent_identity_output<true, "), std::string::npos);
+      EXPECT_NE(fixed.find("read_persistent_identity<false>"), std::string::npos);
+      EXPECT_NE(compact.find("read_persistent_identity<true>"), std::string::npos);
+      EXPECT_NE(compact.find(">{this->persistent_id}"), std::string::npos);
+      EXPECT_EQ(compact.find(">{this->x}"), std::string::npos);
+      EXPECT_EQ(compact.find(">{this->y}"), std::string::npos);
+    }
+  }
+}
+
+// Selecting persistent-ID encoding leaves unrelated integer payloads and parsed authoring metadata intact.
+TEST(managed_schema, persistent_identity_policy_does_not_change_ordinary_fields_or_ast) {
+  writer::cpp_options options;
+  options.format = false;
+  const auto ordinary = parse_managed(
+      "class payload stable_ids { public uint32 count (1); public uint64 amount (2); }");
+  options.managed_id_encoding = writer::persistent_id_encoding::fixed;
+  const auto fixed_ordinary = writer::cpp::generate(ordinary, options);
+  options.managed_id_encoding = writer::persistent_id_encoding::compact_varint;
+  EXPECT_EQ(writer::cpp::generate(ordinary, options), fixed_ordinary);
+
+  const auto parsed = parse_managed(schema);
+  options.managed_id_encoding = writer::persistent_id_encoding::fixed;
+  const auto first = writer::cpp::generate(parsed, options);
+  options.managed_id_encoding = writer::persistent_id_encoding::compact_varint;
+  static_cast<void>(writer::cpp::generate(parsed, options));
+  options.managed_id_encoding = writer::persistent_id_encoding::fixed;
+  EXPECT_EQ(writer::cpp::generate(parsed, options), first);
+  const auto& space = static_cast<const serializer::namespace_node&>(*parsed.front());
+  for (const auto& statement : space.statements) {
+    const auto& source = static_cast<const serializer::class_node&>(*statement);
+    ASSERT_EQ(source.member_list.size(), 2U);
+    EXPECT_TRUE(std::ranges::none_of(source.member_list, [](const auto& field) {
+      return field.name == "persistent_id" || field.compact != serializer::compact_encoding::none;
+    }));
+  }
 }
 
 // Default output identifies the public schema class; ordinary/storage companions are opt-in.

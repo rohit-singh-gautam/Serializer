@@ -9,6 +9,7 @@
 
 #include <rohit/managed_collaboration_hooks.hpp>
 #include <rohit/managed_editor.hpp>
+#include <rohit/managed_editable.hpp>
 #include <rohit/managed_delta.hpp>
 #include <rohit/managed_file_journal.hpp>
 #include <rohit/managed_journal.hpp>
@@ -142,6 +143,7 @@ template <typename Root>
 struct model_traits;
 
 namespace detail {
+struct migration_store_access;
 // Generated hooks reset memory-only members without changing persistent values or identities.
 template <typename Traits, typename Storage>
 void reset_runtime_fields(Storage& value) {
@@ -221,14 +223,36 @@ struct store_collaboration_storage {
   static constexpr collaboration_attachment* attachment = nullptr;
   static constexpr bool busy = false;
   static constexpr const IdentityTable* restoration = nullptr;
+  static constexpr identity_lease_book* identity_leases = nullptr;
+  static constexpr const records::identity_lease* prepared_identity_lease = nullptr;
 };
 template <typename Storage, typename IdentityTable, bool History>
 struct store_collaboration_storage<true, Storage, IdentityTable, History>
-    : store_restoration_storage<History, IdentityTable> {
+    : store_restoration_storage<true, IdentityTable> {
   std::unique_ptr<collaboration_attachment> attachment{};
   bool busy{};
+  std::unique_ptr<identity_lease_book> identity_leases{};
+  const records::identity_lease* prepared_identity_lease{};
   void* prepare_context{};
   void (*prepare)(void*, const Storage&, const std::vector<std::uint8_t>&){};
+};
+
+// Isolated allocation storage is compiled in only for private preview traits that explicitly request it.
+template <bool Enabled>
+struct isolated_allocation_storage {};
+template <>
+struct isolated_allocation_storage<true> {
+  identity_allocation_context context{};
+  bool initialized{};
+};
+
+// Only isolated workspaces retain a source reservation callback; ordinary stores keep empty storage.
+template <bool Enabled, typename Id>
+struct isolated_reservation_storage {};
+
+template <typename Id>
+struct isolated_reservation_storage<true, Id> {
+  std::function<std::pair<Id, identity_allocation_context>()> reserve{};
 };
 
 // Encode with the existing keyed codec; native object layout is never a snapshot.
@@ -391,6 +415,7 @@ class model_store {
   friend class store_collaboration;
   template <typename, history_mode, history_labels, typename, typename, typename, store_features>
   friend class collaboration_authority;
+  friend struct detail::migration_store_access;
 
 public:
   static constexpr bool has_journal =
@@ -398,6 +423,13 @@ public:
   static constexpr bool has_collaboration =
       Features == store_features::collaboration || Features == store_features::all;
   static constexpr bool has_history = Mode != history_mode::disabled;
+  static constexpr bool has_isolated_allocator = [] {
+    if constexpr (requires { Traits::isolated_allocation_context; }) {
+      return static_cast<bool>(Traits::isolated_allocation_context);
+    } else {
+      return false;
+    }
+  }();
   static_assert(Features == store_features::none || Features == store_features::journal ||
                 Features == store_features::collaboration || Features == store_features::all);
   using traits_type = Traits;
@@ -405,6 +437,7 @@ public:
       std::conditional_t<Mode == history_mode::tree, tree_transaction_outcome, transaction_outcome>;
   using storage_type = typename Traits::storage_type;
   using id_type = typename Traits::id_type;
+  using identity_reservation_callback = std::function<std::pair<id_type, identity_allocation_context>()>;
   static_assert(std::same_as<id_type, std::uint32_t> || std::same_as<id_type, std::uint64_t>);
   static_assert(std::same_as<decltype(storage_type{}.persistent_id), id_type>);
   static_assert(Labels == history_labels::disabled || Labels == history_labels::enabled);
@@ -442,6 +475,10 @@ private:
   SERIALIZER_MANAGED_EMPTY_MEMBER
   detail::store_collaboration_storage<has_collaboration, storage_type, identity_table, has_history>
       collaboration_state_{};
+  SERIALIZER_MANAGED_EMPTY_MEMBER
+  detail::isolated_allocation_storage<has_isolated_allocator> isolated_allocation_{};
+  SERIALIZER_MANAGED_EMPTY_MEMBER
+  detail::isolated_reservation_storage<has_isolated_allocator, id_type> isolated_reservation_{};
   std::uint64_t allocated_id_{};
   bool writer_active_{};
   bool callback_active_{};
@@ -675,12 +712,50 @@ private:
         envelope.revisions.push_back(*node);
       }
     }
-    return detail::encode(envelope, options_.decode.max_input_bytes);
+    auto bytes = detail::encode(envelope, options_.decode.max_input_bytes);
+    if constexpr (has_collaboration) {
+      if (collaboration_state_.identity_leases &&
+          !collaboration_state_.identity_leases->entries().empty()) {
+        records::identity_allocation_checkpoint checkpoint;
+        checkpoint.format_version = 1;
+        checkpoint.model = std::move(bytes);
+        checkpoint.leases = collaboration_state_.identity_leases->entries();
+        if (options_.decode.max_input_bytes <= allocation_checkpoint_magic.size()) {
+          throw std::length_error{"Native identity checkpoint exceeds its byte budget"};
+        }
+        bytes = detail::encode(checkpoint,
+            options_.decode.max_input_bytes - allocation_checkpoint_magic.size());
+        bytes.insert(bytes.begin(), allocation_checkpoint_magic.begin(), allocation_checkpoint_magic.end());
+      }
+    }
+    return bytes;
+  }
+
+  static constexpr auto allocation_checkpoint_magic = detail::identity_allocation_checkpoint_magic;
+
+  // Unwrap optional authority allocation metadata while preserving the ordinary envelope encoding.
+  records::identity_allocation_checkpoint decode_allocation_checkpoint(
+      const std::vector<std::uint8_t>& bytes) const {
+    records::identity_allocation_checkpoint checkpoint;
+    if (bytes.size() >= allocation_checkpoint_magic.size() &&
+        std::equal(allocation_checkpoint_magic.begin(), allocation_checkpoint_magic.end(), bytes.begin())) {
+      if constexpr (!has_collaboration) {
+        throw std::invalid_argument{"Identity lease checkpoints require collaboration storage"};
+      }
+      checkpoint = detail::decode<records::identity_allocation_checkpoint>(
+          {bytes.begin() + allocation_checkpoint_magic.size(), bytes.end()}, options_.decode);
+      if (checkpoint.format_version != 1 || checkpoint.leases.empty()) {
+        throw std::invalid_argument{"Invalid native identity allocation checkpoint"};
+      }
+    }
+    return checkpoint;
   }
 
   // Check that this writer's envelope fits the same decoder budgets used by recovery.
   void check_journal_envelope(const std::vector<std::uint8_t>& bytes) const {
-    static_cast<void>(detail::decode<envelope_type>(bytes, options_.decode));
+    const auto checkpoint = decode_allocation_checkpoint(bytes);
+    static_cast<void>(detail::decode<envelope_type>(
+        checkpoint.format_version == 0 ? bytes : checkpoint.model, options_.decode));
   }
 
   static constexpr std::size_t journal_word_bytes = 8;
@@ -703,7 +778,8 @@ private:
   // Append the already serialized snapshot directly, once. Framing/metadata use stack storage;
   // prior history, document/schema metadata, and unchanged base bytes are never re-encoded here.
   void journal_edit(const std::vector<std::uint8_t>& snapshot, const label_type& action,
-                    std::uint64_t allocation_base, std::size_t evicted) {
+                    std::uint64_t allocation_base, std::size_t evicted,
+                    bool admit_reserved_identities = false) {
     if (collaboration_state_.attachment) {
       if constexpr (has_labels) {
         collaboration_state_.attachment->prepare(snapshot, action.label);
@@ -715,14 +791,17 @@ private:
       if (!journal_state_.sink) {
         return;
       }
-      constexpr auto prefix_bytes =
+      constexpr auto ordinary_prefix_bytes =
           1 +
           journal_word_bytes * (1 + (Mode == history_mode::linear ? 1 : 0) + (has_labels ? 1 : 0));
-      std::array<std::uint8_t, prefix_bytes> prefix{};
-      const bool restoring = collaboration_state_.restoration != nullptr;
+      constexpr auto lease_prefix_bytes = 1 + 2 * journal_word_bytes;
+      std::array<std::uint8_t, ordinary_prefix_bytes + (has_collaboration ? lease_prefix_bytes : 0)> prefix{};
+      const auto* lease = collaboration_state_.prepared_identity_lease;
+      const bool restoring = collaboration_state_.restoration != nullptr ||
+                             collaboration_state_.attachment != nullptr || admit_reserved_identities;
       std::vector<std::uint8_t> delta;
       if (options_.delta_journal && options_.max_delta_chain != 0 &&
-          journal_state_.delta_count < options_.max_delta_chain && !collaboration_state_.attachment) {
+          journal_state_.delta_count < options_.max_delta_chain && !collaboration_state_.attachment && !lease) {
         auto patch = make_snapshot_patch(snapshot_, snapshot, options_.max_snapshot_bytes);
         try {
           delta = detail::encode(patch, options_.max_snapshot_bytes);
@@ -734,12 +813,19 @@ private:
           delta.clear();
         }
       }
-      prefix.front() = static_cast<std::uint8_t>(
+      std::size_t start{};
+      if (lease) {
+        prefix.front() = static_cast<std::uint8_t>(detail::journal_record_kind::leased_edit);
+        detail::journal_put_word(prefix, 1, lease->first);
+        detail::journal_put_word(prefix, 1 + journal_word_bytes, lease->committed);
+        start = lease_prefix_bytes;
+      }
+      prefix[start] = static_cast<std::uint8_t>(
           delta.empty() ? (restoring ? detail::journal_record_kind::restore_edit
                                     : detail::journal_record_kind::edit)
                         : (restoring ? detail::journal_record_kind::delta_restore_edit
                                      : detail::journal_record_kind::delta_edit));
-      std::size_t offset = 1;
+      std::size_t offset = start + 1;
       if constexpr (Mode == history_mode::linear) {
         detail::journal_put_word(prefix, offset, evicted);
         offset += journal_word_bytes;
@@ -756,7 +842,8 @@ private:
         static_cast<void>(action);
       }
       journal_operation([&] {
-        journal_state_.sink->append(prefix, label, delta.empty() ? std::span{snapshot} : std::span{delta});
+        journal_state_.sink->append(std::span{prefix}.first(start + ordinary_prefix_bytes), label,
+                                    delta.empty() ? std::span{snapshot} : std::span{delta});
       });
       journal_state_.delta_count = delta.empty() ? 0 : journal_state_.delta_count + 1;
     }
@@ -764,12 +851,33 @@ private:
 
   // Replay stored bytes into an isolated receiver. Never invoke editing callbacks or external effects.
   // The base supplies schema/profile/policy; the file adapter checks sequence and checksum chaining.
-  void replay_journal_record(std::span<const std::uint8_t> record) {
+  void replay_journal_record(std::span<const std::uint8_t> record,
+                               const records::identity_lease* lease_admission = nullptr) {
     if (record.empty()) {
       throw std::invalid_argument{"Empty managed journal operation"};
     }
     std::size_t offset = 1;
     const auto kind = static_cast<detail::journal_record_kind>(record.front());
+    if (kind == detail::journal_record_kind::leased_edit) {
+      if constexpr (has_collaboration) {
+        const auto first = detail::journal_get_word(record, offset);
+        const auto committed = detail::journal_get_word(record, offset);
+        auto* lease = collaboration_state_.identity_leases
+            ? collaboration_state_.identity_leases->find(first) : nullptr;
+        if (!lease || committed <= lease->committed || committed > lease->last ||
+            offset == record.size() ||
+            record[offset] != static_cast<std::uint8_t>(detail::journal_record_kind::restore_edit)) {
+          throw std::invalid_argument{"Invalid native leased identity journal edit"};
+        }
+        auto admission = *lease;
+        admission.committed = committed;
+        replay_journal_record(record.subspan(offset), &admission);
+        lease->committed = committed;
+        return;
+      } else {
+        throw std::invalid_argument{"Leased identity journal requires collaboration storage"};
+      }
+    }
     if (kind == detail::journal_record_kind::reset) {
       if (record.size() != offset) {
         throw std::invalid_argument{"Trailing managed history reset bytes"};
@@ -780,6 +888,15 @@ private:
       } else {
         throw std::invalid_argument{"History reset in a history-disabled journal"};
       }
+    }
+    if (kind == detail::journal_record_kind::reserve_range) {
+      const auto upper = detail::journal_get_word(record, offset);
+      if (offset != record.size() || upper <= allocated_id_ ||
+          upper > std::numeric_limits<id_type>::max()) {
+        throw std::invalid_argument{"Invalid native journal range reservation"};
+      }
+      allocated_id_ = upper;
+      return;
     }
     if (kind == detail::journal_record_kind::reserve ||
         kind == detail::journal_record_kind::select) {
@@ -852,9 +969,18 @@ private:
     }
     for (const auto& [id, type] : identities) {
       const auto old = identities_.find(id);
+      bool admitted = restoring;
+      if (lease_admission && old == identities_.end()) {
+        if constexpr (has_collaboration) {
+          const auto* previous = collaboration_state_.identity_leases->find(lease_admission->first);
+          admitted = previous && id > previous->committed && id <= lease_admission->committed;
+        } else {
+          admitted = false;
+        }
+      }
       if ((old != identities_.end() && old->second != type) ||
           (old == identities_.end() && id <= allocation_base &&
-           !restoring)) {
+           !admitted)) {
         throw std::invalid_argument{"Journal edit reuses or retypes an identity"};
       }
     }
@@ -937,6 +1063,45 @@ private:
 
   // Consume an ID permanently, including on later cancellation or publication failure.
   id_type allocate_id() {
+    if constexpr (has_isolated_allocator) {
+      auto& cursor = isolated_allocation_.context;
+      if (isolated_reservation_.reserve) {
+        const auto [next, reserved] = isolated_reservation_.reserve();
+        reserved.validate(std::numeric_limits<id_type>::max());
+        const bool unleased = cursor.first == 0;
+        const bool valid = unleased
+            ? cursor.watermark < std::numeric_limits<id_type>::max() &&
+                next == cursor.watermark + 1U && reserved.watermark == next &&
+                reserved.first == 0 && reserved.last == 0 && reserved.consumed == 0
+            : cursor.available() && next == cursor.consumed + 1U &&
+                reserved.watermark == cursor.watermark && reserved.first == cursor.first &&
+                reserved.last == cursor.last && reserved.consumed == next;
+        if (next == 0 || !valid) {
+          throw std::invalid_argument{"Preview reservation changed its native identity context"};
+        }
+        // The source completed its durable reservation before this workspace exposes the identity.
+        cursor = reserved;
+        allocated_id_ = reserved.watermark;
+        return next;
+      }
+      if (cursor.first != 0) {
+        return static_cast<id_type>(cursor.take());
+      }
+      if constexpr (requires { Traits::requires_identity_lease; }) {
+        if constexpr (Traits::requires_identity_lease) {
+          if (isolated_allocation_.initialized) {
+            throw std::logic_error{"Reserve an authority native identity lease before creating collaboration entities"};
+          }
+        }
+      }
+    }
+    if (collaboration_state_.attachment) {
+      const auto next = collaboration_state_.attachment->allocate_identity();
+      if (next == 0 || next > allocated_id_) {
+        throw std::invalid_argument{"Collaboration issued an unreserved native identity"};
+      }
+      return static_cast<id_type>(next);
+    }
     if (allocated_id_ == std::numeric_limits<id_type>::max()) {
       throw std::overflow_error{"Managed entity ID space exhausted"};
     }
@@ -944,7 +1109,77 @@ private:
     // Reservations precede exposing an ID, so canceled and failed edits cannot recycle it on restart.
     journal_control(detail::journal_record_kind::reserve, next);
     allocated_id_ = next;
+    if constexpr (has_isolated_allocator) {
+      isolated_allocation_.context.watermark = next;
+    }
     return static_cast<id_type>(next);
+  }
+
+  // Burn a disjoint authority range; an attached journal flushes before IDs reach an offline writer.
+  identity_allocation_context reserve_identity_range(std::string_view format,
+      std::span<const std::uint8_t> session, std::uint64_t count, std::size_t maximum_ranges)
+    requires(has_collaboration)
+  {
+    require_idle();
+    if (collaboration_state_.attachment) {
+      throw std::logic_error{"Only an authority reserves native identity ranges"};
+    }
+    auto book = collaboration_state_.identity_leases
+        ? std::make_unique<detail::identity_lease_book>(collaboration_state_.identity_leases->entries())
+        : std::make_unique<detail::identity_lease_book>();
+    auto lease = book->prepare(format, session, allocated_id_, count,
+                               std::numeric_limits<id_type>::max(), maximum_ranges);
+    const identity_allocation_context result{lease.last, lease.first, lease.last, lease.committed};
+    book->publish(std::move(lease));
+    // Only the infrequent block reservation rewrites a checkpoint; object creation consumes a cursor.
+    if constexpr (has_journal) {
+      if (journal_state_.sink) {
+        collaboration_state_.identity_leases.swap(book);
+        std::vector<std::uint8_t> bytes;
+        try {
+          bytes = encode_state(snapshot_, history_, result.watermark);
+          check_journal_envelope(bytes);
+        } catch (...) {
+          collaboration_state_.identity_leases.swap(book);
+          throw;
+        }
+        collaboration_state_.identity_leases.swap(book);
+        journal_operation([&] { journal_state_.sink->save(bytes); });
+      }
+    }
+    collaboration_state_.identity_leases.swap(book);
+    allocated_id_ = result.watermark;
+    return result;
+  }
+
+  // Record a consumed cursor, flushing an attached journal even when no model fields change.
+  void commit_identity_cursor(const records::identity_lease& prepared)
+    requires(has_collaboration)
+  {
+    require_idle();
+    auto book = std::make_unique<detail::identity_lease_book>(
+        collaboration_state_.identity_leases->entries());
+    auto* entry = book->find(prepared.first);
+    if (!entry || prepared.committed < entry->committed || prepared.committed > entry->last) {
+      throw std::invalid_argument{"Invalid native identity lease cursor"};
+    }
+    entry->committed = prepared.committed;
+    if constexpr (has_journal) {
+      if (journal_state_.sink) {
+        collaboration_state_.identity_leases.swap(book);
+        std::vector<std::uint8_t> bytes;
+        try {
+          bytes = encode_state(snapshot_, history_, allocated_id_);
+          check_journal_envelope(bytes);
+        } catch (...) {
+          collaboration_state_.identity_leases.swap(book);
+          throw;
+        }
+        collaboration_state_.identity_leases.swap(book);
+        journal_operation([&] { journal_state_.sink->save(bytes); });
+      }
+    }
+    collaboration_state_.identity_leases.swap(book);
   }
 
   // Inspect explicit generated ID fields; adapters supply stable type keys for all owned entities.
@@ -963,13 +1198,20 @@ private:
   }
 
   // Apply application invariants without allowing recursive navigation or nested publication.
-  void validate(const storage_type& value, bool application_policy = true) {
+  void validate(const storage_type& value, bool application_policy = true,
+                const document_id* reference_document = nullptr) {
     if (callback_active_) {
       throw std::logic_error{"Reentrant managed validation"};
     }
     callback_active_ = true;
     try {
       Traits::validate(value);
+      if constexpr (requires { Traits::has_entity_references; }) {
+        if constexpr (Traits::has_entity_references) {
+          detail::validate_entity_references<Traits>(value,
+              reference_document ? *reference_document : document_, options_.decode, resident_ledger_);
+        }
+      }
       if (registry_validate_) { (*registry_validate_)(value); }
       if (application_policy && validate_) {
         validate_(value);
@@ -1111,6 +1353,8 @@ public:
     std::shared_ptr<storage_type> candidate_{};
     std::shared_ptr<detail::resident_charge> candidate_charge_{};
     std::uint64_t allocation_base_{};
+    SERIALIZER_MANAGED_EMPTY_MEMBER
+    detail::isolated_allocation_storage<has_collaboration || has_isolated_allocator> allocation_state_{};
     int exceptions_{};
     bool editing_{};
     std::shared_ptr<detail::edit_channel<storage_type, id_type>> channel_{};
@@ -1121,6 +1365,11 @@ public:
         : label_type{std::move(label)}, store_{&store}, outcome_{&outcome},
           allocation_base_{store.allocated_id_}, exceptions_{std::uncaught_exceptions()} {
       store.require_idle();
+      if constexpr (has_collaboration || has_isolated_allocator) {
+        if (store.collaboration_state_.attachment || has_isolated_allocator) {
+          allocation_state_.context = store.allocation_context();
+        }
+      }
       if (exceptions_ != 0) {
         throw std::logic_error{"Cannot begin a transaction during stack unwinding"};
       }
@@ -1180,6 +1429,25 @@ public:
       }
     }
 
+    // Commit this exact private preview's burned IDs without adding state to ordinary transactions.
+    // The enclosing preview owns the sorted span until completion; callers cannot grant admission.
+    void commit_preview(const identity_allocation_context& expected,
+                        std::span<const id_type> reserved) {
+      require_active();
+      if (editing_ || store_->allocation_context() != expected) {
+        reject("Preview identity admission has a stale or active transaction base");
+      }
+      id_type previous{};
+      for (const auto id : reserved) {
+        if (id == 0 || id <= previous || id > store_->allocated_id_ || store_->identities_.contains(id) ||
+            (expected.first != 0 && (id < expected.first || id > expected.consumed))) {
+          reject("Preview identity admission contains a reused or unreserved native identity");
+        }
+        previous = id;
+      }
+      commit_impl(reserved);
+    }
+
   public:
     transaction(const transaction&) = delete;
     transaction& operator=(const transaction&) = delete;
@@ -1197,6 +1465,9 @@ public:
       candidate_charge_ = std::move(other.candidate_charge_);
       static_cast<label_type&>(*this) = std::move(static_cast<label_type&>(other));
       allocation_base_ = other.allocation_base_;
+      if constexpr (has_collaboration || has_isolated_allocator) {
+        allocation_state_ = other.allocation_state_;
+      }
       exceptions_ = other.exceptions_;
       channel_ = std::move(other.channel_);
       if (channel_) {
@@ -1228,6 +1499,9 @@ public:
       require_active();
       if (!channel_) {
         channel_ = std::make_shared<detail::edit_channel<storage_type, id_type>>();
+        if constexpr (detail::edit_channel<storage_type, id_type>::has_reference_scope) {
+          channel_->reference_document = store_->document_;
+        }
         channel_->owner = this;
         channel_->mutate = [](void* owner, void* callable, void (*invoke)(void*, storage_type&)) {
           static_cast<transaction*>(owner)->update(
@@ -1249,7 +1523,7 @@ public:
     // Reuse editor lifetime and failure boundaries for generated typed entity lookup.
     auto registry() {
       static_cast<void>(root());
-      return registry_edit<Root, Traits>{channel_};
+      return registry_edit<Root, Traits>{channel_, store_->document_};
     }
 
     // Mutate only the private candidate; failure closes the entire action even if caught by the caller.
@@ -1306,8 +1580,14 @@ public:
       close(transaction_status::reverted);
     }
 
-    // Prepare every allocation before atomic pointer/index swaps; record and rethrow failures.
+    // Complete an ordinary transaction without admitting identities reserved by a preview.
     void commit() {
+      commit_impl({});
+    }
+
+  private:
+    // Prepare every allocation before atomic pointer/index swaps; record and rethrow failures.
+    void commit_impl(std::span<const id_type> preview_reservations) {
       require_active();
       if (editing_) {
         reject("Commit must occur outside a candidate update callback");
@@ -1323,11 +1603,20 @@ public:
         for (const auto& [id, type] : identities) {
           const auto previous = store.identities_.find(id);
           bool restored = false;
-          if constexpr (has_collaboration && has_history) {
+          if constexpr (has_collaboration || has_isolated_allocator) {
             if (const auto* restoration = store.collaboration_state_.restoration) {
               const auto found = restoration->find(id);
               restored = found != restoration->end() && found->second == type;
             }
+            if ((store.collaboration_state_.attachment || has_isolated_allocator) &&
+                allocation_state_.context.first != 0) {
+              const auto cursor = store.allocation_context();
+              restored = restored || (cursor.first == allocation_state_.context.first &&
+                  id > allocation_state_.context.consumed && id <= cursor.consumed);
+            }
+          }
+          if (previous == store.identities_.end() && id <= allocation_base_ && !restored) {
+            restored = std::binary_search(preview_reservations.begin(), preview_reservations.end(), id);
           }
           if ((previous != store.identities_.end() && previous->second != type) ||
               (previous == store.identities_.end() && id <= allocation_base_ && !restored)) {
@@ -1376,7 +1665,7 @@ public:
             store.history_.entries.push_back(std::move(entry));
             try {
               store.journal_edit(snapshot, static_cast<const label_type&>(*this), allocation_base_,
-                                 plan.evict_count);
+                                 plan.evict_count, !preview_reservations.empty());
             } catch (...) {
               // The unselected tail is private while the writer is active; failure restores it exactly.
               store.history_.entries.pop_back();
@@ -1396,7 +1685,7 @@ public:
             const auto inserted = store.history_.revisions.emplace(revision, std::move(node)).first;
             try {
               store.journal_edit(snapshot, static_cast<const label_type&>(*this), allocation_base_,
-                                 0);
+                                 0, !preview_reservations.empty());
             } catch (...) {
               // Only the new, unselected node is provisional; retained nodes are never copied.
               store.history_.revisions.erase(inserted);
@@ -1408,11 +1697,18 @@ public:
             outcome_->revision = revision;
           }
         } else {
-          store.journal_edit(snapshot, static_cast<const label_type&>(*this), allocation_base_, 0);
+          store.journal_edit(snapshot, static_cast<const label_type&>(*this), allocation_base_, 0,
+                             !preview_reservations.empty());
         }
         store.current_.swap(published);
         store.snapshot_.swap(snapshot);
         store.identities_.swap(identities);
+        if constexpr (has_collaboration) {
+          if (const auto* prepared = store.collaboration_state_.prepared_identity_lease) {
+            store.collaboration_state_.identity_leases->find(prepared->first)->committed =
+                prepared->committed;
+          }
+        }
         admission.commit();
         if (store.collaboration_state_.attachment) {
           store.collaboration_state_.attachment->publish();
@@ -1512,6 +1808,9 @@ public:
       require_active();
       if (!channel_) {
         channel_ = std::make_shared<detail::edit_channel<storage_type, id_type>>();
+        if constexpr (detail::edit_channel<storage_type, id_type>::has_reference_scope) {
+          channel_->reference_document = store_->document_;
+        }
         channel_->owner = this;
         channel_->mutate = [](void* owner, void* callable, void (*invoke)(void*, storage_type&)) {
           static_cast<runtime_edit*>(owner)->update(
@@ -1569,6 +1868,13 @@ public:
   explicit model_store(Root value, document_id document = make_document_id(),
                        store_options options = {},
                        std::function<void(const storage_type&)> validate = {})
+      : model_store{std::move(value), document, options, std::move(validate), {}} {}
+
+  // Initialize required/forward reference edges after assigning native IDs and before any baseline
+  // is accepted. The trusted synchronous callback assigns values/edges, retaining initial ownership.
+  model_store(Root value, document_id document, store_options options,
+              std::function<void(const storage_type&)> validate,
+              const std::function<void(storage_type&, const reference_builder<Root, Traits>&)>& initialize)
       : document_{document}, options_{options}, validate_{std::move(validate)} {
     if ((document.high == 0 && document.low == 0) || Traits::schema_id.empty()) {
       throw std::invalid_argument{"A nonzero document namespace is required"};
@@ -1580,6 +1886,16 @@ public:
       }
       id = allocate_id();
     });
+    if (initialize) {
+      if constexpr (requires { Traits::type_key; Traits::class_id; }) {
+        const reference_builder<Root, Traits> references{storage, document_,
+            {options_.decode.max_collection_elements, options_.decode.max_allocation_bytes},
+            resident_ledger_};
+        initialize(storage, references);
+      } else {
+        throw std::logic_error{"Reference initialization requires generated managed type metadata"};
+      }
+    }
     this->validate(storage);
     identities_ = inspect(storage, allocated_id_);
     snapshot_ = detail::encode(storage, options_.max_snapshot_bytes);
@@ -1727,6 +2043,185 @@ public:
     return Traits::clone_value(value);
   }
 
+  // Own an isolated history-free workspace; its source store outlives this owner-thread scope.
+  // Immutable reads may retain their pins, but workspace editors never become live-store editors.
+  class preview_edit {
+    struct preview_traits : Traits {
+      static constexpr bool isolated_allocation_context = true;
+    };
+    // Keep native reservations stable across workspace moves; cancellation never recycles exposed IDs.
+    struct preview_reservations {
+      identity_allocation_context expected{};
+      std::vector<id_type> identities{};
+      detail::resident_charge charge;
+
+      // Admit the workspace's reservation metadata against the same ledger as its pinned model.
+      preview_reservations(const std::shared_ptr<detail::resident_ledger>& ledger,
+                           identity_allocation_context context)
+          : expected{context}, charge{ledger, sizeof(preview_reservations)} {}
+
+      // Grow before native reservation so no allocation can fail after an ID is exposed to the workspace.
+      void prepare_identity(std::size_t maximum) {
+        maximum = std::min(maximum, identities.max_size());
+        if (identities.size() >= maximum) {
+          throw std::length_error{"Managed preview identity budget exceeded"};
+        }
+        if (identities.size() < identities.capacity()) { return; }
+        const auto capacity = identities.capacity() == 0 ? std::size_t{1}
+            : identities.capacity() <= maximum / 2 ? identities.capacity() * 2 : maximum;
+        auto estimate = sizeof(preview_reservations);
+        detail::add_memory_estimate(estimate, detail::multiply_memory_estimate(capacity, sizeof(id_type)));
+        detail::resident_admission admission{charge, estimate};
+        identities.reserve(capacity);
+        admission.commit();
+      }
+    };
+  public:
+    using working_store_type = model_store<Root, history_mode::disabled,
+        history_labels::disabled, preview_traits, store_features::none>;
+
+  private:
+    friend class model_store;
+    const model_store* source_{};
+    std::shared_ptr<const storage_type> base_{};
+    state_stamp base_stamp_{};
+    identity_allocation_context allocation_base_{};
+    std::shared_ptr<preview_reservations> reservations_{};
+    std::unique_ptr<working_store_type> working_{};
+    bool accepting_{};
+
+    // Share the accepted root and copy only current snapshot/index metadata, never retained history.
+    explicit preview_edit(model_store& source)
+        : source_{&source}, base_{source.current_}, base_stamp_{source.stamp_},
+          allocation_base_{source.allocation_context()} {
+      reservations_ = std::allocate_shared<preview_reservations>(
+          detail::resident_allocator<preview_reservations>{source.options_.allocation_resource},
+          source.resident_ledger_, allocation_base_);
+      auto working = std::unique_ptr<working_store_type>{new working_store_type{
+          typename working_store_type::recovery_tag{}, source.options_, source.validate_,
+          source.resident_ledger_}};
+      working->document_ = source.document_;
+      working->allocated_id_ = source.allocated_id_;
+      working->current_ = source.current_;
+      working->registry_validate_ = source.registry_validate_;
+      // Admit the derived metadata before copying it. The shared root keeps its existing charge.
+      working->resident_auxiliary_.resize(working->estimate_auxiliary(
+          source.snapshot_, source.identities_, working->history_));
+      working->snapshot_ = source.snapshot_;
+      working->identities_ = source.identities_;
+      working->initialize_allocation_context(allocation_base_,
+          [owner = &source, base = base_, stamp = base_stamp_, reservations = reservations_]() {
+            if (owner->current_ != base || owner->stamp_ != stamp) {
+              throw std::logic_error{"Managed preview has a stale base"};
+            }
+            reservations->prepare_identity(owner->options_.decode.max_collection_elements);
+            auto reserved = owner->reserve_preview_identity(reservations->expected);
+            reservations->expected = reserved.second;
+            reservations->identities.push_back(reserved.first);
+            return reserved;
+          });
+      working->resident_auxiliary_.resize(working->estimate_auxiliary(
+          working->snapshot_, working->identities_, working->history_));
+      working_ = std::move(working);
+    }
+
+  public:
+    preview_edit(const preview_edit&) = delete;
+    preview_edit& operator=(const preview_edit&) = delete;
+    // Transfer an idle workspace without invalidating its source reservation callback.
+    preview_edit(preview_edit&& other) {
+      if (other.accepting_) { throw std::logic_error{"Cannot move a preview during acceptance"}; }
+      if (other.working_) { other.working_->require_idle(); }
+      source_ = other.source_;
+      base_ = std::move(other.base_);
+      base_stamp_ = other.base_stamp_;
+      allocation_base_ = other.allocation_base_;
+      reservations_ = std::move(other.reservations_);
+      working_ = std::move(other.working_);
+    }
+    preview_edit& operator=(preview_edit&&) = delete;
+
+    // Borrow this isolated store for normal generated editing; closed previews reject access.
+    working_store_type& working() {
+      if (!working_ || accepting_) { throw std::logic_error{"Managed preview is closed or accepting"}; }
+      return *working_;
+    }
+
+    // Report whether this proposal still owns an editable workspace.
+    bool active() const noexcept { return working_ != nullptr; }
+
+    // Discard private values/history; native IDs already exposed by the workspace remain consumed.
+    void cancel() {
+      if (accepting_) { throw std::logic_error{"Cannot cancel a preview during acceptance"}; }
+      if (working_) { working_->require_idle(); }
+      working_.reset();
+      reservations_.reset();
+      base_.reset();
+    }
+  };
+
+  // Start a bounded editing workspace without encoding or copying the retained native history.
+  [[nodiscard]] preview_edit preview() requires (!has_isolated_allocator) {
+    require_idle();
+    if (collaboration_state_.attachment && allocation_context().first == 0U) {
+      throw std::logic_error{"Collaborative preview requires an initialized identity reservation"};
+    }
+    return preview_edit{*this};
+  }
+
+  // Accept only an exact-base proposal as one native transaction, preserving all proposed IDs.
+  // Successful acceptance closes the workspace. Failed live reservations obey normal nonreuse rules.
+  [[nodiscard]] outcome_type accept_preview(preview_edit& proposal) {
+    try {
+      require_idle();
+      if (proposal.source_ != this || !proposal.working_ || !proposal.reservations_ || proposal.accepting_ ||
+          proposal.base_ != current_ || proposal.base_stamp_ != stamp_ ||
+          proposal.reservations_->expected != allocation_context()) {
+        throw std::logic_error{"Managed preview has a stale or foreign base"};
+      }
+      auto& working = *proposal.working_;
+      working.require_idle();
+      if (working.document_.high != document_.high || working.document_.low != document_.low ||
+          working.allocation_context() != proposal.reservations_->expected) {
+        throw std::logic_error{"Managed preview identity context changed"};
+      }
+      const auto selected = working.current_;
+      struct acceptance_scope {
+        bool* flag;
+        bool* workspace_callback;
+        // Release both fences before closing the workspace, including on exceptional completion.
+        void release() noexcept {
+          if (flag) {
+            *flag = false;
+            *workspace_callback = false;
+            flag = nullptr;
+            workspace_callback = nullptr;
+          }
+        }
+        // Restore mutation access when acceptance leaves the workspace available for inspection.
+        ~acceptance_scope() { release(); }
+      } scope{&proposal.accepting_, &working.callback_active_};
+      proposal.accepting_ = true;
+      working.callback_active_ = true;
+      validate(*selected);
+      auto result = execute_transaction([&](auto& edit) {
+        edit.update([&](storage_type& candidate) { candidate = *selected; });
+        edit.owner_.commit_preview(proposal.reservations_->expected,
+                                   proposal.reservations_->identities);
+      });
+      if (result.status == transaction_status::committed || result.status == transaction_status::no_change) {
+        scope.release();
+        proposal.cancel();
+      }
+      return result;
+    } catch (...) {
+      outcome_type result;
+      result.status = failure_status();
+      result.error = std::current_exception();
+      return result;
+    }
+  }
+
   // Inspect the accepted state generation without changing history or a journal sequence.
   state_stamp state() const {
     check_thread();
@@ -1771,6 +2266,79 @@ public:
   std::uint64_t allocated_id() const {
     check_thread();
     return allocated_id_;
+  }
+
+  // Capture the complete allocator base for isolated previews, including the durable client cursor.
+  identity_allocation_context allocation_context() const {
+    check_thread();
+    if constexpr (has_isolated_allocator) {
+      auto result = isolated_allocation_.context;
+      result.watermark = allocated_id_;
+      return result;
+    }
+    auto result = collaboration_state_.attachment
+        ? collaboration_state_.attachment->allocation_context() : identity_allocation_context{};
+    result.watermark = allocated_id_;
+    return result;
+  }
+
+  // Initialize a private preview cursor after its baseline has been loaded; never attach live services.
+  void initialize_allocation_context(const identity_allocation_context& context)
+    requires(has_isolated_allocator)
+  {
+    require_idle();
+    context.validate(std::numeric_limits<id_type>::max());
+    if (context.watermark != allocated_id_) {
+      throw std::invalid_argument{"Isolated allocation baseline differs from native watermark"};
+    }
+    isolated_allocation_.context = context;
+    isolated_allocation_.initialized = true;
+  }
+
+  // Bind an isolated workspace to a source which durably burns every identity before returning it.
+  // The callback outlives this workspace and may reject stale source state; failures may burn reservations.
+  void initialize_allocation_context(const identity_allocation_context& context,
+                                     identity_reservation_callback reserve)
+    requires(has_isolated_allocator)
+  {
+    if (!reserve) {
+      throw std::invalid_argument{"Preview identity reservation callback is empty"};
+    }
+    initialize_allocation_context(context);
+    isolated_reservation_.reserve = std::move(reserve);
+  }
+
+  // Permanently reserve one preview identity through the ordinary native/client journal boundary.
+  // The source must be idle at the exact captured context; cancellation never recycles the returned ID.
+  std::pair<id_type, identity_allocation_context> reserve_preview_identity(
+      const identity_allocation_context& expected) requires (!has_isolated_allocator) {
+    require_idle();
+    if (allocation_context() != expected) {
+      throw std::logic_error{"Preview identity reservation has a stale native allocation base"};
+    }
+    const auto id = allocate_id();
+    return {id, allocation_context()};
+  }
+
+  // Admit an exact preview's IDs inside its accepting native transaction; failures may burn reservations.
+  void advance_allocation_context(const identity_allocation_context& expected,
+                                   const identity_allocation_context& desired) {
+    check_thread();
+    if (!writer_active_ || callback_active_ || allocation_context() != expected) {
+      throw std::logic_error{"Preview allocation base changed or has no accepting transaction"};
+    }
+    desired.validate(std::numeric_limits<id_type>::max());
+    if (collaboration_state_.attachment) {
+      collaboration_state_.attachment->advance_identity_context(desired);
+    } else {
+      if (expected.first != 0 || desired.first != 0 || desired.last != 0 ||
+          desired.consumed != 0 || desired.watermark < allocated_id_) {
+        throw std::invalid_argument{"Preview changes native allocation ownership"};
+      }
+      while (allocated_id_ < desired.watermark) {
+        static_cast<void>(allocate_id());
+      }
+    }
   }
 
   // Begin an unnamed action; disabled-label stores create no label storage.
@@ -2102,6 +2670,9 @@ public:
       journal_state_.saved_snapshot.swap(saved);
       document_ = recovered.document_;
       allocated_id_ = recovered.allocated_id_;
+      if constexpr (has_collaboration) {
+        collaboration_state_.identity_leases.swap(recovered.collaboration_state_.identity_leases);
+      }
       journal_state_.sink.swap(journal);
       journal_state_.delta_count = recovered.journal_state_.delta_count;
     });
@@ -2224,7 +2795,9 @@ public:
                   "Managed migration preserves identity width");
     source_store source{typename source_store::recovery_tag{}, options_, {}, resident_ledger_};
     source.load(bytes); // Validate the original graph and all payloads before invoking conversion.
-    auto envelope = detail::decode<envelope_type>(bytes, options_.decode);
+    auto allocation = decode_allocation_checkpoint(bytes);
+    auto envelope = detail::decode<envelope_type>(
+        allocation.format_version == 0 ? bytes : allocation.model, options_.decode);
     std::map<std::vector<std::uint8_t>, std::vector<std::uint8_t>> converted;
     callback_active_ = true;
     try {
@@ -2262,7 +2835,17 @@ public:
       throw;
     }
     // Existing load validates all new states and publishes only after every fallible step succeeds.
-    load(detail::encode(envelope, options_.decode.max_input_bytes));
+    auto migrated = detail::encode(envelope, options_.decode.max_input_bytes);
+    if (allocation.format_version != 0) {
+      allocation.model = std::move(migrated);
+      if (options_.decode.max_input_bytes <= allocation_checkpoint_magic.size()) {
+        throw std::length_error{"Native identity checkpoint exceeds its byte budget"};
+      }
+      migrated = detail::encode(allocation,
+          options_.decode.max_input_bytes - allocation_checkpoint_magic.size());
+      migrated.insert(migrated.begin(), allocation_checkpoint_magic.begin(), allocation_checkpoint_magic.end());
+    }
+    load(migrated);
   }
 
   // Recover an old journal and create a migrated journal at a distinct new path before publication.
@@ -2316,6 +2899,9 @@ public:
       identities_.swap(migrated.identities_);
       document_ = migrated.document_;
       allocated_id_ = migrated.allocated_id_;
+      if constexpr (has_collaboration) {
+        collaboration_state_.identity_leases.swap(migrated.collaboration_state_.identity_leases);
+      }
       journal_state_.sink.swap(migrated.journal_state_.sink);
       journal_state_.saved_snapshot.swap(migrated.journal_state_.saved_snapshot);
     });
@@ -2332,7 +2918,15 @@ public:
     if (journal_state_.sink) {
       throw std::logic_error{"Cannot replace a journaled document with a memory envelope"};
     }
-    auto envelope = detail::decode<envelope_type>(bytes, options_.decode);
+    auto allocation = decode_allocation_checkpoint(bytes);
+    auto envelope = detail::decode<envelope_type>(
+        allocation.format_version == 0 ? bytes : allocation.model, options_.decode);
+    std::unique_ptr<detail::identity_lease_book> leases;
+    if (allocation.format_version != 0) {
+      leases = std::make_unique<detail::identity_lease_book>(std::move(allocation.leases));
+      leases->validate(envelope.allocated_id, std::numeric_limits<id_type>::max(),
+                       options_.decode.max_collection_elements);
+    }
     if (envelope.format_version != format_version || envelope.schema_id != Traits::schema_id ||
         envelope.id_bits != std::numeric_limits<id_type>::digits ||
         (envelope.document_high == 0 && envelope.document_low == 0) ||
@@ -2383,6 +2977,24 @@ public:
       throw std::invalid_argument{"Cannot replace the identity of an open document root"};
     }
     if (same_document) {
+      if constexpr (has_collaboration) {
+        if (collaboration_state_.identity_leases) {
+          const auto& current = collaboration_state_.identity_leases->entries();
+          const auto* incoming = leases ? &leases->entries() : nullptr;
+          if (!incoming || incoming->size() < current.size()) {
+            throw std::invalid_argument{"Reload would discard native identity leases"};
+          }
+          for (std::size_t index = 0; index < current.size(); ++index) {
+            const auto& old = current[index];
+            const auto& next = (*incoming)[index];
+            if (old.first != next.first || old.last != next.last ||
+                old.session_format != next.session_format || old.session != next.session ||
+                old.committed > next.committed) {
+              throw std::invalid_argument{"Reload changes or regresses native identity lease ownership"};
+            }
+          }
+        }
+      }
       for (const auto& [id, type] : identities) {
         const auto old = identities_.find(id);
         if (old != identities_.end() && old->second != type) {
@@ -2391,7 +3003,8 @@ public:
       }
     }
     detail::reset_runtime_fields<Traits>(value);
-    validate(value);
+    const document_id imported_document{envelope.document_high, envelope.document_low};
+    validate(value, true, &imported_document);
     auto event = prepare_publication(publication_kind::load, identities, &value, !same_document);
     auto published = make_published_storage(std::move(value));
     std::size_t auxiliary_estimate{};
@@ -2401,7 +3014,7 @@ public:
       // Both storage policies validate every historical model before replacing the live state.
       const auto validate_entry = [&](const auto& node) {
         auto historical = detail::decode<storage_type>(node.snapshot, options_.decode);
-        validate(historical, false);
+        validate(historical, false, &imported_document);
         const auto node_identities = inspect(historical, envelope.allocated_id);
         for (const auto& [id, type] : node_identities) {
           const auto [entry, inserted] = historical_identities.emplace(id, type);
@@ -2471,6 +3084,9 @@ public:
     document_ = {envelope.document_high, envelope.document_low};
     allocated_id_ =
         same_document ? std::max(allocated_id_, envelope.allocated_id) : envelope.allocated_id;
+    if constexpr (has_collaboration) {
+      collaboration_state_.identity_leases.swap(leases);
+    }
     publish_notification(std::move(event));
   }
 };

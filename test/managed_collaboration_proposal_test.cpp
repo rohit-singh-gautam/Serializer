@@ -37,6 +37,49 @@ void verify_history_policy() {
 }
 } // namespace
 
+// Read-only participants can receive a document without obtaining permission to expose new native IDs.
+TEST(managed_collaboration_proposal, read_only_client_synchronizes_without_allocation_capacity) {
+  authority_type authority{ledger{"Shared"}, 1};
+  authority.open_session(20, false);
+  managed::collaboration_transport transport{authority, std::uint64_t{20}};
+  managed::model_store<ledger> store{ledger{}};
+  store.collaborate(std::uint64_t{20}).bind(transport);
+  EXPECT_NO_THROW(store.synchronize());
+  EXPECT_EQ(store.read()->name, "Shared");
+  EXPECT_FALSE(store.allocation_context().available());
+  std::uint32_t exposed{};
+  const auto result = store.execute_transaction([&](auto& edit) {
+    exposed = edit.root().entries().insert(100, {"Forbidden", 1});
+  });
+  EXPECT_EQ(result.status, managed::transaction_status::failed);
+  EXPECT_EQ(exposed, 0U);
+  EXPECT_TRUE(store.read()->entries.empty());
+}
+
+// Automatic prefetch honors a smaller authority block budget and fails exhaustion before exposure.
+TEST(managed_collaboration_proposal, automatic_prefetch_respects_authority_capacity) {
+  managed::collaboration_options options;
+  options.max_created_ids = 1;
+  authority_type authority{ledger{"Shared"}, 1, managed::make_document_id(), options};
+  authority.open_session(10);
+  managed::collaboration_transport transport{authority, std::uint64_t{10}};
+  managed::model_store<ledger> store{ledger{}};
+  store.collaborate(std::uint64_t{10}).bind(transport);
+  store.synchronize();
+  const auto capacity = store.allocation_context();
+  EXPECT_EQ(capacity.first, capacity.last);
+  std::uint32_t created{}, exposed{};
+  store.execute_transaction([&](auto& edit) {
+    created = edit.root().entries().insert(100, {"Issued", 1});
+  }).throw_if_failed();
+  EXPECT_EQ(store.execute_transaction([&](auto& edit) {
+    exposed = edit.root().entries().insert(200, {"Exhausted", 2});
+  }).status, managed::transaction_status::failed);
+  EXPECT_EQ(exposed, 0U);
+  store.synchronize();
+  EXPECT_EQ(authority.read()->entries.at(100).persistent_id, created);
+}
+
 // Generated editors provide compound creation, nested edits and deletion without application commands.
 TEST(managed_collaboration_proposal, editors_retry_conflict_and_read_only_replication) {
   authority_type authority{ledger{"Shared"}, 1};
@@ -44,6 +87,7 @@ TEST(managed_collaboration_proposal, editors_retry_conflict_and_read_only_replic
   authority.open_session(20, false);
   managed::collaboration_replica<ledger> replica;
   synchronize(replica, authority);
+  replica.initialize_identity_lease(10, authority.reserve_ids(10));
   std::uint32_t provisional_id{};
   auto proposal = replica.propose(10, 1, [&](auto& edit) {
     edit.root().set_name("Updated");
@@ -99,6 +143,7 @@ TEST(managed_collaboration_proposal, draft_failure_noop_and_editor_lifetime) {
                                }),
                std::runtime_error);
   EXPECT_THROW(replica.propose(10, 1, [](auto& edit) { edit.revert(); }), std::logic_error);
+  replica.initialize_identity_lease(10, authority.reserve_ids(10));
   EXPECT_THROW(replica.propose(10, 1,
                                [](auto& edit) {
                                  auto entries = edit.root().entries();
@@ -140,7 +185,7 @@ TEST(managed_collaboration_proposal, protocol_binding_preserves_custom_command_e
   EXPECT_FALSE(called);
 }
 
-// A denied creation still consumes authoritative IDs; a fresh same-sequence baseline is required.
+// A denied creation burns its native cursor; another offline proposal receives a different native ID.
 TEST(managed_collaboration_proposal, allocator_conflict_prevents_reuse_after_denied_creation) {
   bool permit = false;
   authority_type authority{ledger{"Shared"},
@@ -152,16 +197,14 @@ TEST(managed_collaboration_proposal, allocator_conflict_prevents_reuse_after_den
   authority.open_session(10);
   managed::collaboration_replica<ledger> replica;
   synchronize(replica, authority);
+  replica.initialize_identity_lease(10, authority.reserve_ids(10));
   const auto create = [](auto& edit) { edit.root().entries().insert(100, {"Entry", 1}); };
   const auto denied = replica.propose(10, 1, create);
   ASSERT_EQ(authority.submit_change(denied, 10, 0)->status, managed::collaboration_status::denied);
-  EXPECT_EQ(authority.snapshot().allocated_id, 2u);
+  EXPECT_EQ(authority.snapshot().allocated_id, 257u);
   EXPECT_EQ(authority.sequence(), 0u);
   permit = true;
-  const auto stale = replica.propose(10, 2, create);
-  EXPECT_EQ(authority.submit_change(stale, 10, 0)->status, managed::collaboration_status::conflict);
-  synchronize(replica, authority);
-  const auto fresh = replica.propose(10, 3, create);
+  const auto fresh = replica.propose(10, 2, create);
   ASSERT_EQ(authority.submit_change(fresh, 10, 0)->status, managed::collaboration_status::accepted);
   EXPECT_EQ(authority.read()->entries.at(100).persistent_id, 3u);
 }
@@ -174,6 +217,7 @@ TEST(managed_collaboration_proposal, limits_and_malformed_model_payloads) {
   authority.open_session(10);
   managed::collaboration_replica<ledger> replica;
   synchronize(replica, authority);
+  replica.initialize_identity_lease(10, authority.reserve_ids(10, 1));
   auto bounded = options;
   bounded.max_created_ids = 0;
   EXPECT_THROW(
@@ -189,7 +233,7 @@ TEST(managed_collaboration_proposal, limits_and_malformed_model_payloads) {
   ++change.format_version;
   invalid.push_back(change);
   change = valid;
-  change.allocated_id = change.base_allocated_id - 1;
+  change.allocated_id = change.base_allocated_id - 2;
   invalid.push_back(change);
   change = valid;
   change.allocated_id = change.base_allocated_id + options.max_created_ids + 1;
@@ -212,7 +256,7 @@ TEST(managed_collaboration_proposal, limits_and_malformed_model_payloads) {
     ++proposal.operation;
     EXPECT_EQ(authority.read()->name, "Shared");
     EXPECT_EQ(authority.sequence(), 0u);
-    EXPECT_EQ(authority.snapshot().allocated_id, 1u);
+    EXPECT_EQ(authority.snapshot().allocated_id, 2u);
   }
   proposal.command = managed::encode_collaboration_record(valid);
   proposal.command.push_back(0);
@@ -262,6 +306,7 @@ TEST(managed_collaboration_proposal, history_modes_and_journal_recovery) {
     authority.open_session(10);
     managed::collaboration_replica<ledger> replica;
     synchronize(replica, authority);
+    replica.initialize_identity_lease(10, authority.reserve_ids(10));
     const auto proposal = replica.propose(
         10, 1, [](auto& edit) { edit.root().entries().insert(100, {"Durable", 123}); });
     ASSERT_EQ(authority.submit_change(proposal, 10, 0)->status,

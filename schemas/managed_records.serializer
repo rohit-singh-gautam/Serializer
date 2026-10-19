@@ -8,6 +8,22 @@ serializer version 1;
 namespace rohit {
   namespace managed {
     namespace records {
+      // Native collaboration allocation metadata is not an application entity or payload ID.
+      class identity_lease stable_ids {
+        public string session_format (1);
+        public array uint8 session (2);
+        public uint64 first (3);
+        public uint64 last (4);
+        public uint64 committed (5);
+      }
+
+      // Emitted only for stores that own collaborative ID reservations; ordinary envelopes stay exact.
+      class identity_allocation_checkpoint stable_ids {
+        public uint32 format_version (1);
+        public array uint8 model (2);
+        public array identity_lease leases (3);
+      }
+
       // Optional transfer/storage patch; exact SHA-256 base binding forbids applying to a stale state.
       class snapshot_patch stable_ids {
         public uint32 format_version (1);

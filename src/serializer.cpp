@@ -21,6 +21,7 @@
 #include <rohit/stream.hpp>
 #include <rohit/version.hpp>
 #include "xml_schema.hpp"
+#include "xsd_import.hpp"
 
 #include "command_line.hpp"
 #include "schema_policy.hpp"
@@ -29,7 +30,9 @@
 #include <cstddef>
 #include <exception>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <map>
 #include <memory>
 #include <set>
@@ -50,6 +53,9 @@ constexpr rohit::serializer::cli::commandline_option command_options[] = {
     {'\0', "version-policy-warnings-as-errors", "",
      "Fail generation when the current version exceeds a release time policy."},
     {'i', "input", "schema.serializer", "Input with a serializer version 1.0.0; header (1 is a legacy alias)."},
+    {'\0', "import-xsd", "file.xsd", "Import a checked local XSD into an owning .serializer source (-o required)."},
+    {'\0', "namespace", "name", "Namespace for --import-xsd (default imported)."},
+    {'\0', "root", "element", "Select one global XSD root for --import-xsd."},
     {'\0', "check-against", "previous.serializer",
      "Check schema compatibility without generating output."},
     {'\0', "compatibility-protocol", "protocol",
@@ -99,6 +105,8 @@ constexpr rohit::serializer::cli::commandline_option command_options[] = {
     {'\0', "cpp.protobuf", "true|false",
      "Generate direct Protobuf binary, ProtoJSON, and TextProto codecs."},
     {'\0', "xml.enabled", "true|false", "Generate statically mapped owning C++ XML codecs."},
+    {'\0', "xml.namespace", "uri", "Default XML element namespace; class/field bindings may override it."},
+    {'\0', "xml.scalars", "attribute|element", "Default scalar placement without a fixed XSD (default element)."},
     {'\0', "xml.runtime_xsd", "true|false", "Allow prepared runtime XSD validation for XML models."},
     {'\0', "xml.validation_scope", "input|output|both", "Choose prepared XSD validation directions (default input)."},
     {'\0', "xml.xsd", "file.xsd", "Bind a fixed supported XSD subset during XML generation."},
@@ -106,6 +114,7 @@ constexpr rohit::serializer::cli::commandline_option command_options[] = {
     {'\0', "xml.export-xsd", "file.xsd", "Export one configuration's supported bound XML contract."},
     {'\0', "xml.compare-xsd", "previous.xsd", "Require the current bound XML reader to accept the previous XSD subset."},
     {'\0', "managed.id_type", "uint32|uint64", "Persistent managed ID type (default uint32)."},
+    {'\0', "managed.id_encoding", "fixed|compact_varint", "Persistent managed ID encoding (default compact_varint)."},
     {'\0', "managed.separate_values", "true|false",
      "Generate separate ID-free values and managed storage (default false)."},
     {'\0', "cpp.clang_format", "executable", "clang-format 19+ executable (default clang-format)."},
@@ -128,10 +137,21 @@ void apply_output_overrides(rohit::serializer::writer::output_options& options,
     if (value != "true" && value != "false") {
       throw std::invalid_argument{std::string{key} + " must be true or false"};
     }
-    if (std::string_view{key} == "xml.enabled") { options.cpp.xml.enabled = value == "true"; }
+    if (std::string_view{key} == "xml.enabled") {
+      options.cpp.xml.enabled = value == "true";
+      options.cpp.xml.enabled_selection = options.cpp.xml.enabled;
+    }
     else { options.cpp.xml.runtime_xsd = value == "true"; }
   }
   if (arguments.contains("xml.xsd")) { options.cpp.xml.xsd = cli::first(arguments, "xml.xsd"); }
+  if (arguments.contains("xml.namespace")) { options.cpp.xml.namespace_uri = cli::first(arguments, "xml.namespace"); }
+  if (arguments.contains("xml.scalars")) {
+    const auto& value = cli::first(arguments, "xml.scalars");
+    if (value != "attribute" && value != "element") {
+      throw std::invalid_argument{"xml.scalars must be attribute or element"};
+    }
+    options.cpp.xml.scalar_attributes = value == "attribute";
+  }
   if (arguments.contains("xml.bundle_sha256")) {
     options.cpp.xml.bundle_sha256 = cli::first(arguments, "xml.bundle_sha256");
   }
@@ -184,6 +204,9 @@ void apply_output_overrides(rohit::serializer::writer::output_options& options,
     if (options.cpp.managed_id_type != "uint32" && options.cpp.managed_id_type != "uint64") {
       throw std::invalid_argument{"managed.id_type must be uint32 or uint64"};
     }
+  }
+  if (arguments.contains("managed.id_encoding")) {
+    options.cpp.managed_id_encoding = writer::parse_managed_id_encoding(cli::first(arguments, "managed.id_encoding"));
   }
   if (arguments.contains("managed.separate_values")) {
     const auto& value = cli::first(arguments, "managed.separate_values");
@@ -390,6 +413,78 @@ std::string dependency_path(const std::filesystem::path& path) {
   return result;
 }
 
+// Import into a new reviewed source file; never overwrite manually edited declarations.
+int import_schema(const rohit::serializer::cli::arguments& arguments) {
+  using namespace rohit::serializer;
+  const std::set<std::string> allowed{"import-xsd", "namespace", "root", "output", "depfile", "verbose"};
+  for (const auto& [name, values] : arguments) {
+    static_cast<void>(values);
+    if (!allowed.contains(name)) {
+      throw std::invalid_argument{"--import-xsd cannot be combined with --" + name};
+    }
+  }
+  if (!arguments.contains("output") || arguments.at("output").size() != 1U) {
+    throw std::invalid_argument{"--import-xsd requires exactly one --output file.serializer"};
+  }
+  const std::filesystem::path input{cli::first(arguments, "import-xsd")};
+  const std::filesystem::path output{cli::first(arguments, "output")};
+  if (output.extension() != ".serializer") {
+    throw std::invalid_argument{"Imported output must use .serializer"};
+  }
+  const auto parent = std::filesystem::absolute(output).parent_path();
+  if (!std::filesystem::is_directory(parent) || std::filesystem::is_directory(output)) {
+    throw std::invalid_argument{"Import output requires an existing parent directory and a file path"};
+  }
+  writer::xml_binding::import_options options{};
+  if (arguments.contains("namespace")) { options.namespace_name = cli::first(arguments, "namespace"); }
+  if (arguments.contains("root")) { options.root_name = cli::first(arguments, "root"); }
+  const auto source = std::filesystem::weakly_canonical(input);
+  const auto relative = source.lexically_relative(std::filesystem::weakly_canonical(parent));
+  options.schema_location = (relative.empty() ? source : relative).generic_string();
+  const auto result = writer::xml_binding::import_xsd(input, options);
+  for (const auto& dependency : result.dependencies) {
+    if (same_file(output, dependency)) {
+      throw std::invalid_argument{"Import must not overwrite an XSD dependency"};
+    }
+  }
+  std::string deptext{};
+  std::filesystem::path depfile{};
+  if (arguments.contains("depfile")) {
+    depfile = cli::first(arguments, "depfile");
+    if (same_file(depfile, output) || std::filesystem::is_directory(depfile) ||
+        !std::filesystem::is_directory(std::filesystem::absolute(depfile).parent_path())) {
+      throw std::invalid_argument{"Import depfile needs a distinct file with an existing directory parent"};
+    }
+    for (const auto& dependency : result.dependencies) {
+      if (same_file(depfile, dependency)) {
+        throw std::invalid_argument{"Import depfile must not overwrite an XSD dependency"};
+      }
+    }
+    deptext = dependency_path(output) + ':';
+    for (const auto& dependency : result.dependencies) { deptext += ' ' + dependency_path(dependency); }
+    deptext += '\n';
+  }
+  if (std::filesystem::exists(output)) {
+    std::ifstream existing{output, std::ios::binary};
+    const std::string contents{std::istreambuf_iterator<char>{existing}, {}};
+    if (!existing.eof() && existing.fail()) { throw std::runtime_error{"Could not read existing import output"}; }
+    if (contents != result.schema_text) {
+      throw std::invalid_argument{"Import output differs; generate to a new path and review stable field IDs and application edits"};
+    }
+  } else {
+    rohit::full_stream_auto_alloc destination{};
+    destination.write(result.schema_text);
+    destination.write_to_file_till_offset(output);
+  }
+  if (!depfile.empty()) {
+    rohit::full_stream_auto_alloc destination{};
+    destination.write(deptext);
+    destination.write_to_file_till_offset(depfile);
+  }
+  std::cout << "Imported " << output << " (XSD bundle SHA-256 " << result.bundle_identity << ")\n";
+  return 0;
+}
+
 // Run read-only evolution checks separately from code generation and select the reader direction.
 int check_compatibility(const rohit::serializer::cli::arguments& arguments,
                         const rohit::serializer::parser::parse_options& parse_options) {
@@ -459,6 +554,10 @@ int main(const int argc, const char* argv[]) {
                 << "\nSupported schema language version: " << schema_language_version_text << '\n';
       return 0;
     }
+    if (parsed.contains("import-xsd")) { return import_schema(parsed); }
+    if (parsed.contains("namespace") || parsed.contains("root")) {
+      throw std::invalid_argument{"--namespace and --root require --import-xsd"};
+    }
     if (!parsed.contains("input")) {
       throw std::invalid_argument{"--input is required; use --help for options"};
     }
@@ -484,11 +583,21 @@ int main(const int argc, const char* argv[]) {
         parsed.contains("compatibility-policy")) {
       throw std::invalid_argument{"Compatibility options require --check-against"};
     }
-    const auto configurations = read_configurations(parsed);
+    auto configurations = read_configurations(parsed);
     const std::filesystem::path input_file{cli::first(parsed, "input")};
     if (input_file.extension() != ".serializer") {
       throw std::invalid_argument{
           "Input must use .serializer; rename the schema and add serializer version 1.0.0;"};
+    }
+    const auto schema = parser::parse_file(input_file, parse_options);
+    for (auto& configuration : configurations) {
+      auto& options = configuration.options;
+      options.cpp.xml = writer::xml_binding::effective_options(schema.statements, options.cpp.xml);
+      options.java.xml = options.cpp.xml;
+      options.js.xml = options.cpp.xml;
+      options.go.xml = options.cpp.xml;
+      options.csharp.xml = options.cpp.xml;
+      options.kotlin.xml = options.cpp.xml;
     }
     if ((parsed.contains("xml.export-xsd") || parsed.contains("xml.compare-xsd")) && configurations.size() != 1U) {
       throw std::invalid_argument{"XML export/compatibility tools require exactly one configuration"};
@@ -509,8 +618,6 @@ int main(const int argc, const char* argv[]) {
         configuration_dependencies.push_back(configuration.options.cpp.format_file);
       }
       xml_contracts.emplace_back(configuration.options.cpp.xml);
-      const auto bundle_dependencies = xml_contracts.back().dependencies();
-      configuration_dependencies.insert(configuration_dependencies.end(), bundle_dependencies.begin(), bundle_dependencies.end());
       if (parsed.contains("verbose") && !xml_contracts.back().bundle_identity().empty()) {
         std::cout << "Serializer: XSD bundle SHA-256 " << xml_contracts.back().bundle_identity() << '\n';
       }
@@ -556,7 +663,6 @@ int main(const int argc, const char* argv[]) {
       }
       destinations.push_back(output_file);
     }
-    const auto schema = parser::parse_file(input_file, parse_options);
     std::vector<const class_node*> xml_records{};
     const auto collect_xml_records = [&](auto&& self, const auto& statements) -> void {
       for (const auto& node : statements) {
@@ -564,11 +670,18 @@ int main(const int argc, const char* argv[]) {
         else if (node->type == object_type::class_type) { xml_records.push_back(&static_cast<const class_node&>(*node)); }
       }
     };
+    collect_xml_records(collect_xml_records, schema.statements);
+    for (std::size_t index{}; index < configurations.size(); ++index) {
+      if (!configurations[index].options.cpp.xml.enabled) { continue; }
+      // Bind inline XSDs before collecting dependencies or publishing any generated files.
+      for (const auto* record : xml_records) { static_cast<void>(xml_contracts[index].bind(*record)); }
+      const auto bundle_dependencies = xml_contracts[index].dependencies();
+      configuration_dependencies.insert(configuration_dependencies.end(), bundle_dependencies.begin(), bundle_dependencies.end());
+    }
     if (parsed.contains("xml.export-xsd") || parsed.contains("xml.compare-xsd")) {
       if (!configurations.front().options.cpp.xml.enabled) {
         throw std::invalid_argument{"XML export/compatibility tools require xml.enabled = true"};
       }
-      collect_xml_records(collect_xml_records, schema.statements);
       if (xml_records.empty()) { throw std::invalid_argument{"XML tooling requires at least one ordinary record"}; }
     }
     if (parsed.contains("xml.compare-xsd")) {

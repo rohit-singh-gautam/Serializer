@@ -99,11 +99,14 @@ TEST(xml_schema, bundle_resolver_rejects_remote_escaping_cycles_and_namespace_mi
   EXPECT_THROW((void)binding::schema{options}, std::invalid_argument);
 }
 
-TEST(xml_schema, unsupported_facets_and_identity_constraints_fail_before_binding) {
+TEST(xml_schema, supported_facets_are_retained_and_identity_constraints_still_reject) {
   schema_directory files{};
   xml_options options{}; options.enabled = true;
-  options.xsd = files.write("root.xsd", "<xs:schema xmlns:xs='http://www.w3.org/2001/XMLSchema'><xs:simpleType name='Amount'><xs:restriction base='xs:unsignedInt'><xs:minInclusive value='2'/></xs:restriction></xs:simpleType></xs:schema>");
-  EXPECT_THROW((void)binding::schema{options}, std::invalid_argument);
+  options.xsd = files.write("root.xsd", "<xs:schema xmlns:xs='http://www.w3.org/2001/XMLSchema'><xs:simpleType name='Amount'><xs:restriction base='xs:unsignedInt'><xs:minInclusive value='2'/></xs:restriction></xs:simpleType><xs:element name='order'><xs:complexType><xs:sequence><xs:element name='amount' type='Amount'/></xs:sequence></xs:complexType></xs:element></xs:schema>");
+  const auto model = scalar_model();
+  const auto contract = binding::schema{options}.bind(record_at(model, 0U));
+  ASSERT_EQ(contract.fields.size(), 1U);
+  EXPECT_EQ(contract.fields.front().facets.min_inclusive, "2");
   options.xsd = files.write("root.xsd", "<xs:schema xmlns:xs='http://www.w3.org/2001/XMLSchema'><xs:element name='order'><xs:complexType/><xs:key name='identity'><xs:selector xpath='item'/><xs:field xpath='@id'/></xs:key></xs:element></xs:schema>");
   EXPECT_THROW((void)binding::schema{options}, std::invalid_argument);
 }

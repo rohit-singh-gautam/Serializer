@@ -53,6 +53,10 @@ struct unreliable_transport {
   auto accepted_since(std::uint64_t cursor) {
     return direct.accepted_since(cursor);
   }
+  // Prefetch native authority IDs through the same independently authenticated session.
+  auto reserve_ids(std::uint64_t count) {
+    return direct.reserve_ids(count);
+  }
   // Fail before or after acceptance without changing the submitted bytes.
   auto submit_change(const authority_type::change_proposal_type& request) {
     ++sends;
@@ -157,6 +161,27 @@ TEST_F(local_collaboration_test, same_field_conflict_and_explicit_resolution) {
   EXPECT_EQ(authority.read()->name, "Alice and Bob");
 }
 
+// Burning native lease ranges does not turn an unchanged-sequence lock conflict into a stale request.
+TEST_F(local_collaboration_test, current_sequence_lock_conflict_is_not_automatically_requeued) {
+  auto& holder = bob.collaboration();
+  const managed::collaboration::lock_request request{
+      authority.context(), 20U, holder.reserve_operation_id(),
+      static_cast<std::uint32_t>(managed::edit_lock_action::acquire), bob.read()->persistent_id,
+      static_cast<std::uint32_t>(managed::edit_lock_scope::owned_subtree), 0U, 1000U};
+  ASSERT_EQ(authority.change_lock(request, 20U, 0U)->status, managed::collaboration_status::accepted);
+  const auto sequence = alice.collaboration().state()->sequence;
+  ASSERT_GT(authority.snapshot().allocated_id, alice.allocation_context().first);
+  alice.execute_transaction([](auto& edit) { edit.root().set_name("Blocked by Bob"); }).throw_if_failed();
+  alice.synchronize();
+  EXPECT_EQ(alice.collaboration().state()->sequence, sequence);
+  ASSERT_EQ(alice.collaboration().state()->pending.size(), 1U);
+  EXPECT_EQ(alice.collaboration().state()->transactions.front().status,
+            static_cast<std::uint32_t>(pending_status::conflict));
+  EXPECT_TRUE(alice.collaboration().state()->in_flight.empty());
+  EXPECT_EQ(alice.read()->name, "Blocked by Bob");
+  EXPECT_EQ(authority.read()->name, "Original");
+}
+
 // Remote write-away/write-back is still a conflict even though ordinary three-way values match.
 TEST_F(local_collaboration_test, aba_changes_are_not_silently_overwritten) {
   alice.execute_transaction([](auto& edit) { edit.root().set_name("Alice"); }).throw_if_failed();
@@ -206,8 +231,8 @@ TEST_F(local_collaboration_test, offline_and_accepted_undo_redo) {
   EXPECT_EQ(authority.read()->entries.at(100).memo, "Other");
 }
 
-// Independent offline allocators retain their local handles and map new entities to fresh server IDs.
-TEST(local_collaboration, offline_identity_mapping) {
+// Independent offline clients expose disjoint authority-leased native IDs without remapping.
+TEST(local_collaboration, offline_identity_preserved_across_acceptance) {
   using workspace = collaboration_test::workspace;
   managed::collaboration_authority<workspace> authority{workspace{{{1, {"A"}}, {2, {"B"}}}}, 1};
   authority.open_session(10);
@@ -228,12 +253,17 @@ TEST(local_collaboration, offline_identity_mapping) {
        local_b = edit.root().ledgers().edit(3).entries().insert(200, {"Bob", 2});
      })
       .throw_if_failed();
-  EXPECT_EQ(local_a, local_b);
+  EXPECT_NE(local_a, local_b);
   bob.synchronize();
   alice.synchronize();
   bob.synchronize();
   EXPECT_EQ(alice.read()->ledgers.at(1).entries.at(100).persistent_id, local_a);
-  EXPECT_NE(alice.collaboration().remote_id(local_a), bob.collaboration().remote_id(local_b));
+  EXPECT_EQ(bob.read()->ledgers.at(1).entries.at(100).persistent_id, local_a);
+  EXPECT_EQ(authority.read()->ledgers.at(1).entries.at(100).persistent_id, local_a);
+  EXPECT_EQ(alice.read()->ledgers.at(2).entries.at(200).persistent_id, local_b);
+  EXPECT_EQ(authority.read()->ledgers.at(2).entries.at(200).persistent_id, local_b);
+  EXPECT_EQ(alice.collaboration().remote_id(local_a), local_a);
+  EXPECT_EQ(bob.collaboration().remote_id(local_b), local_b);
   alice
       .execute_transaction([&](auto& edit) {
         edit.root().ledgers().edit(2).entries().edit(local_a).set_memo("Again");

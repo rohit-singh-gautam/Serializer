@@ -357,6 +357,13 @@ TEST(output_options, managed_identity_configuration) {
   configuration_file file;
   EXPECT_EQ(writer::read_output_options(file.write("[managed]\nid_type = uint64\n")).cpp.managed_id_type, "uint64");
   EXPECT_EQ(writer::read_output_options(file.write("[managed]\nid_type = uint32\n")).cpp.managed_id_type, "uint32");
+  EXPECT_EQ(writer::cpp_options{}.managed_id_encoding, writer::persistent_id_encoding::compact_varint);
+  EXPECT_EQ(writer::read_output_options(file.write("[managed]\nid_encoding = fixed\n")).cpp.managed_id_encoding,
+            writer::persistent_id_encoding::fixed);
+  EXPECT_EQ(writer::read_output_options(file.write("[managed]\nid_encoding = compact_varint\n")).cpp.managed_id_encoding,
+            writer::persistent_id_encoding::compact_varint);
+  EXPECT_THROW(writer::read_output_options(file.write("[managed]\nid_encoding = compact_variant\n")), std::invalid_argument);
+  EXPECT_THROW(writer::read_output_options(file.write("[managed]\nid_encoding = compact_prefix\n")), std::invalid_argument);
   EXPECT_FALSE(writer::cpp_options{}.managed_separate_values);
   EXPECT_TRUE(writer::read_output_options(file.write("[managed]\nseparate_values = true\n")).cpp.managed_separate_values);
   EXPECT_FALSE(writer::read_output_options(file.write("[managed]\nseparate_values = false\n")).cpp.managed_separate_values);

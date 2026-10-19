@@ -86,6 +86,32 @@ template <bool Prefix, bool Strict, std::unsigned_integral T> struct compact_out
   }
 };
 
+// Select an explicit migration policy at compile time; ordinary protocols retain the schema default.
+template <bool DefaultCompact, typename Protocol>
+inline constexpr bool persistent_identity_compact = [] {
+  if constexpr (requires { typename Protocol::persistent_identity_policy; }) {
+    using policy_type = typename Protocol::persistent_identity_policy;
+    if constexpr (!std::is_void_v<policy_type>) {
+      static_assert(requires { { policy_type::compact_varint } -> std::convertible_to<bool>; },
+          "A persistent identity policy must declare static constexpr bool compact_varint");
+      return static_cast<bool>(policy_type::compact_varint);
+    }
+  }
+  return DefaultCompact;
+}();
+
+// Override only synthesized/native identity fields, leaving ordinary compact integers unchanged.
+template <bool DefaultCompact, std::unsigned_integral Id>
+struct persistent_identity_output {
+  Id value;
+  // Explicit migration protocols choose the old/new identity width without any runtime branch.
+  template <typename Protocol> constexpr void serialize_out(Protocol& protocol) const {
+    if constexpr (persistent_identity_compact<DefaultCompact, Protocol>) {
+      compact_output<false, true, Id>{value}.serialize_out(protocol);
+    } else { protocol.serialize_out(value); }
+  }
+};
+
 // Only padding-free fixed-width scalars can share bulk binary input/output paths.
 template <typename T>
 concept binary_array_scalar =

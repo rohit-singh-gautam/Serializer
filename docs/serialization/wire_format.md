@@ -1,5 +1,20 @@
 # Wire format and decoding contract
 
+Compiler/runtime **2.7.0**, schema language **1.20.0**, adds XML authoring and XSD
+declaration import plus C++ package generation. XML annotations do not renumber
+native fields or add package metadata to native payloads. Imported declarations
+receive explicit stable IDs; their independently chosen native ordering/layout
+need not equal an application-authored model. OPC remains a standard outer
+container with runtime-owned content types and relationships. Unknown XML slots
+and QName bindings are XML-only state and do not appear in native codecs. See
+[XML/package rules](xml_packages.md), [XSD import](xsd_tooling.md) and
+[migration](../../migration.md#compilerruntime-270).
+
+C++ generated managed IDs now default to `compact_varint`; `[managed]
+id_encoding = fixed` selects width-based ID payloads.
+The native uint32/uint64 ID type and its values do not change. Ordinary application
+integers and binary field tags are unaffected; see the managed-ID policy below.
+
 Language **1.19.0** [inline value references](../schema/value_references.md) write
 exactly their selected value under the containing field's ordinary key/ID.
 Ownership adds no tag, object framing, presence byte or document/object/path
@@ -111,8 +126,10 @@ newer header alone does not change existing declarations' bytes or public APIs.
 Language `1.2.0` adds [compact unsigned scalar payloads](../schema/compact_integers.md).
 `compact_prefix` uses the existing two-MSB byte-count tag and 30-bit maximum;
 `compact_varint` uses canonical unsigned LEB128 with seven payload bits per
-byte and a continuation MSB. Only annotated owning uint8/16/32/64 fields change
-their native binary payload encoding. Keys, counts, enums and union indices
+byte and a continuation MSB. For ordinary application scalars, only annotated
+owning uint8/16/32/64 fields change their native binary payload encoding.
+Generated C++ managed identities additionally follow the managed-ID policy below.
+Keys, counts, enums and union indices
 retain their existing prefix encoding. JSON and optional Protobuf scalar mappings
 remain unchanged. Strict prefix output rejects overflow; lenient output retains
 the low 30 bits. Every reader checks bounds and declared scalar width; varint
@@ -259,6 +276,31 @@ namespace is generated automatically for new stores, while object IDs start at 1
 and increment within that document. Saved namespaces and allocation high-water
 marks are restored during load; deletion and undo never renumber surviving objects.
 Direct managed Protobuf output is currently unsupported.
+
+### Generated C++ managed-ID encoding
+
+`[managed] id_encoding = compact_varint` is the default, independently of
+`id_type = uint32|uint64` and direct/separated representation. Generated
+`persistent_id` payloads use canonical unsigned LEB128 in `binary_none`,
+`binary_integer` and `binary_string`: ID 1 is `01`, and ID 300 is `ac 02`.
+The maximum encoded size is five bytes for uint32 or ten for uint64. Readers
+reject overlong, overflowing and unterminated encodings. Object-ID numeric values,
+native storage types, allocation bounds and JSON numeric values remain unchanged.
+
+`id_encoding = fixed` selects fixed-width little-endian ID payloads. Generated
+managed schema identities include the ID-encoding policy. A different policy
+changes binary wire bytes, and cooperating readers/writers must select the same
+policy; ordinary readers do not autodetect or convert it. Use the
+[offline migration tool](../guides/persistent_id_migration.md) explicitly for
+supported managed saves or raw models. This does not change
+application scalar fields, compact field
+annotations, collection counts or `binary_integer` tag encoding.
+
+Typed `managed_ref<T>` tokens use the selected policy for their native object-ID
+component. Their document namespace halves and uint64 class discriminator retain
+fixed-width encoding. All translation units and cooperating participants must use
+the same ID width, encoding and representation. The option changes generated C++
+codec policy without adding schema syntax or another schema-language version.
 
 The opt-in C++ `protobuf_binary`, `protojson`, and `textproto` protocols have a
 separate [Protobuf mapping and decoding contract](protobuf.md). They do not use
@@ -674,10 +716,12 @@ new protocol bindings because native keyed readers reject added fields.
 
 Protocol version 5 retains opaque application command payloads for custom authority
 handlers. The default authority uses protocol version 6: `change_proposal.command`
-encodes `model_change` with format version 1 (field ID 1), the base allocation
-watermark (2), candidate allocation watermark (3), and complete candidate snapshot
-(4). The outer accepted base sequence and inner base allocation watermark must
-both match authority state. The allocation range is bounded by `max_created_ids`
+encodes `model_change` with format version 3 (field ID 1), authenticated native
+lease start (2), consumed lease cursor (3), and complete candidate snapshot (4).
+Zero lease start/cursor represents an edit without new creation capacity. The
+outer accepted base sequence must match authority state; created IDs must belong
+to the authenticated session's issued range and exceed its committed cursor.
+The allocation range is bounded by `max_created_ids`
 and the configured model ID width; the encoded payload and snapshot have separate
 byte limits. Identity validation, final-diff policy checks, and lock validation
 precede publication. Protocol contexts prevent these payloads from being mistaken
@@ -746,35 +790,39 @@ remain unchanged; journal restoration uses the new [operation tag 5](../managed/
 Store clients use separate generated records; authority messages and protocol
 versions 5/6/7/8 are unchanged. The native journal frame payload is a bounded
 `binary_integer` `client_checkpoint` with kind (field 1), model bytes (2),
-`client_state` (3), and binding string `serializer.collaboration.client.v1` (4).
+`client_state` (3), and binding string `serializer.collaboration.client.v2` (4).
 Kind 1 contains a complete native managed envelope; kind 2 contains a native journal
 operation, possibly empty. Kind is a wrapper discriminator, not a native journal
 operation tag. Existing file framing/CRC/flush rules enclose the entire pair.
 Ordinary model readers reject this wrapper. `save()` emits a full kind-1 checkpoint.
 
-`client_state` field IDs are format version **1** (1), session policy name (2),
-canonical session bytes (3), authority domain (4), acknowledged model in local IDs
+`client_state` field IDs are format version **2** (1), session policy name (2),
+canonical session bytes (3), authority domain (4), acknowledged model in native IDs
 (5), accepted receive cursor (6), authority allocation watermark (7), last reserved
-operation number (8), identity mappings (9), transaction records (10), pending FIFO
+operation number (8), reserved-empty identity mapping slot (9), transaction records (10), pending FIFO
 (11), local undo stack (12), redo stack (13), exact in-flight proposal bytes (14),
-provisional ID mappings (15), and synchronization interval in milliseconds (16).
-Stacks and queues reference one-based transaction numbers. Identity mappings hold
-local uint64 (1) and authoritative uint64 (2), validated against the model ID width.
+reserved-empty in-flight mapping slot (15), synchronization interval in
+milliseconds (16), and native lease first/last/consumed cursors (18/19/20).
+Stacks and queues reference one-based transaction numbers. Mapping slots must
+remain empty; format-1 mapped checkpoints reject. Native cursors are checked
+against their issued range and configured object-ID width.
 The operation watermark includes IDs reserved for host lock requests through
 `session.reserve_operation_id()`, as well as document submissions. Reservations
 may leave gaps and need no transaction entry. This uses the existing field 8;
-the checkpoint format is unchanged. Host lock request payloads are not stored in
+the checkpoint's operation field remains distinct from native entity allocation.
+Host lock request payloads are not stored in
 the document outbox merely by reserving an ID.
 
 `client_transaction` fields are local number (1), history action (2), local target
 number (3), before/after model bytes (4/5), authority operation/epoch (6/7), status
 (8), grant references (9), invalidated flag (10), label (11), and accepted sequence
-(12). Actions retain 1 edit, 2 undo, 3 redo. Status values are 1 queued, 2 accepted,
+(12), plus the transaction's lease first/consumed cursors (18/20).
+Actions retain 1 edit, 2 undo, 3 redo. Status values are 1 queued, 2 accepted,
 3 conflict, 4 denied, 5 obsolete grant, 6 failed, 7 uncertain, 8 discarded. Accepted
 sequence may lead the receive cursor when sending and receiving separately.
 
-Local model IDs are stable independently of authoritative IDs. Translation applies
-only to generated persistent identity slots; ordinary scalar fields and map keys
+Document and object IDs are identical in optimistic views, authority state and
+replicas; no translation mode is active. Ordinary scalar fields and map keys
 retain application values. Persisted exact requests are retried only in their own
 authority epoch. Client history durability does not restore authority deduplication
 or grant/version tables. See [local collaboration](../managed/local_collaboration.md)
@@ -783,19 +831,20 @@ for recovery prerequisites, validation, budgets and explicit conflict resolution
 ### History-free collaboration checkpoints
 
 `pending_client_checkpoint` retains wrapper IDs 1..4 but uses binding
-`serializer.collaboration.pending.v1` and `pending_client_state`. Its state retains
+`serializer.collaboration.pending.v2` and `pending_client_state`. Its state retains
 client-state field IDs 1..11 and 14..16, omits undo/redo fields 12/13, and adds the
-monotonic local transaction watermark at field 17. State format version remains 1
+monotonic local transaction watermark at field 17 and native lease cursors at
+18/19/20. State format version is 2
 within this distinct binding. `pending_client_transaction` retains IDs 1, 4..10 and
-12 from `client_transaction`; history action, target and label fields 2/3/11 are absent.
+12 and 18/20 from `client_transaction`; history action, target and label fields 2/3/11 are absent.
 Transactions are sorted by their nonzero local number, which can have gaps after
 compaction; pending FIFO entries reference these numbers, not vector positions.
 Acknowledged transactions remain until their accepted sequence is received, then are
 removed; outstanding and uncertain work remains. Recovery checks the monotonic watermark
 instead of requiring the transaction array length to grow forever.
 
-History-enabled checkpoint bytes, ordinary model envelopes, native journal framing and
-authority protocol versions are unchanged. History-free authorities use edit action 1
+Native journal framing and outer authority protocol versions do not change with
+client format 2. History-free authorities use edit action 1
 and compact field/ownership conflict addresses; they omit inverse values/version history
 and reject history requests. Clients must not infer undo support from the protocol
 version alone. Checkpoint policy changes require explicit migration; readers do not

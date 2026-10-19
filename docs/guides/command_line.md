@@ -1,6 +1,6 @@
 # Serializer compiler and schema versions
 
-The compiler and runtime release is **2.6.0**, defined by `project(... VERSION ...)` in the
+The compiler and runtime release is **2.7.0**, defined by `project(... VERSION ...)` in the
 root CMake file. `serializer --version` (or `-v`) prints that release and the
 supported schema language version. CMake generates `<rohit/version.hpp>` with
 `rohit::serializer::compiler_version`, `schema_language_version_text`, and
@@ -12,12 +12,13 @@ Package discovery accepts earlier minor and patch releases within the same major
 version; requests for newer releases or a different major version are rejected.
 Use `EXACT` to require a specific release.
 
-For the 2.6.0 package, request `find_package(Serializer 2.0 CONFIG REQUIRED)`;
+For the 2.7.0 package, request `find_package(Serializer 2.0 CONFIG REQUIRED)`;
+require `2.7` for inline XML/XSD authoring and generated C++ package profiles;
 require `2.6` for transparent value references and record translators;
 require `2.5` when using field references or scoped translators, or `2.3` for
 the XML/package APIs.
 The `SameMajorVersion` discovery policy rejects 1.x requests even without
-`EXACT`. The compiler still supports schema language 1.19.0 and older compatible
+`EXACT`. The compiler still supports schema language 1.20.0 and older compatible
 1.x headers, including the original `version 1;` alias. Release 2.0.0 adds the
 default separate C++ header bundle without changing supported schema meanings,
 model names, runtime APIs or wire contracts. See [migration](../../migration.md#compilerruntime-200)
@@ -46,7 +47,7 @@ class account stable_ids {
 The statement must precede every declaration. Whitespace and `//` or `/* ... */`
 comments may precede it or separate its keywords. The version has exactly three
 unsigned decimal components separated by dots, without whitespace or comments
-inside the version. The supported language is **1.19.0**, accepting older contracts
+inside the version. The supported language is **1.20.0**, accepting older contracts
 in the same major version. The original
 `serializer version 1;` is an exact alias for `serializer version 1.0.0;`, exclusive
 to version 1; future integer majors such as `2;` are not aliases for `2.0.0;`.
@@ -87,8 +88,18 @@ the complete parsed result. See [licensing and notice rules](../project/licensin
 The repository's [schema language versioning policy](../../AGENTS.md#schema-language-versioning)
 uses `major.minor.patch` for language releases, independently of the compiler
 release. `serializer_schema_language_version` in the root CMake file defines the
-language release separately from `project(... VERSION ...)`. Compiler **2.6.0**
-currently supports language **1.19.0**; `serializer --version` reports both.
+language release separately from `project(... VERSION ...)`. Compiler **2.7.0**
+currently supports language **1.20.0**; `serializer --version` reports both.
+
+Language `1.20.0` adds namespace/class `xml(...)` defaults, field `xml(...)`
+exceptions, namespace `using schema "local.xsd";` binding and typed `package`
+declarations. `--import-xsd file.xsd --namespace models --root element --output
+model.serializer` imports supported local XSD declarations; `--root` is optional
+when the entry root is unambiguous. Import accepts `--depfile` and protects
+differing existing declarations from overwrite. Compile imported declarations
+with ordinary `--input` and language output flags. See
+[XSD tools](../serialization/xsd_tooling.md) and
+[package APIs](../serialization/xml_packages.md#declarative-c-package-profiles).
 
 Language `1.19.0` adds [transparent value references](../schema/value_references.md)
 and permits translators to borrow ordinary records containing arrays. Inline
@@ -242,6 +253,7 @@ values, and repeated non-repeatable options are errors.
 | `--cpp.protocols` | | `all` or `binary_none`; override common native codec selection for C++ independently of constant evaluation |
 | `--cpp.emission_only` | | `true` or `false` (default); borrowed models with only concrete positional output; requires enabled constant evaluation and binary_none protocols |
 | `--managed.id_type` | | Document-local persistent ID width: `uint32` (default) or `uint64`; overrides `[managed] id_type` |
+| `--managed.id_encoding` | | C++ generated persistent-ID binary payload: `compact_varint` (default) or `fixed`; overrides `[managed] id_encoding` independently of ID width |
 | `--managed.separate_values` | | `true` generates ID-free values plus managed wrappers; `false` (default) puts IDs on the schema classes |
 | `--cpp.protobuf` | | `true` or `false`; enable compile-time [Protobuf codecs](../serialization/protobuf.md) |
 | `--xml.enabled` | | `true` or `false` (default); generate [typed XML codecs](../serialization/xml_packages.md) for selected outputs |
@@ -458,9 +470,20 @@ Bare `managed` class/member annotations generate classes with direct persistent
 IDs and transaction editors by default. Opt into ordinary classes plus managed
 companions with `--managed.separate_values true`. See the [managed interface](../managed/cpp_runtime.md)
 for eligibility and representation rules. Configuration accepts `[managed]` with
-`id_type = uint32|uint64` and `separate_values = true|false`. Command-line settings
-take precedence. Every compiled consumer sharing a model must use the same ID
-width and representation across its translation units. A batch may generate
+`id_type = uint32|uint64`, `id_encoding = compact_varint|fixed` and
+`separate_values = true|false`. Command-line settings take precedence. The default
+`compact_varint` uses canonical unsigned LEB128 for generated `persistent_id`
+payloads in all three native binary protocols. `fixed` selects width-based
+payloads. The generated schema identity includes the encoding policy, and a policy
+change changes binary wire bytes; ordinary Load does not autodetect or convert the
+policy. Use the [offline migration tool](persistent_id_migration.md) explicitly.
+JSON IDs stay
+numeric, and application integer fields and binary field tags keep their existing
+contracts. Typed managed token object IDs use the selected policy; document halves
+and class discriminators remain fixed-width.
+
+Every compiled consumer sharing a model must use the same ID width, ID encoding
+and representation across its translation units. A batch may generate
 different variants for separate consumers. Non-C++ managed generation
 and capability selectors are rejected; they never silently produce ordinary output.
 

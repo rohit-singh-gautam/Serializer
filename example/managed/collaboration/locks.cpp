@@ -5,8 +5,8 @@
 #include <iostream>
 #include <stdexcept>
 
-// Edit through model_store while host coordination manages presence and fenced subtree leases.
-int main() {
+// Edit through model_store with fenced subtree leases; report failures as a nonzero example exit.
+int main() try {
   namespace managed = rohit::managed;
   using ledger = ledger_example::ledger;
   constexpr std::uint64_t holder_session = 10;
@@ -57,9 +57,13 @@ int main() {
            })
       .throw_if_failed();
   competing.synchronize();
-  if (competing.collaboration().pending_status() != managed::pending_change_status::conflict ||
-      competing.read()->entries.at(100).amount_minor_units != 2000 ||
-      authority.read()->entries.at(100).amount_minor_units != 1500) {
+  if (competing.collaboration().pending_status() != managed::pending_change_status::conflict) {
+    throw std::runtime_error{"Blocked edit was not retained as a conflict"};
+  }
+  if (competing.read()->entries.at(100).amount_minor_units != 2000) {
+    throw std::runtime_error{"Blocked edit lost its local working value"};
+  }
+  if (authority.read()->entries.at(100).amount_minor_units != 1500) {
     throw std::runtime_error{"Competing edit bypassed subtree lock"};
   }
   // 4. Supply the holder's grant to its store session, then edit through a normal transaction.
@@ -90,4 +94,7 @@ int main() {
   }
   std::cout << "Subtree lock blocked competing edit; holder changed amount to 1800\n"
             << "Expiry fenced old grant; snapshot refreshed cache; session end cleared presence\n";
+} catch (const std::exception& error) {
+  std::cerr << error.what() << '\n';
+  return 1;
 }

@@ -1,0 +1,18 @@
+serializer version 1.20.0;
+namespace migration_example {
+  class entry managed stable_ids class_id(501) {
+    public uint64 amount (1);
+  }
+  class document managed stable_ids class_id(502) {
+    public managed array entry entries (1);
+    public optional<managed_ref<entry>> selected (2);
+    public uint64 ordinary (3);
+  }
+  class legacy_value managed stable_ids {
+    public uint64 amount (1);
+  }
+  class ordinary_value stable_ids {
+    public uint64 amount (1);
+    public string name (2);
+  }
+}

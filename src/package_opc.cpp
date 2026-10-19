@@ -367,7 +367,8 @@ const std::string& required(const std::map<std::string, std::string>& values,
 void write_metadata(zip_writer& archive, std::string_view name, const xml::element& document) {
   auto& shared = *archive.shared_budget();
   shared.check_cancelled();
-  const auto text = xml::write(document, xml_bounds(shared));
+  auto context = shared.xml_context(name);
+  const auto text = xml::write(document, xml_bounds(shared), &context);
   shared.consume(resource::metadata_bytes, text.size(), name);
   archive.add(name, {reinterpret_cast<const std::uint8_t*>(text.data()), text.size()});
 }
@@ -380,8 +381,9 @@ xml::element read_metadata(zip_reader& archive, std::string_view name) {
   shared.consume(resource::metadata_bytes, entry->expanded_bytes, name);
   const auto bytes = archive.read(name);
   try {
+    auto context = shared.xml_context(name);
     auto document = xml::parse({reinterpret_cast<const char*>(bytes.data()), bytes.size()},
-                               xml_bounds(shared));
+                               xml_bounds(shared), &context);
     shared.check_cancelled();
     // Each retained tree item is bounded independently of its compressed input length.
     std::uint64_t storage{};
@@ -425,6 +427,24 @@ std::string extension_of(std::string_view name) {
   return dot == std::string_view::npos || dot < slash ? std::string{} : identity(name.substr(dot + 1));
 }
 } // namespace
+
+// Adapt only selected XML operations; native binary/JSON codecs retain their existing fast paths.
+xml::operation_context budget::xml_context(std::string_view part) {
+  xml::operation_context result{};
+  result.is_cancelled = [this] { check_cancelled(); return false; };
+  result.charge = [this, source = std::string{part}](xml::operation_resource selected,
+      std::size_t amount) {
+    switch (selected) {
+    case xml::operation_resource::allocation_bytes:
+      consume(resource::decoder_allocation_bytes, amount, source); break;
+    case xml::operation_resource::work_units:
+      consume(resource::work_units, amount, source); break;
+    case xml::operation_resource::preserved_bytes:
+      consume(resource::preserved_bytes, amount, source); break;
+    }
+  };
+  return result;
+}
 
 // Remove literal dot segments once, then apply canonical OPC part-name validation.
 std::string resolve_target(std::string_view source, std::string_view target) {
@@ -735,6 +755,14 @@ void profile_loader::read_related(std::string_view source, std::string_view rela
     std::string_view expected_content_type,
     const std::function<void(std::span<const std::uint8_t>, const part&, budget&)>& decode,
     std::size_t minimum, std::size_t maximum) {
+  read_related(source, relationship_type, expected_content_type, decode, minimum, maximum, false);
+}
+
+// A declared dynamic MIME role still requires existing internal targets and validated metadata.
+void profile_loader::read_related(std::string_view source, std::string_view relationship_type,
+    std::string_view expected_content_type,
+    const std::function<void(std::span<const std::uint8_t>, const part&, budget&)>& decode,
+    std::size_t minimum, std::size_t maximum, bool allow_any_content_type) {
   if (finished_ || failed_ || minimum > maximum || !decode) {
     throw error{error_code::invalid_state, "Invalid or finished package profile"};
   }
@@ -763,7 +791,7 @@ void profile_loader::read_related(std::string_view source, std::string_view rela
       throw error{error_code::missing_part, "Profile target is absent", name,
                   0, 0, 0, {}, link->target, link->id};
     }
-    if (selected->content_type != expected_content_type) {
+    if (!allow_any_content_type && selected->content_type != expected_content_type) {
       throw error{error_code::invalid_metadata, "Profile target has an unexpected content type",
                   selected->name, 0, 0, 0, {}, {}, link->id};
     }

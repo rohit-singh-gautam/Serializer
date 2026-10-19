@@ -45,6 +45,7 @@ TEST(managed_generated, collaboration_with_separate_values_and_tree_labels) {
   authority.open_session(1);
   managed::collaboration_replica<root> replica;
   replica.synchronize(authority.snapshot(), authority.context());
+  replica.initialize_identity_lease(1, authority.reserve_ids(1));
   const auto proposal = replica.propose(1, 1, [](auto& tx) {
     tx.root().cursor().position().set_x(99);
     auto paragraphs = tx.root().notes().paragraphs();

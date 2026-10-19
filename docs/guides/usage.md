@@ -1,5 +1,23 @@
 # Using Serializer in a C++ application
 
+Language **1.20.0**, compiler/runtime **2.7.0**, adds schema-first XML authoring
+and C++ declarative package generation. Use one `using schema "local.xsd";`
+inside the application namespace to bind authored models, or import the supported
+XSD subset into declarations with `serializer --import-xsd local.xsd --namespace
+models --output model.serializer`. The
+[all-language automatic/manual examples](../../example/xsd/README.md) show both.
+See [XSD rules](../serialization/xsd_tooling.md) and
+[package declarations](../serialization/xml_packages.md#declarative-c-package-profiles)
+for syntax, compilation and backend limits.
+
+Generated C++ managed identities use compact varints by default in native binary
+output, independently of their default `uint32` memory width. Use `[managed]
+`id_encoding = fixed` for fixed payloads. See the
+[persistent-ID migration guide](persistent_id_migration.md) for regeneration and
+existing-document steps, and the
+[managed reference contract](../design/managed_entity_references.md) for typed
+tokens, strict collaborative identities, editable reconciliation and previews.
+
 Language **1.19.0** adds [inline value references](../schema/value_references.md):
 `public borrowed(payload) d (1);` is a nonowning export view. C++
 `consumer.d = owner.b` stores a const payload pointer while the owner stays ordinary
@@ -26,6 +44,15 @@ and shared [native format selection](../languages/output_configuration.md).
 The [XML/package guide](../serialization/xml_packages.md) documents C++ ZIP64,
 explicit bounded spooling and transactional caller-authored OPC profiles.
 General backend parity and the managed document-state bridge remain pending.
+
+For an OPC-based application, the runtime generates `[Content_Types].xml` and
+`.rels` from registered parts and relationships; application schemas describe
+payload models. See the [OPC/3MF authoring requirements and restricted build example](../design/opc_3mf_support.md)
+for composition and the remaining general requirements. A supported XSD can
+supply mappings through `[xml] xsd = path` or inline namespace binding, so fields
+do not need a second placement list in INI. Schema-authored XML enables its codecs
+automatically unless configuration explicitly disables them. Package declarations
+require XML and reject a conflicting explicit disable.
 
 Compiler/runtime **2.3.0** adds optional generated XML codecs across the language
 outputs, fixed XSD bindings and explicit prepared runtime validation. See

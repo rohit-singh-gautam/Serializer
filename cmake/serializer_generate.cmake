@@ -25,6 +25,62 @@ function(serializer_generate)
   _serializer_generate_impl()
 endfunction()
 
+# Build a schema-specific offline migration CLI without handwritten application sources.
+# ROOT is the generated concrete C++ class name; CONFIG retains its naming and ID policies.
+function(serializer_add_migration_tool)
+  cmake_parse_arguments(PARSE_ARGV 0 arg ""
+    "TARGET;SCHEMA;ROOT;CONFIG;OUTPUT_DIRECTORY" "")
+  if(arg_UNPARSED_ARGUMENTS OR arg_KEYWORDS_MISSING_VALUES OR
+      NOT arg_TARGET OR NOT arg_SCHEMA OR NOT arg_ROOT)
+    message(FATAL_ERROR "serializer_add_migration_tool requires TARGET, SCHEMA, ROOT and optional CONFIG/OUTPUT_DIRECTORY")
+  endif()
+  if(TARGET "${arg_TARGET}")
+    message(FATAL_ERROR "serializer_add_migration_tool target already exists: ${arg_TARGET}")
+  endif()
+  if(NOT TARGET Serializer::managed)
+    message(FATAL_ERROR "serializer_add_migration_tool requires Serializer::managed; build/install with SERIALIZER_BUILD_MANAGED=ON")
+  endif()
+  if(NOT arg_TARGET MATCHES "^[A-Za-z0-9_.+-]+$")
+    message(FATAL_ERROR "serializer_add_migration_tool TARGET must be a plain local target name")
+  endif()
+  if(NOT arg_ROOT MATCHES "^(::)?[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*$")
+    message(FATAL_ERROR "serializer_add_migration_tool ROOT must name a concrete generated C++ class")
+  endif()
+  get_filename_component(schema "${arg_SCHEMA}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
+  if(NOT EXISTS "${schema}" OR IS_DIRECTORY "${schema}")
+    message(FATAL_ERROR "serializer_add_migration_tool cannot find SCHEMA: ${schema}")
+  endif()
+  get_filename_component(stem "${schema}" NAME_WLE)
+  if(stem MATCHES "[\"<>\r\n]")
+    message(FATAL_ERROR "serializer_add_migration_tool SCHEMA filename cannot form a C++ include")
+  endif()
+  if(arg_OUTPUT_DIRECTORY)
+    get_filename_component(output_directory "${arg_OUTPUT_DIRECTORY}" ABSOLUTE BASE_DIR "${CMAKE_CURRENT_BINARY_DIR}")
+  else()
+    set(output_directory "${CMAKE_CURRENT_BINARY_DIR}/generated/${arg_TARGET}")
+  endif()
+  string(REGEX REPLACE "^::" "" root "${arg_ROOT}")
+  set(main "${output_directory}/${arg_TARGET}_main.cpp")
+  file(CONFIGURE OUTPUT "${main}" CONTENT
+"#include \"${stem}.hpp\"
+#include <rohit/managed_migration.hpp>
+
+// Convert files for this generated root while retaining their native identities.
+int main(int argc, char** argv) {
+  return ::rohit::managed::migration::run_cli<::${root}>(argc, argv);
+}
+" @ONLY)
+  add_executable("${arg_TARGET}" "${main}")
+  if(arg_CONFIG)
+    serializer_generate(TARGET "${arg_TARGET}" SCHEMAS "${schema}"
+      OUTPUT_DIRECTORY "${output_directory}" CONFIG "${arg_CONFIG}")
+  else()
+    serializer_generate(TARGET "${arg_TARGET}" SCHEMAS "${schema}"
+      OUTPUT_DIRECTORY "${output_directory}")
+  endif()
+  target_link_libraries("${arg_TARGET}" PRIVATE Serializer::managed)
+endfunction()
+
 # Parse each schema once for independent target/configuration pairs and own their shared build rule.
 # Lists are paired by position; one target also permits the ordinary default configuration.
 function(serializer_generate_variants)

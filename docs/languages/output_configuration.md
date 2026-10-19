@@ -341,6 +341,7 @@ The optional [C++ managed interface](../managed/cpp_runtime.md) accepts a centra
 ```ini
 [managed]
 id_type = uint64
+id_encoding = compact_varint
 ```
 
 The default is `uint32`; no other spellings are accepted. CLI
@@ -350,4 +351,14 @@ carry `persistent_id` directly by default. Set `[managed] separate_values = true
 (or `--managed.separate_values true`) to generate ID-free ordinary values and
 separate managed storage; the default is `false`. Use the same representation
 for every output sharing a model.
-Changing the width or representation requires managed-save migration. Other managed feature selectors remain proposals.
+`id_encoding` defaults to `compact_varint`; `fixed` selects the configured integer
+width on the wire. CLI `--managed.id_encoding` overrides it. The policy applies
+to generated `persistent_id` and managed-reference object IDs in `binary_none`,
+`binary_integer` and `binary_string`. IDs retain their numeric values, memory
+width and JSON representation. Ordinary integer fields and binary field tags
+are unaffected. Unknown policy names reject; use `compact_varint`, not
+`compact_variant`.
+
+All participants sharing a model agree on width, representation and encoding.
+Changing these settings requires an explicit persistence migration; see the
+[persistent-ID migration guide](../guides/persistent_id_migration.md).

@@ -24,6 +24,7 @@ class managed_writer {
   Writer& writer_;
   std::string managed_id_type;
   bool separate_values_;
+  persistent_id_encoding id_encoding_;
 
   // Delegate public type spelling to the owning writer's configured profile.
   std::string type_name(std::string_view name) const {
@@ -90,17 +91,159 @@ class managed_writer {
   std::vector<const class_node*> visiting_editors{};
   std::vector<managed_class> managed_classes{};
   std::map<const class_node*, std::uint64_t> managed_hashes{};
+  bool has_declared_references_{};
+  mutable std::map<const class_node*, bool> reference_presence_{};
+  std::set<const class_node*> reference_declarations_{};
+
+  // Reconstruct concrete generic identity from schema arguments, independent of pooled C++ names.
+  std::string class_identity(const class_node* source) const {
+    if (source->generic_name.empty()) { return source->get_full_name(); }
+    std::string result = "generic:" + source->generic_name + "<";
+    const auto argument_identity = [&](auto&& self, const serializer::type_name& argument) -> std::string {
+      if (argument.kind == generic_argument_kind::dimension) {
+        return "dimension:" + std::to_string(argument.dimension);
+      }
+      std::string selected;
+      if (argument.resolved_node && argument.resolved_node->type == object_type::class_type) {
+        selected = class_identity(static_cast<const class_node*>(argument.resolved_node));
+      } else {
+        selected = argument.get_full_name();
+      }
+      if (!argument.arguments.empty()) {
+        selected += "<";
+        for (const auto& child : argument.arguments) {
+          const auto text = self(self, child);
+          selected += std::to_string(text.size()) + ":" + text;
+        }
+        selected += ">";
+      }
+      return "type:" + selected;
+    };
+    for (const auto& argument : source->generic_arguments) {
+      const auto text = argument_identity(argument_identity, argument);
+      result += std::to_string(text.size()) + ":" + text;
+    }
+    return result + ">";
+  }
+
+  // Class tags depend on concrete schema identity, independently of mutable payload layout.
+  std::uint64_t class_id(const class_node* source) const {
+    if (source->explicit_class_id) { return *source->explicit_class_id; }
+    constexpr std::uint64_t offset_basis = 14695981039346656037ULL;
+    constexpr std::uint64_t prime = 1099511628211ULL;
+    auto result = offset_basis;
+    for (const auto byte : class_identity(source)) {
+      result = (result ^ static_cast<unsigned char>(byte)) * prime;
+    }
+    if (result == 0U) { throw std::invalid_argument{"Managed class identity hashes to reserved zero"}; }
+    return result;
+  }
+
+  // Inspect each value declaration once; recursive view graphs are legal and may contain no tokens.
+  // The visited set belongs to one complete query, so a cycle never becomes a cached false result.
+  bool contains_references(const class_node* source, std::set<const class_node*>& visited) const {
+    if (source->reference) { return false; }
+    const auto known = reference_presence_.find(source);
+    if (known != reference_presence_.end()) { return known->second; }
+    if (!visited.insert(source).second) { return false; }
+    for (const auto& base : source->parents) {
+      if (contains_references(base.parent_class, visited)) {
+        if (reference_declarations_.contains(source)) { reference_presence_[source] = true; }
+        return true;
+      }
+    }
+    for (const auto& field : source->member_list) {
+      for (const auto& type : field.type_name_list) {
+        if (type.contains_managed_reference()) {
+          if (reference_declarations_.contains(source)) { reference_presence_[source] = true; }
+          return true;
+        }
+        const auto* child = child_node(type);
+        if (child && child->type == object_type::class_type &&
+            contains_references(static_cast<const class_node*>(child), visited)) {
+          if (reference_declarations_.contains(source)) { reference_presence_[source] = true; }
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  // Start an independent graph query while keeping durable addresses and phantom targets opaque.
+  bool contains_references(const class_node* source) const {
+    if (!has_declared_references_) { return false; }
+    std::set<const class_node*> visited;
+    const auto result = contains_references(source, visited);
+    // Only a complete negative query proves every visited declaration negative, including cycles.
+    if (!result) {
+      for (const auto* node : visited) {
+        if (reference_declarations_.contains(node)) { reference_presence_[node] = false; }
+      }
+    }
+    return result;
+  }
+
+  // Inspect a field's schema value graph while keeping target/address references nonowning leaves.
+  bool contains_references(const member& field) const {
+    if (!has_declared_references_) { return false; }
+    for (const auto& type : field.type_name_list) {
+      if (type.contains_managed_reference()) { return true; }
+      const auto* child = child_node(type);
+      if (child && child->type == object_type::class_type &&
+          contains_references(static_cast<const class_node*>(child))) { return true; }
+    }
+    return false;
+  }
+
+  // A required token has no valid context-free default; optional/variable containers may be empty.
+  bool requires_reference_initialization(const serializer::type_name& type,
+                                       std::set<const class_node*>& visited) const {
+    if (type.is_managed_reference()) { return true; }
+    if (type.is_optional() || type.is_sequence() || type.is_associative()) { return false; }
+    if (!type.resolved_node || type.resolved_node->type != object_type::class_type) { return false; }
+    const auto* record = static_cast<const class_node*>(type.resolved_node);
+    if (record->reference || !visited.insert(record).second || !contains_references(record)) { return false; }
+    for (const auto& base : record->parents) {
+      serializer::type_name base_type{std::string{base.parent_class->name}, record->parent_namespace};
+      base_type.resolved_node = base.parent_class;
+      if (requires_reference_initialization(base_type, visited)) { return true; }
+    }
+    return std::any_of(record->member_list.begin(), record->member_list.end(),
+        [&](const auto& field) { return requires_reference_initialization(field, visited); });
+  }
+
+  // Model a normal value-initialized reset, including fixed arrays and the first variant alternative.
+  bool requires_reference_initialization(const member& field, std::set<const class_node*>& visited) const {
+    if (contains_references(field) &&
+        (field.initializer || !field.default_value.empty() || !field.default_factory.empty())) {
+      return true; // An authored default may engage wrappers; no document-scoped reconstruction exists.
+    }
+    if (field.modifier == member::modifier_type::map ||
+        (field.modifier == member::modifier_type::array && field.extent_expression.empty() &&
+         field.fixed_extent == 0U)) { return false; }
+    return !field.type_name_list.empty() && requires_reference_initialization(field.type_name_list.front(), visited);
+  }
+
+  // Keep required-default detection bounded across legal recursive view declarations.
+  bool requires_reference_initialization(const member& field) const {
+    if (!has_declared_references_) { return false; }
+    std::set<const class_node*> visited;
+    return requires_reference_initialization(field, visited);
+  }
 
   // Preserve codec lifetimes and behavior while lowering only managed identity metadata.
   static void copy_class_metadata(class_node& target, const class_node& source) {
     target.attributes = source.attributes;
     target.member_list = source.member_list;
+    target.xml = source.xml;
+    target.explicit_class_id = source.explicit_class_id;
     target.functions = source.functions;
     target.constructions = source.constructions;
     target.conversions = source.conversions;
     target.reference = source.reference;
     target.native_blocks = source.native_blocks;
     target.named_generic_source = source.named_generic_source;
+    target.named_generic_arguments = source.named_generic_arguments;
     target.body_order = source.body_order;
     target.magic_bytes = source.magic_bytes;
     target.magic_field = source.magic_field;
@@ -200,6 +343,79 @@ class managed_writer {
     }
     std::vector<const class_node*> classes;
     collect_classes(statements, classes);
+    const auto inspect_references = [&](auto&& self, const auto& nodes) -> void {
+      for (const auto& node : nodes) {
+        if (node->type == object_type::namespace_type) {
+          self(self, static_cast<const namespace_node&>(*node).statements);
+        } else if (node->type == object_type::class_type || node->type == object_type::generic_definition) {
+          const auto* record = static_cast<const class_node*>(node.get());
+          for (const auto& field : record->member_list) {
+            has_declared_references_ = has_declared_references_ || std::any_of(
+                field.type_name_list.begin(), field.type_name_list.end(),
+                [](const auto& type) { return type.contains_managed_reference(); });
+          }
+        }
+      }
+    };
+    inspect_references(inspect_references, statements);
+    if (has_declared_references_) {
+      // Only parsed declarations have stable identities throughout emission; synthetic nodes may be temporary.
+      reference_declarations_.insert(classes.begin(), classes.end());
+      for (const auto* source : classes) {
+        for (const auto& field : source->member_list) {
+          if ((field.transient || !field.omitted_formats.empty()) && requires_reference_initialization(field)) {
+            throw std::invalid_argument{
+                "C++ required managed references cannot be transient or omitted; use optional presence: " +
+                source->get_full_name() + "::" + field.name};
+          }
+        }
+      }
+    }
+    std::map<std::uint64_t, const class_node*> class_ids;
+    for (const auto* source : classes) {
+      if (!source->supports_managed()) { continue; }
+      const auto [existing, inserted] = class_ids.emplace(class_id(source), source);
+      if (!inserted && existing->second != source) {
+        throw std::invalid_argument{"Managed class_id collision: " +
+            existing->second->get_full_name() + " and " + source->get_full_name()};
+      }
+    }
+    // Named managed instantiations are distinct C++ records, while recursive phantom edges
+    // currently retain the internal pooled specialization. Reject that unusable self binding.
+    for (const auto* source : classes) {
+      if (!source->supports_managed() || source->named_generic_source.empty()) { continue; }
+      class_node specialization{object_type::class_type, std::string{}, nullptr,
+          class_attributes::none, {}};
+      specialization.generic_name = source->named_generic_source;
+      specialization.generic_arguments = source->named_generic_arguments;
+      const auto self_identity = class_identity(&specialization);
+      std::set<const class_node*> visited;
+      const auto check_record = [&](auto&& self, const class_node* record) -> void {
+        if (!visited.insert(record).second) { return; }
+        for (const auto& base : record->parents) { self(self, base.parent_class); }
+        const auto check_type = [&](auto&& recurse, const serializer::type_name& type) -> void {
+          if (type.is_managed_reference()) {
+            const auto* target = type.arguments.front().resolved_node;
+            if (target && target->type == object_type::class_type &&
+                class_identity(static_cast<const class_node*>(target)) == self_identity) {
+              throw std::invalid_argument{
+                  "C++ named managed recursive generic self references require explicit concrete target classes: " +
+                  source->get_full_name()};
+            }
+            return;
+          }
+          if (type.is_optional() || type.is_sequence() || type.is_associative()) {
+            for (const auto& argument : type.arguments) { recurse(recurse, argument); }
+          } else if (type.resolved_node && type.resolved_node->type == object_type::class_type) {
+            self(self, static_cast<const class_node*>(type.resolved_node));
+          }
+        };
+        for (const auto& field : record->member_list) {
+          for (const auto& type : field.type_name_list) { check_type(check_type, type); }
+        }
+      };
+      check_record(check_record, source);
+    }
     for (const auto* source : classes) {
       if (!source->supports_managed()) {
         continue;
@@ -235,6 +451,8 @@ class managed_writer {
                   true};
         id.type_name_list.front().type = object_type::primitive;
         id.fixed_name = true;
+        id.persistent_identity = true;
+        id.compact = id_encoding_ == persistent_id_encoding::compact_varint ? compact_encoding::varint : compact_encoding::none;
         item.data->member_list.push_back(std::move(id));
         if (!item.data->body_order.empty()) {
           item.data->body_order.push_back({class_body_item::kind_type::field,
@@ -282,6 +500,8 @@ class managed_writer {
                 true};
       id.type_name_list.front().type = object_type::primitive;
       id.fixed_name = true;
+      id.persistent_identity = true;
+      id.compact = id_encoding_ == persistent_id_encoding::compact_varint ? compact_encoding::varint : compact_encoding::none;
       member value{access_type::public_access,
                    member::modifier_type::none,
                    {serializer::type_name{std::string{item.data->name}, source->parent_namespace}},
@@ -428,6 +648,16 @@ class managed_writer {
         "(Access access) : access_{::std::move(access)} {}\n"
         "  // Return the immutable identity only for a managed occurrence.\n"
         "  auto id() const requires Access::is_managed { return access_.id(); }\n");
+    if (source->supports_managed()) {
+      write_managed_text(output,
+          "  // Return an exact typed document identity through an opted-in managed root scope.\n"
+          "  auto get_id() const requires (Access::is_managed && Access::has_reference_scope) {\n"
+          "    return access_.template get_id<", full_type_name(source), ">();\n  }\n"
+          "  // Apply editable fields and reconcile owned identities in this normal transaction.\n"
+          "  template <typename Candidate> void apply_editable(Candidate candidate) const requires Access::is_managed {\n"
+          "    ::rohit::managed::apply_editable<", full_type_name(source),
+          ">(access_, ::std::move(candidate));\n  }\n");
+    }
     for (const auto& base : source->parents) {
       const auto type = full_type_name(base.parent_class);
       write_managed_text(output, "  // Edit this inherited occurrence without replacing its lifetime.\n  auto ",
@@ -630,7 +860,35 @@ class managed_writer {
       write_managed_text(output, "    detail::add_memory_estimate(result, detail::estimate_dynamic_memory(value.",
           field_name(field.name), "));\n");
     }
-    write_managed_text(output, "    return result;\n  }\n};\n}\n");
+    write_managed_text(output, "    return result;\n  }\n");
+    if (contains_references(source)) {
+      write_managed_text(output,
+          "  // Visit reference tokens without following target edges or copying model fields.\n"
+          "  static void visit_references(auto& value, auto&& visitor) {\n"
+          "    static_cast<void>(value); static_cast<void>(visitor);\n");
+      for (const auto& base : source->parents) {
+        if (!contains_references(base.parent_class)) { continue; }
+        const auto type = full_type_name(base.parent_class);
+        write_managed_text(output,
+            "    detail::visit_entity_references(static_cast<::std::conditional_t<"
+            "::std::is_const_v<::std::remove_reference_t<decltype(value)>>, const ", type,
+            ", ", type, ">&>(value), visitor);\n");
+      }
+      for (const auto& field : source->member_list) {
+        bool selected{};
+        for (const auto& type : field.type_name_list) {
+          const auto* child = child_node(type);
+          selected = selected || type.contains_managed_reference() ||
+              (child && child->type == object_type::class_type &&
+               contains_references(static_cast<const class_node*>(child)));
+        }
+        if (!selected) { continue; }
+        write_managed_text(output, "    if (", active_field(source, field, "value"),
+            ") { detail::visit_entity_references(value.", field_name(field.name), ", visitor); }\n");
+      }
+      write_managed_text(output, "  }\n");
+    }
+    write_managed_text(output, "};\n}\n");
   }
 
   // Traverse base scopes, containers and active alternatives without interpreting runtime resources.
@@ -1054,9 +1312,24 @@ class managed_writer {
                          ";\n"
                          "  static constexpr ::std::string_view schema_id = \"",
                          separate_values_ ? "managed.v1:" : "managed.direct.v1:",
-                         item.source->get_full_name(), ":", hash, ":", managed_id_type, "\";\n");
+                         item.source->get_full_name(), ":", hash, ":", managed_id_type,
+                         id_encoding_ == persistent_id_encoding::compact_varint ? ":compact_varint" : "", "\";\n");
+      write_managed_text(unit_output,
+          "  // Persistent-ID payload encoding; numeric values and memory width are unchanged.\n"
+          "  static constexpr auto id_encoding = ::rohit::managed::identity_encoding::",
+          id_encoding_ == persistent_id_encoding::compact_varint ? "compact_varint" : "fixed", ";\n");
       write_managed_text(unit_output, "  // Stable concrete schema key for typed registry catalogs.\n"
           "  static constexpr ::std::string_view type_key = \"", item.source->get_full_name(), "\";\n");
+      write_managed_text(unit_output,
+          "  // Stable exact-class discriminator; persistent object IDs retain their native width.\n"
+          "  static constexpr ::std::uint64_t class_id = ", class_id(item.source), "ULL;\n");
+      if (contains_references(item.source)) {
+        write_managed_text(unit_output,
+            "  static constexpr bool has_entity_references = true;\n"
+            "  // Traverse only declared tokens, including active nested values and owned children.\n"
+            "  static void visit_references(auto& storage, auto&& visitor) {\n"
+            "    detail::visit_entity_references(storage, visitor);\n  }\n");
+      }
       write_managed_text(unit_output,
           "  // Select an explicitly negotiated nested-path collaboration wire contract when required.\n"
           "  static constexpr bool has_inherited_field_paths = ", inherited_paths ? "true" : "false", ";\n");
@@ -1213,9 +1486,36 @@ class managed_writer {
   }
 
 public:
+  // Mark only types whose owned/value graph needs scoped reference APIs; this is static metadata.
+  bool requires_reference_scope(const class_node* source) const {
+    if (source->type == object_type::generic_definition || !contains_references(source)) { return false; }
+    for (const auto& field : source->member_list) {
+      if (field_name(field.name) == "serializer_has_entity_references") {
+        throw std::invalid_argument{"Managed reference scope metadata name is reserved"};
+      }
+      if (source->supports_managed() && function_name("get_" + field.name) == "get_id") {
+        throw std::invalid_argument{"Managed reference editor get_id name conflicts with a field getter"};
+      }
+    }
+    for (const auto& method : source->functions) {
+      if (function_name(method.name) == "serializer_has_entity_references" ||
+          (source->supports_managed() && function_name(method.name) == "get_id")) {
+        throw std::invalid_argument{"Managed reference scope helper name is reserved"};
+      }
+    }
+    return true;
+  }
+  // Render references using the same configured object-ID width as generated managed storage.
+  std::string id_type_name() const {
+    return managed_id_type == "uint32" ? "::std::uint32_t" : "::std::uint64_t";
+  }
+  // Request forward declarations only when phantom target types require them.
+  bool has_references() const {
+    return has_declared_references_;
+  }
   // Borrow the per-output writer; neither the parsed schema nor its naming policy is modified.
-  managed_writer(Writer& writer, std::string id_type, bool separate_values)
-      : writer_{writer}, managed_id_type{std::move(id_type)}, separate_values_{separate_values} {}
+  managed_writer(Writer& writer, std::string id_type, bool separate_values, persistent_id_encoding id_encoding)
+      : writer_{writer}, managed_id_type{std::move(id_type)}, separate_values_{separate_values}, id_encoding_{id_encoding} {}
   // Grant only generated checked helpers access to private schema-owned state.
   void write_access_friends(auto& output, const class_node* source) {
     const class_node* original = source;

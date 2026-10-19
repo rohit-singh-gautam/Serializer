@@ -24,6 +24,7 @@ local-lock-ids-[0-9]*/
 local-client-[0-9]*/
 local-fault-[0-9]*/
 local-ack-[0-9]*/
+serializer-strict-identity-[0-9]*/
 local-tree-[0-9]*/
 wide-journal-[0-9]*/
 serializer-local-sync-[0-9]*/

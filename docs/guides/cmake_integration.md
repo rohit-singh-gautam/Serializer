@@ -1,5 +1,11 @@
 # CMake integration for consumers
 
+For XSD-based C++ generation, use the standalone
+[automatic/manual XSD CMake example](../../example/xsd/README.md).
+Its `CMakeLists.txt` imports a build-owned model or binds the authored model,
+generates C++ and links `Serializer::runtime` with no Python dependency.
+The optional Python runner qualifies the same contract across all eleven SDKs.
+
 The [C++ managed snapshot runtime](../managed/cpp_runtime.md) is built by default
 (`SERIALIZER_BUILD_MANAGED=ON`); link `Serializer::managed` when using its APIs.
 The target generates both runtime record headers using the compiler, with internal
@@ -7,6 +13,25 @@ formatting disabled, and exports them in installed packages. No formatter is
 needed for these records. Explicit OFF builds omit headers that require them. Schemas with `managed` declarations use the same
 `serializer_generate` helper; pass `CONFIG project.ini` for a shared `[managed]
 id_type = uint64` setting. See the [standalone ledger example](../../example/managed/ledger/README.md).
+
+Create a schema-specific ID-encoding converter with no handwritten C++ entry
+point:
+
+```cmake
+serializer_add_migration_tool(
+  TARGET model_migrate
+  SCHEMA model.serializer
+  ROOT application::document
+  CONFIG model.ini)
+```
+
+The helper creates an executable, generates the model through `serializer_generate`
+and links `Serializer::managed`. `ROOT` names the concrete class as rendered in
+the generated C++ API, including its namespace. Optional `OUTPUT_DIRECTORY`
+defaults to `${CMAKE_CURRENT_BINARY_DIR}/generated/<target>`. The normal schema,
+transitive include, configuration and compiler dependencies remain tracked. See
+the [persistent-ID migration guide](persistent_id_migration.md) for managed-save
+and raw-model commands, limits and the coordinated cutover requirements.
 
 For JS, TypeScript declarations, Go, or C# source generation, use
 `serializer_generate_source(TARGET name SCHEMA file OUTPUT generated/schema.go

@@ -68,6 +68,14 @@ constexpr void read_compact(Protocol& protocol, T& value) {
   }
 }
 
+// Decode only declared persistent identities under an explicit migration override, if selected.
+template <bool DefaultCompact, typename Protocol, std::unsigned_integral Id>
+constexpr void read_persistent_identity(Protocol& protocol, Id& value) {
+  if constexpr (persistent_identity_compact<DefaultCompact, Protocol>) {
+    read_compact<false>(protocol, value);
+  } else { protocol.serialize_in(value); }
+}
+
 
 // Select an unsigned representation without performing floating-point arithmetic or conversion.
 template <binary_array_scalar T>
@@ -1667,13 +1675,14 @@ template <serialize_type type, serialize_key_type KeyType,
           std::endian WireEndian = std::endian::little, typename Stream = stream,
           binary_text_validation TextValidation = binary_text_validation::strict,
           read_policy ReadPolicy = read_policy::strict,
-          binary_scalar_normalization ScalarNormalization = binary_scalar_normalization::preserve>
+          binary_scalar_normalization ScalarNormalization = binary_scalar_normalization::preserve,
+          typename IdentityPolicy = void>
 class binary;
 
 template <serialize_key_type KeyType, std::endian WireEndian = std::endian::little,
           rohit::type_check::input_buffer Stream = stream,
           binary_text_validation TextValidation = binary_text_validation::strict,
-          read_policy ReadPolicy = read_policy::strict>
+          read_policy ReadPolicy = read_policy::strict, typename IdentityPolicy = void>
 class binary_in_base : public detail::decoder_input<Stream> {
 protected:
   bool schema_values_{};
@@ -1694,6 +1703,7 @@ protected:
   using base::require_input;
 
 public:
+  using persistent_identity_policy = IdentityPolicy;
   constexpr static serialize_key_type key_type = KeyType;
   static constexpr read_policy policy = ReadPolicy;
   static constexpr bool is_json = false;
@@ -2050,17 +2060,17 @@ public:
 
 template <serialize_key_type KeyType, std::endian WireEndian,
           rohit::type_check::input_buffer Stream, binary_text_validation TextValidation,
-          read_policy ReadPolicy, binary_scalar_normalization ScalarNormalization>
+          read_policy ReadPolicy, binary_scalar_normalization ScalarNormalization, typename IdentityPolicy>
 class binary<serialize_type::in, KeyType, WireEndian, Stream, TextValidation, ReadPolicy,
-             ScalarNormalization>
-    : public binary_in_base<KeyType, WireEndian, Stream, TextValidation, ReadPolicy> {
+             ScalarNormalization, IdentityPolicy>
+    : public binary_in_base<KeyType, WireEndian, Stream, TextValidation, ReadPolicy, IdentityPolicy> {
 public:
-  using binary_in_base<KeyType, WireEndian, Stream, TextValidation, ReadPolicy>::binary_in_base;
+  using binary_in_base<KeyType, WireEndian, Stream, TextValidation, ReadPolicy, IdentityPolicy>::binary_in_base;
   using stream_type = Stream;
   template <rohit::type_check::input_buffer OtherStream>
   using rebind_stream =
       binary<serialize_type::in, KeyType, WireEndian, OtherStream, TextValidation, ReadPolicy,
-             ScalarNormalization>;
+             ScalarNormalization, IdentityPolicy>;
   static constexpr read_policy policy = ReadPolicy;
   static constexpr bool is_json = false;
 };
@@ -2068,10 +2078,12 @@ public:
 template <serialize_key_type KeyType, std::endian WireEndian = std::endian::little,
           typename Stream = stream,
           binary_text_validation TextValidation = binary_text_validation::strict,
-          binary_scalar_normalization ScalarNormalization = binary_scalar_normalization::preserve>
+          binary_scalar_normalization ScalarNormalization = binary_scalar_normalization::preserve,
+          typename IdentityPolicy = void>
   requires (rohit::type_check::output_buffer<Stream> || detail::binary_counting_stream<Stream>)
 class binary_out_base {
 public:
+  using persistent_identity_policy = IdentityPolicy;
   static constexpr bool is_json = false;
   static constexpr wire_format format = KeyType == serialize_key_type::none ? wire_format::binary_none :
                                         KeyType == serialize_key_type::integer ? wire_format::binary_integer :
@@ -2188,7 +2200,7 @@ public:
       }
       binary_count_stream count{maximum_bytes};
       binary_out_base<KeyType, WireEndian, binary_count_stream, TextValidation,
-                      ScalarNormalization> counter{count};
+                      ScalarNormalization, IdentityPolicy> counter{count};
       if (schema_values_) {
         auto scope = counter.schema_values();
         counter.serialize_out(value);
@@ -2591,19 +2603,19 @@ public:
 
 template <serialize_key_type KeyType, std::endian WireEndian,
           typename Stream, binary_text_validation TextValidation,
-          read_policy ReadPolicy, binary_scalar_normalization ScalarNormalization>
+          read_policy ReadPolicy, binary_scalar_normalization ScalarNormalization, typename IdentityPolicy>
   requires (rohit::type_check::output_buffer<Stream> || detail::binary_counting_stream<Stream>)
 class binary<serialize_type::out, KeyType, WireEndian, Stream, TextValidation, ReadPolicy,
-             ScalarNormalization>
-    : public binary_out_base<KeyType, WireEndian, Stream, TextValidation, ScalarNormalization> {
+             ScalarNormalization, IdentityPolicy>
+    : public binary_out_base<KeyType, WireEndian, Stream, TextValidation, ScalarNormalization, IdentityPolicy> {
 public:
   using binary_out_base<KeyType, WireEndian, Stream, TextValidation,
-                        ScalarNormalization>::binary_out_base;
+                        ScalarNormalization, IdentityPolicy>::binary_out_base;
   using stream_type = Stream;
   template <typename OtherStream>
   using rebind_stream =
       binary<serialize_type::out, KeyType, WireEndian, OtherStream, TextValidation, ReadPolicy,
-             ScalarNormalization>;
+             ScalarNormalization, IdentityPolicy>;
   static constexpr read_policy policy = ReadPolicy;
   static constexpr bool is_json = false;
 };
@@ -2611,58 +2623,64 @@ public:
 template <serialize_type type, typename Stream = stream,
           binary_text_validation TextValidation = binary_text_validation::strict,
           read_policy ReadPolicy = read_policy::strict,
-          binary_scalar_normalization ScalarNormalization = binary_scalar_normalization::preserve>
+          binary_scalar_normalization ScalarNormalization = binary_scalar_normalization::preserve,
+          typename IdentityPolicy = void>
 using binary_integer = binary<type, serialize_key_type::integer, std::endian::little, Stream,
-                              TextValidation, ReadPolicy, ScalarNormalization>;
+                              TextValidation, ReadPolicy, ScalarNormalization, IdentityPolicy>;
 
 template <serialize_type type, typename Stream = stream,
           binary_text_validation TextValidation = binary_text_validation::strict,
           read_policy ReadPolicy = read_policy::strict,
-          binary_scalar_normalization ScalarNormalization = binary_scalar_normalization::preserve>
+          binary_scalar_normalization ScalarNormalization = binary_scalar_normalization::preserve,
+          typename IdentityPolicy = void>
 using binary_string = binary<type, serialize_key_type::string, std::endian::little, Stream,
-                             TextValidation, ReadPolicy, ScalarNormalization>;
+                             TextValidation, ReadPolicy, ScalarNormalization, IdentityPolicy>;
 
 template <serialize_type type, typename Stream = stream,
           binary_text_validation TextValidation = binary_text_validation::strict,
           read_policy ReadPolicy = read_policy::strict,
-          binary_scalar_normalization ScalarNormalization = binary_scalar_normalization::preserve>
+          binary_scalar_normalization ScalarNormalization = binary_scalar_normalization::preserve,
+          typename IdentityPolicy = void>
 using binary_none =
     binary<type, serialize_key_type::none, std::endian::little, Stream, TextValidation, ReadPolicy,
-           ScalarNormalization>;
+           ScalarNormalization, IdentityPolicy>;
 
 // Expose the descriptive positional spelling without changing the original protocol or bytes.
 template <serialize_type type, typename Stream = stream,
           binary_text_validation TextValidation = binary_text_validation::strict,
           read_policy ReadPolicy = read_policy::strict,
-          binary_scalar_normalization ScalarNormalization = binary_scalar_normalization::preserve>
-using binary_positional = binary_none<type, Stream, TextValidation, ReadPolicy, ScalarNormalization>;
+          binary_scalar_normalization ScalarNormalization = binary_scalar_normalization::preserve,
+          typename IdentityPolicy = void>
+using binary_positional = binary_none<type, Stream, TextValidation, ReadPolicy, ScalarNormalization, IdentityPolicy>;
 
 // Validate and count one native binary traversal under an explicit byte budget, with no allocation.
 template <serialize_key_type KeyType, std::endian WireEndian = std::endian::little,
           binary_text_validation TextValidation = binary_text_validation::strict,
           binary_scalar_normalization ScalarNormalization = binary_scalar_normalization::preserve,
-          typename Value>
+          typename Value, typename IdentityPolicy = void>
 [[nodiscard]] constexpr std::size_t binary_size(const Value& value,
                         std::size_t maximum_bytes = rohit::detail::maximum_buffer_bytes) {
   binary_count_stream output{maximum_bytes};
   binary_out_base<KeyType, WireEndian, binary_count_stream, TextValidation,
-                  ScalarNormalization> encoder{output};
+                  ScalarNormalization, IdentityPolicy> encoder{output};
   encoder.serialize_out(value);
   return output.size();
 }
 
 // Count integer field keys, nested records, and terminators using the production native codec.
-template <typename Value>
+template <typename Value, typename IdentityPolicy = void>
 [[nodiscard]] constexpr std::size_t binary_integer_size(
     const Value& value, std::size_t maximum_bytes = rohit::detail::maximum_buffer_bytes) {
-  return binary_size<serialize_key_type::integer>(value, maximum_bytes);
+  return binary_size<serialize_key_type::integer, std::endian::little, binary_text_validation::strict,
+      binary_scalar_normalization::preserve, Value, IdentityPolicy>(value, maximum_bytes);
 }
 
 // Count UTF-8 field names and payloads with the same validation as string-key binary output.
-template <typename Value>
+template <typename Value, typename IdentityPolicy = void>
 [[nodiscard]] constexpr std::size_t binary_string_size(
     const Value& value, std::size_t maximum_bytes = rohit::detail::maximum_buffer_bytes) {
-  return binary_size<serialize_key_type::string>(value, maximum_bytes);
+  return binary_size<serialize_key_type::string, std::endian::little, binary_text_validation::strict,
+      binary_scalar_normalization::preserve, Value, IdentityPolicy>(value, maximum_bytes);
 }
 
 namespace detail {

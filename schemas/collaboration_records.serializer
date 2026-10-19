@@ -128,6 +128,8 @@ namespace rohit {
         public bool invalidated (10);
         public string label (11);
         public uint64 accepted_sequence (12);
+        public uint64 lease_first (18);
+        public uint64 lease_consumed (20);
       }
       // Private durable client state; independent of authority coordination protocol versions.
       class client_state stable_ids {
@@ -147,6 +149,9 @@ namespace rohit {
         public array uint8 in_flight (14);
         public array client_identity in_flight_ids (15);
         public uint64 sync_interval_ms (16);
+        public uint64 lease_first (18);
+        public uint64 lease_last (19);
+        public uint64 lease_consumed (20);
       }
       // kind: 1 full ordinary managed envelope, 2 ordinary journal operation (possibly empty).
       class client_checkpoint stable_ids {
@@ -166,6 +171,8 @@ namespace rohit {
         public array grant_reference grants (9);
         public bool invalidated (10);
         public uint64 accepted_sequence (12);
+        public uint64 lease_first (18);
+        public uint64 lease_consumed (20);
       }
       class pending_client_state stable_ids {
         public uint32 format_version (1);
@@ -183,6 +190,9 @@ namespace rohit {
         public array client_identity in_flight_ids (15);
         public uint64 sync_interval_ms (16);
         public uint64 next_transaction (17);
+        public uint64 lease_first (18);
+        public uint64 lease_last (19);
+        public uint64 lease_consumed (20);
       }
       class pending_client_checkpoint stable_ids {
         public uint32 kind (1);

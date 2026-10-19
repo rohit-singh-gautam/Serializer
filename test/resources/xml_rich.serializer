@@ -1,0 +1,23 @@
+serializer version 1.20.0;
+
+namespace xml_rich {
+  xml(namespace("urn:serializer:xml-rich"), unknown(preserve));
+  using schema "xml_rich.xsd";
+
+  class metadata stable_ids {
+    public string value (1) xml(text);
+    public string name (2) xml(attribute, qname);
+    public optional<string> category (3) xml(attribute, qname);
+  }
+
+  class document stable_ids {
+    public optional<uint64> number (1);
+    public optional<string> label (2);
+    public optional<metadata> data (3) xml(name("metadata"));
+    public optional<string> unit (4) xml(attribute);
+    public optional<string> mode (5) xml(attribute);
+    public array[3] double transform (6) xml(attribute, list);
+    public optional<string> required (7) xml(attribute, prefix_list);
+    public optional<array<double>> optional_transform (8) xml(attribute, list);
+  }
+}

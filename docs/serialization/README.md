@@ -17,3 +17,8 @@ verification limits.
 | [Constant evaluation](constant_evaluation.md) | Implemented C++ positional codecs at compile time, generator opt-in, public APIs, and qualified model shapes. |
 | [C++ performance features](performance.md) | Implemented compiler and codec optimizations, regeneration needs, and measurement limits. |
 | [Runtime SIMD](runtime_simd.md) | SIMD protocol coverage, build configuration, linking, and scalar fallback behavior. |
+
+For OPC application/framework ownership, a restricted 3MF schema and compilation
+workflow, and the remaining requirements, see the
+[OPC/3MF authoring design](../design/opc_3mf_support.md). Its proposed package
+configuration is separate from the implemented APIs above.

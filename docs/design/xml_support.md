@@ -15,6 +15,10 @@ format selection across backends, and C++ ZIP64/spooling/aggregate profiles.
 The pending report remains authoritative for unimplemented requirements; these
 increments do not complete all phases of this specification.
 
+The [OPC/3MF authoring requirements](opc_3mf_support.md) refine the generic
+package requirements with an application/framework responsibility table, a
+restricted current schema/build route and explicitly proposed generated bindings.
+
 [XML and XSD](#recommended-scope) ·
 [Multipart packages and OPC](#multipart-packages-and-opc) ·
 [Compression matrix](#compression-support-matrix-and-composition) ·
@@ -126,8 +130,14 @@ than one shape, so generation must select a documented representation.
 
 Without an XSD, prefer portable Serializer mappings and deterministic defaults.
 A sidecar mapping can avoid an initial grammar change, but introduces another
-contract to synchronize. Keep schema paths and validation policy in configuration.
-These inputs also form a fixed build contract with optimized generation by default.
+contract to synchronize; the current sidecar is a compatibility route, not the
+target minimum-coding interface. Put authored XML namespace/placement defaults
+and field exceptions with `.serializer` declarations so users do not repeat
+field lists in INI. With an XSD, derive these details from it. Keep generation
+and provider policy in configuration. Language `1.20.0` implements inline metadata
+and schema association for the supported subset. These inputs form a fixed build
+contract with optimized generation by default. See the
+[single-authoring workflow](opc_3mf_support.md#schema-first-authoring-and-declaration-import).
 
 ### Configuration ownership
 
@@ -136,8 +146,8 @@ Most controls can be configuration. Proposed division:
 | Location | Controls |
 | --- | --- |
 | Supplied XSD plus model bindings | Authoritative XML shape; no duplicated placement metadata. |
-| `.serializer` or mapping file without XSD | XML shape, with deterministic defaults. |
-| Generator CLI/INI | XML inclusion, mapping defaults, build-time XSD bundle and runtime XSD support. |
+| `.serializer` without XSD | Target location for XML shape/defaults and local exceptions, authored once. Current sidecar mappings remain a supported fallback. |
+| Generator CLI/INI | XML inclusion, provider/build policy, configured XSD bundle and runtime XSD support; the target interface must not require duplicate authored field lists. |
 | Runtime API/configuration | Limits, compiled codecs and trusted XSD preparation when enabled. |
 
 **Implemented INI settings** for the supported fixed-XSD subset:
@@ -266,7 +276,7 @@ Choose one source of truth per integration:
 | Workflow | Responsibility |
 | --- | --- |
 | Serializer first | Generate codecs from mappings; optionally export an XSD. |
-| Existing XSD first | Bind/import a declared subset; derive the XML mapping. |
+| Existing XSD first | Bind the supported subset to supplied models today; derive XML mappings. Generating `.serializer` declarations from XSD remains proposed. |
 | General runtime validation | Explicit opt-in for supplementary or independent checks. |
 
 No XSD is required for XML. Offer generated XSD export for documentation,

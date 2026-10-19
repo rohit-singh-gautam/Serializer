@@ -16,6 +16,67 @@ internal static class NavigationTest {
       var text = File.ReadAllText(model).Replace("serializer version 1;", "serializer version 1.0.0;");
       var live = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { [model] = text };
       var checks = 0;
+      var xmlCommon = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(model), "xml_authoring_common.serializer"));
+      var xmlDependency = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(model), "schemas/core.xsd"));
+      var xmlText = "serializer version 1.20.0; include xml_authoring_common; namespace xml_models { " +
+        "using schema \"schemas/core.xsd\"; xml(namespace(\"urn:models\"), scalars(attribute), unknown(skip)); " +
+        "package archive { part main : xml_models::model { name(\"/model.xml\"); content_type(\"application/xml\"); " +
+        "relationship(\"urn:main\"); compression(deflate); } } }";
+      var xmlCommonText = "serializer version 1.20.0; namespace xml_models { class model { public double x (1) xml(attribute); } }";
+      live[model] = xmlText;
+      live[xmlCommon] = xmlCommonText;
+      live[xmlDependency] = "<schema/>";
+      foreach (var selection in new[] { "schemas/core.xsd", "xml_models::model" }) {
+        var start = xmlText.IndexOf(selection, StringComparison.Ordinal);
+        for (var cursor = start; cursor <= start + selection.Length; ++cursor) {
+          var destination = NavigationRunner.Resolve(model, cursor, false, generated, live, CancellationToken.None);
+          Require(destination.Length == 1 && destination[0].file == (selection.EndsWith(".xsd") ? xmlDependency : xmlCommon),
+            "XML schemas and package model types retain every native selection boundary");
+          Require(NavigationRunner.Reference(model, xmlText, cursor, CancellationToken.None) != null,
+            "XSD file links and package model types expose native Ctrl+click ranges");
+          checks += 2;
+        }
+      }
+      foreach (var metadata in new[] { "scalars(", "attribute)", "skip)", "compression(", "deflate)" }) {
+        Require(NavigationRunner.Reference(model, xmlText, xmlText.IndexOf(metadata, StringComparison.Ordinal), CancellationToken.None) == null,
+          "XML and package policy tokens do not claim unrelated schema navigation");
+        ++checks;
+      }
+      live[model] = xmlText.Replace("xml_models::model", "xml_models::changed");
+      live[xmlCommon] = xmlCommonText.Replace("class model", "class changed");
+      var changedDestination = NavigationRunner.Resolve(model, live[model].IndexOf("xml_models::changed", StringComparison.Ordinal),
+        false, generated, live, CancellationToken.None);
+      Require(changedDestination.Length == 1 && changedDestination[0].file == xmlCommon,
+        "Unsaved package model type renames follow live included schemas");
+      ++checks;
+      live.Remove(xmlCommon);
+      live.Remove(xmlDependency);
+      var tokenText = "serializer version 1.20.0; include xml_authoring_common; namespace lib { " +
+        "class owner managed class_id(18446744073709551615) { " +
+        "public managed_ref<lib::target> next (1); public optional<managed_ref<lib::target>> maybe (2); } }";
+      var tokenCommon = "serializer version 1.20.0; namespace lib { class target managed class_id(7) {} }";
+      live[model] = tokenText;
+      live[xmlCommon] = tokenCommon;
+      foreach (Match target in Regex.Matches(tokenText, "lib::target")) {
+        for (var cursor = target.Index; cursor <= target.Index + target.Length; ++cursor) {
+          var destination = NavigationRunner.Resolve(model, cursor, false, generated, live, CancellationToken.None);
+          Require(destination.Length == 1 && destination[0].file == xmlCommon,
+            "Managed phantom target retains every qualified native selection boundary");
+          ++checks;
+        }
+      }
+      Require(NavigationRunner.Reference(model, tokenText, tokenText.IndexOf("class_id", StringComparison.Ordinal),
+        CancellationToken.None) == null, "Class identity metadata never claims a type destination");
+      ++checks;
+      live[model] = tokenText.Replace("lib::target", "lib::renamed");
+      live[xmlCommon] = tokenCommon.Replace("class target", "class renamed");
+      var renamedTarget = NavigationRunner.Resolve(model, live[model].IndexOf("lib::renamed", StringComparison.Ordinal),
+        false, generated, live, CancellationToken.None);
+      Require(renamedTarget.Length == 1 && renamedTarget[0].file == xmlCommon,
+        "Unsaved managed target renames follow live included schemas");
+      ++checks;
+      live.Remove(xmlCommon);
+      live[model] = text;
       var deferredText = "serializer version 1.17.0; include sales/order; namespace demo::records { class shape<uint64 N, T> { " +
         "public function bool valid() readonly; public function bool valid(double tolerance = 0.01) readonly; " +
         "public function array[N] T copy(array[N] T input const_ref) readonly; " +

@@ -3,6 +3,7 @@
 #include <rohit/serializer_creator.hpp>
 #include <rohit/serializer.hpp>
 #include <rohit/stream.hpp>
+#include <rohit/version.hpp>
 
 #include <gtest/gtest.h>
 #include <include_separation.hpp>
@@ -380,7 +381,9 @@ TEST_F(schema_include_test, readonly_call_language_contract_is_per_file) {
       "function uint64 identity(uint64 value) readonly expression(value);");
   write("root.serializer", "serializer version 1; include common; class root { public uint32 value; }");
   EXPECT_NO_THROW(schema::parser::parse_file(directory / "root.serializer"));
-  write("common.serializer", "serializer version 1.20.0; class future {}");
+  const auto future_version = std::to_string(schema::schema_language_version_major) + "." +
+      std::to_string(schema::schema_language_version_minor + 1U) + ".0";
+  write("common.serializer", "serializer version " + future_version + "; class future {}");
   reject("Unsupported schema language version");
 }
 

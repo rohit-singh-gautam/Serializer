@@ -50,8 +50,8 @@ public:
 
 private:
   static constexpr std::string_view checkpoint_binding =
-      Store::has_history ? "serializer.collaboration.client.v1"
-                         : "serializer.collaboration.pending.v1";
+      Store::has_history ? "serializer.collaboration.client.v2"
+                         : "serializer.collaboration.pending.v2";
   Store& store_;
   Session session_;
   collaboration_client_options options_;
@@ -84,6 +84,7 @@ private:
   std::function<accepted_type()> snapshot_{};
   std::function<std::vector<std::shared_ptr<const accepted_type>>(std::uint64_t)> changes_{};
   std::function<std::shared_ptr<const result_type>(const proposal_type&)> submit_{};
+  std::function<identity_allocation_context(std::uint64_t)> reserve_ids_{};
 
   // Keep callbacks, disk hooks and network delivery inside the store's exclusive owner-thread boundary.
   struct operation_scope {
@@ -259,7 +260,12 @@ private:
     store_.allocated_id_ = replacement.allocated_id_;
   }
   // Metadata-only decisions also precede any network send or model publication.
-  void commit(state_type next, std::unique_ptr<Store> model = {}) {
+  void commit(state_type next, std::unique_ptr<Store> model = {},
+                std::optional<std::uint64_t> reserved_watermark = {}) {
+    if (reserved_watermark && (model || *reserved_watermark <= store_.allocated_id_ ||
+        *reserved_watermark > std::numeric_limits<id_type>::max())) {
+      throw std::invalid_argument{"Invalid native client range reservation"};
+    }
     if constexpr (!Store::has_history) {
       std::erase_if(next.transactions, [&](const auto& item) {
         return item.status == status(pending_change_status::discarded) ||
@@ -284,14 +290,23 @@ private:
     if constexpr (Store::has_journal) {
       if (store_.journal_state_.sink) {
         // Metadata-only decisions reuse the current durable model instead of encoding it again.
-        const auto bytes =
-            model ? checkpoint(1, model_bytes(*model), *prepared) : checkpoint(2, {}, *prepared);
+        std::vector<std::uint8_t> reservation;
+        if (reserved_watermark) {
+          reservation.resize(1 + Store::journal_word_bytes);
+          reservation.front() = static_cast<std::uint8_t>(detail::journal_record_kind::reserve_range);
+          detail::journal_put_word(reservation, 1, *reserved_watermark);
+        }
+        const auto bytes = model ? checkpoint(1, model_bytes(*model), *prepared)
+            : checkpoint(2, std::move(reservation), *prepared);
         auto& journal = static_cast<client_journal&>(*store_.journal_state_.sink);
         store_.journal_operation([&] { journal.sink->append(bytes); });
       }
     }
     if (model) {
       swap_model(*model);
+    }
+    if (reserved_watermark) {
+      store_.allocated_id_ = *reserved_watermark;
     }
     state_.swap(prepared);
     if (event) {
@@ -309,34 +324,17 @@ private:
       throw std::invalid_argument{"Incompatible collaboration authority"};
     }
   }
-  // Decode authoritative IDs into stable client-local identities, retaining mappings for deleted objects.
+  // Retain the authority's native identities exactly, without translation or per-object alias tables.
   storage_type translate(state_type& state, const accepted_type& batch,
                          std::uint64_t& allocated) const {
     if (batch.allocated_id > std::numeric_limits<id_type>::max()) {
       throw std::invalid_argument{"Invalid authoritative allocation watermark"};
     }
-    auto value = decode(batch.snapshot);
-    std::map<std::uint64_t, std::uint64_t> reverse;
-    for (const auto& pair : state.identities) {
-      reverse.emplace(pair.remote, pair.local);
+    if (!state.identities.empty() || !state.in_flight_ids.empty()) {
+      throw std::invalid_argument{"Mapped collaboration identities require explicit migration"};
     }
-    traits::visit_entities(value, [&](id_type& id, std::string_view) {
-      if (id == 0 || id > batch.allocated_id) {
-        throw std::invalid_argument{"Invalid authoritative entity identity"};
-      }
-      auto found = reverse.find(id);
-      if (found == reverse.end()) {
-        if (allocated == std::numeric_limits<id_type>::max() ||
-            state.identities.size() >= collaboration_options{}.max_entities) {
-          throw std::length_error{"Client identity budget exhausted"};
-        }
-        const auto local = ++allocated;
-        state.identities.push_back({local, id});
-        found = reverse.emplace(id, local).first;
-      }
-      id = static_cast<id_type>(found->second);
-    });
-    return value;
+    allocated = std::max(allocated, batch.allocated_id);
+    return decode(batch.snapshot);
   }
   // Describe every changed field and ownership guard using the same generated traversal as undo.
   std::set<detail::collaboration_field_address> touched(const transaction_type& item) const {
@@ -396,10 +394,6 @@ private:
         }
       }
     }
-    std::map<std::uint64_t, std::uint64_t> local;
-    for (const auto& pair : next.identities) {
-      local.emplace(pair.remote, pair.local);
-    }
     for (auto& item : next.transactions) {
       if (item.status == status(pending_change_status::discarded)) {
         continue;
@@ -407,16 +401,14 @@ private:
       const auto addresses = touched(item);
       bool conflict = false;
       for (const auto& field : batch.history.fields) {
-        const auto id = local.find(field.entity);
-        if (id != local.end() && addresses.contains({id->second, field.field, field.path})) {
+        if (addresses.contains({field.entity, field.field, field.path})) {
           conflict = true;
         }
       }
       for (const auto& dependency : batch.history.dependencies) {
-        const auto id = local.find(dependency.entity);
-        if (id != local.end() && dependency.before_version != dependency.after_version &&
+        if (dependency.before_version != dependency.after_version &&
             std::ranges::any_of(addresses,
-                                [&](const auto& address) { return address.first == id->second; })) {
+                                [&](const auto& address) { return address.first == dependency.entity; })) {
           conflict = true;
         }
       }
@@ -484,6 +476,14 @@ private:
       next.allocated_id = snapshot.allocated_id;
     }
     if (changed) {
+      // Native range reservations can advance the watermark without changing a model or its sequence.
+      // Keep that metadata decision independent of full model/history cloning and resident admission.
+      if (next.sequence == state_->sequence && next.acknowledged == state_->acknowledged) {
+        const auto reservation = allocated > store_.allocated_id_
+            ? std::optional<std::uint64_t>{allocated} : std::nullopt;
+        commit(std::move(next), {}, reservation);
+        return;
+      }
       auto model = rebase(next, allocated);
       // Keep new identity reservations even when a conflicted working view must remain pinned.
       if (!model && allocated != store_.allocated_id_) {
@@ -507,26 +507,9 @@ private:
     collaboration::model_change change;
     if (action(item) == static_cast<std::uint32_t>(collaboration_history_action::edit)) {
       change.format_version = collaboration_model_change_version;
-      change.base_allocated_id = change.allocated_id = next.allocated_id;
-      std::map<std::uint64_t, std::uint64_t> ids;
-      for (const auto& pair : next.identities) {
-        ids.emplace(pair.local, pair.remote);
-      }
-      auto value = decode(item.after);
-      traits::visit_entities(value, [&](id_type& id, std::string_view) {
-        auto found = ids.find(id);
-        if (found == ids.end()) {
-          if (change.allocated_id == std::numeric_limits<id_type>::max() ||
-              next.in_flight_ids.size() >= collaboration_options{}.max_created_ids) {
-            throw std::length_error{"Authority entity allocation budget exceeded"};
-          }
-          const auto remote = ++change.allocated_id;
-          next.in_flight_ids.push_back({id, remote});
-          found = ids.emplace(id, remote).first;
-        }
-        id = static_cast<id_type>(found->second);
-      });
-      change.snapshot = encode(value);
+      change.base_allocated_id = item.lease_first;
+      change.allocated_id = item.lease_consumed;
+      change.snapshot = item.after;
     } else {
       if constexpr (Store::has_history) {
         const auto& target = transaction(next, item.target);
@@ -569,8 +552,6 @@ private:
           Policy::less(session_, result->accepted->session)) {
         throw std::invalid_argument{"Unbound collaboration acknowledgement"};
       }
-      next.identities.insert(next.identities.end(), next.in_flight_ids.begin(),
-                             next.in_flight_ids.end());
       item.status = status(pending_change_status::accepted);
       item.accepted_sequence = result->accepted->sequence;
       next.pending.erase(next.pending.begin());
@@ -588,13 +569,12 @@ private:
         break;
       case collaboration_status::conflict: {
         const auto latest = snapshot_();
-        const auto command =
-            decode_collaboration_record<collaboration::model_change>(request.command);
+        // Strict-ID commands carry a lease start, not the authority's allocation watermark.
+        // Only a newer accepted edit can make this request stale and eligible for rebasing.
         const bool stale =
             detail::same_domain(latest.context, request.context) &&
             action(item) == static_cast<std::uint32_t>(collaboration_history_action::edit) &&
-            (latest.sequence > request.base_sequence ||
-             latest.allocated_id > command.base_allocated_id);
+            latest.sequence > request.base_sequence;
         item.status =
             status(stale ? pending_change_status::queued : pending_change_status::conflict);
         break;
@@ -624,7 +604,7 @@ public:
         Policy::encode(session_).size() > Policy::max_encoded_bytes) {
       throw std::invalid_argument{"Invalid collaboration session or client limits"};
     }
-    state_->format_version = 1;
+    state_->format_version = 2;
     state_->session_format = std::string{Policy::wire_name};
     state_->session = Policy::encode(session_);
     state_->sync_interval_ms = options.sync_interval_ms;
@@ -670,25 +650,17 @@ public:
     store_.check_thread();
     return store_.make_published_storage(decode(state_->acknowledged));
   }
-  // Translate stable local entity handles for server lease APIs; unsent objects have no remote ID.
+  // Return the same native ID for a known entity; no secondary identity namespace is maintained.
   std::uint64_t remote_id(std::uint64_t local) const {
     store_.check_thread();
-    for (const auto& pair : state_->identities) {
-      if (pair.local == local) {
-        return pair.remote;
-      }
-    }
-    return 0;
+    return store_.identities_.contains(static_cast<id_type>(local)) &&
+        local <= std::numeric_limits<id_type>::max() ? local : 0;
   }
-  // Translate a server identity for local editors; zero means the entity has not been observed yet.
+  // Return the identical native ID when locally present; zero means it is not in the working view.
   std::uint64_t local_id(std::uint64_t remote) const {
     store_.check_thread();
-    for (const auto& pair : state_->identities) {
-      if (pair.remote == remote) {
-        return pair.local;
-      }
-    }
-    return 0;
+    return remote <= std::numeric_limits<id_type>::max() &&
+        store_.identities_.contains(static_cast<id_type>(remote)) ? remote : 0;
   }
   // Bind a host-authenticated transport by reference; it must outlive its binding to this store.
   template <typename Transport>
@@ -706,6 +678,11 @@ public:
     snapshot_.swap(snapshot);
     changes_.swap(changes);
     submit_.swap(submit);
+    if constexpr (requires { transport.reserve_ids(std::uint64_t{}); }) {
+      reserve_ids_ = [&transport](std::uint64_t count) { return transport.reserve_ids(count); };
+    } else {
+      reserve_ids_ = {};
+    }
   }
   // Establish the initial document exactly once; later reconnects preserve all pending local work.
   void join(const accepted_type& batch, const collaboration::domain& trusted) {
@@ -720,12 +697,68 @@ public:
     next.sequence = batch.sequence;
     next.allocated_id = batch.allocated_id;
     next.acknowledged = batch.snapshot;
-    auto value = decode(batch.snapshot);
-    traits::visit_entities(
-        value, [&](id_type& id, std::string_view) { next.identities.push_back({id, id}); });
     auto model = replacement(next, batch.snapshot, batch.allocated_id);
     commit(std::move(next), std::move(model));
   }
+
+  // Observe the exact durable cursor; copying it grants no permission to publish native identities.
+  identity_allocation_context allocation_context() const override {
+    return {store_.allocated_id_, state_->lease_first, state_->lease_last, state_->lease_consumed};
+  }
+
+  // Consume a cursor, flushing an attached journal before exposure; editing never runs transport.
+  std::uint64_t allocate_identity() override {
+    auto cursor = allocation_context();
+    const auto id = cursor.take();
+    if (!store_.journal_state_.sink && state_.use_count() == 1) {
+      state_->lease_consumed = cursor.consumed;
+    } else {
+      auto next = *state_;
+      next.lease_consumed = cursor.consumed;
+      commit(std::move(next));
+    }
+    return id;
+  }
+
+  // Reserve an isolated preview's exact ID range before its normal transaction publishes values.
+  void advance_identity_context(const identity_allocation_context& desired) override {
+    const auto current = allocation_context();
+    if (desired.watermark != current.watermark || desired.first != current.first ||
+        desired.last != current.last || desired.consumed < current.consumed) {
+      throw std::invalid_argument{"Preview changes native identity lease ownership"};
+    }
+    desired.validate(std::numeric_limits<id_type>::max());
+    if (desired.consumed != current.consumed) {
+      auto next = *state_;
+      next.lease_consumed = desired.consumed;
+      commit(std::move(next));
+    }
+  }
+
+private:
+  // Prefetch only outside a writer and after earlier drafts have resolved; exhausted leases never recycle.
+  void prefetch_identity_lease() {
+    if (!reserve_ids_ || allocation_context().available() || !state_->pending.empty() ||
+        !state_->in_flight.empty()) {
+      return;
+    }
+    const auto cursor = reserve_ids_(options_.identity_lease_size);
+    cursor.validate(std::numeric_limits<id_type>::max());
+    if (cursor.first == 0) {
+      return; // Read-only participants and exhausted authorities still synchronize accepted values.
+    }
+    if (!cursor.available() || cursor.first <= store_.allocated_id_ ||
+        cursor.consumed != cursor.first - 1U) {
+      throw std::invalid_argument{"Transport returned a reused native identity lease"};
+    }
+    auto next = *state_;
+    next.lease_first = cursor.first;
+    next.lease_last = cursor.last;
+    next.lease_consumed = cursor.consumed;
+    commit(std::move(next), {}, cursor.watermark);
+  }
+
+public:
   // Capture one edit. Unpinned, non-journal state is appended in place with bounded rollback;
   // pinned readers and journal callbacks retain the immutable copy-on-write preparation path.
   void prepare(const std::vector<std::uint8_t>& snapshot, std::string_view label) override {
@@ -738,6 +771,8 @@ public:
     const bool in_place = (state_.use_count() == 1) && !store_.journal_state_.sink;
     auto next = in_place ? state_ : std::make_shared<state_type>(*state_);
     transaction_type item;
+    item.lease_first = next->lease_first;
+    item.lease_consumed = next->lease_consumed;
     if constexpr (Store::has_history) {
       item.number = detail::next_collaboration_sequence(next->transactions.size());
       item.action = history_action_.action;
@@ -910,6 +945,7 @@ public:
       join(batch, trusted);
     }
     operation_scope scope{*this};
+    prefetch_identity_lease();
     const auto trusted = context_();
     check_context(trusted);
     if (!detail::same_domain(trusted, state_->context)) {
@@ -1118,7 +1154,12 @@ public:
 private:
   // Validate the retained queue and bindings before accepting a recovered journal or memory checkpoint.
   void validate_state(const state_type& state, const Store& model) const {
-    if (state.format_version != 1 || state.session_format != Policy::wire_name ||
+    if (state.format_version != 2 || !state.identities.empty() || !state.in_flight_ids.empty()) {
+      throw std::invalid_argument{"Legacy mapped collaboration checkpoints require explicit migration to native identity leases"};
+    }
+    identity_allocation_context{model.allocated_id_, state.lease_first, state.lease_last,
+                                 state.lease_consumed}.validate(std::numeric_limits<id_type>::max());
+    if (state.session_format != Policy::wire_name ||
         state.session != Policy::encode(session_) || state.context.schema_id != traits::schema_id ||
         state.context.protocol_version != record_types::model_protocol ||
         state.context.epoch == 0 || state.context.document_high != model.document_.high ||
@@ -1133,18 +1174,7 @@ private:
       throw std::invalid_argument{"Invalid acknowledged client identity"};
     }
     static_cast<void>(model.inspect(acknowledged, model.allocated_id_));
-    std::set<std::uint64_t> local_ids, remote_ids, pending;
-    if (state.identities.size() > collaboration_options{}.max_entities ||
-        state.in_flight_ids.size() > collaboration_options{}.max_created_ids) {
-      throw std::length_error{"Client identity mapping budget exceeded"};
-    }
-    for (const auto& pair : state.identities) {
-      if (pair.local == 0 || pair.local > model.allocated_id_ || pair.remote == 0 ||
-          pair.remote > std::numeric_limits<id_type>::max() ||
-          !local_ids.insert(pair.local).second || !remote_ids.insert(pair.remote).second) {
-        throw std::invalid_argument{"Invalid client identity mapping"};
-      }
-    }
+    std::set<std::uint64_t> pending;
     for (std::size_t index = 0; index < state.transactions.size(); ++index) {
       const auto& item = state.transactions[index];
       if constexpr (Store::has_history) {
@@ -1208,16 +1238,6 @@ private:
           Policy::less(request.session, session_) || Policy::less(session_, request.session)) {
         throw std::invalid_argument{"Invalid client outstanding request"};
       }
-      std::set<std::uint64_t> local, remote;
-      for (const auto& pair : state.in_flight_ids) {
-        if (pair.local == 0 || pair.local > model.allocated_id_ || pair.remote == 0 ||
-            pair.remote > std::numeric_limits<id_type>::max() || !local.insert(pair.local).second ||
-            !remote.insert(pair.remote).second) {
-          throw std::invalid_argument{"Invalid provisional identity assignment"};
-        }
-      }
-    } else if (!state.in_flight_ids.empty()) {
-      throw std::invalid_argument{"Identity assignments have no outstanding request"};
     }
   }
   // Read one bounded wrapper, rejecting foreign journals and malformed frame kinds.
@@ -1225,6 +1245,10 @@ private:
     auto limits = store_.options_.decode;
     limits.max_input_bytes = options_.max_state_bytes;
     auto result = decode_collaboration_record<checkpoint_type>(bytes, limits);
+    if (result.binding == "serializer.collaboration.client.v1" ||
+        result.binding == "serializer.collaboration.pending.v1") {
+      throw std::invalid_argument{"Legacy mapped collaboration checkpoints require explicit migration to native identity leases"};
+    }
     if (result.binding != checkpoint_binding || (result.kind != 1 && result.kind != 2)) {
       throw std::invalid_argument{"Invalid collaboration checkpoint format"};
     }
@@ -1305,6 +1329,14 @@ public:
                              checkpoint.state.sequence < next->sequence))) {
                 throw std::invalid_argument{"Regressing collaboration journal state"};
               }
+              if (!base && (checkpoint.state.lease_first < next->lease_first ||
+                  (checkpoint.state.lease_first == next->lease_first &&
+                   (checkpoint.state.lease_last != next->lease_last ||
+                    checkpoint.state.lease_consumed < next->lease_consumed)) ||
+                  (checkpoint.state.lease_first != next->lease_first &&
+                   checkpoint.state.lease_first <= next->lease_last))) {
+                throw std::invalid_argument{"Regressing native collaboration identity lease cursor"};
+              }
               if constexpr (!Store::has_history) {
                 if (!base && checkpoint.state.next_transaction < next->next_transaction) {
                   throw std::invalid_argument{"Regressing pending transaction allocation"};
@@ -1383,7 +1415,7 @@ model_store<Root, Mode, Labels, Traits, Features>::collaboration()
   return *result;
 }
 
-// In-process transport example/test adapter. Production transports implement the same four methods.
+// In-process adapter; production transports authenticate the same native range-reservation method.
 template <typename Authority>
 class collaboration_transport {
   Authority& authority_;
@@ -1405,6 +1437,10 @@ public:
   // Fetch the acknowledged baseline and allocator watermark.
   auto snapshot() const {
     return authority_.snapshot();
+  }
+  // Bind native allocation authority to the host-authenticated session, independently of proposal bytes.
+  auto reserve_ids(std::uint64_t count) {
+    return authority_.reserve_ids(trusted_session_, count);
   }
   // Retrieve the complete retained accepted stream after the caller's cursor.
   auto accepted_since(std::uint64_t cursor) const {

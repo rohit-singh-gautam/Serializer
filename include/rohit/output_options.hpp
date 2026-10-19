@@ -2,6 +2,7 @@
 
 #include <filesystem>
 #include <map>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -18,6 +19,9 @@ using output_protocols = cpp_protocols;
 
 // Select whether filesystem generation emits one C++ header per source schema.
 enum class include_mode { separate, inline_output };
+
+// Select generated persistent-ID payload bytes independently of their in-memory width.
+enum class persistent_id_encoding { fixed, compact_varint };
 
 // Opt in to comparison APIs for one source-qualified generated owning record.
 struct class_comparison_options {
@@ -53,6 +57,11 @@ struct xml_options {
   std::filesystem::path xsd{};
   std::map<std::string, xml_class_options> classes{};
   std::string bundle_sha256{};
+  // Defaults apply only to XML generation; explicit class/field bindings take precedence.
+  std::string namespace_uri{};
+  bool scalar_attributes{false};
+  // Preserve an explicit opt-out when schema-authored metadata would otherwise enable XML.
+  std::optional<bool> enabled_selection{};
 };
 
 struct cpp_options {
@@ -70,6 +79,7 @@ struct cpp_options {
   std::map<std::string, class_comparison_options> class_comparisons{};
   std::map<std::string, class_auto_size_options> class_auto_sizes{};
   xml_options xml{};
+  persistent_id_encoding managed_id_encoding{persistent_id_encoding::compact_varint};
 };
 
 enum class java_coding_standard { serializer, google, oracle };
@@ -122,6 +132,9 @@ std::vector<std::string> parse_output_languages(std::string_view names);
 
 // Resolve the exact include layout spelling; reject unknown modes.
 include_mode parse_include_mode(std::string_view name);
+
+// Resolve an exact persistent-ID payload policy; unknown spellings are errors.
+persistent_id_encoding parse_managed_id_encoding(std::string_view name);
 
 // Parse the exact generated C++ protocol selection, rejecting unknown names.
 cpp_protocols parse_cpp_protocols(std::string_view name);

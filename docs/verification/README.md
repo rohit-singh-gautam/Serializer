@@ -11,6 +11,7 @@ that later changes or untested backend combinations passed the same checks.
 
 | Record | Scope |
 | --- | --- |
+| [OPC and XSD authoring](verification-opc-xsd-2026-10-19.md) | Inline authoring/import, automatic/manual consumers in eleven SDKs, rich C++ XML and package checks, native generated-code equality and explicit remaining scope. |
 | [Inline value references](verification-value-references-2026-10-19.md) | Transparent borrowed/shared/weak exports, scoped collection projections, eleven SDK consumers, native Rust lifetimes and measured C++ allocations. |
 
 ## 18 October 2026

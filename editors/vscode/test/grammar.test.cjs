@@ -5,6 +5,67 @@ const { test } = require('node:test');
 const { Registry, INITIAL } = require('vscode-textmate');
 const onig = require('vscode-oniguruma');
 
+test('language 1.20 managed entity tokens and class identities retain type and numeric scopes', async () => {
+  const grammar = await loadGrammar();
+  const lines = ['serializer version 1.20.0; class owner managed class_id(18446744073709551615) {',
+    'public managed_ref<lib::target> direct (1);',
+    'public optional<managed_ref<lib::target>> maybe (2);',
+    'public array managed_ref<lib::target> items (3); }'];
+  let state = INITIAL;
+  const tokens = lines.map(line => { const result = grammar.tokenizeLine(line, state); state = result.ruleStack; return result.tokens; });
+  const scope = (line, word) => tokens[line].find(token => token.startIndex <= lines[line].indexOf(word) && token.endIndex > lines[line].indexOf(word)).scopes.at(-1);
+  assert.equal(scope(0, 'class_id'), 'storage.modifier.serializer');
+  assert.equal(scope(0, '18446744073709551615'), 'constant.numeric.serializer');
+  for (const line of [1, 2, 3]) {
+    assert.equal(scope(line, 'target'), 'entity.name.type.serializer');
+    assert.equal(scope(line, 'managed_ref'), 'support.type.serializer');
+  }
+  assert.equal(state.depth, 1);
+  const snippets = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../snippets/serializer.json'), 'utf8'));
+  assert.match(snippets['Typed managed entity reference'].body, /managed_ref</);
+  assert.match(snippets['Stable managed class identity'].body, /class_id\(/);
+  const ordinary = 'class class_id {} class owner { public class_id ordinary; }';
+  const at = ordinary.lastIndexOf('class_id');
+  assert.equal(grammar.tokenizeLine(ordinary, INITIAL).tokens.find(token => token.startIndex <= at && token.endIndex > at).scopes.at(-1),
+    'entity.name.type.serializer');
+});
+
+test('language 1.20 XML defaults, fixed schemas and package roles retain metadata scopes', async () => {
+  const grammar = await loadGrammar();
+  const lines = ['serializer version 1.20.0; namespace sample {',
+    'using schema "schemas/core.xsd";',
+    'xml(namespace("urn:core"), scalars(attribute), unknown(preserve));',
+    'class model { public double x (1) xml(attribute, name("axis"), namespace("urn:axes")); }',
+    'package archive { part main : sample::model {',
+    'name("/model.xml"); content_type("application/xml"); relationship("urn:main"); compression(deflate);',
+    '} part extras : bytes { name(dynamic); content_type(dynamic); relationship("urn:extra"); source(main); occurs(0,unbounded); } }',
+    'class later { public sample::model value (1); } }'];
+  let state = INITIAL;
+  const tokens = lines.map(line => { const result = grammar.tokenizeLine(line, state); state = result.ruleStack; return result.tokens; });
+  const scope = (line, word) => tokens[line].find(token => token.startIndex <= lines[line].indexOf(word) && token.endIndex > lines[line].indexOf(word)).scopes.at(-1);
+  assert.equal(scope(1, 'using'), 'keyword.control.serializer');
+  assert.equal(scope(1, 'schema '), 'storage.type.serializer');
+  assert.equal(scope(1, 'schemas/core.xsd'), 'string.quoted.double.serializer');
+  assert.equal(scope(2, 'xml'), 'storage.modifier.serializer');
+  assert.equal(scope(2, 'namespace'), 'storage.modifier.serializer');
+  assert.equal(scope(2, 'attribute'), 'constant.other.xml.serializer');
+  assert.equal(scope(2, 'preserve'), 'constant.other.xml.serializer');
+  assert.equal(scope(3, 'double'), 'support.type.serializer');
+  assert.equal(scope(4, 'package'), 'storage.type.serializer');
+  assert.equal(scope(4, 'part '), 'storage.type.serializer');
+  assert.equal(scope(4, 'main'), 'variable.other.member.serializer');
+  assert.equal(scope(4, 'model'), 'entity.name.type.serializer');
+  assert.equal(scope(5, 'compression'), 'storage.modifier.serializer');
+  assert.equal(scope(5, 'deflate'), 'constant.other.package.serializer');
+  assert.equal(scope(6, 'bytes'), 'support.type.serializer');
+  assert.equal(scope(7, 'model'), 'entity.name.type.serializer');
+  assert.equal(state.depth, 1);
+  const snippets = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../snippets/serializer.json'), 'utf8'));
+  assert.match(snippets['XML scalar attributes'].body, /scalars\(attribute\)/);
+  assert.match(snippets['Fixed XSD binding'].body, /using schema/);
+  assert.ok(snippets['OPC package declaration'].body.some(line => line.includes('content_type(')));
+});
+
 test('language 1.17 array and callable metadata retain type and body boundaries', async () => {
   const grammar = await loadGrammar();
   const lines = [
@@ -43,7 +104,7 @@ test('language 1.17 array and callable metadata retain type and body boundaries'
   assert.equal(scope(7, 'const_ref'), 'storage.modifier.serializer');
   assert.equal(scope(8, 'value'), 'entity.name.type.serializer');
   const snippets = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../snippets/serializer.json'), 'utf8'));
-  assert.equal(snippets.Schema.body[0], 'serializer version 1.19.0;');
+  assert.equal(snippets.Schema.body[0], 'serializer version 1.20.0;');
   assert.match(snippets['Borrowed C++ function input'].body, /input\} const_ref/);
   assert.match(snippets['Matrix array facade'].body, /dimensions\(/);
 });
@@ -148,7 +209,7 @@ test('language 1.15 fresh record defaults preserve constructor and factory bound
   assert.ok(scopes(3, 'fresh record').some(scope => /^comment\./.test(scope)));
   assert.equal(state.depth, 1, 'empty and nested defaults close before the next class declaration');
   const snippets = JSON.parse(fs.readFileSync(path.join(__dirname, '../snippets/serializer.json'), 'utf8'));
-  assert.equal(snippets.Schema.body[0], 'serializer version 1.19.0;');
+  assert.equal(snippets.Schema.body[0], 'serializer version 1.20.0;');
 });
 
 test('language 1.14 exposure, operator mappings and callable additions preserve schema boundaries', async () => {
@@ -357,7 +418,7 @@ test('optional and nested container generics highlight types without consuming f
   }
   assert.equal(result.ruleStack.depth, 1);
   const snippets = JSON.parse(fs.readFileSync(path.join(__dirname, '../snippets/serializer.json'), 'utf8'));
-  assert.equal(snippets.Schema.body[0], 'serializer version 1.19.0;');
+  assert.equal(snippets.Schema.body[0], 'serializer version 1.20.0;');
   assert.equal(snippets['Optional field'].prefix, 'optional');
   assert.match(snippets['Optional field'].body, /optional</);
 });

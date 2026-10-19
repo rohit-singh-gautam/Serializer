@@ -26,6 +26,7 @@ remains a separate illustrative data model.
 | [Authorization](authorization.md) | Trusted sessions, writable gates, host policy hooks, and what the application must implement. |
 | [Implemented C++ runtime](cpp_runtime.md) | Optional build target, generated storage and typed editors, all three transaction forms, snapshot history, bounded save/load, and remaining work. |
 | [Typed state registries](state_registry.md) | Pinned typed lookup, generated field/base paths, custom keys, transactional adoption and optional ordered/hash indexes. |
+| [Typed managed entity references](../design/managed_entity_references.md) | C++ typed tokens/class tags, reference-aware import, editable reconciliation, isolated previews and strict collaborative identity requirements/qualification. |
 | [State-framework examples](state_enhancements.md) | Implemented schema behavior and managed-state features, with concrete application examples and backend limits. |
 | [Paged indexing](../design/paged_indexing.md) | Proposed mostly-disk indexes, safe customer delegation and existing database approaches. |
 | [Local store collaboration](local_collaboration.md) | Normal store transactions, store-owned sessions/outbox, immediate local undo, separate send/receive, periodic synchronization and client recovery. |

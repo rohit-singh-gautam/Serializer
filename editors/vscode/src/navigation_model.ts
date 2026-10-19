@@ -33,6 +33,7 @@ export interface TypeSymbol extends Span {
 export interface SourceIndex {
   symbols: TypeSymbol[];
   includes: SchemaInclude[];
+  schemaBindings?: SchemaInclude[];
   references: Array<Span & { name: string; scope: string[]; kind?: TypeSymbol['kind'] }>;
   members?: Array<Span & { name: string; owner: string; type?: { name: string; scope: string[] }; wireOnly?: boolean; getter?: boolean }>;
   memberReferences?: Array<Span & { name: string; owner: { name: string; scope: string[] }; path: string[] }>;
@@ -69,9 +70,11 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
     (Number(language[1]) === 1 && Number(language[2] ?? 0) >= 18));
   const valueReferenceContract = language !== null && (Number(language[1]) > 1 ||
     (Number(language[1]) === 1 && Number(language[2] ?? 0) >= 19));
+  const xmlAuthoringContract = language !== null && (Number(language[1]) > 1 ||
+    (Number(language[1]) === 1 && Number(language[2] ?? 0) >= 20));
   const tokens: Token[] = [...code.matchAll(/[A-Za-z_][A-Za-z_0-9]*|::|[^\s]/g)]
     .map(match => ({ text: match[0], start: match.index!, end: match.index! + match[0].length }));
-  const result: SourceIndex = { symbols: [], includes: [], references: [], members: [], memberReferences: [], callables: [] };
+  const result: SourceIndex = { symbols: [], includes: [], schemaBindings: [], references: [], members: [], memberReferences: [], callables: [] };
   const scopes: string[][] = [[]];
   const namespaceBodies = new Map<number, string[]>();
   let referenceScope: string[] | undefined;
@@ -122,7 +125,7 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
     if (token === 'managed' || token === 'transient' || token === 'wire_only' ||
         (token === 'const_ref' && owningApiContract)) { return typeReference(start + 1, depth + 1); }
     if ((['optional', 'array', 'map'].includes(token) || (token === 'common_type' && commonTypeContract) ||
-        (token === 'expected' && owningApiContract)) &&
+        (token === 'expected' && owningApiContract) || (token === 'managed_ref' && xmlAuthoringContract)) &&
         tokens[start + 1]?.text === '<') {
       // Only user-declared constructors have destinations; retain references for compatible schemas.
       if (token !== 'common_type') {
@@ -382,7 +385,34 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
   for (let i = 0; i < tokens.length; ++i) {
     if (functionScope && i >= functionScope.end) { functionScope = undefined; }
     const token = tokens[i];
-    if (schema && ['cpp', 'csharp', 'java', 'javascript', 'typescript', 'go', 'rust',
+    if (schema && xmlAuthoringContract && token.text === 'using' && tokens[i + 1]?.text === 'schema') {
+      // XSD dependencies are file links, not Serializer include/type declarations.
+      const suffix = text.slice(tokens[i + 1].end);
+      const literal = /^(?:\s|\/\*[\s\S]*?\*\/|\/\/[^\r\n]*(?:\r?\n|$))*"((?:\\[\\"/]|[^"\\\r\n])*)"/.exec(suffix);
+      if (literal && tokens[i + 2]?.text === ';') {
+        const start = tokens[i + 1].end + literal[0].length - literal[1].length - 1;
+        try {
+          const name: string = JSON.parse(`"${literal[1]}"`);
+          if (name && !/^[a-z][a-z\d+.-]*:\/\//i.test(name)) {
+            result.schemaBindings!.push({ name, start, end: start + literal[1].length });
+          }
+        } catch { /* Incomplete unsaved strings have no navigation destination. */ }
+      }
+      i = tokens[i + 2]?.text === ';' ? i + 2 : i + 1;
+    } else if (schema && xmlAuthoringContract && ['xml', 'class_id'].includes(token.text) && tokens[i + 1]?.text === '(') {
+      // Attribute/namespace/default-policy keywords must not claim schema type destinations.
+      let depth = 1;
+      for (i += 2; i < tokens.length && depth; ++i) {
+        if (tokens[i].text === '(') { ++depth; }
+        else if (tokens[i].text === ')') { --depth; }
+        else if ([';', '{', '}'].includes(tokens[i].text) && depth === 1) { break; }
+      }
+      --i;
+    } else if (schema && xmlAuthoringContract && token.text === 'part' && tokens[i + 2]?.text === ':') {
+      // Only a role's declared model type is a schema reference; opaque bytes are package metadata.
+      if (tokens[i + 3]?.text !== 'bytes') { i = typeReference(i + 3) - 1; }
+      else { i += 3; }
+    } else if (schema && ['cpp', 'csharp', 'java', 'javascript', 'typescript', 'go', 'rust',
       'python', 'swift', 'kotlin', 'c'].includes(token.text)
       && (tokens[i + 1]?.text === '{' || tokens[i + 1]?.text === 'preamble' ||
           (token.text === 'cpp' && tokens[i + 1]?.text === 'storage' && tokens[i + 2]?.text === '('))) {
@@ -582,7 +612,8 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
         }
         defaultReference(next);
       }
-    } else if (token.text === 'class' || token.text === 'struct' || token.text === 'enum') {
+    } else if (token.text === 'class' || token.text === 'struct' || token.text === 'enum' ||
+        (schema && xmlAuthoringContract && token.text === 'package')) {
       if (tokens[i - 1]?.text === 'enum') { continue; }
       const nameIndex = token.text === 'enum' && ['class', 'struct'].includes(tokens[i + 1]?.text)
         ? i + 2 : i + 1;
@@ -662,7 +693,7 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
         bases: bases.length ? bases : undefined };
       result.symbols.push(symbol);
       if ((classScopes || schema) && symbol.definition) {
-        namespaceBodies.set(body, [...currentScope(), name.text]);
+        namespaceBodies.set(body, token.text === 'package' ? [...currentScope()] : [...currentScope(), name.text]);
       }
       if (schema) {
         // Recognize the keyword as well as the name, including reversed `class name` selections.

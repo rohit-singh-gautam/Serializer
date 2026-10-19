@@ -42,6 +42,29 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
+Compiler/runtime **2.7.0**, language **1.20.0**, adds schema-authored XML mappings,
+inline fixed-XSD association and reviewable XSD declaration import. Prefer one
+namespace `using schema "local.xsd";` for compatible application-authored models,
+or `serializer --import-xsd local.xsd --namespace models --output model.serializer`
+to create declarations before ordinary generation. Import protects differing
+existing source files; review changed output and retain existing native IDs.
+Without XSD, use namespace/class `xml(namespace("uri"), scalars(attribute));`
+defaults and field `xml(...)` exceptions instead of a second INI field inventory.
+See the [automatic/manual examples for all outputs](../../../example/xsd/README.md)
+and [XSD contract](../../../docs/serialization/xsd_tooling.md). Imported declarations
+do not imply arbitrary XSD coverage or identical native layouts to authored models.
+Both editor packages use **2.0.5**.
+
+Use C++ language-1.20 `package` declarations to generate complete OPC assembly
+and typed loading, sharing the runtime's cumulative budget, cancellation and
+optional deadline. Keep models borrowed for synchronous Save and supply domain
+validation before typed publication. Read
+[package declarations and limits](../../../docs/serialization/xml_packages.md#declarative-c-package-profiles).
+Package/compression parity outside C++, tree-free XML and broader XSD constructs
+remain pending; unsupported rich backend combinations must reject explicitly.
+Do not infer complete 3MF or full-standard OPC conformance from a package round trip.
+Ordinary native schemas must retain their output/layout and runtime efficiency.
+
 Compiler/runtime **2.6.0**, language **1.19.0**, adds
 [inline value references](../../../docs/schema/value_references.md) for export.
 Start with `public borrowed(payload) value (id);` when output must match an ordinary
@@ -63,7 +86,7 @@ an ordinary payload record and map it through a language 1.19 scoped
 translator. Preserve source consistency during count/write passes and keep the
 view within the callback. Direct legacy collection terminal fields remain
 unsupported. The older named `reference` declaration below is a separate durable
-address feature; do not choose it for value-only export. Both editors use 2.0.4.
+address feature; do not choose it for value-only export. That release used editors 2.0.4.
 Start with the [reference export examples](../../../example/references/README.md)
 for one-argument binding and ordinary value output.
 
@@ -77,7 +100,7 @@ whole storage owner. Read the backend's lvalue/weak/scope/boxed-owner lifetime
 contract; bindings add no synchronization or automatic object-graph persistence.
 Address codecs cover JSON and the three native binary protocols; optional XML
 generation currently rejects typed references and translators consistently in every backend.
-Both editor packages use version 2.0.3 for this language contract.
+That language release used editor packages 2.0.3.
 Owners and targets must satisfy the supported ordinary owning/public projection
 subset; diagnose unsupported managed, collection-element, optional/variant,
 packed/view and reference-to-reference shapes. Do not reinterpret a numeric ID as
@@ -120,6 +143,46 @@ callable that must outlive the operation or streaming encoder; see the
 These additions do not implement backend
 package/compression parity, generated profiles or managed document-sidecar recovery;
 keep [remaining coverage](../../../docs/xml_pending.md) explicit.
+
+For an OPC-based format, follow the
+[OPC/3MF authoring requirements and restricted build example](../../../docs/design/opc_3mf_support.md).
+The application defines payload models, XML mappings, content types, relationship
+roles and domain validation. The C++ OPC runtime generates/parses standard
+`[Content_Types].xml` and `.rels`; do not require application schemas for that
+infrastructure. Use C++ generated package declarations or explicit builders for
+the application's declared profile, and do not describe the restricted mesh
+example as a complete 3MF reader. Keep non-C++ profile parity pending. When an
+external XSD is available, bind its supported subset through `using schema` or
+`[xml] xsd = path`, or import declarations first. Match expanded names and retain
+existing native member IDs; do not infer stable wire identity from declaration
+order. Keep local XML defaults/exceptions with their Serializer fields when no
+XSD supplies placement; manual INI mappings remain an explicit application choice.
+
+For same-document managed entity references, static class identity, exact replica
+IDs and editing previews, consult the
+[requirements and ownership design](../../../docs/design/managed_entity_references.md).
+The C++ implementation provides `managed_ref<T>`, checked `get_id()`, static
+`class_id`, `apply_editable`, independent `import_storage` and isolated previews.
+Use required-reference initialization after native allocation and before first
+publication. Unsupported required transient/omitted edges and named recursive
+generic self targets reject; other-language managed token generation is pending.
+Collaboration requires identical document/object IDs and native authority-issued
+range leases; no translated-ID mode is supported. Custom transports forward
+`reserve_ids`, and standalone replicas initialize their lease before creation.
+Configure the native authority journal for range-issuance crash durability.
+
+Generated persistent IDs and token object IDs default to `compact_varint` in all
+three native binary codecs; memory width remains `uint32`, optionally `uint64`.
+Select `[managed] id_encoding = fixed` or `--managed.id_encoding fixed` explicitly
+for fixed-width payloads. All participants agree on the policy. Ordinary integer
+fields, document/class identity and JSON numbers keep their contracts. Follow the
+[migration guide](../../../docs/guides/persistent_id_migration.md). Build an
+explicit offline converter through `serializer_add_migration_tool(TARGET name
+SCHEMA model.serializer ROOT app::document [CONFIG model.ini])`. The generated
+CLI handles managed saves and raw models with explicit source/destination ID
+policies; raw input/output binary formats can differ. Normal loading does not
+detect or convert old encodings. Resolve pending collaborative work and recover
+journals through their original reader before converting a coherent save.
 
 Compiler/runtime **2.3.1** preserves input schema copyright/license notices and
 adds only the minimal Serializer provenance banner. Do not add a Serializer
@@ -203,8 +266,8 @@ consuming build rules. `SameMajorVersion` discovery rejects 1.x package requests
 even without `EXACT`; unversioned discovery remains available. Keep supported
 1.x schema headers and their meanings, model names, runtime APIs and wire contracts.
 The original `serializer version 1;` remains exactly the 1.0.0 language baseline;
-do not select schema language 2.0.0 to match this compiler release. Both editor
-packages use the separately versioned 2.0.2 release. See [2.0 migration](../../../migration.md#compilerruntime-200).
+do not select schema language 2.0.0 to match this compiler release. That compiler
+release used editor packages 2.0.2. See [2.0 migration](../../../migration.md#compilerruntime-200).
 For new integrations, review [derived wire sizes](../../../docs/schema/derived_sizes.md),
 [explicit value conversions](../../../docs/schema/conversions.md), and
 [stateless generic constraints](../../../docs/schema/generics.md#stateless-type-constraints).
@@ -638,6 +701,9 @@ there instead of relying on the relative links.
   history, collaboration, authorization, and journal. Every managed
   storage instance has a generated persistent ID, default `uint32`, centrally
   configurable through `[managed] id_type` / `--managed.id_type` (`uint32` or `uint64`).
+  Its native binary payload defaults to `compact_varint`; `[managed] id_encoding`
+  / `--managed.id_encoding` also accepts `fixed`. Do not confuse the encoding
+  with numeric width or rename IDs when changing it.
   Use the same setting for every shared output. Separate ID-free values are opt-in; map keys and
   sidecar indexes cannot replace the managed ID field. Document scope, non-reuse,
   durable allocation reservations, and collision-free replica allocation apply.
@@ -777,16 +843,17 @@ there instead of relying on the relative links.
   Enabled history labels survive sync/recovery. An attached journal uses the existing
   store journal pointer and file adapter with one model/session wrapper per frame.
   Attach the same session to a fresh store before load/recovery, then synchronize;
-  ordinary model readers cannot open client checkpoint format 1. Save preserves
+  ordinary model readers cannot open client checkpoint format 2. Save preserves
   pending work. One active writer owns each session within an authority epoch.
-  Offline persistent IDs are client-local, mapped durably to authority IDs; use
-  `remote_id`/`local_id` at server/UI boundaries. Do not remap arbitrary integer
+  Offline persistent IDs come directly from disjoint authority-issued native
+  ranges and retain their exact values everywhere. Mapping slots stay empty;
+  no translation mode is available. Do not remap arbitrary integer
   fields, map keys or application references. Client transactions/state bytes and
   authority command/history budgets are bounded. Enabled histories retain records;
   disabled histories compact completed client work. History-free client checkpoints use
-  `serializer.collaboration.pending.v1`; older disabled-history client checkpoints require
-  [explicit migration](../../../migration.md#independent-managed-features). History-enabled
-  client checkpoints and ordinary model/journal bytes remain unchanged. The store encodes
+  `serializer.collaboration.pending.v2`; history-enabled checkpoints use
+  `serializer.collaboration.client.v2`. Older/mapped sessions reject; see
+  [migration](../../../migration.md#compilerruntime-270). The store encodes
   each candidate once for authority publication. Non-journal synchronization uses a
   generated-field budget visitor instead of encoding/decoding checkpoints. Unpinned local
   appends without a journal reuse retained buffers; pins and journal callbacks keep
@@ -1375,7 +1442,7 @@ versioned snippets, and invokes the same targets through CMake Tools. Run the ro
 `install_extension.ps1` with Node.js 22+, npm, and the VS Code CLI to build and
 install it; `-SkipBuild` installs an existing VSIX. This installs the editor
 extension only; application dependencies remain managed by the consumer. Extension
-version 2.0.2 is shared with the Visual Studio extension and is independent of
+version 2.0.5 is shared with the Visual Studio extension and is independent of
 compiler and schema versions. Keep both editor extension versions equal.
 Embedded target blocks reuse available editor language grammars for highlighting;
 install a grammar provider for targets the host does not bundle. This does not

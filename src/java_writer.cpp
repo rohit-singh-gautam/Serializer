@@ -2031,8 +2031,10 @@ public:
 
 // Publish only a completely validated source file.
 std::string generate(const std::vector<std::unique_ptr<syntax_node>>& statements,
-                     std::string_view outer_class, const java_options& options) {
-  xml_binding::validate_options(statements, options.xml);
+                     std::string_view outer_class, const java_options& requested) {
+  auto options = requested;
+  options.xml = xml_binding::effective_options(statements, options.xml);
+  xml_binding::validate_options(statements, options.xml, "java");
   require_unmanaged_backend(statements);
   auto_size::validate(statements, options.class_auto_sizes);
   comparison::validate(statements, options.class_comparisons, true);

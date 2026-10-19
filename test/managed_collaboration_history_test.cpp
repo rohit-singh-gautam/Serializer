@@ -27,6 +27,7 @@ auto submit(auto& authority, auto& replica, const auto& proposal) {
 // Exercise ordinary generated editing without handwritten command classes.
 auto edit(auto& authority, auto& replica, const auto& session, std::uint64_t operation,
           auto&& callback) {
+  replica.initialize_identity_lease(session, authority.reserve_ids(session));
   return submit(authority, replica, replica.propose(session, operation, callback));
 }
 

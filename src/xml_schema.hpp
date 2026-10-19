@@ -9,13 +9,33 @@
 #include <cstddef>
 #include <filesystem>
 #include <memory>
+#include <map>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace rohit::serializer::writer::xml_binding {
+// Portable scalar restrictions retained from fixed XSD declarations for generated checks.
+struct scalar_facets {
+  std::optional<std::string> min_inclusive{}, max_inclusive{}, min_exclusive{}, max_exclusive{};
+  std::optional<std::size_t> length{}, min_length{}, max_length{};
+  std::vector<std::string> enumeration{};
+  std::string whitespace{};
+  bool finite{};
+  std::string lexical_kind{};
+  std::vector<std::string> patterns{};
+  std::string list_item_kind{};
+  std::vector<xml::name> qname_enumeration{};
+  // Compare the static validation contract without inspecting generated model values.
+  bool operator==(const scalar_facets&) const = default;
+};
 // Reject misspelled/unused XML class selectors before any backend publishes generated output.
-void validate_options(const std::vector<std::unique_ptr<syntax_node>>& statements, const xml_options& options);
+void validate_options(const std::vector<std::unique_ptr<syntax_node>>& statements,
+                      const xml_options& options, std::string_view language = "cpp");
+// Enable only schema-authored XML/package use, respecting an explicit generator opt-out.
+[[nodiscard]] xml_options effective_options(
+    const std::vector<std::unique_ptr<syntax_node>>& statements, xml_options options);
 // One checked, statically bound XML field in encoder/decoder sequence order.
 struct field {
   const member* source{};
@@ -26,12 +46,36 @@ struct field {
   bool repeated{false};
   bool text{false};
   std::optional<xml::name> wrapper{};
+  scalar_facets facets{};
+  std::optional<std::string> default_value{}, fixed_value{};
+  bool list{}, qname{}, prefix_list{};
+  bool value_projection{};
+  std::optional<xml::name> qname_default{}, qname_fixed{};
+};
+// A singleton choice constrains the presence of its explicitly optional alternatives.
+struct choice_group {
+  std::vector<const member*> alternatives{};
+  std::size_t minimum{1U}, maximum{1U};
+};
+// Wildcards retain their namespace/process contract instead of silently deleting foreign content.
+struct wildcard {
+  bool attribute{};
+  std::string namespace_rule{"##any"};
+  std::string process_contents{"strict"};
+  std::size_t minimum{1U};
+  std::optional<std::size_t> maximum{1U};
+  std::size_t before_field{};
 };
 // One complete generated XML contract, independent of other format layouts.
 struct record {
   xml::name root{};
   std::vector<field> fields{};
+  std::vector<choice_group> choices{};
+  std::vector<wildcard> wildcards{};
+  std::optional<xml_unknown_policy> unknown{};
 };
+// Reject newly bound semantics until the selected backend emits their complete validation contract.
+void validate_backend(const record& contract, std::string_view language);
 // One reader-direction incompatibility between two fully bound XML contracts.
 struct compatibility_diagnostic {
   std::string member{};
@@ -40,11 +84,25 @@ struct compatibility_diagnostic {
 // Describe whether the current reader accepts every document of the previous bound contract.
 [[nodiscard]] std::vector<compatibility_diagnostic> compare_contracts(
     const record& previous, const record& current);
-struct schema_bundle;
+// One pinned local bundle, shared by the optimized binder and schema importer.
+struct schema_bundle {
+  struct document {
+    std::filesystem::path path{};
+    std::string bytes{};
+    std::string target{};
+    xml::element root{};
+  };
+  std::vector<document> documents{};
+  std::string identity{};
+};
+// Resolve only a bounded local bundle; importer mode performs its own exact subset checks.
+[[nodiscard]] std::shared_ptr<const schema_bundle> read_schema_bundle(
+    const std::filesystem::path& path, bool optimized_subset = true);
 // Read and prepare a supported fixed XSD subset once, or retain deterministic configured mapping.
 class schema {
   xml_options options_;
   std::shared_ptr<const schema_bundle> bundle_{};
+  mutable std::map<std::filesystem::path, std::shared_ptr<const schema_bundle>> inline_bundles_{};
 public:
   // Read a fixed, bounded local XSD bundle; unsupported grammar fails before generation.
   explicit schema(const xml_options& options);

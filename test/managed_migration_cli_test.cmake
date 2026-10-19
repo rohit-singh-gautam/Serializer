@@ -1,0 +1,70 @@
+if(NOT DEFINED MIGRATOR OR NOT DEFINED FIXTURE OR NOT DEFINED TEST_BINARY_DIRECTORY)
+  message(FATAL_ERROR "Migration CLI test requires MIGRATOR, FIXTURE and TEST_BINARY_DIRECTORY")
+endif()
+file(REAL_PATH "${TEST_BINARY_DIRECTORY}" binary_root)
+set(work "${binary_root}/managed_migration_cli")
+
+# Verify resolved paths and test ownership immediately before each recursive cleanup.
+function(clean_test_work)
+  if(NOT EXISTS "${work}")
+    return()
+  endif()
+  file(REAL_PATH "${work}" resolved_work)
+  cmake_path(IS_PREFIX binary_root "${resolved_work}" NORMALIZE inside_build)
+  if(NOT inside_build OR NOT resolved_work STREQUAL work OR
+      NOT EXISTS "${resolved_work}/.serializer_migration_test_owned")
+    message(FATAL_ERROR "Migration test refuses cleanup outside its resolved owned directory")
+  endif()
+  file(READ "${resolved_work}/.serializer_migration_test_owned" owner)
+  if(NOT owner STREQUAL "serializer migration CLI test\n")
+    message(FATAL_ERROR "Migration test ownership marker differs")
+  endif()
+  file(REMOVE_RECURSE "${resolved_work}")
+endfunction()
+
+clean_test_work()
+file(MAKE_DIRECTORY "${work}")
+file(REAL_PATH "${work}" resolved_work)
+if(NOT resolved_work STREQUAL work)
+  message(FATAL_ERROR "Migration test working directory was repointed")
+endif()
+file(WRITE "${work}/.serializer_migration_test_owned" "serializer migration CLI test\n")
+
+function(run_checked)
+  execute_process(COMMAND ${ARGV} RESULT_VARIABLE status OUTPUT_VARIABLE output ERROR_VARIABLE error)
+  if(NOT status EQUAL 0)
+    message(FATAL_ERROR "Migration CLI command failed (${status}): ${output}${error}")
+  endif()
+endfunction()
+
+run_checked("${FIXTURE}" create "${work}")
+file(SHA256 "${work}/managed.fixed" source_hash)
+run_checked("${MIGRATOR}" --kind managed --from fixed --to compact_varint
+  --input "${work}/managed.fixed" --output "${work}/managed.compact")
+run_checked("${MIGRATOR}" --kind raw --from fixed --to compact_varint
+  --input-format binary_none --output-format binary_string
+  --input "${work}/raw.fixed" --output "${work}/raw.compact")
+run_checked("${FIXTURE}" verify "${work}")
+
+foreach(output_path IN ITEMS "${work}/managed.fixed" "${work}/managed.compact")
+  execute_process(COMMAND "${MIGRATOR}" --kind managed --from fixed --to compact_varint
+    --input "${work}/managed.fixed" --output "${output_path}" RESULT_VARIABLE status)
+  if(status EQUAL 0)
+    message(FATAL_ERROR "Migration CLI overwrote an existing or in-place destination")
+  endif()
+endforeach()
+execute_process(COMMAND "${MIGRATOR}" --kind managed --from fixed --to compact_varint
+  --max-input-bytes 1 --input "${work}/managed.fixed" --output "${work}/rejected.save"
+  RESULT_VARIABLE status)
+if(status EQUAL 0 OR EXISTS "${work}/rejected.save")
+  message(FATAL_ERROR "Bounded migration failure published a destination")
+endif()
+file(SHA256 "${work}/managed.fixed" after_hash)
+if(NOT source_hash STREQUAL after_hash)
+  message(FATAL_ERROR "Migration CLI modified the original source")
+endif()
+file(GLOB leftovers "${work}/*.migration-*.tmp")
+if(leftovers)
+  message(FATAL_ERROR "Migration CLI left staged files behind: ${leftovers}")
+endif()
+clean_test_work()

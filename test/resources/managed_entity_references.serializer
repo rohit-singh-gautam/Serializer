@@ -1,0 +1,28 @@
+serializer version 1.20.0;
+
+namespace entity_graph {
+  class node managed stable_ids class_id(101) {
+    public string label (1);
+    public optional<managed_ref<node>> next (2);
+    public optional<managed_ref<document>> owner (3);
+  }
+  class other managed stable_ids class_id(102) {
+    public string label (1);
+  }
+  class metadata stable_ids {
+    public array managed_ref<node> links (1);
+    public map(uint32) managed_ref<node> named_links (2);
+  }
+  class document managed stable_ids class_id(103) {
+    public managed array node nodes (1);
+    public managed other extra (2);
+    public metadata info (3);
+    public uint64 ordinary_id (4);
+  }
+  class required_node managed stable_ids class_id(104) {
+    public managed_ref<required_node> next (1);
+  }
+  class required_document managed stable_ids class_id(105) {
+    public managed array required_node nodes (1);
+  }
+}
