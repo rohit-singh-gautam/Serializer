@@ -4,6 +4,10 @@
 
 #include "xml_container_contract.hpp"
 #include "xml_content_contract.hpp"
+#include "xml_model_contract.hpp"
+#include "xml_scalar_contract.hpp"
+#include "xml_identity_contract.hpp"
+#include "xml_particle_contract.hpp"
 
 #include <rohit/output_options.hpp>
 #include <rohit/serializer_creator.hpp>
@@ -62,6 +66,7 @@ struct field {
   presence_contract presence{};
   std::optional<map_contract> map_binding{};
   std::optional<variant_contract> variant_binding{};
+  std::optional<compiled_scalar_contract> compiled_facets{};
 };
 // One choice branch retains the occurrence interval for a known field or positioned wildcard.
 struct choice_branch {
@@ -78,6 +83,11 @@ struct choice_group {
   std::size_t before_field{};
   std::optional<std::size_t> max_repetitions{1U};
   std::vector<choice_branch> branches{};
+};
+// An XSD all compositor permits each declared child once in any permutation.
+struct all_group {
+  std::vector<const member*> alternatives{};
+  std::size_t minimum{1U};
 };
 // Wildcards retain their namespace/process contract instead of silently deleting foreign content.
 struct wildcard {
@@ -98,7 +108,14 @@ struct record {
   std::optional<xml_unknown_policy> unknown{};
   std::optional<mixed_contract> mixed{};
   std::optional<xml::extension_contract> extensions{};
+  std::vector<all_group> all_groups{};
+  model_contract model{};
+  std::optional<xml::identity_scope> identity{};
+  std::optional<particle_contract> particles{};
 };
+// Validate the shared known-child sequence, singleton choices and all-group cardinalities.
+// Wildcard matching remains the generated codec's namespace-policy responsibility.
+void validate_content_model(const record& contract, const xml::element& input);
 // Reject newly bound semantics until the selected backend emits their complete validation contract.
 void validate_backend(const record& contract, std::string_view language);
 // One reader-direction incompatibility between two fully bound XML contracts.
@@ -161,5 +178,8 @@ public:
   [[nodiscard]] std::string bundle_identity() const;
   // Export one namespace's actual bound scalar/nested record contract; reject inexpressible mappings.
   [[nodiscard]] std::string export_xsd(const std::vector<const class_node*>& sources) const;
+  // Export deterministic relative local documents and imports for every bound namespace.
+  [[nodiscard]] schema_bundle export_xsd_bundle(
+      const std::vector<const class_node*>& sources) const;
 };
 } // namespace rohit::serializer::writer::xml_binding

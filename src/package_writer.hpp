@@ -3,6 +3,7 @@
 #pragma once
 
 #include <rohit/serializer_creator.hpp>
+#include "document_profile_contract.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -75,7 +76,8 @@ inline bool singleton(const package_part_declaration& part) {
 inline std::string cpp(const package_node& package,
     const std::function<std::string(std::string_view)>& render_name,
     const std::function<std::string(const type_name&)>& render_type,
-    const std::function<std::string(std::string_view)>& field_name) {
+    const std::function<std::string(std::string_view)>& field_name,
+    const xml_options& xml = {}) {
   const auto parts = ordered(package);
   const auto package_name = render_name(package.name);
   std::set<std::string> member_names{"extensions"};
@@ -101,6 +103,7 @@ inline std::string cpp(const package_node& package,
   };
   line("// Generated OPC profile: declarations select structure; callers supply values and providers.");
   line("struct " + package_name + " {");
+  output += cpp_profile_metadata(package, xml, package_name);
   line("  // Borrow every resource for the synchronous Save; no model payload is copied here.");
   line("  struct input {");
   for (const auto* part : parts) {

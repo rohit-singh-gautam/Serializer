@@ -350,7 +350,7 @@ class importer {
       for (const auto& child : group.children) {
         const auto& kind = child.qualified_name.local;
         if (kind == "element") { emit(child, false, in_choice || choice, false, defining_owner, repeated_choice); }
-        else if (kind == "sequence" || kind == "choice") {
+        else if (kind == "sequence" || kind == "choice" || kind == "all") {
           if (choice || in_choice) {
             throw std::invalid_argument{"Grouped imported XSD choice branches are unsupported"};
           }
@@ -382,7 +382,9 @@ class importer {
       const auto& child = *component.node;
       const auto* defining_owner = component.owner;
       const auto& kind = child.qualified_name.local;
-      if (kind == "sequence" || kind == "choice") { particles(particles, child, false, defining_owner); }
+      if (kind == "sequence" || kind == "choice" || kind == "all") {
+        particles(particles, child, false, defining_owner);
+      }
       else if (kind == "group") {
         if (count(attribute(child, "minOccurs")) != 1U || count(attribute(child, "maxOccurs")) != 1U) {
           throw std::invalid_argument{"Optional or repeated imported model groups require grouped occurrence storage"};

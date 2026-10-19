@@ -30,4 +30,13 @@ namespace profile {
       compression(deflate);
     }
   }
+
+  // Existing package names must remain valid when new metadata factories are added.
+  package document_profiles {
+    part main : model {
+      name("/model.xml");
+      content_type("application/vnd.serializer.test-model+xml");
+      relationship("urn:serializer:main-model");
+    }
+  }
 }

@@ -1,11 +1,19 @@
 # XML, compression streams and packages
 
-Compiler/runtime **2.10.0**, schema language **1.20.0**. Baseline XML generation
+Compiler/runtime **2.11.0**, schema language **1.20.0**. Baseline XML generation
 covers all output languages; the stream and package API examples below use C++20.
 Richer XML mappings and generated OPC profiles have C++ and Python support;
 unsupported backend combinations reject before output publication. Existing
 native wire formats and managed journals are unchanged.
 See [remaining work](../pending.md) and the [full design](../design/xml_support.md).
+
+The [advanced shared contracts](xml_advanced_contracts.md) add compiled scalar,
+particle and identity validation, broader local XSD tooling, concrete model and
+projection metadata, document profiles and a separate restricted HTML fragment
+adapter. Existing C++ package facades expose owning `document_profiles()` metadata
+for declared role shape, envelope defaults, expected model/root and vocabulary.
+These compiler/reference contracts do not close dependent generated-language
+codecs; unsupported combinations still reject before output publication.
 
 The C++ [XML event API](xml_events.md) includes a provider-independent bounded
 structural validator and a LibXml2-backed incremental UTF-8 reader. The reader

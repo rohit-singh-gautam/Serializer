@@ -153,6 +153,13 @@ contract. Use this backlog and the newest applicable evidence together.
 
 ## XML and package backlog
 
+Compiler/runtime **2.11.0** completes shared tasks **S08-S36**: scalar/pattern,
+particle and identity contracts, advanced local XSD tooling, model/profile
+metadata, restricted HTML and the shared eleven-language fixture inventory.
+The [advanced contract guide](serialization/xml_advanced_contracts.md) and
+[verification record](verification/verification-xml-advanced-contracts-2026-10-19.md)
+separate checked shared APIs from the dependent generated-language work below.
+
 Compiler/runtime **2.10.0** adds the incremental C++ XML event reader and shared
 presence, mixed-content, map, variant and extension-slot contracts. The
 [shared-contract guide](serialization/xml_shared_contracts.md) distinguishes
@@ -330,42 +337,13 @@ their dependent parser, emitter or language-qualification tasks.
 ### Shared compiler and contract tasks
 
 Dependencies name earlier task IDs or the existing 2.4.0 implementation.
-Completed prerequisites S01 through S07 have been removed from this backlog.
+Completed prerequisites S01 through S36 have been removed from this backlog.
 Their contracts and executed checks remain in the
 [S01 verification record](verification/verification-xml-events-2026-10-19.md) and
-[S02-S07 verification record](verification/verification-xml-shared-contracts-2026-10-19.md).
-
-| ID | Cap | Depends on | Deliverable and completion check |
-| --- | --- | --- | --- |
-| S08 | 4 h | Existing XSD binder | Compile numeric inclusive/exclusive facets into IR; exact boundary tests pass. |
-| S09 | 3 h | Existing XSD binder | Compile Unicode length/enumeration facets; empty/code-point/enumeration tests pass. |
-| S10 | 3 h | S09 | Select an explicit portable XSD-regex subset; accepted/rejected corpus and unsupported diagnostics pass. |
-| S11 | 4 h | S10 | Compile only that regex subset to portable checks; independent reference matches agree. |
-| S12 | 3 h | Existing XSD binder | Derive simpleContent/text and wrappers from XSD; authoritative binding/conflict tests pass. |
-| S13 | 3 h | S01 | Compile choice models and ambiguity diagnostics; alternative/occurrence fixtures pass. |
-| S14 | 3 h | S01 | Compile all models; permutation and duplicate fixtures pass. |
-| S15 | 3 h | Existing XSD binder | Define supported identity selector/field XPath; unsupported expressions reject. |
-| S16 | 4 h | S15 | Compile key/unique scopes and tuples; duplicate/incomplete-key fixtures pass. |
-| S17 | 3 h | S16 | Resolve keyref targets/types; missing and wrong-scope references reject. |
-| S18 | 3 h | Existing bundle loader | Implement chameleon namespace adoption; one file adopted into two namespaces stays isolated. |
-| S19 | 3 h | S18 | Handle finite cyclic bundle graphs; legal cycles deduplicate and budgets still bound growth. |
-| S20 | 3 h | Existing XSD binder | Bind anonymous nested complex types; ambiguous associations reject. |
-| S21 | 3 h | S12 | Export text/wrappers; independent validation and reimport agree. |
-| S22 | 3 h | S08–S11 | Export enumerations/facets; independent valid/invalid document checks agree. |
-| S23 | 4 h | Existing export | Export multiple namespaces as a pinned bundle; reimport preserves names and dependencies. |
-| S24 | 4 h | S08–S12 | Import a scalar/attribute XSD subset into Serializer declarations; generated schemas compile and round-trip. |
-| S25 | 4 h | S24 | Extend import to named nested records/collections; nested/include fixtures compile. |
-| S26 | 3 h | Existing compare tool | Extend compatibility diagnostics to added/retired fields/models; both comparison directions have tests. |
-| S27 | 3 h | S01 | Define concrete generic XML bindings; distinct instances and ambiguous names have tests. |
-| S28 | 3 h | S01 | Define inherited field order/flattening; collisions and ordering have tests. |
-| S29 | 3 h | S01 | Define revision/magic XML contracts; old/current/invalid layouts have fixtures. |
-| S30 | 3 h | S01 | Define digest and managed/view data projections; ownership/lifetime and unsupported states are explicit. |
-| S31 | 4 h | Existing package APIs | Define generated compression/package profile IR/configuration; defaults and runtime overrides validate. |
-| S32 | 3 h | S31, S06 | Generate vocabulary/expected-type dispatch metadata; wrong roots/types select no decoder. |
-| S33 | 3 h | S01 | Define separate HTML syntax/provider boundaries; HTML and XML fixtures remain distinct. |
-| S34 | 4 h | S33 | Implement the approved minimal HTML event/output subset; independent HTML checks pass. |
-| S35 | 3 h | Existing SDK runners | Maintain a shared producer/consumer fixture manifest; all eleven languages are represented and missing SDKs fail. |
-| S36 | 2 h | Each landed slice | Apply release, README, usage, migration and skill updates; review editor impact and verify affected packages when touched. |
+[S02-S07 verification record](verification/verification-xml-shared-contracts-2026-10-19.md),
+and the [S08-S36 verification record](verification/verification-xml-advanced-contracts-2026-10-19.md).
+No shared S-task remains open. Backend dependencies retain these completed IDs;
+their separate generated-code and qualification work is still tracked below.
 
 ### XML tasks for each language
 

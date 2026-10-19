@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 4.0)
 
-project(serializer VERSION 2.10.0 LANGUAGES CXX)
+project(serializer VERSION 2.11.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
 set(serializer_schema_language_version 1.20.0)
@@ -68,6 +68,14 @@ add_library(serializer_runtime
   include/rohit/xml_event_reader.hpp
   src/xml_extensions.cpp
   include/rohit/xml_extensions.hpp
+  src/xml_pattern.cpp
+  include/rohit/xml_pattern.hpp
+  src/xml_identity.cpp
+  include/rohit/xml_identity.hpp
+  src/document_profile.cpp
+  include/rohit/document_profile.hpp
+  src/html.cpp
+  include/rohit/html.hpp
   include/rohit/xml_lexical_contract.hpp
   include/rohit/xml_choice_contract.hpp
   src/package.cpp
@@ -119,8 +127,19 @@ add_library(serializer_lib
   src/xml_container_contract.hpp
   src/xml_content_contract.cpp
   src/xml_content_contract.hpp
+  src/xml_scalar_contract.cpp
+  src/xml_scalar_contract.hpp
+  src/xml_identity_contract.cpp
+  src/xml_identity_contract.hpp
+  src/xml_particle_contract.cpp
+  src/xml_particle_contract.hpp
+  src/xml_model_contract.cpp
+  src/xml_model_contract.hpp
+  src/document_profile_contract.cpp
+  src/document_profile_contract.hpp
   src/xsd_import.cpp
   src/xsd_import.hpp
+  src/xsd_bundle_output.hpp
   src/xml_authoring_parser.hpp
   src/package_writer.hpp
   src/xml_schema.hpp

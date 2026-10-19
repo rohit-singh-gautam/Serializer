@@ -1,6 +1,6 @@
 # Fixed XSD bundles and contract tools
 
-Compiler/runtime **2.8.0** retains schema language **1.20.0**. Serializer compiles
+Compiler/runtime **2.11.0** retains schema language **1.20.0**. Serializer compiles
 a supported fixed XSD subset into generated XML mappings. The primitive/ordinary
 record baseline generates in all eleven outputs; rich scalar and content
 contracts have C++ and Python implementations. Other outputs reject unsupported
@@ -19,16 +19,25 @@ The root schema may include another schema in its own namespace or import a
 different namespace. Every `schemaLocation` must name an explicit relative local
 file. Canonical paths, including symlink targets, must remain inside the root
 schema's directory. Network locations, absolute paths, URI escapes, missing
-locations, conflicting namespaces, chameleon includes and reference cycles
-reject. Limits cover 64 documents, 32 reference levels and 16 MiB of aggregate
-source bytes. No document-supplied schema hint changes this allowlist.
+locations and conflicting namespaces reject. Chameleon includes create separate
+component instances per adopted namespace; finite legal include/import cycles
+deduplicate by canonical path and effective namespace. Limits cover 64 logical
+instances, 32 reference levels and 16 MiB of aggregate source bytes, including
+repeated chameleon instances. No document-supplied schema hint changes this allowlist.
 
 The bundle identity is SHA-256 over the byte string `Serializer XSD bundle 1\n`
-followed by every source in lexicographic relative-path order. Each source adds
-its UTF-8 generic relative path and exact file contents, each preceded by its
-decimal byte length and `:`. Moving an unchanged bundle to a different checkout
+followed by every logical document instance in lexicographic relative-path and
+effective-namespace order. Each instance adds its UTF-8 generic relative path
+and exact file contents, each preceded by its decimal byte length and `:`.
+If a physical path has multiple logical instances, each of those instances then
+adds its effective target namespace, also framed as decimal UTF-8 byte length,
+`:` and namespace bytes. Single-instance paths add no namespace component.
+Moving an unchanged bundle to a different checkout
 does not change its identity. Changing a path or source byte does. This is a build
-input identity, not XML canonicalization or a signature. `bundle_sha256` pins it;
+input identity, not XML canonicalization or a signature. Chameleon instances
+retain the original source bytes; repeated instances contribute those bytes
+again. Existing previously supported bundles retain their identities.
+`bundle_sha256` pins it;
 a mismatch fails generation. `--verbose` prints the actual identity. Generated
 depfiles include every transitive XSD source.
 
@@ -36,7 +45,9 @@ The compiler/importer supports global element/attribute references, named and
 inline complex types, primitive aliases, builtin scalar lists, simple unions
 with independently retained branch restrictions, singleton sequences, unit
 occurrence model groups and attribute groups, static `complexContent` extension,
-and `simpleContent` extension. Mixed complex types support scalar text plus
+and `simpleContent` extension. Text and mandatory singleton collection wrappers
+can be derived from unambiguous XSD structure without duplicate INI inventories.
+Mixed complex types support scalar text plus
 attributes without child particles. A nested class can bind a named or
 unambiguous anonymous complex type without its own global element. Defining
 document qualification defaults and wildcard target namespaces remain distinct
@@ -47,9 +58,23 @@ whitespace, enumeration/default/fixed values, XSD patterns and union branches,
 singleton choices, and a repeated-choice subset with one typed repeated branch
 plus positioned foreign wildcard content. Exact branch/group occurrence limits
 and interleaving are retained. Multiple known branches in a repeated choice,
-grouped choice branches, optional/repeated sequences or model groups, general
-mixed child/text content, `complexContent` restriction, `all`, identity constraints,
-dynamic/abstract type selection and restricted list item types remain unsupported.
+grouped choice branches, unordered content and identity checks still need their
+dependent generated-backend implementations. The shared compiler now retains a
+bounded particle model for nested sequence/choice/all and heterogeneous repeated
+choices, checks ambiguity and exact occurrences, and supplies reference trace
+validation. Top-level `all` and global-owner key/unique/keyref contracts also bind
+shared IR and have reference validators. Their generated codecs reject explicitly.
+General mixed child/text content, `complexContent` restriction, dynamic/abstract
+type selection and restricted list item types remain unsupported.
+
+Identity binding accepts a strict namespace-aware child-path XPath subset and
+same-owner key/unique references; nested local identity owners reject. The static
+bundle cap is 128 identity constraints, in addition to document/byte limits.
+Projected fields carrying `default`/`fixed` declarations reject because the
+reference validator does not augment missing/empty instance values from a schema;
+this includes empty defaults. Other ordinary XSD default/fixed bindings are unchanged.
+See [advanced shared contracts](xml_advanced_contracts.md) for supported selectors,
+value spaces, compilation limits and generated capability boundaries.
 
 Readers validate patterned numeric/list fields against the original XML lexical
 value after XSD whitespace normalization and before native conversion. Writers
@@ -99,7 +124,7 @@ the earlier 2.7 subset is recorded in the
 The [2.8 backend record](../verification/verification-opc-backends-2026-10-19.md)
 records the new rich/Core checks and the status of full native qualification.
 Remaining constructs and backend/provider checks are tracked under **OPC-R03–R05**,
-**OPC-R12** and the XSD work units in [the central backlog](../xml_pending.md).
+**OPC-R12** and the XSD work units in [the central backlog](../pending.md).
 Historical baseline checks do not qualify later additions.
 
 ## Bind an existing model in its schema
@@ -183,9 +208,11 @@ serializer --input model.serializer --config xml.ini --xml.export-xsd order.xsd
 Native code output is optional for this command. Export supports scalar fields,
 attributes, optional/repeated occurrence intervals and nested ordinary records in
 one namespace, including supported scalar facets, builtin lists and default/fixed
-values. The exported XSD is compiled before publication. Unsupported enum, text,
-wrapper, choice/wildcard, union, inherited pattern-group or foreign-field-namespace
-exports reject. Import/binding support does not imply export parity. Export does
+values. Text, collection wrappers, supported enumerations/scalar facets and
+cross-namespace dependencies can be exported. The exported XSD is compiled before
+publication. Unsupported advanced choice/wildcard storage, union, inherited
+pattern-group and context-dependent QName/prefix-list exports reject.
+Import/binding support does not imply export parity. Export does
 not infer types from sample XML; declaration import is the separate command
 above. See the [authoring contract](../design/opc_3mf_support.md#schema-first-authoring-and-declaration-import).
 
@@ -207,3 +234,19 @@ checks in the opposite direction when both reader directions are required.
 
 Both tools require exactly one generator configuration and validate all artifacts
 before replacing outputs. They may accompany ordinary language output flags.
+
+For a pinned multi-namespace bundle, use the standalone command:
+
+```powershell
+serializer --input model.serializer --config xml.ini --xml.export-xsd-bundle out/model-xsd
+```
+
+The existing parent must be a directory. Export publishes flat `namespace_N.xsd`
+files with local imports plus `manifest.json` containing an entry filename,
+SHA-256 pin and exact schema inventory. A complete candidate is validated and
+read back in a reserved sibling directory before publication. Identical reruns
+succeed; different/edited existing directories remain untouched and require a new
+export destination. Serialize concurrent mutations to the same output directory.
+Bundle export cannot accompany ordinary generated outputs, comparison or depfiles.
+Use the manifest entry and SHA-256 through `xml.xsd` and `xml.bundle_sha256` when
+binding the exported bundle. See [executed checks](../verification/verification-xml-advanced-contracts-2026-10-19.md).

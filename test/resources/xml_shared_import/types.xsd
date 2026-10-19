@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:simpleType name="Amount">
+    <xs:restriction base="xs:unsignedInt">
+      <xs:minInclusive value="2"/>
+      <xs:maxExclusive value="9"/>
+    </xs:restriction>
+  </xs:simpleType>
+  <xs:complexType name="Price">
+    <xs:simpleContent>
+      <xs:extension base="Amount">
+        <xs:attribute name="unit" type="xs:string"/>
+      </xs:extension>
+    </xs:simpleContent>
+  </xs:complexType>
+  <xs:complexType name="Item">
+    <xs:sequence>
+      <xs:element name="price" type="Price"/>
+    </xs:sequence>
+    <xs:attribute name="name" type="xs:string" use="required"/>
+  </xs:complexType>
+</xs:schema>

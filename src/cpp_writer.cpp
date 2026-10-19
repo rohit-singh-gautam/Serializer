@@ -4068,7 +4068,7 @@ public:
         unit_output.write(package_codegen::cpp(static_cast<const package_node&>(*statement),
             [&](std::string_view value) { return type_name(value); },
             [&](const ::rohit::serializer::type_name& value) { return storage_type_name(value); },
-            [&](std::string_view value) { return field_name(value); }));
+            [&](std::string_view value) { return field_name(value); }, xml_options_));
         break;
 
       default:
@@ -4294,7 +4294,7 @@ public:
       out_stream.write("#include <rohit/xml.hpp>\n#include <rohit/xml_lexical_contract.hpp>\n#include <rohit/xml_choice_contract.hpp>\n");
     }
     if (package_codegen::contains(statements)) {
-      out_stream.write("#include <rohit/opc_generated.hpp>\n#include <limits>\n#include <span>\n");
+      out_stream.write("#include <rohit/opc_generated.hpp>\n#include <rohit/document_profile.hpp>\n#include <limits>\n#include <span>\n");
     }
     if (has_views) {
       out_stream.write("#include <rohit/binary_view.hpp>\n");

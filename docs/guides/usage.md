@@ -1,5 +1,38 @@
 # Using Serializer in a C++ application
 
+Compiler/runtime **2.11.0** adds [advanced shared XML contracts](../serialization/xml_advanced_contracts.md)
+and checked XSD tools. Require `find_package(Serializer 2.11 CONFIG REQUIRED)`
+for the new public headers. Fixed-XSD binding derives supported text/wrappers,
+retains scalar/content/identity metadata and resolves bounded chameleon/cyclic
+local bundles. Supported import/export preserve declared names, facets, nested
+records and collections; review imported native IDs/order before migration.
+See [XSD import/export and compatibility](../serialization/xsd_tooling.md).
+
+Public C++ APIs provide portable regex programs, owning identity scopes,
+validated document profiles/decoder inventories and a restricted HTML fragment
+adapter. Prepare a portable pattern once for repeated whole-value checks:
+
+```cpp
+#include <rohit/xml_pattern.hpp>
+
+// Check the complete identifier without an XML/regex provider.
+bool valid_identifier(std::string_view text) {
+  static const auto pattern =
+      rohit::serializer::xml::compile_portable_pattern("[A-Z]{2}[0-9]{3}");
+  return pattern.matches(text);
+}
+```
+
+The [advanced guide](../serialization/xml_advanced_contracts.md) defines accepted
+regex/XPath/HTML subsets, Unicode/numeric semantics, limits, namespace/type
+selection and ownership. Shared reference validation remains separate from
+generated advanced language codecs, which reject unsupported combinations.
+Existing C++ package facades add profile metadata, normally named
+`document_profiles()`, without copying
+payloads or opening providers. [Verification status](../verification/verification-xml-advanced-contracts-2026-10-19.md)
+records actual checks and platform/backend qualification. Schema language stays
+**1.20.0**, editor packages stay **2.0.5**, and native wire values are unchanged.
+
 Compiler/runtime **2.10.0** adds `<rohit/xml_event_reader.hpp>` for incremental
 UTF-8 XML 1.0 input without a retained tree. Supply a synchronous callback, call
 `feed()` with arbitrary byte slices and call `finish()` before publishing a

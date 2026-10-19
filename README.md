@@ -36,11 +36,26 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **2.10.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.11.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.20.0**;
 see [release and schema versions](docs/guides/command_line.md).
+
+Release **2.11.0** adds checked [advanced shared XML contracts](docs/serialization/xml_advanced_contracts.md):
+compiled scalar/pattern and identity validation, content-model metadata,
+chameleon/cyclic local bundles, authoritative text/wrapper binding, expanded
+XSD import/export and directional evolution checks. Export a pinned
+multi-namespace inventory with `--xml.export-xsd-bundle`. C++ helpers provide
+portable regex programs, scoped key/unique/keyref checks, document profiles and
+a separate restricted HTML fragment adapter. Existing generated C++ package
+facades also expose owning profile metadata, normally named `document_profiles()`.
+
+Shared IR and reference validators do not establish generated-code parity.
+Advanced identity, content-model and generic/inherited/revision/projection
+codecs retain explicit backend capability gates. Existing native protocols and
+payload layouts, schema language **1.20.0**, and editor packages **2.0.5** remain
+unchanged. See [verification status and executed checks](docs/verification/verification-xml-advanced-contracts-2026-10-19.md).
 
 Release **2.10.0** adds an incremental LibXml2-backed C++
 [XML event reader](docs/serialization/xml_events.md#incremental-byte-reader)

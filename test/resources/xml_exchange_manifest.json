@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "id": "xml-order-v1",
+  "schema": "example/xml/model.serializer",
+  "config": "example/xml/codegen.ini",
+  "input": "example/xml/order.xml",
+  "expected": {
+    "root": "{urn:serializer:xml-example}order",
+    "attributes": {"id": "7"},
+    "children": [
+      ["{urn:serializer:xml-example}customer", "R&D"],
+      ["{urn:serializer:xml-example}count", "3"],
+      ["{urn:serializer:xml-example}tag", "A"],
+      ["{urn:serializer:xml-example}tag", "B"]
+    ]
+  },
+  "exchange": "all_producers_to_all_consumers",
+  "languages": [
+    {"id": "cpp", "prefix": "CP", "source": "example/xml/cpp/main.cpp", "tools": ["cmake"]},
+    {"id": "python", "prefix": "PY", "source": "example/xml/python/main.py", "tools": []},
+    {"id": "java", "prefix": "JV", "source": "example/xml/java/Main.java", "tools": ["javac", "java"]},
+    {"id": "kotlin", "prefix": "KT", "source": "example/xml/kotlin/Main.kt", "tools": ["kotlinc", "java"]},
+    {"id": "csharp", "prefix": "CS", "source": "example/xml/csharp/Program.cs", "tools": ["dotnet"]},
+    {"id": "go", "prefix": "GO", "source": "example/xml/go/main.go", "tools": ["go"]},
+    {"id": "javascript", "prefix": "JS", "source": "example/xml/javascript/main.mjs", "tools": ["node", "npm"]},
+    {"id": "typescript", "prefix": "TS", "source": "example/xml/typescript/main.mts", "tools": ["node", "npm"]},
+    {"id": "rust", "prefix": "RS", "source": "example/xml/rust/main.rs", "tools": ["cargo"]},
+    {"id": "swift", "prefix": "SW", "source": "example/xml/swift/main.swift", "tools": ["swiftc"]},
+    {"id": "c", "prefix": "C", "source": "example/xml/c/main.c", "tools": ["cmake"]}
+  ]
+}

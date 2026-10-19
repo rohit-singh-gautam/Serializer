@@ -85,7 +85,7 @@ TEST(xml_schema, includes_and_named_nested_records_keep_type_document_defaults) 
   EXPECT_TRUE(order.fields.front().qualified_name.namespace_uri.empty());
 }
 
-TEST(xml_schema, bundle_resolver_rejects_remote_escaping_cycles_and_namespace_mismatch) {
+TEST(xml_schema, bundle_resolver_rejects_remote_escaping_and_namespace_mismatch_but_deduplicates_cycles) {
   schema_directory files{};
   xml_options options{}; options.enabled = true;
   for (const auto location : {"https://example.invalid/schema.xsd", "file:///schema.xsd", "../outside.xsd", "/etc/schema.xsd", "types%2exsd"}) {
@@ -96,7 +96,7 @@ TEST(xml_schema, bundle_resolver_rejects_remote_escaping_cycles_and_namespace_mi
   options.xsd = files.write("root.xsd", "<xs:schema xmlns:xs='http://www.w3.org/2001/XMLSchema'><xs:include schemaLocation='types.xsd'/></xs:schema>");
   EXPECT_THROW((void)binding::schema{options}, std::invalid_argument);
   options.xsd = files.write("root.xsd", "<xs:schema xmlns:xs='http://www.w3.org/2001/XMLSchema'><xs:include schemaLocation='root.xsd'/></xs:schema>");
-  EXPECT_THROW((void)binding::schema{options}, std::invalid_argument);
+  EXPECT_NO_THROW((void)binding::schema{options});
 }
 
 TEST(xml_schema, supported_facets_are_retained_and_identity_constraints_still_reject) {

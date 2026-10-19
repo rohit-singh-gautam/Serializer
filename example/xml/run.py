@@ -6,13 +6,15 @@ from pathlib import Path
 import shutil
 import subprocess
 import sys
-import xml.etree.ElementTree as ET
 
 SOURCE = Path(__file__).resolve().parent
 ROOT = SOURCE.parent.parent
 spec = importlib.util.spec_from_file_location('serializer_example_runner', SOURCE.parent / 'run.py')
 sdk = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(sdk)
+manifest_spec = importlib.util.spec_from_file_location('serializer_xml_fixture_manifest', SOURCE / 'fixture_manifest.py')
+fixtures = importlib.util.module_from_spec(manifest_spec)
+manifest_spec.loader.exec_module(fixtures)
 
 
 def copy_sources(language, destination, source_root=SOURCE):
@@ -26,19 +28,9 @@ def copy_sources(language, destination, source_root=SOURCE):
             shutil.copyfile(file, destination / file.name)
 
 
-def check_xml(path):
+def check_xml(path, expected):
     """Compare expanded names and values with an independent standard-library parser."""
-    data = path.read_bytes()
-    if len(data) > 16 * 1024 * 1024 or b'<!DOCTYPE' in data:
-        raise AssertionError(f'Invalid exported XML extent: {path}')
-    root = ET.fromstring(data)
-    namespace = '{urn:serializer:xml-example}'
-    expected = [(namespace + 'customer', 'R&D'), (namespace + 'count', '3'),
-                (namespace + 'tag', 'A'), (namespace + 'tag', 'B')]
-    if root.tag != namespace + 'order' or root.attrib != {'id': '7'}:
-        raise AssertionError(f'XML root/attribute mapping differs: {path}')
-    if [(node.tag, node.text or '') for node in root] != expected:
-        raise AssertionError(f'XML ordered child values differ: {path}')
+    fixtures.check_document(path, expected)
 
 
 def build_c(args, runner, directory, source_root=SOURCE):
@@ -105,19 +97,25 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--compiler', type=Path, required=True)
     parser.add_argument('--build', type=Path, default=ROOT / 'out/build/xml-examples')
-    parser.add_argument('--config', type=Path, default=SOURCE / 'codegen.ini')
-    parser.add_argument('--language', default=','.join(sdk.LANGUAGES))
+    parser.add_argument('--config', type=Path)
+    parser.add_argument('--manifest', type=Path, default=ROOT / 'test/resources/xml_exchange_manifest.json')
+    parser.add_argument('--language')
     parser.add_argument('--wsl-languages', default='')
     parser.add_argument('--cpp-executable', type=Path)
     parser.add_argument('--libxml2-prefix', type=Path)
     args = parser.parse_args()
     args.compiler = args.compiler.resolve()
     args.build = args.build.resolve()
-    args.config = args.config.resolve()
+    if args.libxml2_prefix:
+        args.libxml2_prefix = args.libxml2_prefix.resolve()
     args.cpp_library = None
     args.sanitize = False
-    languages = list(dict.fromkeys(args.language.split(',')))
-    if not languages or any(language not in sdk.LANGUAGES for language in languages):
+    manifest = fixtures.load_manifest(args.manifest, ROOT)
+    args.config = args.config.resolve() if args.config else fixtures.source_path(ROOT, manifest['config'])
+    if fixtures.source_path(ROOT, manifest['schema']) != SOURCE / 'model.serializer':
+        parser.error('This runner requires the maintained XML order schema')
+    languages = args.language.split(',') if args.language else [entry['id'] for entry in manifest['languages']]
+    if not languages or len(languages) != len(set(languages)) or any(language not in sdk.LANGUAGES for language in languages):
         parser.error('Choose supported language names from ' + ','.join(sdk.LANGUAGES))
     if args.build == ROOT or ROOT in args.build.parents and 'out' not in args.build.relative_to(ROOT).parts:
         parser.error('In-repository output must be beneath the ignored out directory')
@@ -125,6 +123,7 @@ def main():
     os.environ.setdefault('npm_config_cache', str(args.build / 'npm-cache'))
     os.environ.setdefault('CARGO_HOME', str(args.build / 'cargo-home'))
     runner = sdk.Runner(args)
+    fixtures.require_sdks(manifest, languages, runner, sdk.run)
     targets = {}
     for language in languages:
         directory = args.build / language
@@ -135,7 +134,7 @@ def main():
         targets['js' if language == 'javascript' else language] = destination
     if 'typescript' in languages and 'javascript' not in languages:
         targets['js'] = args.build / 'typescript/schema.mjs'
-    command = [args.compiler, '--input', SOURCE / 'model.serializer', '--config', args.config,
+    command = [args.compiler, '--input', fixtures.source_path(ROOT, manifest['schema']), '--config', args.config,
                '--language', ','.join(targets), '--go.package', 'model', '--kotlin.package=']
     for language, destination in targets.items():
         command += [f'--{language}.output', destination]
@@ -146,14 +145,14 @@ def main():
     outputs = {}
     for language, command in commands.items():
         output = args.build / f'{language}.xml'
-        sdk.run([*command, runner.path(language, SOURCE / 'order.xml'), runner.path(language, output)])
-        check_xml(output)
+        sdk.run([*command, runner.path(language, fixtures.source_path(ROOT, manifest['input'])), runner.path(language, output)])
+        check_xml(output, manifest['expected'])
         outputs[language] = output
     for producer, output in outputs.items():
         for consumer, command in commands.items():
             received = args.build / f'{producer}-to-{consumer}.xml'
             sdk.run([*command, runner.path(consumer, output), runner.path(consumer, received)])
-            check_xml(received)
+            check_xml(received, manifest['expected'])
     print(f'PASS: generated XML, {len(languages)} producers x {len(languages)} consumers', flush=True)
 
 

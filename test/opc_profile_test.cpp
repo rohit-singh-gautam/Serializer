@@ -2,12 +2,14 @@
 // SPDX-License-Identifier: 0BSD
 #include <opc_profile.hpp>
 #include <rohit/package.hpp>
+#include <rohit/document_profile.hpp>
 
 #include <gtest/gtest.h>
 
 #include <array>
 #include <chrono>
 #include <cstdint>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -27,6 +29,44 @@ profile::model fixture_model() {
   return value;
 }
 } // namespace
+
+// Generated role metadata is an owning inventory usable before any payload decoder is invoked.
+TEST(opc_profile, generated_profile_metadata_matches_typed_roots_and_defaults) {
+  namespace document = rohit::serializer::document;
+  const auto profiles = profile::archive::document_profiles();
+  ASSERT_EQ(profiles.size(), 2U);
+  const auto& main = profiles.front();
+  EXPECT_EQ(main.role, "main");
+  EXPECT_EQ(main.part_name, std::optional<std::string>{"/3D/model.xml"});
+  EXPECT_EQ(main.content_type, std::optional<std::string>{"application/vnd.serializer.test-model+xml"});
+  EXPECT_EQ(main.envelope.compression, rohit::serializer::compression::format::deflate);
+  ASSERT_TRUE(main.decoder);
+  EXPECT_EQ(main.decoder->model_identity, "profile::model");
+  EXPECT_EQ(main.decoder->root, (rohit::serializer::xml::name{"model", "urn:serializer:package-test"}));
+  const std::array inventory{*main.decoder};
+  EXPECT_EQ(document::select_decoder(inventory, "profile::model", main.decoder->root, {},
+      main.decoder->vocabularies), &inventory.front());
+  EXPECT_EQ(document::select_decoder(inventory, "profile::point", main.decoder->root, {},
+      main.decoder->vocabularies), nullptr);
+  EXPECT_FALSE(profiles.back().decoder);
+  EXPECT_EQ(profiles.back().envelope.format, document::payload_format::opaque_bytes);
+  EXPECT_EQ(profiles.back().source, "main");
+  EXPECT_EQ(profiles.back().min_occurs, 0U);
+  EXPECT_FALSE(profiles.back().max_occurs);
+}
+
+// A pre-existing package name that matches the additive metadata factory retains valid Save/load APIs.
+TEST(opc_profile, metadata_factory_avoids_package_constructor_name_collision) {
+  const auto metadata = profile::document_profiles::document_profiles_metadata();
+  ASSERT_EQ(metadata.size(), 1U);
+  EXPECT_EQ(metadata.front().role, "main");
+  const auto model = fixture_model();
+  std::ostringstream output{std::ios::binary};
+  profile::document_profiles::write(output, {&model});
+  std::istringstream source{output.str(), std::ios::binary};
+  const auto decoded = profile::document_profiles::load(source);
+  EXPECT_EQ(decoded.value.main.name, model.name);
+}
 
 // The generated facade owns complete assembly, relationship discovery and typed decoding.
 TEST(opc_profile, complete_package_with_dynamic_attachments_round_trips) {

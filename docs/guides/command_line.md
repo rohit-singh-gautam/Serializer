@@ -1,6 +1,6 @@
 # Serializer compiler and schema versions
 
-The compiler and runtime release is **2.10.0**, defined by `project(... VERSION ...)` in the
+The compiler and runtime release is **2.11.0**, defined by `project(... VERSION ...)` in the
 root CMake file. `serializer --version` (or `-v`) prints that release and the
 supported schema language version. CMake generates `<rohit/version.hpp>` with
 `rohit::serializer::compiler_version`, `schema_language_version_text`, and
@@ -12,7 +12,8 @@ Package discovery accepts earlier minor and patch releases within the same major
 version; requests for newer releases or a different major version are rejected.
 Use `EXACT` to require a specific release.
 
-For the 2.10.0 package, request `find_package(Serializer 2.0 CONFIG REQUIRED)`;
+For the 2.11.0 package, request `find_package(Serializer 2.0 CONFIG REQUIRED)`;
+require `2.11` for [advanced XML, document profiles and HTML fragments](../serialization/xml_advanced_contracts.md);
 require `2.10` for the incremental C++ [XML event reader](../serialization/xml_events.md#incremental-byte-reader)
 and [shared content/extension contracts](../serialization/xml_shared_contracts.md);
 require `2.9` for the provider-independent C++
@@ -93,7 +94,7 @@ the complete parsed result. See [licensing and notice rules](../project/licensin
 The repository's [schema language versioning policy](../../AGENTS.md#schema-language-versioning)
 uses `major.minor.patch` for language releases, independently of the compiler
 release. `serializer_schema_language_version` in the root CMake file defines the
-language release separately from `project(... VERSION ...)`. Compiler **2.10.0**
+language release separately from `project(... VERSION ...)`. Compiler **2.11.0**
 currently supports language **1.20.0**; `serializer --version` reports both.
 
 Language `1.20.0` adds namespace/class `xml(...)` defaults, field `xml(...)`
@@ -262,7 +263,11 @@ values, and repeated non-repeatable options are errors.
 | `--managed.separate_values` | | `true` generates ID-free values plus managed wrappers; `false` (default) puts IDs on the schema classes |
 | `--cpp.protobuf` | | `true` or `false`; enable compile-time [Protobuf codecs](../serialization/protobuf.md) |
 | `--xml.enabled` | | `true` or `false` (default); generate [typed XML codecs](../serialization/xml_packages.md) for selected outputs |
-| `--xml.xsd` | | Fixed standalone XSD build input; changes require regeneration |
+| `--xml.xsd` | | Fixed local XSD bundle entry; changes to any pinned source require regeneration |
+| `--xml.bundle_sha256` | | Require the exact fixed-XSD SHA-256 bundle identity |
+| `--xml.export-xsd` | | Export one configuration's supported single-namespace bound contract to an XSD file |
+| `--xml.export-xsd-bundle` | | Export a checked pinned multi-namespace bundle to a new directory |
+| `--xml.compare-xsd` | | Previous fixed XSD subset that the current bound XML reader must accept |
 | `--xml.runtime_xsd` | | `true` permits an explicitly supplied runtime validator; default `false` |
 | `--xml.validation_scope` | | `input` (default), `output`, or `both` |
 | `--cpp.clang_format` | | clang-format 19+ executable |
@@ -333,6 +338,22 @@ These are configuration-only additions; they add no CLI flags or schema syntax.
 They bind checked IR but generated codecs for the new selections explicitly
 reject in every output language. Fixed XSD binding, XSD export and directional
 XML comparison do not yet accept these new contracts.
+
+Compiler/runtime **2.11.0** adds standalone multi-namespace XSD publication:
+
+```sh
+serializer --input model.serializer --config model.ini --xml.export-xsd-bundle out/model-xsd
+```
+
+Use exactly one configuration and an existing parent directory. The command
+writes flat schemas plus `manifest.json` with the entry, SHA-256 identity and
+inventory. It validates and reimports staged files before publishing the complete
+directory. Identical reruns succeed; differing existing directories reject.
+Do not combine bundle export with generated outputs, single-file export,
+comparison or a depfile. Serialize concurrent writes to the same destination.
+See [XSD tooling](../serialization/xsd_tooling.md) and
+[advanced contracts](../serialization/xml_advanced_contracts.md) for the exact
+subsets and backend gates. These shared contracts add no schema grammar.
 
 Class-specific `[language.class.source::qualified_name]` sections can enable
 [record comparisons](../schema/record_comparisons.md) for each selected backend. They are

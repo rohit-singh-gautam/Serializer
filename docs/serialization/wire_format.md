@@ -1,5 +1,35 @@
 # Wire format and decoding contract
 
+Compiler/runtime **2.11.0** adds [advanced shared XML contracts](xml_advanced_contracts.md)
+without changing native protocol numbers, field IDs, payload revisions or managed
+journal layouts. Schema language stays **1.20.0**. Compiled numeric facets compare
+in the declared value space, retaining exact integer/decimal digits. Unicode
+lengths count code points; enumeration applies no Unicode normalization. Portable
+regex checks consume a complete XML-valid UTF-8 value under the explicit subset;
+broader existing XSD patterns retain their provider semantics.
+
+Identity metadata uses expanded XML names and typed tuples. Keys require complete
+non-nil fields; unique constraints omit incomplete tuples and reject duplicate
+complete values. Keyrefs resolve against the same owner's key/unique tables after
+the complete scope is available; repeated reference values are permitted. QName
+identity uses each field's original bindings. These helpers validate normalized
+XML without adding native record state. Unsupported generated contracts reject.
+
+Shared XML revision/magic projections reserve expanded attributes in
+`urn:serializer:xml:model`, separate from native revision bytes. Managed data
+projections exclude persistent identity/history/session state; borrowed projections
+add no owner/reference token to their values. Digest projection carries exact
+hexadecimal bytes without computing a hash. Document profiles describe complete
+codec/compression/container choices and expected model/root/type/vocabularies;
+metadata does not supply an unavailable provider or every backend dispatcher.
+Existing ZIP/OPC framing follows its standard contract.
+
+HTML fragments have a separate event/syntax boundary in `<rohit/html.hpp>`.
+They do not enter XML event streams or carry XML namespace/type metadata. Only
+the documented balanced subset is accepted; XHTML remains XML. See
+[advanced contracts](xml_advanced_contracts.md), [XSD tools](xsd_tooling.md) and
+[2.11 migration](../../migration.md#compilerruntime-2110).
+
 Compiler/runtime **2.8.0** enables XML support by default and adds Python OPC
 profiles and richer C++/Python XSD checks. Schema language remains **1.20.0**;
 existing native payloads, IDs and managed journal formats are unchanged.
@@ -48,7 +78,7 @@ native bytes, default selection and managed journal records are unchanged.
 C++ exposes `xml::codec` for ordinary whole-object stream/compression helpers;
 other outputs expose dedicated XML methods. ZIP and compression wrap complete
 codec bytes without a private payload envelope. See the
-[XML/package contract](xml_packages.md) and [remaining coverage](../xml_pending.md).
+[XML/package contract](xml_packages.md) and [remaining coverage](../pending.md).
 XML format omission selectors and managed revision bindings are not implemented.
 
 Language `1.17.0` [array and callable APIs](../schema/array_and_callable_api.md)

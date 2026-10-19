@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Use Serializer as a state framework when creating or changing schemas, compiler/runtime release migration, generated include layout, array exposure and dimensions, callable availability and delegation, owner-type field factories, static or borrowed callable signatures, inline borrowed/shared/weak value references, typed durable field addresses, scoped translators, readonly getters, arithmetic operators, generated behavior and native C++ qualifiers, checked numeric bindings, direct construction, typed nested and generic owner-parameter defaults, authoring hooks, comparisons/conversions, derived wire sizes, generic type constraints, multi-language codecs, bounded decoding, XML/XSD, compression streams, ZIP/OPC packages, revisions, C++ managed transactions, typed registries, external-provider leases, custom-key indexes, history, journals, collaboration, or persistence. Prefer portable schema behavior, review the installed version's entire feature set and apply every feature relevant to the user's contract; preserve wire compatibility and qualify unsupported combinations."
+description: "Use Serializer as a state framework when creating or changing schemas, compiler/runtime release migration, generated include layout, array exposure and dimensions, callable availability and delegation, owner-type field factories, static or borrowed callable signatures, inline borrowed/shared/weak value references, typed durable field addresses, scoped translators, readonly getters, arithmetic operators, generated behavior and native C++ qualifiers, checked numeric bindings, direct construction, typed nested and generic owner-parameter defaults, authoring hooks, comparisons/conversions, derived wire sizes, generic type constraints, multi-language codecs, bounded decoding, XML/XSD, portable regex and identity contracts, restricted HTML fragments, document profile dispatch, compression streams, ZIP/OPC packages, revisions, C++ managed transactions, typed registries, external-provider leases, custom-key indexes, history, journals, collaboration, or persistence. Prefer portable schema behavior, review the installed version's entire feature set and apply every feature relevant to the user's contract; preserve wire compatibility and qualify unsupported combinations."
 ---
 
 # Serializer Integration
@@ -45,6 +45,39 @@ and AGENTS.md. Apply it when loaded as a skill or read directly from a supplied
 checkout; direct use does not require copying the skill into the consuming project.
 
 ## Use the full framework
+
+Compiler/runtime **2.11.0** adds [advanced shared XML contracts](../../../docs/serialization/xml_advanced_contracts.md).
+Require `find_package(Serializer 2.11 CONFIG REQUIRED)` for
+`<rohit/xml_pattern.hpp>`, `<rohit/xml_identity.hpp>`, `<rohit/document_profile.hpp>`
+or `<rohit/html.hpp>`. Prepare immutable portable regex programs once; unsupported
+dialect constructs reject on the explicit portable path. Broader existing XSD
+patterns retain their provider-backed path and expose `patterns_portable() == false`
+in compiled metadata. Keep exact scalar value spaces and Unicode code-point lengths.
+
+Prefer authoritative XSD text/wrappers and supported declaration import over
+repeating placement lists. Chameleon includes and finite cycles retain separate
+namespace instances and cumulative local bundle bounds. Use
+`--xml.export-xsd-bundle new-directory` for checked schemas and a pinned manifest;
+the parent must exist and differing existing directories reject. Review imported
+stable IDs/native ordering before migrating an application. Compatibility checks
+remain directional and conservative.
+
+Identity helpers implement only the documented strict XPath/scalar subset and
+same-owner key/unique targets. Nested local owners, ambiguous types and wildcard
+projections reject. Validate complete normalized trees and forward references
+before publication. Expected model/root/type and understood vocabularies precede
+decoder selection; preservation does not establish understanding. Package metadata
+does not open providers or supply every backend dispatcher. Keep borrowed model
+storage live through synchronous output; decode into owning models. HTML accepts
+its explicit fragment subset separately from XML/XHTML. Use the shared eleven-language
+fixture inventory: missing SDKs are errors and a selected partial run does not
+qualify all consumers. Shared IR/reference checks do not enable remaining generated
+advanced codecs. Check [verification status](../../../docs/verification/verification-xml-advanced-contracts-2026-10-19.md)
+before claiming qualification. Schema language stays **1.20.0** and editor packages
+stay **2.0.5**. Regenerate and rebuild clients of changed compiler metadata and
+additive generated C++ package profile metadata factories, normally named
+`document_profiles()`; a package with that rendered name uses
+`document_profiles_metadata()` to preserve its constructor name.
 
 Compiler/runtime **2.10.0** adds the incremental C++
 [XML event reader](../../../docs/serialization/xml_events.md#incremental-byte-reader)
@@ -171,8 +204,9 @@ for local import/include allowlists, SHA-256 identity, dependency tracking,
 supported nested complex types, export and directional reader compatibility.
 Use the scoped C++/Python rich subset for supported facets, unions, patterns,
 static complex-content extension and restricted repeated choices. General XSD
-and identity constraints remain unsupported; runtime providers do not inherit
-the compiler bundle resolver. Validate original input lexical values before
+and generated identity enforcement remain unsupported; the shared
+[scoped identity validator](../../../docs/serialization/xml_advanced_contracts.md#identity-constraints)
+is separate. Runtime providers do not inherit the compiler bundle resolver. Validate original input lexical values before
 native conversion; canonical output must independently satisfy any pattern.
 
 Select `[output] protocols = binary_none` or `--protocols binary_none` to restrict

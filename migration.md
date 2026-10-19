@@ -1,5 +1,37 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.11.0
+
+Require `find_package(Serializer 2.11 CONFIG REQUIRED)` for the new public
+`<rohit/xml_pattern.hpp>`, `<rohit/xml_identity.hpp>`,
+`<rohit/document_profile.hpp>` and `<rohit/html.hpp>` APIs. Rebuild compiler-library
+clients because XML binding structures gained compiled facets, model/content
+metadata and optional identity scopes. Regenerate and rebuild C++ package facades
+to expose their additive owning profile metadata factory, normally named
+`document_profiles()`. A package rendered as `document_profiles` uses
+`document_profiles_metadata()` to preserve its constructor name.
+
+Fixed-XSD tools now derive supported text/wrappers, retain scalar and identity
+contracts, adopt chameleon namespaces, deduplicate legal cycles, associate
+unambiguous anonymous records and expand supported import/export/evolution
+checks. Review imported stable IDs/native ordering as before. Use
+`--xml.export-xsd-bundle new-directory` to stage, validate and publish a pinned
+multi-namespace bundle. The parent must exist; identical reruns succeed and
+differing existing directories reject. Existing single-file export remains.
+
+Portable regex compilation rejects unsupported dialect features; broader
+existing XSD patterns retain their provider path. Identity projections use the
+strict documented XPath/scalar subset and same-owner key/unique targets; nested
+local identity owners and wildcard inference reject. Generated identity,
+unordered/grouped content and generic/inherited/revision/projection codecs remain
+gated per backend. HTML accepts the approved fragment subset separately from XML.
+
+Existing native payloads need no conversion. Schema language **1.20.0**, editor
+packages **2.0.5**, protocol values, field IDs, payload revision rules and managed
+journal formats are unchanged. Review [advanced contracts](docs/serialization/xml_advanced_contracts.md)
+and [verification status](docs/verification/verification-xml-advanced-contracts-2026-10-19.md)
+for exact API/ownership/resource limits and executed qualification.
+
 ## Compiler/runtime 2.10.0
 
 Require `find_package(Serializer 2.10 CONFIG REQUIRED)` for
@@ -41,8 +73,8 @@ operation-context charges are not rolled back.
 Existing generated codecs and whole-object XML APIs retain their behavior.
 No schema regeneration, payload migration or protocol-value change is required
 to keep using them. The event API does not parse XML bytes: incremental UTF-8,
-name and namespace processing belongs to S02, and generated token codecs remain
-per-language work. A provider must reject DTDs and user/external entities, check
+name and namespace processing is supplied by the 2.10 incremental reader;
+generated token codecs remain per-language work. A provider must reject DTDs and user/external entities, check
 trailing input through EOF before emitting `end_document`, and enforce byte
 limits outside the event validator. Call `finish()` before publishing a candidate.
 Schema language remains **1.20.0** and both editor packages remain **2.0.5**;
