@@ -12,6 +12,7 @@ verification limits.
 | [Owning objects and binary views](views.md) | Mapping, reading, updating, and traversing binary views safely, including ownership and lifetime rules. |
 | [Message compression](compression.md) | Optional C++ compression backends, complete-message framing, and bounded exact decoding. |
 | [XML and packages](xml_packages.md) | Generated XML mappings, fixed/optional runtime XSD, C++ compression streams, C++/Python OPC profiles and complete file Saves; backend boundaries and pending work. |
+| [Normalized XML events](xml_events.md) | Provider-independent C++ borrowed event ownership, structural validation, cumulative bounds and explicit completion; byte-parser and generated-codec boundaries. |
 | [Fixed XSD bundle tools](xsd_tooling.md) | Pinned local imports/includes, supported nested bindings, XSD export and directional compatibility diagnostics. |
 | [Protobuf representations](protobuf.md) | C++ Protobuf binary, ProtoJSON, and TextProto support and compatibility boundaries. |
 | [Constant evaluation](constant_evaluation.md) | Implemented C++ positional codecs at compile time, generator opt-in, public APIs, and qualified model shapes. |

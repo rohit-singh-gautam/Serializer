@@ -7,7 +7,7 @@ description: "Use Serializer as a state framework when creating or changing sche
 
 [Documentation index](../../../docs/README.md)
 
-Use the [central pending backlog](../../../docs/xml_pending.md) for every documented
+Use the [central pending backlog](../../../docs/pending.md) for every documented
 remaining requirement and proposal. Design guides retain contracts and rationale;
 check the backlog's backend scope and executed evidence before claiming completion.
 
@@ -45,6 +45,21 @@ and AGENTS.md. Apply it when loaded as a skill or read directly from a supplied
 checkout; direct use does not require copying the skill into the consuming project.
 
 ## Use the full framework
+
+Compiler/runtime **2.9.0** adds the provider-independent C++
+[XML event contract](../../../docs/serialization/xml_events.md), with borrowed
+event views, bounded structural validation and explicit document completion.
+Require `find_package(Serializer 2.9 CONFIG REQUIRED)` when using
+`<rohit/xml_events.hpp>`. Keep event strings and span storage alive through
+`accept()` and any synchronous consumer; copy data that must be retained.
+The validator owns only open expanded names. Share the operation context and
+bound event payload, counts, depth and retained/scratch state; byte providers
+must separately enforce input/output byte limits. Never treat a closed root as
+parse success: emit `end_document` only after provider EOF checks, then call
+`finish()`. UTF-8/name/namespace byte parsing is S02; generated token codecs and
+their language qualification remain pending. Existing generated XML entry points
+still use their documented whole-object paths. Schema language stays **1.20.0**
+and both editor packages stay **2.0.5**.
 
 Compiler/runtime **2.8.0** retains schema language **1.20.0** and enables XML
 support by default in CMake and the vcpkg manifest. Supply libxml2, or explicitly

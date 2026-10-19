@@ -1,5 +1,14 @@
 # Using Serializer in a C++ application
 
+Compiler/runtime **2.9.0** adds `<rohit/xml_events.hpp>` for a provider-independent
+normalized XML event boundary. Use the
+[event contract and example](../serialization/xml_events.md) when implementing
+a byte provider or synchronous event consumer: event payload is borrowed, bounds
+apply cumulatively, and success requires explicit `end_document` plus `finish()`.
+This does not change generated codecs or introduce an incremental byte parser;
+those tasks remain in [the backlog](../pending.md). Schema language stays
+**1.20.0** and both editor packages stay **2.0.5**.
+
 Compiler/runtime **2.8.0** enables XML support by default in CMake and the vcpkg
 manifest. Provide libxml2, or explicitly select `-DSERIALIZER_WITH_XML=OFF`.
 Previously configured caches retain their saved selection; change it explicitly

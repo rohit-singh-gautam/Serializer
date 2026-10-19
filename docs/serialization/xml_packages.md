@@ -1,11 +1,18 @@
 # XML, compression streams and packages
 
-Compiler/runtime **2.8.0**, schema language **1.20.0**. Baseline XML generation
+Compiler/runtime **2.9.0**, schema language **1.20.0**. Baseline XML generation
 covers all output languages; the stream and package API examples below use C++20.
 Richer XML mappings and generated OPC profiles have C++ and Python support;
 unsupported backend combinations reject before output publication. Existing
 native wire formats and managed journals are unchanged.
-See [remaining work](../xml_pending.md) and the [full design](../design/xml_support.md).
+See [remaining work](../pending.md) and the [full design](../design/xml_support.md).
+
+The provider-independent C++ [XML event API](xml_events.md) defines borrowed
+normalized events and a bounded structural validator. It retains open expanded
+names only. This shared S01 boundary does not replace the whole-object/generated
+APIs below: incremental byte tokenization (S02) and per-language generated token
+codecs remain pending. An accepted root close is not document completion;
+providers must check EOF before `end_document`, and consumers must call `finish()`.
 
 ```text
 owning model
@@ -567,8 +574,9 @@ remains UTF-8. C++ direct raw parsing can select
 Raw parsing can also opt into `allow_mixed_content`; this retains ordered text
 segments for infrastructure processing and does not relax typed field readers.
 
-The current XML path still builds bounded trees and stages complete encoded parts.
+The generated C++ XML path still builds bounded trees and stages
+complete encoded parts.
 Borrowed model inputs avoid duplicate owning models, but do not promise zero-copy
 XML, bounded constant memory or tree-free streaming. Non-XML generated models gain
 no package fields or runtime checks. Performance qualification and non-C++ context
-parity remain tracked in [pending work](../xml_pending.md).
+parity remain tracked in [pending work](../pending.md).

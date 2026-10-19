@@ -11,6 +11,7 @@ that later changes or untested backend combinations passed the same checks.
 
 | Record | Scope |
 | --- | --- |
+| [Normalized XML events](verification-xml-events-2026-10-19.md) | Shared S01 event ownership, bounded structural validation and explicit completion; exact provider/platform checks and pending incremental-parser/backend work. |
 | [C++ and Python OPC/XSD](verification-opc-backends-2026-10-19.md) | XML enabled by default, selected-edition OPC infrastructure, richer scalar/choice contracts and published Core schema consumers; exact platform/backend qualification and remaining limits. |
 | [OPC and XSD authoring](verification-opc-xsd-2026-10-19.md) | Inline authoring/import, automatic/manual consumers in eleven SDKs, rich C++ XML and package checks, native generated-code equality and explicit remaining scope. |
 | [Inline value references](verification-value-references-2026-10-19.md) | Transparent borrowed/shared/weak exports, scoped collection projections, eleven SDK consumers, native Rust lifetimes and measured C++ allocations. |

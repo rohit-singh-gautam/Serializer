@@ -150,6 +150,12 @@ contract. Use this backlog and the newest applicable evidence together.
 
 ## XML and package backlog
 
+Compiler/runtime **2.9.0** adds the shared S01
+[normalized XML event contract](serialization/xml_events.md). This boundary
+defines borrowed payload and bounded structural validation; incremental byte
+parsing (S02) and per-language generated token codecs remain pending. The 2.8
+checkpoint below retains its original scope and evidence.
+
 Compiler/runtime **2.8.0**, schema language **1.20.0**, adds checked C++/Python
 rich XML and Core consumers, Python OPC profiles and XML enabled by default.
 The [2.8 verification record](verification/verification-opc-backends-2026-10-19.md)
@@ -312,7 +318,8 @@ already checks shared XML/package budgets and the generated package subset;
 broader composition/profile contracts and other backends remain pending. JavaScript, Rust
 and C already have direct XML output paths; preserve and qualify them rather than
 replacing them merely to satisfy `X01`/`X02`. Other cells start from the exact
-implemented subset in the usage guide. No future task is marked verified here.
+implemented subset in the usage guide. Closed shared slices below do not close
+their dependent parser, emitter or language-qualification tasks.
 
 ### Shared compiler and contract tasks
 
@@ -320,7 +327,7 @@ Dependencies name earlier task IDs or the existing 2.4.0 implementation.
 
 | ID | Cap | Depends on | Deliverable and completion check |
 | --- | --- | --- | --- |
-| S01 | 3 h | Existing XML mapping | Define token/event ownership and limits; golden event traces and malformed boundaries pass. |
+| S01 | 3 h | Existing XML mapping | Verified: provider-independent C++ borrowed event contract and bounded structural validator; golden traces, malformed boundaries, ownership, resource and interruption cases pass with Windows XML ON/OFF and focused Linux XML/zlib. See [event API](serialization/xml_events.md) and [executed evidence](verification/verification-xml-events-2026-10-19.md). S02 and every per-language token codec remain pending. |
 | S02 | 3 h | S01 | Define incremental UTF-8/name/namespace handling; split-byte, scope and DTD rejection fixtures pass. |
 | S03 | 3 h | S01 | Define explicit nil/presence IR and configuration; ambiguous absent/empty/nil mappings reject. |
 | S04 | 4 h | S01 | Define ordered mixed-content IR; text/child/text order fixtures pass. |

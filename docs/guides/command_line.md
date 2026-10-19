@@ -1,6 +1,6 @@
 # Serializer compiler and schema versions
 
-The compiler and runtime release is **2.8.0**, defined by `project(... VERSION ...)` in the
+The compiler and runtime release is **2.9.0**, defined by `project(... VERSION ...)` in the
 root CMake file. `serializer --version` (or `-v`) prints that release and the
 supported schema language version. CMake generates `<rohit/version.hpp>` with
 `rohit::serializer::compiler_version`, `schema_language_version_text`, and
@@ -12,7 +12,9 @@ Package discovery accepts earlier minor and patch releases within the same major
 version; requests for newer releases or a different major version are rejected.
 Use `EXACT` to require a specific release.
 
-For the 2.8.0 package, request `find_package(Serializer 2.0 CONFIG REQUIRED)`;
+For the 2.9.0 package, request `find_package(Serializer 2.0 CONFIG REQUIRED)`;
+require `2.9` for the provider-independent C++
+[XML event API](../serialization/xml_events.md);
 require `2.8` for default-enabled XML support and generated Python OPC profiles;
 require `2.7` for inline XML/XSD authoring and generated C++ package profiles;
 require `2.6` for transparent value references and record translators;
@@ -89,7 +91,7 @@ the complete parsed result. See [licensing and notice rules](../project/licensin
 The repository's [schema language versioning policy](../../AGENTS.md#schema-language-versioning)
 uses `major.minor.patch` for language releases, independently of the compiler
 release. `serializer_schema_language_version` in the root CMake file defines the
-language release separately from `project(... VERSION ...)`. Compiler **2.8.0**
+language release separately from `project(... VERSION ...)`. Compiler **2.9.0**
 currently supports language **1.20.0**; `serializer --version` reports both.
 
 Language `1.20.0` adds namespace/class `xml(...)` defaults, field `xml(...)`

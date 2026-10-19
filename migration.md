@@ -1,5 +1,25 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.9.0
+
+Require `find_package(Serializer 2.9 CONFIG REQUIRED)` for the provider-independent
+C++ [XML event API](docs/serialization/xml_events.md) in `<rohit/xml_events.hpp>`.
+This additive API accepts normalized borrowed events and validates document
+structure, cumulative limits and explicit completion while retaining only open
+expanded names. Keep payload buffers alive through `accept()` and synchronous
+consumption; copy any data retained afterwards. Failures are terminal and shared
+operation-context charges are not rolled back.
+
+Existing generated codecs and whole-object XML APIs retain their behavior.
+No schema regeneration, payload migration or protocol-value change is required
+to keep using them. The event API does not parse XML bytes: incremental UTF-8,
+name and namespace processing belongs to S02, and generated token codecs remain
+per-language work. A provider must reject DTDs and user/external entities, check
+trailing input through EOF before emitting `end_document`, and enforce byte
+limits outside the event validator. Call `finish()` before publishing a candidate.
+Schema language remains **1.20.0** and both editor packages remain **2.0.5**;
+this runtime-only boundary changes no editor syntax or navigation.
+
 ## Compiler/runtime 2.8.0
 
 XML support is now enabled by default in CMake and the repository's vcpkg

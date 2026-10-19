@@ -15,7 +15,7 @@ wire records but do not have equivalent native managed engines.
 
 [Project website](https://www.singh.org.in/serializer.html) ·
 [Documentation index](docs/README.md) ·
-[Pending requirements](docs/xml_pending.md) ·
+[Pending requirements](docs/pending.md) ·
 [Serialization quick start](#get-started) ·
 [State-management quick start](docs/managed/getting_started.md) ·
 [Feature status](docs/project/feature_status.md)
@@ -36,11 +36,19 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **2.8.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.9.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.20.0**;
 see [release and schema versions](docs/guides/command_line.md).
+
+Release **2.9.0** adds the provider-independent C++
+[XML event contract](docs/serialization/xml_events.md): borrowed normalized events,
+bounded structural validation and explicit document completion. It retains only
+open expanded names, with no event payload or XML tree. Incremental byte parsing
+and generated token codecs remain separate pending tasks. Schema language
+**1.20.0**, both editor packages **2.0.5**, and existing generated/wire contracts
+are unchanged.
 
 XML support is enabled by default in CMake and the vcpkg manifest; use
 `-DSERIALIZER_WITH_XML=OFF` for a build without it. Existing CMake caches retain

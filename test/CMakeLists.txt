@@ -88,6 +88,15 @@ endif()
 
 add_test(NAME core_serializer_test COMMAND core_serializer_test)
 
+add_executable(xml_event_test xml_event_test.cpp)
+target_link_libraries(xml_event_test PRIVATE Serializer::runtime GTest::gtest_main)
+if(MSVC)
+  target_compile_options(xml_event_test PRIVATE /W4 /WX)
+else()
+  target_compile_options(xml_event_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
+add_test(NAME xml_event_test COMMAND xml_event_test)
+
 add_executable(xml_authoring_parser_test xml_authoring_parser_test.cpp)
 target_link_libraries(xml_authoring_parser_test PRIVATE Serializer::serializer_lib GTest::gtest_main)
 if(MSVC)
