@@ -3,6 +3,8 @@
 #include "behavior_writer.hpp"
 #include "construction_writer.hpp"
 #include "conversion_writer.hpp"
+#include "translator_writer.hpp"
+#include "reference_portable_writer.hpp"
 #include "comparison_writer.hpp"
 #include "format_writer.hpp"
 #include "auto_size_writer.hpp"
@@ -22,6 +24,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace rohit::serializer::writer::java {
@@ -361,7 +364,10 @@ class emitter {
   }
 
   // Resolve a field or alternative name under the selected naming policy.
+  std::map<std::string, std::string> projection_fields_{};
+
   std::string field(std::string_view value) const {
+    if (const auto found = projection_fields_.find(std::string{value}); found != projection_fields_.end()) { return found->second; }
     return identifier(value, false, false, options.rename_identifiers);
   }
 
@@ -806,8 +812,8 @@ class emitter {
   }
 
   // Write a field payload, with collection framing and enum collection semantics.
-  void write_field(const member& value) {
-    const auto name = "this." + field(value.name);
+  void write_field(const member& value, const std::string& selected_expression = {}) {
+    const auto name = selected_expression.empty() ? "this." + field(value.name) : selected_expression;
     const auto& item = value.type_name_list.front();
     if (value.modifier == member::modifier_type::none) {
       if (value.compact != compact_encoding::none) {
@@ -1296,147 +1302,44 @@ class emitter {
   }
 
   // Emit a directly encoded owning class; schema parents are explicit composed fields.
-  void object(const class_node& value) {
-    if (value.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
-        (value.attributes & class_attributes::packed) != class_attributes::none) {
-      throw std::invalid_argument{"Java output supports owning classes only; remove view/packed: " +
-                                  value.name};
+  // Reuse the owning target codec with readonly getter expressions and no target allocation.
+  std::string translator_codecs(const conversion_declaration& method, std::string_view) {
+    auto saved_source = std::move(source);
+    const auto saved_level = level;
+    source.clear();
+    level = 2;
+    const auto& target = ::rohit::serializer::conversion::record(method.target);
+    auto projected = translator::output_fields(method, "java", [&](auto value, auto) { return field(value); });
+    if (target.has_magic()) {
+      line("private static final " + std::string{target.magic_field ? type(target.magic_field->type_name_list.front()) : "java.util.List<Byte>"} + " MAGIC = " + type(method.target) + ".MAGIC;");
     }
-    std::set<std::string> fields{};
-    const auto add_field = [&](const std::string& name) {
-      if (!fields.insert(name).second || name == "ReadPolicy" || name == "Protocol" ||
-          name == "Limits" || name == outer) {
-        throw std::invalid_argument{"Java field name collision: " + name};
-      }
-    };
-    for (const auto& item : value.member_list) {
-      if (!item.array_exposure) { continue; }
-      for (const auto method : {"get", "size", "values"}) { add_field(field(method)); }
-      if (!item.array_exposure->readonly) { add_field(field("set")); }
-      for (const auto& method : value.functions) {
-        if (fields.contains(field(method.name))) {
-          throw std::invalid_argument{"Java array exposure method collision: " + field(method.name)};
-        }
-      }
-      for (const auto& factory : value.constructions) {
-        if (fields.contains(field(factory.constructor ? "create" : factory.name))) {
-          throw std::invalid_argument{"Java array exposure factory collision"};
-        }
-      }
-      for (const auto& conversion : value.conversions) {
-        if (fields.contains(field(conversion.name))) {
-          throw std::invalid_argument{"Java array exposure conversion collision"};
-        }
-      }
-    }
-    for (std::size_t index = 0; index < value.parents.size(); ++index) {
-      add_field("base" + std::to_string(index));
-    }
-    for (const auto& item : value.member_list) {
-      if (item.wire_only) { continue; }
-      const auto name = field(item.name);
-      for (const auto& alternative : item.type_name_list) {
-        if (alternative.resolved_node == &value &&
-            (item.modifier == member::modifier_type::none ||
-             item.modifier == member::modifier_type::variant)) {
-          throw std::invalid_argument{
-              "Java owning defaults cannot directly contain their own class: " + value.name};
-        }
-      }
-      if (item.modifier == member::modifier_type::variant) {
-        add_field(name + "Index");
-        for (const auto& alternative : item.type_name_list) {
-          add_field(name + type_name(alternative.enum_name));
-        }
-      } else {
-        add_field(name);
-      }
-    }
-    const auto name = type_name(value.name);
-    if (std::any_of(value.member_list.begin(), value.member_list.end(), [](const auto& field) {
-          const auto& item = field.type_name_list.front();
-          return field.modifier == member::modifier_type::array &&
-                 (item.is_optional() || item.is_sequence() || item.is_associative());
-        })) {
-      // Java cannot create arrays of parameterized types; the emitted cast preserves the API.
-      line("@SuppressWarnings({\"unchecked\", \"rawtypes\"})");
-    }
-    line("public static final class " + name + " {");
-    ++level;
-    if (value.magic_field) {
-      const auto& magic = *value.magic_field;
-      const auto visibility = value.magic_access == access_type::public_access ? "public " :
-          value.magic_access == access_type::protected_access ? "protected " : "private ";
-      line("/** Immutable scalar schema identity without instance storage. */");
-      line(std::string(visibility) + "static final " + type(magic.type_name_list.front()) +
-           " MAGIC = " + default_value(magic) + ";");
-    } else if (value.has_magic()) {
-      std::string bytes;
-      for (const auto byte : value.magic_bytes) {
-        bytes += (bytes.empty() ? "" : ", ") + std::string("(byte)") +
-                 std::to_string(static_cast<unsigned char>(byte));
-      }
-      const auto visibility = value.magic_access == access_type::public_access ? "public " :
-          value.magic_access == access_type::protected_access ? "protected " : "private ";
-      line("/** Immutable schema identity without instance storage. */");
-      line(std::string(visibility) + "static final java.util.List<Byte> MAGIC = "
-           "java.util.List.of(" + bytes + ");");
-    }
-    for (std::size_t index = 0; index < value.parents.size(); ++index) {
-      const auto base_type = names.at(value.parents[index].parent_class);
-      const auto access = value.parents[index].access;
-      const std::string visibility = access == access_type::private_access     ? "private "
-                                     : access == access_type::protected_access ? "protected "
-                                                                               : "public ";
-      line(visibility + base_type + " base" + std::to_string(index) + " = new " + base_type +
-           "();");
-    }
-    for (const auto& item : value.member_list) {
-      if (!item.wire_only) { declaration(item); }
-    }
-    array_access(value);
-    behaviors(value);
-    source += construction::factories(value, name, "java",
-        [&](const auto& item) { return type(item); },
-        [&](auto item, auto) { return field(item); },
-        [&](const auto& item) { return default_value(item); });
-    source += conversion::methods(value, name, "java",
-        [&](const auto& item) { return type(item); },
-        [&](auto item, auto) { return field(item); });
-    comparisons(value);
-    xml_object(value);
-    line("/** Encode this value into an independent exact-size message. */");
-    line("public byte[] encode(Protocol protocol) {");
-    ++level;
+    line("/** Encode projected fields without constructing the target model. */");
+    line("public byte[] encode(Protocol protocol) {"); ++level;
     if (options.protocols == output_protocols::binary_none) {
       line("if (protocol != Protocol.BINARY_NONE) throw new IllegalArgumentException(\"Protocol disabled during generation\");");
     }
-    line("Writer out = new Writer(protocol);");
-    line("write(out);");
-    line("return out.bytes.toByteArray();");
-    --level;
-    line("}");
-    line("/** Decode one exact message using default resource limits. */");
-    line("public static " + name + " decode(byte[] bytes, Protocol protocol) {");
-    ++level;
-    line("return decode(bytes, protocol, Limits.defaults());");
-    --level;
-    line("}");
-    line("/** Decode transactionally into a fresh value; malformed input throws. */");
-    line("public static " + name + " decode(byte[] bytes, Protocol protocol, Limits limits) {");
-    ++level;
-    if (options.protocols == output_protocols::binary_none) {
-      line("if (protocol != Protocol.BINARY_NONE) throw new IllegalArgumentException(\"Protocol disabled during generation\");");
+    line("Writer out = new Writer(protocol); write(out); return out.bytes.toByteArray();");
+    --level; line("}");
+    line("/** Traverse the target's keys and readonly field projections. */");
+    line("private void write(Writer out) {"); ++level;
+    projection_fields_ = std::move(projected);
+    write_output_body(target);
+    projection_fields_.clear();
+    --level; line("}");
+    auto result = std::move(source);
+    source = std::move(saved_source);
+    level = saved_level;
+    return result;
+  }
+
+  // Encode owning or projected fields through the same target traversal.
+  void write_output_body(const class_node& value) {
+    if (value.reference && value.reference->value_projection) {
+      line("var srlSelected = readValue();");
+      write_field(value.member_list.front(), "srlSelected");
+      return;
     }
-    line("Reader in = new Reader(bytes, protocol, limits);");
-    line(name + " result = read(in);");
-    line("in.finish();");
-    line("return result;");
-    --level;
-    line("}");
-    line("/** Write schema fields in declaration order. */");
-    line("private void write(Writer out) {");
-    ++level;
+    if (value.reference) { line("srlValidateReferenceAddress();"); }
     const auto sized_fields = auto_size::fields(value);
     if (!sized_fields.empty()) {
       line("int autoSizeStart = out.bytes.size();");
@@ -1502,7 +1405,7 @@ class emitter {
       const auto& base = value.parents[index];
       line("out.field(" + std::to_string(base.id) + ", " + quote(base.display_name) + ", " +
            first_flag(first) + ");");
-      line("this.base" + std::to_string(index) + ".write(out);");
+      line("this." + field("base" + std::to_string(index)) + ".write(out);");
       if (variable_first) { line("firstField = false;"); }
       first = false;
     }
@@ -1604,6 +1507,160 @@ class emitter {
       --level;
       line("}");
     }
+  }
+
+  void object(const class_node& value) {
+    if (value.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
+        (value.attributes & class_attributes::packed) != class_attributes::none) {
+      throw std::invalid_argument{"Java output supports owning classes only; remove view/packed: " +
+                                  value.name};
+    }
+    std::set<std::string> fields{};
+    const auto add_field = [&](const std::string& name) {
+      if (!fields.insert(name).second || name == "ReadPolicy" || name == "Protocol" ||
+          name == "Limits" || name == outer) {
+        throw std::invalid_argument{"Java field name collision: " + name};
+      }
+    };
+    for (const auto& item : value.member_list) {
+      if (!item.array_exposure) { continue; }
+      for (const auto method : {"get", "size", "values"}) { add_field(field(method)); }
+      if (!item.array_exposure->readonly) { add_field(field("set")); }
+      for (const auto& method : value.functions) {
+        if (fields.contains(field(method.name))) {
+          throw std::invalid_argument{"Java array exposure method collision: " + field(method.name)};
+        }
+      }
+      for (const auto& factory : value.constructions) {
+        if (fields.contains(field(factory.constructor ? "create" : factory.name))) {
+          throw std::invalid_argument{"Java array exposure factory collision"};
+        }
+      }
+      for (const auto& conversion : value.conversions) {
+        if (fields.contains(field(conversion.name))) {
+          throw std::invalid_argument{"Java array exposure conversion collision"};
+        }
+      }
+    }
+    for (std::size_t index = 0; index < value.parents.size(); ++index) {
+      add_field("base" + std::to_string(index));
+    }
+    for (const auto& item : value.member_list) {
+      if (item.wire_only) { continue; }
+      const auto name = field(item.name);
+      for (const auto& alternative : item.type_name_list) {
+        if (alternative.resolved_node == &value &&
+            (item.modifier == member::modifier_type::none ||
+             item.modifier == member::modifier_type::variant)) {
+          throw std::invalid_argument{
+              "Java owning defaults cannot directly contain their own class: " + value.name};
+        }
+      }
+      if (item.modifier == member::modifier_type::variant) {
+        add_field(name + "Index");
+        for (const auto& alternative : item.type_name_list) {
+          add_field(name + type_name(alternative.enum_name));
+        }
+      } else {
+        add_field(name);
+      }
+    }
+    const auto name = type_name(value.name);
+    if (std::any_of(value.member_list.begin(), value.member_list.end(), [](const auto& field) {
+          const auto& item = field.type_name_list.front();
+          return field.modifier == member::modifier_type::array &&
+                 (item.is_optional() || item.is_sequence() || item.is_associative());
+        })) {
+      // Java cannot create arrays of parameterized types; the emitted cast preserves the API.
+      line("@SuppressWarnings({\"unchecked\", \"rawtypes\"})");
+    }
+    line("public static final class " + name + " {");
+    ++level;
+    if (value.magic_field) {
+      const auto& magic = *value.magic_field;
+      const auto visibility = value.magic_access == access_type::public_access ? "public " :
+          value.magic_access == access_type::protected_access ? "protected " : "private ";
+      line("/** Immutable scalar schema identity without instance storage. */");
+      line(std::string(visibility) + "static final " + type(magic.type_name_list.front()) +
+           " MAGIC = " + default_value(magic) + ";");
+    } else if (value.has_magic()) {
+      std::string bytes;
+      for (const auto byte : value.magic_bytes) {
+        bytes += (bytes.empty() ? "" : ", ") + std::string("(byte)") +
+                 std::to_string(static_cast<unsigned char>(byte));
+      }
+      const auto visibility = value.magic_access == access_type::public_access ? "public " :
+          value.magic_access == access_type::protected_access ? "protected " : "private ";
+      line("/** Immutable schema identity without instance storage. */");
+      line(std::string(visibility) + "static final java.util.List<Byte> MAGIC = "
+           "java.util.List.of(" + bytes + ");");
+    }
+    for (std::size_t index = 0; index < value.parents.size(); ++index) {
+      const auto base_type = names.at(value.parents[index].parent_class);
+      const auto access = value.parents[index].access;
+      const std::string visibility = access == access_type::private_access     ? "private "
+                                     : access == access_type::protected_access ? "protected "
+                                                                               : "public ";
+      line(visibility + base_type + " base" + std::to_string(index) + " = new " + base_type +
+           "();");
+    }
+    for (const auto& item : value.member_list) {
+      if (!item.wire_only && !(value.reference && value.reference->value_projection)) { declaration(item); }
+    }
+    array_access(value);
+    behaviors(value);
+    source += reference_support::portable_methods(value, name, "java",
+        [&](const auto& item) { return type(item); },
+        [&](auto item, auto) { return field(item); });
+    source += construction::factories(value, name, "java",
+        [&](const auto& item) { return type(item); },
+        [&](auto item, auto) { return field(item); },
+        [&](const auto& item) { return default_value(item); });
+    source += conversion::methods(value, name, "java",
+        [&](const auto& item) { return type(item); },
+        [&](auto item, auto) { return field(item); });
+    source += translator::methods(value, name, "java",
+        [&](const auto& item) { return type(item); },
+        [&](auto item, auto) { return field(item); },
+        [&](const auto& item) { return default_value(item); },
+        [&](const auto& method, auto view) { return translator_codecs(method, view); });
+    comparisons(value);
+    xml_object(value);
+    line("/** Encode this value into an independent exact-size message. */");
+    line("public byte[] encode(Protocol protocol) {");
+    ++level;
+    if (options.protocols == output_protocols::binary_none) {
+      line("if (protocol != Protocol.BINARY_NONE) throw new IllegalArgumentException(\"Protocol disabled during generation\");");
+    }
+    line("Writer out = new Writer(protocol);");
+    line("write(out);");
+    line("return out.bytes.toByteArray();");
+    --level;
+    line("}");
+    line("/** Decode one exact message using default resource limits. */");
+    line("public static " + name + " decode(byte[] bytes, Protocol protocol) {");
+    ++level;
+    line("return decode(bytes, protocol, Limits.defaults());");
+    --level;
+    line("}");
+    line("/** Decode transactionally into a fresh value; malformed input throws. */");
+    line("public static " + name + " decode(byte[] bytes, Protocol protocol, Limits limits) {");
+    ++level;
+    if (options.protocols == output_protocols::binary_none) {
+      line("if (protocol != Protocol.BINARY_NONE) throw new IllegalArgumentException(\"Protocol disabled during generation\");");
+    }
+    line("Reader in = new Reader(bytes, protocol, limits);");
+    line(name + " result = read(in);");
+    line("in.finish();");
+    line("return result;");
+    --level;
+    line("}");
+    line("/** Write schema fields in declaration order. */");
+    line("private void write(Writer out) {");
+    ++level;
+    write_output_body(value);
+    const auto sized_fields = auto_size::fields(value);
+    const bool magic_json = value.has_magic() && !value.magic_omits("json");
     --level;
     line("}");
     line("/** Read known fields only; keyed omissions retain schema defaults. */");
@@ -1615,6 +1672,13 @@ class emitter {
     line("/** Merge duplicate nested fields in input order within this fresh message. */");
     line("private static " + name + " read(Reader in, " + name + " result) {");
     ++level;
+    if (value.reference && value.reference->value_projection) {
+      line("throw new IllegalStateException(\"Export references cannot be decoded; use the ordinary owning type\");");
+      --level; line("}");
+      --level; line("}");
+      return;
+    }
+    if (value.reference) { line("result.unbind();"); }
     if (!sized_fields.empty() && auto_size::verifies(value, options.class_auto_sizes)) {
       line("int autoSizeStart = in.offset;");
     }
@@ -1801,6 +1865,7 @@ class emitter {
         }
       }
     }
+    if (value.reference) { line("result.srlValidateReferenceAddress();"); }
     line("return result;");
     --level;
     line("}");

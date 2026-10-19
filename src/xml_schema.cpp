@@ -331,6 +331,23 @@ void validate_options(const std::vector<std::unique_ptr<syntax_node>>& statement
   if (!options.enabled && (options.runtime_xsd || !options.xsd.empty() || !options.classes.empty())) {
     throw std::invalid_argument{"XML configuration requires xml.enabled = true"};
   }
+  if (options.enabled) {
+    const auto validate_references = [&](auto&& self, const auto& nodes) -> void {
+      for (const auto& node : nodes) {
+        if (node->type == object_type::namespace_type) {
+          self(self, static_cast<const namespace_node&>(*node).statements);
+        } else if (node->type == object_type::class_type || node->type == object_type::generic_definition) {
+          const auto& owner = static_cast<const class_node&>(*node);
+          if (owner.reference || std::any_of(owner.conversions.begin(), owner.conversions.end(),
+              [](const auto& method) { return method.translator; })) {
+            throw std::invalid_argument{
+                "Typed field references and scoped translators currently support JSON and native binary codecs; XML binding is unsupported"};
+          }
+        }
+      }
+    };
+    validate_references(validate_references, statements);
+  }
   if (options.classes.empty()) { return; }
   std::set<std::string> names{};
   const auto collect = [&](auto&& self, const auto& nodes) -> void {

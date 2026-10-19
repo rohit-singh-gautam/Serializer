@@ -1,3 +1,16 @@
+# 2.0.4
+
+- Support language 1.19.0 inline borrowed/shared/weak value-reference fields through the shared grammar and navigation provider.
+- Navigate direct payload types such as `borrowed(payload)` as well as optional owner-field selectors.
+- Preserve language 1.18 durable address references and the existing extension ID.
+- Keep Visual Studio and VS Code package versions synchronized.
+
+# 2.0.3
+
+- Support schema language 1.18.0 named borrowed/shared/weak field references and scoped translators.
+- Navigate reference declarations, qualified owner types, nested field paths and translator mappings through the shared provider.
+- Keep Visual Studio and VS Code versions and extension IDs synchronized.
+
 # 2.0.2
 
 - Update the Marketplace overview and README for compiler/runtime 2.3.0's optional generated XML codecs across output languages, fixed XSD bindings, and backend qualification.

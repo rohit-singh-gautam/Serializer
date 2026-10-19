@@ -65,6 +65,10 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
     (Number(language[1]) === 1 && Number(language[2] ?? 0) >= 12));
   const owningApiContract = language !== null && (Number(language[1]) > 1 ||
     (Number(language[1]) === 1 && Number(language[2] ?? 0) >= 17));
+  const referenceContract = language !== null && (Number(language[1]) > 1 ||
+    (Number(language[1]) === 1 && Number(language[2] ?? 0) >= 18));
+  const valueReferenceContract = language !== null && (Number(language[1]) > 1 ||
+    (Number(language[1]) === 1 && Number(language[2] ?? 0) >= 19));
   const tokens: Token[] = [...code.matchAll(/[A-Za-z_][A-Za-z_0-9]*|::|[^\s]/g)]
     .map(match => ({ text: match[0], start: match.index!, end: match.index! + match[0].length }));
   const result: SourceIndex = { symbols: [], includes: [], references: [], members: [], memberReferences: [], callables: [] };
@@ -459,6 +463,26 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
       const name = tokens[i + 1];
       result.symbols.push({ ...name, name: name.text, qualified: [...currentScope(), name.text].join('::'),
         kind: 'class', body: name.start, declaration: token.start, definition: true });
+    } else if (schema && referenceContract && token.text === 'reference' && tokens[i + 2]?.text === '=') {
+      const name = tokens[i + 1];
+      if (name && tokens[i + 4]?.text === '(') {
+        result.symbols.push({ ...name, name: name.text, qualified: [...currentScope(), name.text].join('::'),
+          kind: 'class', body: name.start, declaration: token.start, definition: true });
+        const declaredName = [...currentScope(), name.text].join('::');
+        result.references.push({ start: token.start, end: token.end, name: declaredName, scope: [] });
+        result.references.push({ start: name.start, end: name.end, name: declaredName, scope: [] });
+        const owner = qualified(i + 5);
+        let next = typeReference(i + 5);
+        const projection: string[] = [];
+        while (owner && tokens[next]?.text === '.' && /^[A-Za-z_]\w*$/.test(tokens[next + 1]?.text ?? '')) {
+          const field = tokens[next + 1];
+          result.memberReferences!.push({ ...field, name: field.text,
+            owner: { name: owner.name, scope: [...currentScope()] }, path: [...projection] });
+          projection.push(field.text);
+          next += 2;
+        }
+        i = next;
+      }
     } else if (schema && token.text === 'instantiate') {
       const name = tokens[i + 1];
       if (name && tokens[i + 2]?.text === '=') {
@@ -476,7 +500,25 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
       functionSignature(i);
     } else if (schema && ['public', 'private', 'protected'].includes(token.text)) {
       // Typed magic can reference an enum; legacy magic and payload versions have no type operand.
-      if (tokens[i + 1]?.text === 'conversion') {
+      if (valueReferenceContract && ['borrowed', 'shared', 'weak'].includes(tokens[i + 1]?.text) &&
+          tokens[i + 2]?.text === '(') {
+        const owner = qualified(i + 3);
+        let next = typeReference(i + 3);
+        const projection: string[] = [];
+        while (owner && tokens[next]?.text === '.' && /^[A-Za-z_]\w*$/.test(tokens[next + 1]?.text ?? '')) {
+          const selected = tokens[next + 1];
+          result.memberReferences!.push({ ...selected, name: selected.text,
+            owner: { name: owner.name, scope: [...currentScope()] }, path: [...projection] });
+          projection.push(selected.text);
+          next += 2;
+        }
+        if (tokens[next]?.text === ')') { ++next; }
+        const field = tokens[next];
+        if (field && /^[A-Za-z_]\w*$/.test(field.text)) {
+          result.members!.push({ ...field, name: field.text, owner: currentScope().join('::') });
+        }
+        i = next;
+      } else if (tokens[i + 1]?.text === 'conversion' || (referenceContract && tokens[i + 1]?.text === 'translator')) {
         const target = qualified(i + 2);
         let next = typeReference(i + 2);
         if (target && tokens[next]?.text === 'as' && tokens[next + 2]?.text === '{') {
@@ -516,7 +558,18 @@ export function indexSource(text: string, schema: boolean, classScopes = false):
         // Native blocks are skipped by the next iteration.
       } else if (tokens[i + 1]?.text === 'magic') {
         if (qualified(i + 2)) { defaultReference(typeReference(i + 2), true); }
-      } else if (tokens[i + 1]?.text !== 'version') {
+      } else if (tokens[i + 1]?.text === 'version') {
+        // Named payload revisions are addressable fields; their discriminator type is metadata.
+        let next = i + 2;
+        const versionTypes = ['uint8', 'uint16', 'uint32', 'uint64', 'float', 'double',
+          'version2', 'version3', 'version4'];
+        const type = versionTypes.includes(tokens[next]?.text) ? tokens[next++].text : 'uint8';
+        const field = tokens[next];
+        if (field && /^[A-Za-z_]\w*$/.test(field.text)) {
+          result.members!.push({ start: field.start, end: field.end, name: field.text,
+            owner: currentScope().join('::'), type: { name: type, scope: [...currentScope()] } });
+        }
+      } else {
         const referenceStart = result.references.length;
         const next = typeReference(i + 1);
         const field = tokens[next];

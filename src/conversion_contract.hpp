@@ -32,7 +32,7 @@ inline const class_node& record(const type_name& value) {
     throw std::invalid_argument{"Conversion target/projection requires a generated record"};
   }
   const auto& owner = static_cast<const class_node&>(*value.resolved_node);
-  if (owner.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
+  if (owner.reference || owner.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
       (owner.attributes & class_attributes::packed) == class_attributes::packed ||
       owner.supports_managed()) {
     throw std::invalid_argument{"Conversions require ordinary owning records"};
@@ -121,6 +121,58 @@ inline void validate_copy(const type_name& value, std::set<const class_node*>& a
   active.erase(&owner);
 }
 
+// Validate a borrowed payload without imposing the independent conversion's copy restrictions.
+inline void validate_borrow(const type_name& value, std::set<const class_node*>& active,
+    std::size_t depth = 0) {
+  if (depth >= 32) { throw std::invalid_argument{"Borrowed value nesting exceeds 32 levels"}; }
+  if (value.is_optional() || value.is_sequence() || value.is_associative()) {
+    for (const auto& argument : value.arguments) { validate_borrow(argument, active, depth + 1); }
+    return;
+  }
+  if (!value.resolved_node || value.type == object_type::primitive || value.type == object_type::enum_type) { return; }
+  const auto& owner = record(value);
+  if (owner.reference || !owner.native_blocks.empty() || !active.insert(&owner).second) {
+    throw std::invalid_argument{"Borrowed values require nonrecursive ordinary owning records"};
+  }
+  for (const auto& base : owner.parents) {
+    if (base.access != access_type::public_access || !base.parent_class) {
+      throw std::invalid_argument{"Borrowed values require public generated bases"};
+    }
+    validate_borrow(base_type(base, value), active, depth + 1);
+  }
+  for (const auto& field : owner.member_list) {
+    if (field.wire_only) { continue; }
+    if (field.access != access_type::public_access || field.managed ||
+        field.modifier == member::modifier_type::variant) {
+      throw std::invalid_argument{"Borrowed records require public ordinary fields"};
+    }
+    for (const auto& item : field.type_name_list) { validate_borrow(bound_type(item, value), active, depth + 1); }
+  }
+  active.erase(&owner);
+}
+
+// Reject target authoring effects that leaf-default projections cannot reproduce without an owner.
+inline void validate_translator_defaults(const type_name& value, std::set<const class_node*>& visited) {
+  if (!value.resolved_node || (value.type != object_type::class_type && value.type != object_type::generic_definition)) { return; }
+  const auto& owner = record(value);
+  if (!visited.insert(&owner).second) { return; }
+  for (const auto& construction : owner.constructions) {
+    const bool callable_without_inputs = construction.parameters.empty() || std::all_of(construction.parameters.begin(), construction.parameters.end(), [](const auto& parameter) {
+      return !parameter.default_value.empty() || !parameter.default_factory.empty() || parameter.initializer.has_value();
+    });
+    if (construction.constructor && callable_without_inputs && !construction.defaulted) {
+      throw std::invalid_argument{"Translators cannot reproduce authored zero-argument target construction; use an owning conversion"};
+    }
+  }
+  for (const auto& base : owner.parents) { validate_translator_defaults(base_type(base, value), visited); }
+  for (const auto& field : owner.member_list) {
+    if (!field.default_factory.empty()) {
+      throw std::invalid_argument{"Translators require literal field defaults; owning field factory effects require an owning conversion"};
+    }
+    if (!field.wire_only) { validate_translator_defaults(bound_type(field.type_name_list.front(), value), visited); }
+  }
+}
+
 // Bind exact source/target identities after normal type resolution and generic substitution.
 inline void validate(class_node& owner) {
   if (owner.conversions.empty()) { return; }
@@ -137,6 +189,14 @@ inline void validate(class_node& owner) {
     const auto& target = record(method.target);
     if (&target == &owner || !target.native_blocks.empty()) {
       throw std::invalid_argument{"Conversion targets must be previously declared nonopaque owning records"};
+    }
+    if (method.translator) {
+      // Every getter must expose an inspectable value; defaults never hide unsupported ownership.
+      std::set<const class_node*> active;
+      if (method.collection_projection) { validate_borrow(method.target, active); }
+      else { validate_copy(method.target, active); }
+      std::set<const class_node*> visited;
+      validate_translator_defaults(method.target, visited);
     }
     for (auto& assignment : method.assignments) {
       const auto destination = std::find_if(target.member_list.begin(), target.member_list.end(),
@@ -164,7 +224,8 @@ inline void validate(class_node& owner) {
       const auto expected = bound_type(destination->type_name_list.front(), method.target);
       if (source != expected) { throw std::invalid_argument{"Conversion field types must match exactly: " + assignment.field}; }
       std::set<const class_node*> active;
-      validate_copy(source, active);
+      if (method.translator && method.collection_projection) { validate_borrow(source, active); }
+      else { validate_copy(source, active); }
     }
   }
 }

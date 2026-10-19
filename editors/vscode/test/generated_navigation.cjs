@@ -227,6 +227,8 @@ async function main() {
     path.join(directory, 'digests'));
   checks += await verify(path.join(repository, 'example/schemas/conversions/model.serializer'),
     path.join(directory, 'conversions'), [], outputs, true, true);
+  checks += await verify(path.join(repository, 'test/resources/reference_fields.serializer'),
+    path.join(directory, 'reference-fields'), [], outputs, true, true);
   checks += await verify(path.join(repository, 'example/schemas/derived_sizes/model.serializer'),
     path.join(directory, 'derived-sizes'), [], outputs, true, true);
   checks += await verify(path.join(repository, 'example/schemas/stateless_layout/model.serializer'),

@@ -1,6 +1,6 @@
 ---
 name: serializer-integration
-description: "Use Serializer as a state framework when creating or changing schemas, compiler/runtime release migration, generated include layout, array exposure and dimensions, callable availability and delegation, owner-type field factories, static or borrowed callable signatures, readonly getters, arithmetic operators, generated behavior and native C++ qualifiers, checked numeric bindings, direct construction, typed nested and generic owner-parameter defaults, authoring hooks, comparisons/conversions, derived wire sizes, generic type constraints, multi-language codecs, bounded decoding, XML/XSD, compression streams, ZIP/OPC packages, revisions, C++ managed transactions, typed registries, external-provider leases, custom-key indexes, history, journals, collaboration, or persistence. Prefer portable schema behavior, review the installed version's entire feature set and apply every feature relevant to the user's contract; preserve wire compatibility and qualify unsupported combinations."
+description: "Use Serializer as a state framework when creating or changing schemas, compiler/runtime release migration, generated include layout, array exposure and dimensions, callable availability and delegation, owner-type field factories, static or borrowed callable signatures, inline borrowed/shared/weak value references, typed durable field addresses, scoped translators, readonly getters, arithmetic operators, generated behavior and native C++ qualifiers, checked numeric bindings, direct construction, typed nested and generic owner-parameter defaults, authoring hooks, comparisons/conversions, derived wire sizes, generic type constraints, multi-language codecs, bounded decoding, XML/XSD, compression streams, ZIP/OPC packages, revisions, C++ managed transactions, typed registries, external-provider leases, custom-key indexes, history, journals, collaboration, or persistence. Prefer portable schema behavior, review the installed version's entire feature set and apply every feature relevant to the user's contract; preserve wire compatibility and qualify unsupported combinations."
 ---
 
 # Serializer Integration
@@ -41,6 +41,59 @@ and AGENTS.md. Apply it when loaded as a skill or read directly from a supplied
 checkout; direct use does not require copying the skill into the consuming project.
 
 ## Use the full framework
+
+Compiler/runtime **2.6.0**, language **1.19.0**, adds
+[inline value references](../../../docs/schema/value_references.md) for export.
+Start with `public borrowed(payload) value (id);` when output must match an ordinary
+owning field. C++ `consumer.d = owner.b` stores exactly a const value pointer;
+the owner stays ordinary and unaware of the consumer. The application keeps its
+storage alive at a stable address, and temporary payload assignment rejects.
+The one-argument `bind` API is also available. Encode the selected value directly,
+with no document/object/generation/path metadata. These references are export-only:
+reference-field decoders reject input, and matching ordinary owning schemas read
+the bytes. Ordinary missing-field rules can leave a containing record's reference
+unbound; they do not create owned replacement storage.
+There is no owned fallback or default payload; missing/expired bindings fail access.
+Use scoped reads instead of copying large payloads. Review the selected backend's
+native lifetime contract rather than assuming a C++ representation in other outputs.
+Shared/weak modes are optional: `shared(payload)` retains an independent payload,
+while `shared(owner.field)` aliases an inline field and retains its complete owner.
+Neither mode requires shared ownership of the consumer. Put collections in
+an ordinary payload record and map it through a language 1.19 scoped
+translator. Preserve source consistency during count/write passes and keep the
+view within the callback. Direct legacy collection terminal fields remain
+unsupported. The older named `reference` declaration below is a separate durable
+address feature; do not choose it for value-only export. Both editors use 2.0.4.
+Start with the [reference export examples](../../../example/references/README.md)
+for one-argument binding and ordinary value output.
+
+Compiler/runtime **2.5.0**, language **1.18.0**, adds
+[typed field references and scoped translators](../../../docs/schema/references.md).
+Declare `reference name = borrowed(owner.field);`, `shared(...)` or `weak(...)`,
+then use the named address type in ordinary fields. Preserve explicit stable
+member/base IDs and document/owner/generation identity. Bind live owners explicitly;
+load owners before resolving decoded addresses. Shared C++ bindings retain the
+whole storage owner. Read the backend's lvalue/weak/scope/boxed-owner lifetime
+contract; bindings add no synchronization or automatic object-graph persistence.
+Address codecs cover JSON and the three native binary protocols; optional XML
+generation currently rejects typed references and translators consistently in every backend.
+Both editor packages use version 2.0.3 for this language contract.
+Owners and targets must satisfy the supported ordinary owning/public projection
+subset; diagnose unsupported managed, collection-element, optional/variant,
+packed/view and reference-to-reference shapes. Do not reinterpret a numeric ID as
+a checked reference. Use existing managed registry/editor APIs for managed state.
+For one synchronous projected output, declare `public translator Target as name
+{ field = source.path; };`. Use its scoped callback and generated target traversal
+instead of constructing a whole owning target. Existing `conversion` remains an
+independent value copy. Never retain a scoped projection or borrow a temporary;
+preserve source consistency across count/write passes. Arbitrary transformations,
+reverse setters and cached lazy ownership are not implied. Regenerate and compile
+every selected backend; review the recorded qualification before claiming support.
+Use the separate [durable address examples](../../../example/address_references/README.md)
+as a small integration baseline: bind `consumer.d` to `owner.b`, edit the owner,
+nest the reference and translator callbacks for immediate output, then explicitly
+resolve a loaded address. The runner selects all eleven SDKs or a language subset;
+the C++ folder also supports an installed Serializer 2.5 CMake package.
 
 Compiler/runtime **2.4.0** supports XML simple text with scalar attributes and
 explicit collection wrappers across every generated language. Configure

@@ -13,7 +13,16 @@ Start with [small schema examples](schema_examples.md) if you are new to the syn
 ## Schema structure
 
 Every `.serializer` file starts with a supported language header before declarations.
-Use `serializer version 1.17.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, `1.11.0`, `1.12.0`, `1.13.0`, `1.14.0`, `1.15.0`, and `1.16.0` remain supported.
+Use `serializer version 1.19.0;` for new schemas; older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, `1.11.0`, `1.12.0`, `1.13.0`, `1.14.0`, `1.15.0`, `1.16.0`, `1.17.0`, and `1.18.0` remain supported.
+
+Language `1.19.0` adds [inline value references](value_references.md) and scoped
+record projection without copying its arrays. Inline references are export-only;
+ordinary owning schemas read the output. Language `1.18.0` adds
+[named durable field references and scoped translators](references.md).
+Use `reference name = borrowed(owner.field);`, `shared(...)` or `weak(...)` to
+declare an address type, then use that type in an ordinary field. A translator
+uses the conversion mapping syntax with `translator` and borrows its source for
+one synchronous operation. Read the exact lifetime and resolution contracts.
 
 Language `1.17.0` adds [array and callable APIs](array_and_callable_api.md),
 including explicit array exposure/axes, deferred owner field factories,

@@ -9,23 +9,27 @@ particular distribution actually exposes.
 
 ## Choose the dependency for your application
 
-The current source release **2.0.0** provides proprietary-compatible generated
+The current source release **2.6.0** provides proprietary-compatible generated
 output and a 0BSD application runtime. Packages of this release should include
 `LICENSE`, `LICENSE-RUNTIME`, and `LICENSE-GENERATED`, and export the separate
 `Serializer::runtime` application target. The compiler and
 `Serializer::serializer_lib` compiler API remain GPL-3.0-or-later. Confirm the
 license scope and targets of the package you actually install; these permissions
 must not be inferred for an older port. See [licensing](licensing.md).
-Both current editor source packages are version **2.0.0**; their schema support
+Both current editor source packages are version **2.0.4**; their schema support
 and documentation links match the current checkout. Source releases and local builds do
 not update published Marketplace listings or the upstream vcpkg registry.
 
-The current 2.0.0 CMake package uses `SameMajorVersion` discovery: versioned
+The current 2.6.0 CMake package uses `SameMajorVersion` discovery: versioned
 requests for Serializer 1.x do not resolve to it. Select
 `find_package(Serializer 2.0 CONFIG REQUIRED)` and regenerate through the
 consumer's build rules. Copy/install generated C++ dependency-header trees with
-their entry headers, or choose inline mode. Schema language 1.17.0 and older
-supported 1.x headers remain unchanged; see [2.0 migration](../../migration.md#compilerruntime-200).
+their entry headers, or choose inline mode. Schema language 1.19.0 adds
+[transparent value references](../schema/value_references.md) for exporting existing
+payload storage without an intermediate owning copy. These references are
+export-only; matching ordinary owning readers decode their output. Older supported
+1.x contracts remain compatible. See [2.6 migration](../../migration.md#compilerruntime-260)
+and [2.0 migration](../../migration.md#compilerruntime-200).
 
 The [source-build guide](../guides/cmake_integration.md#build-this-repository) documents the
 current checkout. Fresh source builds enable managed support, SIMD, and the three

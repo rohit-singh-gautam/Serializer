@@ -1,5 +1,43 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.6.0
+
+Select `serializer version 1.19.0;` for inline value-reference fields such as
+`public borrowed(payload) d (1);`. C++ `consumer.d = owner.b` stores a const payload
+pointer without changing the owner; the application keeps that storage alive.
+The explicit one-argument `bind` API is also available. These fields write exactly
+the ordinary selected value. These handles own no replacement
+payload and explicitly reject reference-field input; read their output with an ordinary owning
+schema. They do not write or resolve document/object/path addresses. Use this
+form for temporary export views, including payload records containing arrays, and
+use scoped translator output to avoid copying the source buffers. Shared/weak
+ownership modes remain optional. `shared(payload)` retains an independent payload;
+`shared(owner.field)` aliases an inline field and retains its complete owner.
+
+Existing language 1.18 named `reference` declarations keep their durable address
+wire format and identity-taking bind/resolve APIs. They are not reinterpreted as
+inline values. Choose the new field syntax explicitly when value-only output is
+the intended contract. Existing owning field bytes can remain unchanged; ownership
+itself is not encoded. Earlier schemas and 2.x CMake package requests stay valid.
+Both editor packages use **2.0.4**; see [value references](docs/schema/value_references.md).
+
+## Compiler/runtime 2.5.0
+
+Regenerate new reference/translator schemas with compiler/runtime 2.5.0 and select
+`serializer version 1.18.0;` in every declaring file. Existing 1.x language headers,
+public generated APIs and serialized payloads remain compatible. CMake requests
+for earlier 2.x packages remain supported; require 2.5 when using these APIs.
+Both editor packages use version 2.0.3.
+
+A named reference serializes its document/owner/generation/stable field path,
+never its live binding or pointee. Load owners and explicitly resolve addresses;
+applications retain object-ID, deletion and cross-document policies. Shared C++
+references retain the storage owner. Follow the per-language lifetime and scope
+rules in [field references](docs/schema/references.md). Existing conversions keep
+their independent-copy behavior; opt into `translator` for synchronous borrowed
+target traversal. Existing binary views and emission-only models are unchanged.
+
+
 ## Compiler/runtime 2.4.0
 
 Regenerate and rebuild consumers to select `[output] protocols = binary_none`

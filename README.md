@@ -35,11 +35,40 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **2.4.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.6.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
-compatibility across major releases. The schema language version is **1.17.0**;
+compatibility across major releases. The schema language version is **1.19.0**;
 see [release and schema versions](docs/guides/command_line.md).
+
+Compiler/runtime **2.6.0**, language **1.19.0**, adds
+[inline value references](docs/schema/value_references.md), such as
+`public borrowed(payload) d (1);`. In C++, `consumer.d = owner.b` stores a const
+payload pointer. The owner stays ordinary and unaware of the consumer; the
+application keeps its storage alive. Output has the same wire shape as an ordinary
+owning field, without reference identity metadata. Scoped translators can borrow
+ordinary payload records containing arrays for immediate output without copying
+their buffers. Shared/weak ownership modes are optional; `shared(payload)` retains
+an independent payload, while `shared(owner.field)` retains its complete owner.
+These references are export-only; read their output with an ordinary owning schema.
+Existing named durable address
+references remain a separate supported API.
+Both editor packages use version **2.0.4**.
+The [reference export examples](example/references/README.md) demonstrate the
+one-argument bindings, value-only wire equivalence and scoped translation.
+
+Compiler/runtime **2.5.0**, language **1.18.0**, adds named borrowed, shared and
+weak [field references and scoped translators](docs/schema/references.md).
+References carry a portable typed address and bind to a live owner explicitly;
+shared C++ bindings retain the owner through `std::shared_ptr`. Loading an address
+requires application resolution after constructing its owners. Translators read
+source projections during synchronous target output without constructing a whole
+owning target. Backend lifetime rules and unsupported shapes are documented in
+the feature guide; automatic graph traversal and other-language managed engines
+are separate capabilities.
+The separate [durable address examples](example/address_references/README.md) demonstrate live
+field updates, shared owner retention, address resolution and one-time projected
+output in all eleven languages, with a standalone installed-package C++ build.
 
 Compiler/runtime **2.4.0** adds XML text with scalar attributes and explicit
 collection wrappers across all generated languages, pinned local XSD bundles and
@@ -120,7 +149,7 @@ regenerate through their build rules. Supported 1.x schema headers, generated
 model names, runtime APIs and wire contracts retain their existing behavior;
 see [2.0 migration](migration.md#compilerruntime-200).
 
-Use `serializer version 1.17.0;` for new schemas. Older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, `1.11.0`, `1.12.0`, `1.13.0`, `1.14.0`, `1.15.0`, and `1.16.0` schemas remain supported. The original
+Use `serializer version 1.19.0;` for new schemas. Older `1.0.0`, `1.1.0`, `1.2.0`, `1.3.0`, `1.4.0`, `1.5.0`, `1.6.0`, `1.7.0`, `1.8.0`, `1.9.0`, `1.10.0`, `1.11.0`, `1.12.0`, `1.13.0`, `1.14.0`, `1.15.0`, `1.16.0`, `1.17.0`, and `1.18.0` schemas remain supported. The original
 `serializer version 1;` is an exact compatibility alias for `1.0.0`, exclusive to
 version 1. Future versions require all three components; see the
 [schema language policy](docs/guides/command_line.md#schema-language-version-policy).
@@ -168,7 +197,7 @@ arithmetic operator mappings with owning constructor calls in portable expressio
 Existing fields, wire formats and managed protocols retain their contracts.
 Run the [four focused examples](example/README.md#owning-record-apis) and consult
 [qualification](docs/verification/verification-owning-api-2026-10-12.md) for tested
-backends and limits. Both current editor packages are **2.0.2**, with separate
+backends and limits. Both current editor packages are **2.0.4**, with separate
 C++ generated-header navigation. See
 [editor verification](docs/editors/editor_extension.md#verification-performed)
 for package checks and navigation qualification.

@@ -17,7 +17,7 @@
   "Schema": {
     "prefix": "schema",
     "body": [
-      "serializer version 1.17.0;",
+      "serializer version 1.19.0;",
       "",
       "namespace ${1:models} {",
       "class ${2:account} stable_ids {",
@@ -356,6 +356,30 @@
     "prefix": "array-generate",
     "body": "${1:elements} = generate(${2:row}, ${3:column} => checked<${4:T}>($2 == $3 ? 1 : 0));$0",
     "description": "Generate a bounded fixed array using its explicitly declared axes; requires language 1.17.0"
+  },
+  "Inline value reference": {
+    "prefix": "value-reference",
+    "body": "public ${1|borrowed,shared,weak|}(${2:payload}) ${3:value} (${4:1});$0",
+    "description": "Share or borrow a payload with ordinary owning-field wire output; requires language 1.19.0"
+  },
+  "Aliased owner field reference": {
+    "prefix": "value-field-reference",
+    "body": "public ${1|borrowed,shared,weak|}(${2:owner}.${3:field}) ${4:value} (${5:1});$0",
+    "description": "Select inline field storage using its containing owner's lifetime; requires language 1.19.0"
+  },
+  "Typed field reference": {
+    "prefix": "reference",
+    "body": "reference ${1:field_reference} = ${2|borrowed,shared,weak|}(${3:owner}.${4:field});$0",
+    "description": "Declare a portable address type with an explicit owner lifetime; requires language 1.18.0"
+  },
+  "Scoped target translator": {
+    "prefix": "translator",
+    "body": [
+      "public translator ${1:target_type} as ${2:project} {",
+      "  ${3:destination} = ${4:source.path};",
+      "};$0"
+    ],
+    "description": "Borrow a source during synchronous projected target output; requires language 1.18.0"
   },
   "Expected C++ callable": {
     "prefix": "function-expected",

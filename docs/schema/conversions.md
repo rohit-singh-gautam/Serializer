@@ -1,5 +1,12 @@
 # Explicit record conversions
 
+Language **1.19.0** adds [inline value references and payload projection](value_references.md)
+for value-only export. Scoped translators can borrow ordinary records containing
+arrays while owning conversions keep their existing independent-copy restrictions.
+
+Language 1.18.0 adds [typed field references and scoped projected translators](references.md);
+reference addresses preserve identity while ordinary conversions produce independent values.
+
 Language **1.9.0** declares portable conversion methods without native code blocks:
 
 ```text

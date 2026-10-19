@@ -4,6 +4,9 @@
 #include "behavior_writer.hpp"
 #include "construction_writer.hpp"
 #include "conversion_writer.hpp"
+#include "translator_writer.hpp"
+#include "reference_portable_writer.hpp"
+#include "value_reference_native_writer.hpp"
 #include "comparison_writer.hpp"
 #include "format_writer.hpp"
 #include "auto_size_writer.hpp"
@@ -16,6 +19,7 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace rohit::serializer::writer::native {
@@ -54,7 +58,10 @@ class mobile_emitter {
     line("}");
   }
   // Produce a checked lowerCamelCase field name.
+  std::map<std::string, std::string> projection_fields_{};
+
   std::string field(std::string_view value) const {
+    if (const auto found = projection_fields_.find(std::string{value}); found != projection_fields_.end()) { return found->second; }
     auto result = pascal(value);
     if (!result.empty()) {
       result.front() = static_cast<char>(std::tolower(static_cast<unsigned char>(result.front())));
@@ -1074,7 +1081,188 @@ class mobile_emitter {
   }
 
   // Emit native owning models with public exact-message decoding.
+  // Reuse target encoding with borrowed source access and per-field default storage.
+  std::string translator_codecs(const conversion_declaration& method, std::string_view) {
+    auto saved_output = std::move(output);
+    const auto saved_indent = indent;
+    output.clear(); indent = 2;
+    const auto& target = ::rohit::serializer::conversion::record(method.target);
+    auto projected = translator::output_fields(method, swift ? "swift" : "kotlin", [&](auto value, auto) { return field(value); });
+    magic_declaration(target);
+    line("// Encode readonly projections without constructing the target model.");
+    open(select("public func encode(_ protocolValue: Protocol) throws -> [UInt8]", "fun encode(protocolValue: Protocol): ByteArray"));
+    if (model.protocols == output_protocols::binary_none) {
+      line(select("guard protocolValue == .BINARY_NONE else { throw SerializerError.invalid(\"Protocol disabled during generation\") }", "require(protocolValue == Protocol.BINARY_NONE) { \"Protocol disabled during generation\" }"));
+    }
+    line(select("let ", "val ") + "out = SrlWriter(protocolValue)");
+    line(attempt() + "srlWrite(out)"); line("return out." + select("bytes", "bytes()")); close();
+    line("// Traverse the target's keys and readonly source projections.");
+    open(select("fileprivate func srlWrite(_ out: SrlWriter) throws", "internal fun srlWrite(out: SrlWriter)"));
+    projection_fields_ = std::move(projected);
+    write_output_body(target);
+    projection_fields_.clear(); close();
+    auto result = std::move(output); output = std::move(saved_output); indent = saved_indent;
+    return result;
+  }
+
+  // Encode owning or projected fields through the same target traversal.
+  void write_output_body(const class_node& value) {
+    if (value.reference) { line(attempt() + "srlValidateReferenceAddress()"); }
+    const auto sized_fields = auto_size::fields(value);
+    if (!sized_fields.empty()) {
+      line(select("let ", "val ") + "autoSizeStart = " + select("out.bytes.count", "out.position()"));
+      for (const auto* item : sized_fields) {
+        line("var autoSizePosition" + std::to_string(item->id) + " = -1");
+        if (item->size_scope == auto_size_scope::payload) {
+          line("var autoSizeFieldBytes" + std::to_string(item->id) + " = 0");
+        }
+      }
+    }
+    if (value.version_member()) {
+      check_version(value, false);
+    }
+    if (value.has_magic()) {
+      const auto omitted = omissions(value.magic_omitted_formats, false);
+      const auto active = "!out.json()" + (omitted.empty() ? "" : " && !(" + omitted + ")");
+      open(select("if " + active, "if (" + active + ")"));
+      if (value.magic_field) {
+        write(value.magic_field->type_name_list.front(), select("Self.magic", "magic"), false);
+      } else {
+        for (const auto byte : value.magic_bytes) {
+          line("out.integer(" + std::to_string(static_cast<unsigned char>(byte)) +
+               select("", "uL") + ", 1, true)");
+        }
+      }
+      close();
+    }
+    line(attempt() + "out.beginObject()");
+    bool first = true;
+    variable_first = std::any_of(value.member_list.begin(), value.member_list.end(),
+                                 [](const auto& item) { return item.omits("json"); });
+    if (variable_first) { line("var firstField = true"); }
+    const bool magic_json = value.has_magic() && !value.magic_omits("json");
+    if (magic_json) {
+      open(select("if out.json()", "if (out.json())"));
+      key(value.magic_id, "magic", true);
+      if (value.magic_field) {
+        write(value.magic_field->type_name_list.front(), select("Self.magic", "magic"), false);
+      } else {
+        line(attempt() + "out.text(" + magic_text() + ")");
+      }
+      if (variable_first) { line("firstField = false"); }
+      close();
+      first = false;
+    }
+    if (const auto* version = value.version_member()) {
+      write_member(*version, first);
+      if (variable_first) { line("firstField = false"); }
+      first = false;
+    }
+    for (std::size_t i = 0; i < value.parents.size(); ++i) {
+      const auto& base = value.parents[i];
+      key(base.id, base.display_name, first);
+      line(attempt() + field("base" + std::to_string(i)) + ".srlWrite(out)");
+      if (variable_first) { line("firstField = false"); }
+      first = false;
+    }
+    for (const auto& item : wire_members(value)) {
+      if (item.version) {
+        continue;
+      }
+      const auto* version = value.version_member();
+      const auto active = version ? version_active(revision_language(), item, *version,
+                                                   select("self.", "this.") + field(version->name))
+                                  : std::string{};
+      if (!active.empty()) {
+        open(select("if " + active, "if (" + active + ")"));
+      }
+      const auto omitted = omissions(item.omitted_formats, false);
+      if (!omitted.empty()) { open(select("if !(" + omitted + ")", "if (!(" + omitted + "))")); }
+      write_member(item, first);
+      if (variable_first) { line("firstField = false"); }
+      if (!omitted.empty()) { close(); }
+      if (!active.empty()) {
+        close();
+      }
+      first = false;
+    }
+    variable_first = false;
+    line("out.endObject()");
+    for (const auto* item : sized_fields) {
+      const auto position = "autoSizePosition" + std::to_string(item->id);
+      open(select("if " + position + " >= 0", "if (" + position + " >= 0)"));
+      line(select("let ", "val ") + "autoSizeSpan = " + select("out.bytes.count", "out.position()") + " - autoSizeStart" +
+          (item->size_scope == auto_size_scope::payload ? " - autoSizeFieldBytes" + std::to_string(item->id) : ""));
+      if (swift && item->type_name_list.front().name == "uint32") {
+        line("guard UInt64(autoSizeSpan) <= UInt64(UInt32.max) else { throw SerializerError.invalid(\"auto_size span overflow\") }");
+      }
+      // JVM byte buffers are Int bounded, so their positive span always fits uint32.
+      line(attempt() + "out.patchInteger(" + position + ", " +
+          select("UInt64(autoSizeSpan)", "autoSizeSpan.toULong()") + ", " +
+          std::to_string(width(item->type_name_list.front())) + ")");
+      close();
+    }
+  }
+
+  // Emit an export-only transparent value wrapper containing only live owner access.
+  void value_reference_object(const class_node& value) {
+    const auto& slot = value.member_list.front();
+    if (slot.modifier != member::modifier_type::none) {
+      throw std::invalid_argument{select("Swift", "Kotlin") + " inline references require a scalar or ordinary record field"};
+    }
+    const auto name = model.names.at(&value);
+    const auto& payload = value.reference->value_type;
+    const auto language = swift ? "swift" : "kotlin";
+    if (!swift) { line("@Suppress(\"UNUSED_PARAMETER\")"); }
+    open(select("public struct ", "class ") + name);
+    output += reference_support::native_value_methods(value, language,
+        [&](const auto& item) { return type(item); }, [&](auto item) { return field(item); });
+    if (swift) { line("public init() {}"); }
+    line("// Encode the selected payload directly, without an extra wrapper object or metadata.");
+    open(select("public func encode(_ protocolValue: Protocol) throws -> [UInt8]",
+        "fun encode(protocolValue: Protocol): ByteArray"));
+    if (model.protocols == output_protocols::binary_none) {
+      line(select("guard protocolValue == .BINARY_NONE else { throw SerializerError.invalid(\"Protocol disabled during generation\") }",
+          "require(protocolValue == Protocol.BINARY_NONE) { \"Protocol disabled during generation\" }"));
+    }
+    line(select("let ", "val ") + "out = SrlWriter(protocolValue)");
+    line(attempt() + "srlWrite(out)");
+    line("return out." + select("bytes", "bytes()"));
+    close();
+    if (!swift) { open("companion object"); }
+    line("// Export references cannot be loaded; decode into the ordinary owning target instead.");
+    open(select("public static func decode(_ bytes: [UInt8], _ protocolValue: Protocol, _ limits: Limits = Limits()) throws -> ",
+        "fun decode(bytes: ByteArray, protocolValue: Protocol, limits: Limits = Limits()): ") + name);
+    line(select("throw SerializerError.invalid(\"Export-only reference: decode into an ordinary owning target\")",
+        "throw IllegalArgumentException(\"Export-only reference: decode into an ordinary owning target\")"));
+    close();
+    line("// Reject nested loading without constructing selected-value storage.");
+    open(select("fileprivate static func srlCreate(_ input: SrlReader) throws -> ",
+        "internal fun srlCreate(input: SrlReader): ") + name);
+    line(select("throw SerializerError.invalid(\"Export-only reference: decode into an ordinary owning target\")",
+        "throw IllegalArgumentException(\"Export-only reference: decode into an ordinary owning target\")"));
+    close();
+    if (!swift) { close(); }
+    line("// Traverse the owner's original payload while keeping its lifetime available.");
+    open(select("fileprivate func srlWrite(_ out: SrlWriter) throws", "internal fun srlWrite(out: SrlWriter)"));
+    if (swift) {
+      line("guard let holder = srlOwner else { throw SerializerError.invalid(\"Unbound or expired export reference\") }");
+      write(payload, reference_support::native_value_path(value, "swift", "holder.value",
+          [&](auto item) { return field(item); }), false);
+    } else {
+      write(payload, "readValue()", false);
+    }
+    close();
+    line("// Reject nested input without mutating the binding or its source.");
+    open(select("fileprivate mutating func srlRead(_ input: SrlReader) throws", "internal fun srlRead(input: SrlReader)"));
+    line(select("throw SerializerError.invalid(\"Export-only reference: decode into an ordinary owning target\")",
+        "throw IllegalArgumentException(\"Export-only reference: decode into an ordinary owning target\")"));
+    close();
+    close();
+  }
+
   void object(const class_node& value) {
+    if (reference_support::native_value_reference(value)) { value_reference_object(value); return; }
     std::set<std::string> array_methods;
     for (const auto& item : value.member_list) {
       if (!item.array_exposure) { continue; }
@@ -1164,6 +1352,9 @@ class mobile_emitter {
     array_access(value);
     behaviors(value);
     comparisons(value);
+    output += reference_support::portable_methods(value, name, swift ? "swift" : "kotlin",
+        [&](const auto& item) { return type(item); },
+        [&](auto item, auto) { return field(item); });
     if (swift) {
       line("/// Construct independent schema defaults.");
       line("public init() {}");
@@ -1175,6 +1366,11 @@ class mobile_emitter {
     output += conversion::methods(value, name, swift ? "swift" : "kotlin",
         [&](const auto& item) { return type(item); },
         [&](auto item, auto) { return field(item); });
+    output += translator::methods(value, name, swift ? "swift" : "kotlin",
+        [&](const auto& item) { return type(item); },
+        [&](auto item, auto) { return field(item); },
+        [&](const auto& item) { return default_value(item); },
+        [&](const auto& method, auto view) { return translator_codecs(method, view); });
     line("// Encode one complete message into independent byte storage.");
     open(select("public func encode(_ protocolValue: Protocol) throws -> [UInt8]",
                 "fun encode(protocolValue: Protocol): ByteArray"));
@@ -1246,104 +1442,14 @@ class mobile_emitter {
     line("// Encode typed fields in declaration order.");
     open(select("fileprivate func srlWrite(_ out: SrlWriter) throws",
                 "internal fun srlWrite(out: SrlWriter)"));
+    write_output_body(value);
     const auto sized_fields = auto_size::fields(value);
-    if (!sized_fields.empty()) {
-      line(select("let ", "val ") + "autoSizeStart = " + select("out.bytes.count", "out.position()"));
-      for (const auto* item : sized_fields) {
-        line("var autoSizePosition" + std::to_string(item->id) + " = -1");
-        if (item->size_scope == auto_size_scope::payload) {
-          line("var autoSizeFieldBytes" + std::to_string(item->id) + " = 0");
-        }
-      }
-    }
-    if (value.version_member()) {
-      check_version(value, false);
-    }
-    if (value.has_magic()) {
-      const auto omitted = omissions(value.magic_omitted_formats, false);
-      const auto active = "!out.json()" + (omitted.empty() ? "" : " && !(" + omitted + ")");
-      open(select("if " + active, "if (" + active + ")"));
-      if (value.magic_field) {
-        write(value.magic_field->type_name_list.front(), select("Self.magic", "magic"), false);
-      } else {
-        for (const auto byte : value.magic_bytes) {
-          line("out.integer(" + std::to_string(static_cast<unsigned char>(byte)) +
-               select("", "uL") + ", 1, true)");
-        }
-      }
-      close();
-    }
-    line(attempt() + "out.beginObject()");
-    bool first = true;
-    variable_first = std::any_of(value.member_list.begin(), value.member_list.end(),
-                                 [](const auto& item) { return item.omits("json"); });
-    if (variable_first) { line("var firstField = true"); }
     const bool magic_json = value.has_magic() && !value.magic_omits("json");
-    if (magic_json) {
-      open(select("if out.json()", "if (out.json())"));
-      key(value.magic_id, "magic", true);
-      if (value.magic_field) {
-        write(value.magic_field->type_name_list.front(), select("Self.magic", "magic"), false);
-      } else {
-        line(attempt() + "out.text(" + magic_text() + ")");
-      }
-      if (variable_first) { line("firstField = false"); }
-      close();
-      first = false;
-    }
-    if (const auto* version = value.version_member()) {
-      write_member(*version, first);
-      if (variable_first) { line("firstField = false"); }
-      first = false;
-    }
-    for (std::size_t i = 0; i < value.parents.size(); ++i) {
-      const auto& base = value.parents[i];
-      key(base.id, base.display_name, first);
-      line(attempt() + "base" + std::to_string(i) + ".srlWrite(out)");
-      if (variable_first) { line("firstField = false"); }
-      first = false;
-    }
-    for (const auto& item : wire_members(value)) {
-      if (item.version) {
-        continue;
-      }
-      const auto* version = value.version_member();
-      const auto active = version ? version_active(revision_language(), item, *version,
-                                                   select("self.", "this.") + field(version->name))
-                                  : std::string{};
-      if (!active.empty()) {
-        open(select("if " + active, "if (" + active + ")"));
-      }
-      const auto omitted = omissions(item.omitted_formats, false);
-      if (!omitted.empty()) { open(select("if !(" + omitted + ")", "if (!(" + omitted + "))")); }
-      write_member(item, first);
-      if (variable_first) { line("firstField = false"); }
-      if (!omitted.empty()) { close(); }
-      if (!active.empty()) {
-        close();
-      }
-      first = false;
-    }
-    variable_first = false;
-    line("out.endObject()");
-    for (const auto* item : sized_fields) {
-      const auto position = "autoSizePosition" + std::to_string(item->id);
-      open(select("if " + position + " >= 0", "if (" + position + " >= 0)"));
-      line(select("let ", "val ") + "autoSizeSpan = " + select("out.bytes.count", "out.position()") + " - autoSizeStart" +
-          (item->size_scope == auto_size_scope::payload ? " - autoSizeFieldBytes" + std::to_string(item->id) : ""));
-      if (swift && item->type_name_list.front().name == "uint32") {
-        line("guard UInt64(autoSizeSpan) <= UInt64(UInt32.max) else { throw SerializerError.invalid(\"auto_size span overflow\") }");
-      }
-      // JVM byte buffers are Int bounded, so their positive span always fits uint32.
-      line(attempt() + "out.patchInteger(" + position + ", " +
-          select("UInt64(autoSizeSpan)", "autoSizeSpan.toULong()") + ", " +
-          std::to_string(width(item->type_name_list.front())) + ")");
-      close();
-    }
     close();
     line("// Merge repeated nested fields while replacing complete collections.");
     open(select("fileprivate mutating func srlRead(_ input: SrlReader) throws",
                 "internal fun srlRead(input: SrlReader)"));
+    if (value.reference) { line("unbind()"); }
     if (!sized_fields.empty() && auto_size::verifies(value, model.class_auto_sizes)) {
       line(select("let ", "val ") + "autoSizeStart = input.position()");
     }
@@ -1532,6 +1638,7 @@ class mobile_emitter {
         }
       }
     }
+    if (value.reference) { line(attempt() + "srlValidateReferenceAddress()"); }
     close();
     close();
   }
@@ -1564,6 +1671,9 @@ public:
       if (code.language == (swift ? "swift" : "kotlin")) { output += behavior::source_marker(code, swift ? "swift" : "kotlin") + code.text + "\n"; }
     }
     output += swift ? swift_runtime : kotlin_runtime;
+    if (swift && std::any_of(model.nodes.begin(), model.nodes.end(), [](const auto* node) {
+          return node->type == object_type::class_type && static_cast<const class_node&>(*node).reference.has_value();
+        })) { output += reference_support::portable_runtime("swift"); }
     output += behavior::helpers(swift ? "swift" : "kotlin", arithmetic_helpers);
   }
   // Emit the runtime, immutable schema key table, enums, and owning models.
@@ -1579,6 +1689,10 @@ public:
     --indent;
     line(select("]", ")"));
     for (const auto* node : model.nodes) {
+      if (swift && model.names.at(node) == "SrlReferenceOwner" &&
+          std::any_of(model.nodes.begin(), model.nodes.end(), [](const auto* item) {
+            return item->type == object_type::class_type && static_cast<const class_node&>(*item).reference.has_value();
+          })) { throw std::invalid_argument{"Swift reference runtime name collision: SrlReferenceOwner"}; }
       if (node->type == object_type::function_type) { free_function(static_cast<const function_node&>(*node)); continue; }
       validate_identifier(
           model.names.at(node),

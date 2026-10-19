@@ -1,0 +1,33 @@
+serializer version 1.18.0;
+
+enum reference_status { disabled, enabled }
+
+class reference_details stable_ids {
+  public string label (9);
+  public uint32 number (10);
+}
+
+class reference_base stable_ids {
+  public reference_details item (7);
+}
+
+class reference_owner stable_ids : public reference_base (5) {
+  public uint32 count (12);
+  public bool enabled (13);
+  public char initial (14);
+  public version version3 revision (15) { "1.2.3" };
+  public reference_status status (16);
+}
+
+reference borrowed_label = borrowed(reference_owner.item.label);
+reference shared_label = shared(reference_owner.item.label);
+reference weak_label = weak(reference_owner.item.label);
+reference shared_details = shared(reference_owner.item);
+reference shared_enabled = shared(reference_owner.enabled);
+reference shared_initial = shared(reference_owner.initial);
+reference shared_revision = shared(reference_owner.revision);
+reference shared_status = shared(reference_owner.status);
+
+class reference_consumer stable_ids {
+  public shared_label d (1);
+}

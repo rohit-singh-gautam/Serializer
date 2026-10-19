@@ -1,5 +1,23 @@
 # Using Serializer in a C++ application
 
+Language **1.19.0** adds [inline value references](../schema/value_references.md):
+`public borrowed(payload) d (1);` is a nonowning export view. C++
+`consumer.d = owner.b` stores a const payload pointer while the owner stays ordinary
+and unaware of the consumer. The application keeps the storage alive. Output is
+the ordinary field value, with no identity metadata. Shared/weak ownership modes
+are optional. A scoped translator can export an ordinary payload record containing
+arrays without copying its buffers. These references require binding and are
+export-only; decode entry points reject input. Read output with the matching
+ordinary owning schema.
+Use the [reference export examples](../../example/references/README.md)
+for the one-argument binding APIs.
+
+Language 1.18.0 adds [typed field references and scoped projected translators](../schema/references.md);
+reference addresses preserve identity while ordinary conversions produce independent values.
+The separate [durable address examples](../../example/address_references/README.md) demonstrate live
+owner fields, shared bindings, resolution after loading and one-time projected
+JSON output in every language, plus a standalone C++ CMake entry point.
+
 [Documentation index](../README.md) · [Application and build guides](README.md)
 
 Compiler/runtime **2.4.0** adds configured XML text with attributes and collection

@@ -98,6 +98,7 @@ class managed_writer {
     target.functions = source.functions;
     target.constructions = source.constructions;
     target.conversions = source.conversions;
+    target.reference = source.reference;
     target.native_blocks = source.native_blocks;
     target.named_generic_source = source.named_generic_source;
     target.body_order = source.body_order;
@@ -136,6 +137,9 @@ class managed_writer {
 
   // Validate every value reached by a managed editor, including ordinary owned child values.
   void collect_editor(const class_node* source) {
+    if (source->reference) {
+      throw std::invalid_argument{"Managed editors cannot contain ordinary live reference bindings"};
+    }
     if (std::find(visiting_editors.begin(), visiting_editors.end(), source) !=
         visiting_editors.end()) {
       throw std::invalid_argument{"Recursive managed ownership schemas are not supported: " +

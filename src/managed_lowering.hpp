@@ -24,6 +24,9 @@ class managed_lowering {
 
   // Reject unsupported ownership and metadata collisions before emitting any target language.
   void validate(const class_node* node) {
+    if (node->reference) {
+      throw std::invalid_argument{"Managed storage cannot contain ordinary live reference bindings"};
+    }
     if (validated_.contains(node)) {
       return;
     }
@@ -94,6 +97,7 @@ class managed_lowering {
                                                    std::vector<parent>{original.parents});
         object->storage_modes = original.storage_modes;
         object->member_list = original.member_list;
+        object->reference = original.reference;
         object->functions = original.functions;
         object->native_blocks = original.native_blocks;
         object->body_order = original.body_order;
@@ -159,6 +163,16 @@ class managed_lowering {
         continue;
       }
       auto& object = static_cast<class_node&>(*target);
+      if (object.reference) {
+        const auto bind = [&](auto&& recurse, type_name& value) -> void {
+          value.declared_namespace = remap(value.declared_namespace);
+          value.defined_namespace = remap(value.defined_namespace);
+          value.resolved_node = remap(value.resolved_node);
+          for (auto& argument : value.arguments) { recurse(recurse, argument); }
+        };
+        bind(bind, object.reference->owner);
+        bind(bind, object.reference->value_type);
+      }
       for (auto& base : object.parents) {
         base.current_namespace = remap(base.current_namespace);
         base.parent_class = remap(base.parent_class);

@@ -7,6 +7,8 @@
 #include "auto_size_writer.hpp"
 #include "construction_writer.hpp"
 #include "conversion_writer.hpp"
+#include "translator_writer.hpp"
+#include "reference_portable_writer.hpp"
 #include "comparison_writer.hpp"
 #include "xml_schema.hpp"
 
@@ -183,7 +185,12 @@ class python_emitter {
     ++indent;
   }
   // Select the schema's exported or conventionally private attribute name.
+  std::map<std::string, std::string> projection_fields_{};
+  bool value_reference_fields_{};
+
   std::string field(std::string_view name, access_type access = access_type::public_access) const {
+    if (const auto found = projection_fields_.find(std::string{name}); found != projection_fields_.end()) { return found->second; }
+    if (value_reference_fields_ && name == "srl_value") { return "_srl_value"; }
     auto result = snake(name);
     validate_identifier(result, keywords);
     return (access == access_type::public_access ? "" : "_") + result;
@@ -395,8 +402,9 @@ class python_emitter {
     line(destination + " = values");
   }
   // Write collections in deterministic key order without copying their values.
-  void write_member(const member& value, bool first) {
-    const auto source = "self." + field(value.name, value.access);
+  void write_member(const member& value, bool first, bool keyed = true,
+                    const std::string& selected_expression = {}) {
+    const auto source = selected_expression.empty() ? "self." + field(value.name, value.access) : selected_expression;
     if (value.modifier == member::modifier_type::variant) {
       open("match " + source + "_index");
       for (std::size_t i = 0; i < value.type_name_list.size(); ++i) {
@@ -412,7 +420,7 @@ class python_emitter {
       --indent;
       return;
     }
-    key(value.id, value.display_name, first);
+    if (keyed) { key(value.id, value.display_name, first); }
     const auto& item = value.type_name_list.front();
     if (value.modifier == member::modifier_type::none) {
       if (value.compact != compact_encoding::none) {
@@ -793,121 +801,42 @@ class python_emitter {
   }
 
   // Emit slot-based owning models with independent defaults and exact decode APIs.
-  void object(const class_node& value) {
-    std::set<std::string> array_methods;
-    for (const auto& item : value.member_list) {
-      if (!item.array_exposure) { continue; }
-      for (const auto method : {"get", "size", "values", "set"}) {
-        if (std::string_view{method} == "set" && item.array_exposure->readonly) { continue; }
-        if (!array_methods.insert(field(method, item.array_exposure->access)).second) {
-          throw std::invalid_argument{"python: array exposure helper collision"};
-        }
-      }
+  // Encode readonly getters through the target's ordinary field and metadata traversal.
+  std::string translator_codecs(const conversion_declaration& method, std::string_view) {
+    auto saved_output = std::move(output);
+    const auto saved_indent = indent;
+    const auto saved_first = dynamic_first;
+    output.clear(); indent = 1;
+    const auto& target = ::rohit::serializer::conversion::record(method.target);
+    auto projected = translator::output_fields(method, "python", [&](auto value, auto access) { return field(value, access); });
+    open("def encode(self, protocol: Protocol) -> bytes");
+    line("\"\"\"Encode readonly projections without constructing the target.\"\"\"");
+    if (model.protocols == output_protocols::binary_none) {
+      line("if _protocol(protocol) != Protocol.BINARY_NONE: raise ValueError('Protocol disabled during generation')");
     }
-    const auto check_array_name = [&](const std::string& name) {
-      if (array_methods.contains(name)) { throw std::invalid_argument{"python: array exposure naming collision: " + name}; }
-    };
-    for (const auto& item : value.member_list) { check_array_name(field(item.name, item.access)); }
-    for (const auto& method : value.functions) { check_array_name(field(method.name, method.access)); }
-    for (const auto& factory : value.constructions) { check_array_name(field(factory.constructor ? "create" : factory.name, factory.access)); }
-    for (const auto& conversion : value.conversions) { check_array_name(field(conversion.name, conversion.access)); }
-    dynamic_first = value.has_magic() && !value.magic_omits("json");
-    for (const auto& item : value.member_list) {
+    line("out = _Writer(protocol)"); line("self._write(out)"); line("return bytes(out.data)"); --indent;
+    open("def _write(self, out)");
+    projection_fields_ = std::move(projected);
+    dynamic_first = target.has_magic() && !target.magic_omits("json");
+    for (const auto& item : wire_members(target)) {
       dynamic_first = dynamic_first || !omitted_condition(item.omitted_formats, "out").empty();
     }
+    write_output_body(target);
+    projection_fields_.clear(); --indent;
+    auto result = std::move(output); output = std::move(saved_output); indent = saved_indent; dynamic_first = saved_first;
+    return result;
+  }
+
+  // Encode owning or projected fields through the same target traversal.
+  void write_output_body(const class_node& value) {
     const auto name = model.names.at(&value);
-    open("class " + name);
-    line("\"\"\"Owning schema model; do not mutate during encoding.\"\"\"");
-    if (value.magic_field) {
-      const auto& magic = *value.magic_field;
-      line(field("magic", value.magic_access) + " = " +
-           initial(magic.type_name_list.front(), literal(magic)));
-    } else if (value.has_magic()) {
-      std::string bytes = "bytes((";
-      for (const auto byte : value.magic_bytes) {
-        bytes += std::to_string(static_cast<unsigned char>(byte)) + ",";
-      }
-      line(field("magic", value.magic_access) + " = " + bytes + "))");
-    }
-    std::vector<std::pair<std::string, std::pair<std::string, std::string>>> fields;
-    for (std::size_t i = 0; i < value.parents.size(); ++i) {
-      const auto& base = value.parents[i];
-      const auto type_name = model.names.at(base.parent_class);
-      fields.push_back(
-          {field("base" + std::to_string(i), base.access), {type_name, type_name + "()"}});
-    }
-    for (const auto& item : value.member_list) {
-      if (item.wire_only) { continue; }
-      const auto f = field(item.name, item.access);
-      const auto& t = item.type_name_list.front();
-      if (item.modifier == member::modifier_type::variant) {
-        fields.push_back({f + "_index", {"int", "0"}});
-        for (const auto& alt : item.type_name_list) {
-          fields.push_back({f + "_" + snake(alt.enum_name), {type(alt), initial(alt)}});
-        }
-      } else if (item.modifier == member::modifier_type::none) {
-        fields.push_back({f, {type(t), default_value(item)}});
-      } else {
-        fields.push_back({f,
-                          {item.modifier == member::modifier_type::array
-                               ? "list[" + type(t) + "]"
-                               : "dict[" + type(map_key(item)) + ", " + type(t) + "]",
-                           item.initializer ? default_value(item) : item.fixed_extent ? "[" + initial(t) + " for _ in range(" +
-                               std::to_string(item.fixed_extent) + ")]" :
-                           item.modifier == member::modifier_type::array ? "[]" : "{}"}});
-      }
-    }
-    std::string slots = "__slots__ = (";
-    for (const auto& f : fields) {
-      slots += quote(f.first) + ", ";
-    }
-    const bool external_behavior = !behavior::contracts(value).empty() || std::any_of(value.functions.begin(), value.functions.end(),
-        [](const auto& method) { return !method.expression && !behavior::native_body(method, "python"); });
-    if (external_behavior) { slots += "\"_srl_behavior\", "; }
-    line(slots + ")");
-    for (const auto& f : fields) {
-      line(f.first + ": " + f.second.first);
-    }
-    open("def __init__(self)");
-    line("\"\"\"Construct independent schema defaults.\"\"\"");
-    for (const auto& f : fields) {
-      line("self." + f.first + " = " + f.second.second);
-    }
-    if (external_behavior) { line("self._srl_behavior = None"); }
-    --indent;
-    array_access(value);
-    xml_object(value);
-    behaviors(value);
-    comparisons(value);
-    output += behavior::python_block(construction::factories(value, name, "python",
-        [&](const auto& item) { return type(item); },
-        [&](auto item, auto access) { return field(item, access); },
-        [&](const auto& item) { return default_value(item); }), indent * 4);
-    output += behavior::python_block(conversion::methods(value, name, "python",
-        [&](const auto& item) { return type(item); },
-        [&](auto item, auto access) { return field(item, access); }), indent * 4);
-    open("def encode(self, protocol: Protocol) -> bytes");
-    line("\"\"\"Encode one complete message into independent bytes.\"\"\"");
-    if (model.protocols == output_protocols::binary_none) {
-      line("if _protocol(protocol) != Protocol.BINARY_NONE: raise ValueError('Protocol disabled during generation')");
-    }
-    line("out = _Writer(protocol)");
-    line("self._write(out)");
-    line("return bytes(out.data)");
-    --indent;
-    line("@classmethod");
-    open("def decode(cls, data, protocol: Protocol, limits: Limits | None = None) -> " + name);
-    line("\"\"\"Return a fresh value after exact-message validation.\"\"\"");
-    if (model.protocols == output_protocols::binary_none) {
-      line("if _protocol(protocol) != Protocol.BINARY_NONE: raise ValueError('Protocol disabled during generation')");
-    }
-    line("input = _Reader(data, protocol, limits)");
-    line("result = cls._read(input)");
-    line("input.finish()");
-    line("return result");
-    --indent;
-    open("def _write(self, out)");
     line("\"\"\"Write typed fields in schema order.\"\"\"");
+    if (value.reference && value.reference->value_projection) {
+      line("srl_selected = self.read_value()");
+      write_member(value.member_list.front(), true, false, "srl_selected");
+      return;
+    }
+    if (value.reference) { line("self._srl_validate_reference_address()"); }
     if (!auto_size::fields(value).empty()) { line("_srl_size_start = len(out.data)"); }
     if (value.has_magic()) {
       const auto omitted = omitted_condition(value.magic_omitted_formats, "out");
@@ -996,10 +925,150 @@ class python_emitter {
            ").to_bytes(" + bytes + ", 'little')");
       --indent;
     }
+  }
+
+  void object(const class_node& value) {
+    value_reference_fields_ = value.reference && value.reference->value_projection;
+    std::set<std::string> array_methods;
+    for (const auto& item : value.member_list) {
+      if (!item.array_exposure) { continue; }
+      for (const auto method : {"get", "size", "values", "set"}) {
+        if (std::string_view{method} == "set" && item.array_exposure->readonly) { continue; }
+        if (!array_methods.insert(field(method, item.array_exposure->access)).second) {
+          throw std::invalid_argument{"python: array exposure helper collision"};
+        }
+      }
+    }
+    const auto check_array_name = [&](const std::string& name) {
+      if (array_methods.contains(name)) { throw std::invalid_argument{"python: array exposure naming collision: " + name}; }
+    };
+    for (const auto& item : value.member_list) { check_array_name(field(item.name, item.access)); }
+    for (const auto& method : value.functions) { check_array_name(field(method.name, method.access)); }
+    for (const auto& factory : value.constructions) { check_array_name(field(factory.constructor ? "create" : factory.name, factory.access)); }
+    for (const auto& conversion : value.conversions) { check_array_name(field(conversion.name, conversion.access)); }
+    dynamic_first = value.has_magic() && !value.magic_omits("json");
+    for (const auto& item : value.member_list) {
+      dynamic_first = dynamic_first || !omitted_condition(item.omitted_formats, "out").empty();
+    }
+    const auto name = model.names.at(&value);
+    open("class " + name);
+    line("\"\"\"Owning schema model; do not mutate during encoding.\"\"\"");
+    if (value.magic_field) {
+      const auto& magic = *value.magic_field;
+      line(field("magic", value.magic_access) + " = " +
+           initial(magic.type_name_list.front(), literal(magic)));
+    } else if (value.has_magic()) {
+      std::string bytes = "bytes((";
+      for (const auto byte : value.magic_bytes) {
+        bytes += std::to_string(static_cast<unsigned char>(byte)) + ",";
+      }
+      line(field("magic", value.magic_access) + " = " + bytes + "))");
+    }
+    std::vector<std::pair<std::string, std::pair<std::string, std::string>>> fields;
+    for (std::size_t i = 0; i < value.parents.size(); ++i) {
+      const auto& base = value.parents[i];
+      const auto type_name = model.names.at(base.parent_class);
+      fields.push_back(
+          {field("base" + std::to_string(i), base.access), {type_name, type_name + "()"}});
+    }
+    for (const auto& item : value.member_list) {
+      if (value.reference && value.reference->value_projection) { continue; }
+      if (item.wire_only) { continue; }
+      const auto f = field(item.name, item.access);
+      const auto& t = item.type_name_list.front();
+      if (item.modifier == member::modifier_type::variant) {
+        fields.push_back({f + "_index", {"int", "0"}});
+        for (const auto& alt : item.type_name_list) {
+          fields.push_back({f + "_" + snake(alt.enum_name), {type(alt), initial(alt)}});
+        }
+      } else if (item.modifier == member::modifier_type::none) {
+        fields.push_back({f, {type(t), default_value(item)}});
+      } else {
+        fields.push_back({f,
+                          {item.modifier == member::modifier_type::array
+                               ? "list[" + type(t) + "]"
+                               : "dict[" + type(map_key(item)) + ", " + type(t) + "]",
+                           item.initializer ? default_value(item) : item.fixed_extent ? "[" + initial(t) + " for _ in range(" +
+                               std::to_string(item.fixed_extent) + ")]" :
+                           item.modifier == member::modifier_type::array ? "[]" : "{}"}});
+      }
+    }
+    std::string slots = "__slots__ = (";
+    if (std::any_of(model.nodes.begin(), model.nodes.end(), [&](const auto* node) {
+          if (node->type != object_type::class_type) { return false; }
+          const auto& owner = static_cast<const class_node&>(*node);
+          return owner.reference && owner.reference->owner.resolved_node == &value &&
+              owner.reference->mode != reference_declaration::mode_type::shared;
+        })) { slots += "\"__weakref__\", "; }
+    if (value.reference) { slots += "\"_srl_reference\", "; }
+    for (const auto& f : fields) {
+      slots += quote(f.first) + ", ";
+    }
+    const bool external_behavior = !behavior::contracts(value).empty() || std::any_of(value.functions.begin(), value.functions.end(),
+        [](const auto& method) { return !method.expression && !behavior::native_body(method, "python"); });
+    if (external_behavior) { slots += "\"_srl_behavior\", "; }
+    line(slots + ")");
+    for (const auto& f : fields) {
+      line(f.first + ": " + f.second.first);
+    }
+    open("def __init__(self)");
+    line("\"\"\"Construct independent schema defaults.\"\"\"");
+    for (const auto& f : fields) {
+      line("self." + f.first + " = " + f.second.second);
+    }
+    if (external_behavior) { line("self._srl_behavior = None"); }
+    if (value.reference) { line("self._srl_reference = None"); }
+    --indent;
+    output += reference_support::portable_methods(value, name, "python",
+        [&](const auto& item) { return type(item); },
+        [&](auto item, auto access) { return field(item, access); });
+    array_access(value);
+    xml_object(value);
+    behaviors(value);
+    comparisons(value);
+    output += behavior::python_block(construction::factories(value, name, "python",
+        [&](const auto& item) { return type(item); },
+        [&](auto item, auto access) { return field(item, access); },
+        [&](const auto& item) { return default_value(item); }), indent * 4);
+    output += behavior::python_block(conversion::methods(value, name, "python",
+        [&](const auto& item) { return type(item); },
+        [&](auto item, auto access) { return field(item, access); }), indent * 4);
+    output += behavior::python_block(translator::methods(value, name, "python",
+        [&](const auto& item) { return type(item); },
+        [&](auto item, auto access) { return field(item, access); },
+        [&](const auto& item) { return default_value(item); },
+        [&](const auto& method, auto view) { return translator_codecs(method, view); }), indent * 4);
+    open("def encode(self, protocol: Protocol) -> bytes");
+    line("\"\"\"Encode one complete message into independent bytes.\"\"\"");
+    if (model.protocols == output_protocols::binary_none) {
+      line("if _protocol(protocol) != Protocol.BINARY_NONE: raise ValueError('Protocol disabled during generation')");
+    }
+    line("out = _Writer(protocol)");
+    line("self._write(out)");
+    line("return bytes(out.data)");
+    --indent;
+    line("@classmethod");
+    open("def decode(cls, data, protocol: Protocol, limits: Limits | None = None) -> " + name);
+    line("\"\"\"Return a fresh value after exact-message validation.\"\"\"");
+    if (model.protocols == output_protocols::binary_none) {
+      line("if _protocol(protocol) != Protocol.BINARY_NONE: raise ValueError('Protocol disabled during generation')");
+    }
+    line("input = _Reader(data, protocol, limits)");
+    line("result = cls._read(input)");
+    line("input.finish()");
+    line("return result");
+    --indent;
+    open("def _write(self, out)");
+    write_output_body(value);
     --indent;
     line("@classmethod");
     open("def _read(cls, input, result=None)");
     line("\"\"\"Merge ordinary nested fields while preserving input order.\"\"\"");
+    if (value.reference && value.reference->value_projection) {
+      line("raise ValueError('Export references cannot be decoded; use the ordinary owning type')");
+      indent -= 2;
+      return;
+    }
     if (!auto_size::fields(value).empty()) {
       line("_srl_size_start = input.offset");
       for (const auto* item : auto_size::fields(value)) {
@@ -1020,6 +1089,7 @@ class python_emitter {
       --indent;
     }
     line("if result is None: result = cls()");
+    if (value.reference) { line("result.unbind()"); }
     const bool json_magic = value.has_magic() && !value.magic_omits("json");
     if (json_magic) { line("_srl_magic_seen = False"); }
     if (value.version_member()) {
@@ -1123,6 +1193,7 @@ class python_emitter {
       }
       --indent;
     }
+    if (value.reference) { line("result._srl_validate_reference_address()"); }
     line("return result");
     indent -= 2;
   }

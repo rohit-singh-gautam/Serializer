@@ -43,9 +43,75 @@ test('language 1.17 array and callable metadata retain type and body boundaries'
   assert.equal(scope(7, 'const_ref'), 'storage.modifier.serializer');
   assert.equal(scope(8, 'value'), 'entity.name.type.serializer');
   const snippets = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../snippets/serializer.json'), 'utf8'));
-  assert.equal(snippets.Schema.body[0], 'serializer version 1.17.0;');
+  assert.equal(snippets.Schema.body[0], 'serializer version 1.19.0;');
   assert.match(snippets['Borrowed C++ function input'].body, /input\} const_ref/);
   assert.match(snippets['Matrix array facade'].body, /dimensions\(/);
+});
+
+test('language 1.18 reference addresses and translators preserve contextual type boundaries', async () => {
+  const grammar = await loadGrammar();
+  const lines = [
+    'serializer version 1.18.0;',
+    'reference label_ref = borrowed(lib::owner.item.label);',
+    'reference shared_ref = shared(lib::owner.item);',
+    'reference weak_ref = weak(lib::owner.item.label);',
+    'class holder { public label_ref d (1);',
+    'public translator lib::target as to_target { name = source.item.label; };',
+    'public lib::owner after (2); }',
+  ];
+  let state = INITIAL;
+  const tokens = lines.map(line => {
+    const result = grammar.tokenizeLine(line, state);
+    state = result.ruleStack;
+    return result.tokens;
+  });
+  const scope = (line, word) => tokens[line].find(token =>
+    token.startIndex <= lines[line].indexOf(word) && token.endIndex > lines[line].indexOf(word)).scopes.at(-1);
+  assert.equal(scope(1, 'reference'), 'storage.type.serializer');
+  assert.equal(scope(1, 'label_ref'), 'entity.name.type.serializer');
+  for (const [line, mode] of [[1, 'borrowed'], [2, 'shared'], [3, 'weak']]) {
+    assert.equal(scope(line, mode + '('), 'storage.modifier.serializer');
+    assert.equal(scope(line, 'owner'), 'entity.name.type.serializer');
+    assert.notEqual(scope(line, 'item'), 'entity.name.type.serializer');
+  }
+  assert.equal(scope(4, 'label_ref'), 'entity.name.type.serializer');
+  assert.equal(scope(5, 'translator'), 'storage.type.serializer');
+  assert.equal(scope(5, 'target'), 'entity.name.type.serializer');
+  assert.equal(scope(5, 'to_target'), 'entity.name.function.serializer');
+  assert.equal(scope(6, 'owner'), 'entity.name.type.serializer');
+  assert.equal(state.depth, 1);
+  const snippets = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../snippets/serializer.json'), 'utf8'));
+  assert.match(snippets['Typed field reference'].body, /borrowed,shared,weak/);
+  assert.match(snippets['Scoped target translator'].body.join('\n'), /public translator/);
+});
+
+test('language 1.19 inline value references retain owner and following field boundaries', async () => {
+  const grammar = await loadGrammar();
+  const lines = ['serializer version 1.19.0; class export_view {',
+    'public borrowed(lib::owner.item.label) first (1);',
+    'public shared(lib::owner.item) second (2);',
+    'public weak(lib::owner.item.label) third (3);',
+    'public shared(lib::payload) value (4);',
+    'public lib::owner after (5); }'];
+  let state = INITIAL;
+  const tokens = lines.map(line => {
+    const result = grammar.tokenizeLine(line, state);
+    state = result.ruleStack;
+    return result.tokens;
+  });
+  const scope = (line, word) => tokens[line].find(token =>
+    token.startIndex <= lines[line].indexOf(word) && token.endIndex > lines[line].indexOf(word)).scopes.at(-1);
+  for (const [line, mode] of [[1, 'borrowed'], [2, 'shared'], [3, 'weak']]) {
+    assert.equal(scope(line, mode), 'storage.modifier.serializer');
+    assert.equal(scope(line, 'owner'), 'entity.name.type.serializer');
+    assert.notEqual(scope(line, 'item'), 'entity.name.type.serializer');
+  }
+  assert.equal(scope(4, 'shared'), 'storage.modifier.serializer');
+  assert.equal(scope(4, 'payload'), 'entity.name.type.serializer');
+  assert.equal(scope(5, 'owner'), 'entity.name.type.serializer');
+  assert.equal(state.depth, 1);
+  const snippets = JSON.parse(fs.readFileSync(path.resolve(__dirname, '../snippets/serializer.json'), 'utf8'));
+  assert.match(snippets['Inline value reference'].body, /public.*borrowed,shared,weak/);
 });
 
 test('language 1.15 fresh record defaults preserve constructor and factory boundaries', async () => {
@@ -82,7 +148,7 @@ test('language 1.15 fresh record defaults preserve constructor and factory bound
   assert.ok(scopes(3, 'fresh record').some(scope => /^comment\./.test(scope)));
   assert.equal(state.depth, 1, 'empty and nested defaults close before the next class declaration');
   const snippets = JSON.parse(fs.readFileSync(path.join(__dirname, '../snippets/serializer.json'), 'utf8'));
-  assert.equal(snippets.Schema.body[0], 'serializer version 1.17.0;');
+  assert.equal(snippets.Schema.body[0], 'serializer version 1.19.0;');
 });
 
 test('language 1.14 exposure, operator mappings and callable additions preserve schema boundaries', async () => {
@@ -291,7 +357,7 @@ test('optional and nested container generics highlight types without consuming f
   }
   assert.equal(result.ruleStack.depth, 1);
   const snippets = JSON.parse(fs.readFileSync(path.join(__dirname, '../snippets/serializer.json'), 'utf8'));
-  assert.equal(snippets.Schema.body[0], 'serializer version 1.17.0;');
+  assert.equal(snippets.Schema.body[0], 'serializer version 1.19.0;');
   assert.equal(snippets['Optional field'].prefix, 'optional');
   assert.match(snippets['Optional field'].body, /optional</);
 });

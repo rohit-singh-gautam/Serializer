@@ -301,8 +301,16 @@ schema::schema(const std::vector<std::unique_ptr<syntax_node>>& statements) {
           if (!field.transient) { add_key(field.display_name + ":" + alternative.enum_name); }
         }
       } else {
-        add(field.name);
-        if (!field.transient) { add_key(field.display_name); }
+        const bool value_reference_slot = object.reference && object.reference->value_projection &&
+            field.fixed_name && field.access == access_type::private_access &&
+            field.name == "srl_value" && object.member_list.size() == 1;
+        if (value_reference_slot) {
+          // This compiler-owned fallback has no authored identifier or serialized field key.
+          fields.insert(field.name);
+        } else {
+          add(field.name);
+          if (!field.transient) { add_key(field.display_name); }
+        }
         if (field.modifier == member::modifier_type::none) {
           (void)literal(field);
         }

@@ -380,8 +380,39 @@ TEST_F(schema_include_test, readonly_call_language_contract_is_per_file) {
       "function uint64 identity(uint64 value) readonly expression(value);");
   write("root.serializer", "serializer version 1; include common; class root { public uint32 value; }");
   EXPECT_NO_THROW(schema::parser::parse_file(directory / "root.serializer"));
-  write("common.serializer", "serializer version 1.18.0; class future {}");
+  write("common.serializer", "serializer version 1.20.0; class future {}");
   reject("Unsupported schema language version");
+}
+
+// References and translators use the declaring include's language contract, not the root's.
+TEST_F(schema_include_test, reference_and_translator_language_contract_is_per_file) {
+  const std::string references = "class owner { public int32 field (7); } "
+      "reference edge = shared(owner.field);";
+  write("root.serializer", "serializer version 1.18.0; include common; class root {}");
+  write("common.serializer", "serializer version 1.17.0; " + references);
+  reject("Field references require serializer version 1.18.0");
+  write("common.serializer", "serializer version 1.18.0; " + references);
+  write("root.serializer", "serializer version 1; include common; class root { public edge value; }");
+  EXPECT_NO_THROW(schema::parser::parse_file(directory / "root.serializer"));
+  const std::string translators = "class target { public int32 value; } "
+      "class owner { public int32 field; public translator target as project { value=field; }; }";
+  write("common.serializer", "serializer version 1.17.0; " + translators);
+  reject("Portable translators require serializer version 1.18.0");
+  write("common.serializer", "serializer version 1.18.0; " + translators);
+  write("root.serializer", "serializer version 1; include common; class root {}");
+  EXPECT_NO_THROW(schema::parser::parse_file(directory / "root.serializer"));
+}
+
+// Inline export bindings use the included declaration's selected language version.
+TEST_F(schema_include_test, value_reference_language_contract_is_per_file) {
+  const std::string declarations = "class payload { public uint32 value (1); } "
+      "class owner { public shared(payload) b (1); }";
+  write("root.serializer", "serializer version 1.19.0; include common; class root {}");
+  write("common.serializer", "serializer version 1.18.0; " + declarations);
+  reject("Inline value references require serializer version 1.19.0");
+  write("common.serializer", "serializer version 1.19.0; " + declarations);
+  write("root.serializer", "serializer version 1; include common; class root {}");
+  EXPECT_NO_THROW(schema::parser::parse_file(directory / "root.serializer"));
 }
 
 // Empty record defaults use the declaring file's contract, independently of its includer.

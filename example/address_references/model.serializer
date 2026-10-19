@@ -1,0 +1,29 @@
+serializer version 1.18.0;
+
+// A projected wire shape can differ from the live object's field names.
+class projected_value stable_ids {
+  public string label (1);
+  public uint32 count (2);
+}
+
+class live_value stable_ids {
+  public string text (1);
+  public uint32 count (2);
+  public translator projected_value as to_wire {
+    label = text;
+    count = count;
+  };
+}
+
+// This record owns b. References select its current field slot.
+class owner stable_ids {
+  public live_value b (1);
+}
+
+reference borrowed_b = borrowed(owner.b);
+reference shared_b = shared(owner.b);
+reference weak_b = weak(owner.b);
+
+class consumer stable_ids {
+  public shared_b d (1);
+}

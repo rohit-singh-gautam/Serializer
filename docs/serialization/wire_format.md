@@ -1,5 +1,15 @@
 # Wire format and decoding contract
 
+Language **1.19.0** [inline value references](../schema/value_references.md) write
+exactly their selected value under the containing field's ordinary key/ID.
+Ownership adds no tag, object framing, presence byte or document/object/path
+metadata in JSON or native binary codecs. Reference wrappers are export-only and
+explicitly reject decoding; use the matching ordinary owning reader. Aliasing and
+shared ownership are not reconstructed from these bytes.
+
+Language 1.18.0 adds [typed field references and scoped projected translators](../schema/references.md);
+reference addresses preserve identity while ordinary conversions produce independent values.
+
 Compiler/runtime **2.4.0** adds explicitly configured XML simple text/attribute
 and collection-wrapper representations, pinned fixed-XSD bundles and contract
 tools. Existing mappings retain their bytes unless configuration changes their

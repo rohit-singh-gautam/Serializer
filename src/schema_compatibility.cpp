@@ -135,6 +135,10 @@ void validate_policy(const compatibility_policy& policy) {
 void collect(const std::vector<std::unique_ptr<syntax_node>>& statements, declarations& result) {
   for (const auto& statement : statements) {
     if (statement->type == object_type::generic_definition || statement->type == object_type::native_code) { continue; }
+    if (statement->type == object_type::class_type) {
+      const auto& record = static_cast<const class_node&>(*statement);
+      if (record.reference && record.reference->value_projection) { continue; }
+    }
     if (statement->type == object_type::namespace_type) {
       collect(static_cast<const namespace_node&>(*statement).statements, result);
     } else {
@@ -145,6 +149,12 @@ void collect(const std::vector<std::unique_ptr<syntax_node>>& statements, declar
 
 // Compare resolved type identities, avoiding false differences from relative type spellings.
 std::string type_identity(const type_name& type) {
+  if (type.resolved_node && type.resolved_node->type == object_type::class_type) {
+    const auto& record = static_cast<const class_node&>(*type.resolved_node);
+    if (record.reference && record.reference->value_projection) {
+      return type_identity(record.member_list.front().type_name_list.front());
+    }
+  }
   if (type.is_optional() || type.is_sequence() || type.is_associative()) {
     std::string result = type.name + "<";
     for (const auto& argument : type.arguments) {
@@ -336,6 +346,7 @@ struct field_contract {
   compact_encoding compact{compact_encoding::none};
   bool derived_size{};
   auto_size_scope size_scope{auto_size_scope::record};
+  bool export_only{}; // A reference emits its binding and has no absent-field decoding default.
 };
 
 // Preserve parent-before-member order, field identity, map keys, and ordered union alternatives.
@@ -347,26 +358,33 @@ std::vector<field_contract> fields(const class_node& type, std::string_view form
   }
   for (const auto& field : type.member_list) {
     if (field.transient || (!format.empty() && field.omits(format))) { continue; }
-    field_contract contract{field.id, field.display_name, {}, fixed_array_default(field), {}};
-    contract.fixed_extent = field.fixed_extent;
+    const member* payload = &field;
+    if (field.modifier == member::modifier_type::none && field.type_name_list.front().resolved_node &&
+        field.type_name_list.front().resolved_node->type == object_type::class_type) {
+      const auto& record = static_cast<const class_node&>(*field.type_name_list.front().resolved_node);
+      if (record.reference && record.reference->value_projection) { payload = &record.member_list.front(); }
+    }
+    field_contract contract{field.id, field.display_name, {}, fixed_array_default(*payload), {}};
+    contract.export_only = payload != &field;
+    contract.fixed_extent = payload->fixed_extent;
     contract.compact = field.compact;
     contract.derived_size = !format.empty() && field.auto_sizes(format);
     contract.size_scope = contract.derived_size ? field.size_scope : auto_size_scope::record;
     if (contract.derived_size) { contract.default_value.clear(); }
-    switch (field.modifier) {
+    switch (payload->modifier) {
     case member::modifier_type::none:
-      contract.shape = "value:" + type_identity(field.type_name_list.front());
+      contract.shape = "value:" + type_identity(payload->type_name_list.front());
       break;
     case member::modifier_type::array:
-      contract.shape = "array:" + type_identity(field.type_name_list.front());
+      contract.shape = "array:" + type_identity(payload->type_name_list.front());
       break;
     case member::modifier_type::map:
-      contract.shape = "map:" + (field.key_node ? field.key_node->get_full_name() : field.key) +
-                       ":" + type_identity(field.type_name_list.front());
+      contract.shape = "map:" + (payload->key_node ? payload->key_node->get_full_name() : payload->key) +
+                       ":" + type_identity(payload->type_name_list.front());
       break;
     case member::modifier_type::variant:
       contract.shape = "union";
-      for (const auto& alternative : field.type_name_list) {
+      for (const auto& alternative : payload->type_name_list) {
         contract.alternatives.emplace_back(alternative.enum_name, type_identity(alternative));
       }
       break;
@@ -481,6 +499,18 @@ void check_class(std::vector<compatibility_issue>& result, const class_node& pre
                  const class_node& current, compatibility_protocol protocol,
                  const compatibility_policy& policy) {
   const auto path = previous.get_full_name();
+  const auto same_reference = [&] {
+    if (previous.reference.has_value() != current.reference.has_value()) { return false; }
+    if (!previous.reference) { return true; }
+    return previous.reference->value_projection == current.reference->value_projection &&
+        previous.reference->mode == current.reference->mode &&
+        type_identity(previous.reference->owner) == type_identity(current.reference->owner) &&
+        type_identity(previous.reference->value_type) == type_identity(current.reference->value_type) &&
+        previous.reference->field_path == current.reference->field_path;
+  };
+  if (!same_reference()) {
+    issue(result, path, "Reference target, stable field path or ownership policy changed");
+  }
   const std::string_view format = protocol == compatibility_protocol::json ? "json" :
       protocol == compatibility_protocol::binary_none ? "binary_none" :
       protocol == compatibility_protocol::binary_integer ? "binary_integer" :
@@ -616,7 +646,8 @@ void check_class(std::vector<compatibility_issue>& result, const class_node& pre
       issue(result, field_path, "Fixed array cardinality changed", before.fixed_extent != 0,
             found->fixed_extent != 0);
     }
-    if (!protobuf && before.default_value != found->default_value) {
+    if (!protobuf && !before.export_only && !found->export_only &&
+        before.default_value != found->default_value) {
       issue(result, field_path, "Schema default changed; absent native fields can change meaning");
     }
     check_ordinals(result, field_path, before.alternatives, found->alternatives, "Union");

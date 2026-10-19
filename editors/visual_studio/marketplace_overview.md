@@ -1,5 +1,18 @@
 # Rohit Serializer for Visual Studio
 
+Version **2.0.4** supports language **1.19.0** inline value references such as
+`public borrowed(payload) d (1);`, including payload-type and optional owner-field navigation.
+Borrowed views use application-owned storage; shared/weak modes are optional.
+Output contains the ordinary field value.
+Scoped translators can project payload records containing arrays without copying their
+buffers. Language 1.18 named durable address references remain supported separately.
+See [value references](../../docs/schema/value_references.md) and
+[durable addresses](../../docs/schema/references.md). Generated helper-type navigation
+for anonymous inline wrappers is not a separate authored schema declaration.
+Both editor packages remain synchronized. Local package verification does not
+publish or update the live Marketplace listing.
+
+
 **Editor support for Serializer — State Framework**
 
 Rohit Serializer helps you edit `.serializer` schemas and navigate between schemas
@@ -7,7 +20,7 @@ and existing generated code in **Visual Studio 2022 and Visual Studio 2026 on
 Windows x64**. It provides syntax highlighting, editing assistance, and native
 navigation for projects using Serializer — State Framework.
 
-The current source release is **2.0.2**, supporting schema language **1.17.0**
+The current source release is **2.0.4**, supporting schema language **1.19.0**
 and navigation for Serializer **2.3.0**'s default separate C++ generated headers.
 The compiler/runtime, schema language, and editor extension have independent
 versions; existing 1.x schema language headers remain supported.

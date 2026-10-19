@@ -1,6 +1,6 @@
 set(schemas)
 foreach(fixture IN ITEMS enum person test1 array map variable assessment views storage_reuse
-    fixed_fields constant_names includes wire_compatibility generics dimensions versioning magic typed_magic inferred_arrays compact_fields digests owning_variants owning_variant_cpp optional_cpp native_output_policy reuse_first reuse_second construction extended_construction overloaded_construction readonly_behavior derived_sizes conversion stateless_layout generic_constraints readonly_function_calls readonly_function_overloads numeric_values)
+    fixed_fields constant_names includes wire_compatibility generics dimensions versioning magic typed_magic inferred_arrays compact_fields digests owning_variants owning_variant_cpp optional_cpp native_output_policy reuse_first reuse_second construction extended_construction overloaded_construction readonly_behavior derived_sizes conversion reference_fields stateless_layout generic_constraints readonly_function_calls readonly_function_overloads numeric_values)
   list(APPEND schemas "${CMAKE_CURRENT_SOURCE_DIR}/resources/${fixture}.serializer")
 endforeach()
 
@@ -15,6 +15,8 @@ add_executable(core_serializer_test
   overloaded_construction_test.cpp
   auto_size_test.cpp
   conversion_test.cpp
+  reference_schema_test.cpp
+  reference_runtime_test.cpp
   stateless_constraints_test.cpp
   generic_constraints_test.cpp
   native_binary_output_policy_test.cpp
@@ -424,6 +426,10 @@ if(Python3_Interpreter_FOUND)
     COMMAND "${Python3_EXECUTABLE}" -B "${PROJECT_SOURCE_DIR}/example/custom_ids/run.py"
       --compiler "$<TARGET_FILE:serializer>" --language python
       --build "${CMAKE_CURRENT_BINARY_DIR}/custom_ids_python")
+  add_test(NAME serializer_value_references_python
+    COMMAND "${Python3_EXECUTABLE}" -B "${PROJECT_SOURCE_DIR}/example/references/run.py"
+      --compiler "$<TARGET_FILE:serializer>" --language python
+      --build "${CMAKE_CURRENT_BINARY_DIR}/value_references_python")
 endif()
 if(SERIALIZER_BUILD_MANAGED)
   add_executable(custom_ids_managed_example ../example/custom_ids/managed_cpp/main.cpp)

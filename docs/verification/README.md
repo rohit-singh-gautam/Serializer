@@ -7,6 +7,18 @@ configurations, and toolchains named in each report. They retain historical
 release metadata and outstanding qualification limits; a result does not imply
 that later changes or untested backend combinations passed the same checks.
 
+## 19 October 2026
+
+| Record | Scope |
+| --- | --- |
+| [Inline value references](verification-value-references-2026-10-19.md) | Transparent borrowed/shared/weak exports, scoped collection projections, eleven SDK consumers, native Rust lifetimes and measured C++ allocations. |
+
+## 18 October 2026
+
+| Record | Scope |
+| --- | --- |
+| [Durable references and translators](verification-references-translators-2026-10-18.md) | Identity-bearing field references and the original scoped translator contract, with their separate historical SDK and native checks. |
+
 ## 17 October 2026
 
 | Record | Scope |

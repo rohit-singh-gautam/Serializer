@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 4.0)
 
-project(serializer VERSION 2.4.0 LANGUAGES CXX)
+project(serializer VERSION 2.6.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
-set(serializer_schema_language_version 1.17.0)
+set(serializer_schema_language_version 1.19.0)
 string(REPLACE "." ";" serializer_schema_language_version_components
   "${serializer_schema_language_version}")
 list(GET serializer_schema_language_version_components 0 serializer_schema_language_version_major)
@@ -124,6 +124,11 @@ add_library(serializer_lib
   src/conversion_parser.hpp
   src/conversion_contract.hpp
   src/conversion_writer.hpp
+  src/reference_parser.hpp
+  src/reference_writer.hpp
+  src/reference_portable_writer.hpp
+  src/reference_validation_writer.hpp
+  src/translator_writer.hpp
   src/stateless_constraint.hpp
   src/predicate_helpers.hpp
   src/typed_expression_writer.hpp
@@ -387,6 +392,8 @@ if(SERIALIZER_BUILD_TESTS OR SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
   add_subdirectory(example/cpp/arithmetic_operators)
   add_subdirectory(example/cpp/reciprocal_quantities)
   add_subdirectory(example/cpp/construction_defaults)
+  add_subdirectory(example/references/cpp)
+  add_subdirectory(example/address_references/cpp)
 endif()
 
 if(SERIALIZER_BUILD_INTEROP_EXAMPLES)
@@ -466,7 +473,7 @@ if(SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
       --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_runtime>"
       --build "${PROJECT_BINARY_DIR}/generic_languages" --language all
       "--wsl-languages=${SERIALIZER_EXAMPLE_WSL_LANGUAGES}")
-  foreach(behavior_suite IN ITEMS behavior_languages native_behavior_languages optional_languages construction_languages record_comparison_languages auto_size_languages conversion_languages stateless_languages readonly_function_languages)
+  foreach(behavior_suite IN ITEMS behavior_languages native_behavior_languages optional_languages construction_languages record_comparison_languages auto_size_languages conversion_languages reference_languages translator_languages stateless_languages readonly_function_languages)
     add_test(NAME "serializer_${behavior_suite}"
       COMMAND "${Python3_EXECUTABLE}" "${PROJECT_SOURCE_DIR}/test/${behavior_suite}.py"
         --compiler "$<TARGET_FILE:serializer>" --cpp-library "$<TARGET_FILE:serializer_runtime>"

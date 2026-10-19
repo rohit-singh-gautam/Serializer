@@ -141,7 +141,15 @@ inline checked_helpers select_helpers(const std::vector<const syntax_node*>& nod
     }
     if (node->type != object_type::class_type) { continue; }
     const auto& owner = static_cast<const class_node&>(*node);
-    for (const auto& field : owner.member_list) { symbols.insert(identifier(field.name)); }
+    for (const auto& field : owner.member_list) {
+      // Compiler-owned fallback storage never participates in authored behavior names.
+      if (owner.reference && owner.reference->value_projection && field.fixed_name &&
+          field.access == access_type::private_access && field.name == "srl_value") {
+        symbols.insert(field.name);
+      } else {
+        symbols.insert(identifier(field.name));
+      }
+    }
     for (const auto& method : owner.functions) {
       const auto name = identifier(method.name);
       symbols.insert(name);

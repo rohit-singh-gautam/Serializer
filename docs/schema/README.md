@@ -25,3 +25,8 @@ identify unsupported combinations in their respective contracts.
 | [Derived record sizes](derived_sizes.md) | Encoded-byte counts, stored and wire-only fields, and native binary validation. |
 | [Payload revisions](versioning.md) | Historical layouts, field lifetimes, reservations, read policies, and compile-time release policies. |
 | [Schema compatibility checks](schema_evolution.md) | Comparing schema revisions and retaining stable identities and serialized meaning. |
+
+[Inline value references](value_references.md) describe language 1.19.0 memory
+ownership with ordinary value output and record translators that borrow arrays.
+[Field references and scoped translators](references.md) describe language 1.18.0
+ownership, durable address resolution and synchronous projected output.

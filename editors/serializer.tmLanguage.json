@@ -236,7 +236,7 @@
           "match": "\\bcommon_type(?=\\s*<)"
         },
         {
-          "begin": "\\b(conversion)\\s+",
+          "begin": "\\b(conversion|translator)\\s+",
           "beginCaptures": {
             "1": {
               "name": "storage.type.serializer"
@@ -548,7 +548,24 @@
           ]
         },
         {
-          "match": "\\b(namespace|class|enum|instantiate)\\s+([A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
+          "match": "\\b(public|private|protected)\\s+(borrowed|shared|weak)\\s*(\\()\\s*((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)(?=\\s*(?:\\.|\\)))",
+          "captures": {
+            "1": { "name": "storage.modifier.serializer" },
+            "2": { "name": "storage.modifier.serializer" },
+            "3": { "name": "punctuation.section.group.serializer" },
+            "4": { "name": "entity.name.type.serializer" }
+          }
+        },
+        {
+          "match": "\\b(borrowed|shared|weak)\\s*(\\()\\s*((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)(?=\\s*\\.)",
+          "captures": {
+            "1": { "name": "storage.modifier.serializer" },
+            "2": { "name": "punctuation.section.group.serializer" },
+            "3": { "name": "entity.name.type.serializer" }
+          }
+        },
+        {
+          "match": "\\b(namespace|class|enum|instantiate|reference)\\s+([A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
           "captures": {
             "1": {
               "name": "storage.type.serializer"
@@ -736,7 +753,7 @@
           }
         },
         {
-          "match": "\\b(public|protected|private|managed)\\s+((?!(?:(?:array|map|union|managed|transient|wire_only|conversion|function|version|magic)\\b|variant\\s*\\(|constructor\\s*(?:<|\\()|factory\\s+[A-Za-z_]\\w*\\s*(?:<|\\()))(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
+          "match": "\\b(public|protected|private|managed)\\s+((?!(?:(?:array|map|union|managed|transient|wire_only|conversion|translator|function|version|magic)\\b|variant\\s*\\(|constructor\\s*(?:<|\\()|factory\\s+[A-Za-z_]\\w*\\s*(?:<|\\()))(?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
           "captures": {
             "1": {
               "name": "storage.modifier.serializer"
@@ -827,11 +844,11 @@
         },
         {
           "name": "storage.type.serializer",
-          "match": "\\b(namespace|class|enum|instantiate|array|map|union|variant)\\b"
+          "match": "\\b(namespace|class|enum|instantiate|reference|array|map|union|variant)\\b"
         },
         {
           "name": "storage.modifier.serializer",
-          "match": "\\b(explicit|const_ref|public|protected|private|transient|edit|virtual|abstract|override|stable_ids|managed|owning|view|readonly|mutable|packed|compact_prefix|compact_varint|strict|lenient)\\b"
+          "match": "\\b(explicit|const_ref|public|protected|private|transient|edit|virtual|abstract|override|stable_ids|managed|borrowed|shared|weak|owning|view|readonly|mutable|packed|compact_prefix|compact_varint|strict|lenient)\\b"
         },
         {
           "name": "support.type.serializer",
@@ -2359,7 +2376,7 @@
       ]
     },
     "native_member_body": {
-      "begin": "(?=\\b(?:function|constructor|factory|conversion|array|map|union|variant|digest|wire_only|managed|transient|version|magic|compact_prefix|compact_varint)\\b)|((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
+      "begin": "(?=\\b(?:function|constructor|factory|conversion|translator|array|map|union|variant|digest|wire_only|managed|transient|version|magic|compact_prefix|compact_varint)\\b)|((?:::)?[A-Za-z_][A-Za-z_0-9]*(?:::[A-Za-z_][A-Za-z_0-9]*)*)",
       "beginCaptures": {
         "1": {
           "patterns": [

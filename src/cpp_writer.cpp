@@ -25,10 +25,12 @@
 #include "statement_behavior_writer.hpp"
 #include "construction_writer.hpp"
 #include "conversion_writer.hpp"
+#include "translator_writer.hpp"
 #include "comparison_writer.hpp"
 #include "arithmetic_writer.hpp"
 #include "auto_size_writer.hpp"
 #include "array_exposure_writer.hpp"
+#include "reference_writer.hpp"
 #include "xml_schema.hpp"
 
 #include <rohit/serializer_creator.hpp>
@@ -98,8 +100,11 @@ class emitter : private naming {
   std::vector<std::string> included_headers{};
   friend class managed_writer<emitter>;
   managed_writer<emitter> managed_;
+  std::map<std::string, std::string> projection_fields_{};
+  std::string projected_target_type_{};
   // Keep compiler metadata names independent of presentation profiles.
   std::string member_name(const member& field) const {
+    if (const auto found = projection_fields_.find(field.name); found != projection_fields_.end()) { return found->second; }
     return field.fixed_name ? field.name : field_name(field.name);
   }
 public:
@@ -527,7 +532,7 @@ public:
                    " = ::rohit::serializer::detail::enter_schema_values");
       if (!optional) {
         output.write("<::rohit::serializer::detail::schema_optional_values<",
-                     type_name(object->name), ">>");
+                     projected_target_type_.empty() ? type_name(object->name) : projected_target_type_, ">>");
       }
       output.write("(",
                    local_name("serializer_protocol"), ");");
@@ -1071,6 +1076,41 @@ public:
     }
   }
 
+  // Reuse native target output while getters borrow the source and only leaf defaults own storage.
+  std::string translator_codecs(const conversion_declaration& method, std::string_view) {
+    rohit::full_stream_auto_alloc output;
+    const auto& target = ::rohit::serializer::conversion::record(method.target);
+    auto projected = translator::output_fields(method, "cpp", [&](auto value, auto) { return field_name(value); });
+    if (target.has_magic()) { output.write("  private:\n"); }
+    if (target.magic_field) {
+      output.write("    inline static constexpr ", get_cpp_type(*target.magic_field), " magic = ", magic_literal(*target.magic_field), ";\n");
+    } else if (target.has_magic()) {
+      output.write("    inline static constexpr char magic[] = {");
+      for (std::size_t index{}; index < target.magic_bytes.size(); ++index) {
+        if (index != 0) { output.write(", "); }
+        output.write('\'', escape_magic_byte(static_cast<unsigned char>(target.magic_bytes[index])), '\'');
+      }
+      output.write("};\n");
+    }
+    if (target.has_magic()) { output.write("  public:\n"); }
+    const auto saved_protobuf = protobuf_enabled;
+    protobuf_enabled = false;
+    projected_target_type_ = generic_default(method.target);
+    auto bound_target = native_layout(target, std::string_view{});
+    for (auto& field : bound_target.member_list) {
+      for (auto& value : field.type_name_list) { value = ::rohit::serializer::conversion::bound_type(std::move(value), method.target); }
+    }
+    for (auto& base : bound_target.parents) {
+      for (auto& value : base.type_expression) { value = ::rohit::serializer::conversion::bound_type(std::move(value), method.target); }
+    }
+    projection_fields_ = std::move(projected);
+    write_serializer_out_body(output, &bound_target);
+    projection_fields_.clear();
+    projected_target_type_.clear();
+    protobuf_enabled = saved_protobuf;
+    return {reinterpret_cast<const char*>(output.begin()), output.current_offset()};
+  }
+
   // Emit C++ member list for the parsed schema.
   // Translate typed owning defaults after selecting the target's open/concrete generic names.
   std::string default_value(const member& field) {
@@ -1331,6 +1371,7 @@ public:
     class_node result{object.type, std::string{object.name}, object.parent_namespace,
                       object.attributes, std::vector<parent>{object.parents}};
     result.generic_parameters = object.generic_parameters;
+    result.reference = object.reference;
     result.magic_bytes = object.magic_bytes;
     result.magic_field = object.magic_field;
     result.magic_access = object.magic_access;
@@ -1564,6 +1605,7 @@ public:
                  std::string_view{constant_output ? "serialize_constant_out" : "serialize_out"},
                  "(SerializeOutProtocol& ", local_name("serializer_protocol"), ") const {\n");
     }
+    if (object->reference) { output.write("    validate_address();\n"); }
     write_auto_size_output(output, *object);
     if (object->has_magic()) {
       output.write("    if constexpr (!(",
@@ -1618,6 +1660,7 @@ public:
          "  "
          " \"Unsupported serializer key type\");"));
     write_schema_value_scope(out_stream, obj);
+    if (obj->reference) { out_stream.write("\n    validate_address();\n"); }
     write_auto_size_output(out_stream, *obj);
     if (obj->has_magic()) {
       out_stream.write("\n    if constexpr (!::rohit::serializer::detail::is_json_protocol<SerializeOutProtocol> &&\n"
@@ -2198,15 +2241,17 @@ public:
     write_serializer_in_body_with_key_string(out_stream, obj);
     out_stream.write("  // Decode this object using the protocol's compile-time key mode.\n"
                      "  template <typename SerializeInProtocol>\n"
-                     "  constexpr void serialize_in(SerializeInProtocol& ",
+                     "  ", std::string_view{obj->reference ? "" : "constexpr "},
+                     "void serialize_in(SerializeInProtocol& ",
                      local_name("serializer_protocol"), ") {\n    serialize_in(",
                      local_name("serializer_protocol"), ", nullptr);\n  }\n\n");
     out_stream.write((
         std::string{
             "  // Decode fields; an internal donor supplies storage only for present fields.\n"
             "  // A supplied donor must be a distinct, non-null object and may be consumed.\n"
-            "  template <typename SerializeInProtocol, typename StorageSource>\n"
-            "  constexpr void serialize_in(SerializeInProtocol& "} +
+            "  template <typename SerializeInProtocol, typename StorageSource>\n  "} +
+        std::string{obj->reference ? "" : "constexpr "} +
+        "void serialize_in(SerializeInProtocol& " +
         local_name("serializer_protocol") + ", [[maybe_unused]] StorageSource " +
         local_name("storage_donor") +
         ") {\n    static_assert(\n        SerializeInProtocol::key_type == "
@@ -2218,6 +2263,10 @@ public:
         "type\");"));
     write_schema_value_scope(out_stream, obj);
     write_auto_size_input_start(out_stream, *obj);
+    if (obj->reference) {
+      out_stream.write("\n    // Detach before reading, but retain the previous owner until this decode finishes.\n"
+          "    [[maybe_unused]] auto srl_reference_previous_binding = ::std::move(srl_reference_binding_);\n");
+    }
     if (obj->has_magic()) {
       out_stream.write("\n    if constexpr (!::rohit::serializer::detail::is_json_protocol<SerializeInProtocol> &&\n"
                        "                  !requires { ", local_name("serializer_protocol"), ".protobuf_object(*this); } && !(",
@@ -2260,6 +2309,7 @@ public:
     }
     out_stream.write("\n    }\n");
     write_auto_size_input_end(out_stream, *obj);
+    if (obj->reference) { out_stream.write("    validate_address();\n"); }
     out_stream.write(
         "  }\n\n  // Decode from a buffer or bounded EOF-delimited byte source.\n"
         "  template <template <::rohit::serializer::serialize_type> class Protocol,\n"
@@ -2353,9 +2403,14 @@ public:
                  "    requires(SerializeInProtocol::key_type == ::rohit::serializer::serialize_key_type::none &&\n"
                  "             ::rohit::serializer::detail::protocol_wire_format<SerializeInProtocol>() ==\n"
                  "                 ::rohit::serializer::wire_format::binary_none)\n"
-                 "  constexpr void serialize_in(SerializeInProtocol& ", local_name("serializer_protocol"),
+                 "  ", std::string_view{object->reference ? "" : "constexpr "},
+                 "void serialize_in(SerializeInProtocol& ", local_name("serializer_protocol"),
                  ", [[maybe_unused]] StorageSource ", local_name("storage_donor"), " = nullptr) {\n");
     write_auto_size_input_start(output, *object);
+    if (object->reference) {
+      output.write("    // Keep the old owner alive through the complete positional decode.\n"
+          "    [[maybe_unused]] auto srl_reference_previous_binding = ::std::move(srl_reference_binding_);\n");
+    }
     if (object->has_magic()) {
       output.write("    if constexpr (!(",
                    omission_condition(object->magic_omitted_formats, "SerializeInProtocol"),
@@ -2368,6 +2423,7 @@ public:
     }
     write_serializer_in_body_key_none(output, object);
     write_auto_size_input_end(output, *object);
+    if (object->reference) { output.write("    validate_address();\n"); }
     output.write("  }\n\n");
     output.write(
         "\n  // Decode from a buffer or bounded EOF-delimited byte source.\n"
@@ -2474,6 +2530,7 @@ public:
                  "  // Encode this owning record using only statically selected XML bindings.\n"
                  "  void serialize_xml_out(::rohit::serializer::xml::element& ", node,
                  ", ::rohit::serializer::xml::build_budget& ", budget, ") const {\n");
+    if (object.reference) { output.write("    validate_address();\n"); }
     for (const auto& field : contract.fields) {
       if (field.repeated) {
         const auto size = "this->" + member_name(*field.source) + ".size()";
@@ -2500,6 +2557,9 @@ public:
                  "  void serialize_xml_in(const ::rohit::serializer::xml::element& ", node, ") {\n"
                  "    ::rohit::serializer::xml::field_reader ", reader, "{", node, ", ",
                  std::string_view{std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) { return field.text; }) ? "true" : "false"}, "};\n");
+    if (object.reference) {
+      output.write("    [[maybe_unused]] auto srl_reference_previous_binding = ::std::move(srl_reference_binding_);\n");
+    }
     for (const auto& field : contract.fields) {
       if (field.text) {
         output.write("    ", reader, ".text_value(this->", member_name(*field.source), ");\n");
@@ -2520,7 +2580,9 @@ public:
     }
     auto protocol_type = std::string{"SerializerXmlProtocol"};
     while (protocol_type == type_name(object.name)) { protocol_type += "Type"; }
-    output.write("    ", reader, ".finish();\n  }\n"
+    output.write("    ", reader, ".finish();\n");
+    if (object.reference) { output.write("    validate_address();\n"); }
+    output.write("  }\n"
                  "  // Compose this XML mapping with the common complete-object protocol API.\n"
                  "  template <typename ", protocol_type, ">\n"
                  "    requires requires(", protocol_type, "& protocol, const ", type_name(object.name),
@@ -2569,6 +2631,9 @@ public:
     output.write("\n  // Reset included fields to Protobuf defaults; omitted fields retain schema defaults.\n"
                  "  template <::rohit::serializer::wire_format SelectedFormat = ::rohit::serializer::wire_format::protobuf>\n"
                  "  void serializer_protobuf_reset() {\n");
+    if (object.reference) {
+      output.write("    [[maybe_unused]] auto srl_reference_previous_binding = ::std::move(srl_reference_binding_);\n");
+    }
     for (const auto& base : object.parents) {
       output.write("    static_cast<", parent_type_name(base),
                    "*>(this)->template serializer_protobuf_reset<SelectedFormat>();\n");
@@ -2596,6 +2661,7 @@ public:
     output.write("  }\n\n  // Encode statically typed fields through the selected Protobuf protocol.\n"
                  "  template <typename ProtobufProtocol>\n  void serializer_protobuf_write([[maybe_unused]] ProtobufProtocol& ",
                  protocol, ") const {\n");
+    if (object.reference) { output.write("    validate_address();\n"); }
     if (object.has_magic()) {
       const auto condition = protobuf_field_condition(object.magic_omitted_formats, "ProtobufProtocol::format");
       if (!condition.empty()) { output.write("    if constexpr (", condition, ") {\n"); }
@@ -2638,6 +2704,9 @@ public:
     output.write("  }\n\n  // Dispatch known Protobuf fields directly; the protocol handles unknown fields.\n"
                  "  template <typename ProtobufProtocol>\n  void serializer_protobuf_read(ProtobufProtocol& ",
                  protocol, ") {\n");
+    if (object.reference) {
+      output.write("    [[maybe_unused]] auto srl_reference_previous_binding = ::std::move(srl_reference_binding_);\n");
+    }
     for (const auto& base : object.parents) {
       output.write("    bool protobuf_seen_", base.id, "{};\n");
     }
@@ -2735,6 +2804,7 @@ public:
       output.write("    if (!protobuf_seen_magic) { throw ::std::invalid_argument{\"Missing magic\"}; }\n");
       if (!condition.empty()) { output.write("    }\n"); }
     }
+    if (object.reference) { output.write("    validate_address();\n"); }
     output.write("  }\n");
   }
 
@@ -2895,6 +2965,16 @@ public:
   // Emit the existing owning API, selecting owning specializations for nested classes.
   void write_owning_class(rohit::type_check::output_buffer auto& out_stream,
                           const class_node* obj) {
+    if (obj->reference && obj->reference->value_projection) {
+      // The synthetic payload field describes its wire type only; an export stores one handle.
+      out_stream.write("class ", type_name(obj->name), " {\n");
+      out_stream.write(reference_support::cpp_methods(*obj, type_name(obj->name),
+          [&](const auto& value) { return generic_default(value); },
+          [&](auto name, auto) { return field_name(name); }, {},
+          [&](const auto& value) { return get_cpp_type(value); }));
+      out_stream.write("}; // class ", type_name(obj->name), "\n\n");
+      return;
+    }
     if (obj->type == object_type::generic_definition) {
       out_stream.write("template <");
       for (std::size_t index = 0; index < obj->generic_parameters.size(); ++index) {
@@ -2981,6 +3061,10 @@ public:
         },
         [&](const auto& expression, const auto& symbol) { return construction_expression(obj, expression, symbol); },
         cpp_access_section));
+    const bool has_translator = std::any_of(obj->conversions.begin(), obj->conversions.end(), [](const auto& method) { return method.translator; });
+    if (has_translator && (emission_only || constant_evaluation_enabled || protobuf_enabled)) {
+      throw std::invalid_argument{"C++ translators require ordinary native JSON/binary output; emission-only, constant-evaluation and Protobuf profiles are unsupported"};
+    }
     if (emission_only && !obj->conversions.empty()) {
       throw std::invalid_argument{"Borrowed emission models cannot expose owning conversions"};
     }
@@ -2988,6 +3072,18 @@ public:
         [&](const auto& value) { return generic_default(value); },
         [&](auto name, auto) { return field_name(name); },
         [&](auto name, auto) { return function_name(name); }, cpp_access_section));
+    out_stream.write(translator::methods(*obj, type_name(obj->name), "cpp",
+        [&](const auto& value) { return generic_default(value); },
+        [&](auto name, auto) { return field_name(name); },
+        [&](const auto& value) { return default_value(value); },
+        [&](const auto& method, auto view) { return translator_codecs(method, view); }));
+    if (has_translator) {
+      current_access = access_type::public_access;
+    }
+    out_stream.write(reference_support::cpp_methods(*obj, type_name(obj->name),
+        [&](const auto& value) { return generic_default(value); },
+        [&](auto name, auto) { return field_name(name); }, cpp_access_section,
+        [&](const auto& value) { return get_cpp_type(value); }));
     write_behavior_contract(out_stream, obj, false, &current_access);
     if (emission_only && !obj->arithmetic.empty()) {
       throw std::invalid_argument{"Borrowed emission models cannot expose owning arithmetic"};
@@ -3470,6 +3566,16 @@ public:
   // Generate a complete C++ header while retaining the parsed schema and original wire names.
   void emit(rohit::type_check::output_buffer auto& out_stream,
             const std::vector<std::unique_ptr<syntax_node>>& statements) {
+    if (protobuf_enabled && reference_support::has_value_references(statements)) {
+      throw std::invalid_argument{
+          "C++ value references support native JSON/binary output; Protobuf is unsupported"};
+    }
+    if (reference_support::has_references(statements) &&
+        (emission_only || constant_evaluation_enabled)) {
+      throw std::invalid_argument{
+          "C++ reference bindings require ordinary runtime owning output; "
+          "cpp.emission_only and cpp.constant_evaluation are unsupported"};
+    }
     if (xml_options_.enabled) {
       std::set<std::string> source_names{};
       const auto collect = [&](auto&& self, const auto& nodes) -> void {
@@ -3564,6 +3670,9 @@ public:
       out_stream.write("#include <rohit/binary_view.hpp>\n");
     }
     if (has_variants) { out_stream.write("#include <variant>\n"); }
+    if (reference_support::has_references(statements)) {
+      out_stream.write("#include <rohit/reference.hpp>\n");
+    }
     out_stream.write("\n#include <array>\n#include <concepts>\n#include <cstddef>\n");
     if (has_comparisons) { out_stream.write("#include <compare>\n"); }
     if (has_views) {

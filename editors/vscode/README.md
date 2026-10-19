@@ -1,5 +1,18 @@
 # Rohit Serializer for Visual Studio Code
 
+Version **2.0.4** supports language **1.19.0** inline value references such as
+`public borrowed(payload) d (1);`, including payload-type and optional owner-field navigation.
+Borrowed views use application-owned storage; shared/weak modes are optional.
+Output contains the ordinary field value.
+Scoped translators can project payload records containing arrays without copying their
+buffers. Language 1.18 named durable address references remain supported separately.
+See [value references](../../docs/schema/value_references.md) and
+[durable addresses](../../docs/schema/references.md). Generated helper-type navigation
+for anonymous inline wrappers is not a separate authored schema declaration.
+Both editor packages remain synchronized. Local package verification does not
+publish or update the live Marketplace listing.
+
+
 Version **2.0.2** documents compiler/runtime **2.3.0**'s optional generated XML
 codecs and fixed XSD bindings across output languages. Select XML in the compiler's INI/CLI
 configuration; schema language **1.17.0** and existing generated-output navigation
@@ -11,7 +24,7 @@ implemented subsets, provider dependencies, and verification by backend. Both ed
 Version **2.0.1** updates CMake project fixtures and build prerequisites for
 compiler/runtime **2.1.0**, which requires CMake **4.0+** and provides standalone
 CMake entry points for individual examples in every output language. Both editor
-packages remain synchronized; schema language **1.17.0** remains current.
+packages remain synchronized; schema language **1.17.0** remained current for that release.
 
 Version **2.0.0** refreshes Marketplace documentation for schema language
 **1.16.0/1.17.0** and the default separate C++ generated headers in compiler/runtime

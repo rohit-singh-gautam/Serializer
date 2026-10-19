@@ -1,5 +1,11 @@
 # Features and implementation status
 
+Compiler/runtime **2.6.0**, language **1.19.0**, adds [transparent value references](../schema/value_references.md)
+and record translators. They borrow existing payload storage and write ordinary
+field values without reference metadata. Inline references are export-only and
+require live binding; ordinary owning schemas read their output. Existing named
+address references retain their separate contract.
+
 This is the central catalog for supported capabilities and proposed work. The
 overview groups features; linked contracts and backend matrices define exact
 coverage and verification. Proposals are not delivery commitments.

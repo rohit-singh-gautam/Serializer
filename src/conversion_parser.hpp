@@ -1,10 +1,10 @@
 // Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-// Preserve ordinary fields whose user type happens to be named conversion.
+// Preserve ordinary fields whose user type happens to be named conversion or translator.
 bool conversion_head(const rohit::type_check::schema_input_buffer auto& input) {
   const auto probe = make_constant_full_stream(input.curr(), input.remaining_buffer());
-  if (!next_keyword(probe, "conversion")) { return false; }
+  if (!next_keyword(probe, "conversion") && !next_keyword(probe, "translator")) { return false; }
   parse_identifier_impl(probe);
   skip_whitespace_and_comment(probe);
   if (probe.full() || !is_first_identifier(probe)) { return false; }
@@ -16,12 +16,19 @@ bool conversion_head(const rohit::type_check::schema_input_buffer auto& input) {
 // Parse a bounded explicit conversion with side-effect-free dotted source projections.
 conversion_declaration parse_conversion(const rohit::type_check::schema_input_buffer auto& input,
     access_type access, namespace_node* space) {
-  if (active_language_version < language_version{1u, 9u, 0u}) {
-    throw exception::bad_member_spec{input, "Portable conversions require serializer version 1.9.0"};
-  }
   conversion_declaration result;
   result.access = access;
-  parse_identifier_impl(input);
+  result.translator = parse_identifier_impl(input) == "translator";
+  result.collection_projection = active_language_version >= language_version{1u, 19u, 0u};
+  if (result.translator && active_language_version < language_version{1u, 18u, 0u}) {
+    throw exception::bad_member_spec{input, "Portable translators require serializer version 1.18.0"};
+  }
+  if (result.translator && access != access_type::public_access) {
+    throw exception::bad_member_spec{input, "Scoped translators currently require public access"};
+  }
+  if (!result.translator && active_language_version < language_version{1u, 9u, 0u}) {
+    throw exception::bad_member_spec{input, "Portable conversions require serializer version 1.9.0"};
+  }
   skip_whitespace_and_comment(input);
   result.target = parse_type_expression(input, space);
   skip_whitespace_and_comment(input);

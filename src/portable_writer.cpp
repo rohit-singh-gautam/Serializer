@@ -10,6 +10,8 @@
 #include "behavior_writer.hpp"
 #include "construction_writer.hpp"
 #include "conversion_writer.hpp"
+#include "translator_writer.hpp"
+#include "reference_portable_writer.hpp"
 #include "comparison_writer.hpp"
 #include "auto_size_writer.hpp"
 #include <rohit/serializer_creator.hpp>
@@ -26,6 +28,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace rohit::serializer::writer::portable {
@@ -186,11 +189,17 @@ class emitter {
     return (language == target::go ? "" : "Protocol.") + std::string{value};
   }
   // Resolve a field name and Go export visibility.
+  std::map<std::string, std::string> projection_fields_{};
+  bool reference_fields_{};
+
   std::string field(std::string_view value, access_type access = access_type::public_access) const {
+    if (const auto found = projection_fields_.find(std::string{value}); found != projection_fields_.end()) { return found->second; }
+    const bool exported_reference_field = language == target::go && reference_fields_ &&
+        (value == "document_id" || value == "owner_id" || value == "generation" || value == "field_path");
     auto result = name(value,
                        language == target::csharp ||
                            (language == target::go && access == access_type::public_access),
-                       options.rename_identifiers);
+                       options.rename_identifiers || exported_reference_field);
     validate_name(result, language);
     if (language == target::go && access == access_type::public_access &&
         !std::isupper(static_cast<unsigned char>(result.front()))) {
@@ -451,6 +460,13 @@ class emitter {
         continue;
       }
       const auto& value = static_cast<const class_node&>(*node);
+      reference_fields_ = value.reference.has_value();
+      if (language == target::csharp && value.reference) {
+        for (const auto helper : {"Bind", "Resolve", "ReadValue", "WithValue", "Unbind", "IsBound", "SrlValidateReferenceAddress",
+            "SrlReferencePathMatches", "Encode", "Decode", "Read", "Write"}) {
+          if (names.at(node) == helper) { throw std::invalid_argument{"C# reference helper/class name collision: " + names.at(node)}; }
+        }
+      }
       if (value.storage_modes != static_cast<std::uint8_t>(storage_mode::owning) ||
           (value.attributes & class_attributes::packed) != class_attributes::none) {
         throw std::invalid_argument{"Portable output supports owning classes only: " + value.name};
@@ -566,6 +582,7 @@ class emitter {
         }
       }
     }
+    reference_fields_ = false;
   }
   // Return the immutable pre-encoded key shared by every use of a wire name.
   std::string wire_key(const std::string& value) const {
@@ -827,6 +844,7 @@ class emitter {
   }
   // Emit parent composition, fields, and explicit union selectors.
   void declarations(const class_node& value, bool go_defaults = false) {
+    if (value.reference && value.reference->value_projection) { return; }
     const auto declare = [&](const std::string& identifier, const std::string& field_type,
                              const std::string& initial_value, access_type access) {
       if (go_defaults) {
@@ -994,8 +1012,9 @@ class emitter {
     statement(destination + " = values");
   }
   // Encode arrays and maps directly, sorting keys to preserve native map ordering.
-  void write_field(const member& value) {
-    const auto expression = choose("this.", "value.", "this.") + field(value.name, value.access);
+  void write_field(const member& value, const std::string& selected_expression = {}) {
+    const auto expression = selected_expression.empty() ?
+        choose("this.", "value.", "this.") + field(value.name, value.access) : selected_expression;
     const auto& item = value.type_name_list.front();
     if (!value.auto_size_formats.empty()) {
       condition(omitted_protocols(value.auto_size_formats, "output"));
@@ -1233,7 +1252,7 @@ class emitter {
   }
   // Write typed metadata through a runtime value where Go constant conversions would overflow.
   void write_magic_constant(const class_node& value) {
-    const auto expression = magic_constant(value);
+    const auto expression = !projection_fields_.empty() && language == target::js ? default_value(*value.magic_field) : magic_constant(value);
     if (language == target::go) {
       // Signed negative constants cannot be converted directly to uint64 in Go.
       local("magicValue", expression);
@@ -1321,6 +1340,24 @@ class emitter {
   }
   // Write every parent and member in declaration order.
   void write_object(const class_node& value) {
+    if (value.reference && value.reference->value_projection) {
+      const auto& selected = value.member_list.front();
+      if (language == target::go) {
+        line("srlSelected, srlError := value.ReadValue()");
+        line("if srlError != nil { output.err = srlError; return }");
+      } else {
+        local("srlSelected", language == target::csharp ? "ReadValue()" : "this.readValue()");
+      }
+      write_field(selected, "srlSelected");
+      return;
+    }
+    if (value.reference) {
+      if (language == target::go) {
+        line("if err := value.srlValidateReferenceAddress(); err != nil { output.err = err; return }");
+      } else {
+        statement(choose("this.srlValidateReferenceAddress()", "", "SrlValidateReferenceAddress()"));
+      }
+    }
     const bool derived_size = !auto_size::fields(value).empty();
     const bool payload_size = std::any_of(value.member_list.begin(), value.member_list.end(),
         [](const auto& item) { return item.size_scope == auto_size_scope::payload; });
@@ -1490,6 +1527,14 @@ class emitter {
   }
   // Dispatch known keys through native switches, avoiding linear field lookup.
   void read_object(const class_node& value) {
+    if (value.reference && value.reference->value_projection) {
+      statement(choose("throw new Error('Export references cannot be decoded; use the ordinary owning type')",
+          "input.fail(\"Export references cannot be decoded; use the ordinary owning type\")",
+          "throw new System.InvalidOperationException(\"Export references cannot be decoded; use the ordinary owning type\")"));
+      if (language == target::go) { statement("return result"); }
+      return;
+    }
+    if (value.reference) { statement(choose("result.unbind()", "result.Unbind()", "result.Unbind()")); }
     const auto derived_fields = auto_size::fields(value);
     const bool verify_size = auto_size::verifies(value, options.class_auto_sizes);
     const bool payload_size = verify_size && std::any_of(derived_fields.begin(), derived_fields.end(),
@@ -1677,6 +1722,13 @@ class emitter {
         close();
       }
       close();
+    }
+    if (value.reference) {
+      if (language == target::go) {
+        line("if input.err == nil { input.err = result.srlValidateReferenceAddress() }");
+      } else {
+        statement(choose("result.srlValidateReferenceAddress()", "", "result.SrlValidateReferenceAddress()"));
+      }
     }
     statement("return result");
   }
@@ -2306,8 +2358,36 @@ class emitter {
     }
   }
 
+  // Reuse native target output traversal while each getter borrows its source value.
+  std::string translator_codecs(const conversion_declaration& method, std::string_view view) {
+    auto saved_source = std::move(source);
+    const auto saved_level = level;
+    source.clear(); level = 2;
+    const auto& object = ::rohit::serializer::conversion::record(method.target);
+    const auto target_language = language == target::go ? "go" : language == target::csharp ? "csharp" : "js";
+    auto projected = translator::output_fields(method, target_language, [&](auto value, auto access) { return field(value, access); });
+    line("// Encode readonly projections without constructing the target model.");
+    open(choose("encode(protocol)", "func (value " + std::string{view} + ") Encode(protocol Protocol) ([]byte, error)", "public byte[] Encode(Protocol protocol)"));
+    if (options.protocols == output_protocols::binary_none) {
+      line(choose("if (protocol !== Protocol.BINARY_NONE) { throw new RangeError('Protocol disabled during generation'); }", "if protocol != BINARY_NONE { return nil, fmt.Errorf(\"Protocol disabled during generation\") }", "if (protocol != Protocol.BINARY_NONE) { throw new System.ArgumentException(\"Protocol disabled during generation\"); }"));
+    }
+    local("output", choose("new SrlWriter(protocol)", "srlNewWriter(protocol)", "new SrlWriter(protocol)"));
+    statement(choose("this.write(output)", "value.write(output)", "this.Write(output)"));
+    if (language == target::go) { line("if output.err != nil { return nil, output.err }"); statement("return output.bytes, nil"); }
+    else { statement("return output.bytes()"); }
+    close();
+    line("// Traverse target framing and field projections in schema order.");
+    open(choose("write(output)", "func (value " + std::string{view} + ") write(output *srlWriter)", "internal void Write(SrlWriter output)"));
+    projection_fields_ = std::move(projected);
+    write_object(object);
+    projection_fields_.clear(); close();
+    auto result = std::move(source); source = std::move(saved_source); level = saved_level;
+    return result;
+  }
+
   // Emit an owning class with exact-message public APIs.
   void object(const class_node& value) {
+    reference_fields_ = value.reference.has_value();
     const auto identifier = names.at(&value);
     line("// " + identifier +
          " owns its fields; concurrent mutation during encoding is unsupported.");
@@ -2384,7 +2464,17 @@ class emitter {
     } else {
       declarations(value);
     }
+    if (language == target::go) {
+      source += reference_support::go_binding_fields(value, identifier,
+          [&](const auto& item) { return type(item); });
+    }
     if (language != target::go) { array_access(value); behaviors(value); }
+    if (language != target::go) {
+      source += reference_support::portable_methods(value, identifier,
+          language == target::csharp ? "csharp" : language == target::typescript ? "typescript" : "js",
+          [&](const auto& item) { return type(item); },
+          [&](auto item, auto access) { return field(item, access); });
+    }
     if (language != target::go) {
       source += construction::factories(value, identifier,
           language == target::csharp ? "csharp" : language == target::typescript ? "typescript" : "js",
@@ -2395,6 +2485,12 @@ class emitter {
           language == target::csharp ? "csharp" : language == target::typescript ? "typescript" : "js",
           [&](const auto& item) { return type(item); },
           [&](auto item, auto access) { return field(item, access); });
+      source += translator::methods(value, identifier,
+          language == target::csharp ? "csharp" : language == target::typescript ? "typescript" : "js",
+          [&](const auto& item) { return type(item); },
+          [&](auto item, auto access) { return field(item, access); },
+          [&](const auto& item) { return default_value(item); },
+          [&](const auto& method, auto view) { return translator_codecs(method, view); });
       comparisons(value);
     }
     if (language == target::typescript) {
@@ -2446,6 +2542,11 @@ class emitter {
     }
     if (language == target::go) { array_access(value); behaviors(value); }
     if (language == target::go) {
+      source += reference_support::portable_methods(value, identifier, "go",
+          [&](const auto& item) { return type(item); },
+          [&](auto item, auto access) { return field(item, access); });
+    }
+    if (language == target::go) {
       source += construction::factories(value, identifier, "go",
           [&](const auto& item) { return type(item); },
           [&](auto item, auto access) { return field(item, access); },
@@ -2453,6 +2554,11 @@ class emitter {
       source += conversion::methods(value, identifier, "go",
           [&](const auto& item) { return type(item); },
           [&](auto item, auto access) { return field(item, access); });
+      source += translator::methods(value, identifier, "go",
+          [&](const auto& item) { return type(item); },
+          [&](auto item, auto access) { return field(item, access); },
+          [&](const auto& item) { return default_value(item); },
+          [&](const auto& method, auto view) { return translator_codecs(method, view); });
       comparisons(value);
     }
     line("// Encode one complete message into independent storage.");
@@ -2561,6 +2667,7 @@ class emitter {
       close();
     }
     dispatch_adapter(value);
+    reference_fields_ = false;
   }
 
 public:
@@ -2609,6 +2716,21 @@ public:
       }
     }
     register_nodes(values);
+    if ((language == target::js || language == target::typescript) &&
+        std::any_of(nodes.begin(), nodes.end(), [](const auto* node) {
+          return node->type == object_type::class_type && static_cast<const class_node&>(*node).reference &&
+              static_cast<const class_node&>(*node).reference->mode != reference_declaration::mode_type::shared;
+        }) && !globals.insert("WeakRef").second) {
+      throw std::invalid_argument{"JavaScript weak reference runtime name collision: WeakRef"};
+    }
+    if (language == target::go) {
+      for (const auto* node : nodes) {
+        if (node->type != object_type::class_type || !static_cast<const class_node&>(*node).reference) { continue; }
+        for (const auto& generated : {names.at(node) + "Scope", "New" + names.at(node) + "Scope"}) {
+          if (!globals.insert(generated).second) { throw std::invalid_argument{"Go reference scope name collision: " + generated}; }
+        }
+      }
+    }
     behavior::require_unique_free_names(nodes, choose("js", "go", "csharp"), [&](const auto& node) { return names.at(&node); },
         language == target::csharp ? std::function<std::string(const type_name&)>{[&](const auto& value) { return type(value); }} :
         std::function<std::string(const type_name&)>{});

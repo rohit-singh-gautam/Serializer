@@ -1,0 +1,56 @@
+serializer version 1.18.0;
+
+// Share exact record identities while projecting differently named source fields.
+class translator_child stable_ids {
+  public string label (1) {"initial"};
+  public uint32 count (2) {3};
+}
+
+// Public inherited defaults remain part of the target's ordinary encoded layout.
+class translator_base stable_ids {
+  public string note (1) {"base"};
+}
+
+// Metadata, defaults and omissions keep the ordinary owning target's wire contract.
+class translator_target stable_ids : public translator_base (18, "base") {
+  private magic (20) {'TRL'};
+  public version uint16 (1) {1};
+  public uint32 number (2);
+  public string label (3);
+  public translator_child child (4);
+  public uint8 defaulted (5) {7};
+  public wire_only uint32 byte_count (6) auto_size(binary_none) omit(all_except(binary_none));
+  public transient uint32 cached {9};
+}
+
+class translator_source stable_ids {
+  public uint32 number (1);
+  public translator_child details (2);
+  public conversion translator_target as materialize {
+    number = number;
+    label = details.label;
+    child = details;
+  };
+  public translator translator_target as project {
+    number = number;
+    label = details.label;
+    child = details;
+  };
+}
+
+// A pinned field reference can feed a projection during the same synchronous operation.
+class translator_document stable_ids {
+  public translator_source model (1);
+}
+reference translator_source_reference = shared(translator_document.model);
+
+// Generic target scope must retain the source owner's exact bound representation.
+class translator_value<T> stable_ids {
+  public T value (1);
+  public uint32 generation (2) {2};
+}
+class translator_owner<T> stable_ids {
+  public T value (1);
+  public translator translator_value<T> as project_value { value = value; };
+}
+instantiate translator_short = translator_owner<uint16>;

@@ -8,6 +8,9 @@
 #include "auto_size_writer.hpp"
 #include "construction_writer.hpp"
 #include "conversion_writer.hpp"
+#include "translator_writer.hpp"
+#include "reference_portable_writer.hpp"
+#include "value_reference_native_writer.hpp"
 #include "comparison_writer.hpp"
 #include "xml_rust_writer.hpp"
 
@@ -34,6 +37,7 @@ constexpr std::string_view keywords =
 class rust_emitter {
   const schema& model;
   behavior::checked_helpers arithmetic_helpers{};
+  std::set<const syntax_node*> borrowed_nodes_{};
   std::string output{"#![allow(dead_code, unused_imports)]\n"};
   std::size_t indent{};
   bool variable_first{};
@@ -53,10 +57,72 @@ class rust_emitter {
     line("}");
   }
   // Validate snake_case field names against Rust keywords.
+  std::map<std::string, std::string> projection_fields_{};
+
   std::string field(std::string_view name) const {
+    if (const auto found = projection_fields_.find(std::string{name}); found != projection_fields_.end()) { return found->second; }
     auto result = snake(name);
     validate_identifier(result, keywords);
     return result;
+  }
+  // Detect borrowed lifetimes through nested type applications.
+  bool borrowed_type(const type_name& value) const {
+    if (value.resolved_node && borrowed_nodes_.contains(value.resolved_node)) { return true; }
+    return std::any_of(value.arguments.begin(), value.arguments.end(),
+        [&](const auto& argument) { return borrowed_type(argument); });
+  }
+  // Spell a model type with its propagated native borrow lifetime.
+  std::string model_type(const syntax_node* value) const {
+    return model.names.at(value) + (borrowed_nodes_.contains(value) ? "<'a>" : "");
+  }
+  // Propagate native borrow lifetimes through fields, base records, and reference owners.
+  void collect_borrowed_nodes() {
+    for (const auto* node : model.nodes) {
+      if (node->type != object_type::class_type) { continue; }
+      const auto& value = static_cast<const class_node&>(*node);
+      if (value.reference && value.reference->value_projection &&
+          value.reference->mode == reference_declaration::mode_type::borrowed) { borrowed_nodes_.insert(node); }
+    }
+    bool changed = true;
+    while (changed) {
+      changed = false;
+      for (const auto* node : model.nodes) {
+        if (node->type != object_type::class_type || borrowed_nodes_.contains(node)) { continue; }
+        const auto& value = static_cast<const class_node&>(*node);
+        const bool dependent = std::any_of(value.parents.begin(), value.parents.end(),
+            [&](const auto& base) { return borrowed_nodes_.contains(base.parent_class); }) ||
+            std::any_of(value.member_list.begin(), value.member_list.end(), [&](const auto& member) {
+              return std::any_of(member.type_name_list.begin(), member.type_name_list.end(),
+                  [&](const auto& type) { return borrowed_type(type); });
+            }) || (value.reference && borrowed_type(value.reference->owner));
+        if (dependent) { borrowed_nodes_.insert(node); changed = true; }
+      }
+    }
+    for (const auto* node : model.nodes) {
+      if (node->type != object_type::class_type) { continue; }
+      const auto& value = static_cast<const class_node&>(*node);
+      if (borrowed_nodes_.contains(node) &&
+          (!value.functions.empty() || !value.constructions.empty() || !value.conversions.empty())) {
+        throw std::invalid_argument{"Rust records containing native borrows require plain data fields without authored callables or conversions"};
+      }
+      for (const auto& method : value.functions) {
+        if (borrowed_type(method.return_type) || std::any_of(method.parameters.begin(), method.parameters.end(),
+            [&](const auto& parameter) { return borrowed_type(parameter.type); })) {
+          throw std::invalid_argument{"Rust callable signatures cannot contain generated native-borrow records"};
+        }
+      }
+      for (const auto& construction : value.constructions) {
+        if (std::any_of(construction.parameters.begin(), construction.parameters.end(),
+            [&](const auto& parameter) { return borrowed_type(parameter.type); })) {
+          throw std::invalid_argument{"Rust construction parameters cannot contain generated native-borrow records"};
+        }
+      }
+      for (const auto& conversion : value.conversions) {
+        if (borrowed_type(conversion.target)) {
+          throw std::invalid_argument{"Rust conversion and translator targets cannot contain generated native-borrow records"};
+        }
+      }
+    }
   }
   // Map schema scalars to their exact native Rust representation.
   std::string type(const type_name& value) const {
@@ -64,7 +130,7 @@ class rust_emitter {
     if (value.is_sequence()) { return "Vec<" + type(value.arguments.front()) + ">"; }
     if (value.is_associative()) { return "BTreeMap<" + type(value.arguments[0]) + ", " + type(value.arguments[1]) + ">"; }
     if (value.type != object_type::primitive) {
-      return model.names.at(value.resolved_node);
+      return model_type(value.resolved_node);
     }
     if (value.is_digest()) { return "Vec<u8>"; }
     if (value.name == "string" || value.name.starts_with("version")) {
@@ -106,7 +172,7 @@ class rust_emitter {
     if (value.is_associative()) { return "BTreeMap::new()"; }
     if (value.is_digest()) { return "vec![0; " + std::to_string(value.digest_extent) + "]"; }
     if (value.type == object_type::class_type) {
-      return type(value) + "::default()";
+      return model.names.at(value.resolved_node) + "::default()";
     }
     if (value.type == object_type::enum_type) {
       const auto& constants = static_cast<const enum_node&>(*value.resolved_node).enum_name_list;
@@ -156,7 +222,7 @@ class rust_emitter {
       return "srl_read_digest(input, " + std::to_string(value.digest_extent) + ")?";
     }
     if (value.type == object_type::class_type) {
-      return "{ let mut value = " + type(value) + "::default(); value.srl_read(input)?; value }";
+      return "{ let mut value = " + model.names.at(value.resolved_node) + "::default(); value.srl_read(input)?; value }";
     }
     if (value.type == object_type::enum_type) {
       return type(value) + "::srl_read(input, " + (collection ? "true" : "false") + ")?";
@@ -528,6 +594,10 @@ class rust_emitter {
   // Emit flattened namespace functions with exact scalar arguments and checked portable bodies.
   void free_function(const function_node& node) {
     const auto& method = node.function;
+    if (borrowed_type(method.return_type) || std::any_of(method.parameters.begin(), method.parameters.end(),
+        [&](const auto& parameter) { return borrowed_type(parameter.type); })) {
+      throw std::invalid_argument{"Rust standalone function signatures cannot contain generated native-borrow records"};
+    }
     std::string parameters;
     for (const auto& parameter : method.parameters) {
       if (!parameters.empty()) { parameters += ", "; }
@@ -699,150 +769,34 @@ class rust_emitter {
   }
 
   // Define a class's owned fields, defaults, and transactional public decoding.
-  void object(const class_node& value) {
-    if (model.xml.enabled) {
-      const std::set<std::string> reserved{"encode_xml", "decode_xml", "encode_xml_with_validation",
-          "decode_xml_with_validation", "srl_xml_write", "srl_xml_read"};
-      // Reserve selected XML APIs before any authored member or callable is emitted.
-      const auto check_xml_name = [&](std::string_view name) {
-        if (reserved.contains(field(name))) {
-          throw std::invalid_argument{"Rust XML method name collision: " + std::string{name}};
-        }
-      };
-      for (const auto& item : value.member_list) { check_xml_name(item.name); }
-      for (const auto& method : value.functions) { check_xml_name(method.name); }
-      for (const auto& factory : value.constructions) {
-        check_xml_name(factory.constructor ? "create" : factory.name);
-      }
-      for (const auto& conversion : value.conversions) { check_xml_name(conversion.name); }
+  // Encode a lifetime-bound view with the exact owning target traversal.
+  std::string translator_codecs(const conversion_declaration& method, std::string_view) {
+    auto saved_output = std::move(output);
+    const auto saved_indent = indent;
+    output.clear(); indent = 1;
+    const auto& target = ::rohit::serializer::conversion::record(method.target);
+    auto projected = translator::output_fields(method, "rust", [&](auto value, auto) { return field(value); });
+    if (target.magic_field) {
+      line("const MAGIC: " + type(target.magic_field->type_name_list.front()) + " = " + type(method.target) + "::MAGIC;");
+    } else if (target.has_magic()) {
+      line("const MAGIC: [u8; " + std::to_string(target.magic_bytes.size()) + "] = " + type(method.target) + "::MAGIC;");
     }
-    std::set<std::string> array_methods;
-    for (const auto& item : value.member_list) {
-      if (!item.array_exposure) { continue; }
-      for (const auto method : {"get", "size", "values", "set"}) {
-        if (std::string_view{method} == "set" && item.array_exposure->readonly) { continue; }
-        if (!array_methods.insert(field(method)).second) {
-          throw std::invalid_argument{"rust: array exposure helper collision"};
-        }
-      }
-    }
-    const auto check_array_name = [&](const std::string& name) {
-      if (array_methods.contains(name)) { throw std::invalid_argument{"rust: array exposure naming collision: " + name}; }
-    };
-    for (const auto& item : value.member_list) { check_array_name(field(item.name)); }
-    for (const auto& method : value.functions) { check_array_name(field(method.name)); }
-    for (const auto& factory : value.constructions) { check_array_name(field(factory.constructor ? "create" : factory.name)); }
-    for (const auto& conversion : value.conversions) { check_array_name(field(conversion.name)); }
-    const auto name = model.names.at(&value);
-    struct declaration {
-      std::string name, type, initial;
-      bool public_access;
-    };
-    std::vector<declaration> fields;
-    for (std::size_t i = 0; i < value.parents.size(); ++i) {
-      const auto& base = value.parents[i];
-      const auto n = model.names.at(base.parent_class);
-      fields.push_back({"base" + std::to_string(i), n, n + "::default()",
-                        base.access == access_type::public_access});
-    }
-    for (const auto& f : value.member_list) {
-      if (f.wire_only) { continue; }
-      const auto id = field(f.name);
-      const auto& t = f.type_name_list.front();
-      const bool visible = f.access == access_type::public_access;
-      if (f.modifier == member::modifier_type::variant) {
-        fields.push_back({id + "_index", "usize", "0", visible});
-        for (const auto& alt : f.type_name_list) {
-          fields.push_back({id + "_" + field(alt.enum_name), type(alt), initial(alt), visible});
-        }
-      } else if (f.modifier == member::modifier_type::array) {
-        fields.push_back({id, "Vec<" + type(t) + ">",
-          f.initializer ? default_value(f) : f.fixed_extent ? "std::iter::repeat_with(|| " + behavior::ungroup_expression(initial(t)) + ").take(" +
-              std::to_string(f.fixed_extent) + ").collect()" : "Vec::new()", visible});
-      } else if (f.modifier == member::modifier_type::map) {
-        fields.push_back({id, "BTreeMap<" + type(map_key(f)) + ", " + type(t) + ">",
-                          "BTreeMap::new()", visible});
-      } else {
-        fields.push_back({id, type(t), default_value(f), visible});
-      }
-    }
-    line("/// Owning schema value; encoding borrows its fields.");
-    line("#[derive(Clone, Debug, PartialEq)]");
-    open("pub struct " + name);
-    for (const auto& f : fields) {
-      line((f.public_access ? "pub " : "") + f.name + ": " + f.type + ",");
-    }
-    close();
-    open("impl Default for " + name);
-    line("/// Construct independent schema defaults.");
-    open("fn default() -> Self");
-    open("Self");
-    for (const auto& f : fields) {
-      line(f.name + ": " + f.initial + ",");
-    }
-    close();
-    close();
-    close();
-    open("impl " + name);
-    if (model.xml.enabled) {
-      const xml_binding::schema bindings{model.xml};
-      output += xml_binding::rust_methods(value, bindings.bind(value),
-          [&](const auto& item) { return field(item.name); },
-          [&](const auto& item) { return type(item); }, model.xml);
-    }
-    array_access(value);
-    behaviors(value);
-    comparisons(value);
-    output += construction::factories(value, name, "rust",
-        [&](const auto& item) { return type(item); },
-        [&](auto item, auto) { return field(item); },
-        [&](const auto& item) { return default_value(item); });
-    output += conversion::methods(value, name, "rust",
-        [&](const auto& item) { return type(item); },
-        [&](auto item, auto) { return field(item); });
-    if (value.magic_field) {
-      const auto& magic = *value.magic_field;
-      line("/// Immutable scalar schema identity without per-instance storage.");
-      line(std::string(value.magic_access == access_type::public_access ? "pub " : "") +
-           "const MAGIC: " + type(magic.type_name_list.front()) + " = " +
-           initial(magic.type_name_list.front(), literal(magic)) + ";");
-    } else if (value.has_magic()) {
-      std::string bytes;
-      for (const auto byte : value.magic_bytes) {
-        bytes += (bytes.empty() ? "" : ", ") +
-                 std::to_string(static_cast<unsigned char>(byte));
-      }
-      line("/// Immutable schema identity without per-instance storage.");
-      line(std::string(value.magic_access == access_type::public_access ? "pub " : "") +
-           "const MAGIC: [u8; " + std::to_string(value.magic_bytes.size()) + "] = [" + bytes + "];");
-    }
-    line("/// Encode one complete message into independent owned bytes.");
+    line("/// Encode target projections without constructing an owning target.");
     open("pub fn encode(&self, protocol: Protocol) -> Result<Vec<u8>, Error>");
-    if (model.protocols == output_protocols::binary_none) {
-      line("if protocol != Protocol::BinaryNone { return Err(Error(\"Protocol disabled during generation\")); }");
-    }
-    line("let mut out = SrlWriter::new(protocol);");
-    line("self.srl_write(&mut out)?;");
-    line("Ok(out.bytes)");
-    close();
-    line("/// Decode a fresh value and require exact message consumption.");
-    open("pub fn decode(bytes: &[u8], protocol: Protocol) -> Result<Self, Error>");
-    line("Self::decode_with_limits(bytes, protocol, Limits::default())");
-    close();
-    line("/// Apply explicit resource limits; no partial value escapes on failure.");
-    open("pub fn decode_with_limits(bytes: &[u8], protocol: Protocol, limits: Limits) -> "
-         "Result<Self, Error>");
-    if (model.protocols == output_protocols::binary_none) {
-      line("if protocol != Protocol::BinaryNone { return Err(Error(\"Protocol disabled during generation\")); }");
-    }
-    line("let mut input = SrlReader::new(bytes, protocol, limits)?;");
-    line("let mut value = Self::default();");
-    line("value.srl_read(&mut input)?;");
-    line("input.finish()?;");
-    line("Ok(value)");
-    close();
-    line("/// Write fields in schema order without reflection.");
+    if (model.protocols == output_protocols::binary_none) { line("if protocol != Protocol::BinaryNone { return Err(Error(\"Protocol disabled during generation\")); }"); }
+    line("let mut out = SrlWriter::new(protocol); self.srl_write(&mut out)?; Ok(out.bytes)"); close();
+    line("/// Traverse readonly getters in the target's wire order.");
     open("fn srl_write(&self, out: &mut SrlWriter) -> SrlResult<()>");
+    projection_fields_ = std::move(projected);
+    write_output_body(target);
+    projection_fields_.clear(); close();
+    auto result = std::move(output); output = std::move(saved_output); indent = saved_indent;
+    return result;
+  }
+
+  // Encode owning or projected fields through the same target traversal.
+  void write_output_body(const class_node& value) {
+    if (value.reference) { line("self.srl_validate_reference_address()?;"); }
     if (!auto_size::fields(value).empty()) {
       line("let srl_size_start = out.bytes.len();");
       for (const auto* item : auto_size::fields(value)) {
@@ -893,7 +847,7 @@ class rust_emitter {
     for (std::size_t i = 0; i < value.parents.size(); ++i) {
       const auto& base = value.parents[i];
       key(base.id, base.display_name, first);
-      line("self.base" + std::to_string(i) + ".srl_write(out)?;");
+      line("self." + field("base" + std::to_string(i)) + ".srl_write(out)?;");
       if (variable_first) { line("first_field = false;"); }
       first = false;
     }
@@ -940,9 +894,240 @@ class rust_emitter {
       }
       line("Ok(())");
     }
+  }
+
+  // Emit an export-only reference that writes its selected value using the ordinary codec.
+  void value_reference_object(const class_node& value) {
+    const auto& slot = value.member_list.front();
+    if (slot.modifier != member::modifier_type::none) {
+      throw std::invalid_argument{"Rust inline references require a scalar or ordinary record field"};
+    }
+    const auto name = model.names.at(&value);
+    const auto owner_type = type(value.reference->owner);
+    const bool borrowed = value.reference->mode == reference_declaration::mode_type::borrowed;
+    const auto lifetime = borrowed_nodes_.contains(&value) ? "<'a>" : "";
+    line("/// Export-only live field binding without selected-value storage.");
+    line("#[derive(Clone, Debug, PartialEq)]");
+    open("pub struct " + name + lifetime);
+    const auto owner_handle = value.reference->mode == reference_declaration::mode_type::shared ? "Rc" : "Weak";
+    line(borrowed ? "srl_owner: Option<&'a " + type(value.reference->value_type) + ">," :
+        "srl_owner: SrlValueReferenceBinding<std::rc::" + std::string{owner_handle} +
+        "<std::cell::RefCell<" + owner_type + ">>>,");
+    close();
+    open("impl" + std::string{lifetime} + " Default for " + name + lifetime);
+    line("/// Construct an unbound export reference without allocating selected-value storage.");
+    open("fn default() -> Self");
+    line(borrowed ? "Self { srl_owner: None }" : "Self { srl_owner: SrlValueReferenceBinding(None) }");
+    close();
+    close();
+    open("impl" + std::string{lifetime} + " " + name + lifetime);
+    output += reference_support::native_value_methods(value, "rust",
+        [&](const auto& item) { return type(item); }, [&](auto item) { return field(item); });
+    line("/// Encode the selected value with exactly the ordinary field's wire representation.");
+    open("pub fn encode(&self, protocol: Protocol) -> SrlResult<Vec<u8>>");
+    if (model.protocols == output_protocols::binary_none) {
+      line("if protocol != Protocol::BinaryNone { return Err(Error(\"Protocol disabled during generation\")); }");
+    }
+    line("let mut out = SrlWriter::new(protocol); self.srl_write(&mut out)?; Ok(out.bytes)");
+    close();
+    line("/// Export references cannot be decoded; decode into the ordinary owning target instead.");
+    open("pub fn decode(bytes: &[u8], protocol: Protocol) -> SrlResult<Self>");
+    line("Self::decode_with_limits(bytes, protocol, Limits::default())");
+    close();
+    line("/// Reject input without constructing payload storage or mutating a source owner.");
+    open("pub fn decode_with_limits(_bytes: &[u8], _protocol: Protocol, _limits: Limits) -> SrlResult<Self>");
+    line("Err(Error(\"Export-only reference: decode into an ordinary owning target\"))");
+    close();
+    line("/// Borrow the live owner for the complete traversal without cloning the payload.");
+    open("fn srl_write(&self, out: &mut SrlWriter) -> SrlResult<()>");
+    line("self.with_value(|srl_selected| {");
+    ++indent;
+    write(value.reference->value_type, "srl_selected", false);
+    line("Ok::<(), Error>(())");
+    --indent;
+    // The closure is fallible independently of acquiring the checked owner borrow.
+    line("})??;");
+    line("Ok(())");
+    close();
+    line("/// Reject nested input; export references never own or load selected payloads.");
+    open("fn srl_read(&mut self, _input: &mut SrlReader<'_>) -> SrlResult<()>");
+    line("Err(Error(\"Export-only reference: decode into an ordinary owning target\"))");
+    close();
+    close();
+  }
+
+  void object(const class_node& value) {
+    if (reference_support::native_value_reference(value)) { value_reference_object(value); return; }
+    if (model.xml.enabled) {
+      const std::set<std::string> reserved{"encode_xml", "decode_xml", "encode_xml_with_validation",
+          "decode_xml_with_validation", "srl_xml_write", "srl_xml_read"};
+      // Reserve selected XML APIs before any authored member or callable is emitted.
+      const auto check_xml_name = [&](std::string_view name) {
+        if (reserved.contains(field(name))) {
+          throw std::invalid_argument{"Rust XML method name collision: " + std::string{name}};
+        }
+      };
+      for (const auto& item : value.member_list) { check_xml_name(item.name); }
+      for (const auto& method : value.functions) { check_xml_name(method.name); }
+      for (const auto& factory : value.constructions) {
+        check_xml_name(factory.constructor ? "create" : factory.name);
+      }
+      for (const auto& conversion : value.conversions) { check_xml_name(conversion.name); }
+    }
+    std::set<std::string> array_methods;
+    for (const auto& item : value.member_list) {
+      if (!item.array_exposure) { continue; }
+      for (const auto method : {"get", "size", "values", "set"}) {
+        if (std::string_view{method} == "set" && item.array_exposure->readonly) { continue; }
+        if (!array_methods.insert(field(method)).second) {
+          throw std::invalid_argument{"rust: array exposure helper collision"};
+        }
+      }
+    }
+    const auto check_array_name = [&](const std::string& name) {
+      if (array_methods.contains(name)) { throw std::invalid_argument{"rust: array exposure naming collision: " + name}; }
+    };
+    for (const auto& item : value.member_list) { check_array_name(field(item.name)); }
+    for (const auto& method : value.functions) { check_array_name(field(method.name)); }
+    for (const auto& factory : value.constructions) { check_array_name(field(factory.constructor ? "create" : factory.name)); }
+    for (const auto& conversion : value.conversions) { check_array_name(field(conversion.name)); }
+    const auto name = model.names.at(&value);
+    const auto lifetime = borrowed_nodes_.contains(&value) ? "<'a>" : "";
+    if (borrowed_nodes_.contains(&value) && !value.conversions.empty()) {
+      throw std::invalid_argument{"Rust records containing native borrows do not support conversion or translator declarations"};
+    }
+    struct declaration {
+      std::string name, type, initial;
+      bool public_access;
+    };
+    std::vector<declaration> fields;
+    if (value.reference) {
+      fields.push_back({"srl_reference", reference_support::rust_binding_type(value,
+          [&](const auto& item) { return type(item); }), "SrlReferenceBinding(None)", false});
+    }
+    for (std::size_t i = 0; i < value.parents.size(); ++i) {
+      const auto& base = value.parents[i];
+      const auto n = model_type(base.parent_class);
+      fields.push_back({"base" + std::to_string(i), n, model.names.at(base.parent_class) + "::default()",
+                        base.access == access_type::public_access});
+    }
+    for (const auto& f : value.member_list) {
+      if (f.wire_only) { continue; }
+      const auto id = field(f.name);
+      const auto& t = f.type_name_list.front();
+      const bool visible = f.access == access_type::public_access;
+      if (f.modifier == member::modifier_type::variant) {
+        fields.push_back({id + "_index", "usize", "0", visible});
+        for (const auto& alt : f.type_name_list) {
+          fields.push_back({id + "_" + field(alt.enum_name), type(alt), initial(alt), visible});
+        }
+      } else if (f.modifier == member::modifier_type::array) {
+        fields.push_back({id, "Vec<" + type(t) + ">",
+          f.initializer ? default_value(f) : f.fixed_extent ? "std::iter::repeat_with(|| " + behavior::ungroup_expression(initial(t)) + ").take(" +
+              std::to_string(f.fixed_extent) + ").collect()" : "Vec::new()", visible});
+      } else if (f.modifier == member::modifier_type::map) {
+        fields.push_back({id, "BTreeMap<" + type(map_key(f)) + ", " + type(t) + ">",
+                          "BTreeMap::new()", visible});
+      } else {
+        fields.push_back({id, type(t), default_value(f), visible});
+      }
+    }
+    line("/// Owning schema value; encoding borrows its fields.");
+    line("#[derive(Clone, Debug, PartialEq)]");
+    open("pub struct " + name + lifetime);
+    for (const auto& f : fields) {
+      line((f.public_access ? "pub " : "") + f.name + ": " + f.type + ",");
+    }
+    close();
+    open("impl" + std::string{lifetime} + " Default for " + name + lifetime);
+    line("/// Construct independent schema defaults.");
+    open("fn default() -> Self");
+    open("Self");
+    for (const auto& f : fields) {
+      line(f.name + ": " + f.initial + ",");
+    }
+    close();
+    close();
+    close();
+    output += translator::methods(value, name, "rust",
+        [&](const auto& item) { return type(item); },
+        [&](auto item, auto) { return field(item); },
+        [&](const auto& item) { return default_value(item); },
+        [&](const auto& method, auto view) { return translator_codecs(method, view); }, true);
+    open("impl" + std::string{lifetime} + " " + name + lifetime);
+    output += reference_support::portable_methods(value, name, "rust",
+        [&](const auto& item) { return type(item); },
+        [&](auto item, auto) { return field(item); });
+    if (model.xml.enabled) {
+      const xml_binding::schema bindings{model.xml};
+      output += xml_binding::rust_methods(value, bindings.bind(value),
+          [&](const auto& item) { return field(item.name); },
+          [&](const auto& item) { return type(item); }, model.xml);
+    }
+    array_access(value);
+    behaviors(value);
+    comparisons(value);
+    output += construction::factories(value, name, "rust",
+        [&](const auto& item) { return type(item); },
+        [&](auto item, auto) { return field(item); },
+        [&](const auto& item) { return default_value(item); });
+    output += conversion::methods(value, name, "rust",
+        [&](const auto& item) { return type(item); },
+        [&](auto item, auto) { return field(item); });
+    output += translator::methods(value, name, "rust",
+        [&](const auto& item) { return type(item); },
+        [&](auto item, auto) { return field(item); },
+        [&](const auto& item) { return default_value(item); },
+        [&](const auto& method, auto view) { return translator_codecs(method, view); });
+    if (value.magic_field) {
+      const auto& magic = *value.magic_field;
+      line("/// Immutable scalar schema identity without per-instance storage.");
+      line(std::string(value.magic_access == access_type::public_access ? "pub " : "") +
+           "const MAGIC: " + type(magic.type_name_list.front()) + " = " +
+           initial(magic.type_name_list.front(), literal(magic)) + ";");
+    } else if (value.has_magic()) {
+      std::string bytes;
+      for (const auto byte : value.magic_bytes) {
+        bytes += (bytes.empty() ? "" : ", ") +
+                 std::to_string(static_cast<unsigned char>(byte));
+      }
+      line("/// Immutable schema identity without per-instance storage.");
+      line(std::string(value.magic_access == access_type::public_access ? "pub " : "") +
+           "const MAGIC: [u8; " + std::to_string(value.magic_bytes.size()) + "] = [" + bytes + "];");
+    }
+    line("/// Encode one complete message into independent owned bytes.");
+    open("pub fn encode(&self, protocol: Protocol) -> Result<Vec<u8>, Error>");
+    if (model.protocols == output_protocols::binary_none) {
+      line("if protocol != Protocol::BinaryNone { return Err(Error(\"Protocol disabled during generation\")); }");
+    }
+    line("let mut out = SrlWriter::new(protocol);");
+    line("self.srl_write(&mut out)?;");
+    line("Ok(out.bytes)");
+    close();
+    line("/// Decode a fresh value and require exact message consumption.");
+    open("pub fn decode(bytes: &[u8], protocol: Protocol) -> Result<Self, Error>");
+    line("Self::decode_with_limits(bytes, protocol, Limits::default())");
+    close();
+    line("/// Apply explicit resource limits; no partial value escapes on failure.");
+    open("pub fn decode_with_limits(bytes: &[u8], protocol: Protocol, limits: Limits) -> "
+         "Result<Self, Error>");
+    if (model.protocols == output_protocols::binary_none) {
+      line("if protocol != Protocol::BinaryNone { return Err(Error(\"Protocol disabled during generation\")); }");
+    }
+    line("let mut input = SrlReader::new(bytes, protocol, limits)?;");
+    line("let mut value = Self::default();");
+    line("value.srl_read(&mut input)?;");
+    line("input.finish()?;");
+    line("Ok(value)");
+    close();
+    line("/// Write fields in schema order without reflection.");
+    open("fn srl_write(&self, out: &mut SrlWriter) -> SrlResult<()>");
+    write_output_body(value);
+    const bool magic_json = value.has_magic() && !value.magic_omits("json");
     close();
     line("/// Merge repeated nested objects while replacing collections.");
     open("fn srl_read(&mut self, input: &mut SrlReader<'_>) -> SrlResult<()>");
+    if (value.reference) { line("self.unbind();"); }
     if (!auto_size::fields(value).empty()) {
       line("let srl_size_start = input.offset; let _ = srl_size_start;");
       for (const auto* item : auto_size::fields(value)) {
@@ -1092,6 +1277,7 @@ class rust_emitter {
         }
       }
     }
+    if (value.reference) { line("self.srl_validate_reference_address()?;"); }
     line("Ok(())");
     close();
     close();
@@ -1108,10 +1294,18 @@ class rust_emitter {
 public:
   // Bind schema metadata for one Rust module.
   explicit rust_emitter(const schema& value) : model{value} {
+    collect_borrowed_nodes();
     arithmetic_helpers = behavior::select_helpers(model.nodes,
         [&](const auto& node) { return model.names.at(&node); },
         [&](const auto name) { return field(name); }, "_internal");
     output += runtime;
+    if (std::any_of(model.nodes.begin(), model.nodes.end(), [](const auto* node) {
+          return node->type == object_type::class_type && static_cast<const class_node&>(*node).reference.has_value();
+        })) { output += reference_support::portable_runtime("rust"); }
+    if (std::any_of(model.nodes.begin(), model.nodes.end(), [](const auto* node) {
+          return node->type == object_type::class_type &&
+              reference_support::native_value_reference(static_cast<const class_node&>(*node));
+        })) { output += reference_support::native_value_runtime("rust"); }
     if (model.xml.enabled) { output += xml_binding::rust_runtime(); }
     output += behavior::helpers("rust", arithmetic_helpers);
     output += behavior::helpers_predicate("rust", arithmetic_helpers);
@@ -1138,6 +1332,10 @@ public:
     --indent;
     line("];");
     for (const auto* node : model.nodes) {
+      if (node->type != object_type::native_code && model.names.at(node) == "SrlReferenceBinding" &&
+          std::any_of(model.nodes.begin(), model.nodes.end(), [](const auto* item) {
+            return item->type == object_type::class_type && static_cast<const class_node&>(*item).reference.has_value();
+          })) { throw std::invalid_argument{"Rust reference runtime name collision: SrlReferenceBinding"}; }
       if (model.xml.enabled) {
         validate_identifier(model.names.at(node), " XmlLimits XmlValidator SrlXmlWriter SrlXmlFields ");
         if (node->type == object_type::function_type) {

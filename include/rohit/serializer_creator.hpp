@@ -363,6 +363,21 @@ struct array_exposure_options {
   bool operator==(const array_exposure_options&) const = default;
 };
 
+// Describe a selected owner field; transparent projections carry values instead of addresses.
+struct reference_declaration {
+  enum class mode_type { borrowed, shared, weak };
+  mode_type mode{mode_type::borrowed};
+  type_name owner{std::string{}, nullptr};
+  std::vector<std::string> source_path{};
+  std::vector<std::vector<std::size_t>> source_base_paths{};
+  type_name value_type{std::string{}, nullptr};
+  std::vector<std::uint32_t> field_path{};
+  bool value_projection{false}; // Inline references serialize the selected value without identity metadata.
+
+  // Compare parsed ownership and field selection without inspecting a live owner.
+  bool operator==(const reference_declaration&) const = default;
+};
+
 struct member {
   enum class modifier_type { none, array, map, variant };
   access_type access;
@@ -413,6 +428,7 @@ struct member {
   access_type readonly_getter_access{access_type::public_access};
   std::optional<array_exposure_options> array_exposure{};
   bool owner_factory_default_enabled{false}; // Source owner-type defaults defer factory use from language 1.17.
+  std::optional<reference_declaration> value_reference{}; // Parsed inline selection, consumed by lowering.
 
   // Select a computed fixed-width size without storing per-instance codec policy.
   bool auto_sizes(std::string_view format) const {
@@ -430,6 +446,7 @@ struct member {
            readonly_getter == rhs.readonly_getter &&
            readonly_getter_access == rhs.readonly_getter_access &&
            array_exposure == rhs.array_exposure &&
+           value_reference == rhs.value_reference &&
            owner_factory_default_enabled == rhs.owner_factory_default_enabled &&
            auto_size_formats == rhs.auto_size_formats &&
            wire_only == rhs.wire_only && size_scope == rhs.size_scope &&
@@ -571,6 +588,8 @@ struct conversion_declaration {
   type_name target{std::string{}, nullptr};
   std::string name{};
   std::vector<conversion_assignment> assignments{};
+  bool translator{false}; // A scoped readonly projection borrows its source instead of copying it.
+  bool collection_projection{false}; // Language 1.19 permits borrowed records containing collections.
 };
 
 // Schema-declared behavior is an API contract, not serialized executable state.
@@ -672,6 +691,7 @@ struct class_node : public syntax_node {
   std::vector<function_declaration> functions{};
   std::vector<construction_declaration> constructions{};
   std::vector<conversion_declaration> conversions{};
+  std::optional<reference_declaration> reference{};
   std::vector<arithmetic_declaration> arithmetic{};
   std::vector<native_code_block> native_blocks{};
   std::vector<class_body_item> body_order{};
@@ -711,6 +731,7 @@ struct class_node : public syntax_node {
         parents{std::move(rhs.parents)}, member_list{std::move(rhs.member_list)},
         functions{std::move(rhs.functions)}, constructions{std::move(rhs.constructions)},
         conversions{std::move(rhs.conversions)},
+        reference{std::move(rhs.reference)},
         arithmetic{std::move(rhs.arithmetic)},
         native_blocks{std::move(rhs.native_blocks)},
         body_order{std::move(rhs.body_order)},

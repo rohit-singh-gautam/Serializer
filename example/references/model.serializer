@@ -1,0 +1,38 @@
+serializer version 1.19.0;
+
+class payload {
+  public array float values (1);
+  public array uint32 codes (2);
+}
+
+class owning_consumer {
+  public payload d (1);
+}
+
+class owner {
+  public payload b (1);
+  public translator owning_consumer as as_consumer {
+    d = b;
+  };
+}
+
+class borrowed_consumer {
+  public borrowed(owner.b) d (1);
+}
+
+class shared_consumer {
+  public shared(owner.b) d (1);
+}
+
+class weak_consumer {
+  public weak(owner.b) d (1);
+}
+
+// Two ordinary records can share one independently allocated payload.
+class shared_owner {
+  public shared(payload) b (1);
+}
+
+class shared_value_consumer {
+  public shared(payload) d (1);
+}

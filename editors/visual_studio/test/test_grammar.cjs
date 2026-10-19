@@ -266,6 +266,52 @@ function checkArrayCallableApis(grammar, label) {
   return checks.length;
 }
 
+/** Keep durable references and translator declarations bounded in every grammar host. */
+function checkReferenceContracts(grammar, label) {
+  const lines = ['serializer version 1.18.0;',
+    'reference label_ref = borrowed(lib::owner.item.label);',
+    'reference shared_ref = shared(lib::owner.item);',
+    'reference weak_ref = weak(lib::owner.item.label);',
+    'class holder { public label_ref d (1);',
+    'public translator lib::target as to_target { name = source.item.label; };',
+    'public lib::owner after (2); }'];
+  const result = tokenize(grammar, lines);
+  const expected = [[1, 'reference', 'storage.type.serializer'],
+    [1, 'label_ref', 'entity.name.type.serializer'],
+    [1, 'borrowed', 'storage.modifier.serializer'], [1, 'owner', 'entity.name.type.serializer'],
+    [2, 'shared(', 'storage.modifier.serializer'], [2, 'owner', 'entity.name.type.serializer'],
+    [3, 'weak(', 'storage.modifier.serializer'], [3, 'owner', 'entity.name.type.serializer'],
+    [4, 'label_ref', 'entity.name.type.serializer'], [5, 'translator', 'storage.type.serializer'],
+    [5, 'target', 'entity.name.type.serializer'], [5, 'to_target', 'entity.name.function.serializer'],
+    [6, 'owner', 'entity.name.type.serializer']];
+  for (const [line, word, scope] of expected) {
+    assert.equal(scopesAt(lines, result, line, word).at(-1), scope, `${label}: ${word}`);
+  }
+  assert.equal(result.state.depth, 1, `${label}: reference contracts consumed later declarations`);
+  return expected.length + 1;
+}
+
+/** Highlight inline value ownership without claiming its selected fields as types. */
+function checkValueReferenceContracts(grammar, label) {
+  const lines = ['serializer version 1.19.0; class export_view {',
+    'public borrowed(lib::owner.item.label) first (1);',
+    'public shared(lib::owner.item) second (2);',
+    'public weak(lib::owner.item.label) third (3);',
+    'public shared(lib::payload) value (4);',
+    'public lib::owner after (5); }'];
+  const result = tokenize(grammar, lines);
+  for (const [line, mode] of [[1, 'borrowed'], [2, 'shared'], [3, 'weak']]) {
+    assert.equal(scopesAt(lines, result, line, mode).at(-1), 'storage.modifier.serializer', label);
+    assert.equal(scopesAt(lines, result, line, 'owner').at(-1), 'entity.name.type.serializer', label);
+    assert.notEqual(scopesAt(lines, result, line, 'item').at(-1), 'entity.name.type.serializer', label);
+  }
+  assert.equal(scopesAt(lines, result, 4, 'shared').at(-1), 'storage.modifier.serializer', label);
+  assert.equal(scopesAt(lines, result, 4, 'payload').at(-1), 'entity.name.type.serializer', label);
+  assert.equal(scopesAt(lines, result, 5, 'owner').at(-1), 'entity.name.type.serializer', label);
+  assert.equal(result.state.depth, 1, label);
+  return 13;
+}
+
 async function main() {
   const directory = process.argv[2];
   assert.ok(directory && fs.statSync(directory).isDirectory(), 'Pass the Visual Studio TextMate directory.');
@@ -287,7 +333,11 @@ async function main() {
     checkFreshRecordDefaults(host, 'installed host grammar') +
     checkFreshRecordDefaults(fallback, 'missing grammar fallback') +
     checkArrayCallableApis(host, 'installed host grammar') +
-    checkArrayCallableApis(fallback, 'missing grammar fallback');
+    checkArrayCallableApis(fallback, 'missing grammar fallback') +
+    checkValueReferenceContracts(host, 'installed host grammar') +
+    checkValueReferenceContracts(fallback, 'missing grammar fallback') +
+    checkReferenceContracts(host, 'installed host grammar') +
+    checkReferenceContracts(fallback, 'missing grammar fallback');
   console.log(`Installed grammar assets passed ${checks} embedded syntax/boundary checks across all ${nativeLanguages.length} tags.`);
   console.log(`Loaded ${grammars.size} installed grammar scopes; this validates assets with the TextMate tokenizer, not an editor-host UI run.`);
 }

@@ -1,5 +1,28 @@
 # Serializer examples
 
+## Value-only export
+
+The [inline value-reference examples](references/README.md) bind a value or owner
+with one argument and write an ordinary field value, including existing buffers,
+without document/object/path metadata. Language 1.19 scoped translators borrow
+the payload record during output. These references are export-only; matching owning
+schemas read the bytes. See [value reference rules](../docs/schema/value_references.md).
+
+## Field references and one-time translation
+
+The [durable address reference examples](address_references/README.md) share one schema across all eleven
+outputs. They bind `consumer.d` to `owner.b`, observe a later owner edit, translate
+the referenced value directly to JSON during one scoped operation, and explicitly
+resolve a decoded address. The C++ consumer also demonstrates borrowed, shared and
+weak owner lifetimes and all four native protocols.
+
+```powershell
+python example/address_references/run.py --compiler out/build/ReleaseWindows/serializer.exe --build out/address-reference-examples --language all
+```
+
+See the example guide for SDK requirements, Linux commands and the standalone
+C++ CMake build with an installed Serializer 2.5 package.
+
 ## XML and packages
 
 The [generated XML examples](xml/README.md) use one schema/fixture across all eleven

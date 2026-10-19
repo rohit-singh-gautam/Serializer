@@ -7,6 +7,9 @@
 #include "auto_size_writer.hpp"
 #include "construction_writer.hpp"
 #include "conversion_writer.hpp"
+#include "translator_writer.hpp"
+#include "reference_portable_writer.hpp"
+#include "value_reference_native_writer.hpp"
 #include "comparison_writer.hpp"
 
 #include <algorithm>
@@ -16,6 +19,7 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
@@ -62,6 +66,13 @@ class c_emitter {
         throw std::invalid_argument{"C symbol collision: " + symbol};
       }
     };
+    if (std::any_of(model.nodes.begin(), model.nodes.end(), [](const auto* node) {
+          return node->type == object_type::class_type && static_cast<const class_node&>(*node).reference.has_value();
+        })) {
+      for (const auto symbol : {"srl_reference_scope", "srl_reference_scope_create",
+          "srl_reference_scope_retain", "srl_reference_scope_release",
+          "srl_reference_scope_observe", "srl_reference_scope_unobserve"}) { symbols.insert(symbol); }
+    }
     for (const auto* node : model.nodes) {
       const auto n = name(node);
       add(n);
@@ -76,6 +87,14 @@ class c_emitter {
         }
       } else {
         const auto& owner = static_cast<const class_node&>(*node);
+        if (owner.reference) {
+          if (reference_support::native_value_reference(owner)) {
+            for (const auto suffix : {"_create_scope", "_bind", "_unbind", "_read_value", "_with_value", "_is_bound"}) { add(n + suffix); }
+          } else {
+            for (const auto suffix : {"_create_scope", "_bind", "_bind_bytes", "_resolve", "_resolve_bytes", "_unbind",
+                "_read_value", "_with_value", "_is_bound", "_validate_address", "_srl_reference_path", "_srl_read_fields"}) { add(n + suffix); }
+          }
+        }
         for (const auto& item : owner.member_list) {
           if (!item.array_exposure) { continue; }
           for (const auto method : {"get", "size", "values"}) { add(n + "_" + field(method)); }
@@ -139,7 +158,10 @@ class c_emitter {
     line("}" + suffix);
   }
   // Validate public C identifiers before publishing generated code.
+  std::map<std::string, std::string> projection_fields_{};
+
   std::string field(std::string_view name) const {
+    if (const auto found = projection_fields_.find(std::string{name}); found != projection_fields_.end()) { return found->second; }
     auto result = snake(name);
     validate_identifier(result, keywords);
     return result;
@@ -657,6 +679,18 @@ class c_emitter {
   // Define typed collection layouts before their owning class; map entries follow it.
   void declarations(const class_node& value) {
     const auto n = name(&value);
+    if (reference_support::native_value_reference(value)) {
+      if (value.member_list.front().modifier != member::modifier_type::none) {
+        throw std::invalid_argument{"C inline references require a scalar or ordinary record field"};
+      }
+      line("/* Export-only live binding; selected-value storage remains in its owner. */");
+      open("struct " + n);
+      line(value.reference->mode == reference_declaration::mode_type::borrowed ?
+          "const " + type(value.reference->value_type) + "* srl_value;" :
+          "srl_reference_scope* srl_reference;");
+      close(";");
+      return;
+    }
     if (value.magic_field) {
       const auto& magic = *value.magic_field;
       const auto constant =
@@ -691,6 +725,7 @@ class c_emitter {
     }
     line("/* Owned model; initialize or zero before use, and release with " + n + "_free. */");
     open("struct " + n);
+    output += reference_support::c_binding_fields(value);
     bool any = false;
     for (std::size_t i = 0; i < value.parents.size(); ++i) {
       line(name(value.parents[i].parent_class) + " base" + std::to_string(i) + ";");
@@ -1266,7 +1301,7 @@ class c_emitter {
         } else { free_value(found->type_name_list.front(), dst); }
         line(dst + " = *" + argument + "; memset(" + argument + ", 0, sizeof(*" + argument + "));");
       }
-      line(n + "_free(result); *result = srl_candidate; return srl_ok;");
+      line(n + " srl_previous = *result; *result = srl_candidate; " + n + "_free(&srl_previous); return srl_ok;");
       close();
       for (std::size_t arity{}; arity < factory.parameters.size(); ++arity) {
         if (factory.parameters[arity].default_value.empty() && factory.parameters[arity].default_factory.empty()) { continue; }
@@ -1465,88 +1500,55 @@ class c_emitter {
   }
 
   // Emit lifecycle APIs and direct per-field codecs for one C model.
-  void object(const class_node& value) {
+  // Encode target projections and scope only their unmapped leaf defaults around the callback.
+  std::string translator_codecs(const conversion_declaration& method, std::string_view view_name,
+      std::string_view owner_name) {
+    auto saved_output = std::move(output);
+    const auto saved_indent = indent;
+    output.clear(); indent = 0;
+    const auto& target = ::rohit::serializer::conversion::record(method.target);
+    const std::string view{view_name};
+    auto projected = translator::output_fields(method, "c", [&](auto value, auto) { return field(value); });
+    line("/* Traverse target framing and borrowed projected fields without constructing a target. */");
+    open("static inline void " + view + "_srl_write(srl_writer* out, const " + view + "* value)");
+    projection_fields_ = std::move(projected);
+    write_output_body(target);
+    projection_fields_.clear(); close();
+    line("/* Replace initialized encoded bytes only after every projected field is encoded. */");
+    open("static inline srl_status " + view + "_encode(const " + view + "* value, srl_protocol protocol, srl_buffer* result)");
+    line("if (!value || !value->srl_source || !result || protocol < srl_json || protocol > srl_binary_string) { return srl_invalid; }");
+    line("srl_writer out = {0}; out.protocol = protocol; " + view + "_srl_write(&out, value);");
+    line("if (out.status != srl_ok) { srl_buffer_free(&out.buffer); return out.status; } srl_buffer_free(result); *result = out.buffer; return srl_ok;");
+    close();
+    line("/* A synchronous callback borrows this projection; retaining its view is invalid. */");
+    line("typedef void (*" + view + "_callback)(const " + view + "* value, void* context);");
+    open("static inline srl_status " + std::string{owner_name} + "_" + field("with_" + method.name) + "(const " + std::string{owner_name} + "* source, " + view + "_callback action, void* context)");
+    line("if (!source || !action) { return srl_invalid; } " + view + " value = {0}; value.srl_source = source; srl_status status = srl_ok;");
+    const auto values = translator::slots(method, "c", [&](auto name, auto) { return field(name); });
+    for (const auto& item : values) {
+      if (item.mapped) { continue; }
+      const auto destination = "value.srl_default_" + field(item.field.name);
+      if (item.field.initializer) { initialize_default(*item.field.initializer, destination, "status"); }
+      else { init_value(item.field.type_name_list.front(), destination, literal(item.field), "status"); }
+      if (!item.field.default_factory.empty()) {
+        line("if (status == srl_ok) { status = " + type(item.field.type_name_list.front()) + "_" + field(item.field.default_factory) + "(&" + destination + "); }");
+      }
+    }
+    line("if (status == srl_ok) { action(&value, context); }");
+    for (const auto& item : values) {
+      if (!item.mapped) { free_value(item.field.type_name_list.front(), "value.srl_default_" + field(item.field.name)); }
+    }
+    line("return status;"); close();
+    auto result = std::move(output); output = std::move(saved_output); indent = saved_indent;
+    return result;
+  }
+
+  // Encode owning or projected fields through the same target traversal.
+  void write_output_body(const class_node& value) {
     const auto n = name(&value);
-    behaviors(value);
-    for (const auto& f : value.member_list) {
-      if (f.modifier == member::modifier_type::array || f.modifier == member::modifier_type::map) {
-        collection_helpers(collection(value, f), f.type_name_list.front(),
-                           f.modifier == member::modifier_type::map, map_key(f));
-      }
-    }
-    line("/* Release every owned field; accepts zeroed and partially initialized values. */");
-    open("static inline void " + n + "_free(" + n + "* value)");
-    line("if (!value) { return; }");
-    for (std::size_t i = 0; i < value.parents.size(); ++i) {
-      line(name(value.parents[i].parent_class) + "_free(&value->base" + std::to_string(i) + ");");
-    }
-    for (const auto& f : value.member_list) {
-      const auto dst = "value->" + field(f.name);
-      if (f.wire_only) { continue; }
-      if (f.modifier == member::modifier_type::variant) {
-        for (const auto& alt : f.type_name_list) {
-          free_value(alt, dst + "_" + field(alt.enum_name));
-        }
-      } else if (f.modifier == member::modifier_type::none) {
-        free_value(f.type_name_list.front(), dst);
-      } else {
-        line(collection(value, f) + "_clear(&" + dst + ");");
-      }
-    }
-    line("memset(value, 0, sizeof(*value));");
-    close();
-    line("/* Initialize fresh storage with schema defaults; free an existing value before calling. "
-         "*/");
-    open("static inline srl_status " + n + "_init(" + n + "* value)");
-    line("if (!value) { return srl_invalid; } memset(value, 0, sizeof(*value)); srl_status status "
-         "= srl_ok;");
-    for (std::size_t i = 0; i < value.parents.size(); ++i) {
-      line("if (status == srl_ok) { status = " + name(value.parents[i].parent_class) +
-           "_init(&value->base" + std::to_string(i) + "); }");
-    }
-    for (const auto& f : value.member_list) {
-      const auto dst = "value->" + field(f.name);
-      if (f.wire_only) { continue; }
-      if (f.modifier == member::modifier_type::variant) {
-        for (const auto& alt : f.type_name_list) {
-          init_value(alt, dst + "_" + field(alt.enum_name), {}, "status");
-        }
-      } else if (f.modifier == member::modifier_type::none) {
-        if (f.initializer) { initialize_default(*f.initializer, dst, "status"); }
-        else { init_value(f.type_name_list.front(), dst, literal(f), "status"); }
-        if (!f.default_factory.empty()) {
-          line("if (status == srl_ok) { status = " + type(f.type_name_list.front()) + "_" +
-              field(f.default_factory) + "(&" + dst + "); }");
-        }
-      } else if (f.fixed_extent != 0) {
-        if (f.initializer) {
-          initialize_default(*f.initializer, dst, "status");
-          continue;
-        }
-        const auto count = std::to_string(f.fixed_extent);
-        line("if (status == srl_ok) { " + dst + ".data = (" + type(f.type_name_list.front()) +
-             "*)calloc(" + count + ", sizeof(" + dst + ".data[0])); if (!" + dst +
-             ".data) { status = srl_allocation; } else { " + dst + ".capacity = " + count +
-             "; } }");
-        open("for (size_t i = 0; status == srl_ok && i < " + count + "; ++i)");
-        line("++" + dst + ".size;");
-        init_value(f.type_name_list.front(), dst + ".data[i]", {}, "status");
-        close();
-      }
-    }
-    line("if (status != srl_ok) { " + n + "_free(value); } return status;");
-    close();
-    constructions(value);
-    output += conversion::methods(value, n, "c",
-        [&](const auto& item) { return type(item); },
-        [&](auto item, auto) { return field(item); });
-    comparisons(value);
-    array_access(value);
-    const auto magic_name = (value.magic_access == access_type::public_access ? "" : "srl_") +
-                            n + "_magic";
-    line("/* Encode in schema order; the source retains ownership of all its fields. */");
-    open("static inline void " + n + "_srl_write(srl_writer* out, const " + n + "* value)");
+    const auto magic_name = (value.magic_access == access_type::public_access ? "" : "srl_") + n + "_magic";
     line("(void)value; if (out->status != srl_ok) { return; }");
+    if (value.reference) { line("out->status = " + n + "_validate_address(value); if (out->status != srl_ok) { return; }"); }
     if (model.protocols == output_protocols::binary_none) {
       line("if (out->protocol != srl_binary_none) { out->status = srl_invalid; return; }");
     }
@@ -1601,7 +1603,7 @@ class c_emitter {
     for (std::size_t i = 0; i < value.parents.size(); ++i) {
       const auto& base = value.parents[i];
       key(base.id, base.display_name, first);
-      line(name(base.parent_class) + "_srl_write(out, &value->base" + std::to_string(i) + ");");
+      line(name(base.parent_class) + "_srl_write(out, &value->" + field("base" + std::to_string(i)) + ");");
       if (variable_first) { line("first_field = false;"); }
       first = false;
     }
@@ -1647,9 +1649,165 @@ class c_emitter {
       close();
       close();
     }
+  }
+
+  // Emit export-only transparent codecs and stage owner releases after destination access.
+  void value_reference_object(const class_node& value) {
+    const auto n = name(&value);
+    const auto& payload = value.reference->value_type;
+    const bool borrowed = value.reference->mode == reference_declaration::mode_type::borrowed;
+    const auto release = value.reference->mode == reference_declaration::mode_type::shared ?
+        "srl_reference_scope_release" : "srl_reference_scope_unobserve";
+    output += reference_support::c_native_value_methods(value, n,
+        [&](const auto& item) { return type(item); }, [&](auto item) { return field(item); });
+    line("/* Detach before the final potentially reentrant owner release. */");
+    open("static inline void " + n + "_free(" + n + "* srl_value)");
+    line("if (!srl_value) { return; }");
+    if (!borrowed) { line("srl_reference_scope* srl_previous = srl_value->srl_reference;"); }
+    line("memset(srl_value, 0, sizeof(*srl_value));");
+    if (!borrowed) { line(std::string{"if (srl_previous) { "} + release + "(srl_previous); }"); }
+    close();
+    line("/* Initialize an unbound export reference without allocating selected-value storage. */");
+    open("static inline srl_status " + n + "_init(" + n + "* srl_value)");
+    line("if (!srl_value) { return srl_invalid; } memset(srl_value, 0, sizeof(*srl_value)); return srl_ok;");
+    close();
+    line("/* Borrow the selected payload through the entire direct traversal; do not copy its buffers. */");
+    open("static inline void " + n + "_srl_write(srl_writer* out, const " + n + "* srl_value)");
+    line("if (out->status != srl_ok) { return; }");
+    if (model.protocols == output_protocols::binary_none) {
+      line("if (out->protocol != srl_binary_none) { out->status = srl_invalid; return; }");
+    }
+    line("const " + type(payload) + "* srl_selected = NULL;");
+    line("out->status = " + n + "_read_value(srl_value, &srl_selected); if (out->status != srl_ok) { return; }");
+    if (!borrowed) {
+      line("srl_reference_scope* srl_scope = srl_value->srl_reference;");
+      line("if (srl_scope) { out->status = srl_reference_scope_retain(srl_scope); if (out->status != srl_ok) { return; } }");
+    }
+    write_value(payload, "(*srl_selected)", false);
+    if (!borrowed) { line("if (srl_scope) { srl_reference_scope_release(srl_scope); }"); }
+    close();
+    line("/* Export references reject loading; decode into the ordinary owning target instead. */");
+    open("static inline void " + n + "_srl_read(srl_reader* in, " + n + "* srl_value)");
+    line("(void)srl_value; in->status = srl_invalid;");
+    close();
+    line("/* Publish independently owned encoded bytes only after successful traversal. */");
+    open("static inline srl_status " + n + "_encode(const " + n + "* srl_value, srl_protocol protocol, srl_buffer* srl_result)");
+    line("if (!srl_value || !srl_result || protocol < srl_json || protocol > srl_binary_string) { return srl_invalid; }");
+    line("srl_writer out = {0}; out.protocol = protocol; " + n + "_srl_write(&out, srl_value);");
+    line("if (out.status != srl_ok) { srl_buffer_free(&out.buffer); return out.status; }");
+    line("srl_buffer_free(srl_result); *srl_result = out.buffer; return srl_ok;");
+    close();
+    line("/* Reject loading without constructing payload storage or modifying an existing binding. */");
+    open("static inline srl_status " + n + "_decode(" + n + "* srl_result, const uint8_t* bytes, size_t size, srl_protocol protocol, const srl_limits* limits)");
+    line("(void)srl_result; (void)bytes; (void)size; (void)protocol; (void)limits; return srl_invalid;");
+    close();
+  }
+
+  void object(const class_node& value) {
+    if (reference_support::native_value_reference(value)) { value_reference_object(value); return; }
+    const auto n = name(&value);
+    behaviors(value);
+    for (const auto& f : value.member_list) {
+      if (f.modifier == member::modifier_type::array || f.modifier == member::modifier_type::map) {
+        collection_helpers(collection(value, f), f.type_name_list.front(),
+                           f.modifier == member::modifier_type::map, map_key(f));
+      }
+    }
+    output += reference_support::c_methods(value, n,
+        [&](const auto& item) { return type(item); },
+        [&](auto item) { return field(item); });
+    line("/* Release every owned field; accepts zeroed and partially initialized values. */");
+    open("static inline void " + n + "_free(" + n + "* value)");
+    line("if (!value) { return; }");
+    if (value.reference) {
+      line("srl_reference_scope* srl_previous_reference = value->srl_reference;");
+      line("value->srl_reference = NULL; srl_string_free(&value->srl_reference_document);");
+    }
+    for (std::size_t i = 0; i < value.parents.size(); ++i) {
+      line(name(value.parents[i].parent_class) + "_free(&value->base" + std::to_string(i) + ");");
+    }
+    for (const auto& f : value.member_list) {
+      const auto dst = "value->" + field(f.name);
+      if (f.wire_only) { continue; }
+      if (f.modifier == member::modifier_type::variant) {
+        for (const auto& alt : f.type_name_list) {
+          free_value(alt, dst + "_" + field(alt.enum_name));
+        }
+      } else if (f.modifier == member::modifier_type::none) {
+        free_value(f.type_name_list.front(), dst);
+      } else {
+        line(collection(value, f) + "_clear(&" + dst + ");");
+      }
+    }
+    line("memset(value, 0, sizeof(*value));");
+    if (value.reference) {
+      line(std::string{"if (srl_previous_reference) { "} +
+          (value.reference->mode == reference_declaration::mode_type::shared ?
+              "srl_reference_scope_release" : "srl_reference_scope_unobserve") +
+          "(srl_previous_reference); }");
+    }
+    close();
+    line("/* Initialize fresh storage with schema defaults; free an existing value before calling. "
+         "*/");
+    open("static inline srl_status " + n + "_init(" + n + "* value)");
+    line("if (!value) { return srl_invalid; } memset(value, 0, sizeof(*value)); srl_status status "
+         "= srl_ok;");
+    for (std::size_t i = 0; i < value.parents.size(); ++i) {
+      line("if (status == srl_ok) { status = " + name(value.parents[i].parent_class) +
+           "_init(&value->base" + std::to_string(i) + "); }");
+    }
+    for (const auto& f : value.member_list) {
+      const auto dst = "value->" + field(f.name);
+      if (f.wire_only) { continue; }
+      if (f.modifier == member::modifier_type::variant) {
+        for (const auto& alt : f.type_name_list) {
+          init_value(alt, dst + "_" + field(alt.enum_name), {}, "status");
+        }
+      } else if (f.modifier == member::modifier_type::none) {
+        if (f.initializer) { initialize_default(*f.initializer, dst, "status"); }
+        else { init_value(f.type_name_list.front(), dst, literal(f), "status"); }
+        if (!f.default_factory.empty()) {
+          line("if (status == srl_ok) { status = " + type(f.type_name_list.front()) + "_" +
+              field(f.default_factory) + "(&" + dst + "); }");
+        }
+      } else if (f.fixed_extent != 0) {
+        if (f.initializer) {
+          initialize_default(*f.initializer, dst, "status");
+          continue;
+        }
+        const auto count = std::to_string(f.fixed_extent);
+        line("if (status == srl_ok) { " + dst + ".data = (" + type(f.type_name_list.front()) +
+             "*)calloc(" + count + ", sizeof(" + dst + ".data[0])); if (!" + dst +
+             ".data) { status = srl_allocation; } else { " + dst + ".capacity = " + count +
+             "; } }");
+        open("for (size_t i = 0; status == srl_ok && i < " + count + "; ++i)");
+        line("++" + dst + ".size;");
+        init_value(f.type_name_list.front(), dst + ".data[i]", {}, "status");
+        close();
+      }
+    }
+    line("if (status != srl_ok) { " + n + "_free(value); } return status;");
+    close();
+    constructions(value);
+    output += conversion::methods(value, n, "c",
+        [&](const auto& item) { return type(item); },
+        [&](auto item, auto) { return field(item); });
+    output += translator::methods(value, n, "c",
+        [&](const auto& item) { return type(item); },
+        [&](auto item, auto) { return field(item); },
+        [&](const auto& item) { return scalar_default(item.type_name_list.front(), literal(item)); },
+        [&](const auto& method, auto view) { return translator_codecs(method, view, n); });
+    comparisons(value);
+    array_access(value);
+    const auto magic_name = (value.magic_access == access_type::public_access ? "" : "srl_") +
+                            n + "_magic";
+    line("/* Encode in schema order; the source retains ownership of all its fields. */");
+    open("static inline void " + n + "_srl_write(srl_writer* out, const " + n + "* value)");
+    write_output_body(value);
+    const bool magic_json = value.has_magic() && !value.magic_omits("json");
     close();
     line("/* Decode into a private candidate; public decoding commits only complete messages. */");
-    open("static inline void " + n + "_srl_read(srl_reader* in, " + n + "* value)");
+    open("static inline void " + n + (value.reference ? "_srl_read_fields" : "_srl_read") + "(srl_reader* in, " + n + "* value)");
     line("(void)value; if (in->status != srl_ok) { return; }");
     if (model.protocols == output_protocols::binary_none) {
       line("if (in->protocol != srl_binary_none) { in->status = srl_invalid; return; }");
@@ -1832,7 +1990,20 @@ class c_emitter {
         }
       }
     }
+    if (value.reference) { line("if (in->status == srl_ok) { in->status = " + n + "_validate_address(value); }"); }
     close();
+    if (value.reference) {
+      line("/* Detach before decoding and release the old owner only after all destination accesses. */");
+      open("static inline void " + n + "_srl_read(srl_reader* in, " + n + "* value)");
+      line("srl_reference_scope* srl_previous_reference = value->srl_reference;");
+      line("value->srl_reference = NULL; srl_string_free(&value->srl_reference_document);");
+      line(n + "_srl_read_fields(in, value);");
+      line(std::string{"if (srl_previous_reference) { "} +
+          (value.reference->mode == reference_declaration::mode_type::shared ?
+              "srl_reference_scope_release" : "srl_reference_scope_unobserve") +
+          "(srl_previous_reference); }");
+      close();
+    }
     line("/* Replace initialized output bytes on success only; the caller owns the returned "
          "buffer. */");
     open("static inline srl_status " + n + "_encode(const " + n +
@@ -1856,7 +2027,7 @@ class c_emitter {
          " candidate = {0}; in.status = " + n + "_init(&candidate);");
     line(n + "_srl_read(&in, &candidate); srl_finish(&in);");
     line("if (in.status != srl_ok) { " + n + "_free(&candidate); return in.status; } " + n +
-         "_free(result); *result = candidate; return srl_ok;");
+         " srl_previous = *result; *result = candidate; " + n + "_free(&srl_previous); return srl_ok;");
     close();
   }
 
@@ -1870,6 +2041,13 @@ public:
                     "_fields"} {
     output += runtime;
     output += "\n#endif /* SRL_NATIVE_RUNTIME_INCLUDED */\n";
+    if (std::any_of(model.nodes.begin(), model.nodes.end(), [](const auto* node) {
+          return node->type == object_type::class_type && static_cast<const class_node&>(*node).reference.has_value();
+        })) {
+      output += "\n#ifndef SRL_REFERENCE_RUNTIME_INCLUDED\n#define SRL_REFERENCE_RUNTIME_INCLUDED\n";
+      output += reference_support::portable_runtime("c");
+      output += "\n#endif\n";
+    }
     if (std::any_of(model.class_comparisons.begin(), model.class_comparisons.end(),
                     [](const auto& item) { return item.second.ordering; })) {
       output += "\n#ifndef SRL_NATIVE_COMPARISON_INCLUDED\n#define SRL_NATIVE_COMPARISON_INCLUDED\n"

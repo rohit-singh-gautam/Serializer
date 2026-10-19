@@ -70,6 +70,10 @@ Testing/
 /example/go/*/internal/model/model_gen.go.d
 /example/custom_ids/go/internal/model/model_gen.go
 /example/custom_ids/go/internal/model/model_gen.go.d
+/example/references/go/internal/model/model_gen.go
+/example/references/go/internal/model/model_gen.go.d
+/example/address_references/go/internal/model/model_gen.go
+/example/address_references/go/internal/model/model_gen.go.d
 /example/managed/multilanguage/clients/go/internal/model/model_gen.go
 /example/managed/multilanguage/clients/go/internal/model/model_gen.go.d
 # Default `go build .` executable names on platforms without an .exe suffix.
@@ -84,6 +88,8 @@ Testing/
 /example/go/union_variant/union_variant
 /example/go/versioning/versioning
 /example/custom_ids/go/go
+/example/references/go/go
+/example/address_references/go/go
 /example/managed/multilanguage/clients/go/go
 
 # Python bytecode, virtual environments, package metadata, and tool caches.

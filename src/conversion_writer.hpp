@@ -30,6 +30,9 @@ inline void validate_names(const class_node& owner, std::string_view owner_name,
   for (const auto& item : owner.conversions) {
     const auto name = callable(item.name, item.access);
     if (!names.insert(name).second) { throw std::invalid_argument{"Generated conversion name collision: " + name}; }
+    if (item.translator && !names.insert(callable("with_" + item.name, item.access)).second) {
+      throw std::invalid_argument{"Generated translator callback name collision: " + name};
+    }
   }
 }
 
@@ -54,6 +57,7 @@ inline std::string methods(const class_node& owner, std::string_view owner_name,
   };
   std::string output;
   for (const auto& method : owner.conversions) {
+    if (method.translator) { continue; }
     const auto name = function(method.name, method.access);
     const auto target = type(method.target);
     const auto fresh_name = go && target.starts_with('*') ? target.substr(1) : target;
@@ -145,7 +149,7 @@ inline std::string methods(const class_node& owner, std::string_view owner_name,
         python ? "    return srl_result\n" : rust ? "    srl_result\n  }\n" :
         "    return srl_result" + terminator + "  }\n";
     if (cpp && std::count_if(owner.conversions.begin(), owner.conversions.end(), [&](const auto& candidate) {
-        return candidate.target == method.target;
+        return !candidate.translator && candidate.target == method.target;
       }) == 1) {
       output += "  // Explicit casts use the sole declared conversion to this target.\n  [[nodiscard]] explicit " +
           std::string{constant ? "constexpr " : ""} + "operator " + target + "() const" +

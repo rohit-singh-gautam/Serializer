@@ -53,6 +53,87 @@ internal static class NavigationTest {
       ++checks;
       live.Remove(authored);
       live[model] = text;
+      var referenceText = "serializer version 1.18.0; namespace ref_models { " +
+        "class detail { public string label (9); public string title (10); } " +
+        "class owner { public detail item (7); public version version3 revision (15) { \"1.2.3\" }; } " +
+        "class target { public string name (1); } " +
+        "reference live_ref = shared(owner.item.label); " +
+        "reference revision_ref = shared(owner.revision); " +
+        "class holder { public owner source (1); public live_ref d (2); " +
+        "public translator target as to_target { name = source.item.label; }; } }";
+      live[model] = referenceText;
+      var referenceFields = new[] {
+        new[] { referenceText.IndexOf("item.label", StringComparison.Ordinal), referenceText.IndexOf("item (7)", StringComparison.Ordinal) },
+        new[] { referenceText.IndexOf("label);", StringComparison.Ordinal), referenceText.IndexOf("label (9)", StringComparison.Ordinal) },
+        new[] { referenceText.IndexOf("revision);", StringComparison.Ordinal), referenceText.IndexOf("revision (15)", StringComparison.Ordinal) },
+        new[] { referenceText.IndexOf("name =", StringComparison.Ordinal), referenceText.IndexOf("name (1)", StringComparison.Ordinal) },
+        new[] { referenceText.IndexOf("source.item", StringComparison.Ordinal), referenceText.IndexOf("source (1)", StringComparison.Ordinal) },
+        new[] { referenceText.LastIndexOf("label;", StringComparison.Ordinal), referenceText.IndexOf("label (9)", StringComparison.Ordinal) }
+      };
+      foreach (var field in referenceFields) {
+        var length = Regex.Match(referenceText.Substring(field[0]), "^\\w+").Length;
+        for (var cursor = field[0]; cursor <= field[0] + length; ++cursor) {
+          var destination = NavigationRunner.Resolve(model, cursor, false, generated, live, CancellationToken.None);
+          Require(destination.Length == 1 && destination[0].file == model && destination[0].start == field[1],
+            "reference and translator projections retain every member cursor and selection boundary");
+          ++checks;
+        }
+      }
+      foreach (var metadata in new[] { "shared(", "translator target", "to_target", "version3" }) {
+        Require(NavigationRunner.Resolve(model, referenceText.IndexOf(metadata, StringComparison.Ordinal),
+          false, generated, live, CancellationToken.None).Length == 0,
+          "reference and translator metadata cannot claim unrelated native navigation");
+        ++checks;
+      }
+      foreach (var marker in new[] { "reference live_ref", "live_ref =" }) {
+        var start = referenceText.IndexOf(marker, StringComparison.Ordinal);
+        var length = Regex.Match(referenceText.Substring(start), "^\\w+").Length;
+        for (var cursor = start; cursor <= start + length; ++cursor) {
+          Require(NavigationRunner.Resolve(model, cursor, false, generated, live, CancellationToken.None)
+            .Single().start == referenceText.IndexOf("live_ref =", StringComparison.Ordinal),
+            "reference declaration keyword and name select the authored reference type");
+          ++checks;
+        }
+      }
+      live[model] = referenceText.Replace("item.label", "item.title");
+      Require(NavigationRunner.Resolve(model, live[model].IndexOf("title);", StringComparison.Ordinal),
+        false, generated, live, CancellationToken.None).Single().start ==
+        live[model].IndexOf("title (10)", StringComparison.Ordinal),
+        "unsaved reference projection edits replace stale member destinations");
+      ++checks;
+      live[model] = text;
+      var valueReferenceText = "serializer version 1.19.0; namespace live_models { " +
+        "class detail { public string label; } class owner { public detail item; } class payload {} " +
+        "class export_view { public borrowed(owner.item.label) first (1); " +
+        "public shared(owner.item) second (2); public weak(owner.item.label) third (3); } " +
+        "class shared_owner { public shared(payload) b (1); } class consumer { public shared(payload) d (1); } }";
+      live[model] = valueReferenceText;
+      foreach (Match selected in Regex.Matches(valueReferenceText, "(?<=\\()owner|(?<=\\.)item|(?<=\\.)label")) {
+        var declaration = valueReferenceText.IndexOf(selected.Value +
+          (selected.Value == "owner" ? " {" : ";"), StringComparison.Ordinal);
+        for (var cursor = selected.Index; cursor <= selected.Index + selected.Length; ++cursor) {
+          var destination = NavigationRunner.Resolve(model, cursor, false, generated, live, CancellationToken.None);
+          Require(destination.Length == 1 && destination[0].file == model && destination[0].start == declaration,
+            "inline value references preserve owner and selected-field cursor boundaries");
+          ++checks;
+        }
+      }
+      foreach (var mode in new[] { "borrowed(", "shared(", "weak(" }) {
+        Require(NavigationRunner.Resolve(model, valueReferenceText.IndexOf(mode, StringComparison.Ordinal),
+          false, generated, live, CancellationToken.None).Length == 0,
+          "inline ownership syntax is metadata rather than a schema type reference");
+        ++checks;
+      }
+      foreach (Match selected in Regex.Matches(valueReferenceText, "(?<=\\()payload")) {
+        for (var cursor = selected.Index; cursor <= selected.Index + selected.Length; ++cursor) {
+          var destination = NavigationRunner.Resolve(model, cursor, false, generated, live, CancellationToken.None);
+          Require(destination.Length == 1 && destination[0].file == model &&
+            destination[0].start == valueReferenceText.IndexOf("payload {}", StringComparison.Ordinal),
+            "direct shared payload type references preserve every cursor boundary");
+          ++checks;
+        }
+      }
+      live[model] = text;
       var arrayCallableText = "serializer version 1.17.0; include sales/order; class holder<uint64 Rows, uint64 Cols, T> { " +
         "private array[Rows * Cols] demo::order stored expose array(public, const_value) dimensions(Rows, Cols); " +
         "public function static expected<demo::order, demo::order> make(array[Rows] demo::order input const_ref) readonly; " +

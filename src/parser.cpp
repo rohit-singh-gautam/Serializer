@@ -1382,6 +1382,36 @@ bool managed_parent_head(const rohit::type_check::schema_input_buffer auto& inpu
   return !lookahead.full() && is_first_identifier(lookahead);
 }
 
+// Parse a typed inline value selection; ownership affects runtime storage, never its wire shape.
+reference_declaration parse_value_reference(
+    const rohit::type_check::schema_input_buffer auto& input, namespace_node* space,
+    std::string_view mode) {
+  if (active_language_version < language_version{1u, 19u, 0u}) {
+    throw exception::bad_member_spec{input, "Inline value references require serializer version 1.19.0"};
+  }
+  reference_declaration result{};
+  result.value_projection = true;
+  result.mode = mode == "shared" ? reference_declaration::mode_type::shared :
+      mode == "weak" ? reference_declaration::mode_type::weak : reference_declaration::mode_type::borrowed;
+  check_and_increase(input, '(');
+  skip_whitespace_and_comment(input);
+  result.owner = parse_type_expression(input, space);
+  constexpr std::size_t maximum_reference_depth = 32;
+  skip_whitespace_and_comment(input);
+  while (!input.full() && *input == '.') {
+    ++input;
+    skip_whitespace_and_comment(input);
+    if (result.source_path.size() >= maximum_reference_depth) {
+      throw exception::bad_member_spec{input, "Reference field path exceeds 32 components"};
+    }
+    result.source_path.push_back(parse_identifier_impl(input));
+    skip_whitespace_and_comment(input);
+  }
+  check_and_increase(input, ')');
+  return result;
+}
+
+// Parse one ordinary field and retain inline value selection until class lowering.
 member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_stream,
                          const std::uint32_t id, namespace_node* declared_namespace) {
   member lifecycle{};
@@ -1584,6 +1614,14 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   std::vector<std::string> enum_name_list{};
   std::vector<type_name> type_name_list{};
   skip_whitespace_and_comment(in_stream);
+  std::optional<reference_declaration> value_reference{};
+  if (!next_type.application && !in_stream.full() && *in_stream == '(' &&
+      (next_type.name == "borrowed" || next_type.name == "shared" || next_type.name == "weak")) {
+    value_reference = parse_value_reference(in_stream, declared_namespace, next_type.name);
+    // The enclosing declaration replaces this temporary type with its generated wrapper.
+    next_type = type_name{std::string{"uint8"}, declared_namespace};
+    skip_whitespace_and_comment(in_stream);
+  }
   // Only the selector syntax claims this keyword; existing user types and generic
   // parameters called variant retain their meaning in every supported language version.
   const bool owning_variant = next_type.name == "variant" && !in_stream.full() && *in_stream == '(';
@@ -1915,6 +1953,15 @@ member parse_member_impl(const rohit::type_check::schema_input_buffer auto& in_s
   result.created_version = std::move(lifecycle.created_version);
   result.obsolete_version = std::move(lifecycle.obsolete_version);
   result.replaced_member = std::move(lifecycle.replaced_member);
+  if (value_reference) {
+    if (result.managed || result.version || result.wire_only || result.compact != compact_encoding::none ||
+        !result.auto_size_formats.empty() || !result.default_value.empty() || result.initializer ||
+        !result.default_factory.empty() || !result.readonly_getter.empty() || result.array_exposure) {
+      throw exception::bad_member_spec{in_stream,
+          "Inline value references use their selected field defaults and cannot add storage or encoding modifiers"};
+    }
+    result.value_reference = std::move(value_reference);
+  }
   if (!transient) {
     check_member_simplicity(result, explicit_version_name, ignored, declaration_start);
   }
@@ -2761,6 +2808,8 @@ std::unique_ptr<enum_node> parse_enum(const rohit::type_check::schema_input_buff
   return ret;
 }
 
+#include "reference_parser.hpp"
+
 // Parse namespace from the schema input; malformed input throws.
 std::unique_ptr<namespace_node>
 parse_namespace(const rohit::type_check::schema_input_buffer auto& in_stream,
@@ -2782,6 +2831,10 @@ parse_statement_list(const rohit::type_check::schema_input_buffer auto& in_strea
     if (is_first_identifier(lookahead)) {
       const auto target = parse_identifier_impl(lookahead);
       skip_whitespace_and_comment(lookahead);
+      if (target == "reference") {
+        statements.emplace_back(parse_reference(in_stream, parent_namespace, declarations));
+        continue;
+      }
       if (target == "function") {
         if (active_language_version < language_version{1u, 10u, 0u}) {
           throw exception::bad_object_type{in_stream, "Namespace functions require serializer version 1.10.0"};
@@ -2809,7 +2862,9 @@ parse_statement_list(const rohit::type_check::schema_input_buffer auto& in_strea
     }
     auto object_type = parse_object_type(in_stream);
     if (object_type == object_type::class_type) {
-      statements.emplace_back(parse_class(in_stream, parent_namespace, declarations));
+      auto record = parse_class(in_stream, parent_namespace, declarations);
+      lower_value_references(in_stream, *record, statements, declarations);
+      statements.emplace_back(std::move(record));
     } else if (object_type == object_type::namespace_type) {
       statements.emplace_back(parse_namespace(in_stream, parent_namespace, declarations));
     } else if (object_type == object_type::enum_type) {
@@ -3684,6 +3739,7 @@ void resolve_member(const rohit::type_check::schema_input_buffer auto& in_stream
           resolve_type(in_stream, conversion.target, variable_type_map);
         }
         ::rohit::serializer::conversion::validate(*class_ptr);
+        validate_reference(in_stream, *class_ptr, variable_type_map);
         for (auto& method : class_ptr->functions) {
           const auto dependent = [&](const auto& self, const type_name& type) -> bool {
             return std::any_of(method.generic_parameters.begin(), method.generic_parameters.end(),
