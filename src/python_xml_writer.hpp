@@ -4,6 +4,9 @@
 
 #include "native_schema.hpp"
 #include "xml_schema.hpp"
+#include "schema_version.hpp"
+
+#include <rohit/xml_pattern.hpp>
 
 #include <algorithm>
 #include <functional>
@@ -13,6 +16,33 @@
 #include <vector>
 
 namespace rohit::serializer::writer::python_xml {
+// Prepare revision comparison values once, preserving the shared integer/dotted/wire-float rules.
+inline std::string revision_value(const member& revision, std::string_view literal) {
+  const auto& type = revision.type_name_list.front();
+  (void)schema_version::parse(type.name, literal);
+  auto lexical = schema_version::trim(literal);
+  if (type.name.starts_with("version")) { lexical = lexical.substr(1U, lexical.size() - 2U); }
+  return "_xml_revision(" + native::quote(lexical) + ", " + native::quote(type.name) + ", " +
+      std::to_string(native::width(type)) + ")[0]";
+}
+
+// Lower checked Thompson instructions into immutable Python tuples, never a host regex dialect.
+inline std::string pattern_program(const xml::portable_pattern& pattern) {
+  std::string result{"(" + std::to_string(pattern.start()) + ", ("};
+  for (const auto& state : pattern.states()) {
+    result += "((";
+    for (const auto target : state.epsilon) { result += std::to_string(target) + ','; }
+    result += "), (";
+    for (const auto& range : state.ranges) {
+      result += '(' + std::to_string(range.first) + ',' + std::to_string(range.last) + "),";
+    }
+    result += "), " + std::to_string(state.next) + ", " + (state.consumes ? "True" : "False") +
+        ", " + (state.inverted ? "True" : "False") + ", " + (state.dot ? "True" : "False") +
+        ", " + (state.accepting ? "True" : "False") + "),";
+  }
+  return result + "))";
+}
+
 // Preserve expanded QName identity independently of the source schema's presentation prefix.
 inline std::string name(const xml::name& value) {
   return "(" + native::quote(value.namespace_uri) + ", " + native::quote(value.local) + ")";
@@ -44,6 +74,20 @@ inline std::string facets(const xml_binding::scalar_facets& value, std::string k
     for (const auto& pattern : group) { result += native::quote(pattern) + ','; }
     result += "),";
   }
+  result += "), 'portable_patterns': (";
+  for (const auto& group : groups) {
+    std::string programs{"("};
+    try {
+      for (const auto& expression : group) {
+        programs += pattern_program(xml::compile_portable_pattern(expression)) + ',';
+      }
+      result += programs + "),";
+    } catch (const std::invalid_argument&) {
+      result += "None,";
+    } catch (const std::length_error&) {
+      result += "None,";
+    }
+  }
   result += "), 'list_item': " + native::quote(value.list_item_kind) + ", 'union': (";
   for (const auto& alternative : value.union_members) { result += facets(alternative) + ','; }
   return result + "), 'qname': False, 'prefix_list': False, 'fixed': None, 'fixed_qname': None}";
@@ -55,7 +99,7 @@ inline std::string field(const xml_binding::field& value, const type_name& leaf)
       {"int16", "short"}, {"uint16", "unsignedShort"}, {"int32", "int"}, {"uint32", "unsignedInt"},
       {"int64", "long"}, {"uint64", "unsignedLong"}, {"float32", "float"}, {"float64", "double"}};
   const auto found = kinds.find(leaf.name);
-  const auto kind = leaf.type == object_type::enum_type ? std::string{"string"} :
+  const auto kind = leaf.type == object_type::enum_type || leaf.is_digest() ? std::string{"string"} :
       found == kinds.end() ? leaf.name : found->second;
   auto selected = value.facets;
   if (value.list && selected.list_item_kind.empty()) { selected.list_item_kind = kind; }
@@ -133,9 +177,35 @@ inline std::string record(const xml_binding::record& value) {
   return result + ")}";
 }
 
-// Select only records whose XML-only state must retain namespace declarations or opaque extensions.
-inline bool needs_state(const xml_binding::record& value) {
-  return value.unknown == xml_unknown_policy::preserve || std::any_of(value.fields.begin(), value.fields.end(),
+// Select lexical QName adapters whose presentation scopes still use the legacy whole-document path.
+inline bool needs_namespace_state(const xml_binding::record& value) {
+  return std::any_of(value.fields.begin(), value.fields.end(),
       [](const auto& selected) { return selected.qname || selected.prefix_list || selected.facets.list_item_kind == "QName"; });
+}
+// Select records whose XML-only state retains namespace declarations or permitted foreign payloads.
+inline bool needs_state(const xml_binding::record& value) {
+  return value.extensions || value.unknown == xml_unknown_policy::preserve || needs_namespace_state(value);
+}
+
+// Preserve exact foreign-URI permissions and absolute static field positions in immutable metadata.
+inline std::string extensions(const xml::extension_contract& value) {
+  std::string result{"{'core': " + native::quote(value.core_namespace) + ", 'known': ("};
+  for (const auto& item : value.known_names) {
+    result += native::quote(item.namespace_uri.empty() ? item.local : "{" + item.namespace_uri + "}" + item.local) + ',';
+  }
+  result += "), 'required': (";
+  for (const auto& uri : value.required_namespaces) { result += native::quote(uri) + ','; }
+  result += "), 'slots': (";
+  for (const auto& slot : value.slots) {
+    result += "{'id': " + native::quote(slot.id) + ", 'attribute': " + (slot.attribute ? "True" : "False") +
+        ", 'position': " + std::to_string(slot.before_field) + ", 'policy': " +
+        native::quote(slot.policy == xml::unknown_policy::preserve ? "preserve" :
+            slot.policy == xml::unknown_policy::skip ? "skip" : "reject") +
+        ", 'minimum': " + std::to_string(slot.minimum) + ", 'maximum': " +
+        (slot.maximum ? std::to_string(*slot.maximum) : "None") + ", 'namespaces': (";
+    for (const auto& uri : slot.namespaces) { result += native::quote(uri) + ','; }
+    result += ")},";
+  }
+  return result + ")}";
 }
 } // namespace rohit::serializer::writer::python_xml

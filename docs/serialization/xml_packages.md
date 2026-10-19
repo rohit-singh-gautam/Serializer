@@ -1,11 +1,16 @@
 # XML, compression streams and packages
 
-Compiler/runtime **2.11.0**, schema language **1.20.0**. Baseline XML generation
+Compiler/runtime **2.12.0**, schema language **1.20.0**. Baseline XML generation
 covers all output languages; the stream and package API examples below use C++20.
 Richer XML mappings and generated OPC profiles have C++ and Python support;
 unsupported backend combinations reject before output publication. Existing
 native wire formats and managed journals are unchanged.
 See [remaining work](../pending.md) and the [full design](../design/xml_support.md).
+
+The [token codec guide](xml_tokens.md) describes the new generated direct paths
+and backend-specific advanced mappings. The [typed OPC example](../../example/opc/README.md)
+uses a commented shared schema and C++/Python consumers to fill XML and binary
+attachment roles, with independent ZIP/XML and cross-language checks.
 
 The [advanced shared contracts](xml_advanced_contracts.md) add compiled scalar,
 particle and identity validation, broader local XSD tooling, concrete model and
@@ -23,9 +28,9 @@ publication. The whole-object/generated APIs below keep their documented paths.
 
 The [shared content contracts](xml_shared_contracts.md) add checked compiler
 IR/configuration and reference validation for presence/nil, ordered mixed
-content, maps, variants and positioned extension slots. Their generated codecs
-remain pending in every language and reject with an explicit capability
-diagnostic. Public raw extension helpers can preserve semantic foreign content
+content, maps, variants and positioned extension slots. Selected C++/Python
+codecs are implemented in 2.12; remaining backend/slot contracts reject with an
+explicit capability diagnostic. Public raw extension helpers can preserve semantic foreign content
 with full namespace context; preservation never implies required vocabulary
 understanding. These shared contracts do not expand fixed-XSD/backend support.
 
@@ -116,13 +121,15 @@ arrays. Fixed arrays require their exact length. Children follow declared order;
 unknown attributes/children, duplicates, wrong roots/namespaces and invalid scalar
 lexemes fail. Optional absence differs from an empty string. Unsupported shapes
 fail generation. Configured simple text with attributes and explicit collection
-wrappers are supported as described below. XML omission selectors,
-generic/managed/view models, revision lifecycles, magic, digests, maps, variants,
-mixed content and `xsi:nil` remain unsupported.
-Optional collections, collection items that are optional, and nested collections
-are also unsupported. There are no specialized character, date/time, decimal,
-QName, base64 or hex-binary adapters; supported byte integers remain ordinary
-numeric scalars or repeated elements.
+wrappers are supported as described below. The 2.12 [token subsets](xml_tokens.md)
+add selected C++/Python nil/map/variant mappings, Python mixed content, non-C++
+concrete generics, and Go/Python inherited models. Supported explicit presence
+and map contracts also allow optional wrapped collections. XML omission,
+managed/view/revision/magic/digest mappings, optional collection items and nested
+collections remain gated. QName/list/decimal lexical handling requires its
+documented rich fixed-XSD path; specialized character/date/time/base64/hex-binary
+adapters remain unavailable. Byte integers remain ordinary numeric scalars or
+repeated elements.
 
 ### Text content and collection wrappers
 
@@ -169,7 +176,7 @@ auto loaded = codec::deserialize_exact<
 `xml::limits` bounds document bytes, text, names, nodes, attributes, namespace
 bindings, depth and logical retained tree bytes. Generated builders check limits
 while constructing the tree. Input bytes are bounded before parsing. Provider
-DOM adapters, including JavaScript and Kotlin, can build provider trees before
+DOM adapters, including JavaScript, can build provider trees before
 all structural checks; C++ checks its retained-tree budgets while reading.
 These are logical resource limits, not a total heap/CPU quota. Decoding returns
 a fresh candidate after complete validation.
@@ -182,9 +189,11 @@ An unusually tight attribute policy can therefore reject an otherwise valid
 re-encoded document on input. Qualifying and aligning those counters remains
 part of the pending cross-backend resource contract.
 
-Most adapters use bounded whole-document trees and complete XML byte strings;
-JavaScript, Rust and C encode directly into bounded output. Further tree-free paths
-remain pending. Names use an ASCII NCName subset; values are XML 1.0 UTF-8. DTDs,
+All outputs now have direct generated output paths. Supported C++/Python token
+graphs and Java/C#/Go/Kotlin input use direct/pull traversal; richer C++/Python mappings
+and other input adapters retain their documented trees. Complete output bytes
+are staged. See [token paths and boundaries](xml_tokens.md). Configured names use
+an ASCII NCName subset; values are XML 1.0 UTF-8. DTDs,
 user-declared/external entities and non-1.0 XML are rejected. Predefined entities
 and character references are supported.
 Bundled parsers load no XML external resources; caller-supplied validators must
@@ -589,8 +598,9 @@ remains UTF-8. C++ direct raw parsing can select
 Raw parsing can also opt into `allow_mixed_content`; this retains ordered text
 segments for infrastructure processing and does not relax typed field readers.
 
-The generated C++ XML path still builds bounded trees and stages
-complete encoded parts.
+Generated C++ package profiles stage complete encoded parts. Their ordinary rich
+XML entry point can retain bounded trees; token-required contracts use the new
+direct path, and bare XML callers can select `serialize_tokens` explicitly.
 Borrowed model inputs avoid duplicate owning models, but do not promise zero-copy
 XML, bounded constant memory or tree-free streaming. Non-XML generated models gain
 no package fields or runtime checks. Performance qualification and non-C++ context

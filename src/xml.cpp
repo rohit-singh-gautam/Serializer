@@ -1,14 +1,22 @@
 // Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
 // SPDX-License-Identifier: 0BSD
 #include <rohit/xml.hpp>
+#include <rohit/xml_tokens.hpp>
 
 #include <algorithm>
 #include <climits>
 #include <cstdint>
+#include <deque>
 #include <exception>
 #include <map>
+#include <limits>
+#include <memory>
 #include <set>
+#include <stdexcept>
+#include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 #ifndef SERIALIZER_HAS_XML
 #define SERIALIZER_HAS_XML 0
@@ -1309,5 +1317,905 @@ void prepared_schema::validate(std::string_view document, limits bounds, operati
   (void)document; (void)bounds; (void)operation;
   throw std::runtime_error{"Runtime XSD support was not enabled in this Serializer runtime"};
 #endif
+}
+namespace {
+// Each observer belongs to one exact open owner depth and keeps its immutable metadata borrowed.
+struct token_identity_pass {
+  std::size_t owner_depth{};
+  std::unique_ptr<identity_validator> validator{};
+};
+
+// Build borrowed semantic spans only for synchronous identity observers.
+void observe_token_identities(std::vector<token_identity_pass>& passes, const token& value,
+    operation_context* context) {
+  if (passes.empty()) { return; }
+  if (context) {
+    context->consume(operation_resource::allocation_bytes,
+        (value.attributes.size() + value.consumed_attributes.size() + (value.consumed_nil ? 1U : 0U) + (value.consumed_type ? 1U : 0U)) * sizeof(event_attribute) +
+        value.namespaces.size() * sizeof(namespace_declaration));
+  }
+  std::vector<event_attribute> attributes{};
+  for (const auto& attribute : value.attributes) {
+    attributes.push_back({{attribute.qualified_name.local, attribute.qualified_name.namespace_uri}, attribute.value});
+  }
+  for (const auto& attribute : value.consumed_attributes) {
+    attributes.push_back({{attribute.qualified_name.local, attribute.qualified_name.namespace_uri}, attribute.value});
+  }
+  if (value.consumed_nil) {
+    const auto& attribute = *value.consumed_nil;
+    attributes.push_back({{attribute.qualified_name.local, attribute.qualified_name.namespace_uri}, attribute.value});
+  }
+  if (value.consumed_type) {
+    const auto& attribute = *value.consumed_type;
+    attributes.push_back({{attribute.qualified_name.local, attribute.qualified_name.namespace_uri}, attribute.value});
+  }
+  std::vector<namespace_declaration> namespaces{};
+  for (const auto& [prefix, uri] : value.namespaces) { namespaces.push_back({prefix, uri}); }
+  const event_view event{value.kind, {value.qualified_name.local, value.qualified_name.namespace_uri},
+      attributes, namespaces, value.text};
+  for (auto& pass : passes) { pass.validator->accept(event); }
+}
+
+// Finish local keyrefs at the owner's end tag; document publication remains guarded by byte EOF.
+void finish_token_identities(std::vector<token_identity_pass>& passes, std::size_t depth) {
+  while (!passes.empty() && passes.back().owner_depth == depth) {
+    passes.back().validator->accept({event_kind::end_document});
+    passes.back().validator->finish();
+    passes.pop_back();
+  }
+}
+} // namespace
+
+// Each output frame owns only its open name, attributes and optional observer start payload.
+struct token_writer::implementation {
+  struct frame {
+    std::string rendered_name{};
+    token start{event_kind::start_element};
+    std::set<std::pair<std::string, std::string>> attributes{};
+    bool pending{true};
+    bool retained_namespaces{};
+    std::size_t next_prefix{};
+  };
+  limits bounds;
+  operation_context* operation;
+  std::string bytes{};
+  std::vector<frame> stack{};
+  std::vector<token_identity_pass> identities{};
+  std::size_t nodes{}, attributes{}, text_bytes{}, name_bytes{}, namespace_bindings{};
+  bool root_seen{}, failed{}, completed{};
+
+  // Bind one output pass without retaining caller model data.
+  implementation(limits selected, operation_context* context) : bounds{selected}, operation{context} {}
+  // Admit escaped output before copying bytes into the publication candidate.
+  void append(std::string_view value) {
+    if (value.size() > bounds.max_output_bytes - std::min(bytes.size(), bounds.max_output_bytes)) {
+      throw std::length_error{"XML token output limit exceeded"};
+    }
+    if (operation) {
+      operation->consume(operation_resource::allocation_bytes, value.size());
+      operation->consume(operation_resource::work_units, value.size());
+    }
+    bytes += value;
+  }
+  // Escape XML text while retaining carriage returns and normalized attribute whitespace.
+  void escaped(std::string_view value, bool is_attribute) {
+    check_text(value, operation);
+    std::size_t begin{};
+    for (std::size_t index{}; index < value.size(); ++index) {
+      std::string_view replacement{};
+      switch (value[index]) {
+      case '&': replacement = "&amp;"; break;
+      case '<': replacement = "&lt;"; break;
+      case '>': replacement = "&gt;"; break;
+      case '"': if (is_attribute) { replacement = "&quot;"; } break;
+      case '\r': replacement = "&#13;"; break;
+      case '\n': if (is_attribute) { replacement = "&#10;"; } break;
+      case '\t': if (is_attribute) { replacement = "&#9;"; } break;
+      default: break;
+      }
+      if (!replacement.empty()) {
+        append(value.substr(begin, index - begin));
+        append(replacement);
+        begin = index + 1U;
+      }
+    }
+    append(value.substr(begin));
+  }
+  // Check an expanded name and charge its complete logical spelling.
+  void inspect_name(const name& selected) {
+    check_name(selected.local);
+    check_text(selected.namespace_uri, operation);
+    if (selected.namespace_uri == "http://www.w3.org/2000/xmlns/") {
+      throw std::invalid_argument{"XML namespace declaration is not an ordinary name"};
+    }
+    consume(name_bytes, selected.local.size(), bounds.max_name_bytes);
+    consume(name_bytes, selected.namespace_uri.size(), bounds.max_name_bytes);
+  }
+  // Close a pending start tag before writing its text or child content.
+  void content() {
+    if (stack.empty()) { throw std::invalid_argument{"XML text requires an open element"}; }
+    if (stack.back().pending) {
+      observe_token_identities(identities, stack.back().start, operation);
+      append(">"); stack.back().pending = false;
+      stack.back().start.attributes.clear();
+    }
+  }
+  // Preserve a terminal failure fence across all public operations.
+  template <typename Function> void apply(Function&& function) {
+    if (failed || completed) { throw std::logic_error{"XML token writer is closed or failed"}; }
+    try {
+      if (operation) { operation->check(); }
+      function();
+    } catch (...) { failed = true; throw; }
+  }
+};
+
+// Start one bounded output candidate.
+token_writer::token_writer(limits bounds, operation_context* context)
+    : state_{std::make_unique<implementation>(bounds, context)} {}
+// Discard any unpublished candidate.
+token_writer::~token_writer() = default;
+// Emit a start tag with an element-local prefix, requiring no namespace prescan.
+void token_writer::open(const name& selected) {
+  static const std::map<std::string, std::string> empty{};
+  open(selected, empty);
+}
+// Choose generated prefixes around retained lexical bindings, leaving ordinary output unchanged.
+void token_writer::open(const name& selected, const std::map<std::string, std::string>& namespaces) {
+  state_->apply([&] {
+    auto& state = *state_;
+    if (state.stack.empty() && state.root_seen) { throw std::invalid_argument{"Multiple XML roots"}; }
+    if (state.stack.size() >= state.bounds.max_depth) { throw std::length_error{"XML token depth exceeded"}; }
+    state.inspect_name(selected);
+    consume(state.nodes, 1U, state.bounds.max_nodes);
+    if (!state.stack.empty()) { state.content(); }
+    implementation::frame frame{};
+    if (state.operation) {
+      state.operation->consume(operation_resource::allocation_bytes,
+          sizeof(implementation::frame) + 2U * selected.local.size() + selected.namespace_uri.size() + std::string_view{"srl:"}.size());
+    }
+    frame.start.qualified_name = selected;
+    const bool reserved = selected.namespace_uri == "http://www.w3.org/XML/1998/namespace";
+    std::string element_prefix{"srl"};
+    bool existing_binding{};
+    for (const auto& [prefix, uri] : namespaces) {
+      if (!selected.namespace_uri.empty() && uri == selected.namespace_uri) {
+        if (state.operation) { state.operation->consume(operation_resource::allocation_bytes, prefix.size()); }
+        element_prefix = prefix; existing_binding = true; break;
+      }
+    }
+    if (!existing_binding) {
+      while (namespaces.contains(element_prefix)) { element_prefix = "srl" + std::to_string(frame.next_prefix++); }
+    }
+    frame.retained_namespaces = !namespaces.empty();
+    if (state.operation) { state.operation->consume(operation_resource::allocation_bytes, element_prefix.size()); }
+    frame.rendered_name = selected.namespace_uri.empty() || (existing_binding && element_prefix.empty()) ? selected.local :
+        (reserved ? std::string{"xml:"} : element_prefix + ':') + selected.local;
+    state.append("<"); state.append(frame.rendered_name);
+    for (const auto& [prefix, uri] : namespaces) {
+      if (prefix == "xml" && uri == "http://www.w3.org/XML/1998/namespace") { continue; }
+      if (prefix == "xml" || prefix == "xmlns" || uri == "http://www.w3.org/XML/1998/namespace" ||
+          uri == "http://www.w3.org/2000/xmlns/" || (!prefix.empty() && uri.empty()) ||
+          (prefix.empty() && !uri.empty() && selected.namespace_uri.empty())) {
+        throw std::invalid_argument{"Invalid retained XML namespace declaration"};
+      }
+      if (!prefix.empty()) { check_name(prefix); }
+      check_text(uri, state.operation);
+      consume(state.namespace_bindings, 1U, state.bounds.max_namespace_bindings);
+      consume(state.name_bytes, prefix.size(), state.bounds.max_name_bytes);
+      consume(state.name_bytes, uri.size(), state.bounds.max_name_bytes);
+      if (state.operation) {
+        state.operation->consume(operation_resource::allocation_bytes,
+            sizeof(std::pair<const std::string, std::string>) + prefix.size() + uri.size());
+      }
+      state.append(" xmlns");
+      if (!prefix.empty()) { state.append(":"); state.append(prefix); }
+      state.append("=\""); state.escaped(uri, true); state.append("\"");
+      frame.start.namespaces.emplace(prefix, uri);
+    }
+    if (selected.namespace_uri.empty() && !frame.start.namespaces.contains("")) {
+      for (auto ancestor = state.stack.rbegin(); ancestor != state.stack.rend(); ++ancestor) {
+        const auto inherited = ancestor->start.namespaces.find("");
+        if (inherited == ancestor->start.namespaces.end()) { continue; }
+        if (!inherited->second.empty()) {
+          consume(state.namespace_bindings, 1U, state.bounds.max_namespace_bindings);
+          state.append(" xmlns=\"\"");
+          frame.start.namespaces.emplace("", "");
+        }
+        break;
+      }
+    }
+    if (!selected.namespace_uri.empty() && !reserved && !existing_binding) {
+      consume(state.namespace_bindings, 1U, state.bounds.max_namespace_bindings);
+      consume(state.name_bytes, element_prefix.size(), state.bounds.max_name_bytes);
+      consume(state.name_bytes, selected.namespace_uri.size(), state.bounds.max_name_bytes);
+      state.append(" xmlns:"); state.append(element_prefix); state.append("=\""); state.escaped(selected.namespace_uri, true); state.append("\"");
+      if (state.operation) { state.operation->consume(operation_resource::allocation_bytes, element_prefix.size() + selected.namespace_uri.size()); }
+      frame.start.namespaces.emplace(element_prefix, selected.namespace_uri);
+    }
+    state.stack.push_back(std::move(frame));
+    state.root_seen = true;
+  });
+}
+// Write attributes before the start tag is completed, checking expanded duplicates.
+void token_writer::attribute_value(const name& selected, std::string_view value) {
+  state_->apply([&] {
+    auto& state = *state_;
+    if (state.stack.empty() || !state.stack.back().pending) {
+      throw std::invalid_argument{"XML attributes must precede content"};
+    }
+    if (selected.namespace_uri.empty() && selected.local == "xmlns") {
+      throw std::invalid_argument{"XML namespace declarations are not ordinary attributes"};
+    }
+    state.inspect_name(selected);
+    consume(state.attributes, 1U, state.bounds.max_attributes);
+    consume(state.text_bytes, value.size(), state.bounds.max_text_bytes);
+    if (state.operation) {
+      state.operation->consume(operation_resource::allocation_bytes,
+          sizeof(std::pair<std::string, std::string>) + selected.local.size() + selected.namespace_uri.size());
+    }
+    auto& frame = state.stack.back();
+    if (!frame.attributes.emplace(selected.namespace_uri, selected.local).second) {
+      throw std::invalid_argument{"Duplicate XML attribute"};
+    }
+    std::string prefix{};
+    if (selected.namespace_uri == "http://www.w3.org/XML/1998/namespace") { prefix = "xml"; }
+    else if (!selected.namespace_uri.empty()) {
+      if (frame.retained_namespaces) {
+        for (const auto& [retained_prefix, uri] : frame.start.namespaces) {
+          if (!retained_prefix.empty() && uri == selected.namespace_uri) { prefix = retained_prefix; break; }
+        }
+      }
+      if (prefix.empty()) {
+        consume(state.namespace_bindings, 1U, state.bounds.max_namespace_bindings);
+        do { prefix = "srl" + std::to_string(frame.next_prefix++); } while (frame.start.namespaces.contains(prefix));
+        consume(state.name_bytes, prefix.size(), state.bounds.max_name_bytes);
+        consume(state.name_bytes, selected.namespace_uri.size(), state.bounds.max_name_bytes);
+        state.append(" xmlns:"); state.append(prefix); state.append("=\"");
+        state.escaped(selected.namespace_uri, true); state.append("\"");
+        if (state.operation) { state.operation->consume(operation_resource::allocation_bytes, prefix.size() + selected.namespace_uri.size()); }
+        frame.start.namespaces.emplace(prefix, selected.namespace_uri);
+      }
+    }
+    state.append(" ");
+    if (!prefix.empty()) { state.append(prefix); state.append(":"); }
+    state.append(selected.local); state.append("=\""); state.escaped(value, true); state.append("\"");
+    if (!state.identities.empty()) {
+      if (state.operation) {
+        state.operation->consume(operation_resource::allocation_bytes,
+            sizeof(attribute) + selected.local.size() + selected.namespace_uri.size() + value.size());
+      }
+      frame.start.attributes.push_back({selected, std::string{value}});
+    }
+  });
+}
+// Bind QName value prefixes locally; prefixes never select a native alternative by themselves.
+void token_writer::qname_attribute_value(const name& selected, const name& value) {
+  state_->apply([&] {
+    auto& state = *state_;
+    if (state.stack.empty() || !state.stack.back().pending) {
+      throw std::invalid_argument{"XML QName attributes must precede content"};
+    }
+    state.inspect_name(value);
+    std::string lexical{};
+    if (value.namespace_uri.empty()) {
+      if (state.operation) { state.operation->consume(operation_resource::allocation_bytes, value.local.size()); }
+      lexical = value.local;
+    } else if (value.namespace_uri == "http://www.w3.org/XML/1998/namespace") {
+      if (state.operation) { state.operation->consume(operation_resource::allocation_bytes, std::string_view{"xml:"}.size() + value.local.size()); }
+      lexical = "xml:" + value.local;
+    }
+    else {
+      auto& frame = state.stack.back();
+      std::string prefix;
+      if (frame.retained_namespaces) {
+        for (const auto& [retained_prefix, uri] : frame.start.namespaces) {
+          if (!retained_prefix.empty() && uri == value.namespace_uri) { prefix = retained_prefix; break; }
+        }
+      }
+      const bool retained = !prefix.empty();
+      if (!retained) {
+        do { prefix = "srl" + std::to_string(frame.next_prefix++); } while (frame.start.namespaces.contains(prefix));
+        consume(state.namespace_bindings, 1U, state.bounds.max_namespace_bindings);
+        consume(state.name_bytes, prefix.size(), state.bounds.max_name_bytes);
+        consume(state.name_bytes, value.namespace_uri.size(), state.bounds.max_name_bytes);
+        if (state.operation) {
+          state.operation->consume(operation_resource::allocation_bytes, prefix.size() + value.namespace_uri.size());
+        }
+        state.append(" xmlns:"); state.append(prefix); state.append("=\"");
+        state.escaped(value.namespace_uri, true); state.append("\"");
+        frame.start.namespaces.emplace(prefix, value.namespace_uri);
+      }
+      if (state.operation) { state.operation->consume(operation_resource::allocation_bytes, prefix.size() + 1U + value.local.size()); }
+      lexical = prefix + ':' + value.local;
+    }
+    attribute_value(selected, lexical);
+  });
+}
+// Begin one local identity observer before any of this owner's attributes have been emitted.
+void token_writer::begin_identity(const identity_scope& scope) {
+  begin_identity(scope, state_->operation && state_->operation->identity_bounds ?
+      *state_->operation->identity_bounds : identity_limits{});
+}
+// Explicit local bounds take precedence over a caller's default identity-index policy.
+void token_writer::begin_identity(const identity_scope& scope, identity_limits bounds) {
+  state_->apply([&] {
+    if (state_->stack.empty() || !state_->stack.back().pending || !state_->stack.back().attributes.empty()) {
+      throw std::invalid_argument{"XML identity scope must start before owner attributes or content"};
+    }
+    if (state_->stack.back().start.qualified_name != scope.owner ||
+        (!state_->identities.empty() && state_->identities.back().owner_depth == state_->stack.size())) {
+      throw std::invalid_argument{"XML identity scope owner is mismatched or duplicated"};
+    }
+    std::map<std::string, std::string> inherited{};
+    for (std::size_t index{}; index + 1U < state_->stack.size(); ++index) {
+      for (const auto& [prefix, uri] : state_->stack[index].start.namespaces) {
+        if (state_->operation) {
+          state_->operation->consume(operation_resource::allocation_bytes, prefix.size() + uri.size());
+          state_->operation->consume(operation_resource::work_units, prefix.size() + uri.size());
+        }
+        inherited[prefix] = uri;
+      }
+    }
+    auto observer = std::make_unique<identity_validator>(scope, bounds, state_->operation, inherited);
+    observer->accept({event_kind::start_document});
+    state_->identities.push_back({state_->stack.size(), std::move(observer)});
+  });
+}
+// Emit one checked decoded-text token.
+void token_writer::text(std::string_view value) {
+  state_->apply([&] {
+    consume(state_->text_bytes, value.size(), state_->bounds.max_text_bytes);
+    state_->content(); state_->escaped(value, false);
+    const event_view semantic{event_kind::text, {}, {}, {}, value};
+    for (auto& pass : state_->identities) { pass.validator->accept(semantic); }
+  });
+}
+// Finish one element without retaining its descendants.
+void token_writer::close() {
+  state_->apply([&] {
+    if (state_->stack.empty()) { throw std::invalid_argument{"Unbalanced XML end element"}; }
+    const auto& frame = state_->stack.back();
+    if (frame.pending) {
+      observe_token_identities(state_->identities, frame.start, state_->operation);
+      state_->append("/>");
+    }
+    else { state_->append("</"); state_->append(frame.rendered_name); state_->append(">"); }
+    const event_view semantic{event_kind::end_element,
+        {frame.start.qualified_name.local, frame.start.qualified_name.namespace_uri}};
+    for (auto& pass : state_->identities) { pass.validator->accept(semantic); }
+    finish_token_identities(state_->identities, state_->stack.size());
+    state_->stack.pop_back();
+  });
+}
+// Move bytes only after the complete output contract succeeds.
+std::string token_writer::finish() {
+  state_->apply([&] {
+    if (!state_->root_seen || !state_->stack.empty() || !state_->identities.empty()) { throw std::invalid_argument{"Incomplete XML token output"}; }
+    state_->completed = true;
+  });
+  return std::move(state_->bytes);
+}
+// Reuse the caller's cumulative operation budget.
+operation_context* token_writer::context() const noexcept { return state_->operation; }
+// Expose the immutable limits to generated container adapters.
+const limits& token_writer::bounds() const noexcept { return state_->bounds; }
+
+struct token_reader::implementation {
+  std::string_view remaining;
+  operation_context* operation;
+  std::size_t chunk_bytes;
+  limits bounds;
+  std::deque<token> queue{};
+  std::vector<std::map<std::string, std::string>> namespace_stack{};
+  std::vector<std::size_t> child_counts{};
+  std::vector<token_identity_pass> identities{};
+  event_reader producer;
+  bool failed{}, completed{};
+
+  // Copy only events produced by one bounded input chunk; no parent/child links are retained.
+  implementation(std::string_view input, limits selected_bounds, operation_context* context, std::size_t chunk)
+      : remaining{input}, operation{context}, chunk_bytes{std::min(chunk, default_token_chunk_bytes)}, bounds{selected_bounds},
+        producer{[this](const event_view& event) {
+          if (operation) {
+            operation->consume(operation_resource::allocation_bytes,
+                sizeof(token) + event.qualified_name.local.size() + event.qualified_name.namespace_uri.size() + event.text.size());
+          }
+          token value{event.kind, {std::string{event.qualified_name.local},
+              std::string{event.qualified_name.namespace_uri}}, {}, std::string{event.text}};
+          for (const auto& attribute : event.attributes) {
+            if (operation) {
+              operation->consume(operation_resource::allocation_bytes,
+                  sizeof(xml::attribute) + attribute.qualified_name.local.size() +
+                  attribute.qualified_name.namespace_uri.size() + attribute.value.size());
+            }
+            value.attributes.push_back({{std::string{attribute.qualified_name.local},
+                std::string{attribute.qualified_name.namespace_uri}}, std::string{attribute.value}});
+          }
+          for (const auto& declaration : event.namespaces) {
+            if (operation) {
+              operation->consume(operation_resource::allocation_bytes,
+                  declaration.prefix.size() + declaration.namespace_uri.size());
+            }
+            value.namespaces.emplace(declaration.prefix, declaration.namespace_uri);
+          }
+          queue.push_back(std::move(value));
+        }, event_limits{selected_bounds}, context} {
+    if (!chunk_bytes) { throw std::invalid_argument{"XML token input chunk must be positive"}; }
+    if (input.size() > selected_bounds.max_input_bytes) { throw std::length_error{"XML token input limit exceeded"}; }
+    fill();
+    if (queue.empty() || queue.front().kind != event_kind::start_document) {
+      throw std::invalid_argument{"Missing XML start document"};
+    }
+    queue.pop_front(); fill();
+  }
+  // Produce another bounded group only after the previous group has been consumed.
+  void fill() {
+    while (queue.empty() && !producer.complete()) {
+      if (remaining.empty()) { producer.finish(); }
+      else {
+        const auto count = std::min(chunk_bytes, remaining.size());
+        producer.feed(remaining.substr(0U, count));
+        remaining.remove_prefix(count);
+      }
+    }
+  }
+};
+
+// Borrow the exact byte message and enter the normalized token stream.
+token_reader::token_reader(std::string_view input, limits bounds,
+    operation_context* context, std::size_t chunk_bytes)
+    : state_{std::make_unique<implementation>(input, bounds, context, chunk_bytes)} {}
+// Destroy provider ownership after all queued token copies.
+token_reader::~token_reader() = default;
+// Expose the current bounded token only while this pass is valid.
+const token& token_reader::current() const {
+  if (state_->failed || state_->completed || state_->queue.empty()) {
+    throw std::logic_error{"XML token reader is closed or failed"};
+  }
+  return state_->queue.front();
+}
+// Advance while preserving any provider or observer failure as a terminal fence.
+void token_reader::advance() {
+  (void)current();
+  try {
+    auto& value = state_->queue.front();
+    observe_token_identities(state_->identities, value, state_->operation);
+    if (value.kind == event_kind::start_element) {
+      if (!state_->child_counts.empty()) { ++state_->child_counts.back(); }
+      if (state_->operation) { state_->operation->consume(operation_resource::allocation_bytes, sizeof(value.namespaces) + sizeof(std::size_t)); }
+      state_->namespace_stack.push_back(std::move(value.namespaces));
+      state_->child_counts.push_back(0U);
+    } else if (value.kind == event_kind::end_element) {
+      finish_token_identities(state_->identities, state_->namespace_stack.size());
+      if (state_->namespace_stack.empty()) { throw std::invalid_argument{"Unbalanced XML token namespace scope"}; }
+      state_->namespace_stack.pop_back();
+      state_->child_counts.pop_back();
+    }
+    state_->queue.pop_front(); state_->fill();
+  }
+  catch (...) { state_->failed = true; throw; }
+}
+// Ignore only XML whitespace outside scalar slots.
+void token_reader::skip_space() {
+  while (current().kind == event_kind::text && detail::trim(current().text).empty()) { advance(); }
+}
+// Keep removed foreign attributes visible to identity observers until the owner start is consumed.
+void token_reader::consume_attribute(const name& selected) {
+  try {
+    (void)current();
+    auto& value = state_->queue.front();
+    if (value.kind != event_kind::start_element) { throw std::invalid_argument{"XML attributes require a start token"}; }
+    const auto found = std::find_if(value.attributes.begin(), value.attributes.end(),
+        [&](const auto& item) { return item.qualified_name == selected; });
+    if (found == value.attributes.end()) { throw std::invalid_argument{"XML attribute is absent"}; }
+    if (state_->operation) { state_->operation->consume(operation_resource::allocation_bytes, sizeof(attribute)); }
+    value.consumed_attributes.push_back(std::move(*found));
+    value.attributes.erase(found);
+  } catch (...) { state_->failed = true; throw; }
+}
+// Copy only namespace context, admitting each owning map insertion before allocation.
+std::map<std::string, std::string> token_reader::namespace_scope(build_budget* budget) const {
+  try {
+    (void)current();
+    std::map<std::string, std::string> result;
+    const auto adopt = [&](const auto& bindings) {
+      for (const auto& [prefix, uri] : bindings) {
+        if (budget) { budget->namespace_binding(prefix, uri); }
+        else if (state_->operation) {
+          state_->operation->consume(operation_resource::allocation_bytes,
+              sizeof(std::pair<const std::string, std::string>) + prefix.size() + uri.size());
+        }
+        result[prefix] = uri;
+      }
+    };
+    for (const auto& bindings : state_->namespace_stack) { adopt(bindings); }
+    if (current().kind == event_kind::start_element) { adopt(current().namespaces); }
+    return result;
+  } catch (...) { state_->failed = true; throw; }
+}
+// Foreign preservation records positions among known immediate children, independent of nested events.
+std::size_t token_reader::child_position() const {
+  (void)current();
+  if (state_->child_counts.empty()) { throw std::logic_error{"XML child position requires an open owner"}; }
+  return state_->child_counts.back();
+}
+// Recognize xsi:nil by expanded identity, allowing equivalent user-selected prefixes.
+bool token_reader::take_nil(bool allowed) {
+  try {
+    (void)current();
+    auto& attributes = state_->queue.front().attributes;
+    for (auto selected = attributes.begin(); selected != attributes.end(); ++selected) {
+      if (selected->qualified_name != name{"nil", "http://www.w3.org/2001/XMLSchema-instance"}) { continue; }
+      if (!allowed) { throw std::invalid_argument{"XML xsi:nil is not allowed by the presence mapping"}; }
+      bool value{};
+      detail::read_scalar(selected->value, value);
+      state_->queue.front().consumed_nil.emplace(std::move(*selected));
+      attributes.erase(selected);
+      return value;
+    }
+    return false;
+  } catch (...) { state_->failed = true; throw; }
+}
+// Preserve consumed control metadata for identity observers while hiding it from payload fields.
+std::optional<name> token_reader::take_type() {
+  try {
+    (void)current();
+    auto& value = state_->queue.front();
+    for (auto selected = value.attributes.begin(); selected != value.attributes.end(); ++selected) {
+      if (selected->qualified_name != name{"type", "http://www.w3.org/2001/XMLSchema-instance"}) { continue; }
+      element scope{};
+      const auto adopt = [&](const auto& declarations) {
+        for (const auto& [prefix, uri] : declarations) {
+          if (state_->operation) {
+            state_->operation->consume(operation_resource::allocation_bytes, prefix.size() + uri.size());
+            state_->operation->consume(operation_resource::work_units, prefix.size() + uri.size());
+          }
+          scope.namespace_bindings[prefix] = uri;
+        }
+      };
+      for (const auto& declarations : state_->namespace_stack) { adopt(declarations); }
+      adopt(value.namespaces);
+      if (state_->operation) {
+        state_->operation->consume(operation_resource::work_units, selected->value.size());
+        state_->operation->consume(operation_resource::allocation_bytes, selected->value.size());
+        const auto lexical = detail::trim(selected->value);
+        const auto colon = lexical.find(':');
+        const auto prefix = colon == std::string_view::npos ? std::string_view{} : lexical.substr(0U, colon);
+        state_->operation->consume(operation_resource::allocation_bytes, prefix.size());
+        if (prefix == "xml") {
+          state_->operation->consume(operation_resource::allocation_bytes, std::string_view{"http://www.w3.org/XML/1998/namespace"}.size());
+        } else if (const auto binding = scope.namespace_bindings.find(std::string{prefix}); binding != scope.namespace_bindings.end()) {
+          state_->operation->consume(operation_resource::allocation_bytes, binding->second.size());
+        }
+      }
+      auto result = resolve_qname(selected->value, scope);
+      value.consumed_type.emplace(std::move(*selected));
+      value.attributes.erase(selected);
+      return result;
+    }
+    return {};
+  } catch (...) { state_->failed = true; throw; }
+}
+// Register before consuming this owner's start token, independently of producer read-ahead.
+void token_reader::begin_identity(const identity_scope& scope) {
+  begin_identity(scope, state_->operation && state_->operation->identity_bounds ?
+      *state_->operation->identity_bounds : identity_limits{});
+}
+// Explicit local bounds take precedence over a caller's default identity-index policy.
+void token_reader::begin_identity(const identity_scope& scope, identity_limits bounds) {
+  try {
+    if (current().kind != event_kind::start_element || current().qualified_name != scope.owner ||
+        (!state_->identities.empty() && state_->identities.back().owner_depth == state_->namespace_stack.size() + 1U)) {
+      throw std::invalid_argument{"XML identity scope requires one matching current owner start token"};
+    }
+    std::map<std::string, std::string> inherited{};
+    for (const auto& declarations : state_->namespace_stack) {
+      for (const auto& [prefix, uri] : declarations) {
+        if (state_->operation) {
+          state_->operation->consume(operation_resource::allocation_bytes, prefix.size() + uri.size());
+          state_->operation->consume(operation_resource::work_units, prefix.size() + uri.size());
+        }
+        inherited[prefix] = uri;
+      }
+    }
+    auto observer = std::make_unique<identity_validator>(scope, bounds, state_->operation, inherited);
+    observer->accept({event_kind::start_document});
+    state_->identities.push_back({state_->namespace_stack.size() + 1U, std::move(observer)});
+  } catch (...) { state_->failed = true; throw; }
+}
+// Require the producer's checked byte EOF before authorizing candidate publication.
+void token_reader::finish() {
+  try {
+    skip_space();
+    if (current().kind != event_kind::end_document || !state_->producer.complete()) {
+      throw std::invalid_argument{"Trailing XML tokens"};
+    }
+    state_->completed = true;
+  } catch (...) { state_->failed = true; throw; }
+}
+// Share all lexical/model admissions with the same caller context.
+operation_context* token_reader::context() const noexcept { return state_->operation; }
+// Expose immutable limits without creating a separate nested map budget.
+const limits& token_reader::bounds() const noexcept { return state_->bounds; }
+// Retain just the current record's attributes across recursive child traversal.
+namespace {
+// Select operation-local extension bounds independently of the absent known-document tree budget.
+extension_limits token_extension_bounds(operation_context* context) {
+  return context && context->extension_bounds ? *context->extension_bounds : extension_limits{};
+}
+// Borrow only explicitly understood vocabularies; opaque preservation does not grant capabilities.
+std::span<const std::string> token_capabilities(operation_context* context) {
+  return context && context->understood_namespaces ? std::span<const std::string>{*context->understood_namespaces} : std::span<const std::string>{};
+}
+// Match exact position/URI slots and reject unknown core names even when a wildcard is permissive.
+std::size_t token_extension_slot(const extension_contract& contract, const name& selected,
+    bool attribute, std::size_t field, operation_context* context) {
+  if (selected.namespace_uri.empty() || selected.namespace_uri == contract.core_namespace ||
+      selected.namespace_uri == model_metadata_namespace ||
+      std::find(contract.known_names.begin(), contract.known_names.end(), selected) != contract.known_names.end()) {
+    throw std::invalid_argument{"Known, core or reserved XML names cannot enter an extension slot"};
+  }
+  for (std::size_t index{}; index < contract.slots.size(); ++index) {
+    const auto& slot = contract.slots[index];
+    if (context) { context->consume(operation_resource::work_units, 1U); }
+    if (slot.attribute != attribute || (!attribute && slot.before_field != field)) { continue; }
+    for (const auto& uri : slot.namespaces) {
+      if (context) { context->consume(operation_resource::work_units, std::min(uri.size(), selected.namespace_uri.size())); }
+      if (uri == selected.namespace_uri) {
+        if (slot.policy == unknown_policy::reject) { throw std::invalid_argument{"XML extension slot rejects this vocabulary"}; }
+        return index;
+      }
+    }
+  }
+  throw std::invalid_argument{"XML extension has no permitted position and vocabulary"};
+}
+// Emit already validated opaque semantic XML without creating a second element tree.
+void write_opaque_tokens(token_writer& writer, const element& node) {
+  writer.open(node.qualified_name, node.namespace_bindings);
+  for (const auto& item : node.attributes) { writer.attribute_value(item.qualified_name, item.value); }
+  if (node.text_segments.empty()) {
+    writer.text(node.text);
+    for (const auto& child : node.children) { write_opaque_tokens(writer, child); }
+  } else {
+    std::size_t next{};
+    for (std::size_t index{}; index <= node.children.size(); ++index) {
+      while (next < node.text_segments.size() && node.text_segments[next].before_child == index) { writer.text(node.text_segments[next++].value); }
+      if (index < node.children.size()) { write_opaque_tokens(writer, node.children[index]); }
+    }
+  }
+  writer.close();
+}
+} // namespace
+
+struct token_extension_input::implementation {
+  token_reader& reader;
+  const extension_contract& contract;
+  extension_slot& target;
+  extension_limits bounds;
+  build_budget budget;
+  extension_store candidate{};
+  std::vector<std::size_t> counts{};
+  std::size_t items{}, unknown_children{}, preserved_bytes{};
+  bool failed{}, complete{}, scope_retained{};
+
+  // Admit opaque storage before copies; cumulative operation counters are never refunded.
+  void preserved(std::size_t amount) {
+    consume(preserved_bytes, amount, bounds.max_preserved_bytes);
+    if (reader.context()) { reader.context()->consume(operation_resource::preserved_bytes, amount); }
+  }
+  // Account retained complete namespace context after its map insertions were individually admitted.
+  void preserved_scope(const std::map<std::string, std::string>& scope) {
+    for (const auto& [prefix, uri] : scope) { preserved(sizeof(std::pair<const std::string, std::string>) + prefix.size() + uri.size()); }
+  }
+  // Charge one exact slot occurrence before either skip or retention consumes any tokens.
+  unknown_policy admit(const name& selected, bool attribute, std::size_t field) {
+    consume(items, 1U, bounds.max_items);
+    const auto index = token_extension_slot(contract, selected, attribute, field, reader.context());
+    consume(counts[index], 1U, contract.slots[index].maximum.value_or(std::numeric_limits<std::size_t>::max()));
+    return contract.slots[index].policy;
+  }
+  // Capture only a selected foreign subtree; known fields never enter owning XML storage.
+  element capture() {
+    const auto& start = reader.current();
+    const auto depth = budget.enter(start.qualified_name);
+    preserved(sizeof(element) + start.qualified_name.local.size() + start.qualified_name.namespace_uri.size());
+    element result{};
+    result.qualified_name = start.qualified_name;
+    result.namespace_bindings = reader.namespace_scope(&budget);
+    preserved_scope(result.namespace_bindings);
+    for (const auto& item : start.attributes) {
+      budget.attribute_name(item.qualified_name); budget.text(item.value.size());
+      preserved(sizeof(attribute) + item.qualified_name.local.size() + item.qualified_name.namespace_uri.size() + item.value.size());
+      result.attributes.push_back(item);
+    }
+    reader.advance();
+    while (reader.current().kind != event_kind::end_element) {
+      if (reader.current().kind == event_kind::start_element) { result.children.push_back(capture()); }
+      else if (reader.current().kind == event_kind::text) {
+        const auto& text = reader.current().text;
+        budget.text(text.size()); budget.retained_storage(text.size());
+        preserved(text.size()); preserved(text.size());
+        result.text += text;
+        if (result.text_segments.empty() || result.text_segments.back().before_child != result.children.size()) {
+          budget.retained_storage(sizeof(element::text_segment)); preserved(sizeof(element::text_segment));
+          result.text_segments.push_back({result.children.size(), text});
+        } else { result.text_segments.back().value += text; }
+        reader.advance();
+      } else { throw std::invalid_argument{"Incomplete opaque XML subtree"}; }
+    }
+    reader.advance();
+    return result;
+  }
+  // Discard an allowed foreign subtree with only an integer depth counter.
+  void skip() {
+    std::size_t depth{};
+    do {
+      if (reader.current().kind == event_kind::start_element) { ++depth; }
+      else if (reader.current().kind == event_kind::end_element) { --depth; }
+      else if (reader.current().kind == event_kind::end_document) { throw std::invalid_argument{"Incomplete skipped XML subtree"}; }
+      reader.advance();
+    } while (depth);
+  }
+  // Bind immutable metadata and retain only permitted foreign owner attributes.
+  implementation(token_reader& source, const extension_contract& selected, extension_slot& output)
+      : reader{source}, contract{selected}, target{output}, bounds{token_extension_bounds(source.context())},
+        budget{[&] { auto document = bounds.document; document.max_tree_bytes = std::min(document.max_tree_bytes, bounds.max_preserved_bytes); return document; }(), source.context()} {
+    validate_extension_contract(contract, bounds);
+    if (source.current().kind != event_kind::start_element || source.current().qualified_name.namespace_uri != contract.core_namespace) {
+      throw std::invalid_argument{"XML extension owner differs from its contract"};
+    }
+    element scope{}; scope.qualified_name = source.current().qualified_name;
+    validate_required_capabilities(contract, scope, {}, token_capabilities(source.context()), bounds, source.context());
+    if (source.context()) { source.context()->consume(operation_resource::allocation_bytes, contract.slots.size() * sizeof(std::size_t)); }
+    counts.resize(contract.slots.size());
+    target.reset();
+    std::size_t index{};
+    while (index < reader.current().attributes.size()) {
+      const auto& item = reader.current().attributes[index];
+      if (std::find(contract.known_names.begin(), contract.known_names.end(), item.qualified_name) != contract.known_names.end() ||
+          item.qualified_name.namespace_uri == model_metadata_namespace) { ++index; continue; }
+      if (admit(item.qualified_name, true, 0U) == unknown_policy::preserve) {
+        budget.attribute_name(item.qualified_name); budget.text(item.value.size());
+        preserved(sizeof(attribute) + item.qualified_name.local.size() + item.qualified_name.namespace_uri.size() + item.value.size());
+        if (!scope_retained) {
+          candidate.namespace_bindings = reader.namespace_scope(&budget);
+          preserved_scope(candidate.namespace_bindings); scope_retained = true;
+        }
+        candidate.attributes.push_back(item);
+      }
+      reader.consume_attribute(item.qualified_name);
+    }
+  }
+};
+
+// Consume authorized foreign attributes before the ordinary field reader takes the owner start.
+token_extension_input::token_extension_input(token_reader& reader, const extension_contract& contract, extension_slot& target)
+    : state_{std::make_unique<implementation>(reader, contract, target)} {}
+// Release an unpublished preservation candidate without altering caller-visible owning models.
+token_extension_input::~token_extension_input() = default;
+// Keep the known decoder on the token stream while visiting exact foreign-only boundaries.
+void token_extension_input::before_field(std::size_t index) {
+  if (state_->failed || state_->complete) { throw std::logic_error{"XML extension input is closed or failed"}; }
+  try {
+    auto& state = *state_;
+    state.reader.skip_space();
+    while (state.reader.current().kind == event_kind::start_element &&
+        std::find(state.contract.known_names.begin(), state.contract.known_names.end(), state.reader.current().qualified_name) == state.contract.known_names.end()) {
+      const auto position = state.reader.child_position() - state.unknown_children;
+      if (state.admit(state.reader.current().qualified_name, false, index) == unknown_policy::preserve) {
+        constexpr auto metadata_bytes = sizeof(extension_store::child_slot) - sizeof(element);
+        state.budget.retained_storage(metadata_bytes); state.preserved(metadata_bytes);
+        state.candidate.children.push_back({position, state.capture(), index});
+      } else { state.skip(); }
+      ++state.unknown_children;
+      state.reader.skip_space();
+    }
+  } catch (...) { state_->failed = true; throw; }
+}
+// Publish no opaque state until every slot's minimum and final boundary have succeeded.
+void token_extension_input::finish(std::size_t end_index) {
+  before_field(end_index);
+  try {
+    for (std::size_t index{}; index < state_->counts.size(); ++index) {
+      if (state_->counts[index] < state_->contract.slots[index].minimum) { throw std::invalid_argument{"Required XML extension occurrence is missing"}; }
+    }
+    if (!state_->candidate.attributes.empty() || !state_->candidate.children.empty()) { state_->target.value(state_->reader.context()) = std::move(state_->candidate); }
+    state_->complete = true;
+  } catch (...) { state_->failed = true; throw; }
+}
+// Validate existing opaque storage without cloning its payloads, then emit only its attributes.
+token_extension_output::token_extension_output(token_writer& writer, const extension_contract& contract, const extension_store& retained)
+    : writer_{writer}, retained_{retained} {
+  const auto bounds = token_extension_bounds(writer.context());
+  if (retained.attributes.size() > bounds.max_items || retained.children.size() > bounds.max_items - retained.attributes.size()) {
+    throw std::length_error{"XML extension item limit exceeded"};
+  }
+  if (!retained.wrappers.empty()) { throw std::invalid_argument{"Positioned XML extension storage has no nested wrapper slots"}; }
+  if (writer.context()) { writer.context()->consume(operation_resource::allocation_bytes, (retained.attributes.size() + retained.children.size()) * sizeof(extension_item_view)); }
+  std::vector<extension_item_view> items;
+  for (const auto& item : retained.attributes) {
+    const auto index = token_extension_slot(contract, item.qualified_name, true, 0U, writer.context());
+    if (contract.slots[index].policy != unknown_policy::preserve) { throw std::invalid_argument{"Only preserved XML slots can be emitted"}; }
+    items.push_back({&item, nullptr, 0U, 0U});
+  }
+  for (const auto& item : retained.children) {
+    const auto index = token_extension_slot(contract, item.value.qualified_name, false, item.before_field, writer.context());
+    if (contract.slots[index].policy != unknown_policy::preserve) { throw std::invalid_argument{"Only preserved XML slots can be emitted"}; }
+    items.push_back({nullptr, &item.value, item.before_field, item.before_child});
+  }
+  element scope{}; scope.qualified_name.namespace_uri = contract.core_namespace;
+  std::size_t scope_bytes{};
+  if (retained.namespace_bindings.size() > bounds.document.max_namespace_bindings) { throw std::length_error{"XML retained namespace limit exceeded"}; }
+  for (const auto& [prefix, uri] : retained.namespace_bindings) {
+    consume(scope_bytes, sizeof(std::pair<const std::string, std::string>), bounds.max_preserved_bytes);
+    consume(scope_bytes, prefix.size(), bounds.max_preserved_bytes);
+    consume(scope_bytes, uri.size(), bounds.max_preserved_bytes);
+  }
+  if (writer.context()) { writer.context()->consume(operation_resource::allocation_bytes, scope_bytes); }
+  scope.namespace_bindings = retained.namespace_bindings;
+  validate_extension_slots(contract, scope, items, token_capabilities(writer.context()), bounds, writer.context());
+  for (const auto& item : retained.attributes) { writer.attribute_value(item.qualified_name, item.value); }
+}
+// Replay each already validated foreign child at its exact static field boundary.
+void token_extension_output::before_field(std::size_t index) {
+  while (next_child_ < retained_.children.size() && retained_.children[next_child_].before_field == index) {
+    write_opaque_tokens(writer_, retained_.children[next_child_++].value);
+  }
+}
+// Reject stale positions instead of silently omitting retained extension payloads.
+void token_extension_output::finish(std::size_t end_index) {
+  before_field(end_index);
+  if (next_child_ != retained_.children.size()) { throw std::invalid_argument{"Retained XML extension position no longer exists"}; }
+}
+
+// Enter one statically mapped owner while retaining only its authorized ordinary attributes.
+token_fields::token_fields(token_reader& reader, const element* lexical_scope) : reader_{reader}, lexical_scope_{lexical_scope} {
+  if (reader_.current().kind != event_kind::start_element) {
+    throw std::invalid_argument{"XML record requires a start element"};
+  }
+  if (reader_.context()) {
+    reader_.context()->consume(operation_resource::allocation_bytes,
+        reader_.current().attributes.size() * sizeof(attribute));
+    for (const auto& attribute : reader_.current().attributes) {
+      reader_.context()->consume(operation_resource::allocation_bytes,
+          attribute.qualified_name.local.size() + attribute.qualified_name.namespace_uri.size() + attribute.value.size());
+    }
+  }
+  attributes_ = reader_.current().attributes;
+  used_.resize(attributes_.size());
+  reader_.advance();
+}
+// Reject unknown membership before consuming the record end token.
+void token_fields::finish() {
+  if (std::find(used_.begin(), used_.end(), false) != used_.end()) {
+    throw std::invalid_argument{"Unknown XML attribute"};
+  }
+  reader_.skip_space();
+  if (reader_.current().kind != event_kind::end_element) {
+    throw std::invalid_argument{"Unknown or out-of-order XML child or text"};
+  }
+  reader_.advance();
+}
+// Retain only field metadata and the owning model while accepting each all-child permutation.
+void token_fields::finish_all(bool required_group) {
+  bool present{};
+  reader_.skip_space();
+  while (reader_.current().kind == event_kind::start_element) {
+    const auto selected = std::find_if(all_fields_.begin(), all_fields_.end(), [&](const auto& field) {
+      return field.selected == reader_.current().qualified_name;
+    });
+    if (selected == all_fields_.end()) { break; }
+    if (selected->seen) { throw std::invalid_argument{"Duplicate XML all child"}; }
+    selected->seen = true;
+    present = true;
+    selected->decode();
+    reader_.skip_space();
+  }
+  if (present || required_group) {
+    for (const auto& field : all_fields_) {
+      if (field.required && !field.seen) { throw std::invalid_argument{"Missing required XML all child"}; }
+    }
+  }
 }
 } // namespace rohit::serializer::xml

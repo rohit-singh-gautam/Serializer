@@ -1,10 +1,15 @@
 // Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include <rohit/xml_identity.hpp>
+#include <rohit/xml_tokens.hpp>
 
 #include <gtest/gtest.h>
 
 #include <stdexcept>
+#include <array>
+#include <optional>
+#include <initializer_list>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -41,6 +46,41 @@ xml::identity_scope referenced_scope() {
   auto reference = constraint("references", "ref", xml::identity_kind::keyref, "integer");
   reference.refer = xml::name{"ids", "urn:keys"};
   return {{"root", {}}, {reference, constraint("ids", "row", xml::identity_kind::key, "decimal")}};
+}
+
+struct identity_row {
+  std::string_view tag{};
+  std::optional<std::string_view> id{};
+};
+
+// Feed provider-independent checked row events without constructing any XML element payload tree.
+void stream_rows(const xml::identity_scope& scope, std::initializer_list<identity_row> rows,
+    xml::identity_limits bounds = {}, xml::operation_context* context = nullptr) {
+  xml::identity_validator identity{scope, bounds, context};
+  xml::event_validator structure{};
+  const auto accept = [&](const xml::event_view& value) { structure.accept(value); identity.accept(value); };
+  accept({xml::event_kind::start_document});
+  accept({xml::event_kind::start_element, {"root", {}}});
+  for (const auto& row : rows) {
+    const std::array attribute{xml::event_attribute{{"id", {}}, row.id.value_or("")}};
+    const std::span<const xml::event_attribute> attributes = row.id ? std::span{attribute} : std::span<const xml::event_attribute>{};
+    accept({xml::event_kind::start_element, {row.tag, {}}, attributes});
+    accept({xml::event_kind::end_element, {row.tag, {}}});
+  }
+  accept({xml::event_kind::end_element, {"root", {}}});
+  accept({xml::event_kind::end_document});
+  structure.finish(); identity.finish(); identity.finish();
+  EXPECT_TRUE(identity.complete());
+  EXPECT_FALSE(identity.failed());
+}
+
+// Register at the current owner token, so provider read-ahead never outruns scoped identity checks.
+void stream_bytes(std::string_view bytes, const xml::identity_scope& scope, xml::identity_limits identity_bounds = {}) {
+  xml::limits bounds{}; bounds.max_tree_bytes = 0U;
+  xml::token_reader reader{bytes, bounds, nullptr, 1U};
+  reader.begin_identity(scope, identity_bounds);
+  while (reader.current().kind != xml::event_kind::end_document) { reader.advance(); }
+  reader.finish();
 }
 } // namespace
 
@@ -283,6 +323,117 @@ TEST(xml_identity, key_and_forward_reference_corpus_agrees_with_xsd_provider) {
       try { xml::validate_identity_scope(xml::parse(bytes), scope); } catch (const std::invalid_argument&) { portable_valid = false; }
       EXPECT_EQ(provider_valid, expected) << bytes;
       EXPECT_EQ(portable_valid, provider_valid) << bytes;
+      bool streaming_valid{true};
+      try { stream_bytes(bytes, scope); } catch (const std::invalid_argument&) { streaming_valid = false; }
+      EXPECT_EQ(streaming_valid, provider_valid) << bytes;
     }
   }
+}
+
+TEST(xml_identity, streaming_keys_unique_and_forward_references_use_exact_value_spaces) {
+  const auto scope = referenced_scope();
+  EXPECT_NO_THROW(stream_rows(scope, {{"ref", "+01"}, {"row", "1.0"}}));
+  EXPECT_NO_THROW(stream_rows(scope, {{"ref", {}}, {"row", "1"}}));
+  EXPECT_THROW(stream_rows(scope, {{"row", "1"}, {"row", "+01.00"}}), std::invalid_argument);
+  EXPECT_THROW(stream_rows(scope, {{"ref", "2"}, {"row", "1"}}), std::invalid_argument);
+  EXPECT_THROW(stream_rows(scope, {{"row", {}}}), std::invalid_argument);
+  const xml::identity_scope unique{{"root", {}}, {constraint("ids", "row", xml::identity_kind::unique, "token")}};
+  EXPECT_NO_THROW(stream_rows(unique, {{"row", {}}, {"row", {}}}));
+  EXPECT_THROW(stream_rows(unique, {{"row", "a b"}, {"row", " a\t b "}}), std::invalid_argument);
+}
+
+TEST(xml_identity, streaming_tuple_selection_work_and_callback_failures_are_bounded) {
+  const xml::identity_scope scope{{"root", {}}, {constraint("ids", "row")}};
+  xml::identity_limits bounds{}; bounds.max_selected_nodes = 1U;
+  EXPECT_NO_THROW(stream_rows(scope, {{"row", "a"}}, bounds));
+  EXPECT_THROW(stream_rows(scope, {{"row", "a"}, {"row", "b"}}, bounds), std::length_error);
+  bounds = {}; bounds.max_tuples = 1U;
+  EXPECT_THROW(stream_rows(scope, {{"row", "a"}, {"row", "b"}}, bounds), std::length_error);
+  bounds = {}; bounds.max_tuple_bytes = 1U;
+  EXPECT_NO_THROW(stream_rows(scope, {{"row", "a"}}, bounds));
+  EXPECT_THROW(stream_rows(scope, {{"row", "ab"}}, bounds), std::length_error);
+  bounds = {}; bounds.max_work_units = 0U;
+  EXPECT_THROW(stream_rows(scope, {}, bounds), std::length_error);
+  xml::operation_context operation{};
+  operation.is_cancelled = [] { return true; };
+  EXPECT_THROW(stream_rows(scope, {}, {}, &operation), std::exception);
+  operation.is_cancelled = {};
+  operation.charge = [](auto selected, auto) {
+    if (selected == xml::operation_resource::allocation_bytes) { throw std::length_error{"injected identity allocation"}; }
+  };
+  EXPECT_THROW(stream_rows(scope, {}, {}, &operation), std::length_error);
+}
+
+TEST(xml_identity, streaming_namespace_aliases_scalar_captures_and_terminal_failure) {
+  auto key = constraint("ids", ".//value", xml::identity_kind::key, "QName");
+  key.fields.front().path = xml::compile_identity_path(".", {}, false);
+  const xml::identity_scope scope{{"root", {}}, {key}};
+  xml::identity_validator validator{scope};
+  validator.accept({xml::event_kind::start_document});
+  const std::array declarations{xml::namespace_declaration{"a", "urn:value"}, xml::namespace_declaration{"b", "urn:value"}};
+  validator.accept({xml::event_kind::start_element, {"root", {}}, {}, declarations});
+  validator.accept({xml::event_kind::start_element, {"value", {}}});
+  validator.accept({xml::event_kind::text, {}, {}, {}, "a:"});
+  validator.accept({xml::event_kind::text, {}, {}, {}, "name"});
+  validator.accept({xml::event_kind::end_element, {"value", {}}});
+  validator.accept({xml::event_kind::start_element, {"value", {}}});
+  validator.accept({xml::event_kind::text, {}, {}, {}, "b:name"});
+  EXPECT_THROW(validator.accept({xml::event_kind::end_element, {"value", {}}}), std::invalid_argument);
+  EXPECT_TRUE(validator.failed());
+  EXPECT_FALSE(validator.complete());
+  EXPECT_THROW(validator.finish(), std::logic_error);
+  EXPECT_THROW(validator.accept({xml::event_kind::end_document}), std::logic_error);
+}
+
+TEST(xml_identity, scoped_token_output_and_input_check_before_publication) {
+  const auto scope = referenced_scope();
+  xml::limits bounds{}; bounds.max_tree_bytes = 0U;
+  xml::token_writer writer{bounds};
+  writer.open({"root", {}}); writer.begin_identity(scope);
+  writer.open({"ref", {}}); writer.attribute_value({"id", {}}, "+01"); writer.close();
+  writer.open({"row", {}}); writer.attribute_value({"id", {}}, "1.00"); writer.close();
+  writer.close();
+  const auto bytes = writer.finish();
+  if (xml::available()) { EXPECT_NO_THROW(stream_bytes(bytes, scope)); }
+  xml::token_writer invalid{bounds};
+  invalid.open({"root", {}}); invalid.begin_identity(scope);
+  invalid.open({"ref", {}}); invalid.attribute_value({"id", {}}, "2"); invalid.close();
+  invalid.open({"row", {}}); invalid.attribute_value({"id", {}}, "1"); invalid.close();
+  EXPECT_THROW(invalid.close(), std::invalid_argument);
+  EXPECT_THROW((void)invalid.finish(), std::logic_error);
+  if (xml::available()) {
+    EXPECT_THROW(stream_bytes("<root><ref id='2'/><row id='1'/></root>", scope), std::invalid_argument);
+  }
+}
+
+// XSD key semantics inspect the declaration flag only for selected fields, preserving empty scopes.
+TEST(xml_identity, selected_key_fields_declared_nillable_reject_tree_and_tokens) {
+  auto key = constraint("values", "row");
+  const xml::identity_field legacy{xml::compile_identity_path(".", {}, false), "string"};
+  EXPECT_FALSE(legacy.nillable);
+  key.fields = {legacy}; key.fields.front().nillable = true;
+  xml::identity_scope scope{{"root", {}}, {key}};
+  xml::element selected{}; selected.qualified_name = {"row", {}};
+  EXPECT_THROW(xml::validate_identity_scope(document({selected}), scope), std::invalid_argument);
+  EXPECT_NO_THROW(xml::validate_identity_scope(document({}), scope));
+  xml::limits bounds{}; bounds.max_tree_bytes = 0U;
+  xml::token_writer rejected{bounds};
+  rejected.open({"root", {}}); rejected.begin_identity(scope); rejected.open({"row", {}});
+  EXPECT_THROW(rejected.close(), std::invalid_argument);
+  EXPECT_THROW((void)rejected.finish(), std::logic_error);
+  xml::token_writer empty{bounds};
+  empty.open({"root", {}}); empty.begin_identity(scope); empty.close();
+  EXPECT_NO_THROW((void)empty.finish());
+  if (xml::available()) {
+    EXPECT_THROW(stream_bytes("<root><row/></root>", scope), std::invalid_argument);
+    EXPECT_NO_THROW(stream_bytes("<root/>", scope));
+  }
+  scope.constraints.front().kind = xml::identity_kind::unique;
+  EXPECT_NO_THROW(xml::validate_identity_scope(document({selected}), scope));
+  xml::token_writer unique{bounds};
+  unique.open({"root", {}}); unique.begin_identity(scope); unique.open({"row", {}}); unique.close(); unique.close();
+  EXPECT_NO_THROW((void)unique.finish());
+  scope.constraints.front().kind = xml::identity_kind::key;
+  scope.constraints.front().fields.front().nillable = false;
+  EXPECT_NO_THROW(xml::validate_identity_scope(document({selected}), scope));
 }

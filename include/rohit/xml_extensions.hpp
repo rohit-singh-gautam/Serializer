@@ -69,4 +69,9 @@ void validate_required_capabilities(const extension_contract& contract, const el
     std::string_view required_prefixes = {}, extension_limits bounds = {},
     operation_context* context = nullptr);
 
+// Validate already owned opaque payloads without cloning their retained subtrees.
+void validate_extension_slots(const extension_contract& contract, const element& scope,
+    std::span<const extension_item_view> items, std::span<const std::string> understood_namespaces = {},
+    extension_limits bounds = {}, operation_context* context = nullptr);
+
 } // namespace rohit::serializer::xml

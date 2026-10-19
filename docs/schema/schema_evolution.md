@@ -1,5 +1,12 @@
 # Schema compatibility checking
 
+Compiler/runtime `2.12.0` adds generated XML token paths and selected shared
+presence, generic and Python identity/all mappings. Regenerate XML outputs and
+rebuild with the matching runtime. Schema language remains `1.20.0`; native wire
+identities and managed payloads need no migration. New direct writers may change
+XML prefix/declaration presentation while preserving expanded-name semantics.
+See [supported token subsets and upgrade notes](../serialization/xml_tokens.md).
+
 Compiler/runtime `1.18.0` and language `1.13.0` add an opt-in C++ function
 `noexcept(cpp)` qualifier without changing durable identities, payload layouts,
 managed fingerprints or protocols. Existing schemas need no migration. Adding

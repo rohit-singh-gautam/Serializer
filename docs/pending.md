@@ -347,37 +347,14 @@ their separate generated-code and qualification work is still tracked below.
 
 ### XML tasks for each language
 
-Instantiate each suffix under a language prefix: `X04` becomes `CP-X04` or `PY-X04`.
-Each row includes a generated-code compile/run using that language's actual SDK.
-
-| Suffix | Cap | Depends on | Deliverable and completion check |
-| --- | --- | --- | --- |
-| X01 | 4 h | S01–S02 | Direct scalar token output; escaping/namespace traces pass without a retained tree. |
-| X02 | 4 h | X01 | Direct generated record/attribute/nested output; contract and output bounds pass. |
-| X03 | 4 h | S01–S02 | Scalar token input; split-token lexical/resource failures pass. |
-| X04 | 4 h | X03 | Record/optional/repeated token input; exact-message transactional tests pass without a retained tree. |
-| X05 | 3 h | S03, X04 | Explicit nil mapping; absent, empty and nil remain distinguishable. |
-| X06 | 4 h | S04, X02, X04 | Ordered mixed content; ordering, escaping and resource tests pass. |
-| X07 | 3 h | S05, X04 | Map mapping; key, duplicate and cardinality fixtures pass. |
-| X08 | 3 h | S06, X04 | Variant mapping; wrong tag/type combinations reject. |
-| X09 | 3 h | S08, X04 | Generated numeric facets; inclusive/exclusive boundary corpus passes. |
-| X10 | 3 h | S09, S11, X04 | Text/enumeration/approved-pattern facets; Unicode and independent-oracle tests pass. |
-| X11 | 3 h | S12, X04 | XSD-derived simpleContent/wrappers; generated authoritative contracts round-trip. |
-| X12 | 3 h | S13, X04 | Choice traversal; exactly one allowed alternative is accepted. |
-| X13 | 3 h | S14, X04 | All traversal; valid permutations pass and duplicates reject. |
-| X14 | 3 h | S16, X04 | Key/unique state; tuple/index budgets and failure tests pass. |
-| X15 | 3 h | S17, X14 | Keyref completion; forward/missing/wrong-scope references are checked before publication. |
-| X16 | 4 h | S07, X04 | XML extension slots; reject/skip/preserve and namespace-context round-trips pass. |
-| X17 | 3 h | S27, X04 | Concrete generic XML instances; generated instance fixtures pass. |
-| X18 | 3 h | S28, X04 | Inherited mappings; field collisions and ordering tests pass. |
-| X19 | 4 h | S29, X04 | Revision/magic mappings; historical/current/invalid layouts pass their expected checks. |
-| X20 | 3 h | S30, X04 | Digest/data-projection adapters; exact values and genuine language-specific restrictions are tested. |
-| X21 | 3 h | Provider prerequisites | Qualify a real prepared XSD provider; limits, concurrency, no-fetch and declared-root checks pass. |
-| X22 | 4 h | S34 | Approved HTML adapter subset; ordinary HTML is checked independently of XML parsing. |
-
-`X20` does not require native managed engines or borrowed views in languages that
-cannot provide them. It does require an explicit portable data contract wherever
-the feature is general; it must not convert missing backend support into an exception.
+Compiler/runtime **2.12.0** adds generated token paths and selected dependent
+mappings. The [per-backend verification record](verification/verification-xml-tokens-2026-10-19.md)
+records executed instances and residual scope. All X01-X22 reference tasks have
+passed generated-code compile/run checks with the actual SDK for each of the
+eleven outputs. Their completed entries have been removed from this backlog.
+Broader OPC/XSD combinations, performance, platform qualification and package
+work retain their own requirements above and below; the reference checks do not
+close those separate tasks.
 
 ### Compression tasks for each language
 

@@ -15,8 +15,35 @@ internal static class Program {
     throw new Exception("Invalid XML scalar accepted");
   }
 
+  // Verify scalar split tokens, exact shape errors and transactional resource failures.
+  private static void CheckTokens(ShapesRecord value, byte[] encoded) {
+    string document = Encoding.UTF8.GetString(encoded);
+    if (ShapesRecord.DecodeXml(Encoding.UTF8.GetBytes(document.Replace(">1.25<", ">1<![CDATA[.]]>&#50;5<"))).Small != 1.25f) throw new Exception("Split scalar tokens");
+    foreach (var failure in new[] {
+        (Document: document.Replace("</record>", "<unexpected/></record>"), Message: "Unexpected XML field"),
+        (Document: document.Replace(">1.25<", ">broken<"), Message: "Invalid XML floating value")}) {
+      try { ShapesRecord.DecodeXml(Encoding.UTF8.GetBytes(failure.Document)); throw new Exception("Invalid token candidate published"); }
+      catch (FormatException expected) { if (expected.Message != failure.Message) throw new Exception("Changed token diagnostic", expected); }
+    }
+    if (!value.EncodeXml(new Limits(maxBytes: encoded.Length)).AsSpan().SequenceEqual(encoded)) throw new Exception("Exact output byte boundary");
+    foreach (var limits in new[] {new Limits(maxBytes: encoded.Length - 1), new Limits(maxStringBytes: 1), new Limits(maxElements: 1), new Limits(maxDepth: 1)}) {
+      try { value.EncodeXml(limits); throw new Exception("Oversized token output published"); } catch (FormatException) { }
+      try { ShapesRecord.DecodeXml(encoded, limits); throw new Exception("Oversized token input published"); } catch (FormatException) { }
+    }
+    Rejected("<!DOCTYPE record [<!ENTITY local 'expanded'>]>" + document);
+    Rejected(document + "<second/>");
+  }
+
   // Check complete model values and selected prepared runtime XSD enforcement.
   private static void Main() {
+    string namesXml = "<r:names xmlns:r='urn:root' xmlns:a='urn:attribute' xml:lang='en' a:qualified='A&amp;B'><unqualified>plain</unqualified><f:foreign xmlns:f='urn:foreign'>foreign</f:foreign></r:names>";
+    var names = ShapesNames.DecodeXml(Encoding.UTF8.GetBytes(namesXml));
+    if (names.Language != "en" || names.Qualified != "A&B" || names.Unqualified != "plain" || names.Foreign != "foreign") throw new Exception("Expanded namespace input");
+    if (!names.Encode(Protocol.BINARY_NONE).AsSpan().SequenceEqual(ShapesNames.DecodeXml(names.EncodeXml()).Encode(Protocol.BINARY_NONE))) throw new Exception("Expanded namespace output");
+    var integerBox = ShapesIntegerBox.DecodeXml(Encoding.UTF8.GetBytes("<integer_box><value>4294967295</value></integer_box>"));
+    if (integerBox.Value != uint.MaxValue) throw new Exception("Concrete numeric XML generic");
+    var textBox = ShapesTextBox.DecodeXml(Encoding.UTF8.GetBytes("<text_box><value>A&amp;B</value></text_box>"));
+    if (textBox.Value != "A&B" || ShapesTextBox.DecodeXml(textBox.EncodeXml()).Value != textBox.Value) throw new Exception("Concrete text XML generic");
     string catalogXml = "<catalog xmlns='urn:serializer:vocabulary'><prices><price currency='USD'>12.5</price></prices><labels><label>A&amp;B</label><label/></labels></catalog>";
     var catalog = ShapesCatalog.DecodeXml(Encoding.UTF8.GetBytes(catalogXml));
     if (catalog.Prices.Count != 1 || catalog.Prices[0].Value != 12.5 || catalog.Prices[0].Currency != "USD" || catalog.Labels[0] != "A&B") throw new Exception("Simple content/wrappers");
@@ -34,6 +61,7 @@ internal static class Program {
     value.Children.Add(new ShapesChild { Value = 32767 });
     value.States = new List<ShapesState> { (ShapesState)0, (ShapesState)1 };
     byte[] encoded = value.EncodeXml();
+    CheckTokens(value, encoded);
     var copy = ShapesRecord.DecodeXml(encoded);
     if (!copy.Encode(Protocol.BINARY_NONE).AsSpan().SequenceEqual(value.Encode(Protocol.BINARY_NONE))) throw new Exception("Typed roundtrip");
     value.Flag = new ValueTuple<bool>(false);

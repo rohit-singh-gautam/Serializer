@@ -277,9 +277,12 @@ the maintained optional provider; custom producers retain the same obligations.
 
 The event layer's ability to represent mixed text or qualified attributes does
 not close the corresponding schema/compiler/backend tasks. Generated direct
-token codecs and cross-language/provider qualification remain pending. Shared
+token codecs now have selected 2.12 implementations described in the
+[token guide](xml_tokens.md); remaining backend/provider qualification stays
+pending. Shared
 presence/mixed/map/variant/extension IR and reference checks are documented
-[separately](xml_shared_contracts.md); their generated codecs remain pending.
+[separately](xml_shared_contracts.md); selected C++/Python generated codecs are
+implemented in 2.12 while other instances remain pending.
 Existing generated XML
 and ZIP/OPC behavior is unchanged. Schema language remains **1.20.0** and both
 editor versions remain **2.0.5**; this API adds no schema syntax or navigation

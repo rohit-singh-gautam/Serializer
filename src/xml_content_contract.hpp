@@ -87,8 +87,8 @@ struct mixed_item_view {
 
 // These bounds cover the ordered fragment sequence, not already-parsed child subtree allocations.
 struct mixed_trace_limits {
-  std::size_t max_fragments{100000U};
-  std::size_t max_text_bytes{8U * 1024U * 1024U};
+  std::size_t max_fragments{xml::limits{}.max_mixed_fragments};
+  std::size_t max_text_bytes{xml::limits{}.max_mixed_text_bytes};
 };
 
 // Reject unknown/malformed fragments and cumulative sequence bounds without changing their order.

@@ -141,7 +141,7 @@ TEST(xml_xsd_contract, all_models_accept_permutations_and_reject_duplicates_and_
   const xml::prepared_schema oracle{schema.export_xsd({&owner(model)})};
   EXPECT_NO_THROW(oracle.validate("<order><label>x</label><amount>3</amount></order>"));
   EXPECT_THROW(oracle.validate("<order><amount>3</amount><amount>4</amount></order>"), std::invalid_argument);
-  EXPECT_THROW(binding::validate_backend(contract, "cpp"), std::invalid_argument);
+  EXPECT_NO_THROW(binding::validate_backend(contract, "cpp"));
 }
 
 TEST(xml_xsd_contract, optional_all_group_can_be_absent_but_present_group_must_be_complete) {
@@ -318,7 +318,7 @@ TEST(xml_xsd_contract, identity_constraints_bind_export_and_validate_against_ind
   EXPECT_THROW(oracle.validate(dangling), std::invalid_argument);
   const auto rebound = binding::schema{fixed(files.write("exported.xsd", exported))}.bind(owner(model, 2U));
   EXPECT_EQ(rebound.identity, contract.identity);
-  EXPECT_THROW(binding::validate_backend(contract, "cpp"), std::invalid_argument);
+  EXPECT_NO_THROW(binding::validate_backend(contract, "cpp"));
 }
 
 TEST(xml_xsd_contract, fixed_xsd_rejects_authored_placement_and_import_namespace_conflicts) {

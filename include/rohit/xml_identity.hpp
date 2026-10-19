@@ -5,6 +5,8 @@
 #include <rohit/xml.hpp>
 
 #include <cstddef>
+#include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -27,6 +29,9 @@ enum class identity_kind { key, unique, keyref };
 struct identity_field {
   identity_path path{};
   std::string lexical_kind{"string"};
+  // XSD key fields cannot select an element declared nillable, even with present non-nil content.
+  // Manual two-member aggregate contracts retain their original non-nillable semantics.
+  bool nillable{};
   // Compare the exact static projection and value-space contract.
   bool operator==(const identity_field&) const = default;
 };
@@ -62,6 +67,33 @@ struct identity_limits {
   // Bound one lexical field, one candidate tuple, and aggregate canonical indexed value bytes.
   std::size_t max_tuple_bytes{8U * 1024U * 1024U};
   std::size_t max_work_units{64U * 1024U * 1024U};
+};
+
+struct event_view;
+
+// Incremental identity checking retains open paths, selected scalar fields and bounded tuple
+// indexes. Supply structurally checked events through end_document; this mutable pass is neither
+// thread-safe nor reentrant. The immutable scope and optional context must outlive this pass.
+class identity_validator {
+  struct implementation;
+  std::unique_ptr<implementation> state_;
+public:
+  // Borrow checked metadata and seed namespace bindings inherited from outside this owner scope.
+  explicit identity_validator(const identity_scope& scope, identity_limits bounds = {},
+      operation_context* context = nullptr,
+      const std::map<std::string, std::string>& namespace_bindings = {});
+  // Discard unfinished indexes without authorizing model publication.
+  ~identity_validator();
+  identity_validator(const identity_validator&) = delete;
+  identity_validator& operator=(const identity_validator&) = delete;
+  // Validate one borrowed event synchronously; every exception permanently fences this pass.
+  void accept(const event_view& value);
+  // Require checked owner-scope EOF and resolved local keyrefs; idempotent after success.
+  void finish();
+  // Report full identity completion, including every forward reference.
+  [[nodiscard]] bool complete() const noexcept;
+  // Report terminal failure, including cancellation and allocation callback exceptions.
+  [[nodiscard]] bool failed() const noexcept;
 };
 
 // Selectors support '.', child QName paths and an optional initial './/'; fields support '.',

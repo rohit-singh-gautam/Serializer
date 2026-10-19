@@ -183,10 +183,10 @@ void validate_required_capabilities(const extension_contract& contract, const el
 }
 
 // Keep candidate storage local so any late occurrence/capability failure publishes nothing.
-extension_store collect_extension_slots(const extension_contract& contract, const element& scope,
+static extension_store inspect_extension_slots(const extension_contract& contract, const element& scope,
     std::span<const extension_item_view> items,
     std::span<const std::string> understood_namespaces, std::string_view required_prefixes,
-    extension_limits bounds, operation_context* context) {
+    extension_limits bounds, operation_context* context, bool retain) {
   if (context) { context->check(); }
   validate_extension_contract(contract, bounds);
   if (scope.qualified_name.namespace_uri != contract.core_namespace) {
@@ -215,9 +215,10 @@ extension_store collect_extension_slots(const extension_contract& contract, cons
         item.child->qualified_name;
     if (context) { context->consume(operation_resource::work_units, contract.known_names.size()); }
     if (selected_name.namespace_uri.empty() || selected_name.namespace_uri == contract.core_namespace ||
+        selected_name.namespace_uri == model_metadata_namespace ||
         std::find(contract.known_names.begin(), contract.known_names.end(), selected_name) !=
             contract.known_names.end()) {
-      throw std::invalid_argument{"Known or core XML name cannot enter an extension slot"};
+      throw std::invalid_argument{"Known, core or reserved XML name cannot enter an extension slot"};
     }
     if (item.child) {
       if (has_child && (item.before_child < previous_child || item.before_field < previous_field)) {
@@ -254,6 +255,7 @@ extension_store collect_extension_slots(const extension_contract& contract, cons
         slot.maximum.value_or(std::numeric_limits<std::size_t>::max()));
     if (slot.policy == unknown_policy::skip) { continue; }
     const auto before = preserved_bytes;
+    const bool copy_scope = item.attribute && !scope_retained;
     if (item.attribute) {
       measure_attribute(*item.attribute, budget, preserved_bytes, bounds.max_preserved_bytes);
       if (!scope_retained) {
@@ -267,10 +269,12 @@ extension_store collect_extension_slots(const extension_contract& contract, cons
     }
     if (context) {
       context->consume(operation_resource::preserved_bytes, preserved_bytes - before);
-      context->consume(operation_resource::allocation_bytes, preserved_bytes - before);
+      if (retain) { context->consume(operation_resource::allocation_bytes, preserved_bytes - before); }
     }
+    if (item.attribute) { scope_retained = true; }
+    if (!retain) { continue; }
     if (item.attribute) {
-      if (!scope_retained) { candidate.namespace_bindings = scope.namespace_bindings; scope_retained = true; }
+      if (copy_scope) { candidate.namespace_bindings = scope.namespace_bindings; }
       candidate.attributes.push_back(*item.attribute);
     } else {
       candidate.children.push_back({item.before_child, *item.child, item.before_field});
@@ -283,6 +287,20 @@ extension_store collect_extension_slots(const extension_contract& contract, cons
   }
   if (context) { context->check(); }
   return candidate;
+}
+
+// Build an owning candidate only after each payload's logical preservation storage is admitted.
+extension_store collect_extension_slots(const extension_contract& contract, const element& scope,
+    std::span<const extension_item_view> items, std::span<const std::string> understood_namespaces,
+    std::string_view required_prefixes, extension_limits bounds, operation_context* context) {
+  return inspect_extension_slots(contract, scope, items, understood_namespaces, required_prefixes, bounds, context, true);
+}
+
+// Reuse the same slot/capability/occurrence checks while borrowing existing owning payloads.
+void validate_extension_slots(const extension_contract& contract, const element& scope,
+    std::span<const extension_item_view> items, std::span<const std::string> understood_namespaces,
+    extension_limits bounds, operation_context* context) {
+  (void)inspect_extension_slots(contract, scope, items, understood_namespaces, {}, bounds, context, false);
 }
 
 } // namespace rohit::serializer::xml

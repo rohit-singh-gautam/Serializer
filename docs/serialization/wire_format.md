@@ -1,5 +1,14 @@
 # Wire format and decoding contract
 
+Compiler/runtime **2.12.0** adds generated token traversals and selected shared
+XML mappings. Explicit nil remains the expanded `xsi:nil` attribute; absence and
+empty scalar/collection values remain distinct. The selected identity mappings
+in all eleven outputs use declared exact value spaces and resolve forward
+references before publication. New direct writers may change namespace prefixes/declaration
+placement while preserving expanded names and logical values. Native protocol
+numbers, IDs, payload revisions and managed bytes are unchanged. See
+[token codec contracts and upgrade notes](xml_tokens.md).
+
 Compiler/runtime **2.11.0** adds [advanced shared XML contracts](xml_advanced_contracts.md)
 without changing native protocol numbers, field IDs, payload revisions or managed
 journal layouts. Schema language stays **1.20.0**. Compiled numeric facets compare

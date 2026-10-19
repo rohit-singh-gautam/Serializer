@@ -168,7 +168,7 @@ TEST(xml_model_contract, managed_snapshot_and_borrowed_direction_are_explicit) {
   EXPECT_THROW(binding::validate_model_direction(view, true), std::invalid_argument);
 }
 
-// Production binding retains dotted revision metadata while keeping the discriminator out of fields.
+// Production binding retains dotted revision metadata for the implemented owning token backends.
 TEST(xml_model_contract, binder_retains_lifecycle_metadata_and_gates_generated_backends) {
   if (!schema::xml::available()) {
     GTEST_SKIP() << "Authoritative XML binding requires the XML provider";
@@ -185,7 +185,8 @@ TEST(xml_model_contract, binder_retains_lifecycle_metadata_and_gates_generated_b
   EXPECT_FALSE(contract.fields.front().source->version);
   const auto attributes = binding::model_metadata_attributes(contract.model);
   EXPECT_EQ(attributes.front().value, "1.10.0");
-  EXPECT_THROW(binding::validate_backend(contract, "cpp"), std::invalid_argument);
+  EXPECT_NO_THROW(binding::validate_backend(contract, "cpp"));
+  EXPECT_NO_THROW(binding::validate_backend(contract, "python"));
 }
 
 // Concrete generic/inherited bindings reach the shared IR, and reserved metadata cannot be shadowed.

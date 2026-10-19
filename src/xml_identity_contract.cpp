@@ -199,7 +199,7 @@ class identity_binder {
     return resolved.facets.lexical_kind.empty() ? resolved.primitive.local : resolved.facets.lexical_kind;
   }
   // Require one unambiguous built-in field contract across every selected static declaration.
-  std::string field_kind(const std::vector<component>& selected, const xml::identity_path& projection) {
+  std::pair<std::string, bool> field_kind(const std::vector<component>& selected, const xml::identity_path& projection) {
     auto values = path(selected, projection);
     if (projection.attribute) {
       std::vector<component> attributes{};
@@ -216,13 +216,20 @@ class identity_binder {
     }
     if (values.empty()) { throw std::invalid_argument{"XSD identity field cannot be resolved to a declared scalar"}; }
     std::optional<std::string> kind{};
+    std::optional<bool> nillable{};
     for (const auto value : values) {
       reject_augmented_identity_field(*value.node);
       auto candidate = scalar_kind(value);
       if (kind && *kind != candidate) { throw std::invalid_argument{"XSD identity field has ambiguous declared scalar types"}; }
+      const auto marker = projection.attribute ? std::string_view{} : attribute(*value.node, "nillable");
+      const bool candidate_nillable = marker == "true" || marker == "1";
+      if (nillable && *nillable != candidate_nillable) {
+        throw std::invalid_argument{"XSD identity field has ambiguous declared element nillability"};
+      }
       kind = std::move(candidate);
+      nillable = candidate_nillable;
     }
-    return *kind;
+    return {*kind, *nillable};
   }
 public:
   // Index pinned declarations once; each document retains its own namespace and form defaults.
@@ -275,8 +282,8 @@ public:
       if (selected.empty()) { throw std::invalid_argument{"XSD identity selector has no statically declared target"}; }
       for (const auto* field : fields) {
         auto projection = xml::compile_identity_path(attribute(*field, "xpath"), *field, false, limits_);
-        const auto type = field_kind(selected, projection);
-        constraint.fields.push_back({std::move(projection), type});
+        const auto [type, nillable] = field_kind(selected, projection);
+        constraint.fields.push_back({std::move(projection), type, nillable});
       }
       result.constraints.push_back(std::move(constraint));
     }

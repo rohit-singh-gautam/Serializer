@@ -13,7 +13,7 @@
 #include <string_view>
 
 namespace rohit::serializer::xml {
-// A generated pattern matcher owns its prepared provider once, independently of model instances.
+// A generated matcher shares its bounded portable program or explicit legacy provider across instances.
 using lexical_pattern_matcher = bool (*)(std::string_view, operation_context*);
 
 // Patterns at one restriction step are alternatives; separate inherited steps remain conjunctive.

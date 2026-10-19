@@ -12,6 +12,7 @@ verification limits.
 | [Owning objects and binary views](views.md) | Mapping, reading, updating, and traversing binary views safely, including ownership and lifetime rules. |
 | [Message compression](compression.md) | Optional C++ compression backends, complete-message framing, and bounded exact decoding. |
 | [XML and packages](xml_packages.md) | Generated XML mappings, fixed/optional runtime XSD, C++ compression streams, C++/Python OPC profiles and complete file Saves; backend boundaries and pending work. |
+| [Generated XML tokens](xml_tokens.md) | Direct generated paths, exact-message input, explicit presence/nil, Python identity/all/HTML, backend limits and the typed OPC example. |
 | [Normalized XML events](xml_events.md) | Provider-independent C++ borrowed events plus incremental UTF-8 LibXml2 input, namespace handling, cumulative bounds and explicit completion. |
 | [Shared XML content contracts](xml_shared_contracts.md) | Checked presence/nil, mixed-content, map, variant and extension IR/configuration; reference validation, public raw preservation helpers and pending generated-codec boundaries. |
 | [Advanced shared XML contracts](xml_advanced_contracts.md) | Portable scalar/regex and identity validation, content particles, advanced model/profile metadata, restricted HTML and the eleven-language fixture manifest. |

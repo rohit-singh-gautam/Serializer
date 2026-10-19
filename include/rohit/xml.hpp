@@ -27,6 +27,9 @@
 
 namespace rohit::serializer::xml {
 
+// Serializer lifecycle metadata is a closed vocabulary, independent of application extension permissions.
+inline constexpr std::string_view model_metadata_namespace = "urn:serializer:xml:model";
+
 // An expanded XML name; prefixes are presentation only and never part of identity.
 struct name {
   std::string local{};
@@ -59,6 +62,8 @@ struct element {
 enum class operation_resource { allocation_bytes, work_units, preserved_bytes };
 enum class unknown_policy { reject, skip, preserve };
 enum class input_encoding_policy { utf8_only, utf8_or_utf16 };
+struct identity_limits;
+struct extension_limits;
 
 // An opt-in, caller-owned context follows one XML/package operation. It is not thread-safe.
 // Callbacks and the context must outlive every borrowed generated decoder or builder.
@@ -75,6 +80,11 @@ struct operation_context {
   input_encoding_policy input_encoding{input_encoding_policy::utf8_only};
   // Raw-tree clients may retain ordered mixed text; typed field readers remain strict.
   bool allow_mixed_content{false};
+  // Optional per-owner generated identity limits; the caller retains them through the operation.
+  const identity_limits* identity_bounds{};
+  // Borrow preservation bounds and explicitly understood vocabularies through synchronous XML use.
+  const extension_limits* extension_bounds{};
+  const std::vector<std::string>* understood_namespaces{};
   // Check cancellation and the monotonic deadline without resetting cumulative counters.
   void check() const;
   // Check interruption and charge before retaining storage or performing bounded work.
@@ -218,7 +228,17 @@ struct limits {
   std::size_t max_namespace_bindings{100000U};
   // Logical retained tree storage, excluding provider buffers and allocator bookkeeping/capacity.
   std::size_t max_tree_bytes{64U * 1024U * 1024U};
+  // Direct map codecs bound each wrapper's entry index and cumulative lexical/native key bytes.
+  std::size_t max_map_entries{1024U};
+  std::size_t max_map_key_bytes{1024U * 1024U};
+  // Ordered mixed mappings bound normalized text/child fragments independently of document nodes.
+  std::size_t max_mixed_fragments{100000U};
+  std::size_t max_mixed_text_bytes{8U * 1024U * 1024U};
+  std::size_t max_digest_bytes{1024U * 1024U};
 };
+
+// Bound each pull-parser admission independently of the complete message size.
+inline constexpr std::size_t default_token_chunk_bytes{4096U};
 
 // Report whether this linked runtime includes its optional XML provider.
 [[nodiscard]] bool available() noexcept;
@@ -306,7 +326,8 @@ template <typename T> std::string scalar_text(const T& value) {
     std::string result{};
     value.with_value([&](const auto& selected) { result = scalar_text(selected); });
     return result;
-  } else if constexpr (std::same_as<T, std::string>) { return value; }
+  } else if constexpr (requires { value.to_string(); T::parse(std::string_view{}); }) { return value.to_string(); }
+  else if constexpr (std::same_as<T, std::string>) { return value; }
   else if constexpr (std::same_as<T, bool>) { return value ? "true" : "false"; }
   else if constexpr (std::is_enum_v<T>) {
     if constexpr (requires { serializer_enum_name(value); }) {
@@ -327,7 +348,8 @@ template <typename T> std::string scalar_text(const T& value) {
 template <typename T> void read_scalar(std::string_view text, T& value) {
   if constexpr (requires { typename T::reference_value_type; }) {
     throw std::invalid_argument{"XML value references are export-only; decode an owning value"};
-  } else if constexpr (std::same_as<T, std::string>) { value = text; }
+  } else if constexpr (requires { value.to_string(); T::parse(text); }) { value = T::parse(text); }
+  else if constexpr (std::same_as<T, std::string>) { value = text; }
   else if constexpr (std::is_enum_v<T>) {
     if constexpr (requires { serializer_enum_from_name(value, text); }) {
       serializer_enum_from_name(value, text);
@@ -382,6 +404,20 @@ template <typename T> void read_scalar(std::string_view text, T& value) {
       if (offset != text.size()) { throw std::invalid_argument{"Invalid XML floating-point lexical value"}; }
     }
     const auto result = std::from_chars(text.data(), text.data() + text.size(), value);
+    if constexpr (std::floating_point<T>) {
+      if (result.ec == std::errc::result_out_of_range && result.ptr == text.data() + text.size()) {
+        // XML floating values round tiny magnitudes to signed zero. A range error
+        // also reports overflow, so only admit values below the least positive
+        // representable magnitude after validating the complete lexical grammar.
+        const auto magnitude = text.front() == '-' ? text.substr(1U) : text;
+        constexpr auto minimum_positive = std::numeric_limits<T>::has_denorm == std::denorm_absent ?
+            std::numeric_limits<T>::min() : std::numeric_limits<T>::denorm_min();
+        if (compare_numeric_values(magnitude, scalar_text(minimum_positive)) < 0) {
+          value = std::copysign(T{}, text.front() == '-' ? T{-1} : T{1});
+          return;
+        }
+      }
+    }
     if (result.ec != std::errc{} || result.ptr != text.data() + text.size()) {
       throw std::invalid_argument{"Invalid or overflowing XML number"};
     }
@@ -861,6 +897,22 @@ public:
   void finish() const;
 };
 
+// Forward complete token codecs so generated presence contracts can select them at instantiation.
+template <typename T> [[nodiscard]] std::string serialize_tokens(
+    const T& value, limits bounds = {}, operation_context* context = nullptr);
+// Forward transactional token decoding; the implementation is supplied by xml_tokens.hpp.
+template <typename T> [[nodiscard]] T deserialize_tokens(
+    std::string_view bytes, limits bounds = {}, operation_context* context = nullptr,
+    std::size_t chunk_bytes = default_token_chunk_bytes);
+
+namespace detail {
+// Keep legacy generated headers on their existing mapping while selecting required token graphs.
+template <typename T> inline constexpr bool requires_complete_tokens = [] {
+  if constexpr (requires { T::xml_tokens_required; }) { return T::xml_tokens_required; }
+  else { return false; }
+}();
+} // namespace detail
+
 // Encode one complete owning object, optionally validating its emitted XML with prepared XSD.
 template <typename T> [[nodiscard]] std::string serialize(
     const T& value, limits bounds = {}, const prepared_schema* schema = nullptr,
@@ -869,12 +921,17 @@ template <typename T> [[nodiscard]] std::string serialize(
   if constexpr (requires { T::xml_operation_context(context); }) {
     selected_context.emplace(T::xml_operation_context(context)); context = &*selected_context;
   }
-  element document{};
-  document.qualified_name = T::xml_root_name();
-  build_budget budget{bounds, context};
-  const auto depth = budget.enter(document.qualified_name);
-  set_value(document, value, budget);
-  auto bytes = write(document, bounds, context);
+  auto bytes = [&] {
+    if constexpr (detail::requires_complete_tokens<T>) { return serialize_tokens(value, bounds, context); }
+    else {
+      element document{};
+      document.qualified_name = T::xml_root_name();
+      build_budget budget{bounds, context};
+      const auto depth = budget.enter(document.qualified_name);
+      set_value(document, value, budget);
+      return write(document, bounds, context);
+    }
+  }();
   if (schema) {
     if constexpr (T::xml_runtime_xsd) {
       if constexpr (T::xml_validate_output) { schema->validate(bytes, bounds, context); }
@@ -897,14 +954,18 @@ template <typename T> [[nodiscard]] T deserialize(
     }
     else { throw std::invalid_argument{"Runtime XSD was not enabled during model generation"}; }
   }
-  const auto document = parse(bytes, bounds, context);
-  if (document.qualified_name != T::xml_root_name()) {
-    throw std::invalid_argument{"Unexpected XML root name or namespace"};
+  if constexpr (detail::requires_complete_tokens<T>) {
+    return deserialize_tokens<T>(bytes, bounds, context, default_token_chunk_bytes);
+  } else {
+    const auto document = parse(bytes, bounds, context);
+    if (document.qualified_name != T::xml_root_name()) {
+      throw std::invalid_argument{"Unexpected XML root name or namespace"};
+    }
+    if (context) { context->consume(operation_resource::allocation_bytes, sizeof(T)); }
+    T candidate{};
+    get_value(document, candidate, context);
+    return candidate;
   }
-  if (context) { context->consume(operation_resource::allocation_bytes, sizeof(T)); }
-  T candidate{};
-  get_value(document, candidate, context);
-  return candidate;
 }
 
 // XML participates in the same complete-object stream/compression APIs as existing codecs.

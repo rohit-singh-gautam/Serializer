@@ -1,0 +1,29 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.20.0;
+namespace nil_fixture { using schema "xml_presence_fixture.xsd";
+  xml(namespace("urn:serializer:nil"));
+  class child { public string value(1); }
+  class sample {
+    public optional<string> nil_value(1);
+    public optional<optional<string>> states(2);
+    public optional<optional<array<string>>> entries(3);
+    public optional<child> nested(4);
+  }
+  class holder { public sample value(1); }
+}
+namespace nil_shapes {
+  xml(namespace("urn:serializer:nil:shapes"));
+  enum state { zero, one }
+  class child { public uint8 code; }
+  class sample {
+    public optional<array<child>> records;
+    public optional<array<state>> enumerated;
+    public array[2] uint8 fixed_values;
+    public optional<uint16> number;
+  }
+}
+namespace nil_all {
+  using schema "xml_presence_all_fixture.xsd";
+  class sample { public optional<optional<string>> states; public optional<uint16> number; }
+}

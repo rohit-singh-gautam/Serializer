@@ -1,5 +1,20 @@
 # Using Serializer in a C++ application
 
+Compiler/runtime **2.12.0** adds [generated XML token codecs](../serialization/xml_tokens.md).
+Regenerate and use `xml::serialize_tokens`/`deserialize_tokens` with
+`<rohit/xml_tokens.hpp>` for the supported tree-free C++ mapping. Explicit presence
+contracts use the token path through ordinary XML entry points. All eleven
+outputs qualify the selected mixed/map/variant/inherited mappings, singleton
+`all`, key/unique/keyref checks, portable scalar/pattern rules and separate HTML
+fragment adapters. Python and JavaScript/TypeScript also expose incremental
+byte-chunk input. Use each backend's documented token subset and independent
+resource policies; broader mapping combinations retain their capability gates.
+The [OPC example](../../example/opc/README.md) demonstrates filling typed XML and
+opaque attachment roles with generated C++/Python Save/load facades. Require
+`find_package(Serializer 2.12 CONFIG REQUIRED)` for the new C++ APIs; retain
+explicit capability errors for advanced combinations still in
+[the backlog](../pending.md). Schema language remains **1.20.0**.
+
 Compiler/runtime **2.11.0** adds [advanced shared XML contracts](../serialization/xml_advanced_contracts.md)
 and checked XSD tools. Require `find_package(Serializer 2.11 CONFIG REQUIRED)`
 for the new public headers. Fixed-XSD binding derives supported text/wrappers,
@@ -46,8 +61,8 @@ For explicit absent/empty/nil distinctions, select
 text/child/text, use `mixed = fragments` with one sequence of owning variant
 fragments. Map, variant and foreign-extension selections have corresponding
 shared contracts. These new INI selections bind compiler IR and reference
-validation; their generated codecs remain pending in every language and reject
-with a capability diagnostic. The [complete contract examples](../serialization/xml_shared_contracts.md)
+validation. Selected 2.12 C++/Python codecs implement these mappings; unsupported
+instances retain a capability diagnostic. The [complete contract examples](../serialization/xml_shared_contracts.md)
 explain exact storage, names, limits and rejection rules. Raw C++ callers can use
 `<rohit/xml_extensions.hpp>` for explicit skip/preserve slots with full namespace
 context; opaque preservation never establishes required vocabulary understanding.

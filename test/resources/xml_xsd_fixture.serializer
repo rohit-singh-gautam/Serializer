@@ -1,6 +1,6 @@
 // Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
 // SPDX-License-Identifier: GPL-3.0-or-later
-serializer version 1.7.0;
+serializer version 1.20.0;
 
 namespace xml_xsd_fixture {
   class order {
@@ -8,5 +8,52 @@ namespace xml_xsd_fixture {
     public string customer;
     public array int32 values;
     public optional<string> note;
+  }
+  class amount {
+    public uint64 value;
+    public optional<string> unit;
+  }
+  class patterned {
+    public int32 count;
+    public string label;
+  }
+  class lists {
+    public array[3] uint16 values xml(attribute, list);
+  }
+  class wrapped {
+    public array int32 values;
+  }
+  class choice {
+    public optional<int32> number;
+    public optional<string> text;
+  }
+  class permutation {
+    public uint32 id;
+    public string label;
+    public optional<int32> extra;
+  }
+  class identity_entry {
+    public optional<uint32> id;
+    public optional<string> label;
+  }
+  class identity_reference {
+    public optional<uint32> id;
+  }
+  class registry {
+    public array identity_reference references;
+    public array identity_entry entries;
+  }
+  class identity_holder {
+    public array registry registries;
+  }
+  class qualified_names {
+    public string value xml(text, qname);
+    public string name xml(attribute, qname);
+    public optional<string> category xml(attribute, qname);
+    public array[2] string names xml(attribute, list);
+    public optional<string> required xml(attribute, prefix_list);
+  }
+  class qname_children {
+    public array string values;
   }
 }

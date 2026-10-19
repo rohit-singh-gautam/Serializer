@@ -4,6 +4,14 @@ import java.util.Optional
 
 // Qualify typed XML values and both prepared runtime-XSD directions.
 fun main() {
+    val namesXml = "<r:names xmlns:r='urn:root' xmlns:a='urn:attribute' xml:lang='en' a:qualified='A&amp;B'><unqualified>plain</unqualified><f:foreign xmlns:f='urn:foreign'>foreign</f:foreign></r:names>"
+    val names = ShapesNames.decodeXml(namesXml.toByteArray(Charsets.UTF_8))
+    check(names.language == "en" && names.qualified == "A&B" && names.unqualified == "plain" && names.foreign == "foreign")
+    check(names.encode(Protocol.BINARY_NONE).contentEquals(ShapesNames.decodeXml(names.encodeXml()).encode(Protocol.BINARY_NONE)))
+    val integerBox = ShapesIntegerBox.decodeXml("<integer_box><value>4294967295</value></integer_box>".toByteArray(Charsets.UTF_8))
+    check(integerBox.value == UInt.MAX_VALUE)
+    val textBox = ShapesTextBox.decodeXml("<text_box><value>A&amp;B</value></text_box>".toByteArray(Charsets.UTF_8))
+    check(textBox.value == "A&B" && ShapesTextBox.decodeXml(textBox.encodeXml()).value == textBox.value)
     val catalogXml = "<catalog xmlns='urn:serializer:vocabulary'><prices><price currency='USD'>12.5</price></prices><labels><label>A&amp;B</label><label/></labels></catalog>"
     val catalog = ShapesCatalog.decodeXml(catalogXml.toByteArray(Charsets.UTF_8))
     check(catalog.prices.size == 1 && catalog.prices[0].value == 12.5 && catalog.prices[0].currency == "USD" && catalog.labels == mutableListOf("A&B", ""))
@@ -22,6 +30,10 @@ fun main() {
     value.amount = Double.POSITIVE_INFINITY
     value.small = 1.25f
     val encoded = value.encodeXml()
+    check(value.encodeXml(XmlLimits(maxBytes = encoded.size)).contentEquals(encoded))
+    for (limits in listOf(XmlLimits(maxBytes = encoded.size - 1), XmlLimits(maxNodes = 1), XmlLimits(maxDepth = 1), XmlLimits(maxTextBytes = 1))) {
+        check(runCatching { value.encodeXml(limits) }.isFailure)
+    }
     val copy = ShapesRecord.decodeXml(encoded)
     check(copy.encode(Protocol.BINARY_NONE).contentEquals(value.encode(Protocol.BINARY_NONE)))
     value.flag = Optional.empty()

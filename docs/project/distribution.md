@@ -9,7 +9,7 @@ particular distribution actually exposes.
 
 ## Choose the dependency for your application
 
-The current source release **2.7.0** provides proprietary-compatible generated
+The current source release **2.12.0** provides proprietary-compatible generated
 output and a 0BSD application runtime. Packages of this release should include
 `LICENSE`, `LICENSE-RUNTIME`, and `LICENSE-GENERATED`, and export the separate
 `Serializer::runtime` application target. The compiler and
@@ -20,7 +20,7 @@ Both current editor source packages are version **2.0.5**; their schema support
 and documentation links match the current checkout. Source releases and local builds do
 not update published Marketplace listings or the upstream vcpkg registry.
 
-The current 2.7.0 CMake package uses `SameMajorVersion` discovery: versioned
+The current 2.12.0 CMake package uses `SameMajorVersion` discovery: versioned
 requests for Serializer 1.x do not resolve to it. Select
 `find_package(Serializer 2.0 CONFIG REQUIRED)` and regenerate through the
 consumer's build rules. Copy/install generated C++ dependency-header trees with

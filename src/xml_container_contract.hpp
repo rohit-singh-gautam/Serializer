@@ -37,9 +37,9 @@ struct map_contract {
 
 // Bound reference validation independently of the XML parser's own tree/document limits.
 struct map_validation_limits {
-  std::size_t max_entries{1024U};
+  std::size_t max_entries{xml::limits{}.max_map_entries};
   // Each key charges the larger of its lexical and canonical byte lengths, cumulatively.
-  std::size_t max_key_bytes{1024U * 1024U};
+  std::size_t max_key_bytes{xml::limits{}.max_map_key_bytes};
 };
 
 // Validate entry/cardinality/presence/duplicate-key rules; nested record validation is separate.

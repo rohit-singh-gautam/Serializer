@@ -57,36 +57,6 @@ internal fun srlXmlEscape(value: String, attribute: Boolean): String {
     }
     return out.toString()
 }
-// Emit deterministic XML, enforcing complete-message node/depth/text/output budgets.
-internal fun srlXmlWrite(root: SrlXmlNode, limits: XmlLimits): ByteArray {
-    var nodes = 0
-    var textBytes = 0L
-    val out = StringBuilder()
-    fun emit(node: SrlXmlNode, depth: Int) {
-        require(depth <= limits.maxDepth && ++nodes <= limits.maxNodes) { "XML resource limit" }
-        textBytes += srlXmlUtf8Size(node.text)
-        textBytes += node.attributes.sumOf { srlXmlUtf8Size(it.value) }
-        require(textBytes <= limits.maxTextBytes) { "XML text limit" }
-        val local = if (node.name.namespace.isEmpty()) node.name.local else "srl:" + node.name.local
-        out.append('<').append(local)
-        if (node.name.namespace.isNotEmpty()) out.append(" xmlns:srl=\"").append(srlXmlEscape(node.name.namespace, true)).append('"')
-        for ((index, item) in node.attributes.withIndex()) {
-            val prefix = "a$index"
-            if (item.name.namespace.isNotEmpty()) out.append(" xmlns:").append(prefix).append("=\"").append(srlXmlEscape(item.name.namespace, true)).append('"')
-            out.append(' ')
-            if (item.name.namespace.isNotEmpty()) out.append(prefix).append(':')
-            out.append(item.name.local).append("=\"").append(srlXmlEscape(item.value, true)).append('"')
-        }
-        out.append('>').append(srlXmlEscape(node.text, false))
-        for (child in node.children) emit(child, depth + 1)
-        out.append("</").append(local).append('>')
-        require(out.length <= limits.maxBytes) { "XML output limit" }
-    }
-    emit(root, 1)
-    val bytes = out.toString().toByteArray(Charsets.UTF_8)
-    require(bytes.size <= limits.maxBytes) { "XML output limit" }
-    return bytes
-}
 // Detect actual DTD markup while preserving legal comment, CDATA and processing-instruction text.
 internal fun srlXmlHasDoctype(text: String): Boolean {
     var cursor = 0
@@ -190,7 +160,8 @@ internal class SrlXmlReader(val node: SrlXmlNode, hasText: Boolean = false) {
     }
     fun repeated(name: SrlXmlName): List<SrlXmlNode> {
         val result = mutableListOf<SrlXmlNode>()
-        while (cursor < node.children.size && node.children[cursor].name == name) result.add(node.children[cursor++])
+)serializer"
+R"serializer(        while (cursor < node.children.size && node.children[cursor].name == name) result.add(node.children[cursor++])
         return result
     }
     fun finish() { require(used.all { it } && cursor == node.children.size) { "Unexpected XML member" } }

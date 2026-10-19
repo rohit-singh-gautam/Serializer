@@ -264,8 +264,11 @@ R"richpython(def _xml_checked(value, rule, bindings, context=None):
         raise _XmlLexicalError('XML enumeration facet failed')
     if rule['qnames'] and _xml_resolve_qname(value, bindings) not in rule['qnames']:
         raise _XmlLexicalError('XML QName enumeration facet failed')
-    for patterns in rule['patterns']:
-        if not _xml_pattern(value, patterns, context): raise _XmlLexicalError('XML pattern facet failed')
+    for index, patterns in enumerate(rule['patterns']):
+        portable = rule['portable_patterns'][index]
+        matched = _xml_pattern(value, patterns, context) if portable is None else any(
+            _xml_portable_pattern(value, program, context) for program in portable)
+        if not matched: raise _XmlLexicalError('XML pattern facet failed')
     if rule['fixed_qname'] is not None:
         if _xml_resolve_qname(value, bindings) != rule['fixed_qname']: raise _XmlLexicalError('XML fixed QName failed')
     elif rule['fixed'] is not None and not _xml_value_equal(value, rule['fixed'], rule, bindings, context):
@@ -494,10 +497,15 @@ R"richpython(def _xml_promote_lexical(value, rule, source, target):
         return ' '.join(result)
     return value
 
-def _xml_choices(model, groups):
+def _xml_choices(model, groups, active_fields=None):
     """Validate singleton choice presence from the actual optional fields before publication or emission."""
+    active = None if active_fields is None else {item['member'] for item in active_fields}
     for fields, minimum, maximum in groups:
-        count = sum(bool(getattr(model, field)) for field in fields)
+        if active is not None:
+            fields = tuple(field for field in fields if field in active)
+            if not fields:
+                continue
+        count = sum(bool(_xml_token_get(model, field)) for field in fields)
         if count < minimum or count > maximum: raise ValueError('XML choice occurrence constraint failed')
 
 def _xml_extensions_validate(node, contract, context):

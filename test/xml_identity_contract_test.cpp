@@ -109,3 +109,30 @@ TEST(xml_identity_contract, identity_fields_requiring_schema_value_augmentation_
     }
   }
 }
+
+// Resolved element references retain declaration nillability; attributes and legacy kinds stay distinct.
+TEST(xml_identity_contract, resolved_scalar_declaration_nillability_is_preserved) {
+  for (const auto marker : {"true", "1"}) {
+    const auto source = bundle(std::string{R"(<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+      <xs:element name="root"><xs:complexType><xs:sequence><xs:element ref="value" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence></xs:complexType><xs:key name="values"><xs:selector xpath="value"/><xs:field xpath="."/></xs:key>
+      <xs:unique name="ids"><xs:selector xpath="value"/><xs:field xpath="@id"/></xs:unique></xs:element>
+      <xs:element name="value" nillable=")"} + marker + R"("><xs:complexType><xs:simpleContent><xs:extension base="xs:string">
+      <xs:attribute name="id" type="xs:string"/></xs:extension></xs:simpleContent></xs:complexType></xs:element></xs:schema>)");
+    const auto scope = binding::bind_identity_constraints(source, root_declaration(source), {});
+    ASSERT_EQ(scope.constraints.size(), 2U);
+    ASSERT_EQ(scope.constraints.front().fields.size(), 1U);
+    EXPECT_EQ(scope.constraints.front().fields.front().lexical_kind, "string");
+    EXPECT_TRUE(scope.constraints.front().fields.front().nillable);
+    EXPECT_FALSE(scope.constraints.back().fields.front().nillable);
+  }
+}
+
+// A descendant projection cannot collapse different declared nillability into one guessed contract.
+TEST(xml_identity_contract, ambiguous_scalar_declaration_nillability_rejects) {
+  const auto source = bundle(R"(<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="root"><xs:complexType><xs:sequence>
+    <xs:element name="row" type="xs:string" nillable="true"/><xs:element name="container"><xs:complexType><xs:sequence>
+    <xs:element name="row" type="xs:string"/></xs:sequence></xs:complexType></xs:element></xs:sequence></xs:complexType>
+    <xs:key name="ids"><xs:selector xpath=".//row"/><xs:field xpath="."/></xs:key></xs:element></xs:schema>)");
+  EXPECT_THROW((void)binding::bind_identity_constraints(source, root_declaration(source), {}), std::invalid_argument);
+}

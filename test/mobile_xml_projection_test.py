@@ -1,0 +1,130 @@
+# Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+# SPDX-License-Identifier: 0BSD
+"""Qualify mobile XML output from live native references and scoped translator fields."""
+import argparse
+from pathlib import Path
+from lxml import etree
+import mobile_xml_lifecycle_test as shared
+
+ROOT, sdk = shared.ROOT, shared.sdk
+MODEL = '''serializer version 1.20.0;
+namespace projected {
+  xml(namespace("urn:serializer:projected"));
+  class payload { public uint32 number; public string label; }
+  class source { public payload current;
+    public translator payload as project { number=current.number; label=current.label; };
+  }
+  class envelope { public shared(source.current) value; public borrowed(source.current.label) label xml(attribute); }
+  class weak_envelope { public weak(source.current) value; }
+  class larger { public array<uint32> values; public payload nested; public string fallback { "default" }; }
+  class larger_source { public array<uint32> values; public payload nested;
+    public translator larger as project { values=values; nested=nested; };
+  }
+}'''
+
+KOTLIN = r'''@file:OptIn(ExperimentalUnsignedTypes::class)
+import java.nio.file.Files
+import java.nio.file.Path
+// Require live-reference and export-only input failures outside their expected-error catch.
+fun rejected(action: () -> Unit) { try { action() } catch (_: RuntimeException) { return }; error("Invalid projection accepted") }
+// Read the original nested/array objects through target getters without constructing a target.
+fun main(arguments: Array<String>) {
+ val directory=Path.of(arguments[0]); val source=ProjectedSource(); source.current.number=7u; source.current.label="A<&\""
+ val envelope=ProjectedEnvelope(); envelope.value.bind(source); envelope.label.bind(source)
+ check(envelope.value.readValue() === source.current)
+ val before=Protocol.entries.map { envelope.encode(it) }; val direct=envelope.value.encodeXml()
+ check(direct.contentEquals(source.current.encodeXml()))
+ Files.write(directory.resolve("reference.kotlin.xml"),envelope.encodeXml())
+ for((index,protocol) in Protocol.entries.withIndex()) {
+  check(before[index].contentEquals(envelope.encode(protocol)))
+  check(source.withProject { it.encode(protocol) }.contentEquals(source.current.encode(protocol)))
+ }
+ check(source.withProject { it.encodeXml() }.contentEquals(source.current.encodeXml()))
+ source.current.number=0u; source.current.label="updated"
+ check(ProjectedPayload.decodeXml(envelope.value.encodeXml()).number == 0u)
+ rejected { ProjectedEnvelope.decodeXml(envelope.encodeXml()) }
+ rejected { ProjectedEnvelope().encodeXml() }; envelope.value.unbind(); rejected { envelope.encodeXml() }
+ val large=ProjectedLargerSource(); large.values=mutableListOf(1u,2u); large.nested.number=3u
+ val output=large.withProject { view ->
+  check(view.getValues() === large.values); check(view.getNested() === large.nested)
+  view.encodeXml()
+ }
+ val copy=ProjectedLarger.decodeXml(output)
+ check(copy.values == large.values && copy.nested.number == 3u && copy.fallback == "default")
+ Files.write(directory.resolve("translator.kotlin.xml"),output)
+ large.values[0]=9u; large.nested.number=5u
+ check(ProjectedLarger.decodeXml(large.withProject { it.encodeXml() }).nested.number == 5u)
+ println("Kotlin live XML references, scoped getters, arrays and native wire identities pass")
+}'''
+
+SWIFT = r'''import Foundation
+// Reject unexpectedly successful operations outside the catch for expected native failures.
+func rejected(_ action: () throws -> Void) throws { do { try action() } catch { return }; throw SerializerError.invalid("Invalid projection accepted") }
+// Preserve throwing checks without nonthrowing assertion autoclosures.
+func require(_ value: Bool) throws { guard value else { throw SerializerError.invalid("Projection expectation failed") } }
+// Keep owner identity stable while value fields and copy-on-write arrays are borrowed synchronously.
+let directory=URL(fileURLWithPath:CommandLine.arguments[1])
+let source=SrlReferenceOwner(ProjectedSource()); source.value.current.number=7; source.value.current.label="A<&\""
+var envelope=ProjectedEnvelope(); envelope.value.bind(source); envelope.label.bind(source)
+let before=try Protocol.allCases.map { try envelope.encode($0) }
+let direct=try envelope.value.encodeXml(); try require(direct == source.value.current.encodeXml())
+try Data(envelope.encodeXml()).write(to:directory.appendingPathComponent("reference.swift.xml"))
+for (index,protocolValue) in Protocol.allCases.enumerated() {
+ try require(before[index] == envelope.encode(protocolValue))
+ try require(source.value.withProject { try $0.encode(protocolValue) } == source.value.current.encode(protocolValue))
+}
+try require(source.value.withProject { try $0.encodeXml() } == source.value.current.encodeXml())
+source.value.current.number=0; source.value.current.label="updated"
+try require(ProjectedPayload.decodeXml(envelope.value.encodeXml()).number == 0)
+try rejected { _=try ProjectedEnvelope.decodeXml(envelope.encodeXml()) }
+try rejected { _=try ProjectedEnvelope().encodeXml() }; envelope.value.unbind(); try rejected { _=try envelope.encodeXml() }
+var weakOwner: SrlReferenceOwner<ProjectedSource>?=SrlReferenceOwner(ProjectedSource())
+var weakEnvelope=ProjectedWeakEnvelope(); weakEnvelope.value.bind(weakOwner!); _=try weakEnvelope.encodeXml()
+weakOwner=nil; try rejected { _=try weakEnvelope.encodeXml() }
+var large=ProjectedLargerSource(); large.values=[1,2]; large.nested.number=3
+let output=try large.withProject { try $0.encodeXml() }; let copy=try ProjectedLarger.decodeXml(output)
+try require(copy.values == [1,2] && copy.nested.number == 3 && copy.fallback == "default")
+try Data(output).write(to:directory.appendingPathComponent("translator.swift.xml"))
+large.values[0]=9; large.nested.number=5
+try require(ProjectedLarger.decodeXml(large.withProject { try $0.encodeXml() }).nested.number == 5)
+print("Swift live XML owners, weak expiry, scoped array getters and native identities pass")
+'''
+
+
+def main():
+    """Compile actual mobile outputs and inspect exported expanded names with an independent XML parser."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--compiler', required=True, type=Path); parser.add_argument('--build', required=True, type=Path)
+    parser.add_argument('--language', default='kotlin,swift'); parser.add_argument('--wsl-languages', default='')
+    parser.set_defaults(cpp_library=None, executable=None, sanitize=False)
+    args = parser.parse_args(); args.compiler = args.compiler.resolve(); args.build = args.build.resolve()
+    languages = args.language.split(',')
+    if not languages or len(languages) != len(set(languages)) or any(value not in ('kotlin', 'swift') for value in languages):
+        parser.error('Choose distinct languages from kotlin,swift')
+    if args.build == ROOT or ROOT in args.build.parents and 'out' not in args.build.relative_to(ROOT).parts:
+        parser.error('Scratch must be beneath ignored out/')
+    args.build.mkdir(parents=True, exist_ok=True)
+    model = args.build / 'model.serializer'; model.write_text(MODEL, encoding='utf-8')
+    command = [args.compiler, '--input', model, '--language', ','.join(languages), '--kotlin.package=']
+    for language in languages:
+        directory = args.build / language; directory.mkdir(parents=True, exist_ok=True)
+        command += [f'--{language}.output', directory / sdk.OUTPUTS[language]]
+    sdk.run(command); runner = sdk.Runner(args)
+    for language in languages:
+        source = args.build / 'source' / language; source.mkdir(parents=True, exist_ok=True)
+        (source / ('main.swift' if language == 'swift' else 'Main.kt')).write_text(SWIFT if language == 'swift' else KOTLIN, encoding='utf-8')
+        launch = runner.build(language, 'xml_projection', args.build / language, source)
+        sdk.run([*launch, runner.path(language, args.build)])
+        node = etree.parse(str(args.build / f'reference.{language}.xml')).getroot()
+        assert node.tag == '{urn:serializer:projected}envelope' and node.get('label') == 'A<&"'
+        assert [child.tag for child in node] == ['{urn:serializer:projected}value']
+        assert [child.text for child in node[0]] == ['7', 'A<&"']
+        node = etree.parse(str(args.build / f'translator.{language}.xml')).getroot()
+        assert node.tag == '{urn:serializer:projected}larger'
+        assert [child.text for child in node.findall('{urn:serializer:projected}values')] == ['1', '2']
+        assert node.find('{urn:serializer:projected}fallback').text == 'default'
+    print(f'PASS: live reference/scoped translator XML exports and native controls across {len(languages)} mobile SDKs', flush=True)
+
+
+if __name__ == '__main__':
+    main()

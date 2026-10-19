@@ -10,3 +10,4 @@ path = "main.rs"
 
 [dependencies]
 roxmltree = "=0.21.1"
+xmlparser = "=0.13.6"

@@ -15,7 +15,7 @@
 
 namespace rohit::serializer::writer::xml_binding {
 
-inline constexpr std::string_view model_metadata_namespace = "urn:serializer:xml:model";
+inline constexpr std::string_view model_metadata_namespace = xml::model_metadata_namespace;
 
 enum class projection_kind { owning, managed_snapshot, borrowed_output };
 

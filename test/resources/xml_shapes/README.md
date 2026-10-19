@@ -15,6 +15,10 @@ malformed wrapper rejection. Pass `--protocols binary_none` to verify XML remain
 usable alongside restricted native format selection; the C++ executable is built
 separately with its configured native selection.
 
+The non-C++ runner uses `portable.serializer`, which includes the common model
+and adds concrete integer/text generic instances. C++ concrete owning templates
+have separate generated-binding coverage; this native CMake probe uses `model.serializer`.
+
 ```text
 python -m pip install --target out/xml-deps \
   -r test/resources/xml_shapes/requirements.txt

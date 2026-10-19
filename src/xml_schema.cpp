@@ -1,6 +1,7 @@
 // Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "xml_schema.hpp"
+#include "xml_portable_writer.hpp"
 #include <rohit/digest.hpp>
 
 #include <algorithm>
@@ -98,7 +99,7 @@ void inspect(const xml::element& node, bool global_element = false) {
   if (node.text.find_first_not_of(" \t\r\n") != std::string::npos) {
     throw std::invalid_argument{"Significant text outside XSD annotation is unsupported"};
   }
-  for (const auto* key : {"mixed", "abstract"}) {
+  for (const auto* key : {"mixed", "abstract", "nillable"}) {
     if (!has_attribute(node, key)) { continue; }
     const auto words = lexical_words(attribute(node, key));
     if (words.size() != 1U || (words.front() != "true" && words.front() != "false" &&
@@ -133,7 +134,7 @@ void inspect(const xml::element& node, bool global_element = false) {
   const std::map<std::string, std::set<std::string>> accepted{
       {"schema", {"targetNamespace", "elementFormDefault", "attributeFormDefault", "version", "id", "blockDefault", "finalDefault"}},
       {"include", {"schemaLocation", "id"}}, {"import", {"namespace", "schemaLocation", "id"}},
-      {"element", {"name", "type", "ref", "minOccurs", "maxOccurs", "form", "id", "default", "fixed"}},
+      {"element", {"name", "type", "ref", "minOccurs", "maxOccurs", "form", "id", "default", "fixed", "nillable"}},
       {"attribute", {"name", "type", "ref", "use", "form", "id", "default", "fixed"}},
       {"simpleType", {"name", "id"}}, {"restriction", {"base", "id"}},
       {"complexType", {"name", "id", "mixed", "abstract", "block", "final"}},
@@ -622,6 +623,9 @@ xml::extension_contract bind_extension_slots(const record& owner,
   for (const auto& field : owner.fields) {
     result.known_names.push_back(field.wrapper ? *field.wrapper : field.qualified_name);
   }
+  if (owner.mixed) {
+    for (const auto& child : owner.mixed->children) { result.known_names.push_back(child.qualified_name); }
+  }
   std::map<std::string, std::map<std::string, std::string>> slots{};
   for (const auto& [key, value] : options) {
     if (key == "extensions.required") { result.required_namespaces = contract_namespaces(value); }
@@ -808,7 +812,7 @@ scalar_resolution resolve_scalar(const schema_bundle& bundle, const xml::element
   };
   return walk(walk, source, std::nullopt, 0U);
 }
-// Select the scalar/record leaf type beneath one optional or collection modifier.
+// Peel native optional and sequence layers before binding the scalar or record contract.
 const type_name& leaf(const member& source) {
   const auto* selected_type = &source.type_name_list.front();
   while (selected_type->is_optional() || selected_type->is_sequence()) {
@@ -936,6 +940,30 @@ void validate_options(const std::vector<std::unique_ptr<syntax_node>>& statement
   }
   if (options.enabled) {
     const schema bindings{options};
+    // A mixed sequence's fragment is native storage for its parent's ordered content,
+    // rather than an independently mapped XML record. Explicit class mappings still win.
+    std::set<const class_node*> mixed_fragments{};
+    if (language == "python" || language == "cpp" || language == "js" || language == "typescript" ||
+        language == "java" || language == "csharp" || language == "go" || language == "kotlin" || language == "swift" ||
+        language == "c" || language == "rust") {
+      const auto collect_fragments = [&](auto&& self, const auto& nodes) -> void {
+        for (const auto& node : nodes) {
+          if (node->type == object_type::namespace_type) {
+            self(self, static_cast<const namespace_node&>(*node).statements);
+          } else if (node->type == object_type::class_type) {
+            const auto& owner = static_cast<const class_node&>(*node);
+            const auto configured = options.classes.find(owner.get_full_name());
+            if (configured != options.classes.end() && configured->second.contracts.contains("mixed")) {
+              const auto contract = bindings.bind(owner);
+              if (contract.mixed && !options.classes.contains(contract.mixed->fragment->get_full_name())) {
+                mixed_fragments.insert(contract.mixed->fragment);
+              }
+            }
+          }
+        }
+      };
+      collect_fragments(collect_fragments, statements);
+    }
     const auto validate_references = [&](auto&& self, const auto& nodes) -> void {
       for (const auto& node : nodes) {
         if (node->type == object_type::namespace_type) {
@@ -948,12 +976,33 @@ void validate_options(const std::vector<std::unique_ptr<syntax_node>>& statement
             throw std::invalid_argument{
                 "Shared XML content contracts require ordinary owning records; generic and reference bindings are not implemented"};
           }
-          if (owner.reference && (!owner.reference->value_projection || language != "cpp")) {
+          if (owner.reference && (!owner.reference->value_projection ||
+              (language != "cpp" && language != "python" && language != "c" && language != "rust" &&
+               language != "js" && language != "typescript" && language != "kotlin" && language != "swift" &&
+               language != "java" && language != "csharp" && language != "go"))) {
             throw std::invalid_argument{
-                "XML value projections are C++ export-only; durable field addresses have no XML binding"};
+                "XML value projections are export-only for supported backends; durable field addresses have no XML binding"};
           }
           if (node->type == object_type::class_type && !owner.reference) {
+            if (mixed_fragments.contains(&owner)) { continue; }
             const auto contract = bindings.bind(owner);
+            // Helpers cannot become ordinary XML payloads through maps, variants or nested wrappers.
+            const auto uses_mixed_fragment = [&](auto&& self, const type_name& type) -> bool {
+              if (type.type == object_type::class_type && type.resolved_node &&
+                  mixed_fragments.contains(static_cast<const class_node*>(type.resolved_node))) {
+                return true;
+              }
+              return std::any_of(type.arguments.begin(), type.arguments.end(),
+                  [&](const auto& argument) { return self(self, argument); });
+            };
+            for (const auto& field : contract.fields) {
+              if (std::any_of(field.source->type_name_list.begin(), field.source->type_name_list.end(),
+                      [&](const auto& type) { return uses_mixed_fragment(uses_mixed_fragment, type); }) ||
+                  (field.source->key_type && uses_mixed_fragment(uses_mixed_fragment, *field.source->key_type))) {
+                throw std::invalid_argument{"XML mixed fragment storage requires its owning mixed mapping: " +
+                                            field.source->name};
+              }
+            }
             if (language != "xsd") { validate_backend(contract, language); }
           }
         } else if (node->type == object_type::package_type && language != "cpp" && language != "python") {
@@ -1054,7 +1103,9 @@ record schema::bind(const class_node& source) const {
   }
   record result{{mapping.root.empty() ? source.name : mapping.root, mapping.namespace_uri}, {}};
   result.model = model;
-  if (bundle_ && !mapping.contracts.empty()) {
+  if (bundle_ && std::any_of(mapping.contracts.begin(), mapping.contracts.end(), [](const auto& item) {
+        return !item.first.starts_with("presence.");
+      })) {
     throw std::invalid_argument{"Shared XML content contracts cannot override a fixed XSD binding"};
   }
   if (mapping.contracts.contains("mixed")) {
@@ -1263,8 +1314,9 @@ record schema::bind(const class_node& source) const {
     } else {
       const auto presence = presence_binding ? std::optional{parse_presence_policy(
           mapping.contracts.at("presence." + source_field.name))} : std::nullopt;
+      // An optimized collection may derive its wrapper below; publication requires that wrapper.
       bound_field.presence = bind_presence(source_field, presence, is_attribute, text,
-          bound_field.wrapper.has_value(), list);
+          bound_field.wrapper.has_value() || (bundle_ && presence_binding && collection), list);
       if (presence_binding) {
         check_type(*bound_field.presence.value_type);
         bound_field.min_occurs = bound_field.presence.collection ? 0U :
@@ -1313,11 +1365,9 @@ record schema::bind(const class_node& source) const {
       throw std::invalid_argument{"XML variant properties require a selection mapping"};
     }
   }
-  if (std::any_of(mapping.contracts.begin(), mapping.contracts.end(), [](const auto& item) {
+  const bool extensions_requested = std::any_of(mapping.contracts.begin(), mapping.contracts.end(), [](const auto& item) {
         return item.first.starts_with("extension.") || item.first == "extensions.required";
-      })) {
-    result.extensions = bind_extension_slots(result, mapping.contracts);
-  }
+      });
   if (bundle_) {
     const auto [complex_document, complex] = record_type(*bundle_, result.root);
     if (true_attribute(*complex, "abstract")) {
@@ -1378,9 +1428,11 @@ record schema::bind(const class_node& source) const {
     }
     std::vector<field> ordered{};
     std::set<const member*> bound{};
+    std::set<const member*> bound_wrappers{};
     const auto bind_field = [&](const xml::element& occurrence_node, bool is_attribute,
                                 bool in_choice = false,
-                                const schema_bundle::document* defining_document = nullptr) {
+                                const schema_bundle::document* defining_document = nullptr,
+                                bool wrapper_item = false) {
       auto* owner = defining_document ? defining_document : complex_document;
       auto* selected = &occurrence_node;
       const bool referenced = !attribute(*selected, "ref").empty();
@@ -1458,6 +1510,16 @@ record schema::bind(const class_node& source) const {
       }
       if (has_attribute(node, "default")) { field.default_value = std::string{attribute(node, "default")}; }
       if (has_attribute(node, "fixed")) { field.fixed_value = std::string{attribute(node, "fixed")}; }
+      if (!is_attribute) {
+        // A wrapper owns the field's nil state; each repeated item remains a nonnil value.
+        const bool nillable = true_attribute(node, "nillable");
+        if (nillable != (!wrapper_item && field.presence.allows_nil)) {
+          throw std::invalid_argument{"XSD nillability differs from XML presence policy: " + field.source->name};
+        }
+        if (nillable && field.fixed_value) {
+          throw std::invalid_argument{"XSD fixed values with nil states require an explicit nil/fixed constraint: " + field.source->name};
+        }
+      }
       if (field.qname) {
         if (field.default_value) { field.qname_default = resolve(node, *field.default_value); }
         if (field.fixed_value) { field.qname_fixed = resolve(node, *field.fixed_value); }
@@ -1478,9 +1540,18 @@ record schema::bind(const class_node& source) const {
         throw std::invalid_argument{"XSD occurrence interval is empty"};
       }
       const bool optional = field.source->type_name_list.front().is_optional();
+      // An optional XSD attribute may fill required native storage through its default/fixed value.
+      const auto expected_minimum = field.presence.explicit_policy ?
+          (field.presence.allows_absent ? 0U : 1U) :
+          (optional || is_attribute && (field.default_value || field.fixed_value) && field.min_occurs == 0U ? 0U : 1U);
       if (!field.repeated && (field.max_occurs != std::optional<std::size_t>{1U} ||
-          field.min_occurs != (optional ? 0U : 1U))) {
+          field.min_occurs != expected_minimum)) {
         throw std::invalid_argument{"XSD presence/cardinality differs from Serializer member: " + field.source->name};
+      }
+      if (field.presence.explicit_policy && field.source->fixed_extent != 0U &&
+          (field.min_occurs != field.source->fixed_extent ||
+              field.max_occurs != std::optional<std::size_t>{static_cast<std::size_t>(field.source->fixed_extent)})) {
+        throw std::invalid_argument{"XSD cardinality differs from fixed array extent: " + field.source->name};
       }
       ordered.push_back(std::move(field));
     };
@@ -1532,7 +1603,8 @@ record schema::bind(const class_node& source) const {
         if (child.qualified_name.local != "annotation") { items.push_back(&child); }
       }
       if (items.size() != 1U || items.front()->qualified_name.local != "element" ||
-          occurrence(attribute(node, "minOccurs"), 1U) != 1U ||
+          occurrence(attribute(node, "minOccurs"), 1U) !=
+              (candidate->presence.explicit_policy && candidate->presence.allows_absent ? 0U : 1U) ||
           occurrence(attribute(node, "maxOccurs"), 1U) != 1U ||
           occurrence(attribute(sequence, "minOccurs"), 1U) != 1U ||
           occurrence(attribute(sequence, "maxOccurs"), 1U) != 1U) {
@@ -1547,6 +1619,12 @@ record schema::bind(const class_node& source) const {
         throw std::invalid_argument{"XSD collection wrapper requires a named local item"};
       }
       auto* field = &*candidate;
+      if (true_attribute(node, "nillable") != field->presence.allows_nil) {
+        throw std::invalid_argument{"XSD wrapper nillability differs from XML presence policy: " + field->source->name};
+      }
+      if (has_attribute(node, "fixed") || has_attribute(node, "default")) {
+        throw std::invalid_argument{"XSD collection wrapper value constraints require scalar content"};
+      }
       const auto outer_form = attribute(node, "form");
       const auto outer_uri = outer_form == "qualified" || (outer_form.empty() &&
           attribute(owner->root, "elementFormDefault") == "qualified") ? owner->target : std::string{};
@@ -1557,8 +1635,9 @@ record schema::bind(const class_node& source) const {
       const auto original_name = field->qualified_name;
       field->qualified_name.local = inner_local;
       field->wrapper = wrapper;
-      try { bind_field(*items.front(), false, false, expanded.children.front().owner); }
+      try { bind_field(*items.front(), false, false, expanded.children.front().owner, true); }
       catch (...) { field->qualified_name = original_name; field->wrapper.reset(); throw; }
+      bound_wrappers.insert(field->source);
     };
     // XSD all is a bounded unordered set; the native fields retain their normal storage.
     const auto bind_all = [&](const xml::element& node, const schema_bundle::document* owner) {
@@ -1794,12 +1873,16 @@ record schema::bind(const class_node& source) const {
           const auto resolved = resolve_scalar(*bundle_, scalar);
           auto value = *text;
           const std::map<std::string, std::string> text_types{{"string", "string"},
-              {"normalizedString", "string"}, {"token", "string"}, {"decimal", "string"},
-              {"integer", "string"}, {"boolean", "bool"}, {"byte", "int8"},
+              {"normalizedString", "string"}, {"token", "string"}, {"decimal", "string"}, {"QName", "string"},
+              {"integer", "string"}, {"nonNegativeInteger", "string"}, {"positiveInteger", "string"},
+              {"nonPositiveInteger", "string"}, {"negativeInteger", "string"}, {"anyURI", "string"},
+              {"language", "string"}, {"Name", "string"}, {"NCName", "string"}, {"NMTOKEN", "string"},
+              {"boolean", "bool"}, {"byte", "int8"},
               {"unsignedByte", "uint8"}, {"short", "int16"}, {"unsignedShort", "uint16"},
               {"int", "int32"}, {"unsignedInt", "uint32"}, {"long", "int64"},
               {"unsignedLong", "uint64"}, {"float", "float"}, {"double", "double"}};
-          const auto native = text_types.find(resolved.primitive.local);
+          const auto native = text_types.find(value.list && !resolved.facets.list_item_kind.empty() ?
+              resolved.facets.list_item_kind : resolved.primitive.local);
           const auto& stored = leaf(*value.source).name;
           if (native == text_types.end() || (stored != native->second &&
               !(stored == "float32" && native->second == "float") &&
@@ -1814,6 +1897,7 @@ record schema::bind(const class_node& source) const {
           value.text = true;
           value.qualified_name = {};
           value.facets = resolved.facets;
+          value.qname = value.qname || resolved.primitive.local == "QName";
           ordered.push_back(std::move(value));
           const auto attributes = expand_complex_type(*bundle_, *owner, extension);
           for (const auto& item : attributes.children) {
@@ -1834,6 +1918,20 @@ record schema::bind(const class_node& source) const {
       if (document.target != result.root.namespace_uri) { continue; }
       for (const auto& node : document.root.children) {
         if (node.qualified_name.local != "element" || attribute(node, "name") != result.root.local) { continue; }
+        if (true_attribute(node, "nillable")) {
+          throw std::invalid_argument{"Nillable XSD roots require an optional document-root contract"};
+        }
+        // Global element defaults/fixed values belong to simpleContent text, not its complex type.
+        const auto text = std::find_if(result.fields.begin(), result.fields.end(),
+            [](const auto& field) { return field.text; });
+        if (text != result.fields.end()) {
+          if (has_attribute(node, "default")) { text->default_value = std::string{attribute(node, "default")}; }
+          if (has_attribute(node, "fixed")) { text->fixed_value = std::string{attribute(node, "fixed")}; }
+          if (text->qname) {
+            if (text->default_value) { text->qname_default = resolve(node, *text->default_value); }
+            if (text->fixed_value) { text->qname_fixed = resolve(node, *text->fixed_value); }
+          }
+        }
         if (std::none_of(node.children.begin(), node.children.end(), [](const auto& child) {
               return child.qualified_name.local == "key" || child.qualified_name.local == "unique" ||
                   child.qualified_name.local == "keyref";
@@ -1846,7 +1944,8 @@ record schema::bind(const class_node& source) const {
       if (!mapping.text.empty() && value.source->name == mapping.text && !value.text) {
         throw std::invalid_argument{"Configured XML text conflicts with XSD"};
       }
-      if (mapping.wrappers.contains(value.source->name) && !value.wrapper) {
+      if ((value.wrapper && !bound_wrappers.contains(value.source)) ||
+          (value.presence.explicit_policy && value.presence.collection && !value.wrapper)) {
         throw std::invalid_argument{"Configured XML wrapper conflicts with XSD"};
       }
     }
@@ -1866,6 +1965,9 @@ record schema::bind(const class_node& source) const {
       throw std::invalid_argument{"Ambiguous XML member mapping"};
     }
   }
+  // Positions and known expanded names follow the final authoritative XSD order,
+  // including inferred attributes/wrappers, rather than the authored approximation.
+  if (extensions_requested) { result.extensions = bind_extension_slots(result, mapping.contracts); }
   for (auto& value : result.fields) {
     if (leaf(*value.source).type != object_type::class_type) {
       value.compiled_facets = compile_scalar_contract(value.facets, false);
@@ -1911,21 +2013,96 @@ void validate_backend(const record& contract, std::string_view language) {
     throw std::invalid_argument{"Grouped or repeated heterogeneous XSD particles are compiled; ordered storage generation is not implemented for " +
                                 std::string{language}};
   }
-  if (contract.identity) {
+  if (contract.identity && language != "python" && language != "cpp" && language != "js" && language != "typescript" &&
+      language != "java" && language != "csharp" && language != "go" && language != "kotlin" && language != "swift" && language != "c" && language != "rust") {
     throw std::invalid_argument{"XSD identity constraints are compiled; generated tuple validation is not implemented for " +
                                 std::string{language}};
   }
-  if (contract.model.advanced) {
+  const bool concrete_owning_instance = contract.model.concrete_generic &&
+      !contract.model.inherited && !contract.model.digest && !contract.model.revision &&
+      !contract.model.magic && contract.model.projection == projection_kind::owning;
+  const bool flattened_owning_model = (language == "go" || language == "python" || language == "cpp" ||
+      language == "js" || language == "typescript" || language == "java" || language == "csharp" || language == "rust" ||
+      language == "c" || language == "kotlin" || language == "swift") && !contract.model.digest &&
+      !contract.model.revision && !contract.model.magic &&
+      contract.model.projection == projection_kind::owning;
+  const bool python_owning_model = (language == "python" || language == "cpp" || language == "js" || language == "typescript") &&
+      contract.model.projection == projection_kind::owning;
+  const bool native_owning_model = (language == "c" || language == "rust" || language == "kotlin" || language == "swift" ||
+      language == "java" || language == "csharp" || language == "go") &&
+      contract.model.projection == projection_kind::owning;
+  if (native_owning_model && contract.model.revision &&
+      (!contract.all_groups.empty() || !contract.choices.empty()) &&
+      std::any_of(contract.model.flattened_fields.begin(), contract.model.flattened_fields.end(),
+          [](const auto* value) { return !value->created_version.empty() || !value->obsolete_version.empty(); })) {
+    throw std::invalid_argument{"XML lifecycle fields in all/choice groups require active particle layouts for " + std::string{language}};
+  }
+  if ((language == "kotlin" || language == "swift" || language == "java" || language == "csharp" || language == "go") && contract.model.revision &&
+      (contract.mixed || std::any_of(contract.fields.begin(), contract.fields.end(),
+          [](const auto& field) { return field.text && (!field.source->created_version.empty() || !field.source->obsolete_version.empty()); }))) {
+    throw std::invalid_argument{"XML lifecycle text/mixed fields require active text layouts for " + std::string{language}};
+  }
+  if (contract.model.advanced && !concrete_owning_instance && !flattened_owning_model && !python_owning_model && !native_owning_model) {
     throw std::invalid_argument{"XML native model contract is compiled; lifecycle/projection generation is not implemented for " +
                                 std::string{language}};
   }
-  if (!contract.all_groups.empty()) {
+  const bool portable_all = (language == "java" || language == "csharp" || language == "go" || language == "kotlin" || language == "swift" || language == "rust" || language == "c") &&
+      xml_portable::supports_all(contract);
+  const bool javascript_backend = language == "js" || language == "typescript";
+  const bool mobile_managed_extensions = language == "kotlin" || language == "swift" ||
+      language == "java" || language == "csharp" || language == "go";
+  if (contract.extensions && mobile_managed_extensions) {
+    // Reject unrepresentable metadata before publishing target source with overflowing integer literals.
+    // Swift uses 64-bit Int; the other portable counters retain their 32-bit contract across hosts.
+    const auto counter_maximum = language == "swift" ?
+        static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) :
+        static_cast<std::uint64_t>(std::numeric_limits<std::int32_t>::max());
+    for (const auto& slot : contract.extensions->slots) {
+      if (slot.before_field > counter_maximum || slot.minimum > counter_maximum ||
+          (slot.maximum && *slot.maximum > counter_maximum)) {
+        throw std::invalid_argument{"XML extension occurrence/position exceeds native counter range for " + std::string{language}};
+      }
+    }
+  }
+  if (!contract.all_groups.empty() && language != "python" && language != "cpp" && !javascript_backend && !portable_all) {
     throw std::invalid_argument{"XSD all is compiled; generated unordered-child decoding is not implemented for " +
                                 std::string{language}};
   }
-  if (contract.mixed || contract.extensions ||
-      std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) {
-        return field.presence.explicit_policy || field.map_binding || field.variant_binding;
+  if (language == "cpp" && contract.extensions && contract.mixed &&
+      std::any_of(contract.extensions->slots.begin(), contract.extensions->slots.end(),
+          [](const auto& slot) { return !slot.attribute; })) {
+    throw std::invalid_argument{"Positioned XML child slots with mixed/all storage require additional ordered positions for cpp"};
+  }
+  if (contract.extensions && ((language == "cpp" && !contract.all_groups.empty()) ||
+      ((language == "python" || javascript_backend || language == "kotlin" || language == "swift" ||
+          language == "java" || language == "csharp" || language == "go" || language == "c" || language == "rust") && (contract.mixed || !contract.all_groups.empty())))) {
+    throw std::invalid_argument{"Positioned XML extension slots with mixed/all storage are not implemented for " + std::string{language}};
+  }
+  if (contract.extensions && (language == "kotlin" || language == "swift" || language == "java" || language == "csharp" || language == "go" || language == "c" || language == "rust") &&
+      std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) { return field.text; }) &&
+      std::any_of(contract.extensions->slots.begin(), contract.extensions->slots.end(), [](const auto& slot) { return !slot.attribute; })) {
+    throw std::invalid_argument{"Positioned XML child slots with scalar text require ordered mixed storage for " + std::string{language}};
+  }
+  const bool portable_mixed = language == "java" || language == "csharp" || language == "go" || language == "kotlin" || language == "swift" ||
+      language == "c" || language == "rust";
+  if ((contract.mixed && language != "python" && language != "cpp" && !javascript_backend && !portable_mixed) ||
+      (contract.extensions && language != "python" && language != "cpp" && language != "kotlin" && language != "swift" &&
+          language != "java" && language != "csharp" && language != "go" && language != "c" && language != "rust" && !javascript_backend) ||
+      std::any_of(contract.fields.begin(), contract.fields.end(), [&](const auto& field) {
+        const bool native_presence = (language == "swift" || language == "rust" || language == "c") &&
+            (!field.presence.collection || field.wrapper);
+        const bool portable_presence = (language == "go" || language == "java" || language == "csharp") &&
+            xml_portable::supports_presence(field);
+        return (field.presence.explicit_policy && language != "cpp" && language != "python" && language != "kotlin" &&
+                !javascript_backend && !native_presence && !portable_presence) ||
+            (field.map_binding && language != "cpp" && language != "python" && !javascript_backend &&
+                ((language != "go" && language != "java" && language != "csharp" && language != "kotlin" && language != "swift" &&
+                    language != "rust" && language != "c") ||
+                    !xml_portable::supports_map(field))) ||
+            (field.variant_binding && language != "python" && language != "cpp" && !javascript_backend &&
+                ((language != "go" && language != "java" && language != "csharp" && language != "kotlin" && language != "swift" &&
+                    language != "c" && language != "rust") ||
+                    !xml_portable::supports_variant(field)));
       })) {
     throw std::invalid_argument{"Shared XML presence/mixed/map/variant/extension contracts are bound; "
         "generated token codec support is not implemented for " + std::string{language}};
@@ -1997,9 +2174,6 @@ void validate_backend(const record& contract, std::string_view language) {
       for (const auto& alternative : facets.union_members) { self(self, alternative); }
     };
     for (const auto& value : contract.fields) {
-      if (value.value_projection) {
-        throw std::invalid_argument{"XML value projections are not implemented for python"};
-      }
       if (value.facets.list_item_kind == "QName" &&
           (value.fixed_value || !value.facets.enumeration.empty())) {
         throw std::invalid_argument{"QName list fixed/enumeration values require expanded item identities"};
@@ -2008,22 +2182,70 @@ void validate_backend(const record& contract, std::string_view language) {
     }
     return;
   }
-  if (!contract.choices.empty() || !contract.wildcards.empty() ||
+  const bool portable_choices = (language == "kotlin" || language == "swift" || language == "rust" || language == "c" ||
+      language == "java" || language == "csharp" || language == "go") &&
+      xml_portable::supports_choices(contract);
+  const bool unsupported_choices = std::any_of(contract.choices.begin(), contract.choices.end(),
+      [&](const auto& choice) { return (!javascript_backend && !portable_choices) || choice.repeated; });
+  if (unsupported_choices || !contract.wildcards.empty() ||
       (contract.unknown && *contract.unknown != xml_unknown_policy::reject)) {
     throw std::invalid_argument{"XML choices, wildcards and extension policies are not implemented for " +
                                 std::string{language}};
   }
   const std::set<std::string> primitives{"", "string", "boolean", "byte", "unsignedByte", "short",
       "unsignedShort", "int", "unsignedInt", "long", "unsignedLong", "float", "double"};
+  const bool managed_scalar = language == "go" || language == "java" || language == "csharp" || language == "kotlin" || language == "swift" || language == "rust" || language == "c";
+  const std::set<std::string> managed_kinds{"", "string", "boolean", "byte", "unsignedByte", "short",
+      "unsignedShort", "int", "unsignedInt", "long", "unsignedLong", "float", "double",
+      "normalizedString", "token", "anyURI", "decimal", "integer", "positiveInteger", "negativeInteger",
+      "nonPositiveInteger", "nonNegativeInteger", "language", "Name", "NCName", "NMTOKEN", "ID", "IDREF", "ENTITY"};
+  const auto managed_facets = [&](auto&& self, const scalar_facets& facets) -> bool {
+    return managed_kinds.contains(facets.lexical_kind) && managed_kinds.contains(facets.list_item_kind) &&
+        facets.qname_enumeration.empty() && std::all_of(facets.union_members.begin(), facets.union_members.end(),
+            [&](const auto& branch) { return self(self, branch); });
+  };
   for (const auto& value : contract.fields) {
     const auto& facets = value.facets;
+    const bool portable_scalar_facets = managed_scalar || javascript_backend;
+    if (portable_scalar_facets && value.compiled_facets &&
+        !value.compiled_facets->patterns_portable()) {
+      throw std::invalid_argument{std::string{language} + " XML patterns require the approved portable XSD regex subset: " +
+                                  value.source->name};
+    }
+    if (javascript_backend) {
+      const std::set<std::string> kinds{"", "string", "normalizedString", "token", "anyURI", "boolean",
+          "byte", "unsignedByte", "short", "unsignedShort", "int", "unsignedInt", "long", "unsignedLong",
+          "integer", "positiveInteger", "negativeInteger", "nonPositiveInteger", "nonNegativeInteger",
+          "float", "double", "decimal", "QName", "language", "Name", "NCName", "NMTOKEN", "ID", "IDREF", "ENTITY"};
+      // Recursive lexical adapters preserve native arrays and per-field QName scopes on the direct token path.
+      const auto supported = [&](auto&& self, const scalar_facets& selected) -> bool {
+        return kinds.contains(selected.lexical_kind) && kinds.contains(selected.list_item_kind) &&
+            std::all_of(selected.union_members.begin(), selected.union_members.end(),
+                [&](const auto& alternative) { return self(self, alternative); });
+      };
+      if (!supported(supported, facets) ||
+          (facets.list_item_kind == "QName" && (value.default_value || value.fixed_value || !facets.enumeration.empty()))) {
+        throw std::invalid_argument{"XML scalar adapter is not implemented for " + std::string{language} + ": " + value.source->name};
+      }
+      continue;
+    }
     const bool whitespace_changes_value = !facets.whitespace.empty() &&
         (facets.lexical_kind == "string" || facets.lexical_kind.empty());
-    if (value.list || value.qname || value.prefix_list || value.value_projection || value.default_value || value.fixed_value ||
-        facets.min_inclusive || facets.max_inclusive || facets.min_exclusive || facets.max_exclusive ||
-        facets.length || facets.min_length || facets.max_length || !facets.enumeration.empty() ||
-        !facets.patterns.empty() || !facets.list_item_kind.empty() || whitespace_changes_value ||
-        !primitives.contains(facets.lexical_kind)) {
+    const bool javascript_lexical = javascript_backend &&
+        (facets.lexical_kind == "normalizedString" || facets.lexical_kind == "token" || facets.lexical_kind == "anyURI" ||
+         facets.lexical_kind == "decimal" || facets.lexical_kind == "integer" || facets.lexical_kind == "positiveInteger" ||
+         facets.lexical_kind == "negativeInteger" || facets.lexical_kind == "nonPositiveInteger" || facets.lexical_kind == "nonNegativeInteger");
+    if ((!managed_scalar && value.list) || value.qname || value.prefix_list ||
+        (value.value_projection && language != "c" && language != "rust" && language != "kotlin" && language != "swift" &&
+            language != "java" && language != "csharp" && language != "go") ||
+        (!javascript_backend && !managed_scalar && (value.default_value || value.fixed_value)) ||
+        (javascript_backend && !facets.union_members.empty()) ||
+        (!portable_scalar_facets && (facets.min_inclusive || facets.max_inclusive || facets.min_exclusive || facets.max_exclusive ||
+        facets.length || facets.min_length || facets.max_length || !facets.enumeration.empty() || whitespace_changes_value)) ||
+        (!portable_scalar_facets && (!facets.patterns.empty() || !facets.pattern_groups.empty())) ||
+        (!managed_scalar && !facets.list_item_kind.empty()) ||
+        (managed_scalar && !managed_facets(managed_facets, facets)) ||
+        (!managed_scalar && !primitives.contains(facets.lexical_kind) && !javascript_lexical)) {
       throw std::invalid_argument{"XML scalar restrictions or lexical adapters are not implemented for " +
                                   std::string{language} + ": " + value.source->name};
     }

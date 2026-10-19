@@ -6,8 +6,11 @@ selection and positioned foreign-extension slots. S02 supplies a separate
 [incremental C++ event reader](xml_events.md#incremental-byte-reader).
 
 The new INI selections bind checked compiler IR and have reference validators.
-**Generated codecs for these new selections remain pending in every language**
-(X05, X06, X07, X08 and X16). A valid new contract reaches a clear backend
+Compiler/runtime **2.12.0** adds generated C++/Python presence and map mappings,
+C++ element-tag variants, Python element/`xsi:type` variants and Python ordered
+mixed content; see [token codecs and their supported subsets](xml_tokens.md).
+Positioned-slot codecs (X16), C++ `xsi:type` variants, and the corresponding
+contracts in other languages remain pending. An unsupported valid contract reaches a clear backend
 capability error before generated output is published; an invalid contract fails
 its configuration or binding checks first. Binding a contract does not enable a
 codec or authorize publishing a decoded model. Existing generated XML mappings

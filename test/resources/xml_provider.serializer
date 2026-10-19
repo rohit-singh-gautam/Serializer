@@ -1,0 +1,10 @@
+serializer version 1.7.0;
+
+namespace xml_provider_fixture {
+  class order {
+    public uint32 id (1);
+    public string customer (2);
+    public array int32 values (3);
+    public optional<string> note (4);
+  }
+}

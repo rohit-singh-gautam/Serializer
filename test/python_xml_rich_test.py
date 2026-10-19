@@ -93,8 +93,10 @@ class python_xml_rich_test(unittest.TestCase):
                 self.patterns.PatternsSample.decode_xml(('<sample xmlns="urn:pattern" code="' + value + '"/>').encode())
         self.patterns._XML_PATTERN_SCHEMAS.clear()
         with mock.patch.dict(sys.modules, {'lxml': None}):
+            self.assertEqual(self.patterns.PatternsSample.decode_xml(
+                b'<sample xmlns="urn:pattern" code="BBB"/>').code, 'BBB')
             with self.assertRaisesRegex(RuntimeError, 'lxml'):
-                self.patterns.PatternsSample.decode_xml(b'<sample xmlns="urn:pattern" code="BBB"/>')
+                self.patterns.PatternsProvider.decode_xml(b'<provider xmlns="urn:pattern" value="AAA"/>')
 
     def test_core_lexical_kinds_match_independent_xsd_provider(self):
         """Check XML Name character rules and the Core language-or-empty union independently."""
@@ -242,12 +244,15 @@ def main():
         subprocess.run([*command, '--input', str(ROOT / 'test/resources/xml_rich.serializer'), '--python.output', str(generated)], check=True)
         python_xml_rich_test.module = load_module(generated, 'serializer_python_xml_rich_fixture')
         source = directory / 'patterns.serializer'
-        source.write_text('serializer version 1.20.0; namespace patterns { using schema "patterns.xsd"; class sample { public string code (1); }}', encoding='utf-8')
+        source.write_text('serializer version 1.20.0; namespace patterns { using schema "patterns.xsd"; class sample { public string code (1); } class provider { public string value(1); }}', encoding='utf-8')
         (directory / 'patterns.xsd').write_text('''<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:t="urn:pattern" targetNamespace="urn:pattern">
           <xs:simpleType name="Base"><xs:restriction base="xs:string"><xs:pattern value="[A-Z]+"/></xs:restriction></xs:simpleType>
           <xs:simpleType name="Code"><xs:restriction base="t:Base"><xs:pattern value="[AB]+"/><xs:pattern value="[CD]+"/></xs:restriction></xs:simpleType>
           <xs:simpleType name="Either"><xs:union memberTypes="t:Code xs:unsignedInt"/></xs:simpleType>
           <xs:element name="sample"><xs:complexType><xs:attribute name="code" type="t:Either" use="required"/></xs:complexType></xs:element>
+          <xs:element name="provider"><xs:complexType><xs:attribute name="value" use="required"><xs:simpleType>
+          <xs:restriction base="xs:string"><xs:pattern value="\\p{L}+"/></xs:restriction>
+          </xs:simpleType></xs:attribute></xs:complexType></xs:element>
         </xs:schema>''', encoding='utf-8')
         pattern_module = directory / 'patterns.py'
         subprocess.run([*command, '--input', str(source), '--python.output', str(pattern_module)], check=True)

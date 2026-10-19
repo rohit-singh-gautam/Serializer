@@ -1,8 +1,15 @@
 // Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
 // SPDX-License-Identifier: 0BSD
-serializer version 1.17.0;
+serializer version 1.20.0;
 
 namespace shapes {
+  class names {
+    xml(namespace("urn:root"));
+    public string unqualified xml(namespace(""));
+    public string foreign xml(namespace("urn:foreign"));
+    public string language xml(attribute, namespace("http://www.w3.org/XML/1998/namespace"), name("lang"));
+    public string qualified xml(attribute, namespace("urn:attribute"));
+  }
   enum state {
     zero,
     one

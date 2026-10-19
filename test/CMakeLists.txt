@@ -1207,6 +1207,222 @@ if(SERIALIZER_WITH_XML)
       add_test(NAME python_xml_rich_test
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/python_xml_rich_test.py"
           --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/python_xml_rich")
+      add_test(NAME python_xml_token_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/python_xml_token_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/python_xml_token")
+      add_test(NAME python_xml_identity_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/python_xml_identity_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/python_xml_identity")
+      add_test(NAME python_xml_scalar_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/python_xml_scalar_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/python_xml_scalar")
+      add_test(NAME python_xml_model_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/python_xml_model_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/python_xml_model")
+      add_test(NAME python_xml_extension_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/python_xml_extension_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/python_xml_extension")
+      add_test(NAME portable_xml_facets_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/portable_xml_facets_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_facets")
+      add_test(NAME portable_xml_scalar_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/portable_xml_scalar_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_scalar")
+      add_test(NAME portable_xml_map_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/portable_xml_map_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_map")
+      add_test(NAME mobile_xml_map_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/mobile_xml_map_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/mobile_xml_map")
+      add_test(NAME mobile_xml_variant_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/mobile_xml_variant_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/mobile_xml_variant")
+      add_test(NAME mobile_xml_mixed_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/mobile_xml_mixed_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/mobile_xml_mixed")
+      add_test(NAME mobile_xml_scalar_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/mobile_xml_scalar_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/mobile_xml_scalar")
+      add_test(NAME mobile_xml_numeric_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/mobile_xml_numeric_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/mobile_xml_numeric")
+      add_test(NAME mobile_html_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/mobile_html_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/mobile_html")
+      add_test(NAME native_html_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/native_html_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/native_html")
+      add_test(NAME native_xml_extension_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/native_xml_extension_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/native_xml_extension")
+      add_test(NAME native_xml_map_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/native_xml_map_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/native_xml_map")
+      add_test(NAME native_xml_variant_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/native_xml_variant_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/native_xml_variant")
+      add_test(NAME native_xml_mixed_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/native_xml_mixed_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/native_xml_mixed")
+      add_test(NAME native_xml_lifecycle_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/native_xml_lifecycle_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/native_xml_lifecycle")
+      add_test(NAME native_xml_scalar_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/native_xml_scalar_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/native_xml_scalar")
+      add_test(NAME native_identity_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/native_identity_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/native_identity")
+      add_test(NAME native_xml_projection_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/native_xml_projection_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/native_xml_projection")
+      add_test(NAME mobile_xml_projection_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/mobile_xml_projection_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/mobile_xml_projection")
+      add_test(NAME mobile_xml_extension_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/mobile_xml_extension_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/mobile_xml_extension")
+      add_test(NAME mobile_xml_lifecycle_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/mobile_xml_lifecycle_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/mobile_xml_lifecycle")
+      add_test(NAME python_xml_projection_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/python_xml_projection_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/python_xml_projection")
+      add_test(NAME portable_xml_variant_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/portable_xml_variant_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_variant")
+      add_test(NAME portable_xml_typed_variant_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/portable_xml_typed_variant_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_typed_variant")
+      add_test(NAME portable_xml_presence_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/portable_xml_presence_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_presence")
+      add_test(NAME portable_xml_model_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/portable_xml_model_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_model")
+      add_test(NAME portable_xml_lifecycle_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/portable_xml_lifecycle_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_lifecycle")
+      add_test(NAME portable_xml_projection_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/portable_xml_projection_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_projection")
+      add_test(NAME portable_xml_extension_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/portable_xml_extension_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_extension")
+      add_test(NAME native_xml_model_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/native_xml_model_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/native_xml_model")
+      add_test(NAME portable_xml_content_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/portable_xml_content_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_content")
+      add_test(NAME portable_xml_managed_content_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/portable_xml_managed_content_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_managed_content")
+      add_test(NAME portable_xml_mixed_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/portable_xml_mixed_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_mixed")
+      add_test(NAME portable_xml_identity_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/portable_xml_identity_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_identity")
+      add_test(NAME mobile_identity_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/mobile_identity_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/mobile_xml_identity")
+      add_test(NAME portable_html_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/portable_html_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_html")
+      add_test(NAME portable_xml_all_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/portable_xml_all_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_all")
+      add_test(NAME portable_xml_provider_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/portable_xml_provider_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/portable_xml_provider")
+      if(WIN32)
+        add_test(NAME native_xml_provider_test
+          COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/native_xml_provider_test.py"
+            --compiler "$<TARGET_FILE:serializer>" --bridge "$<TARGET_FILE:xml_provider_bridge>"
+            --build "${CMAKE_CURRENT_BINARY_DIR}/native_xml_provider" --language go,swift,rust,c)
+      endif()
+      add_test(NAME kotlin_xml_token_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/kotlin_xml_token_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/kotlin_xml_token")
+      add_test(NAME swift_xml_token_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/swift_xml_token_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/swift_xml_token")
+      add_test(NAME swift_xml_presence_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/swift_xml_presence_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/swift_xml_presence")
+      add_test(NAME rust_xml_token_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/rust_xml_token_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/rust_xml_token")
+      add_test(NAME rust_xml_presence_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/rust_xml_presence_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/rust_xml_presence")
+      add_test(NAME c_xml_token_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/c_xml_token_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/c_xml_token")
+      add_test(NAME c_xml_presence_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/c_xml_presence_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/c_xml_presence")
+      add_test(NAME javascript_xml_token_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/javascript_xml_token_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/javascript_xml_token")
+      add_test(NAME javascript_xml_content_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/javascript_xml_content_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/javascript_xml_content")
+      add_test(NAME javascript_xml_map_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/javascript_xml_map_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/javascript_xml_map")
+      add_test(NAME javascript_xml_variant_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/javascript_xml_variant_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/javascript_xml_variant")
+      add_test(NAME javascript_xml_model_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/javascript_xml_model_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/javascript_xml_model")
+      add_test(NAME javascript_xml_scalar_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/javascript_xml_scalar_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/javascript_xml_scalar")
+      add_test(NAME javascript_xml_lexical_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/javascript_xml_lexical_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/javascript_xml_lexical")
+      add_test(NAME javascript_xml_numeric_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/javascript_xml_numeric_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/javascript_xml_numeric")
+      add_test(NAME javascript_xml_mixed_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/javascript_xml_mixed_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/javascript_xml_mixed")
+      add_test(NAME javascript_xml_identity_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/javascript_xml_identity_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/javascript_xml_identity")
+      add_test(NAME javascript_xml_extension_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/javascript_xml_extension_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/javascript_xml_extension")
+      add_test(NAME javascript_xml_lifecycle_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/javascript_xml_lifecycle_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/javascript_xml_lifecycle")
+      add_test(NAME javascript_xml_provider_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/javascript_xml_provider_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/javascript_xml_provider")
+      add_test(NAME javascript_xml_projection_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/javascript_xml_projection_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/javascript_xml_projection")
+      add_test(NAME javascript_html_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/javascript_html_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/javascript_html")
+      add_test(NAME kotlin_xml_presence_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/kotlin_xml_presence_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/kotlin_xml_presence")
+      add_test(NAME go_xml_facets_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/go_xml_facets_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/go_xml_facets")
+      add_test(NAME go_xml_pattern_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/go_xml_pattern_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/go_xml_pattern")
+      add_test(NAME go_xml_model_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/go_xml_model_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/go_xml_model")
+      add_test(NAME go_xml_map_test
+        COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/go_xml_map_test.py"
+          --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/go_xml_map")
       add_test(NAME python_3mf_core_test
         COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/python_3mf_core_test.py"
           --compiler "$<TARGET_FILE:serializer>" --build "${CMAKE_CURRENT_BINARY_DIR}/python_3mf_core")
@@ -1240,6 +1456,82 @@ if(SERIALIZER_WITH_XML)
   endif()
   add_test(NAME xml_test COMMAND xml_test)
 
+  add_executable(xml_token_test xml_token_test.cpp)
+  target_link_libraries(xml_token_test PRIVATE Serializer::runtime GTest::gtest_main
+    xml_fixture_models xml_xsd_fixture_models)
+  if(MSVC)
+    target_compile_options(xml_token_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(xml_token_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME xml_token_test COMMAND xml_token_test)
+
+  # The native executable and independent Python oracle share the maintained portable presence corpus.
+  add_executable(xml_presence_test xml_presence_test.cpp)
+  serializer_generate(TARGET xml_presence_test SCHEMAS resources/xml_presence_fixture.serializer
+    CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_presence_fixture.ini"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_presence_fixture.xsd"
+      "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_presence_all_fixture.xsd"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/xml_presence")
+  target_link_libraries(xml_presence_test PRIVATE Serializer::runtime)
+  if(MSVC)
+    target_compile_options(xml_presence_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(xml_presence_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME xml_presence_test COMMAND xml_presence_test)
+  add_executable(xml_scalar_test xml_scalar_test.cpp)
+  serializer_generate(TARGET xml_scalar_test SCHEMAS resources/xml_scalar/xml_scalar_fixture.serializer
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_scalar/numeric.xsd"
+      "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_scalar/pattern.xsd"
+      "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_scalar/large.xsd"
+      "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_scalar/scalars.xsd"
+      "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_scalar/defaults.xsd"
+      "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_xsd_fixture.xsd"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/xml_scalar")
+  target_link_libraries(xml_scalar_test PRIVATE Serializer::runtime)
+  if(MSVC)
+    target_compile_options(xml_scalar_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(xml_scalar_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME xml_scalar_test COMMAND xml_scalar_test)
+  if(Python3_Interpreter_FOUND AND SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES)
+    add_test(NAME cpp_xml_scalar_test
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/cpp_xml_scalar_test.py"
+        --executable "$<TARGET_FILE:xml_scalar_test>"
+        --build "${CMAKE_CURRENT_BINARY_DIR}/cpp_xml_scalar")
+    add_test(NAME cpp_xml_presence_test
+      COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/cpp_xml_presence_test.py"
+        --compiler "$<TARGET_FILE:serializer>" --executable "$<TARGET_FILE:xml_presence_test>"
+        --build "${CMAKE_CURRENT_BINARY_DIR}/cpp_xml_presence")
+  endif()
+
+  find_package(Threads REQUIRED)
+  add_library(xml_provider_bridge SHARED xml_provider_bridge.cpp xml_provider_bridge.hpp)
+  target_link_libraries(xml_provider_bridge PRIVATE Serializer::runtime LibXml2::LibXml2)
+  target_compile_definitions(xml_provider_bridge PRIVATE SERIALIZER_XML_PROVIDER_BRIDGE_BUILD)
+  if(NOT WIN32)
+    set_property(TARGET serializer_runtime PROPERTY POSITION_INDEPENDENT_CODE ON)
+  endif()
+  if(MSVC)
+    target_compile_options(xml_provider_bridge PRIVATE /W4 /WX)
+  else()
+    target_compile_options(xml_provider_bridge PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_executable(xml_provider_test xml_provider_test.cpp)
+  serializer_generate(TARGET xml_provider_test SCHEMAS resources/xml_provider.serializer
+    CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_provider.ini"
+    OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/xml_provider")
+  target_link_libraries(xml_provider_test PRIVATE Serializer::runtime LibXml2::LibXml2
+    Threads::Threads GTest::gtest_main)
+  if(MSVC)
+    target_compile_options(xml_provider_test PRIVATE /W4 /WX)
+  else()
+    target_compile_options(xml_provider_test PRIVATE -Wall -Wextra -Wpedantic -Werror)
+  endif()
+  add_test(NAME xml_provider_test COMMAND xml_provider_test)
+
   add_executable(xml_shapes_cpp xml_shapes_test.cpp)
   serializer_generate(TARGET xml_shapes_cpp SCHEMAS resources/xml_shapes/model.serializer
     CONFIG "${CMAKE_CURRENT_SOURCE_DIR}/resources/xml_shapes/options.ini"
@@ -1257,7 +1549,7 @@ if(WIN32)
   get_property(serializer_test_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
   foreach(target IN LISTS serializer_test_targets)
     get_target_property(target_type "${target}" TYPE)
-    if(target_type STREQUAL "EXECUTABLE")
+    if(target_type STREQUAL "EXECUTABLE" OR target_type STREQUAL "SHARED_LIBRARY")
       # Keep the DLL list in one argument; expanding it would split the -D assignment.
       add_custom_command(TARGET "${target}" POST_BUILD
         COMMAND "${CMAKE_COMMAND}" "-DDLL_FILES=$<TARGET_RUNTIME_DLLS:${target}>"

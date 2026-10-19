@@ -1,0 +1,15 @@
+serializer version 1.7.0;
+
+namespace identity_xml {
+  class entry {
+    public optional<uint32> id (1);
+    public optional<string> label (2);
+  }
+  class request {
+    public optional<uint32> id (1);
+  }
+  class registry {
+    public array request requests (1);
+    public array entry entries (2);
+  }
+}

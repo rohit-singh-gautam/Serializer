@@ -1,7 +1,7 @@
 // Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
 // SPDX-License-Identifier: 0BSD
 mod schema;
-use schema::{Error, Protocol, ShapesChild, ShapesRecord, ShapesState, ShapesCatalog, XmlLimits, XmlValidator};
+use schema::{Error, Protocol, ShapesChild, ShapesRecord, ShapesState, ShapesCatalog, ShapesIntegerBox, ShapesTextBox, ShapesNames, XmlLimits, XmlValidator};
 
 /// A caller-prepared validator that proves both generated hook directions are enforced.
 struct RejectSchema;
@@ -12,6 +12,15 @@ impl XmlValidator for RejectSchema {
 
 /// Qualify generated nested, optional, fixed enum, exact numeric and scalar text mappings.
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let names_xml = "<r:names xmlns:r='urn:root' xmlns:a='urn:attribute' xml:lang='en' a:qualified='A&amp;B'><unqualified>plain</unqualified><f:foreign xmlns:f='urn:foreign'>foreign</f:foreign></r:names>";
+    let names = ShapesNames::decode_xml(names_xml)?;
+    assert_eq!((&*names.language, &*names.qualified, &*names.unqualified, &*names.foreign), ("en", "A&B", "plain", "foreign"));
+    assert_eq!(ShapesNames::decode_xml(&names.encode_xml()?)?.encode(Protocol::BinaryNone)?, names.encode(Protocol::BinaryNone)?);
+    let integer_box = ShapesIntegerBox::decode_xml("<integer_box><value>4294967295</value></integer_box>")?;
+    assert_eq!(integer_box.value, u32::MAX);
+    let text_box = ShapesTextBox::decode_xml("<text_box><value>A&amp;B</value></text_box>")?;
+    assert_eq!(text_box.value, "A&B");
+    assert_eq!(ShapesTextBox::decode_xml(&text_box.encode_xml()?)?.value, text_box.value);
     let catalog_xml = "<catalog xmlns='urn:serializer:vocabulary'><prices><price currency='USD'>12.5</price></prices><labels><label>A&amp;B</label><label/></labels></catalog>";
     let catalog = ShapesCatalog::decode_xml(catalog_xml)?;
     assert_eq!(catalog.prices[0].currency, "USD"); assert_eq!(catalog.prices[0].value, 12.5);

@@ -13,9 +13,12 @@
 #include "xml_schema.hpp"
 #include "python_package_writer.hpp"
 #include "python_xml_writer.hpp"
+#include "python_xml_identity.hpp"
+#include <rohit/digest.hpp>
 
 #include <functional>
 #include <algorithm>
+#include <iterator>
 #include <cstddef>
 #include <cstdint>
 #include <map>
@@ -41,6 +44,24 @@ constexpr std::string_view package_mce_runtime =
 constexpr std::string_view xml_rich_runtime =
 #include "python_xml_rich_runtime.inc"
     ;
+constexpr std::string_view html_runtime =
+#include "python_html_runtime.inc"
+    ;
+constexpr std::string_view xml_identity_runtime =
+#include "python_xml_identity_runtime.inc"
+    ;
+constexpr std::string_view xml_scalar_runtime =
+#include "python_xml_scalar_runtime.inc"
+;
+constexpr std::string_view xml_model_runtime =
+#include "python_xml_model_runtime.inc"
+;
+constexpr std::string_view xml_extension_runtime =
+#include "python_xml_extension_runtime.inc"
+;
+constexpr std::string_view xml_projection_runtime =
+#include "python_xml_projection_runtime.inc"
+;
 constexpr std::string_view keywords =
     " False None True and as assert async await break class continue def del elif else except "
     "finally for from global if import in is lambda nonlocal not or pass raise return try while "
@@ -54,14 +75,65 @@ class python_emitter {
   std::string output{runtime};
   std::size_t indent{};
   bool dynamic_first{};
+  std::set<const class_node*> mixed_fragments{};
   // Resolve the scalar/record beneath a supported optional or repeated XML field.
+  const type_name& xml_leaf_type(const type_name& value) const {
+    const auto* selected = &value;
+    std::set<const syntax_node*> references;
+    while (true) {
+      while (selected->is_optional() || selected->is_sequence()) { selected = &selected->arguments.front(); }
+      if (selected->type == object_type::class_type) {
+        const auto& owner = static_cast<const class_node&>(*selected->resolved_node);
+        if (owner.reference && owner.reference->value_projection) {
+          if (!references.insert(&owner).second) {
+            throw std::invalid_argument{"Cyclic readonly XML value projection"};
+          }
+          selected = &owner.reference->value_type;
+          continue;
+        }
+      }
+      return *selected;
+    }
+  }
+  // Resolve a field's effective XML value without replacing its native reference/container storage.
   const type_name& xml_leaf(const member& value) const {
-    const auto* selected = &value.type_name_list.front();
+    return xml_leaf_type(value.type_name_list.front());
+  }
+  // Identify readonly handles beneath native optional/repeated layers before their values are borrowed.
+  bool xml_value_projection(const type_name& value) const {
+    const auto* selected = &value;
     while (selected->is_optional() || selected->is_sequence()) { selected = &selected->arguments.front(); }
-    return *selected;
+    if (selected->type != object_type::class_type) { return false; }
+    const auto& owner = static_cast<const class_node&>(*selected->resolved_node);
+    return owner.reference && owner.reference->value_projection;
+  }
+  // Resolve a flattened XML member to the existing composed Python base-object storage path.
+  std::string xml_member_path(const class_node& owner, const member& selected) const {
+    const auto locate = [&](auto&& self, const class_node& current, const std::string& prefix) -> std::string {
+      for (const auto& item : current.member_list) {
+        if (&item == &selected) { return prefix + field(item.name, item.access); }
+      }
+      for (std::size_t index{}; index < current.parents.size(); ++index) {
+        const auto& base = current.parents[index];
+        if (base.parent_class) {
+          auto result = self(self, *base.parent_class,
+              prefix + field("base" + std::to_string(index), base.access) + '.');
+          if (!result.empty()) { return result; }
+        }
+      }
+      return {};
+    };
+    auto result = locate(locate, owner, {});
+    if (result.empty()) { throw std::invalid_argument{"Flattened Python XML member has no owning path"}; }
+    return result;
   }
   // Convert one XML scalar using exact generated type and numeric bounds.
   std::string xml_scalar(const type_name& value, const std::string& expression, bool encoding) const {
+    if (value.is_digest()) {
+      const auto extent = value.digest_extent ? value.digest_extent : rohit::digest_size(value.digest);
+      return "_xml_digest(" + expression + ", " + std::to_string(extent) + ", " +
+          (encoding ? "True" : "False") + ")";
+    }
     if (value.type == object_type::enum_type) {
       const auto& name = model.names.at(value.resolved_node);
       return encoding ? "_xml_enum(" + expression + ", _" + name + "_names, " + name + ")" :
@@ -74,9 +146,76 @@ class python_emitter {
         std::to_string(width(value)) + ", " + (value.name.starts_with('u') ? "True" : "False") +
         ", " + (encoding ? "True" : "False") + ")";
   }
+  // Emit a required map payload's static owning codec without an intermediate XML representation.
+  std::string xml_token_value(const type_name& value, const xml::name& name, bool attribute) const {
+    const auto expanded = quote(name.namespace_uri.empty() ? name.local : "{" + name.namespace_uri + "}" + name.local);
+    const auto& leaf = xml_leaf_type(value);
+    const bool record = leaf.type == object_type::class_type;
+    return "{'name': " + expanded + ", 'mode': " + quote(attribute ? "attribute" : "child") +
+        ", 'wrapper': None, 'minimum': 1, 'maximum': 1, 'optional': False, 'presence': None, "
+        "'repeated': False, 'extent': 0, 'default': None, 'map': None, 'variant': None, 'projection_payload': " +
+        (xml_value_projection(value) ? "True" : "False") + ", 'model': " +
+        (record ? "lambda: " + model.names.at(leaf.resolved_node) : "None") +
+        ", 'read': " + (record ? "None" : "lambda text, scope, context: " + xml_scalar(leaf, "text", false)) +
+        ", 'write': " + (record ? "None" : "lambda value, scope, context: " + xml_scalar(leaf, "value", true)) + "}";
+  }
+  // Export readonly record handles through their original target contract; input cannot invent an owner binding.
+  void xml_reference(const class_node& value) {
+    const auto& selected = xml_leaf_type(value.reference->value_type);
+    const bool record = selected.type == object_type::class_type;
+    line("_xml_export_only = True");
+    line("_xml_token_supported = False");
+    line("_xml_token_fields = _xml_token_all = ()");
+    line("_xml_identity = _xml_mixed = _xml_extensions = None");
+    line("_xml_token_inherited = False");
+    line("_xml_model = {'required': False}");
+    open("def encode_xml(self, limits=None, schema=None, context=None)");
+    line("\"\"\"Borrow the selected owning record during one synchronous XML export.\"\"\"");
+    if (record) { line("return self.read_value().encode_xml(limits, schema, context)"); }
+    else { line("raise ValueError('Scalar XML references require their owning field mapping')"); }
+    --indent;
+    open("def _xml_node(self, name, budget, depth)");
+    line("\"\"\"Reuse the selected value's declared mapping without constructing an owning target.\"\"\"");
+    if (record) { line("return self.read_value()._xml_node(name, budget, depth)"); }
+    else {
+      line("node = budget.node(name, depth)");
+      line("node[3] = " + xml_scalar(selected, "self.read_value()", true));
+      line("return node");
+    }
+    --indent;
+    for (const auto* method : {"decode_xml(cls, *args, **kwargs)", "decode_xml_chunks(cls, *args, **kwargs)", "_xml_from_node(cls, *args, **kwargs)"}) {
+      line("@classmethod"); open("def " + std::string{method});
+      line("\"\"\"Decode the owning target instead; readonly projections cannot bind an external owner from XML.\"\"\"");
+      line("raise ValueError('Readonly XML projections are export-only; decode the owning target')");
+      --indent;
+    }
+  }
   // Emit whole-object XML entry points and direct static member mapping for one owning record.
   void xml_object(const class_node& value) {
     if (!model.xml.enabled) { return; }
+    if (value.reference && value.reference->value_projection) { xml_reference(value); return; }
+    if (mixed_fragments.contains(&value)) {
+      line("_xml_token_supported = False");
+      line("_xml_token_fields = _xml_token_all = ()");
+      line("_xml_identity = _xml_mixed = None");
+      line("_xml_model = {'required': False}");
+      line("_xml_extensions = None");
+      line("_xml_token_inherited = False");
+      for (const auto* method : {"encode_xml(self, *args, **kwargs)", "_xml_node(self, *args, **kwargs)"}) {
+        open("def " + std::string{method});
+        line("\"\"\"Mixed fragment storage has no independent XML root contract.\"\"\"");
+        line("raise ValueError('Mixed fragment storage has no standalone XML codec')");
+        --indent;
+      }
+      for (const auto* method : {"decode_xml(cls, *args, **kwargs)", "decode_xml_chunks(cls, *args, **kwargs)", "_xml_from_node(cls, *args, **kwargs)"}) {
+        line("@classmethod");
+        open("def " + std::string{method});
+        line("\"\"\"Require the owning mixed-content record's declared XML contract.\"\"\"");
+        line("raise ValueError('Mixed fragment storage has no standalone XML codec')");
+        --indent;
+      }
+      return;
+    }
     const auto contract = xml_contract.bind(value);
     const auto name = model.names.at(&value);
     const auto expanded = [&](const xml::name& item) {
@@ -86,7 +225,10 @@ class python_emitter {
     const auto reject_method = [&](const std::string& selected) {
       if (selected == "encode_xml" || selected == "decode_xml" || selected == "_xml_node" || selected == "_xml_from_node" ||
           selected == "_srl_xml_state" || selected == "xml_bind_namespace" || selected == "_xml_rules" ||
-          selected == "_xml_record" || selected == "_xml_choices") {
+          selected == "_xml_record" || selected == "_xml_choices" || selected == "decode_xml_chunks" ||
+          selected == "_xml_token_fields" || selected == "_xml_token_supported" || selected == "_xml_token_all" ||
+          selected == "_xml_identity" || selected == "_xml_token_inherited" || selected == "_xml_mixed" ||
+          selected == "_xml_model" || selected == "_xml_extensions" || selected == "_xml_export_only") {
         throw std::invalid_argument{"Python XML method collides with declared member: " + selected};
       }
     };
@@ -98,6 +240,7 @@ class python_emitter {
     for (const auto& conversion : value.conversions) {
       reject_method(field(conversion.name, conversion.access));
     }
+    line("_xml_export_only = False");
     line("_xml_rules = (");
     ++indent;
     for (const auto& item : contract.fields) { line(python_xml::field(item, xml_leaf(*item.source)) + ','); }
@@ -108,12 +251,126 @@ class python_emitter {
     for (const auto& choice : contract.choices) {
       if (choice.repeated) { continue; }
       choices += "((";
-      for (const auto* alternative : choice.alternatives) { choices += quote(field(alternative->name, alternative->access)) + ','; }
+      for (const auto* alternative : choice.alternatives) { choices += quote(xml_member_path(value, *alternative)) + ','; }
       const auto empty = std::any_of(choice.branches.begin(), choice.branches.end(),
           [](const auto& branch) { return branch.minimum == 0U; });
       choices += "), " + std::to_string(empty ? 0U : choice.minimum) + ", " + std::to_string(choice.maximum) + "),";
     }
     line(choices + ")");
+    bool token_supported = !python_xml::needs_namespace_state(contract) && contract.wildcards.empty() &&
+        (!contract.unknown || *contract.unknown == xml_unknown_policy::reject) &&
+        std::none_of(contract.choices.begin(), contract.choices.end(),
+            [](const auto& selected) { return selected.repeated; });
+    line("_xml_token_fields = (");
+    ++indent;
+    std::size_t token_index{};
+    for (const auto& item : contract.fields) {
+      const auto& source_field = *item.source;
+      const auto& leaf = xml_leaf(source_field);
+      const bool optional = source_field.type_name_list.front().is_optional();
+      const auto* container = &source_field.type_name_list.front();
+      if (container->is_optional()) { container = &container->arguments.front(); }
+      const bool typed_list = item.list && (container->is_sequence() || source_field.modifier == member::modifier_type::array);
+      if (item.wrapper && optional && !item.presence.explicit_policy && !item.map_binding) { token_supported = false; }
+      const auto rule = name + "._xml_rules[" + std::to_string(token_index++) + "]";
+      const auto checked = "_xml_checked(text, " + rule + ", scope, context)";
+      const auto read = typed_list ? "[" + xml_scalar(leaf, "srl_item", false) + " for srl_item in _xml_tokens(" + checked + ")]" :
+          xml_scalar(leaf, checked, false);
+      const auto raw = typed_list ? "' '.join(" + xml_scalar(leaf, "srl_item", true) + " for srl_item in value)" :
+          xml_scalar(leaf, "value", true);
+      const bool record = leaf.type == object_type::class_type;
+      std::string map_binding{"None"};
+      if (item.map_binding) {
+        const auto& selected = *item.map_binding;
+        const bool attribute = selected.key_placement == xml_binding::map_key_placement::attribute;
+        map_binding = "{'entry': " + expanded(selected.entry) + ", 'attribute': " + (attribute ? "True" : "False") +
+            ", 'optional': " + (selected.optional_container ? "True" : "False") +
+            ", 'key': " + xml_token_value(selected.key_type, selected.key, attribute) +
+            ", 'value': " + xml_token_value(selected.value_type, selected.value, false) + "}";
+      }
+      std::string variant_binding{"None"};
+      if (item.variant_binding) {
+        const auto& selected = *item.variant_binding;
+        variant_binding = "{'selection': " + quote(selected.selection == xml_binding::variant_selection::element ? "element" : "xsi_type") +
+            ", 'alternatives': (";
+        for (const auto& alternative : selected.alternatives) {
+          auto payload = xml_token_value(alternative.native_type, alternative.tag, false);
+          payload.pop_back();
+          payload += ", 'member': " + quote(xml_member_path(value, source_field) + "_" + snake(alternative.alias)) +
+              ", 'type': " + python_xml::name(alternative.type_identity) + ", 'variant_payload': True}";
+          variant_binding += payload + ',';
+        }
+        variant_binding += ")}";
+      }
+      line("{'member': " + quote(xml_member_path(value, source_field)) + ", 'name': " + expanded(item.qualified_name) +
+          ", 'mode': " + quote(item.attribute ? "attribute" : item.text ? "text" : "child") +
+          ", 'wrapper': " + (item.wrapper ? expanded(*item.wrapper) : "None") +
+          ", 'minimum': " + std::to_string(item.min_occurs) +
+          ", 'maximum': " + (item.max_occurs ? std::to_string(*item.max_occurs) : "None") +
+          ", 'optional': " + (optional ? "True" : "False") +
+          ", 'presence': " + (item.presence.explicit_policy ? quote(
+              item.presence.policy == xml_binding::presence_policy::required ? "required" :
+              item.presence.policy == xml_binding::presence_policy::absent ? "absent" :
+              item.presence.policy == xml_binding::presence_policy::nil ? "nil" : "absent_or_nil") : "None") +
+          ", 'repeated': " + (item.repeated && !item.list ? "True" : "False") +
+          ", 'extent': " + std::to_string(typed_list ? 0U : source_field.fixed_extent) +
+          ", 'default': " + (item.fixed_value ? quote(*item.fixed_value) : item.default_value ? quote(*item.default_value) : "None") +
+          ", 'created': " + (source_field.created_version.empty() ? "None" :
+              python_xml::revision_value(*contract.model.revision, source_field.created_version)) +
+          ", 'obsolete': " + (source_field.obsolete_version.empty() ? "None" :
+              python_xml::revision_value(*contract.model.revision, source_field.obsolete_version)) +
+          ", 'map': " + map_binding +
+          ", 'variant': " + variant_binding +
+          ", 'value_projection': " + (xml_value_projection(source_field.type_name_list.front()) ? "True" : "False") +
+          ", 'model': " + (record ? "lambda: " + model.names.at(leaf.resolved_node) : "None") +
+          ", 'read': " + (record ? "None" : "lambda text, scope, context: " + read) +
+          ", 'write': " + (record ? "None" : "lambda value, scope, context: _xml_checked(" + raw + ", " + rule + ", scope, context)") + "},");
+    }
+    --indent;
+    line(")");
+    std::string model_binding{"_xml_model = {'revision': "};
+    if (const auto* revision = contract.model.revision) {
+      const auto& type = revision->type_name_list.front();
+      model_binding += "{'member': " + quote(xml_member_path(value, *revision)) + ", 'kind': " + quote(type.name) +
+          ", 'width': " + std::to_string(width(type)) + ", 'minimum': " +
+          python_xml::revision_value(*revision, schema_version::minimum(*revision)) + ", 'current': " +
+          python_xml::revision_value(*revision, revision->default_value) + '}';
+    } else { model_binding += "None"; }
+    model_binding += ", 'magic': " + (contract.model.magic ? quote(*contract.model.magic) : "None") +
+        ", 'required': " + (contract.model.digest || contract.model.revision || contract.model.magic ? "True" : "False") + "}";
+    line(model_binding);
+    line("_xml_extensions = " + (contract.extensions ? python_xml::extensions(*contract.extensions) : "None"));
+    line("_xml_token_supported = " + std::string{token_supported ? "True" : "False"});
+    std::string all_groups{"_xml_token_all = ("};
+    for (const auto& group : contract.all_groups) {
+      all_groups += "((";
+      for (const auto* alternative : group.alternatives) {
+        const auto found = std::find_if(contract.fields.begin(), contract.fields.end(),
+            [&](const auto& selected) { return selected.source == alternative; });
+        all_groups += std::to_string(std::distance(contract.fields.begin(), found)) + ',';
+      }
+      all_groups += "), " + std::to_string(group.minimum) + "),";
+    }
+    line(all_groups + ")");
+    line("_xml_identity = " + (contract.identity ? python_xml::identity(*contract.identity) : "None"));
+    line("_xml_token_inherited = " + std::string{contract.model.inherited ? "True" : "False"});
+    std::string mixed_binding{"None"};
+    if (contract.mixed) {
+      const auto& selected = *contract.mixed;
+      const auto variant = xml_member_path(*selected.fragment, *selected.variant);
+      mixed_binding = "{'member': " + quote(xml_member_path(value, *selected.source)) +
+          ", 'fragment': lambda: " + model.names.at(selected.fragment) +
+          ", 'index': " + quote(variant + "_index") + ", 'text_index': " + std::to_string(selected.text_alternative) +
+          ", 'text_member': " + quote(variant + "_" + snake(selected.text_branch)) + ", 'children': (";
+      for (const auto& child : selected.children) {
+        auto payload = xml_token_value(*child.value_type, child.qualified_name, false);
+        payload.pop_back();
+        mixed_binding += payload + ", 'alternative': " + std::to_string(child.alternative) +
+            ", 'member': " + quote(variant + "_" + snake(child.branch)) + "},";
+      }
+      mixed_binding += ")}";
+    }
+    line("_xml_mixed = " + mixed_binding);
     if (python_xml::needs_state(contract)) {
       open("def xml_bind_namespace(self, prefix, uri)");
       line("\"\"\"Bind XML-only QName/prefix-list presentation without adding native wire fields.\"\"\"");
@@ -123,18 +380,31 @@ class python_emitter {
     open("def encode_xml(self, limits=None, schema=None, context=None)");
     line("\"\"\"Encode one complete XML document with fixed generated mapping.\"\"\"");
     line("budget = _XmlBudget(limits, context)");
-    line("data = _xml_write(self._xml_node(" + expanded(contract.root) + ", budget, 1), budget.limits, context)");
+    line("context = budget.context");
+    line("if not _xml_token_capable(type(self)) and _xml_token_required(type(self)): raise ValueError('This XML mapping requires a token-compatible owning graph')");
+    line("data = _xml_token_encode(self, " + expanded(contract.root) + ", budget.limits, context) if _xml_token_capable(type(self)) else _xml_write(self._xml_node(" + expanded(contract.root) + ", budget, 1), budget.limits, context)");
     if (!model.xml.runtime_xsd) { line("if schema is not None: raise ValueError('Runtime XSD was not enabled during generation')"); }
     else if (model.xml.validation_scope != "input") { line("if schema is not None: schema.validate(data, budget.limits, context)"); }
     line("return data"); --indent;
     line("@classmethod");
     open("def decode_xml(cls, data, limits=None, schema=None, context=None)");
     line("\"\"\"Return a fresh model after exact XML shape and optional XSD validation.\"\"\"");
+    line("if _xml_export_only(cls): raise ValueError('Readonly XML projections are export-only; decode the owning target')");
+    line("context = _xml_pattern_context(limits, context)");
     if (!model.xml.runtime_xsd) { line("if schema is not None: raise ValueError('Runtime XSD was not enabled during generation')"); }
     else if (model.xml.validation_scope != "output") { line("if schema is not None: schema.validate(data, limits, context)"); }
+    line("if not _xml_token_capable(cls) and _xml_token_required(cls): raise ValueError('This XML mapping requires a token-compatible owning graph')");
+    line("if _xml_token_capable(cls): return _xml_token_decode(cls, " + expanded(contract.root) + ", (data,), limits, context)");
     line("node = _xml_parse(data, limits, context)");
     line("if node[0] != " + expanded(contract.root) + ": raise ValueError('Unexpected XML root or namespace')");
     line("return cls._xml_from_node(node, context)"); --indent;
+    line("@classmethod");
+    open("def decode_xml_chunks(cls, chunks, limits=None, context=None)");
+    line("\"\"\"Decode UTF-8 slices without an XML tree; return only after exact document EOF.\"\"\"");
+    line("if _xml_export_only(cls): raise ValueError('Readonly XML projections are export-only; decode the owning target')");
+    line("if not _xml_token_capable(cls): raise ValueError('This XML mapping requires the whole-document codec')");
+    line("return _xml_token_decode(cls, " + expanded(contract.root) + ", chunks, limits, context)");
+    --indent;
     open("def _xml_node(self, name, budget, depth)");
     line("\"\"\"Populate the statically bound XML tree under a shared document budget.\"\"\"");
     line("node = budget.node(name, depth)");
@@ -146,7 +416,7 @@ class python_emitter {
     for (const auto& item : contract.fields) {
       const auto& source_field = *item.source;
       const auto& leaf = xml_leaf(source_field);
-      const auto access = "self." + field(source_field.name, source_field.access);
+      const auto access = "self." + xml_member_path(value, source_field);
       const bool optional = source_field.type_name_list.front().is_optional();
       const auto* container = &source_field.type_name_list.front();
       if (container->is_optional()) { container = &container->arguments.front(); }
@@ -173,6 +443,7 @@ class python_emitter {
           line("if srl_item_index: _xml_extension_children(node, state, extension_cursor, " + position + ", srl_item_index, budget, depth, len(" + access + "))");
         }
       }
+      if (xml_value_projection(source_field.type_name_list.front())) { selected += ".read_value()"; }
       const auto lexical = [&] {
         const auto raw = typed_list ? "' '.join(" + xml_scalar(leaf, "srl_item", true) + " for srl_item in " + selected + ")" :
             xml_scalar(leaf, selected, true);
@@ -203,6 +474,7 @@ class python_emitter {
     line("return node"); --indent;
     line("@classmethod"); open("def _xml_from_node(cls, node, context=None)");
     line("\"\"\"Read exact generated members into an unpublished owning candidate.\"\"\"");
+    line("if _xml_export_only(cls): raise ValueError('Readonly XML projections are export-only; decode the owning target')");
     line("fields, result = _XmlFieldsRich(node, " + std::string{std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& item) { return item.text; }) ? "True" : "False"} + ", cls._xml_record, context), cls()");
     xml_index = 0;
     for (const auto& item : contract.fields) {
@@ -213,7 +485,7 @@ class python_emitter {
       if (container->is_optional()) { container = &container->arguments.front(); }
       const bool typed_list = item.list && (container->is_sequence() || source_field.modifier == member::modifier_type::array);
       const auto rule = "cls._xml_rules[" + std::to_string(xml_index++) + "]";
-      const auto access = "result." + field(source_field.name, source_field.access);
+      const auto access = "result." + xml_member_path(value, source_field);
       const auto read_value = [&](const std::string& expression) {
         if (leaf.type == object_type::class_type) {
           return model.names.at(leaf.resolved_node) + "._xml_from_node(" + expression + ", context)";
@@ -914,6 +1186,39 @@ class python_emitter {
     }
     write_output_body(target);
     projection_fields_.clear(); --indent;
+    if (model.xml.enabled) {
+      const auto contract = xml_contract.bind(target);
+      const auto target_name = model.names.at(&target);
+      const auto root = quote(contract.root.namespace_uri.empty() ? contract.root.local :
+          "{" + contract.root.namespace_uri + "}" + contract.root.local);
+      const auto slots = translator::slots(method, "python", [&](auto value, auto access) { return field(value, access); });
+      const auto getters = translator::output_fields(method, "python", [&](auto value, auto access) { return field(value, access); });
+      std::string accessors{"{"};
+      std::size_t parent_index{};
+      for (const auto& slot : slots) {
+        const auto access = slot.parent ? target.parents[parent_index++].access : slot.field.access;
+        auto getter = getters.at(slot.field.name);
+        if (!getter.ends_with("()")) { throw std::logic_error{"Translator XML accessor is not a checked getter"}; }
+        getter.resize(getter.size() - 2U);
+        accessors += quote(field(slot.field.name, access)) + ": self." + getter + ',';
+      }
+      accessors += '}';
+      const auto facade = "_XmlProjectionAccess(" + target_name + ", " + accessors + ", self)";
+      if (python_xml::needs_state(contract)) {
+        open("def xml_bind_namespace(self, prefix, uri)");
+        line("\"\"\"Bind XML-only QName presentation on this scoped view without changing source storage.\"\"\"");
+        line("_xml_bind_namespace(" + facade + ", prefix, uri)"); --indent;
+      }
+      open("def encode_xml(self, limits=None, schema=None, context=None)");
+      line("\"\"\"Export borrowed target getters without constructing an owning target or copying nested values.\"\"\"");
+      line("budget = _XmlBudget(limits, context)"); line("context = budget.context");
+      line("if not _xml_token_capable(" + target_name + ") and _xml_token_required(" + target_name + "): raise ValueError('This XML mapping requires a token-compatible owning graph')");
+      line("selected = " + facade);
+      line("data = _xml_token_encode(selected, " + root + ", budget.limits, context) if _xml_token_capable(" + target_name + ") else _xml_write(" + target_name + "._xml_node(selected, " + root + ", budget, 1), budget.limits, context)");
+      if (!model.xml.runtime_xsd) { line("if schema is not None: raise ValueError('Runtime XSD was not enabled during generation')"); }
+      else if (model.xml.validation_scope != "input") { line("if schema is not None: schema.validate(data, budget.limits, context)"); }
+      line("return data"); --indent;
+    }
     auto result = std::move(output); output = std::move(saved_output); indent = saved_indent; dynamic_first = saved_first;
     return result;
   }
@@ -1092,7 +1397,7 @@ class python_emitter {
               owner.reference->mode != reference_declaration::mode_type::shared;
         })) { slots += "\"__weakref__\", "; }
     if (value.reference) { slots += "\"_srl_reference\", "; }
-    const bool xml_state = model.xml.enabled && !value.reference && python_xml::needs_state(xml_contract.bind(value));
+    const bool xml_state = model.xml.enabled && !value.reference && !mixed_fragments.contains(&value) && python_xml::needs_state(xml_contract.bind(value));
     if (xml_state) { slots += "\"_srl_xml_state\", "; }
     for (const auto& f : fields) {
       slots += quote(f.first) + ", ";
@@ -1295,6 +1600,17 @@ class python_emitter {
 public:
   // Bind the validated schema for one output module.
   explicit python_emitter(const schema& value) : model{value}, xml_contract{value.xml} {
+    if (model.xml.enabled) {
+      for (const auto* node : model.nodes) {
+        if (node->type != object_type::class_type) { continue; }
+        const auto configured = model.xml.classes.find(node->get_full_name());
+        if (configured == model.xml.classes.end() || !configured->second.contracts.contains("mixed")) { continue; }
+        const auto binding = xml_contract.bind(static_cast<const class_node&>(*node));
+        if (binding.mixed && !model.xml.classes.contains(binding.mixed->fragment->get_full_name())) {
+          mixed_fragments.insert(binding.mixed->fragment);
+        }
+      }
+    }
     arithmetic_helpers = behavior::select_helpers(model.nodes,
         [&](const auto& node) { return model.names.at(&node); },
         [&](const auto name) { return field(name); });
@@ -1310,7 +1626,16 @@ public:
             "BinaryPart ModelPart PreservedExtensions ExtensionPolicy PackageResult ");
       }
     }
-    if (model.xml.enabled) { output += xml_runtime; output += xml_rich_runtime; }
+    if (model.xml.enabled) {
+      output += xml_runtime;
+      output += xml_rich_runtime;
+      output += xml_identity_runtime;
+      output += xml_scalar_runtime;
+      output += xml_model_runtime;
+      output += xml_extension_runtime;
+      output += xml_projection_runtime;
+      output += html_runtime;
+    }
     if (!model.packages.empty()) { output += package_runtime; output += package_mce_runtime; }
     output += behavior::helpers("python", arithmetic_helpers);
     output += behavior::helpers_predicate("python", arithmetic_helpers);
@@ -1327,7 +1652,12 @@ public:
     line(")");
     for (const auto* node : model.nodes) {
       if (node->type == object_type::function_type) { free_function(static_cast<const function_node&>(*node)); continue; }
-      if (model.xml.enabled && model.names.at(node) == "XmlSchema") {
+      if (model.xml.enabled && (model.names.at(node) == "XmlSchema" || model.names.at(node) == "Html" ||
+          model.names.at(node) == "HtmlEvent" || model.names.at(node) == "HtmlAttribute" ||
+          model.names.at(node) == "HtmlLimits" || model.names.at(node) == "XmlIdentityLimits" ||
+          model.names.at(node) == "XmlMapLimits" || model.names.at(node) == "XmlMixedLimits" ||
+          model.names.at(node) == "XmlPatternLimits" || model.names.at(node) == "XmlExtensionLimits" ||
+          model.names.at(node) == "XmlExtensionOptions")) {
         throw std::invalid_argument{"Python XML type collides with the runtime schema helper"};
       }
       validate_identifier(
@@ -1357,7 +1687,7 @@ public:
       for (const auto* node : model.nodes) {
         if (node->type != object_type::class_type) { continue; }
         const auto& selected = static_cast<const class_node&>(*node);
-        if (selected.reference) { continue; }
+        if (selected.reference || mixed_fragments.contains(&selected)) { continue; }
         const auto root = xml_contract.bind(selected).root;
         line("_XML_TYPES[" + quote(root.namespace_uri.empty() ? root.local : "{" + root.namespace_uri + "}" + root.local) + "] = " + model.names.at(node));
       }

@@ -1,0 +1,18 @@
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+<xs:element name="sample"><xs:complexType><xs:sequence>
+<xs:element name="integer"><xs:simpleType><xs:restriction base="xs:unsignedLong">
+<xs:minInclusive value="18446744073709551613"/><xs:maxExclusive value="18446744073709551615"/>
+</xs:restriction></xs:simpleType></xs:element>
+<xs:element name="amount"><xs:simpleType><xs:restriction base="xs:double">
+<xs:minExclusive value="-1"/><xs:maxInclusive value="1"/>
+</xs:restriction></xs:simpleType></xs:element>
+<xs:element name="rounded"><xs:simpleType><xs:restriction base="xs:float">
+<xs:minInclusive value="0.1"/><xs:maxInclusive value="0.1"/>
+</xs:restriction></xs:simpleType></xs:element>
+<xs:element name="text"><xs:simpleType><xs:restriction base="xs:string">
+<xs:whiteSpace value="collapse"/><xs:length value="2"/><xs:enumeration value="A😀"/>
+</xs:restriction></xs:simpleType></xs:element>
+<xs:element name="choice"><xs:simpleType><xs:restriction base="xs:unsignedLong">
+<xs:enumeration value="18446744073709551615"/>
+</xs:restriction></xs:simpleType></xs:element>
+<xs:element name="enabled"><xs:simpleType><xs:restriction base="xs:boolean"><xs:pattern value="1|true"/></xs:restriction></xs:simpleType></xs:element></xs:sequence><xs:attribute name="code" use="required"><xs:simpleType><xs:restriction base="xs:string"><xs:length value="2"/><xs:enumeration value="é😀"/></xs:restriction></xs:simpleType></xs:attribute></xs:complexType></xs:element></xs:schema>

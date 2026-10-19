@@ -263,5 +263,14 @@
 
 ## Response preferences
 
+- Treat questions such as "How much time will this take to complete?" as asking
+  for the remaining elapsed time to finish the current task in this chat session.
+  Do not answer with a human development schedule or a multi-day/week estimate
+  derived from backlog size or summed work-unit caps.
+- Base time estimates on current progress, automated and parallel execution,
+  and observed build/test durations. Normally express the remaining time in
+  minutes or hours, with a concise realistic range. If a reliable estimate is
+  unavailable, explain the concrete uncertainty briefly instead of inventing a
+  discouraging long project timeline.
 - When suggesting a Git commit message, provide it in a fenced code block so it is directly copyable.
 - Do not add Conventional Commit prefixes or scopes such as `feat:`, `fix:`, `chore:`, or `feat(component):` unless the user explicitly requests them.

@@ -13,6 +13,7 @@
 #include "value_reference_native_writer.hpp"
 #include "comparison_writer.hpp"
 #include "xml_rust_writer.hpp"
+#include "xml_rust_projection_writer.hpp"
 
 #include <algorithm>
 #include <cstddef>
@@ -38,6 +39,7 @@ class rust_emitter {
   const schema& model;
   behavior::checked_helpers arithmetic_helpers{};
   std::set<const syntax_node*> borrowed_nodes_{};
+  std::set<const class_node*> xml_mixed_fragments_{};
   std::string output{"#![allow(dead_code, unused_imports)]\n"};
   std::size_t indent{};
   bool variable_first{};
@@ -790,6 +792,32 @@ class rust_emitter {
     projection_fields_ = std::move(projected);
     write_output_body(target);
     projection_fields_.clear(); close();
+    if (model.xml.enabled) {
+      const xml_binding::schema bindings{model.xml};
+      const auto contract = bindings.bind(target);
+      if (std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) { return field.variant_binding.has_value(); })) {
+        throw std::invalid_argument{"Readonly XML translators require a native target getter for the complete variant storage"};
+      }
+      const auto slots = translator::slots(method, "rust", [&](auto value, auto) { return field(value); });
+      std::map<const member*, std::string> paths{};
+      const auto collect = [&](auto&& self, const class_node& owner, const std::string& prefix) -> void {
+        for (std::size_t index{}; index < owner.parents.size(); ++index) { self(self, *owner.parents[index].parent_class, prefix + "base" + std::to_string(index) + '.'); }
+        for (const auto& field : owner.member_list) { paths.emplace(&field, prefix + this->field(field.name)); }
+      };
+      collect(collect, target, "");
+      output += xml_binding::rust_methods(target, contract,
+          [&](const auto& item) { return field(item.name); }, [&](const auto& item) { return type(item); }, model.xml, true,
+          [&](const member& item) {
+            const auto& path = paths.at(&item);
+            const auto separator = path.find('.');
+            const auto root = path.substr(0, separator);
+            const auto found = std::find_if(slots.begin(), slots.end(), [&](const auto& slot) { return field(slot.field.name) == root; });
+            if (found == slots.end()) { throw std::logic_error{"Readonly XML translator getter is absent"}; }
+            const auto getter = "self." + field("get_" + found->field.name) + "()";
+            if (separator != std::string::npos) { return "(&" + getter + '.' + path.substr(separator+1U) + ")"; }
+            return std::string{translator::rust_getter_borrows(found->field.type_name_list.front()) ? "" : "&"} + getter;
+          });
+    }
     auto result = std::move(output); output = std::move(saved_output); indent = saved_indent;
     return result;
   }
@@ -953,14 +981,30 @@ class rust_emitter {
     open("fn srl_read(&mut self, _input: &mut SrlReader<'_>) -> SrlResult<()>");
     line("Err(Error(\"Export-only reference: decode into an ordinary owning target\"))");
     close();
+    if (model.xml.enabled) {
+      const xml_binding::schema bindings{model.xml};
+      auto contract = bindings.bind(value);
+      if (value.reference->value_type.type == object_type::class_type) {
+        contract = bindings.bind(static_cast<const class_node&>(*value.reference->value_type.resolved_node));
+      }
+      output += xml_binding::rust_reference_xml_methods(value, contract, [&](const auto& item) { return type(item); }, model.xml);
+    }
     close();
   }
 
   void object(const class_node& value) {
     if (reference_support::native_value_reference(value)) { value_reference_object(value); return; }
-    if (model.xml.enabled) {
-      const std::set<std::string> reserved{"encode_xml", "decode_xml", "encode_xml_with_validation",
-          "decode_xml_with_validation", "srl_xml_write", "srl_xml_read"};
+    if (model.xml.enabled && !xml_mixed_fragments_.contains(&value)) {
+      std::set<std::string> reserved{"encode_xml", "decode_xml", "encode_xml_with_validation",
+          "decode_xml_bytes", "decode_xml_with_validation", "encode_xml_with_map_limits", "decode_xml_with_map_limits",
+          "encode_xml_with_digest_limits", "decode_xml_with_digest_limits", "encode_xml_with_all_policies", "decode_xml_with_all_policies",
+          "encode_xml_with_identity_limits", "decode_xml_with_identity_limits", "srl_xml_identity_check", "srl_xml_encode_known", "srl_xml_decode_known",
+          "encode_xml_with_mixed_limits", "decode_xml_with_mixed_limits", "encode_xml_with_policies", "decode_xml_with_policies",
+          "srl_xml_write", "srl_xml_read", "srl_xml_read_tokens"};
+      const xml_binding::schema extension_bindings{model.xml};
+      if (xml_codegen::native_extension_graph(value, extension_bindings)) {
+        reserved.insert({"decode_xml_document", "encode_xml_with_extensions", "srl_xml_extension_model"});
+      }
       // Reserve selected XML APIs before any authored member or callable is emitted.
       const auto check_xml_name = [&](std::string_view name) {
         if (reserved.contains(field(name))) {
@@ -1058,10 +1102,19 @@ class rust_emitter {
     output += reference_support::portable_methods(value, name, "rust",
         [&](const auto& item) { return type(item); },
         [&](auto item, auto) { return field(item); });
-    if (model.xml.enabled) {
+    if (model.xml.enabled && !xml_mixed_fragments_.contains(&value)) {
       const xml_binding::schema bindings{model.xml};
+      std::map<const member*, std::string> paths{};
+      // Rust module privacy permits typed access through the unchanged owning base composition.
+      const auto collect_paths = [&](auto&& self, const class_node& owner, const std::string& prefix) -> void {
+        for (std::size_t index{}; index < owner.parents.size(); ++index) {
+          self(self, *owner.parents[index].parent_class, prefix + "base" + std::to_string(index) + '.');
+        }
+        for (const auto& item : owner.member_list) { paths.emplace(&item, prefix + field(item.name)); }
+      };
+      collect_paths(collect_paths, value, "");
       output += xml_binding::rust_methods(value, bindings.bind(value),
-          [&](const auto& item) { return field(item.name); },
+          [&](const auto& item) { return paths.at(&item); },
           [&](const auto& item) { return type(item); }, model.xml);
     }
     array_access(value);
@@ -1295,6 +1348,19 @@ public:
   // Bind schema metadata for one Rust module.
   explicit rust_emitter(const schema& value) : model{value} {
     collect_borrowed_nodes();
+    if (model.xml.enabled) {
+      const xml_binding::schema bindings{model.xml};
+      for (const auto* node : model.nodes) {
+        if (node->type != object_type::class_type) { continue; }
+        const auto& owner = static_cast<const class_node&>(*node);
+        const auto configured = model.xml.classes.find(owner.get_full_name());
+        if (configured == model.xml.classes.end() || !configured->second.contracts.contains("mixed")) { continue; }
+        const auto contract = bindings.bind(owner);
+        if (contract.mixed && !model.xml.classes.contains(contract.mixed->fragment->get_full_name())) {
+          xml_mixed_fragments_.insert(contract.mixed->fragment);
+        }
+      }
+    }
     arithmetic_helpers = behavior::select_helpers(model.nodes,
         [&](const auto& node) { return model.names.at(&node); },
         [&](const auto name) { return field(name); }, "_internal");
@@ -1337,11 +1403,13 @@ public:
             return item->type == object_type::class_type && static_cast<const class_node&>(*item).reference.has_value();
           })) { throw std::invalid_argument{"Rust reference runtime name collision: SrlReferenceBinding"}; }
       if (model.xml.enabled) {
-        validate_identifier(model.names.at(node), " XmlLimits XmlValidator SrlXmlWriter SrlXmlFields ");
+        validate_identifier(model.names.at(node), " XmlDocument XmlExtensionLimits XmlExtensionOptions XmlExtensionState SrlXmlExtensionField SrlXmlExtensionSlot SrlXmlExtensionContract SrlXmlExtensionModel SrlXmlExtensionOwner SrlXmlExtensionChild XmlIdentityLimits SrlXmlIdentityName SrlXmlIdentityPath SrlXmlIdentityField SrlXmlIdentityConstraint SrlXmlIdentityScope SrlXmlIdentityEdge SrlXmlIdentityNode SrlXmlIdentityCapture SrlXmlIdentityCandidate SrlXmlIdentity SrlXmlPatternState SrlXmlPattern SrlXmlRule SrlXmlScalarWork Html HtmlLimits HtmlAttribute HtmlEvent XmlLimits XmlMapLimits XmlMixedLimits XmlDigestLimits SrlXmlMapBudget XmlValidator SrlXmlWriter SrlXmlFields "
+            "SrlXmlInput SrlXmlTokenName SrlXmlToken SrlXmlTokenAncestor SrlXmlTokenFields ");
         if (node->type == object_type::function_type) {
+          if (snake(model.names.at(node)).starts_with("srl_xml_")) { throw std::invalid_argument{"XML runtime function conflicts with native declaration: " + model.names.at(node)}; }
           validate_identifier(snake(model.names.at(node)),
               " srl_xml_name srl_xml_parse srl_xml_header srl_xml_reject_dtd srl_xml_number "
-              "srl_xml_bool srl_xml_float srl_xml_text ");
+              "srl_xml_bool srl_xml_float srl_xml_text srl_xml_revision_number srl_xml_digest_read srl_xml_digest_text srl_xml_token_character srl_xml_token_value srl_xml_variant_ncname ");
         }
       }
       if (node->type == object_type::function_type) { free_function(static_cast<const function_node&>(*node)); continue; }

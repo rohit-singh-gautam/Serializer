@@ -1,5 +1,13 @@
 # Rust, Python, Swift, Kotlin, and C
 
+Compiler/runtime **2.12.0** adds selected [generated XML token paths](../serialization/xml_tokens.md).
+Python exposes incremental byte-chunk decoding, explicit presence/nil, bounded
+mixed/map/variant/inherited and XSD identity/all traversal, plus a separate
+approved HTML adapter. Swift and Kotlin
+have direct XML output. Concrete owning generic instances use their resolved
+field mappings. SDK qualification remains per backend; unsupported rich graphs
+and unimplemented mappings still reject explicitly.
+
 Language `1.3.0` [digest fields](../schema/digest.md) support variable bytes, exact byte
 extents, and named-algorithm lengths in these owning outputs and all four native
 codecs. Digest computation uses the application's provider; only C++ supplies

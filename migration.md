@@ -1,5 +1,40 @@
 # Migrating to the snake_case Serializer API
 
+## Compiler/runtime 2.12.0
+
+Require `find_package(Serializer 2.12 CONFIG REQUIRED)` and regenerate owning
+headers for `<rohit/xml_tokens.hpp>` and the generated C++ token traversals.
+Explicit presence contracts select token codecs through the ordinary complete
+XML APIs; the explicit token APIs reject unsupported rich object graphs.
+Keep borrowed input/models alive through each synchronous operation, and publish
+only after exact EOF. Direct writers may change XML prefixes/declaration placement.
+
+Regenerate Python XML modules for incremental `decode_xml_chunks`, explicit nil,
+all traversal, bounded key/unique/keyref validation and the separate HTML adapter.
+Qualified non-C++ outputs accept concrete owning generic instances with resolved
+field mappings; C++ supports checked concrete owning templates through generated
+field bindings. Regenerate selected outputs for the independent scalar, identity,
+lifecycle, digest, HTML and readonly XML policies described in the token guide.
+Each backend retains its unsupported advanced-contract diagnostics. The CLI now
+checks each requested backend independently; a Python-only supported contract
+can generate without requiring C++ support. A failing multi-target request still
+preserves every existing output.
+
+For positioned C/Rust extensions, regenerate the owning document companion APIs
+and keep the decoded sidecar with its native value. Initialize/free C
+`Type_xml_document` through generated functions; Rust `XmlDocument<T>` owns
+`value` and `extensions` separately. Their companion item/retained-byte policies
+are cumulative over the document. Other generated extension policies retain
+their documented owner-local contracts. Native codecs and record layouts do not
+gain opaque payload fields in C/Rust. See the token guide for the extra private
+byte buffers/scans and unsupported combinations.
+
+Existing schema IDs, native JSON/binary payloads and managed bytes need no
+conversion. Schema language remains **1.20.0** and editor packages remain
+**2.0.5**. See [token subsets and ownership](docs/serialization/xml_tokens.md),
+[the commented OPC example](example/opc/README.md), and
+[executed checks](docs/verification/verification-xml-tokens-2026-10-19.md).
+
 ## Compiler/runtime 2.11.0
 
 Require `find_package(Serializer 2.11 CONFIG REQUIRED)` for the new public

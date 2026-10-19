@@ -10,6 +10,7 @@
 #include "comparison_writer.hpp"
 #include "format_writer.hpp"
 #include "auto_size_writer.hpp"
+#include "xml_schema.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -17,6 +18,7 @@
 #include <cstdint>
 #include <map>
 #include <set>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -35,6 +37,8 @@ class mobile_emitter {
   const schema& model;
   const bool swift;
   behavior::checked_helpers arithmetic_helpers{};
+  std::set<const class_node*> xml_mixed_fragments_{};
+  std::set<const class_node*> xml_extension_owners_{};
   std::string output{};
   std::size_t indent{};
   bool variable_first{};
@@ -1303,6 +1307,13 @@ class mobile_emitter {
       close();
     }
     open(select("public struct ", "class ") + name + (swift && external ? ": " + name + "ExternalBehavior" : ""));
+    if (xml_extension_owners_.contains(&value)) {
+      if (std::any_of(value.member_list.begin(), value.member_list.end(), [&](const auto& item) { return field(item.name) == "srlXmlExtensions"; })) {
+        throw std::invalid_argument{"XML extension storage conflicts with native field: srlXmlExtensions"};
+      }
+      line("// Keep explicitly preserved foreign XML outside every native wire format.");
+      line(select("fileprivate var srlXmlExtensions: SrlXmlPreserved? = nil", "internal var srlXmlExtensions: SrlXmlPreserved? = null"));
+    }
     if (swift) { magic_declaration(value); }
     const auto declare = [&](const std::string& id, const std::string& type_name,
                              const std::string& initial_value, access_type access) {
@@ -1330,23 +1341,54 @@ class mobile_emitter {
         declare(id, collection_type(item), empty(item), item.access);
       }
     }
-    if (!swift && model.xml.enabled) {
+    if (model.xml.enabled) {
+      for (std::size_t index{}; index < value.parents.size(); ++index) {
+        const auto& parent = value.parents[index];
+        if (parent.access == access_type::public_access) { continue; }
+        const auto bridge = "srlXmlBase" + std::to_string(index);
+        line("// Internal XML access preserves nonpublic composed-base ownership.");
+        line(select("fileprivate var ", "internal var ") + bridge + ": " + model.names.at(parent.parent_class));
+        if (swift) {
+          open(""); line("get { self.base" + std::to_string(index) + " }");
+          line("set { self.base" + std::to_string(index) + " = newValue }"); close();
+        } else {
+          ++indent; line("get() = this.base" + std::to_string(index));
+          line("set(value) { this.base" + std::to_string(index) + " = value }"); --indent;
+        }
+      }
+      const bool used_as_base = std::any_of(model.nodes.begin(), model.nodes.end(), [&](const auto* node) {
+        return node->type == object_type::class_type && std::any_of(static_cast<const class_node&>(*node).parents.begin(),
+            static_cast<const class_node&>(*node).parents.end(), [&](const auto& parent) { return parent.parent_class == &value; });
+      });
       for (const auto& item : value.member_list) {
         if (item.omits("xml")) { continue; }
+        if (swift && ((!used_as_base && !xml_mixed_fragments_.contains(&value)) || item.access == access_type::public_access)) { continue; }
         const auto bridge = "srlXmlField" + pascal(item.name);
         if (std::any_of(value.member_list.begin(), value.member_list.end(), [&](const auto& other) {
               return field(other.name) == bridge;
             })) {
-          throw std::invalid_argument{"Kotlin XML bridge name conflicts with schema field: " + item.name};
+          throw std::invalid_argument{select("Swift", "Kotlin") + " XML bridge name conflicts with schema field: " + item.name};
         }
-        const auto property_type = item.modifier == member::modifier_type::none ?
-            type(item.type_name_list.front()) : collection_type(item);
-        line("// Internal XML access retains the authored field visibility.");
-        line("internal var " + bridge + ": " + property_type);
-        ++indent;
-        line("get() = this." + field(item.name));
-        line("set(value) { this." + field(item.name) + " = value }");
-        --indent;
+        // Variants retain separate native selector/payload properties; bridge each component.
+        const auto expose = [&](const std::string& suffix, const std::string& property_type) {
+          line("// Internal XML access retains the authored field visibility.");
+          line(select("fileprivate var ", "internal var ") + bridge + suffix + ": " + property_type);
+          if (swift) {
+            open(""); line("get { self." + field(item.name) + suffix + " }");
+            line("set { self." + field(item.name) + suffix + " = newValue }"); close();
+          } else {
+            ++indent; line("get() = this." + field(item.name) + suffix);
+            line("set(value) { this." + field(item.name) + suffix + " = value }"); --indent;
+          }
+        };
+        if (item.modifier == member::modifier_type::variant) {
+          expose("Index", "Int");
+          for (const auto& alternative : item.type_name_list) {
+            expose(pascal(alternative.enum_name), type(alternative));
+          }
+        } else {
+          expose("", item.modifier == member::modifier_type::none ? type(item.type_name_list.front()) : collection_type(item));
+        }
       }
     }
     array_access(value);
@@ -1647,6 +1689,23 @@ public:
   // Bind a schema and optional JVM package before emitting any source.
   mobile_emitter(const schema& value, bool apple, std::string_view package)
       : model{value}, swift{apple} {
+    if (model.xml.enabled) {
+      const xml_binding::schema bindings{model.xml};
+      for (const auto* node : model.nodes) {
+        if (node->type != object_type::class_type) { continue; }
+        const auto& owner = static_cast<const class_node&>(*node);
+        const auto configured = model.xml.classes.find(owner.get_full_name());
+        if (configured == model.xml.classes.end() || !configured->second.contracts.contains("mixed")) { continue; }
+        const auto contract = bindings.bind(owner);
+        if (contract.mixed) { xml_mixed_fragments_.insert(contract.mixed->fragment); }
+      }
+      for (const auto* node : model.nodes) {
+        if (node->type != object_type::class_type) { continue; }
+        const auto& owner = static_cast<const class_node&>(*node);
+        if (owner.reference || (xml_mixed_fragments_.contains(&owner) && !model.xml.classes.contains(owner.get_full_name()))) { continue; }
+        if (bindings.bind(owner).extensions) { xml_extension_owners_.insert(&owner); }
+      }
+    }
     arithmetic_helpers = behavior::select_helpers(model.nodes,
         [&](const auto& node) { return model.names.at(&node); },
         [&](const auto name) { return field(name); });

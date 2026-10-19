@@ -1,0 +1,49 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: GPL-3.0-or-later
+serializer version 1.20.0;
+namespace facets { using schema "numeric.xsd"; class sample { public uint64 integer; public double amount; public float rounded; public string text; public uint64 choice; public bool enabled; public string code; } }
+namespace pattern { using schema "pattern.xsd"; class sample { public string value; } }
+namespace large { using schema "large.xsd"; class sample { public string value; } }
+namespace qnames {
+  using schema "../xml_xsd_fixture.xsd";
+  class qualified_names {
+    public string value xml(text, qname);
+    public string name xml(attribute, qname);
+    public optional<string> category xml(attribute, qname);
+    public array[2] string names xml(attribute, list);
+    public optional<string> required xml(attribute, prefix_list);
+  }
+  class qname_children {
+    public array string values xml(name("value"));
+  }
+}
+namespace defaults {
+  using schema "defaults.xsd";
+  class collapsed { public string value; }
+  class preserved { public string value; }
+  class replaced { public string value; }
+  class required_fixed { public bool flag; }
+}
+
+namespace scalars { using schema "scalars.xsd";
+class sample {
+  public string decimal_value; public string integer_value; public string sign;
+  public string token; public string language; public string name; public string ncname;
+  public string nmtoken; public string union_value; public string list_value;
+  public string bool_list; public string fixed_text; public string default_value;
+  public array[3] uint16 typed xml(attribute, list);
+  public optional<array<bool>> typed_optional xml(attribute, list);
+  public optional<string> unit;
+  public string default_attribute; public bool fixed_flag;
+}
+class amount { public uint64 value; public optional<string> unit; }
+class words { public array[2] string value xml(text, list); }
+class numbers { public array[2] uint16 value xml(text, list); }
+class items { public array string value xml(text, list); }
+class fixed_list { public array[2] string value xml(text, list); }
+class child_list { public array[2] uint16 values xml(list); }
+class optional_child { public optional<array<uint16>> values xml(list); }
+class list_all { public uint32 id; public array[2] uint16 values xml(list); }
+class plain_default { public string value; }
+class guard { public string value; }
+}

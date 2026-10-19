@@ -9,9 +9,11 @@ import unittest
 MAX_LITERAL_BYTES = 16380
 RAW_LITERAL = re.compile(rb'R"([^ ()\\\t\r\n]{0,16})\((.*?)\)\1"', re.DOTALL)
 RUNTIME_LICENSE_PROLOGUE = (
-    b"// Copyright (C) 2024, 2026 Rohit Jairaj Singh (rohit@singh.org.in)\n"
     b"// SPDX-License-Identifier: 0BSD\n"
     b"// Serializer runtime template source; emitted support may also be used under 0BSD.\n"
+)
+RUNTIME_COPYRIGHT = re.compile(
+    rb"// Copyright \(C\) (?:2024, )?2026 Rohit Jairaj Singh \(rohit@singh.org.in\)\n"
 )
 SOURCE_DIRECTORY = Path(__file__).resolve().parents[1] / "src"
 
@@ -27,6 +29,9 @@ class RuntimeLiteralTest(unittest.TestCase):
             with self.subTest(runtime=path.name):
                 # C++ normalizes source line endings before reading raw strings.
                 source = path.read_bytes().replace(b"\r\n", b"\n")
+                copyright_line = RUNTIME_COPYRIGHT.match(source)
+                self.assertIsNotNone(copyright_line, "Expected the runtime's source copyright")
+                source = source[copyright_line.end():]
                 self.assertTrue(
                     source.startswith(RUNTIME_LICENSE_PROLOGUE),
                     "Expected the 0BSD source license outside the emitted raw strings",

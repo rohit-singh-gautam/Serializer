@@ -1,0 +1,45 @@
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+<xs:simpleType name="ExactDecimal"><xs:restriction base="xs:decimal"><xs:minExclusive value="-1.0000000000000000000000000001"/><xs:maxInclusive value="999999999999999999999999999.12345678901234567890123456789"/></xs:restriction></xs:simpleType>
+<xs:simpleType name="HugeInteger"><xs:restriction base="xs:integer"><xs:minInclusive value="-99999999999999999999999999999999999999"/><xs:maxExclusive value="99999999999999999999999999999999999999"/></xs:restriction></xs:simpleType>
+<xs:simpleType name="SmallInteger"><xs:restriction base="xs:unsignedShort"><xs:minInclusive value="10"/><xs:maxInclusive value="20"/><xs:pattern value="[+]?[0-9]+"/></xs:restriction></xs:simpleType>
+<xs:simpleType name="Status"><xs:restriction base="xs:token"><xs:enumeration value="ready"/><xs:enumeration value="pending"/></xs:restriction></xs:simpleType>
+<xs:simpleType name="Bytes"><xs:restriction><xs:simpleType><xs:list itemType="xs:unsignedByte"/></xs:simpleType><xs:length value="3"/></xs:restriction></xs:simpleType>
+<xs:simpleType name="Choice"><xs:union memberTypes="SmallInteger Status Bytes"/></xs:simpleType>
+<xs:simpleType name="Pairs"><xs:restriction><xs:simpleType><xs:list itemType="xs:unsignedShort"/></xs:simpleType><xs:length value="2"/><xs:enumeration value="1 2"/></xs:restriction></xs:simpleType>
+<xs:simpleType name="Bools"><xs:restriction><xs:simpleType><xs:list itemType="xs:boolean"/></xs:simpleType><xs:length value="2"/><xs:enumeration value="true false"/></xs:restriction></xs:simpleType>
+<xs:simpleType name="Three"><xs:restriction><xs:simpleType><xs:list itemType="xs:unsignedShort"/></xs:simpleType><xs:length value="3"/></xs:restriction></xs:simpleType>
+<xs:simpleType name="Flags"><xs:restriction><xs:simpleType><xs:list itemType="xs:boolean"/></xs:simpleType><xs:maxLength value="2"/></xs:restriction></xs:simpleType>
+<xs:simpleType name="Unit"><xs:restriction base="xs:token"><xs:enumeration value="m"/><xs:enumeration value="cm"/></xs:restriction></xs:simpleType>
+<xs:element name="sample"><xs:complexType><xs:sequence>
+<xs:element name="decimal_value" type="ExactDecimal"/>
+<xs:element name="integer_value" type="HugeInteger"/>
+<xs:element name="sign" type="xs:positiveInteger"/>
+<xs:element name="token"><xs:simpleType><xs:restriction base="xs:token"><xs:minLength value="1"/><xs:maxLength value="10"/></xs:restriction></xs:simpleType></xs:element>
+<xs:element name="language" type="xs:language"/><xs:element name="name" type="xs:Name"/>
+<xs:element name="ncname" type="xs:NCName"/><xs:element name="nmtoken" type="xs:NMTOKEN"/>
+<xs:element name="union_value" type="Choice"/><xs:element name="list_value" type="Pairs"/>
+<xs:element name="bool_list" type="Bools"/><xs:element name="fixed_text" type="xs:token" fixed="done"/>
+<xs:element name="default_value" type="xs:token" default="fallback"/>
+</xs:sequence><xs:attribute name="typed" type="Three" use="required"/>
+<xs:attribute name="typed_optional" type="Flags"/><xs:attribute name="unit" type="Unit" default="m"/>
+<xs:attribute name="default_attribute" type="Unit" default="cm"/><xs:attribute name="fixed_flag" type="xs:boolean" fixed="true"/>
+</xs:complexType></xs:element>
+<xs:simpleType name="Amount"><xs:restriction base="xs:unsignedLong"><xs:minInclusive value="9007199254740992"/><xs:maxExclusive value="9007199254740994"/></xs:restriction></xs:simpleType>
+<xs:element name="amount"><xs:complexType><xs:simpleContent><xs:extension base="Amount"><xs:attribute name="unit" type="Unit" default="m"/></xs:extension></xs:simpleContent></xs:complexType></xs:element>
+<xs:simpleType name="Words"><xs:restriction><xs:simpleType><xs:list itemType="xs:NMTOKEN"/></xs:simpleType><xs:length value="2"/></xs:restriction></xs:simpleType>
+<xs:element name="words"><xs:complexType><xs:simpleContent><xs:extension base="Words"/></xs:simpleContent></xs:complexType></xs:element>
+<xs:simpleType name="Numbers"><xs:restriction><xs:simpleType><xs:list itemType="xs:unsignedShort"/></xs:simpleType><xs:length value="2"/></xs:restriction></xs:simpleType>
+<xs:simpleType name="Items"><xs:list itemType="xs:token"/></xs:simpleType>
+<xs:element name="numbers"><xs:complexType><xs:simpleContent><xs:extension base="Numbers"/></xs:simpleContent></xs:complexType></xs:element>
+<xs:element name="items"><xs:complexType><xs:simpleContent><xs:extension base="Items"/></xs:simpleContent></xs:complexType></xs:element>
+<xs:element name="fixed_list"><xs:complexType><xs:simpleContent><xs:extension base="Items"/></xs:simpleContent></xs:complexType></xs:element>
+<xs:element name="child_list"><xs:complexType><xs:sequence><xs:element name="values" type="Numbers"/></xs:sequence></xs:complexType></xs:element>
+<xs:simpleType name="OptionalNumbers"><xs:restriction><xs:simpleType><xs:list itemType="xs:unsignedShort"/></xs:simpleType><xs:maxLength value="2"/></xs:restriction></xs:simpleType>
+<xs:element name="optional_child"><xs:complexType><xs:sequence><xs:element name="values" type="OptionalNumbers" minOccurs="0"/></xs:sequence></xs:complexType></xs:element>
+<xs:element name="list_all"><xs:complexType><xs:all><xs:element name="id" type="xs:unsignedInt"/><xs:element name="values" type="Numbers"/></xs:all></xs:complexType></xs:element>
+<xs:element name="plain_default" default="fallback"><xs:complexType><xs:simpleContent><xs:extension base="xs:string"/></xs:simpleContent></xs:complexType></xs:element>
+<xs:element name="guard"><xs:complexType><xs:sequence><xs:element name="value"><xs:simpleType><xs:union>
+<xs:simpleType><xs:restriction base="xs:string"><xs:pattern value="a{4096}a{1000}"/></xs:restriction></xs:simpleType>
+<xs:simpleType><xs:restriction base="xs:string"/></xs:simpleType>
+</xs:union></xs:simpleType></xs:element></xs:sequence></xs:complexType></xs:element>
+</xs:schema>

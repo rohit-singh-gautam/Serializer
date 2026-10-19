@@ -3,6 +3,15 @@
 #pragma once
 
 #include "native_schema.hpp"
+#include "xml_js_container_writer.hpp"
+#include "xml_js_variant_writer.hpp"
+#include "xml_js_model_writer.hpp"
+#include "xml_js_scalar_writer.hpp"
+#include "xml_js_mixed_writer.hpp"
+#include "xml_js_identity_writer.hpp"
+#include "xml_js_extension_writer.hpp"
+#include "xml_js_lifecycle_writer.hpp"
+#include "xml_js_projection_writer.hpp"
 #include "xml_schema.hpp"
 
 #include <algorithm>
@@ -13,6 +22,43 @@
 #include <string_view>
 
 namespace rohit::serializer::writer::xml_binding {
+
+inline constexpr std::string_view js_token_runtime =
+#include "xml_js_token_runtime.inc"
+;
+inline constexpr std::string_view js_container_runtime =
+#include "xml_js_container_runtime.inc"
+;
+inline constexpr std::string_view js_variant_runtime =
+#include "xml_js_variant_runtime.inc"
+;
+inline constexpr std::string_view js_scalar_runtime =
+#include "xml_js_scalar_runtime.inc"
+;
+inline constexpr std::string_view js_namespace_runtime =
+#include "xml_js_namespace_runtime.inc"
+;
+inline constexpr std::string_view js_mixed_runtime =
+#include "xml_js_mixed_runtime.inc"
+;
+inline constexpr std::string_view js_identity_runtime =
+#include "xml_js_identity_runtime.inc"
+;
+inline constexpr std::string_view js_extension_runtime =
+#include "xml_js_extension_runtime.inc"
+;
+inline constexpr std::string_view js_html_runtime =
+#include "xml_js_html_runtime.inc"
+;
+inline constexpr std::string_view js_lifecycle_runtime =
+#include "xml_js_lifecycle_runtime.inc"
+;
+inline constexpr std::string_view js_provider_runtime =
+#include "xml_js_provider_runtime.inc"
+;
+inline constexpr std::string_view js_projection_runtime =
+#include "xml_js_projection_runtime.inc"
+;
 
 // Emit optional native JavaScript XML support; ordinary generated modules retain no XML imports.
 inline std::string js_runtime() {
@@ -26,6 +72,11 @@ export class XmlLimits {
     for (const key of ['maxBytes','maxTextBytes','maxNodes','maxAttributes','maxDepth']) {
       if (!Number.isSafeInteger(this[key]) || this[key] < 0) throw new Error('Invalid XML limits');
     }
+    this.map=new XmlMapLimits(this.map || {});
+    this.pattern=new XmlPatternLimits(this.pattern || {});this.patternWork=0;
+    this.mixed=new XmlMixedLimits(this.mixed || {});
+    this.identity=new XmlIdentityLimits(this.identity || {});
+    this.extensions=new XmlExtensionOptions(this.extensions || {});
   }
 }
 // Count UTF-8 bytes without allocating an encoded copy of an over-limit input string.
@@ -114,11 +165,14 @@ function srlXmlParse(text, limits) {
   if (!document.documentElement) throw new Error('Missing XML root');
   return document.documentElement;
 }
+)xml"
+R"xml(
 // Write bounded XML directly; XMLSerializer normalizes literal CR/attribute whitespace on reread.
 class SrlXmlWriter {
-  constructor(limits) { this.limits=limits; this.text=''; this.bytes=0; this.nodes=0; this.depth=0; this.attributes=0; this.textBytes=0; this.namespaces=[]; }
+  constructor(limits) { this.limits=limits; this.text=''; this.bytes=0; this.nodes=0; this.depth=0; this.attributes=0; this.textBytes=0; this.namespaces=[]; this.presentation=[]; this.prefixes=[]; this.identities=[]; this.identityScopes=[]; this.head=null; }
   put(text) {
     const bytes=srlXmlUtf8Length(text); if (bytes > this.limits.maxBytes-this.bytes) throw new Error('XML output byte limit');
+    if(text==='>' && this.head!==null){const head=this.head;this.head=null;for(const observer of this.identities)observer.start(head.name,head.attributes,head.scope);}
     this.bytes+=bytes; this.text+=text;
   }
   charge(text) {
@@ -126,6 +180,7 @@ class SrlXmlWriter {
   }
   escaped(text,attribute) {
     this.charge(text);
+    if(!attribute)for(const observer of this.identities)observer.text(text);
     srlXmlCharacters(text); let batch='';
     for (const item of text) {
       batch+=item === '&' ? '&amp;' : item === '<' ? '&lt;' : item === '>' ? '&gt;' :
@@ -135,26 +190,54 @@ class SrlXmlWriter {
     }
     if (batch) this.put(batch);
   }
-  open(local,uri) {
+  open(local,uri,emptyDefault=false,defaultOverride=null,reserved=null) {
     if (++this.nodes > this.limits.maxNodes || ++this.depth > this.limits.maxDepth) throw new Error('XML node/depth limit');
     this.charge(local); this.charge(uri);
-    this.put('<'+local);
-    if ((this.namespaces[this.namespaces.length-1] || '') !== uri) {
-      if (++this.attributes > this.limits.maxAttributes) throw new Error('XML attribute limit');
-      this.put(' xmlns="'); this.escaped(uri,true); this.put('"');
+    const defaultUri=defaultOverride===null ? emptyDefault ? '' : uri : defaultOverride;
+    if(!uri && defaultUri)throw new Error('Default QName namespace conflicts with unnamespaced XML element');
+    let prefix='srlv';
+    if(reserved)for(const [bound,namespace] of reserved)if(bound && namespace===uri){prefix=bound;break;}
+    while(reserved && reserved.has(prefix) && reserved.get(prefix)!==uri)prefix+='v';
+    const qualified=defaultUri!==uri && uri ? prefix+':'+local : local;
+    this.put('<'+qualified);
+    const bindings=new Map();bindings.set('',defaultUri);this.prefixes.push(bindings);
+    let scope=null;
+    if(this.identities.length){
+      let parent=this.identityScopes[this.identityScopes.length-1] || null;
+      if(parent===null)for(let index=0;index+1<this.prefixes.length;++index)parent={parent,bindings:this.prefixes[index]};
+      scope={parent,bindings};this.head={name:srlXmlTokenName(uri,local),attributes:new Map(),scope};
     }
-    this.namespaces.push(uri);
+    this.identityScopes.push(scope);
+    if ((this.namespaces[this.namespaces.length-1] || '') !== defaultUri) {
+      if (++this.attributes > this.limits.maxAttributes) throw new Error('XML attribute limit');
+      this.put(' xmlns="'); this.escaped(defaultUri,true); this.put('"');
+    }
+    if(defaultUri!==uri && uri) this.namespace(prefix,uri);
+    this.namespaces.push(defaultUri);this.presentation.push(qualified);
+  }
+  // Declare one generated trusted prefix while charging the same logical attribute/text quantities.
+  namespace(prefix,uri) {
+    const selected=this.prefixes[this.prefixes.length-1];
+    if(selected.has(prefix)){if(selected.get(prefix)!==uri)throw new Error('Conflicting XML namespace declaration');return;}
+    selected.set(prefix,uri);
+    if(++this.attributes>this.limits.maxAttributes) throw new Error('XML attribute limit');
+    this.charge(prefix);this.put(' xmlns:'+prefix+'="');this.escaped(uri,true);this.put('"');
   }
   attribute(local,uri,text,index) {
     if (++this.attributes > this.limits.maxAttributes) throw new Error('XML attribute limit');
     this.charge(local); this.charge(uri);
-    if (uri) {
-      if (++this.attributes > this.limits.maxAttributes) throw new Error('XML attribute limit');
-      const prefix='srl'+index; this.charge(prefix); this.put(' xmlns:'+prefix+'="'); this.escaped(uri,true); this.put('" '+prefix+':'+local+'="');
+    if(this.head)this.head.attributes.set(srlXmlTokenName(uri,local),text);
+    if (uri === 'http://www.w3.org/XML/1998/namespace') this.put(' xml:'+local+'="');
+    else if (uri) {
+      const selected=this.prefixes[this.prefixes.length-1];
+      let prefix='srl'+index;
+      for(const [bound,namespace] of selected)if(bound && namespace===uri){prefix=bound;break;}
+      while(selected.has(prefix) && selected.get(prefix)!==uri)prefix+='a';
+      this.namespace(prefix,uri);this.put(' '+prefix+':'+local+'="');
     }
     else this.put(' '+local+'="'); this.escaped(text,true); this.put('"');
   }
-  close(local) { this.put('</'+local+'>'); --this.depth; this.namespaces.pop(); }
+  close(local) { this.put('</'+this.presentation.pop()+'>');for(const observer of this.identities)observer.end(); --this.depth; this.namespaces.pop(); this.prefixes.pop(); this.identityScopes.pop(); }
   child(local,uri,text) { this.open(local,uri); this.put('>'); this.escaped(text,false); this.close(local); }
 }
 // Check numeric/Boolean lexemes and exact declared ranges before assigning native scalar values.
@@ -172,10 +255,13 @@ function srlXmlScalar(text, kind, encoding = false) {
     if (encoding && typeof text !== (kind.endsWith('64') ? 'bigint' : 'number')) throw new Error('XML integer type');
     const lexical = srlXmlTrim(String(text));
     if (!/^[+-]?[0-9]+$/.test(lexical)) throw new Error('XML integer lexical value');
-    const value = BigInt(lexical); const bits = Number(kind.replace(/^[a-z]+/, ''));
+    const bits = Number(kind.replace(/^[a-z]+/, ''));
     const unsigned = kind.startsWith('u');
     const minimum = unsigned ? 0n : -(1n << BigInt(bits - 1));
     const maximum = (1n << BigInt(unsigned ? bits : bits - 1)) - 1n;
+    const digits=lexical.replace(/^[+-]?0*/,'') || '0';
+    if(digits.length>maximum.toString().length) throw new Error('XML integer range');
+    const value=BigInt((lexical[0]==='-' ? '-' : '')+digits);
     if (value < minimum || value > maximum) throw new Error('XML integer range');
     return encoding ? value.toString() : bits === 64 ? value : Number(value);
   }
@@ -192,7 +278,7 @@ function srlXmlScalar(text, kind, encoding = false) {
   if (!/^[+-]?(?:[0-9]+(?:\.[0-9]*)?|\.[0-9]+)(?:[eE][+-]?[0-9]+)?$/.test(text)) throw new Error('XML floating lexical value');
   const value = Number(text); if (!Number.isFinite(value)) throw new Error('XML floating range');
   if ((kind === 'float' || kind === 'float32') && !Number.isFinite(Math.fround(value))) throw new Error('XML float32 range');
-  return kind === 'float' || kind === 'float32' ? Math.fround(value) : value;
+  return kind === 'float' || kind === 'float32' ? srlXmlSingle(text,value) : value;
 }
 // Track exact attribute membership and ordered repeated child consumption for a generated record.
 class SrlXmlFields {
@@ -228,14 +314,28 @@ function srlXmlText(node) {
       Array.from(node.childNodes).some(child => child.nodeType === 1)) throw new Error('XML scalar contains markup');
   return node.textContent || '';
 }
-)xml";
+)xml" + std::string{js_token_runtime} + std::string{js_container_runtime} + std::string{js_variant_runtime} +
+      std::string{js_scalar_runtime} + std::string{js_namespace_runtime} + std::string{js_mixed_runtime} +
+      std::string{js_identity_runtime} + std::string{js_extension_runtime} + std::string{js_html_runtime} +
+      std::string{js_lifecycle_runtime} + std::string{js_provider_runtime} + std::string{js_projection_runtime};
 }
 
 // Emit matching declarations for the optional JavaScript XML runtime.
 inline std::string js_declarations() {
   return "export declare class XmlLimits { maxBytes:number; maxTextBytes:number; maxNodes:number; "
-      "maxAttributes:number; maxDepth:number; constructor(values?:Partial<XmlLimits>); }\n"
-      "export interface XmlValidator { validate(document:string):void; }\n";
+      "maxAttributes:number; maxDepth:number; map:XmlMapLimits; pattern:XmlPatternLimits; mixed:XmlMixedLimits; identity:XmlIdentityLimits; extensions:XmlExtensionOptions; constructor(values?:Partial<XmlLimits>); }\n"
+      "export declare class XmlMapLimits { maxEntries:number; maxKeyBytes:number; constructor(values?:Partial<XmlMapLimits>); }\n"
+      "export declare class XmlPatternLimits { maxStates:number; maxInputBytes:number; maxWorkUnits:number; constructor(values?:Partial<XmlPatternLimits>); }\n"
+      "export declare class XmlMixedLimits { maxFragments:number; maxTextBytes:number; constructor(values?:Partial<XmlMixedLimits>); }\n"
+      "export declare class XmlIdentityLimits { maxConstraints:number; maxFields:number; maxDepth:number; maxSelectedNodes:number; maxTuples:number; maxTupleBytes:number; maxWorkUnits:number; constructor(values?:Partial<XmlIdentityLimits>); }\n"
+      "export declare class XmlExtensionLimits { maxSlots:number; maxItems:number; maxPreservedBytes:number; constructor(values?:Partial<XmlExtensionLimits>); }\n"
+      "export declare class XmlExtensionOptions { limits:XmlExtensionLimits; understoodNamespaces:readonly string[]; requiredPrefixes:string; constructor(values?:Partial<XmlExtensionOptions>); }\n"
+      "export declare class HtmlLimits { maxInputBytes:number; maxOutputBytes:number; maxEvents:number; maxDepth:number; maxAttributesPerElement:number; maxTextBytes:number; constructor(values?:Partial<HtmlLimits>); }\n"
+      "export declare class HtmlAttribute { name:string; value:string; boolean:boolean; constructor(name:string,value?:string,boolean?:boolean); }\n"
+      "export declare class HtmlEvent { kind:string; name:string; attributes:HtmlAttribute[]; text:string; constructor(kind:string,name?:string,attributes?:Iterable<HtmlAttribute>,text?:string); }\n"
+      "export declare class Html { static supportedSubset():string; static parseFragment(data:Uint8Array,limits?:HtmlLimits):HtmlEvent[]; static writeFragment(events:HtmlEvent[],limits?:HtmlLimits):string; }\n"
+      "export interface XmlValidator { validate(document:string):void; }\n"
+      "export declare class XmlSchema implements XmlValidator { private constructor(); static prepare(xsd:string|Uint8Array,limits?:XmlLimits):Promise<XmlSchema>; validate(document:string|Uint8Array,limits?:XmlLimits):void; dispose():void; }\n";
 }
 
 // Emit direct model-member mapping; parsing remains a separate mature XML dependency.
@@ -245,7 +345,7 @@ inline std::string js_methods(const class_node& owner, const record& contract,
     const std::function<std::string(const type_name&)>& type_identifier,
     const xml_options& options, bool typescript = false) {
   const auto quote = [](std::string_view value) { return native::quote(value); };
-  const std::set<std::string> generated_methods{"encodeXml", "decodeXml", "_srlXmlRead", "_srlXmlWrite"};
+  const std::set<std::string> generated_methods{"encodeXml", "decodeXml", "decodeXmlChunks", "xmlBindNamespace", "_srlXmlToken", "_srlXmlMixed", "_srlXmlRead", "_srlXmlWrite"};
   // Apply the emitter's actual naming/access profile to every authored class API.
   const auto check_identifier = [&](std::string_view authored_name, access_type access) {
     member naming_probe{};
@@ -269,7 +369,11 @@ inline std::string js_methods(const class_node& owner, const record& contract,
     return "// Encode one complete XML document using the fixed generated mapping.\n"
         "encodeXml(limits?:XmlLimits,validator?:XmlValidator):string;\n"
         "// Decode a fresh owning value after complete contract validation.\n"
-        "static decodeXml(text:string,limits?:XmlLimits,validator?:XmlValidator):" + generated_name + ";\n";
+        "static decodeXml(text:string,limits?:XmlLimits,validator?:XmlValidator):" + generated_name + ";\n"
+        "// Consume arbitrary UTF-8 slices and return only after complete document EOF.\n"
+        "static decodeXmlChunks(chunks:Iterable<Uint8Array>,limits?:XmlLimits):" + generated_name + ";\n"
+        "// Bind XML-only QName vocabulary for this owning value; native codecs ignore these declarations.\n"
+        "xmlBindNamespace(prefix:string,uri:string):this;\n";
   }
   std::string result;
   // Append one generated JavaScript statement without relying on emitter indentation state.
@@ -278,6 +382,9 @@ inline std::string js_methods(const class_node& owner, const record& contract,
   const auto read = [&](const type_name& type, const std::string& expression, bool attribute) {
     if (type.type == object_type::class_type) { return type_identifier(type) + "._srlXmlRead(" + expression + ")"; }
     const auto text = attribute ? expression : "srlXmlText(" + expression + ")";
+    if (type.is_digest()) {
+      return "srlXmlDigest(" + text + ',' + std::to_string(type.digest_extent) + ')';
+    }
     if (type.type == object_type::enum_type) {
       return "(() => { const value = " + type_identifier(type) + "Names.indexOf(" + text +
           "); if (value < 0) throw new Error('Unknown XML enum'); return value; })()";
@@ -286,12 +393,100 @@ inline std::string js_methods(const class_node& owner, const record& contract,
   };
   // Render statically checked scalar output; enum spellings retain original schema names.
   const auto scalar = [&](const type_name& type, const std::string& expression) {
+    if (type.is_digest()) {
+      return "srlXmlDigest(" + expression + ',' + std::to_string(type.digest_extent) + ",true)";
+    }
     if (type.type == object_type::enum_type) {
-      return "(() => { const value = " + type_identifier(type) + "Names[" + expression +
-          "]; if (value === undefined) throw new Error('Unknown XML enum'); return value; })()";
+      return "(() => { if (!Number.isInteger(" + expression + ")) throw new Error('Unknown XML enum'); const encoded = " +
+          type_identifier(type) + "Names[" + expression +
+          "]; if (encoded === undefined) throw new Error('Unknown XML enum'); return encoded; })()";
     }
     return "srlXmlScalar(" + expression + "," + quote(type.name) + ",true)";
   };
+  // Lower immutable field callbacks inside the declaring class so private native fields stay accessible.
+  line("static _srlXmlToken=Object.freeze({root:srlXmlTokenName(" + quote(contract.root.namespace_uri) + ',' +
+      quote(contract.root.local) + "),create:()=>new " + generated_name + "(),mixed:" +
+      (contract.mixed ? js_mixed_metadata(owner, *contract.mixed, field_name, type_identifier) : "null") +
+      ",identity:" + (contract.identity ? js_identity_metadata(*contract.identity) : "null") +
+      ",extensions:" + (contract.extensions ? js_extension_metadata(*contract.extensions, contract.fields.size()) : "null") +
+      ",model:" + js_lifecycle_metadata(owner, contract, field_name, type_identifier) +
+      ",fields:Object.freeze([");
+  for (const auto& field : contract.fields) {
+    const auto& source = *field.source;
+    const auto& original = source.type_name_list.front();
+    const bool optional = original.is_optional();
+    const bool projection = js_value_projection(original);
+    const auto* leaf = &js_projected_leaf(original);
+    std::string native_reader;
+    if (leaf->type == object_type::enum_type) {
+      native_reader = "text=>{const value=" + type_identifier(*leaf) +
+          "Names.indexOf(text);if(value<0)throw new Error('Unknown XML enum');return value;}";
+    } else if (leaf->is_digest()) {
+      native_reader = "text=>srlXmlDigest(text," + std::to_string(leaf->digest_extent) + ')';
+    } else { native_reader = "text=>srlXmlScalar(text," + quote(leaf->name) + ")"; }
+    const auto checked = "srlXmlCheckedText(text,field.rule,limits,scope,bindings)";
+    const std::string reader = "(text,limits,field,scope,bindings)=>" +
+        (field.list ? "srlXmlListRead(" + std::string{checked} + ',' + native_reader + ')' :
+            '(' + native_reader + ")(" + checked + ')');
+    const auto expression = projection ? "value.readValue()" : "value";
+    const auto encoded = field.list ? "srlXmlListWrite(" + std::string{expression} + ",item=>" + scalar(*leaf, "item") + ')' : scalar(*leaf, expression);
+    const auto qualified = [](const xml::name& name) {
+      return "srlXmlTokenName(" + native::quote(name.namespace_uri) + ',' + native::quote(name.local) + ')';
+    };
+    const auto minimum = source.fixed_extent && !field.list ? source.fixed_extent : field.min_occurs;
+    const auto maximum = source.fixed_extent && !field.list ? std::optional<std::size_t>{source.fixed_extent} : field.max_occurs;
+    const auto inherited = js_inherited_access(owner, source, field_name, type_identifier);
+    const auto access = inherited ? *inherited : field.variant_binding ? js_variant_access(source, field_name) :
+        js_variant_callbacks{"value=>value." + field_name(source), "(owner,value)=>{owner." + field_name(source) + "=value;}"};
+    line("Object.freeze({native:" + quote(js_native_field_identity(owner, source)) +
+        ",created:" + (source.created_version.empty() ? "null" : js_revision_literal(*contract.model.revision, source.created_version)) +
+        ",obsolete:" + (source.obsolete_version.empty() ? "null" : js_revision_literal(*contract.model.revision, source.obsolete_version)) +
+        ",name:" + qualified(field.qualified_name) + ",local:" + quote(field.qualified_name.local) +
+        ",uri:" + quote(field.qualified_name.namespace_uri) + ",mode:" +
+        quote(field.attribute ? "attribute" : field.text ? "text" : "child") +
+        ",wrapper:" + (field.wrapper ? qualified(*field.wrapper) : "null") +
+        ",wrapperLocal:" + (field.wrapper ? quote(field.wrapper->local) : "null") +
+        ",wrapperUri:" + (field.wrapper ? quote(field.wrapper->namespace_uri) : "null") +
+        ",minimum:" + std::to_string(minimum) + ",maximum:" + (maximum ? std::to_string(*maximum) : "null") +
+        ",extent:" + std::to_string(field.list ? 0U : source.fixed_extent) + ",optional:" + (optional ? "true" : "false") +
+        ",projection:" + (projection ? "true" : "false") + ",presence:" + (field.presence.explicit_policy ? quote(
+            field.presence.policy == presence_policy::required ? "required" :
+            field.presence.policy == presence_policy::absent ? "absent" :
+            field.presence.policy == presence_policy::nil ? "nil" : "absent_or_nil") : "null") +
+        ",map:" + (field.map_binding ? js_map_metadata(*field.map_binding, type_identifier) : "null") +
+        ",variant:" + (field.variant_binding ? js_variant_metadata(*field.variant_binding, type_identifier) : "null") +
+        ",default:" + (field.fixed_value ? quote(*field.fixed_value) : field.default_value ? quote(*field.default_value) : "null") +
+        ",defaultName:" + (field.qname_fixed ? qualified(*field.qname_fixed) : field.qname_default ? qualified(*field.qname_default) : "null") +
+        ",rule:" + (leaf->type == object_type::class_type || field.map_binding || field.variant_binding ? "null" : js_scalar_metadata(field, *leaf)) +
+        ",repeated:" + (field.repeated ? "true" : "false") + ",get:" + access.get +
+        ",set:" + access.set + ",model:" +
+        (leaf->type == object_type::class_type && !field.map_binding && !field.variant_binding ? "()=>" + type_identifier(*leaf) + "._srlXmlToken" : "null") +
+        ",read:" + (leaf->type == object_type::class_type || field.map_binding || field.variant_binding ? "null" : reader) +
+        ",write:" + (leaf->type == object_type::class_type || field.map_binding || field.variant_binding ? "null" :
+            "(value,limits,field,scope,bindings)=>srlXmlCheckedText(" + encoded + ",field.rule,limits,scope,bindings)") + "}),");
+  }
+  line("]),all:Object.freeze([");
+  // Store field indexes rather than generated member spellings for namespace-safe content selection.
+  const auto group_indexes = [&](const auto& alternatives) {
+    std::string indexes{"Object.freeze(["};
+    for (const auto* alternative : alternatives) {
+      const auto found = std::find_if(contract.fields.begin(), contract.fields.end(),
+          [&](const auto& selected) { return selected.source == alternative; });
+      indexes += std::to_string(std::distance(contract.fields.begin(), found)) + ',';
+    }
+    return indexes + "])";
+  };
+  for (const auto& group : contract.all_groups) {
+    line("Object.freeze({fields:" + group_indexes(group.alternatives) + ",minimum:" + std::to_string(group.minimum) + "}),");
+  }
+  line("]),choices:Object.freeze([");
+  for (const auto& group : contract.choices) {
+    line("Object.freeze({fields:" + group_indexes(group.alternatives) + ",minimum:" + std::to_string(group.minimum) +
+        ",maximum:" + std::to_string(group.maximum) + "}),");
+  }
+  line("])});");
+  line("// Retain only this value's QName vocabulary until the owning object is collected; native codecs ignore it.");
+  line("xmlBindNamespace(prefix,uri) { return srlXmlBindNamespace(this,prefix,uri); }");
   line("// Emit one complete XML document; no schema interpreter runs on the default path.");
   line("encodeXml(limits = new XmlLimits(), validator = null) {");
   line("limits = new XmlLimits(limits); const output=new SrlXmlWriter(limits);");
@@ -304,108 +499,66 @@ inline std::string js_methods(const class_node& owner, const record& contract,
   line("return text; }");
   line("// Decode into a fresh candidate; no partial model escapes on any contract error.");
   line("static decodeXml(text, limits = new XmlLimits(), validator = null) {");
+  line("srlXmlProjectionInput(this._srlXmlToken);");
   line("limits = new XmlLimits(limits);");
-  line("const root = srlXmlParse(text,limits);");
+  line("const value = srlXmlTokenDecode(this._srlXmlToken,[text],limits,true);");
   if (options.runtime_xsd && options.validation_scope != "output") {
     line("if (validator) validator.validate(text);");
   } else if (!options.runtime_xsd) {
     line("if (validator) throw new Error('Runtime XSD was not enabled during generation');");
   }
-  line("if (!srlXmlName(root," +
-      quote(contract.root.namespace_uri) + "," + quote(contract.root.local) +
-      ")) throw new Error('Unexpected XML root'); return this._srlXmlRead(root); }");
-  line("// Read statically bound attributes and children in contract order.");
-  line("static _srlXmlRead(node) { const fields = new SrlXmlFields(node," + std::string{std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) { return field.text; }) ? "true" : "false"} + "); const value = new " + generated_name + "();");
-  std::size_t index{};
-  for (const auto& field : contract.fields) {
-    const auto& source = *field.source;
-    const auto& original = source.type_name_list.front();
-    const bool optional = original.is_optional();
-    const auto& leaf = optional || original.is_sequence() ? original.arguments.front() : original;
-    const auto local = quote(field.qualified_name.local);
-    const auto uri = quote(field.qualified_name.namespace_uri);
-    const auto temporary = "field" + std::to_string(index++);
-    const auto destination = "value." + field_name(source);
-    if (field.text) {
-      line(destination + " = " + read(leaf, "fields.text()", true) + ";");
-    } else if (field.attribute) {
-      line("const " + temporary + " = fields.attribute(" + uri + "," + local + "," +
-          (optional ? "true" : "false") + ");");
-      line(destination + " = " + (optional ? temporary + " === null ? [] : [" : "") +
-          read(leaf, temporary, true) + (optional ? "]" : "") + ";");
-    } else {
-      auto minimum = field.min_occurs;
-      auto maximum = field.max_occurs;
-      if (source.fixed_extent != 0) { minimum = source.fixed_extent; maximum = source.fixed_extent; }
-      line("const " + temporary + " = fields." + std::string{field.wrapper ? "wrapped(" + quote(field.wrapper->namespace_uri) + "," + quote(field.wrapper->local) + "," : "childrenFor("} + uri + "," + local + "," +
-          std::to_string(minimum) + "," + (maximum ? std::to_string(*maximum) : "null") + ");");
-      if (field.repeated) {
-        line(destination + " = " + temporary + ".map(child => " + read(leaf, "child", false) + ");");
+  line("return value; }");
+  line("// Decode byte slices without retaining a document tree or publishing before final EOF.");
+  line("static decodeXmlChunks(chunks,limits=new XmlLimits(),validator=null) {");
+  line("srlXmlProjectionInput(this._srlXmlToken);");
+  line("if(validator)throw new Error('Chunked XML cannot run a whole-document validator');");
+  line("return srlXmlTokenDecode(this._srlXmlToken,chunks,new XmlLimits(limits)); }");
+  const bool direct_only = contract.model.inherited || contract.mixed || !contract.choices.empty() || !contract.all_groups.empty() ||
+      std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) {
+        return field.value_projection || field.presence.explicit_policy || field.map_binding || field.variant_binding || field.list || field.qname ||
+            field.prefix_list || !field.facets.union_members.empty() || !field.facets.list_item_kind.empty();
+      });
+  if (direct_only) {
+    line("// Advanced mappings require the public token decoder and never fall back to a DOM reader.");
+    line("static _srlXmlRead(node) { throw new Error('This XML mapping requires decodeXml or decodeXmlChunks'); }");
+  } else {
+    line("// Read statically bound attributes and children in contract order.");
+    line("static _srlXmlRead(node) { const fields = new SrlXmlFields(node," + std::string{std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& field) { return field.text; }) ? "true" : "false"} + "); const value = new " + generated_name + "();");
+    std::size_t index{};
+    for (const auto& field : contract.fields) {
+      const auto& source = *field.source;
+      const auto& original = source.type_name_list.front();
+      const bool optional = original.is_optional();
+      const auto& leaf = optional || original.is_sequence() ? original.arguments.front() : original;
+      const auto local = quote(field.qualified_name.local);
+      const auto uri = quote(field.qualified_name.namespace_uri);
+      const auto temporary = "field" + std::to_string(index++);
+      const auto destination = "value." + field_name(source);
+      if (field.text) {
+        line(destination + " = " + read(leaf, "fields.text()", true) + ";");
+      } else if (field.attribute) {
+        line("const " + temporary + " = fields.attribute(" + uri + "," + local + "," +
+            (optional ? "true" : "false") + ");");
+        line(destination + " = " + (optional ? temporary + " === null ? [] : [" : "") +
+            read(leaf, temporary, true) + (optional ? "]" : "") + ";");
       } else {
-        line(destination + " = " + (optional ? temporary + ".length === 0 ? [] : [" : "") +
-            read(leaf, temporary + "[0]", false) + (optional ? "]" : "") + ";");
+        auto minimum = field.min_occurs;
+        auto maximum = field.max_occurs;
+        if (source.fixed_extent != 0) { minimum = source.fixed_extent; maximum = source.fixed_extent; }
+        line("const " + temporary + " = fields." + std::string{field.wrapper ? "wrapped(" + quote(field.wrapper->namespace_uri) + "," + quote(field.wrapper->local) + "," : "childrenFor("} + uri + "," + local + "," +
+            std::to_string(minimum) + "," + (maximum ? std::to_string(*maximum) : "null") + ");");
+        if (field.repeated) {
+          line(destination + " = " + temporary + ".map(child => " + read(leaf, "child", false) + ");");
+        } else {
+          line(destination + " = " + (optional ? temporary + ".length === 0 ? [] : [" : "") +
+              read(leaf, temporary + "[0]", false) + (optional ? "]" : "") + ";");
+        }
       }
     }
+    line("fields.finish(); return value; }");
   }
-  line("fields.finish(); return value; }");
   line("// Write one caller-named element directly from typed native model fields.");
-  line("_srlXmlWrite(output,local,uri) { output.open(local,uri);");
-  index = 0;
-  for (const auto& field : contract.fields) {
-    if (!field.attribute) { continue; }
-    const auto& source = *field.source;
-    const auto& original = source.type_name_list.front();
-    const bool optional = original.is_optional();
-    const auto& leaf = optional ? original.arguments.front() : original;
-    auto expression = "this." + field_name(source);
-    if (optional) {
-      line("if (!Array.isArray(" + expression + ") || " + expression + ".length > 1) throw new Error('Invalid XML optional');");
-      line("if (" + expression + ".length === 1) {");
-      expression += "[0]";
-    }
-    line("output.attribute(" + quote(field.qualified_name.local) + "," +
-        quote(field.qualified_name.namespace_uri) + "," + scalar(leaf, expression) + "," + std::to_string(index++) + ");");
-    if (optional) { line("}"); }
-  }
-  line("output.put('>');");
-  index = 0;
-  for (const auto& field : contract.fields) {
-    if (field.attribute) { continue; }
-    const auto& source = *field.source;
-    const auto& original = source.type_name_list.front();
-    const bool optional = original.is_optional();
-    const auto& leaf = optional || original.is_sequence() ? original.arguments.front() : original;
-    const auto local = quote(field.qualified_name.local);
-    const auto uri = quote(field.qualified_name.namespace_uri);
-    auto expression = "this." + field_name(source);
-    if (optional) {
-      line("if (!Array.isArray(" + expression + ") || " + expression + ".length > 1) throw new Error('Invalid XML optional');");
-      line("if (" + expression + ".length === 1) {");
-      expression += "[0]";
-    }
-    if (field.wrapper) { line("output.open(" + quote(field.wrapper->local) + "," + quote(field.wrapper->namespace_uri) + "); output.put('>');"); }
-    if (field.repeated) {
-      const auto minimum = source.fixed_extent != 0 ? source.fixed_extent : field.min_occurs;
-      const auto maximum = source.fixed_extent != 0 ? std::optional<std::size_t>{source.fixed_extent} : field.max_occurs;
-      line("if (!Array.isArray(" + expression + ") || " + expression + ".length < " + std::to_string(minimum) +
-          (maximum ? " || " + expression + ".length > " + std::to_string(*maximum) : "") +
-          ") throw new Error('XML array cardinality');");
-      line("for (const item of " + expression + ") {");
-    }
-    const auto item = field.repeated ? std::string{"item"} : expression;
-    if (field.text) {
-      line("output.escaped(" + scalar(leaf, item) + ",false);");
-    } else if (leaf.type == object_type::class_type) {
-      line(item + "._srlXmlWrite(output," + local + "," + uri + ");");
-    } else {
-      line("output.child(" + local + "," + uri + "," + scalar(leaf, item) + ");");
-    }
-    if (field.repeated) { line("}"); }
-    if (field.wrapper) { line("output.close(" + quote(field.wrapper->local) + ");"); }
-    if (optional) { line("}"); }
-    ++index;
-  }
-  line("output.close(local); }");
+  line("_srlXmlWrite(output,local,uri,variantType=null) { srlXmlTokenWrite(this," + generated_name + "._srlXmlToken,output,local,uri,variantType); }");
   static_cast<void>(owner);
   return result;
 }

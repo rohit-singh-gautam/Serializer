@@ -1,0 +1,1 @@
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"><xs:element name="sample"><xs:complexType><xs:sequence><xs:element name="value"><xs:simpleType><xs:restriction base="xs:string"><xs:pattern value="a{4096}a{1000}"/></xs:restriction></xs:simpleType></xs:element></xs:sequence></xs:complexType></xs:element></xs:schema>

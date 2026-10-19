@@ -14,8 +14,43 @@ public final class Main {
     throw new AssertionError("Invalid XML scalar accepted");
   }
 
+  /** Check split tokens, exact shape failures and publication at every resource boundary. */
+  private static void checkTokens(Schema.Shapes.Record value, byte[] encoded) {
+    String document = new String(encoded, StandardCharsets.UTF_8);
+    if (Schema.Shapes.Record.decodeXml(document.replace(">1.25<", ">1<![CDATA[.]]>&#50;5<").getBytes(StandardCharsets.UTF_8)).small != 1.25f) throw new AssertionError("Split scalar tokens");
+    String[][] failures = {
+      {document.replace("</record>", "<unexpected/></record>"), "Unexpected XML field"},
+      {document.replace(">1.25<", ">broken<"), "Invalid XML floating value"}
+    };
+    for (var failure : failures) {
+      try { Schema.Shapes.Record.decodeXml(failure[0].getBytes(StandardCharsets.UTF_8)); throw new AssertionError("Invalid token candidate published"); }
+      catch (IllegalArgumentException expected) { if (!expected.getMessage().equals(failure[1])) throw new AssertionError("Changed token diagnostic", expected); }
+    }
+    var defaults = Schema.Limits.defaults();
+    var exact = new Schema.Limits(encoded.length, defaults.maxStringBytes, defaults.maxElements, defaults.maxDepth);
+    if (!Arrays.equals(value.encodeXml(exact, null), encoded)) throw new AssertionError("Exact output byte boundary");
+    for (var limits : new Schema.Limits[]{
+        new Schema.Limits(encoded.length - 1, defaults.maxStringBytes, defaults.maxElements, defaults.maxDepth),
+        new Schema.Limits(defaults.maxBytes, 1, defaults.maxElements, defaults.maxDepth),
+        new Schema.Limits(defaults.maxBytes, defaults.maxStringBytes, 1, defaults.maxDepth),
+        new Schema.Limits(defaults.maxBytes, defaults.maxStringBytes, defaults.maxElements, 1)}) {
+      try { value.encodeXml(limits, null); throw new AssertionError("Oversized token output published"); } catch (IllegalArgumentException expected) { }
+      try { Schema.Shapes.Record.decodeXml(encoded, limits, null); throw new AssertionError("Oversized token input published"); } catch (IllegalArgumentException expected) { }
+    }
+    rejected("<!DOCTYPE record [<!ENTITY local 'expanded'>]>" + document);
+    rejected(document + "<second/>");
+  }
+
   /** Check complete model values and selected prepared runtime XSD enforcement. */
   public static void main(String[] args) {
+    String namesXml = "<r:names xmlns:r='urn:root' xmlns:a='urn:attribute' xml:lang='en' a:qualified='A&amp;B'><unqualified>plain</unqualified><f:foreign xmlns:f='urn:foreign'>foreign</f:foreign></r:names>";
+    var names = Schema.Shapes.Names.decodeXml(namesXml.getBytes(StandardCharsets.UTF_8));
+    if (!names.language.equals("en") || !names.qualified.equals("A&B") || !names.unqualified.equals("plain") || !names.foreign.equals("foreign")) throw new AssertionError("Expanded namespace input");
+    if (!Arrays.equals(names.encode(Schema.Protocol.BINARY_NONE), Schema.Shapes.Names.decodeXml(names.encodeXml()).encode(Schema.Protocol.BINARY_NONE))) throw new AssertionError("Expanded namespace output");
+    var integerBox = Schema.Shapes.IntegerBox.decodeXml("<integer_box><value>4294967295</value></integer_box>".getBytes(StandardCharsets.UTF_8));
+    if (integerBox.value != -1) throw new AssertionError("Concrete numeric XML generic");
+    var textBox = Schema.Shapes.TextBox.decodeXml("<text_box><value>A&amp;B</value></text_box>".getBytes(StandardCharsets.UTF_8));
+    if (!textBox.value.equals("A&B") || !Schema.Shapes.TextBox.decodeXml(textBox.encodeXml()).value.equals(textBox.value)) throw new AssertionError("Concrete text XML generic");
     String catalogXml = "<catalog xmlns='urn:serializer:vocabulary'><prices><price currency='USD'>12.5</price></prices><labels><label>A&amp;B</label><label/></labels></catalog>";
     var catalog = Schema.Shapes.Catalog.decodeXml(catalogXml.getBytes(StandardCharsets.UTF_8));
     if (catalog.prices.length != 1 || catalog.prices[0].value != 12.5 || !catalog.prices[0].currency.equals("USD") || !catalog.labels[0].equals("A&B")) throw new AssertionError("Simple content/wrappers");
@@ -34,6 +69,7 @@ public final class Main {
     value.amount = Double.POSITIVE_INFINITY;
     value.small = 1.25f;
     byte[] encoded = value.encodeXml();
+    checkTokens(value, encoded);
     var copy = Schema.Shapes.Record.decodeXml(encoded);
     if (!Arrays.equals(copy.encode(Schema.Protocol.BINARY_NONE), value.encode(Schema.Protocol.BINARY_NONE))) throw new AssertionError("Typed roundtrip");
     value.flag = Optional.of(false);

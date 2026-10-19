@@ -234,6 +234,43 @@ TEST(xml, generator_diagnoses_unsupported_shapes_and_retains_other_codecs) {
   EXPECT_THROW(generate("serializer version 1; class value { public int32 count; }", options), std::invalid_argument);
 }
 
+// Native managed engines and binary views retain explicit XML capability boundaries.
+TEST(xml, unsupported_managed_and_binary_view_projections_leave_native_generation_available) {
+  rohit::serializer::writer::cpp_options options{};
+  for (const auto source : {
+      "serializer version 1; class root managed { public uint32 value; }",
+      "serializer version 1; class output_view view readonly { public string label; }"}) {
+    options.xml.enabled = false;
+    EXPECT_NO_THROW((void)generate(source, options));
+    options.xml.enabled = true;
+    try {
+      (void)generate(source, options);
+      FAIL() << "Unsupported native projection was emitted as an XML model";
+    } catch (const std::invalid_argument& failure) {
+      EXPECT_NE(std::string_view{failure.what()}.find("lifecycle/projection generation"), std::string_view::npos);
+    }
+  }
+}
+
+// A native mixed fragment array has no position for foreign child slots between its text fragments.
+TEST(xml, positioned_mixed_child_slots_reject_without_weakening_native_storage) {
+  constexpr std::string_view source{"serializer version 1.20.0; "
+      "class child { public string text; } class fragment { private variant(string=text,child=record) value; } "
+      "class root { public array fragment content; }"};
+  rohit::serializer::writer::cpp_options options{};
+  options.xml.enabled = true; options.xml.namespace_uri = "urn:core";
+  options.xml.classes["root"].contracts = {
+      {"mixed", "content"}, {"mixed.child.record", "child"},
+      {"extension.future.kind", "element"}, {"extension.future.namespaces", "urn:foreign"},
+      {"extension.future.policy", "preserve"}};
+  try {
+    (void)generate(source, options);
+    FAIL() << "Foreign mixed child positions require an explicit native ordered representation";
+  } catch (const std::invalid_argument& failure) {
+    EXPECT_NE(std::string_view{failure.what()}.find("additional ordered positions"), std::string_view::npos);
+  }
+}
+
 TEST(xml, direct_generation_validates_xml_configuration_for_every_backend) {
   namespace writer = rohit::serializer::writer;
   constexpr std::string_view source{"serializer version 1.17.0; class value { public int32 count; }"};
@@ -315,6 +352,18 @@ TEST(xml, generated_cpp_api_names_are_reserved_only_when_xml_is_enabled) {
     options.xml.enabled = true;
     EXPECT_THROW((void)generate(source, options), std::invalid_argument) << source;
   }
+}
+
+TEST(xml, optional_cpp_contract_helpers_reserve_names_only_when_they_are_emitted) {
+  rohit::serializer::writer::cpp_options options{}; options.xml.enabled = true;
+  constexpr std::string_view source{
+      "serializer version 1.20.0; class value { public uint32 xml_extension_contract; public uint32 xml_identity_contract; }"};
+  EXPECT_NO_THROW((void)generate(source, options));
+  auto& mapping = options.xml.classes["value"].contracts;
+  mapping["extension.foreign.kind"] = "element";
+  mapping["extension.foreign.namespaces"] = "urn:foreign";
+  mapping["extension.foreign.policy"] = "preserve";
+  EXPECT_THROW((void)generate(source, options), std::invalid_argument);
 }
 
 TEST(xml, generated_native_api_and_runtime_names_are_reserved_without_changing_disabled_output) {

@@ -1,7 +1,24 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:t="urn:serializer:xsd"
+           xmlns:n="urn:serializer:names"
            targetNamespace="urn:serializer:xsd"
            elementFormDefault="qualified">
+  <xs:simpleType name="qualified_name"><xs:restriction base="xs:QName">
+    <xs:enumeration value="n:thing"/>
+  </xs:restriction></xs:simpleType>
+  <xs:simpleType name="qualified_name_list"><xs:restriction>
+    <xs:simpleType><xs:list itemType="xs:QName"/></xs:simpleType><xs:length value="2"/>
+  </xs:restriction></xs:simpleType>
+  <xs:element name="qualified_names"><xs:complexType><xs:simpleContent><xs:extension base="xs:QName">
+    <xs:attribute name="name" type="t:qualified_name" use="required"/>
+    <xs:attribute name="category" type="xs:QName" default="n:thing"/>
+    <xs:attribute name="names" type="t:qualified_name_list" use="required"/>
+    <xs:attribute name="required" type="xs:string"/>
+  </xs:extension></xs:simpleContent></xs:complexType></xs:element>
+  <xs:element name="qname_children"><xs:complexType><xs:sequence>
+    <xs:element name="value" type="xs:QName" minOccurs="0" maxOccurs="unbounded"/>
+  </xs:sequence></xs:complexType></xs:element>
   <xs:element name="order">
     <xs:complexType>
       <xs:sequence>
@@ -12,4 +29,53 @@
       <xs:attribute name="id" type="xs:unsignedInt" use="required"/>
     </xs:complexType>
   </xs:element>
+  <xs:simpleType name="ExactAmount"><xs:restriction base="xs:unsignedLong">
+    <xs:minInclusive value="9007199254740992"/><xs:maxExclusive value="9007199254740994"/>
+  </xs:restriction></xs:simpleType>
+  <xs:element name="amount"><xs:complexType><xs:simpleContent><xs:extension base="t:ExactAmount">
+    <xs:attribute name="unit" default="m"><xs:simpleType><xs:restriction base="xs:token">
+      <xs:enumeration value="m"/><xs:enumeration value="cm"/>
+    </xs:restriction></xs:simpleType></xs:attribute>
+  </xs:extension></xs:simpleContent></xs:complexType></xs:element>
+  <xs:element name="patterned"><xs:complexType><xs:sequence>
+    <xs:element name="count"><xs:simpleType><xs:restriction base="xs:int">
+      <xs:minInclusive value="0"/><xs:maxInclusive value="99"/><xs:pattern value="[+]?[0-9]{2}"/>
+    </xs:restriction></xs:simpleType></xs:element>
+    <xs:element name="label"><xs:simpleType><xs:restriction base="xs:string">
+      <xs:length value="1"/><xs:enumeration value="A"/><xs:enumeration value="&#x1F600;"/>
+    </xs:restriction></xs:simpleType></xs:element>
+  </xs:sequence></xs:complexType></xs:element>
+  <xs:element name="lists"><xs:complexType>
+    <xs:attribute name="values" use="required"><xs:simpleType><xs:restriction>
+      <xs:simpleType><xs:list itemType="xs:unsignedShort"/></xs:simpleType><xs:length value="3"/>
+    </xs:restriction></xs:simpleType></xs:attribute>
+  </xs:complexType></xs:element>
+  <xs:element name="wrapped"><xs:complexType><xs:sequence>
+    <xs:element name="items"><xs:complexType><xs:sequence>
+      <xs:element name="value" type="xs:int" minOccurs="0" maxOccurs="3"/>
+    </xs:sequence></xs:complexType></xs:element>
+  </xs:sequence></xs:complexType></xs:element>
+  <xs:element name="choice"><xs:complexType><xs:choice>
+    <xs:element name="number" type="xs:int"/><xs:element name="text" type="xs:string"/>
+  </xs:choice></xs:complexType></xs:element>
+  <xs:element name="permutation"><xs:complexType><xs:all>
+    <xs:element name="id" type="xs:unsignedInt"/><xs:element name="label" type="xs:string"/>
+    <xs:element name="extra" type="xs:int" minOccurs="0"/>
+  </xs:all></xs:complexType></xs:element>
+  <xs:complexType name="identity_entry">
+    <xs:attribute name="id" type="xs:unsignedInt"/>
+    <xs:attribute name="label" type="xs:token"/>
+  </xs:complexType>
+  <xs:complexType name="identity_reference"><xs:attribute name="id" type="xs:unsignedInt"/></xs:complexType>
+  <xs:element name="registry"><xs:complexType><xs:sequence>
+    <xs:element name="ref" type="t:identity_reference" minOccurs="0" maxOccurs="unbounded"/>
+    <xs:element name="entry" type="t:identity_entry" minOccurs="0" maxOccurs="unbounded"/>
+  </xs:sequence></xs:complexType>
+    <xs:keyref name="references" refer="t:ids"><xs:selector xpath="t:ref"/><xs:field xpath="@id"/></xs:keyref>
+    <xs:key name="ids"><xs:selector xpath="t:entry"/><xs:field xpath="@id"/></xs:key>
+    <xs:unique name="labels"><xs:selector xpath="t:entry"/><xs:field xpath="@label"/></xs:unique>
+  </xs:element>
+  <xs:element name="identity_holder"><xs:complexType><xs:sequence>
+    <xs:element ref="t:registry" minOccurs="0" maxOccurs="unbounded"/>
+  </xs:sequence></xs:complexType></xs:element>
 </xs:schema>

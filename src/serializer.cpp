@@ -682,7 +682,29 @@ int main(const int argc, const char* argv[]) {
     for (std::size_t index{}; index < configurations.size(); ++index) {
       if (!configurations[index].options.cpp.xml.enabled) { continue; }
       // Bind inline XSDs before collecting dependencies or publishing any generated files.
-      for (const auto* record : xml_records) { static_cast<void>(xml_contracts[index].bind(*record)); }
+      // Mixed fragment records are native storage in the backends that implement ordered content.
+      const bool mixed_storage_only = std::all_of(requests.begin(), requests.end(), [&](const auto& request) {
+        return request.configuration_index != index || request.language == "python" || request.language == "cpp" ||
+            request.language == "js" || request.language == "typescript" || request.language == "java" ||
+            request.language == "csharp" || request.language == "go" || request.language == "kotlin" || request.language == "swift" ||
+            request.language == "c" || request.language == "rust";
+      });
+      std::set<const class_node*> mixed_fragments{};
+      const auto& mappings = configurations[index].options.cpp.xml.classes;
+      if (mixed_storage_only) {
+        for (const auto* record : xml_records) {
+          const auto configured = mappings.find(record->get_full_name());
+          if (configured != mappings.end() && configured->second.contracts.contains("mixed")) {
+            const auto contract = xml_contracts[index].bind(*record);
+            if (contract.mixed && !mappings.contains(contract.mixed->fragment->get_full_name())) {
+              mixed_fragments.insert(contract.mixed->fragment);
+            }
+          }
+        }
+      }
+      for (const auto* record : xml_records) {
+        if (!mixed_fragments.contains(record)) { static_cast<void>(xml_contracts[index].bind(*record)); }
+      }
       const auto bundle_dependencies = xml_contracts[index].dependencies();
       configuration_dependencies.insert(configuration_dependencies.end(), bundle_dependencies.begin(), bundle_dependencies.end());
     }
@@ -721,12 +743,12 @@ int main(const int argc, const char* argv[]) {
       configuration_dependencies.insert(configuration_dependencies.end(), previous_dependencies.begin(), previous_dependencies.end());
       std::cout << "XML compatibility: current reader accepts the previous bound contract\n";
     }
-    // Standalone schema tools bind shared contracts without requesting a generated codec.
-    const bool tools_only = std::all_of(requests.begin(), requests.end(),
-        [](const auto& request) { return request.language == "xsd"; });
-    for (const auto& configuration : configurations) {
+    // Validate the actual requested backend: a Python-only contract need not be emitted in C++.
+    // All artifacts are still prepared before publication, so one unsupported target aborts the batch.
+    for (const auto& request : requests) {
+      const auto& configuration = configurations[request.configuration_index];
       writer::xml_binding::validate_options(schema.statements, configuration.options.cpp.xml,
-          tools_only ? "xsd" : "cpp");
+          request.language);
     }
     if (parsed.contains("verbose")) {
       std::cout << "Serializer: Parsed schema once for " << configurations.size()

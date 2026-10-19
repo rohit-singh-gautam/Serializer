@@ -1,9 +1,18 @@
 // Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
 // SPDX-License-Identifier: 0BSD
 import assert from 'node:assert/strict';
-import {Protocol, ShapesRecord, ShapesChild, ShapesState, ShapesCatalog, XmlLimits, type XmlValidator} from './schema.mjs';
+import {Protocol, ShapesRecord, ShapesChild, ShapesState, ShapesCatalog, ShapesIntegerBox, ShapesTextBox, ShapesNames, XmlLimits, type XmlValidator} from './schema.mjs';
 
 // Verify generated declarations match complete typed XML behavior, including optional tuple shapes.
+const namesXml = "<r:names xmlns:r='urn:root' xmlns:a='urn:attribute' xml:lang='en' a:qualified='A&amp;B'><unqualified>plain</unqualified><f:foreign xmlns:f='urn:foreign'>foreign</f:foreign></r:names>";
+const names: ShapesNames = ShapesNames.decodeXml(namesXml);
+assert.deepEqual([names.language, names.qualified, names.unqualified, names.foreign], ['en', 'A&B', 'plain', 'foreign']);
+assert.deepEqual(ShapesNames.decodeXml(names.encodeXml()).encode(Protocol.BINARY_NONE), names.encode(Protocol.BINARY_NONE));
+const integerBox: ShapesIntegerBox = ShapesIntegerBox.decodeXml('<integer_box><value>4294967295</value></integer_box>');
+assert.deepEqual(integerBox.value, 4294967295);
+const textBox: ShapesTextBox = ShapesTextBox.decodeXml('<text_box><value>A&amp;B</value></text_box>');
+assert.deepEqual(textBox.value, 'A&B');
+assert.deepEqual(ShapesTextBox.decodeXml(textBox.encodeXml()).value, textBox.value);
 const catalogXml: string = "<catalog xmlns='urn:serializer:vocabulary'><prices><price currency='USD'>12.5</price></prices><labels><label>A&amp;B</label><label/></labels></catalog>";
 const catalog: ShapesCatalog = ShapesCatalog.decodeXml(catalogXml);
 assert.deepEqual(catalog.prices[0].value, 12.5); assert.deepEqual(catalog.prices[0].currency, 'USD');

@@ -1,5 +1,5 @@
 """Qualify generated nested, optional, numeric, enum and fixed-array XML mappings."""
-from schema import Protocol, ShapesRecord, ShapesChild, ShapesState, ShapesPrice, ShapesCatalog, XmlSchema
+from schema import Protocol, ShapesRecord, ShapesChild, ShapesState, ShapesPrice, ShapesCatalog, ShapesIntegerBox, ShapesTextBox, ShapesNames, XmlSchema
 
 
 def rejected(document):
@@ -13,6 +13,15 @@ def rejected(document):
 
 def main():
     """Check complete model values and selected prepared runtime XSD enforcement."""
+    names_xml = b"<r:names xmlns:r='urn:root' xmlns:a='urn:attribute' xml:lang='en' a:qualified='A&amp;B'><unqualified>plain</unqualified><f:foreign xmlns:f='urn:foreign'>foreign</f:foreign></r:names>"
+    names = ShapesNames.decode_xml(names_xml)
+    assert (names.language, names.qualified, names.unqualified, names.foreign) == ('en', 'A&B', 'plain', 'foreign')
+    assert ShapesNames.decode_xml(names.encode_xml()).encode(Protocol.BINARY_NONE) == names.encode(Protocol.BINARY_NONE)
+    integer_box = ShapesIntegerBox.decode_xml(b'<integer_box><value>4294967295</value></integer_box>')
+    assert integer_box.value == 4294967295
+    text_box = ShapesTextBox.decode_xml(b'<text_box><value>A&amp;B</value></text_box>')
+    assert text_box.value == 'A&B'
+    assert ShapesTextBox.decode_xml(text_box.encode_xml()).value == text_box.value
     document = b"<catalog xmlns='urn:serializer:vocabulary'><prices><price currency='USD'>12.5</price><price currency='EUR'>0</price></prices><labels><label>A&amp;B</label><label/></labels></catalog>"
     catalog = ShapesCatalog.decode_xml(document)
     assert catalog.prices[0].currency == 'USD' and catalog.prices[0].value == 12.5

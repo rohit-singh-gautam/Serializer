@@ -11,6 +11,7 @@ that later changes or untested backend combinations passed the same checks.
 
 | Record | Scope |
 | --- | --- |
+| [Generated XML token codecs and OPC example](verification-xml-tokens-2026-10-19.md) | Per-language X-task implementation, actual generated SDK/provider checks, explicit remaining scope and the commented C++/Python OPC catalog. |
 | [Advanced XML shared contracts](verification-xml-advanced-contracts-2026-10-19.md) | S08-S36 scalar/particle/identity, XSD tooling, model/profile and restricted HTML contracts; exact native, oracle and SDK checks with remaining backend boundaries. |
 | [XML shared contracts](verification-xml-shared-contracts-2026-10-19.md) | Incremental event input, shared presence/mixed/map/variant/extension contracts and explicit backend capability boundaries; exact checks and remaining qualification. |
 | [Normalized XML events](verification-xml-events-2026-10-19.md) | Historical 2.9 S01 ownership, bounded structural validation, explicit completion and exact provider/platform checks; later work is recorded separately. |

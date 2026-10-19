@@ -113,6 +113,13 @@ inline std::string view_name(std::string_view owner, const conversion_declaratio
   return result;
 }
 
+// Preserve copied native scalar getters while lending every non-Copy owning Rust container.
+inline bool rust_getter_borrows(const type_name& type) {
+  if (type.is_optional()) { return rust_getter_borrows(type.arguments.front()); }
+  return type.name == "string" || type.name.starts_with("version") || type.type == object_type::class_type ||
+      type.is_digest() || type.is_sequence() || type.is_associative();
+}
+
 // Emit scoped readonly projections; codecs are supplied by the backend's ordinary target traversal.
 inline std::string methods(const class_node& owner, std::string_view owner_name,
     std::string_view language, const type_renderer& type, const name_renderer& name,
@@ -141,7 +148,8 @@ inline std::string methods(const class_node& owner, std::string_view owner_name,
       for (const auto& value : values) {
         shape += name("get_" + value.field.name, access_type::public_access) + "(): " + type(value.field.type_name_list.front()) + "; ";
       }
-      shape += "encode(protocol: Protocol): Uint8Array }";
+      const auto extra = codecs(method, view);
+      shape += "encode(protocol: Protocol): Uint8Array" + (extra.empty() ? " }" : "; " + extra + " }");
       output += "  " + scoped + "<Result>(action: (view: " + shape + ") => Result): Result;\n";
       continue;
     }
@@ -218,7 +226,7 @@ inline std::string methods(const class_node& owner, std::string_view owner_name,
         output += "    // Borrow one target field from the live source or this view's fresh default.\n    [[nodiscard]] constexpr const " + native_type + "& " + getter + "() const & noexcept { return " + expression + "; }\n";
         output += "    // A temporary view cannot lend a reference to its owned default fields.\n    const " + native_type + "& " + getter + "() const && = delete;\n";
       } else if (rust) {
-        const bool borrowed = value.field.type_name_list.front().name == "string" || value.field.type_name_list.front().name.starts_with("version") || value.field.type_name_list.front().type == object_type::class_type;
+        const bool borrowed = rust_getter_borrows(value.field.type_name_list.front());
         output += "  /// Read one projection without copying owned source storage.\n  pub fn " + getter + "(&self) -> " + (borrowed ? "&" : "") + native_type + " { " + (borrowed ? "&" : "") + (value.mapped ? "self." + expression : "self." + storage) + " }\n";
       } else if (go) {
         output += "// " + getter + " reads one target projection.\nfunc (value " + view + ") " + getter + "() " + native_type + " { return " + (value.mapped ? "value." + expression : "value." + storage) + " }\n";

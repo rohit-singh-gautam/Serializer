@@ -16,6 +16,20 @@ static void require(bool success, const char* message) {
 }
 /* Qualify native typed XML mappings and both optional prepared-XSD validation directions. */
 int main(void) {
+  const char* names_xml = "<r:names xmlns:r='urn:root' xmlns:a='urn:attribute' xml:lang='en' a:qualified='A&amp;B'><unqualified>plain</unqualified><f:foreign xmlns:f='urn:foreign'>foreign</f:foreign></r:names>";
+  shapes_names names = {0}, names_copy = {0}; srl_buffer names_bytes = {0};
+  require(shapes_names_init(&names) == srl_ok && shapes_names_init(&names_copy) == srl_ok, "Namespace fixture init");
+  require(shapes_names_decode_xml(&names, (const uint8_t*)names_xml, strlen(names_xml), NULL, NULL) == srl_ok && strcmp(names.language.data, "en") == 0 && strcmp(names.qualified.data, "A&B") == 0 && strcmp(names.unqualified.data, "plain") == 0 && strcmp(names.foreign.data, "foreign") == 0, "Expanded namespace input");
+  require(shapes_names_encode_xml(&names, &names_bytes, NULL, NULL) == srl_ok && shapes_names_decode_xml(&names_copy, names_bytes.data, names_bytes.size, NULL, NULL) == srl_ok && strcmp(names_copy.qualified.data, names.qualified.data) == 0 && strcmp(names_copy.foreign.data, names.foreign.data) == 0 && strcmp(names_copy.language.data, names.language.data) == 0, "Expanded namespace output");
+  shapes_names_free(&names); shapes_names_free(&names_copy); srl_buffer_free(&names_bytes);
+  const char* integer_xml = "<integer_box><value>4294967295</value></integer_box>";
+  const char* text_xml = "<text_box><value>A&amp;B</value></text_box>";
+  shapes_integer_box integer_box = {0}; shapes_text_box text_box = {0}, text_copy = {0}; srl_buffer generic_bytes = {0};
+  require(shapes_integer_box_init(&integer_box) == srl_ok && shapes_text_box_init(&text_box) == srl_ok && shapes_text_box_init(&text_copy) == srl_ok, "Concrete generic init");
+  require(shapes_integer_box_decode_xml(&integer_box, (const uint8_t*)integer_xml, strlen(integer_xml), NULL, NULL) == srl_ok && integer_box.value == UINT32_MAX, "Concrete numeric XML generic");
+  require(shapes_text_box_decode_xml(&text_box, (const uint8_t*)text_xml, strlen(text_xml), NULL, NULL) == srl_ok && strcmp(text_box.value.data, "A&B") == 0, "Concrete text XML generic");
+  require(shapes_text_box_encode_xml(&text_box, &generic_bytes, NULL, NULL) == srl_ok && shapes_text_box_decode_xml(&text_copy, generic_bytes.data, generic_bytes.size, NULL, NULL) == srl_ok && strcmp(text_copy.value.data, text_box.value.data) == 0, "Concrete XML generic roundtrip");
+  shapes_integer_box_free(&integer_box); shapes_text_box_free(&text_box); shapes_text_box_free(&text_copy); srl_buffer_free(&generic_bytes);
   const char* catalog_xml = "<catalog xmlns='urn:serializer:vocabulary'><prices><price currency='USD'>12.5</price></prices><labels><label>A&amp;B</label><label/></labels></catalog>";
   shapes_catalog catalog = {0}, catalog_copy = {0}, empty_catalog = {0}; srl_buffer catalog_bytes = {0};
   require(shapes_catalog_init(&catalog) == srl_ok && shapes_catalog_init(&catalog_copy) == srl_ok && shapes_catalog_init(&empty_catalog) == srl_ok, "Vocabulary init");
@@ -50,7 +64,8 @@ int main(void) {
   double boundary = 0;
   require(srl_xml_float("2.2250738585072014e-308", false, &boundary) && boundary == DBL_MIN, "Smallest normal XML rejected");
   require(!srl_xml_float("1e99999", false, &boundary), "Overflowing XML accepted");
-  require(!srl_xml_float("1e-99999", false, &boundary), "XML underflow to zero accepted");
+  require(srl_xml_float("1e-99999", false, &boundary) && boundary == 0 && !signbit(boundary), "Positive XML underflow lost zero sign");
+  require(srl_xml_float("-1e-99999", false, &boundary) && boundary == 0 && signbit(boundary), "Negative XML underflow lost zero sign");
   value.small = 1.25f; value.amount = INFINITY;
   value.flag.has_value = false;
   require(shapes_record_encode_xml(&value, &encoded, NULL, NULL) == srl_ok && shapes_record_decode_xml(&copy, encoded.data, encoded.size, NULL, NULL) == srl_ok && !copy.flag.has_value, "Optional absence failed");

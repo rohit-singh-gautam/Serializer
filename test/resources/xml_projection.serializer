@@ -18,4 +18,22 @@ namespace xml_projection {
     public shared(source.current) value (1);
     public borrowed(source.current.label) label (2);
   }
+  class qualified_payload {
+    public string value xml(text, qname);
+  }
+  class qualified_source {
+    public qualified_payload current;
+  }
+  class weak_envelope {
+    public weak(qualified_source.current) value;
+  }
+  class nil_payload {
+    public optional<string> text xml(element);
+  }
+  class nil_source {
+    public nil_payload current;
+  }
+  class nil_envelope {
+    public shared(nil_source.current) value;
+  }
 }

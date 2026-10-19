@@ -1,5 +1,11 @@
 # Advanced shared XML contracts
 
+Compiler/runtime **2.12.0** implements selected dependent generated codecs,
+including C++/Python `all`, Python identity/mixed/inherited mappings and Go
+portable pattern/inherited traversal. See [current token subsets](xml_tokens.md)
+and their [per-backend evidence](../verification/verification-xml-tokens-2026-10-19.md).
+The 2.11 shared checkpoint below does not itself qualify generated backends.
+
 Compiler/runtime **2.11.0**, schema language **1.20.0**, extends shared tasks
 S08-S36. This guide distinguishes compiler metadata and reference validators
 from generated language codecs. The earlier [content contracts](xml_shared_contracts.md)
@@ -198,7 +204,9 @@ identity. Opaque managed-reference and durable-address tokens remain unsupported
 for XML. Borrowed/view projections are synchronous output-only and require live
 owner storage; decode into an owning model. Digest projection represents exact
 hexadecimal bytes with checked algorithm/extent and does not recompute a digest.
-Generated generic/inherited/revision/projection codecs remain separate tasks.
+The 2.12 token guide qualifies non-C++ concrete generics and Go/Python owning
+inheritance. C++ template/inherited mappings and remaining revision/projection
+codecs retain their separate backend tasks.
 
 ## Document profiles and dispatch metadata
 

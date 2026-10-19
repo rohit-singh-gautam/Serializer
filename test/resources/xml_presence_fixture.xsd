@@ -1,0 +1,16 @@
+<!-- Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+SPDX-License-Identifier: GPL-3.0-or-later -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:t="urn:serializer:nil"
+targetNamespace="urn:serializer:nil" elementFormDefault="qualified">
+<xs:complexType name="childType"><xs:sequence><xs:element name="value" type="xs:string"/></xs:sequence></xs:complexType>
+<xs:complexType name="sampleType"><xs:sequence>
+<xs:element name="nil_value" type="xs:string" nillable="true"/>
+<xs:element name="states" type="xs:string" minOccurs="0" nillable="true"/>
+<xs:element name="entries" minOccurs="0" nillable="true"><xs:complexType><xs:sequence>
+<xs:element name="item" type="xs:string" minOccurs="0" maxOccurs="unbounded"/>
+</xs:sequence></xs:complexType></xs:element>
+<xs:element name="nested" type="t:childType" nillable="true"/>
+</xs:sequence></xs:complexType>
+<xs:element name="child" type="t:childType"/><xs:element name="sample" type="t:sampleType"/>
+<xs:element name="holder"><xs:complexType><xs:sequence><xs:element name="value" type="t:sampleType"/></xs:sequence></xs:complexType></xs:element>
+</xs:schema>

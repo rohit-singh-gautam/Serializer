@@ -1,0 +1,7 @@
+<!-- Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+SPDX-License-Identifier: GPL-3.0-or-later -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" targetNamespace="urn:serializer:nil:all" elementFormDefault="qualified">
+<xs:element name="sample"><xs:complexType><xs:all>
+<xs:element name="states" minOccurs="0" nillable="true"><xs:simpleType><xs:restriction base="xs:string"><xs:whiteSpace value="collapse"/><xs:length value="2"/><xs:pattern value="[A-Z]{2}"/></xs:restriction></xs:simpleType></xs:element>
+<xs:element name="number" minOccurs="0"><xs:simpleType><xs:restriction base="xs:unsignedShort"><xs:minInclusive value="1"/><xs:maxInclusive value="3"/></xs:restriction></xs:simpleType></xs:element>
+</xs:all></xs:complexType></xs:element></xs:schema>

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 4.0)
 
-project(serializer VERSION 2.11.0 LANGUAGES CXX)
+project(serializer VERSION 2.12.0 LANGUAGES CXX)
 include(GNUInstallDirs)
 # The language contract evolves independently of the compiler/runtime release.
 set(serializer_schema_language_version 1.20.0)
@@ -62,6 +62,7 @@ add_library(serializer_runtime
   include/rohit/compression_stream.hpp
   src/xml.cpp
   include/rohit/xml.hpp
+  include/rohit/xml_tokens.hpp
   src/xml_events.cpp
   include/rohit/xml_events.hpp
   src/xml_event_reader.cpp
@@ -145,20 +146,129 @@ add_library(serializer_lib
   src/xml_schema.hpp
   src/xml_portable_writer.cpp
   src/xml_portable_writer.hpp
+  src/xml_portable_projection_writer.hpp
   src/xml_native_writer.cpp
+  src/xml_native_choice_writer.hpp
+  src/xml_native_model_writer.hpp
+  src/xml_native_extension_writer.hpp
+  src/xml_c_extension_runtime.inc
+  src/xml_rust_extension_runtime.inc
+  src/xml_native_identity_writer.hpp
+  src/xml_native_extension_frames.hpp
+  src/xml_c_identity_runtime.inc
+  src/xml_rust_identity_runtime.inc
+  src/xml_native_scalar_writer.hpp
+  src/xml_mobile_map_writer.hpp
+  src/xml_mobile_variant_writer.hpp
+  src/xml_mobile_mixed_writer.hpp
+  src/xml_mobile_scalar_writer.hpp
+  src/xml_mobile_identity_writer.hpp
+  src/xml_mobile_extension_writer.hpp
+  src/xml_portable_extension_writer.hpp
+  src/xml_java_extension_runtime.inc
+  src/xml_csharp_extension_runtime.inc
+  src/xml_go_extension_runtime.inc
   src/xml_native_writer.hpp
   src/xml_js_writer.hpp
+  src/xml_js_token_runtime.inc
+  src/xml_js_container_writer.hpp
+  src/xml_js_container_runtime.inc
+  src/xml_js_variant_writer.hpp
+  src/xml_js_variant_runtime.inc
+  src/xml_js_model_writer.hpp
+  src/xml_js_scalar_writer.hpp
+  src/xml_js_scalar_runtime.inc
+  src/xml_js_namespace_runtime.inc
+  src/xml_js_mixed_runtime.inc
+  src/xml_js_mixed_writer.hpp
+  src/xml_js_identity_writer.hpp
+  src/xml_js_identity_runtime.inc
+  src/xml_js_extension_writer.hpp
+  src/xml_js_extension_runtime.inc
+  src/xml_js_html_runtime.inc
+  src/xml_js_lifecycle_writer.hpp
+  src/xml_js_lifecycle_runtime.inc
+  src/xml_js_provider_runtime.inc
+  src/xml_js_projection_types.hpp
+  src/xml_js_projection_writer.hpp
+  src/xml_js_projection_runtime.inc
   src/xml_rust_writer.hpp
+  src/xml_rust_container_writer.hpp
+  src/xml_rust_map_runtime.inc
+  src/xml_rust_variant_writer.hpp
+  src/xml_rust_variant_runtime.inc
+  src/xml_rust_mixed_writer.hpp
+  src/xml_rust_mixed_runtime.inc
+  src/xml_rust_model_runtime.inc
+  src/xml_rust_scalar_runtime.inc
+  src/xml_rust_html_runtime.inc
+  src/xml_rust_projection_writer.hpp
+  src/xml_rust_tokens_runtime.inc
   src/xml_csharp_writer.hpp
   src/xml_go_runtime.inc
+  src/xml_go_map_runtime.inc
+  src/xml_go_scalar_runtime.inc
+  src/xml_go_mixed_runtime.inc
+  src/xml_go_identity_runtime.inc
+  src/xml_go_html_runtime.inc
   src/xml_c_runtime.inc
+  src/xml_c_tokens_runtime.inc
+  src/xml_c_container_writer.hpp
+  src/xml_c_map_runtime.inc
+  src/xml_c_variant_writer.hpp
+  src/xml_c_variant_runtime.inc
+  src/xml_c_mixed_writer.hpp
+  src/xml_c_mixed_runtime.inc
+  src/xml_c_model_runtime.inc
+  src/xml_c_scalar_runtime.inc
+  src/xml_c_html_runtime.inc
   src/xml_csharp_runtime.inc
+  src/xml_csharp_scalar_runtime.inc
+  src/xml_csharp_mixed_runtime.inc
+  src/xml_csharp_identity_runtime.inc
+  src/xml_csharp_html_runtime.inc
+  src/xml_csharp_model_runtime.inc
+  src/xml_java_model_runtime.inc
+  src/xml_go_model_runtime.inc
   src/xml_kotlin_runtime.inc
+  src/xml_kotlin_output_runtime.inc
+  src/xml_kotlin_map_runtime.inc
+  src/xml_kotlin_variant_runtime.inc
+  src/xml_kotlin_mixed_runtime.inc
+  src/xml_kotlin_html_runtime.inc
+  src/xml_kotlin_scalar_runtime.inc
+  src/xml_kotlin_model_runtime.inc
+  src/xml_kotlin_identity_runtime.inc
+  src/xml_kotlin_extension_runtime.inc
+  src/xml_kotlin_tokens_runtime.inc
   src/xml_swift_runtime.inc
+  src/xml_swift_output_runtime.inc
+  src/xml_swift_map_runtime.inc
+  src/xml_swift_variant_runtime.inc
+  src/xml_swift_mixed_runtime.inc
+  src/xml_swift_html_runtime.inc
+  src/xml_swift_scalar_runtime.inc
+  src/xml_swift_model_runtime.inc
+  src/xml_swift_identity_runtime.inc
+  src/xml_swift_extension_runtime.inc
+  src/xml_swift_extension_tokens_runtime.inc
+  src/xml_swift_tokens_runtime.inc
+  src/xml_swift_attribute_runtime.inc
   src/java_xml_runtime.inc
+  src/xml_java_identity_runtime.inc
+  src/xml_java_html_runtime.inc
+  src/xml_java_scalar_runtime.inc
+  src/xml_java_mixed_runtime.inc
   src/python_xml_runtime.inc
   src/python_xml_rich_runtime.inc
   src/python_xml_writer.hpp
+  src/python_xml_identity.hpp
+  src/python_xml_identity_runtime.inc
+  src/python_xml_scalar_runtime.inc
+  src/python_xml_model_runtime.inc
+  src/python_xml_projection_runtime.inc
+  src/python_xml_extension_runtime.inc
+  src/python_html_runtime.inc
   src/python_package_runtime.inc
   src/python_package_mce_runtime.inc
   src/python_package_writer.hpp
@@ -411,6 +521,7 @@ endif()
 if(SERIALIZER_WITH_XML AND SERIALIZER_WITH_ZLIB AND
     (SERIALIZER_BUILD_XML_EXAMPLES OR SERIALIZER_BUILD_TESTS))
   add_subdirectory(example/cpp/xml)
+  add_subdirectory(example/opc)
 endif()
 if(SERIALIZER_WITH_XML AND (SERIALIZER_BUILD_XML_EXAMPLES OR SERIALIZER_BUILD_TESTS
     OR SERIALIZER_BUILD_ALL_LANGUAGE_EXAMPLES))

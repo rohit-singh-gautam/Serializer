@@ -11,7 +11,7 @@ R"serializer(
 #include <inttypes.h>
 
 /* Share one bounded output operation across provider callbacks and nested generated records. */
-typedef struct srl_xml_output { srl_writer writer; srl_limits limits; size_t nodes; size_t text_bytes; } srl_xml_output;
+typedef struct srl_xml_output { srl_writer writer; srl_limits limits; srl_xml_map_limits map_limits; srl_xml_mixed_limits mixed_limits; srl_xml_digest_limits digest_limits; size_t nodes; size_t text_bytes; const char* pending_type_uri; const char* pending_type_local; size_t framing_bytes; } srl_xml_output;
 /* Optional trusted prepared validator; emitted model APIs accept it only when configured. */
 typedef struct srl_xml_validation {
   srl_status (*validate)(const uint8_t* bytes, size_t size, const srl_limits* limits, void* context);
@@ -165,9 +165,9 @@ static inline bool srl_xml_float(const char* text, bool single, double* result) 
   }
   normalized[target] = '\0'; errno = 0; char* end;
   const double value = single ? (double)strtof(normalized,&end) : strtod(normalized,&end);
-  /* C11 7.22.1.3 permits ERANGE for a retained subnormal or smallest normal result. */
+  /* C11 7.22.1.3 permits ERANGE for subnormal results and correctly rounded signed zero. */
   const double smallest_normal = single ? (double)FLT_MIN : DBL_MIN;
-  const bool retained_tiny = value != 0 && fabs(value) <= smallest_normal;
+  const bool retained_tiny = fabs(value) <= smallest_normal;
   const bool good = end == normalized+target && isfinite(value) && (errno != ERANGE || retained_tiny);
   free(normalized); if (good) { *result = value; } return good;
 }
@@ -184,18 +184,24 @@ static inline bool srl_xml_characters(const char* text, size_t size) {
 /* Bound provider output before appending to the independent complete-message buffer. */
 static inline int srl_xml_output_write(void* context, const char* bytes, int size) {
   srl_xml_output* output = (srl_xml_output*)context;
-  if (size < 0 || output->writer.buffer.size > output->limits.max_bytes || (size_t)size > output->limits.max_bytes-output->writer.buffer.size) { output->writer.status = srl_limit; return -1; }
+  const size_t maximum=output->framing_bytes ? output->framing_bytes : output->limits.max_bytes;
+  if (size < 0 || output->writer.buffer.size > maximum || (size_t)size > maximum-output->writer.buffer.size) { output->writer.status = srl_limit; return -1; }
   srl_put(&output->writer, bytes, (size_t)size);
   return output->writer.status == srl_ok ? size : -1;
 }
 /* The caller retains the independent output state after provider finalization. */
 static inline int srl_xml_output_close(void* context) { (void)context; return 0; }
+/* Preserve the predefined xml binding rather than inventing an illegal alias for it. */
+static inline const char* srl_xml_namespace_prefix(const char* uri, const char* fallback) {
+  static const char xml_namespace_uri[] = "http://www.w3.org/XML/1998/namespace";
+  return strcmp(uri, xml_namespace_uri) == 0 ? "xml" : fallback;
+}
 /* Write scalar text or an attribute after complete-message string accounting. */
 )serializer"
 R"serializer(static inline bool srl_xml_emit_text(xmlTextWriterPtr writer, srl_xml_output* output, const char* local, const char* uri, const char* prefix, const char* text, size_t size) {
   if (size > output->limits.max_string_bytes || output->text_bytes > output->limits.max_bytes || size > output->limits.max_bytes-output->text_bytes || !srl_xml_characters(text,size) || strlen(text) != size) { output->writer.status = srl_invalid; return false; }
   output->text_bytes += size;
-  const int result = local ? xmlTextWriterWriteAttributeNS(writer, *uri ? BAD_CAST prefix : NULL, BAD_CAST local, *uri ? BAD_CAST uri : NULL, BAD_CAST text) : xmlTextWriterWriteString(writer, BAD_CAST text);
+  const int result = local ? xmlTextWriterWriteAttributeNS(writer, *uri ? BAD_CAST srl_xml_namespace_prefix(uri, prefix) : NULL, BAD_CAST local, *uri ? BAD_CAST uri : NULL, BAD_CAST text) : xmlTextWriterWriteString(writer, BAD_CAST text);
   return result >= 0;
 }
 /* Own a trusted standalone prepared XSD 1.0 schema; no document borrows its source bytes. */

@@ -46,6 +46,92 @@ checkout; direct use does not require copying the skill into the consuming proje
 
 ## Use the full framework
 
+Compiler/runtime **2.12.0** adds [generated XML token codecs](../../../docs/serialization/xml_tokens.md).
+Require `find_package(Serializer 2.12 CONFIG REQUIRED)` and regenerate C++ models
+before using `<rohit/xml_tokens.hpp>` with `xml::serialize_tokens` or
+`deserialize_tokens`. Keep input and owner storage live through synchronous use;
+publish only after exact EOF. Explicit C++/Python/Kotlin presence mappings distinguish
+absent, nil and empty values, including Kotlin native optional layers. Go/Java/C#
+map policies bound entries and canonical keys; Java/C# also execute prepared
+portable scalar/pattern programs, exact decimal/integer lexical families,
+namespace-independent lists/unions and default/fixed adapters. Keep their QName
+capability gates distinct from these scalar rules. JavaScript/TypeScript use bounded portable
+pattern programs with exact numeric comparisons. Owning composed inheritance
+supports every output, including private composed bases in C/Rust/Kotlin/Swift.
+C++ key/unique/keyref observers validate during
+token traversal with optional borrowed `operation_context.identity_bounds`.
+Python revision/magic, owning digest and positioned-extension mappings retain
+their documented graph restrictions. All eleven outputs' selected ordered mixed
+fragment mappings preserve native private storage and enforce fragment/text budgets.
+JavaScript/TypeScript
+`decodeXmlChunks` requires pinned `saxes` 6.0.0 and consumes fatal-decoded UTF-8
+chunks directly into private typed fields. Check the selected record graph's supported token
+subset. Rust XML generation additionally requires pinned `xmlparser` 0.13.6;
+retain `roxmltree` for legacy helpers and use `decode_xml_bytes` for external
+UTF-8 bytes. C uses a LibXml2 pull reader and preserves an initialized destination
+on failure. All eleven outputs support the checked element and `xsi:type` variant
+inventories. Java/C#/Go support authoritative XSD
+presence; Swift native frames support nil/optional collections and singleton
+`all` groups; C and Rust also accept independently checked `all` permutations.
+Rust `Option` layers and C explicit optional storage preserve absent, nil and
+empty scalars, records and wrapped collections through all native protocols.
+Kotlin/Swift/C/Rust also traverse authoritative simpleContent/wrappers and
+singleton scalar/record choices; exactly one native alternative is selected,
+or none when the XSD group is optional. Grouped/repeated heterogeneous choices
+require a separately supported ordered-storage contract.
+For Kotlin/Swift maps, pass the optional trailing `mapLimits` companion argument
+to XML encode/decode methods. Existing `XmlLimits` constructors are unchanged;
+the map policy applies independently to every wrapper and propagates to nested
+records. Canonical native key identity rejects numeric and Boolean aliases.
+For Kotlin/Swift ordered mixed content, pass `mixedLimits=XmlMixedLimits(...)`
+(Kotlin) or `mixedLimits: XmlMixedLimits(...)` (Swift). It propagates independently
+through nested owners and counts empty authored output fragments. Input joins
+adjacent provider text between typed children. Use their separate `Html` adapters
+for the approved ordinary HTML fragment subset; those scanners do not call XML providers.
+Java/C#/Go/Kotlin/Swift also validate scoped key/unique/keyref tuples directly, including
+forward references and independently bounded owner-local indexes.
+C/Rust validate the same reference contract in a separate bounded streaming pass
+over original input or private output bytes. Their `with_identity_limits` companion
+entrypoints retain existing native/XML limit layouts and ordinary method arities.
+Every output's selected scalar bindings include exact numeric/list/union facets and bounded
+portable pattern programs. Owning revision/magic and digest mappings
+preserve native historical layouts. Kotlin accepts `digestLimits=XmlDigestLimits(...)`
+and Swift accepts `digestLimits: XmlDigestLimits(...)`
+to bound each nested owning digest independently. All outputs' supported readonly value references
+and scoped translators export original source values; their input graphs reject.
+C/Rust/Go/Swift real prepared XSD callbacks are qualified by the Windows-only native
+provider fixture; it uses a test bridge, not an added installed runtime dependency.
+Check the selected graph's remaining advanced restrictions before
+choosing the token path.
+
+Python exposes `decode_xml_chunks`, mixed/map/variant/inherited traversal,
+generated XSD all/key/unique/keyref validation
+and XML-only `Limits(xml_identity=XmlIdentityLimits(...))` tuple bounds. Forward
+references resolve before publication. Use `Html` separately for the approved
+ordinary HTML fragment subset. Concrete owning generic instances and C++ private/
+multiple owning inheritance use generated field bindings; preserve named-instance
+type identities and check each mapping's backend limits. The [typed OPC reference example](../../../example/opc/README.md)
+documents which XML and attachment part each application value fills, generates
+C++/Python package metadata, and checks independent ZIP/XML readers. Consult the
+[per-backend verification record](../../../docs/verification/verification-xml-tokens-2026-10-19.md)
+for the remaining X01-X22 instances; this checkpoint does not close all languages.
+Schema language stays **1.20.0**, both editor packages stay **2.0.5**, and native
+wire values are unchanged. C++/Python maps reject duplicate canonical keys and
+expose per-wrapper bounds. The qualified variant subset in every output supports
+element tags and `xsi:type` with exact expanded-name inventories.
+Python mixed input joins provider-split
+text between children; adjacent/empty text boundaries cannot survive XML bytes.
+Use `Limits(xml_map=XmlMapLimits(...), xml_mixed=XmlMixedLimits(...))` to tighten
+these Python admissions. Use `Limits(xml_pattern=XmlPatternLimits(...))` for
+portable Python pattern state/input/work bounds; approved patterns need no lxml,
+while legacy provider-only patterns retain their explicit dependency. Java, C#,
+Go and Kotlin use native pull input for supported owning graphs. Prepared Java,
+C# and Kotlin XSD providers reject undeclared roots and external schema acquisition;
+each validation owns its execution state. Go supports flattened owning bases and
+approved portable pattern programs with bounded non-backtracking execution. Regenerate
+XML outputs; no native payload migration is needed. Prefix/declaration
+presentation may change, so compare expanded names.
+
 Compiler/runtime **2.11.0** adds [advanced shared XML contracts](../../../docs/serialization/xml_advanced_contracts.md).
 Require `find_package(Serializer 2.11 CONFIG REQUIRED)` for
 `<rohit/xml_pattern.hpp>`, `<rohit/xml_identity.hpp>`, `<rohit/document_profile.hpp>`
@@ -94,10 +180,30 @@ allocations and native limits are distinct from logical event-state accounting.
 
 Use the shared guide's exact INI selections for explicit presence/nil, ordered
 mixed content, map entry/key/value names, variant/type inventories and positioned
-foreign extension slots. These selections currently validate compiler IR and
-reference contracts only: every backend rejects their generated token codecs
-with an explicit capability diagnostic. Do not promise generated support or
-substitute a fixed-XSD override; X05/X06/X07/X08/X16 remain pending. Keep the
+foreign extension slots. Compiler/runtime 2.12 adds selected presence, mixed,
+map and variant mappings across all eleven outputs; use the token guide's exact supported subset. Unimplemented
+backend contracts still reject with an explicit capability diagnostic. Do not
+substitute a fixed-XSD override. Consult the current token guide for implemented
+C++/Python/JavaScript/TypeScript/Java/C#/Go/Kotlin/Swift extension subsets and
+C/Rust owning document companions. For mobile preservation, pass `extensionOptions` after
+the other companion policies; declare namespace understanding explicitly.
+Java/C# accept `XmlExtensionOptions` in trailing XML overloads; Go uses
+`WithExtensionOptions`/`WithAllBounds` companions so existing option literals and
+method signatures remain valid. Their slots and logical retained bytes are owner-local;
+document bounds remain cumulative. C uses initialized `Type_xml_document`
+companions with `Type_xml_document_init/free`, `Type_decode_xml_document` and
+`Type_encode_xml_document`; Rust returns `XmlDocument<T>` from
+`Type::decode_xml_document` and borrows its `extensions` for
+`value.encode_xml_with_extensions`. C/Rust extension item and retained-byte
+budgets apply cumulatively over the document. Keep the sidecar with its decoded
+native value and release the C document through its generated free function.
+Their bounded private known-XML transport adds buffers and scans; the token guide
+documents its framing limit and supported graph restrictions.
+Preserve original opaque namespace bindings
+and allow for additional inherited context on the first nested canonical replay.
+Treat `urn:serializer:xml:model` as closed Serializer metadata even when a slot
+lists it explicitly; opaque preservation cannot bypass lifecycle validation.
+Keep the
 parsed AST stable while compiler contracts borrow it. For raw extension helpers,
 provide full in-scope bindings, explicit foreign URI permissions and precise
 positions; retain a complete candidate before publication. Required vocabulary

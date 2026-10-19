@@ -1,0 +1,14 @@
+{
+  "name": "serializer-prepared-xml-provider-test",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "@xmldom/xmldom": "0.9.12",
+    "libxml2-wasm": "0.7.1",
+    "saxes": "6.0.0",
+    "xmlchars": "2.2.0"
+  },
+  "devDependencies": {
+    "typescript": "5.9.3"
+  }
+}

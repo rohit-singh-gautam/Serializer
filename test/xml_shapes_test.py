@@ -24,16 +24,20 @@ def qualify_xml_names(compiler, build, languages):
         disabled = subprocess.run([*command, '--xml.enabled', 'false'], capture_output=True, text=True)
         if disabled.returncode != 0:
             raise AssertionError(f'XML-disabled name compatibility failed: {source}\n{disabled.stdout}{disabled.stderr}')
+        output = Path(command[command.index(next(item for item in command if item.endswith('.output'))) + 1])
+        previous = output.read_bytes()
         enabled = subprocess.run([*command, '--xml.enabled', 'true'], capture_output=True, text=True)
         if enabled.returncode == 0 or 'XML' not in enabled.stdout + enabled.stderr:
             raise AssertionError(f'Expected an XML naming diagnostic: {source}\n{enabled.stdout}{enabled.stderr}')
+        if output.read_bytes() != previous:
+            raise AssertionError(f'XML naming failure replaced existing generated output: {source}')
 
-    for language in ('java', 'python', 'csharp', 'javascript', 'typescript', 'rust'):
+    for language in ('java', 'python', 'csharp', 'javascript', 'typescript', 'rust', 'kotlin', 'swift'):
         if language not in languages:
             continue
         profiles = ('profile', 'preserve') if language in ('java', 'csharp') else ('profile',)
         for profile in profiles:
-            method = 'encodeXml' if language in ('javascript', 'typescript') else (
+            method = 'encodeXml' if language in ('javascript', 'typescript', 'kotlin', 'swift') else (
                 'encode_xml' if profile == 'profile' else ('encodeXml' if language == 'java' else 'EncodeXml'))
             declarations = (
                 f'public function double {method}() readonly expression(1.0);',
@@ -44,6 +48,8 @@ def qualify_xml_names(compiler, build, languages):
                 helper = 'srl_xml_float' if profile == 'profile' else (
                     'srlXmlFloat' if language == 'java' else 'SrlXmlFloat')
                 declarations += (f'public function double {helper}(string text, bool single) readonly expression(2.0);',)
+            if language == 'rust':
+                declarations += ('public function double decode_xml_bytes() readonly expression(2.0);',)
             for index, declaration in enumerate(declarations):
                 source = directory / f'{language}-{profile}-{index}.serializer'
                 source.write_text('serializer version 1.17.0; class target {} '
@@ -110,7 +116,7 @@ def main():
         targets['js' if language == 'javascript' else language] = directory / sdk.OUTPUTS[language]
     if 'typescript' in languages and 'javascript' not in languages:
         targets['js'] = args.build / 'typescript/schema.mjs'
-    command = [args.compiler, '--input', SOURCE / 'model.serializer', '--config', SOURCE / 'options.ini',
+    command = [args.compiler, '--input', SOURCE / 'portable.serializer', '--config', SOURCE / 'options.ini',
                '--language', ','.join(targets), '--protocols', args.protocols,
                '--cpp.format', 'false', '--go.package', 'main', '--kotlin.package=']
     for language, output in targets.items():

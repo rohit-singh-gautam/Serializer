@@ -15,8 +15,25 @@ public struct XmlLimits {
     public var maxTextBytes = 8388608
     public init() {}
 }
-fileprivate struct SrlXmlName: Equatable { let local: String; let namespace: String }
-fileprivate struct SrlXmlAttribute { let name: SrlXmlName; let value: String }
+fileprivate struct SrlXmlName: Equatable, Hashable {
+    let local: String
+    let namespace: String
+    // XML identity compares exact scalar sequences rather than Swift's canonical equivalence.
+    static func == (left: Self, right: Self) -> Bool {
+        left.local.utf8.elementsEqual(right.local.utf8) && left.namespace.utf8.elementsEqual(right.namespace.utf8)
+    }
+    // Hash exact UTF-8 identities, preserving the equality contract for canonically equivalent spellings.
+    func hash(into hasher: inout Hasher) { hasher.combine(WireString(local)); hasher.combine(WireString(namespace)) }
+}
+fileprivate struct SrlXmlAttribute {
+    let name: SrlXmlName
+    let value: String
+    let typeIdentity: SrlXmlName?
+    // Retain only a type attribute's resolved QName instead of the complete namespace scope.
+    init(name: SrlXmlName, value: String, typeIdentity: SrlXmlName? = nil) {
+        self.name = name; self.value = value; self.typeIdentity = typeIdentity
+    }
+}
 // Test XML whitespace as Unicode scalars; Swift treats a CRLF pair as one Character.
 fileprivate func srlXmlWhitespace(_ text: String) -> Bool {
     text.unicodeScalars.allSatisfy { $0.value == 0x20 || $0.value == 0x09 || $0.value == 0x0a || $0.value == 0x0d }
@@ -71,33 +88,6 @@ fileprivate func srlXmlEscape(_ text: String, _ attribute: Bool) throws -> Strin
         }
     }
     return result
-}
-// Emit deterministic, bounded XML using only statically generated field bindings.
-fileprivate func srlXmlWrite(_ root: SrlXmlNode, _ limits: XmlLimits) throws -> [UInt8] {
-    var output = ""
-    var nodes = 0
-    var textBytes = 0
-    func emit(_ node: SrlXmlNode, _ depth: Int) throws {
-        nodes += 1
-        guard nodes <= limits.maxNodes && depth <= limits.maxDepth else { throw SerializerError.invalid("XML node/depth limit") }
-        textBytes += node.text.utf8.count
-        for item in node.attributes { textBytes += item.value.utf8.count }
-        guard textBytes <= limits.maxTextBytes else { throw SerializerError.invalid("XML text limit") }
-        let local = node.name.namespace.isEmpty ? node.name.local : "srl:" + node.name.local
-        output += "<" + local
-        if !node.name.namespace.isEmpty { output += " xmlns:srl=\"" + (try srlXmlEscape(node.name.namespace, true)) + "\"" }
-        for (index, item) in node.attributes.enumerated() {
-            let prefix = "a\(index)"
-            if !item.name.namespace.isEmpty { output += " xmlns:" + prefix + "=\"" + (try srlXmlEscape(item.name.namespace, true)) + "\"" }
-            output += " " + (item.name.namespace.isEmpty ? "" : prefix + ":") + item.name.local + "=\"" + (try srlXmlEscape(item.value, true)) + "\""
-        }
-        output += ">" + (try srlXmlEscape(node.text, false))
-        for child in node.children { try emit(child, depth + 1) }
-        output += "</" + local + ">"
-        guard output.utf8.count <= limits.maxBytes else { throw SerializerError.invalid("XML output limit") }
-    }
-    try emit(root, 1)
-    return Array(output.utf8)
 }
 // A non-resolving SAX delegate constructs a bounded data-only XML tree.
 fileprivate final class SrlXmlParser: NSObject, XMLParserDelegate {
@@ -179,7 +169,8 @@ fileprivate func srlXmlParse(_ bytes: [UInt8], _ limits: XmlLimits) throws -> Sr
     if content.hasPrefix("<?xml ") || content.hasPrefix("<?xml\t") || content.hasPrefix("<?xml\r") || content.hasPrefix("<?xml\n") {
         guard let end = content.range(of: "?>") else { throw SerializerError.invalid("Invalid XML declaration") }
         let header = String(content[..<end.upperBound])
-        guard header.range(of: "version\\s*=\\s*['\"]1\\.0['\"]", options: .regularExpression) != nil else { throw SerializerError.invalid("Only XML 1.0 supported") }
+)serializer"
+R"serializer(        guard header.range(of: "version\\s*=\\s*['\"]1\\.0['\"]", options: .regularExpression) != nil else { throw SerializerError.invalid("Only XML 1.0 supported") }
         if header.contains("encoding") {
             guard header.range(of: "encoding\\s*=\\s*['\"]UTF-8['\"]", options: [.regularExpression, .caseInsensitive]) != nil else { throw SerializerError.invalid("XML encoding must be UTF-8") }
         }

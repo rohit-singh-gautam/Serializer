@@ -36,11 +36,43 @@ wire records but do not have equivalent native managed engines.
 
 ## Releases and supported outputs
 
-The current compiler and runtime release is **2.11.0**. Bug fixes and minor updates
+The current compiler and runtime release is **2.12.0**. Bug fixes and minor updates
 increase the patch number; new features increase the minor number. Both preserve
 full compatibility. Developers change the major number manually, with best-effort
 compatibility across major releases. The schema language version is **1.20.0**;
 see [release and schema versions](docs/guides/command_line.md).
+
+Release **2.12.0** adds [generated XML token paths](docs/serialization/xml_tokens.md),
+explicit presence/nil, maps, selected variant mappings and ordered mixed
+content, XSD identity checks and singleton `all` traversal in every output,
+owning inheritance in every output,
+authoritative text/wrappers and singleton choices in the checked native outputs,
+portable scalar/facet and pattern programs and separate approved HTML adapters in every output. Python
+adds revision/magic checks, owning digest values and positioned extension slots;
+their supported combinations remain documented individually. JavaScript/TypeScript
+add direct incremental token input through the pinned SAX provider. Java/C# add
+namespace-independent exact scalar, list/union and default/fixed adapters.
+Kotlin/Swift maps use independent companion limits that propagate through nested
+records; `mixedLimits` independently bounds ordered fragments and text.
+JavaScript/TypeScript also check revision/magic layouts, owning digest values and
+positioned foreign extensions.
+Java/C#/Go/Kotlin/Swift also preserve positioned foreign extensions with explicit
+capability and independent owner-local admission policies.
+C/Rust expose owning XML document companions that keep native values separate
+from opaque extension state; their item and retained-byte policies are cumulative
+over the complete document.
+Serializer lifecycle metadata stays closed under permissive extension policies.
+Owning revision/magic, digest values, readonly reference output and scoped-translator
+XML output pass in every output's selected native contract. Real prepared XSD callbacks
+are qualified in Go, Swift, C and Rust through the maintained native provider fixture. All eleven
+outputs have checked baseline direct input/output; advanced mapping completion
+remains tracked per backend. Concrete-generic
+XML support broadens in non-C++ outputs. The
+[typed OPC example](example/opc/README.md) generates C++/Python package facades
+and checks independent ZIP/XML readers. See the
+[executed X01-X22 checks](docs/verification/verification-xml-tokens-2026-10-19.md)
+for all eleven outputs. These reference tasks are complete; broader OPC/XSD
+combinations and platform qualification remain in the backlog.
 
 Release **2.11.0** adds checked [advanced shared XML contracts](docs/serialization/xml_advanced_contracts.md):
 compiled scalar/pattern and identity validation, content-model metadata,

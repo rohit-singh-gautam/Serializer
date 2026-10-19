@@ -1,0 +1,6 @@
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:element name="collapsed" default="fallback"><xs:complexType><xs:simpleContent><xs:extension base="xs:token"/></xs:simpleContent></xs:complexType></xs:element>
+  <xs:element name="preserved" default="fallback"><xs:complexType><xs:simpleContent><xs:extension base="xs:string"/></xs:simpleContent></xs:complexType></xs:element>
+  <xs:element name="replaced" default="fallback"><xs:complexType><xs:simpleContent><xs:extension base="xs:normalizedString"/></xs:simpleContent></xs:complexType></xs:element>
+  <xs:element name="required_fixed"><xs:complexType><xs:attribute name="flag" type="xs:boolean" fixed="true" use="required"/></xs:complexType></xs:element>
+</xs:schema>

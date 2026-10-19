@@ -85,8 +85,8 @@ class bundle_cli_test(unittest.TestCase):
         if ORACLE:
             self.check_oracle(manifest)
 
-    def test_schema_only_tools_accept_all_without_enabling_a_codec(self):
-        """Export and compare shared all metadata while preserving generated-backend rejection."""
+    def test_schema_tools_and_cpp_accept_all(self):
+        """Export and compare shared all metadata and generate its supported C++ token codec."""
         source = self.root / 'all.serializer'
         source.write_text('serializer version 1.20.0; class entry { '
                           'public uint32 id; public string label; }', encoding='utf-8')
@@ -103,8 +103,8 @@ class bundle_cli_test(unittest.TestCase):
         self.compile(*arguments, '--xml.compare-xsd', fixed)
         generated = self.root / 'all.hpp'
         generated.write_text('preserve existing output', encoding='utf-8')
-        self.compile(*arguments, '--cpp.output', generated, '--cpp.format', 'false', success=False)
-        self.assertEqual(generated.read_text(encoding='utf-8'), 'preserve existing output')
+        self.compile(*arguments, '--cpp.output', generated, '--cpp.format', 'false')
+        self.assertNotEqual(generated.read_text(encoding='utf-8'), 'preserve existing output')
         if ORACLE:
             from lxml import etree
             validator = etree.XMLSchema(etree.parse(str(exported)))

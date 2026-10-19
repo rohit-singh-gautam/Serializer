@@ -46,7 +46,11 @@ enum class target { js, go, csharp, typescript };
 
 // C# nested model members must not shadow unqualified runtime XML helper lookups.
 constexpr std::string_view csharp_xml_identifiers[]{
-    "SrlXmlNode", "SrlXmlBudget", "SrlXmlFields", "SrlXmlName", "SrlXmlTrim", "SrlXmlParse",
+    "XmlExtensionLimits", "XmlExtensionOptions", "SrlXmlExtensionSlot", "SrlXmlExtensionContract", "SrlXmlForeignNode", "SrlXmlForeignChild", "SrlXmlPreserved", "SrlXmlExtensions", "SrlXmlExtensionSize", "SrlXmlExtensionNcName", "SrlXmlExtensionName", "SrlXmlExtensionReject", "SrlXmlExtensionPreserve", "SrlXmlExtensionMaxSlots", "SrlXmlExtensionMaxItems", "SrlXmlExtensionMaxPreservedBytes",
+    "XmlDigestLimits", "SrlXmlDefaultDigestBytes", "SrlXmlRevisionLexical", "SrlXmlHexDigit", "SrlXmlDigestRead", "SrlXmlDigestText",
+    "Html", "HtmlLimits", "HtmlEvent", "HtmlAttribute", "SrlHtmlMaxInputBytes", "SrlHtmlMaxOutputBytes",
+    "SrlHtmlMaxEvents", "SrlHtmlMaxDepth", "SrlHtmlMaxAttributesPerElement", "SrlHtmlMaxTextBytes",
+    "SrlXmlNode", "SrlXmlBudget", "SrlXmlFields", "SrlXmlOutput", "SrlXmlInput", "SrlXmlInputFields", "SrlXmlRule", "XmlMapLimits", "XmlMixedLimits", "SrlXmlMixedBudget", "SrlXmlMixedMaxFragments", "SrlXmlMixedMaxTextBytes", "XmlIdentityLimits", "SrlXmlIdentity", "SrlXmlIdentityScope", "SrlXmlIdentityConstraint", "SrlXmlIdentityPath", "SrlXmlIdentityField", "SrlXmlIdentityMetadata", "SrlXmlIdentityMaxConstraints", "SrlXmlIdentityMaxFields", "SrlXmlIdentityMaxDepth", "SrlXmlIdentityMaxSelectedNodes", "SrlXmlIdentityMaxTuples", "SrlXmlIdentityMaxTupleBytes", "SrlXmlIdentityMaxWorkUnits", "SrlXmlName", "SrlXmlTrim", "SrlXmlParse",
     "SrlXmlBoolean", "SrlXmlInteger", "SrlXmlFloat", "SrlXmlFloatText", "SrlXmlScalarText", "SrlXmlWrite"};
 
 // Quote schema spelling without changing wire names or printable Unicode.
@@ -145,6 +149,8 @@ class emitter {
   target language;
   const portable_options& options;
   xml_binding::schema xml_schema_;
+  std::map<const class_node*, const member*> xml_mixed_variants_{};
+  std::set<const class_node*> xml_mixed_storage_only_{};
   std::string unit;
   behavior::checked_helpers arithmetic_helpers{};
   std::string source{};
@@ -479,6 +485,15 @@ class emitter {
         }
         if (options.xml.enabled &&
             (!globals.insert("Decode" + names.at(node) + "XML").second ||
+             !globals.insert("Decode" + names.at(node) + "XMLWithMapLimits").second ||
+             !globals.insert("Decode" + names.at(node) + "XMLWithMixedLimits").second ||
+             !globals.insert("Decode" + names.at(node) + "XMLWithContentLimits").second ||
+             !globals.insert("Decode" + names.at(node) + "XMLWithIdentityLimits").second ||
+             !globals.insert("Decode" + names.at(node) + "XMLWithPolicies").second ||
+             !globals.insert("Decode" + names.at(node) + "XMLWithDigestLimits").second ||
+             !globals.insert("Decode" + names.at(node) + "XMLWithAllPolicies").second ||
+             !globals.insert("Decode" + names.at(node) + "XMLWithAllBounds").second ||
+             !globals.insert("Decode" + names.at(node) + "XMLWithExtensionOptions").second ||
              !globals.insert("srlXmlDecode" + names.at(node)).second)) {
           throw std::invalid_argument{"Generated XML helper name collision"};
         }
@@ -488,12 +503,20 @@ class emitter {
       std::set<std::string> xml_methods{};
       if (options.xml.enabled) {
         if (language == target::go) {
-          xml_methods = {"EncodeXML", "srlXmlNode"};
+          xml_methods = {"EncodeXML", "EncodeXMLWithMapLimits", "EncodeXMLWithMixedLimits", "EncodeXMLWithContentLimits", "EncodeXMLWithIdentityLimits", "EncodeXMLWithPolicies", "EncodeXMLWithDigestLimits", "EncodeXMLWithAllPolicies", "EncodeXMLWithAllBounds", "EncodeXMLWithExtensionOptions", "srlXmlNode", "srlXmlEncode"};
         } else if (language == target::csharp) {
-          xml_methods = {"EncodeXml", "DecodeXml", "XmlNode", "XmlFromNode"};
+          xml_methods = {"EncodeXml", "DecodeXml", "XmlNode", "XmlFromNode", "XmlWrite", "XmlRead"};
           for (const auto identifier : csharp_xml_identifiers) { xml_methods.emplace(identifier); }
+          if (!xml_mixed_storage_only_.contains(&value) && !(value.reference && value.reference->value_projection)) {
+            const auto contract = xml_schema_.bind(value);
+            for (std::size_t index{}; index < contract.fields.size(); ++index) {
+              if (xml_portable::needs_scalar_rule(contract.fields[index])) {
+                xml_methods.emplace(xml_portable::scalar_rule_name(index, "csharp"));
+              }
+            }
+          }
         } else {
-          xml_methods = {"encodeXml", "decodeXml", "_srlXmlRead", "_srlXmlWrite"};
+          xml_methods = {"encodeXml", "decodeXml", "decodeXmlChunks", "xmlBindNamespace", "_srlXmlToken", "_srlXmlMixed", "_srlXmlRead", "_srlXmlWrite"};
         }
         fields.insert(xml_methods.begin(), xml_methods.end());
         // Authored behavior shares the same member namespace as generated XML methods.
@@ -2360,6 +2383,9 @@ class emitter {
 
   // Reuse native target output traversal while each getter borrows its source value.
   std::string translator_codecs(const conversion_declaration& method, std::string_view view) {
+    if (language == target::typescript) {
+      return options.xml.enabled ? "encodeXml(limits?:XmlLimits,validator?:XmlValidator):string; xmlBindNamespace<View>(this:View,prefix:string,uri:string):View;" : "";
+    }
     auto saved_source = std::move(source);
     const auto saved_level = level;
     source.clear(); level = 2;
@@ -2381,6 +2407,22 @@ class emitter {
     projection_fields_ = std::move(projected);
     write_object(object);
     projection_fields_.clear(); close();
+    if (options.xml.enabled && language == target::js) {
+      const auto contract = xml_schema_.bind(object);
+      source += xml_binding::js_translator_xml_methods(object, contract, names.at(&object),
+          [&](const auto& item) { return field(item.name, item.access); },
+          [&](const auto& item) { return type(item); }, options.xml);
+    }
+    if (options.xml.enabled && (language == target::go || language == target::csharp)) {
+      const auto contract = xml_schema_.bind(object);
+      const auto fields = [&](const member& item) { return field(item.name, item.access); };
+      const auto types = [&](const auto& item) { return type(item); };
+      const auto alternatives = [&](std::string_view alias) { return name(std::string{alias}, true, true); };
+      const auto getter = [&](const member& item) { return field("get_" + item.name, access_type::public_access) + "()"; };
+      source += language == target::go ? xml_portable::methods(object, contract, std::string{view}, fields, types,
+          options.xml, "go", alternatives, true, getter) :
+          xml_csharp::methods(object, contract, options.xml, view, fields, types, alternatives, false, true, getter);
+    }
     auto result = std::move(source); source = std::move(saved_source); level = saved_level;
     return result;
   }
@@ -2467,6 +2509,10 @@ class emitter {
     if (language == target::go) {
       source += reference_support::go_binding_fields(value, identifier,
           [&](const auto& item) { return type(item); });
+      if(options.xml.enabled&&!value.reference&&!xml_mixed_storage_only_.contains(&value)&&xml_schema_.bind(value).extensions){
+        line("// XML-only opaque preservation is excluded from native fields and wire codecs.");
+        line("srlXmlPreserved *srlXmlPreserved");
+      }
     }
     if (language != target::go) { array_access(value); behaviors(value); }
     if (language != target::go) {
@@ -2500,9 +2546,17 @@ class emitter {
       line("static decode(bytes: Uint8Array, protocol: " + std::string{protocol_type} + ", limits?: Limits): " + identifier +
            ";");
       if (options.xml.enabled) {
-        source += xml_binding::js_methods(value, xml_schema_.bind(value),
-            identifier, [&](const auto& item) { return field(item.name, item.access); },
-            [&](const auto& item) { return type(item); }, options.xml, true);
+        if (const auto mixed = xml_mixed_variants_.find(&value); mixed != xml_mixed_variants_.end()) {
+          source += xml_binding::js_mixed_fragment_methods(*mixed->second, identifier,
+              [&](const auto& item) { return field(item.name, item.access); }, xml_mixed_storage_only_.contains(&value), true);
+        }
+        if (value.reference && value.reference->value_projection) {
+          source += xml_binding::js_reference_methods(value, identifier, true);
+        } else if (!xml_mixed_storage_only_.contains(&value)) {
+          source += xml_binding::js_methods(value, xml_schema_.bind(value),
+              identifier, [&](const auto& item) { return field(item.name, item.access); },
+              [&](const auto& item) { return type(item); }, options.xml, true);
+        }
       }
       close();
       dispatch_adapter(value);
@@ -2650,17 +2704,50 @@ class emitter {
     read_object(value);
     close();
     if (options.xml.enabled) {
-      const auto contract = xml_schema_.bind(value);
       const auto field_name = [&](const auto& item) { return field(item.name, item.access); };
       const auto type_name = [&](const auto& item) { return type(item); };
-      if (language == target::go) {
-        source += xml_portable::methods(value, contract, identifier, field_name, type_name,
-                                        options.xml, "go");
-      } else if (language == target::csharp) {
-        source += xml_csharp::methods(value, contract, options.xml, identifier, field_name, type_name);
-      } else {
-        source += xml_binding::js_methods(value, contract, identifier, field_name, type_name,
-                                          options.xml);
+      const auto alternative_name = [&](std::string_view alias) { return name(std::string{alias}, true, true); };
+      if (language == target::js) {
+        if (const auto mixed = xml_mixed_variants_.find(&value); mixed != xml_mixed_variants_.end()) {
+          source += xml_binding::js_mixed_fragment_methods(*mixed->second, identifier, field_name,
+              xml_mixed_storage_only_.contains(&value), false);
+        }
+      }
+      if (language == target::csharp) {
+        if (const auto mixed = xml_mixed_variants_.find(&value); mixed != xml_mixed_variants_.end()) {
+          source += xml_csharp::mixed_fragment_methods(value, *mixed->second, field_name, type_name, alternative_name);
+        }
+      }
+      if (language == target::js && value.reference && value.reference->value_projection) {
+        source += xml_binding::js_reference_methods(value, identifier, false);
+      } else if (value.reference && value.reference->value_projection) {
+        if (language == target::go) {
+          source += xml_portable::reference_methods(value, identifier, type_name, "go");
+        } else if (language == target::csharp) {
+          source += xml_portable::managed_reference_methods(value, identifier,
+              [&](const auto& item, const auto& expression, bool encoding) {
+                return xml_csharp::scalar_value(item, expression, encoding, type_name);
+              }, "csharp");
+        }
+      } else if (!xml_mixed_storage_only_.contains(&value)) {
+        const auto contract = xml_schema_.bind(value);
+        if (language == target::go) {
+          source += xml_portable::methods(value, contract, identifier, field_name, type_name,
+                                          options.xml, "go", alternative_name);
+        } else if (language == target::csharp) {
+          const bool needs_base_bridges = std::any_of(names.begin(), names.end(), [&](const auto& entry) {
+            if (entry.first->type != object_type::class_type) { return false; }
+            const auto& owner = static_cast<const class_node&>(*entry.first);
+            return std::any_of(owner.parents.begin(), owner.parents.end(), [&](const auto& parent) {
+              return parent.parent_class == &value;
+            });
+          });
+          source += xml_csharp::methods(value, contract, options.xml, identifier, field_name,
+              type_name, alternative_name, needs_base_bridges);
+        } else {
+          source += xml_binding::js_methods(value, contract, identifier, field_name, type_name,
+                                            options.xml);
+        }
       }
     }
     if (language != target::go) {
@@ -2682,8 +2769,37 @@ public:
                                     "DefaultXmlLimits", "DefaultXmlOptions"}) {
         globals.insert(identifier);
       }
+      if (language == target::go) {
+        globals.insert("XmlMapLimits"); globals.insert("DefaultXmlMapLimits");
+        globals.insert("XmlMixedLimits"); globals.insert("DefaultXmlMixedLimits");
+        globals.insert("XmlIdentityLimits"); globals.insert("DefaultXmlIdentityLimits");
+        for (const auto identifier : {"XmlExtensionLimits", "XmlExtensionOptions", "DefaultXmlExtensionLimits", "DefaultXmlExtensionOptions", "XmlDigestLimits", "DefaultXmlDigestLimits", "srlXmlDigestPolicy", "srlXmlDefaultDigestBytes",
+                 "srlXmlRevisionLexical", "srlXmlRevisionNumber", "srlXmlHexDigit", "srlXmlDigestRead", "srlXmlDigestText"}) {
+          globals.insert(identifier);
+        }
+        for (const auto identifier : {"HtmlLimits", "HtmlAttribute", "HtmlEvent", "DefaultHtmlLimits",
+                 "HtmlSupportedSubset", "HtmlParseFragment", "HtmlWriteFragment", "srlHtmlPolicy",
+                 "srlHtmlTags", "srlHtmlVoids", "srlHtmlPhrasing", "srlHtmlSpace", "srlHtmlText",
+                 "srlHtmlDecode", "srlHtmlChild", "srlHtmlAttribute", "srlHtmlOutput", "srlHtmlParser"}) {
+          globals.insert(identifier);
+        }
+      }
       if (language == target::js || language == target::typescript) {
-        for (const auto identifier : {"SrlXmlParser", "SrlXmlWriter", "SrlXmlFields"}) {
+        for (const auto identifier : {"Set", "WeakMap", "Symbol", "Promise", "srlXmlProjectionContracts", "srlXmlProjectionReadonly", "srlXmlProjectionContract", "srlXmlProjectionInput",
+                 "SrlXmlParser", "SrlXmlWriter", "SrlXmlFields", "SrlXmlSaxes", "SrlXmlTokenFrame", "SrlXmlMapFrame", "SrlXmlVariantFrame", "SrlXmlNcName", "SrlXmlNameRule", "SrlXmlTokenRule", "SrlXmlLexicalError", "XmlMapLimits", "XmlPatternLimits", "XmlMixedLimits", "XmlIdentityLimits", "SrlXmlIdentity",
+                 "srlXmlMixedAppend", "srlXmlMixedFlush", "srlXmlMixedCharacters", "srlXmlMixedWrite",
+                 "XmlExtensionLimits", "XmlExtensionOptions", "SrlXmlExtensions", "SrlXmlForeignFrame", "srlXmlExtensionState", "srlXmlExtensionMetadataBytes",
+                 "srlXmlExtensionScope", "srlXmlExtensionName", "srlXmlExtensionBindings", "srlXmlExtensionOutput", "srlXmlExtensionEmit", "srlXmlExtensionAt", "srlXmlExtensionPositionEnd",
+                 "Html", "HtmlLimits", "HtmlEvent", "HtmlAttribute",
+                 "srlXmlModelNamespace", "srlXmlModelPrefix", "srlXmlModelRevisionName", "srlXmlModelMagicName", "srlXmlDigestMaxBytes",
+                 "srlXmlModelRevision", "srlXmlModelCompare", "srlXmlModelSelect", "srlXmlModelInput", "srlXmlModelOutput", "srlXmlDigest",
+                 "XmlSchema", "srlXmlSchemaNamespace", "srlXmlSchemaSecret", "srlXmlProviderScan",
+                 "srlXmlNamespaceState", "srlXmlCompleteName", "srlXmlScalarQName", "srlXmlRememberNamespaces",
+                 "srlXmlBindNamespace", "srlXmlFieldScope", "srlXmlReadField", "srlXmlPrepareField", "srlXmlMergeBindings",
+                 "srlXmlScalarCache", "srlXmlListRules", "srlXmlSingleBits", "srlXmlIntegerKinds", "srlXmlIntegerWidths",
+                 "srlXmlScalarWhitespace", "srlXmlDecimal", "srlXmlDecimalCompare", "srlXmlScientificDigits",
+                 "srlXmlSingleMidpoint", "srlXmlSingle", "srlXmlScalarValue", "srlXmlScalarEqual", "srlXmlScalarRule",
+                 "srlXmlLexicalTokens", "srlXmlListRule", "srlXmlListRead", "srlXmlListWrite", "srlXmlPortablePattern", "srlXmlCheckedText"}) {
           globals.insert(identifier);
         }
       } else if (language == target::csharp) {
@@ -2714,6 +2830,28 @@ public:
             "Uint8Array", "undefined"}) {
         globals.insert(identifier);
       }
+    }
+    if (options.xml.enabled) {
+      // Identify storage before registration: C# inventories static scalar helpers while registering native names.
+      const auto collect_mixed = [&](auto&& self, const auto& statements) -> void {
+        for (const auto& node : statements) {
+          if (node->type == object_type::namespace_type) {
+            self(self, static_cast<const namespace_node&>(*node).statements);
+          } else if (node->type == object_type::class_type) {
+            const auto& owner = static_cast<const class_node&>(*node);
+            const auto configured = options.xml.classes.find(owner.get_full_name());
+            if (configured == options.xml.classes.end() || !configured->second.contracts.contains("mixed")) { continue; }
+            const auto binding = xml_schema_.bind(owner);
+            if (binding.mixed) {
+              xml_mixed_variants_.emplace(binding.mixed->fragment, binding.mixed->variant);
+              if (!options.xml.classes.contains(binding.mixed->fragment->get_full_name())) {
+                xml_mixed_storage_only_.insert(binding.mixed->fragment);
+              }
+            }
+          }
+        }
+      };
+      collect_mixed(collect_mixed, values);
     }
     register_nodes(values);
     if ((language == target::js || language == target::typescript) &&

@@ -1,0 +1,14 @@
+// Copyright (C) 2026 Rohit Jairaj Singh (rohit@singh.org.in)
+// SPDX-License-Identifier: 0BSD
+serializer version 1.20.0;
+
+include model;
+
+// Expanded concrete instances are qualified separately from C++ template XML support.
+namespace shapes {
+  class box<T> {
+    public T value;
+  }
+  instantiate integer_box = box<uint32>;
+  instantiate text_box = box<string>;
+}

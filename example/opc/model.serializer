@@ -1,0 +1,44 @@
+serializer version 1.20.0;
+
+// This application vocabulary demonstrates OPC composition; it is not a 3MF model.
+namespace opc_example {
+  // Put scalar members in attributes and qualify model elements with one namespace.
+  xml(namespace("urn:serializer:opc-example"), scalars(attribute));
+
+  // Each catalog item becomes an <item id="..." label="..."/> XML element.
+  class item {
+    public uint32 id (1);
+    public string label (2);
+  }
+
+  // This model supplies the XML payload for the package's required main part.
+  class catalog {
+    // The default scalar placement writes title on the <catalog> root attribute.
+    public string title (1);
+    // Override the collection field name so repeated records use <item> children.
+    public array item items (2) xml(element, name("item"));
+  }
+
+  // Generate typed Save/load APIs and standard OPC metadata from these part roles.
+  package document {
+    // Exactly one catalog is stored at this fixed package URI. The package-level
+    // relationship identifies its role, so loading discovers it through metadata.
+    part main : catalog {
+      name("/Catalog/catalog.xml");
+      content_type("application/vnd.serializer.example.catalog+xml");
+      relationship("urn:serializer:example:catalog");
+      // ZIP DEFLATE compresses this complete XML part; it does not alter its codec.
+      compression(deflate);
+    }
+    // The application supplies bytes, URI and media type for each optional attachment.
+    part attachments : bytes {
+      name(dynamic);
+      content_type(dynamic);
+      relationship("urn:serializer:example:attachment");
+      // Attachment relationships originate at the main catalog part, not the package root.
+      source(main);
+      occurs(0, unbounded);
+      compression(deflate);
+    }
+  }
+}

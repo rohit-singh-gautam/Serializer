@@ -18,15 +18,19 @@ def _xml_check_text(value):
     return value
 
 class _XmlBudget:
-    """Bound a complete tree before retaining model or parser text and nodes."""
+    """Bound a complete XML operation before retaining models, lexical fragments or nodes."""
     def __init__(self, limits=None, context=None):
         """Copy a validated immutable per-operation logical resource policy."""
         self.limits = limits or Limits()
-        self.context = context
+        self.context = _xml_pattern_context(self.limits, context)
         self.nodes, self.text_bytes, self.attributes = 0, 0, 0
         self.fragments = 0
     def node(self, name, depth):
         """Charge a node and its expanded name before adding descendants."""
+        self.element(name, depth)
+        return [name, {}, [], '', {}, []]
+    def element(self, name, depth):
+        """Charge an element without allocating a retained XML node."""
         if depth > self.limits.max_depth or self.nodes >= self.limits.max_elements:
             raise ValueError('XML node or depth limit exceeded')
         self.nodes += 1
@@ -34,7 +38,6 @@ class _XmlBudget:
             self.context.consume('work_units', 1)
             self.context.consume('decoder_allocation_bytes', 64)
         self.text(name)
-        return [name, {}, [], '', {}, []]
     def text(self, value):
         """Charge cumulative UTF-8 text, names, namespaces and attribute values."""
         _xml_check_text(value)
@@ -315,6 +318,914 @@ def _xml_write(root, limits, context=None):
     collect(root)
     emit(root, True)
     return ''.join(parts).encode('utf-8')
+
+)xmlpython"
+R"xmlpython(def _xml_token_capable(model, active=None):
+    """Check the complete generated graph before selecting the tree-free codec."""
+    if not model._xml_token_supported:
+        return False
+    active = set() if active is None else active
+    if model in active:
+        return True
+    active.add(model)
+    return all(_xml_token_capable(selected(), active)
+               for item in model._xml_token_fields for selected in _xml_token_models(item)) and (
+                   model._xml_mixed is None or all(_xml_token_capable(item['model'](), active) for item in model._xml_mixed['children']))
+
+
+def _xml_token_models(item):
+    """Enumerate the complete owning child graph, including mapped container payloads."""
+    if item['map'] is not None:
+        selected = item['map']['value']['model']
+        return () if selected is None else (selected,)
+    if item.get('variant') is not None:
+        return tuple(selected['model'] for selected in item['variant']['alternatives'] if selected['model'] is not None)
+    return () if item['model'] is None else (item['model'],)
+
+
+def _xml_token_required(model, active=None):
+    """Prevent advanced token contracts from entering a legacy path that cannot enforce them."""
+    active = set() if active is None else active
+    if model in active:
+        return False
+    active.add(model)
+    return bool(model._xml_identity or model._xml_token_all or model._xml_token_inherited or model._xml_mixed or model._xml_model['required'] or model._xml_extensions) or any(item['presence'] is not None or item['map'] is not None or item.get('variant') is not None for item in model._xml_token_fields) or any(
+        _xml_token_required(selected(), active)
+        for item in model._xml_token_fields for selected in _xml_token_models(item))
+
+
+class XmlMapLimits:
+    """Bound native-key admission separately from whole-document XML token accounting."""
+    def __init__(self, max_entries=1024, max_key_bytes=1024*1024):
+        """Validate explicit nonnegative entry and cumulative lexical/canonical key-byte bounds."""
+        if type(max_entries) is not int or max_entries < 0 or type(max_key_bytes) is not int or max_key_bytes < 0:
+            raise ValueError('Invalid XML map limit')
+        self.max_entries, self.max_key_bytes = max_entries, max_key_bytes
+
+
+class XmlMixedLimits:
+    """Bound the complete owning ordered mixed fragment sequence and cumulative UTF-8 text."""
+    def __init__(self, max_fragments=100000, max_text_bytes=8*1024*1024):
+        """Treat zero as a real admission bound and permit exact-boundary input/output."""
+        if type(max_fragments) is not int or max_fragments < 0 or type(max_text_bytes) is not int or max_text_bytes < 0:
+            raise ValueError('Invalid XML mixed-content limit')
+        self.max_fragments, self.max_text_bytes = max_fragments, max_text_bytes
+
+
+class _XmlTokenOutput:
+    """Write escaped lexical tokens directly, retaining only output bytes and open names."""
+    def __init__(self, limits, context):
+        """Share cumulative logical budgets across every generated nested record."""
+        self.budget = _XmlBudget(limits, context)
+        self.parts, self.size, self.stack, self.prefixes = [], 0, [], {}
+        self.identities = []
+        self.scopes = []
+    def append(self, value):
+        """Bound each escaped UTF-8 fragment before adding it to the final message."""
+        data = value.encode('utf-8')
+        if len(data) > self.budget.limits.max_bytes - self.size:
+            raise ValueError('XML output byte limit exceeded')
+        self.size += len(data)
+        if self.budget.context is not None:
+            self.budget.context.consume('work_units', len(value))
+            self.budget.context.check_buffer(self.size * 2)
+        self.parts.append(data)
+    def escaped(self, value, attribute=False):
+        """Escape without losing XML attribute whitespace or carriage returns."""
+        _xml_check_text(value)
+        begin = 0
+        for index, character in enumerate(value):
+            replacement = {'&': '&amp;', '<': '&lt;', '>': '&gt;', '\r': '&#13;'}.get(character)
+            if attribute:
+                replacement = {'"': '&quot;', '\n': '&#10;', '\t': '&#9;'}.get(character, replacement)
+            if replacement is not None:
+                self.append(value[begin:index])
+                self.append(replacement)
+                begin = index + 1
+        self.append(value[begin:])
+    def qualified(self, name, declarations, attribute=False):
+        """Reuse preserved namespace scopes before allocating an unbound presentation prefix."""
+        if not name.startswith('{'):
+            return name
+        uri, local = name[1:].split('}', 1)
+        if uri == 'http://www.w3.org/XML/1998/namespace':
+            return 'xml:' + local
+        inherited = self.scopes[-1] if self.scopes else {}
+        available = dict(inherited)
+        available.update(declarations)
+        prefix = next((key for key, value in available.items() if value == uri and (key or not attribute)), None)
+        if prefix is None:
+            cached = self.prefixes.get(uri)
+            if cached is not None and (cached or not attribute) and cached not in available:
+                prefix = cached
+        if prefix is None:
+            suffix = len(self.prefixes)
+            while 'n' + str(suffix) in available or 'n' + str(suffix) in self.prefixes.values():
+                suffix += 1
+            prefix = 'n' + str(suffix)
+        self.prefixes[uri] = prefix
+        if declarations.get(prefix, self.scopes[-1].get(prefix) if self.scopes else None) != uri:
+            declarations[prefix] = uri
+        return prefix + ':' + local if prefix else local
+    def start(self, name, attributes=(), bindings=()):
+        """Emit one complete start token after checking its attributes and element bound."""
+        self.budget.element(name, len(self.stack) + 1)
+        declarations = dict(bindings)
+        _xml_extension_bindings(declarations)
+        if not name.startswith('{') and declarations.get('', self.scopes[-1].get('') if self.scopes else ''):
+            declarations[''] = ''
+        qualified = self.qualified(name, declarations)
+        selected, used = [], set()
+        for key, value in attributes:
+            if key in used:
+                raise ValueError('Duplicate XML attribute')
+            used.add(key)
+            self.budget.attributes += 1
+            if self.budget.attributes > self.budget.limits.max_elements:
+                raise ValueError('XML attribute limit exceeded')
+            self.budget.text(key)
+            self.budget.text(value)
+            selected.append((self.qualified(key, declarations, True), value))
+        for identity in self.identities:
+            scope = dict(self.scopes[-1]) if self.scopes else {}
+            scope.update(declarations)
+            identity.start(name, dict(attributes), scope)
+        self.append('<' + qualified)
+        for prefix, uri in declarations.items():
+            self.budget.attributes += 1
+            if self.budget.attributes > self.budget.limits.max_elements:
+                raise ValueError('XML attribute limit exceeded')
+            self.budget.text(prefix)
+            self.budget.text(uri)
+            self.append(' xmlns' + (':' + prefix if prefix else '') + '="')
+            self.escaped(uri, True)
+            self.append('"')
+        for key, value in selected:
+            self.append(' ' + key + '="')
+            self.escaped(value, True)
+            self.append('"')
+        self.append('>')
+        self.stack.append(qualified)
+        scope = dict(self.scopes[-1]) if self.scopes else {}
+        scope.update(declarations)
+        self.scopes.append(scope)
+    def text(self, value):
+        """Emit one checked scalar/text token without retaining a semantic XML node."""
+        self.budget.text(value)
+        for identity in self.identities:
+            identity.text(value)
+        self.escaped(value)
+    def end(self):
+        """Close the most recent generated start token."""
+        for identity in self.identities:
+            identity.end()
+        self.append('</' + self.stack.pop() + '>')
+        self.scopes.pop()
+
+
+_XML_TOKEN_NIL = object()
+_XML_TOKEN_NIL_NAME = '{http://www.w3.org/2001/XMLSchema-instance}nil'
+_XML_TOKEN_TYPE_NAME = '{http://www.w3.org/2001/XMLSchema-instance}type'
+
+
+def _xml_token_get(model, path):
+    """Read a generated direct member or existing composed base-member storage path."""
+    if '.' not in path:
+        return getattr(model, path)
+    for member in path.split('.'):
+        model = getattr(model, member)
+    return model
+
+
+def _xml_token_set(model, path, value):
+    """Set only the existing leaf slot while preserving the owning model's base-object layout."""
+    if '.' not in path:
+        setattr(model, path, value)
+    else:
+        owner, unused, member = path.rpartition('.')
+        setattr(_xml_token_get(model, owner), member, value)
+
+
+def _xml_token_values(model, item):
+    """Validate native optional storage and expose only its present ordinary values."""
+    value = _xml_token_get(model, item['member'])
+    if item['optional']:
+        if not isinstance(value, tuple) or len(value) > 1:
+            raise ValueError('Invalid XML optional')
+        if not value:
+            return (_XML_TOKEN_NIL,) if item['presence'] == 'nil' else ()
+        value = value[0]
+        if item['presence'] == 'absent_or_nil':
+            if not isinstance(value, tuple) or len(value) > 1:
+                raise ValueError('Invalid XML optional')
+            if not value:
+                return (_XML_TOKEN_NIL,)
+            value = value[0]
+    values = value if item['repeated'] else (value,)
+    if item.get('value_projection'):
+        values = _XmlReferenceValues(values)
+    count = len(values)
+    if count < item['minimum'] or item['maximum'] is not None and count > item['maximum']:
+        raise ValueError('XML field occurrence mismatch')
+    if item['extent'] and count != item['extent']:
+        raise ValueError('XML fixed extent mismatch')
+    return values
+
+
+)xmlpython"
+R"xmlpython(def _xml_token_encode(model, name, limits=None, context=None):
+    """Traverse generated members directly into bounded escaped output tokens."""
+    writer = _XmlTokenOutput(limits, context)
+    context = writer.budget.context
+    def payload(item, selected, attributes=(), bindings=()):
+        """Write one statically typed scalar or owning record payload directly."""
+        if item.get('projection_payload'):
+            selected = selected.read_value()
+        if item['model'] is not None:
+            record(selected, item['name'], attributes, bindings)
+        else:
+            writer.start(item['name'], attributes, bindings)
+            writer.text(item['write'](selected, {}, context))
+            writer.end()
+    def mapping(item, values):
+        """Write a bounded map wrapper in native iteration order with exact typed keys."""
+        if not values:
+            return
+        selected, meta = values[0], item['map']
+        bounds = writer.budget.limits.xml_map or XmlMapLimits()
+        if not isinstance(selected, dict) or len(selected) > bounds.max_entries:
+            raise ValueError('XML map entry limit exceeded')
+        writer.start(item['wrapper'])
+        key_bytes = 0
+        projected_keys = set() if meta['key'].get('projection_payload') else None
+        for key, value in selected.items():
+            if projected_keys is not None:
+                key = key.read_value()
+            lexical = meta['key']['write'](key, {}, context)
+            if projected_keys is not None:
+                canonical = meta['key']['read'](lexical, {}, context)
+                if canonical in projected_keys:
+                    raise ValueError('Duplicate XML map key')
+                projected_keys.add(canonical)
+            size = len(lexical.encode('utf-8'))
+            if size > bounds.max_key_bytes - key_bytes:
+                raise ValueError('XML map key-byte limit exceeded')
+            key_bytes += size
+            writer.start(meta['entry'], ((meta['key']['name'], lexical),) if meta['attribute'] else ())
+            if not meta['attribute']:
+                writer.start(meta['key']['name'])
+                writer.text(lexical)
+                writer.end()
+            payload(meta['value'], value)
+            writer.end()
+        writer.end()
+    def variant(value, item):
+        """Write exactly one selected native alternative with its declared tag or QName inventory."""
+        index = _xml_token_get(value, item['member'] + '_index')
+        alternatives = item['variant']['alternatives']
+        if type(index) is not int or not 0 <= index < len(alternatives):
+            raise ValueError('Invalid XML variant alternative')
+        selected = alternatives[index]
+        native = _xml_token_get(value, selected['member'])
+        writer.start(item['wrapper'])
+        if item['variant']['selection'] == 'xsi_type':
+            selected = dict(selected)
+            selected['name'] = item['wrapper']
+            uri, local = selected['type']
+            prefix, suffix = 't', 0
+            state = getattr(native, '_srl_xml_state', None) if selected['model'] is not None else None
+            while state is not None and prefix in state[0] and state[0][prefix] != uri:
+                suffix += 1
+                prefix = 't' + str(suffix)
+            bindings = {prefix: uri} if uri else {}
+            payload(selected, native, ((_XML_TOKEN_TYPE_NAME, prefix + ':' + local if uri else local),), bindings)
+        else:
+            payload(selected, native)
+        writer.end()
+    def mixed(value, meta):
+        """Visit every authored fragment in order, including empty and adjacent text values."""
+        fragments = _xml_token_get(value, meta['member'])
+        bounds = writer.budget.limits.xml_mixed or XmlMixedLimits()
+        if len(fragments) > bounds.max_fragments:
+            raise ValueError('XML mixed fragment limit exceeded')
+        text_bytes = 0
+        for fragment in fragments:
+            index = _xml_token_get(fragment, meta['index'])
+            if type(index) is not int:
+                raise ValueError('Invalid XML mixed alternative')
+            if index == meta['text_index']:
+                text = _xml_check_text(_xml_token_get(fragment, meta['text_member']))
+                size = len(text.encode('utf-8'))
+                if size > bounds.max_text_bytes - text_bytes:
+                    raise ValueError('XML mixed text limit exceeded')
+                text_bytes += size
+                writer.text(text)
+            else:
+                selected = next((item for item in meta['children'] if item['alternative'] == index), None)
+                if selected is None:
+                    raise ValueError('Invalid XML mixed alternative')
+                payload(selected, _xml_token_get(fragment, selected['member']))
+    def record(value, qualified, extra_attributes=(), bindings=()):
+        """Visit one owning record in its fixed schema sequence without constructing XML nodes."""
+        attributes, active = _xml_model_output(value, context)
+        extensions, state, foreign_attributes, foreign_bindings = _xml_extension_output(value, writer)
+        cursor = [0]
+        attributes.extend(foreign_attributes)
+        scope = dict(foreign_bindings)
+        scope.update(bindings)
+        fields = tuple(item for index, item in enumerate(value._xml_token_fields) if active[index])
+        _xml_choices(value, value._xml_choices, fields)
+        identity = None
+        if value._xml_identity is not None:
+            identity = _XmlTokenIdentity(value._xml_identity, context, writer.budget.limits.xml_identity)
+            writer.identities.append(identity)
+        attributes.extend(extra_attributes)
+        for item in fields:
+            if item['mode'] == 'attribute':
+                for selected in _xml_token_values(value, item):
+                    attributes.append((item['name'], item['write'](selected, {}, context)))
+        writer.start(qualified, attributes, scope)
+        if value._xml_mixed is not None:
+            mixed(value, value._xml_mixed)
+        for position, item in enumerate(value._xml_token_fields):
+            _xml_extension_at(writer, extensions, state, cursor, position)
+            if not active[position] or item['mode'] == 'attribute':
+                _xml_extension_position_end(extensions, state, cursor, position)
+                continue
+            if item.get('variant') is not None:
+                variant(value, item)
+                _xml_extension_position_end(extensions, state, cursor, position)
+                continue
+            values = _xml_token_values(value, item)
+            if item['map'] is not None:
+                mapping(item, values)
+                _xml_extension_position_end(extensions, state, cursor, position)
+                continue
+            if item['wrapper'] is not None:
+                if item['presence'] in ('absent', 'absent_or_nil') and not _xml_token_get(value, item['member']):
+                    _xml_extension_position_end(extensions, state, cursor, position)
+                    continue
+                if values == (_XML_TOKEN_NIL,):
+                    writer.start(item['wrapper'], ((_XML_TOKEN_NIL_NAME, 'true'),))
+                    writer.end()
+                    _xml_extension_position_end(extensions, state, cursor, position)
+                    continue
+                writer.start(item['wrapper'])
+            for index, selected in enumerate(values):
+                if item['repeated'] and item['wrapper'] is None:
+                    _xml_extension_at(writer, extensions, state, cursor, position, index)
+                if selected is _XML_TOKEN_NIL:
+                    writer.start(item['name'], ((_XML_TOKEN_NIL_NAME, 'true'),))
+                    writer.end()
+                elif item['mode'] == 'text':
+                    writer.text(item['write'](selected, {}, context))
+                else:
+                    payload(item, selected)
+            if item['wrapper'] is not None:
+                writer.end()
+            elif item['repeated']:
+                _xml_extension_at(writer, extensions, state, cursor, position, len(values))
+            _xml_extension_position_end(extensions, state, cursor, position)
+        _xml_extension_at(writer, extensions, state, cursor, len(value._xml_token_fields))
+        _xml_extension_position_end(extensions, state, cursor, len(value._xml_token_fields))
+        if extensions is not None:
+            extensions.finish()
+        writer.end()
+        if identity is not None:
+            identity.finish()
+            writer.identities.pop()
+    record(model, name)
+    return b''.join(writer.parts)
+
+
+)xmlpython"
+R"xmlpython(class _XmlTokenFrame:
+    """Hold one unpublished owning record, scalar lexical buffer, or collection wrapper."""
+    def __init__(self, model, name, attributes, scope, context, item=None, identity_limits=None, wrapper=False, mixed_limits=None, extension_options=None):
+        """Validate attributes immediately; keep only open-frame lexical state and native models."""
+        self.name, self.scope, self.context, self.item = name, scope, context, item
+        if item is not None and item.get('variant_payload') and _XML_TOKEN_TYPE_NAME in attributes:
+            attributes = dict(attributes)
+            attributes.pop(_XML_TOKEN_TYPE_NAME)
+        self.nil = False
+        if _XML_TOKEN_NIL_NAME in attributes:
+            policy = item['presence'] if item is not None and (wrapper or item['wrapper'] is None) else None
+            if policy not in ('nil', 'absent_or_nil'):
+                raise ValueError('XML xsi:nil is not permitted by presence policy')
+            attributes = dict(attributes)
+            nil = attributes.pop(_XML_TOKEN_NIL_NAME).strip(' \t\r\n')
+            if nil not in ('true', '1', 'false', '0'):
+                raise ValueError('Invalid XML xsi:nil boolean value')
+            self.nil = nil in ('true', '1')
+            if self.nil:
+                model = None
+        revision, self.active = None, ()
+        if model is not None:
+            attributes, revision, self.active = _xml_model_input(model, attributes, context)
+        self.extensions = _XmlExtensions(model._xml_extensions, scope, extension_options, context) if model is not None and model._xml_extensions is not None else None
+        self.model = model() if model is not None else None
+        if model is not None and model._xml_model['revision'] is not None:
+            _xml_token_set(self.model, model._xml_model['revision']['member'], revision)
+        self.identity = _XmlTokenIdentity(model._xml_identity, context, identity_limits) if model is not None and model._xml_identity is not None else None
+        self.fields = model._xml_token_fields if model is not None else ()
+        self.all_groups = tuple((tuple(index for index in group if self.active[index]), minimum)
+                                for group, minimum in model._xml_token_all
+                                if any(self.active[index] for index in group)) if model is not None else ()
+        self.mixed = model._xml_mixed if model is not None else None
+        self.mixed_bounds = (mixed_limits or XmlMixedLimits()) if self.mixed is not None else None
+        self.mixed_pending, self.mixed_text_bytes = bytearray(), 0
+        self.counts, self.position, self.fragments = [0] * len(self.fields), 0, []
+        self.retained_bytes = 0
+        self.wrapper = wrapper
+        self.values = []
+        if model is None:
+            if attributes:
+                raise ValueError('XML scalar contains attributes or children')
+            return
+        if self.mixed is not None:
+            _xml_token_set(self.model, self.mixed['member'], [])
+        known = set()
+        for index, selected in enumerate(self.fields):
+            if not self.active[index]:
+                continue
+            if selected['repeated'] and selected['mode'] == 'child' and not selected['optional']:
+                _xml_token_set(self.model, selected['member'], [])
+            if selected['mode'] != 'attribute':
+                continue
+            known.add(selected['name'])
+            value = attributes.get(selected['name'])
+            if value is None and selected['minimum']:
+                raise ValueError('Required XML attribute missing')
+            if value is None:
+                value = selected['default']
+            if value is None:
+                if not selected['optional']:
+                    raise ValueError('Required XML attribute missing')
+                continue
+            self.store(index, selected['read'](value, scope, context))
+        for key, value in attributes.items():
+            if key not in known:
+                if self.extensions is None:
+                    raise ValueError('Unexpected XML attribute or child')
+                self.extensions.attribute(key, value)
+    def store(self, index, value, wrapper=False):
+        """Install a completed field only in its still-private candidate owner."""
+        if isinstance(index, tuple):
+            selected = next(item for item in self.mixed['children'] if item['alternative'] == index[1])
+            self.mixed_add(index[1], selected['member'], value)
+            return
+        item = self.fields[index]
+        self.counts[index] += 1
+        if item['maximum'] is not None and self.counts[index] > item['maximum']:
+            raise ValueError('XML field occurrence mismatch')
+        if item.get('variant') is not None:
+            selected, native = value
+            _xml_token_set(self.model, item['member'] + '_index', selected)
+            _xml_token_set(self.model, item['variant']['alternatives'][selected]['member'], native)
+        elif value is _XML_TOKEN_NIL:
+            _xml_token_set(self.model, item['member'], ((),) if item['presence'] == 'absent_or_nil' else ())
+        elif item['repeated'] and not wrapper:
+            _xml_token_get(self.model, item['member']).append(value)
+            if self.context is not None:
+                self.context.consume('decoder_allocation_bytes', 8)
+        else:
+            selected = ((value,),) if item['presence'] == 'absent_or_nil' else (value,) if item['optional'] else value
+            _xml_token_set(self.model, item['member'], selected)
+    def mixed_add(self, index, member, value):
+        """Admit one owning fragment before constructing its native variant storage."""
+        values = _xml_token_get(self.model, self.mixed['member'])
+        if len(values) >= self.mixed_bounds.max_fragments:
+            raise ValueError('XML mixed fragment limit exceeded')
+        if self.context is not None:
+            self.context.consume('decoder_allocation_bytes', 72)
+        fragment = self.mixed['fragment']()()
+        _xml_token_set(fragment, self.mixed['index'], index)
+        _xml_token_set(fragment, member, value)
+        values.append(fragment)
+    def mixed_text(self, value):
+        """Buffer only one bounded text run so arbitrary UTF-8/token splits have the same meaning."""
+        if not value:
+            return
+        if not self.mixed_pending and len(_xml_token_get(self.model, self.mixed['member'])) >= self.mixed_bounds.max_fragments:
+            raise ValueError('XML mixed fragment limit exceeded')
+        size = len(value.encode('utf-8'))
+        if size > self.mixed_bounds.max_text_bytes - self.mixed_text_bytes:
+            raise ValueError('XML mixed text limit exceeded')
+        self.mixed_text_bytes += size
+        if self.context is not None:
+            self.context.consume('decoder_allocation_bytes', size)
+        self.mixed_pending.extend(value.encode('utf-8'))
+    def mixed_flush(self):
+        """Complete text before the next child or owner close without retaining XML descendants."""
+        if self.mixed_pending:
+            if self.context is not None:
+                self.context.consume('decoder_allocation_bytes', len(self.mixed_pending))
+            self.mixed_add(self.mixed['text_index'], self.mixed['text_member'], self.mixed_pending.decode('utf-8'))
+            self.mixed_pending.clear()
+    def child(self, name):
+        """Select the next generated child slot without buffering earlier XML siblings."""
+        if self.model is None:
+            if self.nil:
+                raise ValueError('Nil XML element cannot contain text or child elements')
+            if self.wrapper and name == self.item['name']:
+                return self.item, None
+            raise ValueError('XML scalar contains attributes or children')
+        if self.mixed is not None:
+            self.mixed_flush()
+            if len(_xml_token_get(self.model, self.mixed['member'])) >= self.mixed_bounds.max_fragments:
+                raise ValueError('XML mixed fragment limit exceeded')
+            for item in self.mixed['children']:
+                if self.context is not None:
+                    self.context.consume('work_units', 1)
+                if item['name'] == name:
+                    return item, ('mixed', item['alternative'])
+            raise ValueError('Unknown XML mixed child')
+        while self.position < len(self.fields):
+            index = self.position
+            item = self.fields[index]
+            if not self.active[index] or item['mode'] != 'child':
+                foreign = self.foreign(name, index)
+                if foreign is not None:
+                    return foreign
+                self.position += 1
+                continue
+            group = next((selected for selected in self.all_groups if index in selected[0]), None)
+            if group is not None:
+                alternatives, minimum = group
+                for selected in alternatives:
+                    member = self.fields[selected]
+                    if (member['wrapper'] or member['name']) == name:
+                        if self.counts[selected]:
+                            raise ValueError('XML field occurrence mismatch')
+                        return member, selected
+                if minimum or any(self.counts[selected] for selected in alternatives):
+                    if any(self.counts[selected] < self.fields[selected]['minimum'] for selected in alternatives):
+                        raise ValueError('XML field occurrence mismatch')
+                self.position = max(alternatives) + 1
+                continue
+            expected = item['wrapper'] or item['name']
+            if expected == name:
+                maximum = 1 if item['wrapper'] else item['maximum']
+                if maximum is not None and self.counts[index] >= maximum:
+                    raise ValueError('XML field occurrence mismatch')
+                return item, index
+            maximum = 1 if item['wrapper'] else item['maximum']
+            if maximum is not None and self.counts[index] >= maximum:
+                self.position += 1
+                continue
+            foreign = self.foreign(name, index, self.counts[index] if item['repeated'] and not item['wrapper'] else 0)
+            if foreign is not None:
+                return foreign
+            minimum = (0 if item['presence'] in ('absent', 'absent_or_nil') or item['map'] is not None and item['map']['optional'] else 1) if item['wrapper'] else item['minimum']
+            if self.counts[index] < minimum:
+                raise ValueError('XML field occurrence mismatch')
+            self.position += 1
+        foreign = self.foreign(name, len(self.fields))
+        if foreign is not None:
+            return foreign
+        raise ValueError('Unexpected XML attribute or child')
+    def foreign(self, name, position, before_item=0):
+        """Admit one positioned foreign root while leaving all known values on their direct typed path."""
+        if self.extensions is None or self.extensions.slot(name, False, position) is None:
+            return None
+        preserve = self.extensions.admit(name, False, position)
+        return {'foreign': (self.extensions, preserve)}, ('extension', position, before_item)
+    def finish(self):
+        """Validate complete lexical/record content before passing its value to a parent."""
+        text = ''.join(self.fragments)
+        if self.model is None:
+            if self.nil:
+                return _XML_TOKEN_NIL
+            if self.wrapper:
+                if text.strip(' \t\r\n'):
+                    raise ValueError('Unexpected XML record text')
+                count = len(self.values)
+                if count < self.item['minimum'] or self.item['maximum'] is not None and count > self.item['maximum']:
+                    raise ValueError('XML field occurrence mismatch')
+                if self.item['extent'] and count != self.item['extent']:
+                    raise ValueError('XML fixed extent mismatch')
+                return self.values
+            return self.item['read'](text or self.item['default'] or '', self.scope, self.context)
+        text_field = False
+        if self.mixed is not None:
+            self.mixed_flush()
+        for index, item in enumerate(self.fields):
+            if not self.active[index]:
+                continue
+            if item['mode'] == 'text':
+                text_field = True
+                self.store(index, item['read'](text or item['default'] or '', self.scope, self.context))
+            minimum = (0 if item['presence'] in ('absent', 'absent_or_nil') or item['map'] is not None and item['map']['optional'] else 1) if item['wrapper'] else item['minimum']
+            group = next((selected for selected in self.all_groups if index in selected[0]), None)
+            if group is not None and group[1] == 0 and not any(self.counts[selected] for selected in group[0]):
+                minimum = 0
+            if self.counts[index] < minimum:
+                raise ValueError('XML field occurrence mismatch')
+            if item['extent'] and not item['wrapper'] and self.counts[index] != item['extent']:
+                raise ValueError('XML fixed extent mismatch')
+        if not text_field and text.strip(' \t\r\n'):
+            raise ValueError('Unexpected XML record text')
+        _xml_choices(self.model, self.model._xml_choices,
+                     tuple(item for index, item in enumerate(self.fields) if self.active[index]))
+        if self.extensions is not None:
+            self.extensions.finish()
+            self.model._srl_xml_state = self.extensions.state
+        if self.identity is not None:
+            self.identity.finish()
+        return self.model
+
+
+)xmlpython"
+R"xmlpython(class _XmlTokenMapFrame:
+    """Retain the destination map and cumulative native-key bounds, without XML entries."""
+    def __init__(self, item, name, attributes, scope, context, bounds):
+        """Require the exact attribute-free wrapper before admitting any entries."""
+        if attributes:
+            raise ValueError('Unexpected XML map wrapper attribute')
+        self.item, self.name, self.scope, self.context = item, name, scope, context
+        self.bounds, self.key_bytes, self.values = bounds or XmlMapLimits(), 0, {}
+        self.model, self.identity, self.nil, self.wrapper = True, None, False, False
+        self.fields, self.fragments = (), []
+    def child(self, name):
+        """Admit only the selected entry identity while enforcing the entry count before allocation."""
+        if name != self.item['map']['entry']:
+            raise ValueError('Unexpected XML map entry')
+        if len(self.values) >= self.bounds.max_entries:
+            raise ValueError('XML map entry limit exceeded')
+        return {'map_entry': self.item['map'], 'key_remaining': self.bounds.max_key_bytes - self.key_bytes}, None
+    def append(self, entry):
+        """Reject duplicate native keys and cumulative lexical/canonical sizes before insertion."""
+        key, value, size = entry
+        if key in self.values:
+            raise ValueError('Duplicate XML map key')
+        if size > self.bounds.max_key_bytes - self.key_bytes:
+            raise ValueError('XML map key-byte limit exceeded')
+        self.key_bytes += size
+        if self.context is not None:
+            self.context.consume('decoder_allocation_bytes', 64)
+        self.values[key] = value
+    def finish(self):
+        """Return only the complete private owning map, including its explicitly empty state."""
+        return self.values
+
+
+class _XmlTokenMapEntry:
+    """Hold exactly one typed key and value until their complete entry succeeds."""
+    def __init__(self, selected, name, attributes, scope, context):
+        """Validate the key placement and all entry attributes before reading child values."""
+        self.meta, self.remaining = selected['map_entry'], selected['key_remaining']
+        self.name, self.scope, self.context = name, scope, context
+        self.model, self.identity, self.nil, self.wrapper = True, None, False, False
+        self.fields, self.fragments, self.values, self.position, self.key_size = (), [], {}, 0, 0
+        if self.meta['attribute']:
+            key = self.meta['key']['name']
+            if len(attributes) != 1 or key not in attributes:
+                raise ValueError('XML map entry requires exactly one key attribute')
+            raw = attributes[key]
+            if len(raw.encode('utf-8')) > self.remaining:
+                raise ValueError('XML map key-byte limit exceeded')
+            self.values[0] = self.meta['key']['read'](raw, scope, context)
+            self.key_size = max(len(raw.encode('utf-8')), len(self.meta['key']['write'](self.values[0], scope, context).encode('utf-8')))
+            self.position = 1
+        elif attributes:
+            raise ValueError('Unexpected XML map entry attribute')
+    def child(self, name):
+        """Select exactly one key and value independently of their child presentation order."""
+        if not self.meta['attribute'] and name == self.meta['key']['name']:
+            selected = 0
+        elif name == self.meta['value']['name']:
+            selected = 1
+        else:
+            raise ValueError('Unexpected XML map entry member')
+        if selected in self.values:
+            raise ValueError('Duplicate XML map entry member')
+        item = self.meta['key'] if selected == 0 else self.meta['value']
+        if selected == 0:
+            item = dict(item)
+            item['map_key_bytes'] = self.remaining
+        return item, selected
+    def store(self, index, value, frame):
+        """Keep a completed value and charge keys by their larger original/canonical spelling."""
+        if index in self.values:
+            raise ValueError('Duplicate XML map entry member')
+        self.values[index] = value
+        if index == 0:
+            lexical = ''.join(frame.fragments)
+            canonical = self.meta['key']['write'](value, frame.scope, self.context)
+            self.key_size = max(len(lexical.encode('utf-8')), len(canonical.encode('utf-8')))
+    def finish(self):
+        """Reject incomplete entries before they can mutate the private map candidate."""
+        if len(self.values) != 2:
+            raise ValueError('XML map entry requires one key and value')
+        return self.values[0], self.values[1], self.key_size
+
+
+class _XmlTokenVariantFrame:
+    """Own exactly one selected native payload until its required wrapper closes."""
+    def __init__(self, item, name, attributes, scope, context):
+        """Reject wrapper attributes before inspecting any tag/type alternative."""
+        if attributes:
+            raise ValueError('Unexpected XML variant wrapper attribute')
+        self.item, self.name, self.scope, self.context = item, name, scope, context
+        self.model, self.identity, self.nil, self.wrapper = True, None, False, False
+        self.fields, self.fragments, self.selected, self.has_value, self.value = (), [], None, False, None
+    def select(self, name, attributes, scope):
+        """Resolve complete in-scope QName identity before selecting a payload decoder."""
+        if self.selected is not None or _XML_TOKEN_NIL_NAME in attributes:
+            raise ValueError('XML variant requires exactly one nonnil payload')
+        qualified = _xml_resolve_qname(attributes[_XML_TOKEN_TYPE_NAME], scope) if _XML_TOKEN_TYPE_NAME in attributes else None
+        mode = self.item['variant']['selection']
+        for index, alternative in enumerate(self.item['variant']['alternatives']):
+            if self.context is not None:
+                self.context.consume('work_units', 1)
+            matches = alternative['name'] == name if mode == 'element' else qualified == alternative['type']
+            if not matches:
+                continue
+            if qualified is not None and qualified != alternative['type'] or mode == 'xsi_type' and name != self.item['wrapper']:
+                raise ValueError('Conflicting XML variant tag/type identity')
+            self.selected = index
+            item = dict(alternative)
+            item['name'] = name
+            return item, index
+        raise ValueError('Unknown or missing XML variant tag/type identity')
+    def append(self, value):
+        """Retain one checked owning payload without publishing it through the parent record."""
+        if self.has_value:
+            raise ValueError('XML variant requires exactly one payload')
+        self.value, self.has_value = value, True
+    def finish(self):
+        """Reject an empty wrapper before exposing the selected alternative to its candidate owner."""
+        if not self.has_value:
+            raise ValueError('XML variant requires exactly one payload')
+        return self.selected, self.value
+
+
+def _xml_token_decode(model, root, chunks, limits=None, context=None):
+    """Decode arbitrary UTF-8 slices into one candidate; publish only after exact final EOF."""
+    budget = _XmlBudget(limits, context)
+    context = budget.context
+    parser = _xml_expat.ParserCreate(encoding='UTF-8', namespace_separator='\x1f')
+    stack, declarations = [], {}
+    result, size, prefix = None, 0, b''
+    def expanded(value):
+        """Normalize provider names before static generated dispatch."""
+        parts = value.split('\x1f')
+        return _xml_name(*parts) if len(parts) == 2 else value
+    def prohibited(*unused):
+        """Prevent DTDs and external/user-defined entities from entering the provider."""
+        raise ValueError('XML DTDs and entities are prohibited')
+    def declaration(version, encoding, standalone):
+        """Keep the incremental producer restricted to XML1.0 UTF-8."""
+        if version != '1.0' or encoding and encoding.lower().replace('-', '') != 'utf8':
+            raise ValueError('XML1.0 UTF-8 required')
+    def namespace(selected, uri):
+        """Bound namespace declarations before retaining the current open-element scope."""
+        budget.attributes += 1
+        if budget.attributes > budget.limits.max_elements:
+            raise ValueError('XML attribute limit exceeded')
+        declarations[budget.text(selected or '')] = budget.text(uri or '')
+    def start(raw_name, attributes):
+        """Construct only the destination model or current scalar lexical buffer."""
+        name = expanded(raw_name)
+        budget.element(name, len(stack) + 1)
+        inherited = stack[-1][0].scope if stack else {'xml': 'http://www.w3.org/XML/1998/namespace'}
+        for selected, uri in inherited.items():
+            budget.text(selected)
+            budget.text(uri)
+        scope = dict(inherited)
+        scope.update(declarations)
+        declarations.clear()
+        budget.attributes += len(attributes)
+        if budget.attributes > budget.limits.max_elements:
+            raise ValueError('XML attribute limit exceeded')
+        attrs = {budget.text(expanded(key)): budget.text(value) for key, value in attributes.items()}
+        if context is not None:
+            context.consume('decoder_allocation_bytes', 64 * len(scope))
+        if not stack:
+            if name != root or result is not None:
+                raise ValueError('Unexpected XML root or namespace')
+            frame, index = _XmlTokenFrame(model, name, attrs, scope, context, identity_limits=budget.limits.xml_identity, mixed_limits=budget.limits.xml_mixed, extension_options=budget.limits.xml_extensions), None
+        else:
+            parent = stack[-1][0]
+            item, index = parent.select(name, attrs, scope) if isinstance(parent, _XmlTokenVariantFrame) else parent.child(name)
+            if item.get('foreign') is not None:
+                frame = _XmlForeignFrame(name, attrs, scope, *item['foreign'])
+            elif item.get('map_entry') is not None:
+                frame = _XmlTokenMapEntry(item, name, attrs, scope, context)
+            else:
+                wrapped = not stack[-1][0].wrapper and item['wrapper'] == name
+                if wrapped and item['map'] is not None:
+                    frame = _XmlTokenMapFrame(item, name, attrs, scope, context, budget.limits.xml_map)
+                elif wrapped and item.get('variant') is not None:
+                    frame = _XmlTokenVariantFrame(item, name, attrs, scope, context)
+                else:
+                    selected = item['model']() if not wrapped and item['model'] is not None else None
+                    frame = _XmlTokenFrame(selected, name, attrs, scope, context, item, budget.limits.xml_identity, wrapped, budget.limits.xml_mixed, budget.limits.xml_extensions)
+        stack.append((frame, index))
+        for current, unused in stack:
+            if current.identity is not None:
+                current.identity.start(name, attrs, scope)
+    def text(value):
+        """Retain bounded scalar/simple-content fragments; ignore record indentation immediately."""
+        budget.text(value)
+        for current, unused in stack:
+            if current.identity is not None:
+                current.identity.text(value)
+        if not stack:
+            if value.strip(' \t\r\n'):
+                raise ValueError('XML text outside root')
+            return
+        frame = stack[-1][0]
+        if isinstance(frame, _XmlForeignFrame):
+            frame.text(value)
+            return
+        if frame.nil and value:
+            raise ValueError('Nil XML element cannot contain text or child elements')
+        if getattr(frame, 'mixed', None) is not None:
+            frame.mixed_text(value)
+            return
+        retains = frame.model is None and not frame.wrapper or any(item['mode'] == 'text' for item in frame.fields)
+        if not retains:
+            if value.strip(' \t\r\n'):
+                raise ValueError('Unexpected XML record text')
+            return
+        if value:
+            if frame.item is not None and frame.item.get('map_key_bytes') is not None:
+                size = len(value.encode('utf-8'))
+                if size > frame.item['map_key_bytes'] - frame.retained_bytes:
+                    raise ValueError('XML map key-byte limit exceeded')
+                frame.retained_bytes += size
+            budget.fragments += 1
+            if budget.fragments > budget.limits.max_elements:
+                raise ValueError('XML text fragment limit exceeded')
+            if context is not None:
+                context.consume('decoder_allocation_bytes', 64)
+            frame.fragments.append(value)
+    def end(unused):
+        """Attach a completely checked child to its private parent; retain no XML subtree."""
+        nonlocal result
+        for current, unused_index in stack:
+            if current.identity is not None:
+                current.identity.end()
+        frame, index = stack.pop()
+        if context is not None:
+            context.consume('decoder_allocation_bytes', sum(len(value.encode('utf-8')) for value in frame.fragments))
+        value = frame.finish()
+        if stack:
+            parent = stack[-1][0]
+            if isinstance(frame, _XmlForeignFrame):
+                if isinstance(parent, _XmlForeignFrame):
+                    parent.append(value)
+                else:
+                    parent.extensions.child(index[1], index[2], value)
+            elif isinstance(parent, _XmlTokenMapFrame):
+                parent.append(value)
+            elif isinstance(parent, _XmlTokenMapEntry):
+                parent.store(index, value, frame)
+            elif isinstance(parent, _XmlTokenVariantFrame):
+                parent.append(value)
+            elif parent.wrapper:
+                if parent.item['maximum'] is not None and len(parent.values) >= parent.item['maximum']:
+                    raise ValueError('XML field occurrence mismatch')
+                parent.values.append(value)
+                if context is not None:
+                    context.consume('decoder_allocation_bytes', 8)
+            elif frame.wrapper:
+                parent.store(index, value, True)
+            else:
+                parent.store(index, value)
+        else:
+            result = value
+    parser.XmlDeclHandler = declaration
+    parser.StartNamespaceDeclHandler = namespace
+    parser.StartElementHandler, parser.EndElementHandler = start, end
+    parser.CharacterDataHandler = text
+    parser.StartDoctypeDeclHandler = prohibited
+    parser.EntityDeclHandler = prohibited
+    parser.ExternalEntityRefHandler = prohibited
+    parser.SetParamEntityParsing(_xml_expat.XML_PARAM_ENTITY_PARSING_NEVER)
+    for chunk in chunks:
+        if not isinstance(chunk, (bytes, bytearray, memoryview)):
+            raise ValueError('XML requires UTF-8 byte chunks')
+        if isinstance(chunk, memoryview):
+            if not chunk.c_contiguous:
+                raise ValueError('XML requires contiguous UTF-8 byte chunks')
+            # Buffer-provider item counts can differ from byte counts; normalize without copying.
+            chunk = chunk.cast('B')
+        if len(chunk) > budget.limits.max_bytes - size:
+            raise ValueError('XML byte limit exceeded')
+        size += len(chunk)
+        if len(prefix) < 4:
+            prefix += bytes(chunk[:4 - len(prefix)])
+            if prefix[:2] in (b'\xff\xfe', b'\xfe\xff') or b'\x00' in prefix:
+                raise ValueError('XML1.0 UTF-8 required')
+        if context is not None:
+            context.consume('work_units', len(chunk))
+        parser.Parse(chunk, False)
+    parser.Parse(b'', True)
+    if stack or result is None:
+        raise ValueError('XML requires exactly one root')
+    return result
 
 )xmlpython"
 R"xmlpython(class XmlSchema:

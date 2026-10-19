@@ -62,7 +62,26 @@ TEST(xml_shared_contract, explicit_presence_configuration) {
   EXPECT_EQ(binding::classify_presence(presence, &empty), binding::presence_state::value);
   empty.attributes.push_back({{"nil", "http://www.w3.org/2001/XMLSchema-instance"}, "true"});
   EXPECT_EQ(binding::classify_presence(presence, &empty), binding::presence_state::nil);
-  EXPECT_THROW((void)writer::cpp::generate(model, options.cpp), std::invalid_argument);
+  EXPECT_NO_THROW((void)writer::cpp::generate(model, options.cpp));
+}
+
+TEST(xml_shared_contract, cpp_xml_helpers_reject_collisions_without_reserving_native_schema_names) {
+  writer::cpp_options native{}; native.format = false;
+  auto enabled = native; enabled.xml.enabled = true;
+  for (const auto source : {
+      "serializer version 1.20.0; class root { public uint32 value; public uint32 srl_xml_field_value; }",
+      "serializer version 1.20.0; class root { public uint32 value; public function uint32 srl_xml_field_value() readonly expression(1); }",
+      "serializer version 1.20.0; class base { public function uint32 srl_xml_field_value() readonly expression(1); } class root : public base { public uint32 value; }",
+      "serializer version 1.20.0; class box<T> { public T value; public uint32 srl_owner_type; } instantiate root = box<uint32>;",
+      "serializer version 1.20.0; class box<srl_owner_type> { public srl_owner_type value; } instantiate root = box<uint32>;",
+      "serializer version 1.20.0; class box<node> { public node value; } instantiate root = box<uint32>;"}) {
+    const auto model = parse(source);
+    EXPECT_NO_THROW((void)writer::cpp::generate(model, native)) << source;
+    EXPECT_THROW((void)writer::cpp::generate(model, enabled), std::invalid_argument) << source;
+  }
+  EXPECT_THROW((void)parse("serializer version 1.20.0; class root { public uint32 value; public factory srl_xml_field_value() {} }"), std::exception);
+  const auto renamed = parse("serializer version 1.20.0; class box<SrlReadOnly> { public SrlReadOnly value; } instantiate root = box<uint32>;");
+  EXPECT_NO_THROW((void)writer::cpp::generate(renamed, enabled));
 }
 
 // Invalid states, orphan keys and misspelled selectors fail at production parser/binder boundaries.
@@ -104,7 +123,7 @@ TEST(xml_shared_contract, map_configuration) {
   EXPECT_EQ(map.entry.namespace_uri, "urn:root");
   EXPECT_TRUE(map.key.namespace_uri.empty());
   EXPECT_EQ(map.value.local, "data");
-  EXPECT_THROW(binding::validate_backend(contract, "cpp"), std::invalid_argument);
+  EXPECT_NO_THROW(binding::validate_backend(contract, "cpp"));
   EXPECT_THROW((void)binding::schema{options.cpp.xml}.export_xsd({&root_at(model)}), std::invalid_argument);
   configuration_file renamed{"wrapper.values=entries\nmap.values=entry\nname.values=unused\n"};
   const auto renamed_options = renamed.read();
@@ -127,7 +146,7 @@ TEST(xml_shared_contract, variant_tag_generation_conflicts) {
   const auto contract = binding::schema{options.cpp.xml}.bind(root_at(model));
   ASSERT_TRUE(contract.fields.front().variant_binding);
   EXPECT_EQ(contract.fields.front().variant_binding->alternatives[0].tag.local, "number");
-  EXPECT_THROW((void)writer::cpp::generate(model, options.cpp), std::invalid_argument);
+  EXPECT_NO_THROW((void)writer::cpp::generate(model, options.cpp));
   configuration_file type_only{"wrapper.value=choice\nvariant.value=element\n"
       "variant.value.type.code={urn:types}Code\n"};
   const auto type_options = type_only.read();
@@ -152,7 +171,7 @@ TEST(xml_shared_contract, ordered_mixed_configuration) {
   ASSERT_TRUE(contract.mixed);
   EXPECT_TRUE(contract.fields.empty());
   EXPECT_EQ(contract.mixed->children.front().qualified_name.local, "item");
-  EXPECT_THROW(binding::validate_backend(contract, "cpp"), std::invalid_argument);
+  EXPECT_NO_THROW(binding::validate_backend(contract, "cpp"));
 }
 
 // Vocabulary capability and exact wildcard positions survive strict configuration binding.
@@ -167,7 +186,7 @@ TEST(xml_shared_contract, positioned_extension_configuration) {
   ASSERT_EQ(contract.extensions->slots.size(), 1U);
   EXPECT_EQ(contract.extensions->slots.front().before_field, 0U);
   EXPECT_EQ(contract.extensions->required_namespaces.front(), "urn:extension");
-  EXPECT_THROW(binding::validate_backend(contract, "cpp"), std::invalid_argument);
+  EXPECT_NO_THROW(binding::validate_backend(contract, "cpp"));
   EXPECT_THROW((void)binding::compare_contracts(contract, contract), std::invalid_argument);
 }
 
@@ -195,5 +214,5 @@ TEST(xml_shared_contract, nested_optional_collection_has_consistent_presence_and
   EXPECT_EQ(binding::classify_presence(field.presence, &empty_wrapper), binding::presence_state::value);
   empty_wrapper.attributes.push_back({{"nil", "http://www.w3.org/2001/XMLSchema-instance"}, "true"});
   EXPECT_EQ(binding::classify_presence(field.presence, &empty_wrapper), binding::presence_state::nil);
-  EXPECT_THROW(binding::validate_backend(contract, "cpp"), std::invalid_argument);
+  EXPECT_NO_THROW(binding::validate_backend(contract, "cpp"));
 }

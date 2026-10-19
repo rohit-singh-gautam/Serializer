@@ -5,8 +5,10 @@
 #include <gtest/gtest.h>
 
 #include <array>
+#include <initializer_list>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -57,6 +59,25 @@ TEST(xml_extension_slot, rejects_core_known_unpermitted_and_wrong_positions) {
       xml::name{"extra", "urn:unpermitted"}, xml::name{"extra", ""}}) {
     child.qualified_name = name;
     EXPECT_THROW((void)xml::collect_extension_slots(contract, scope, items), std::invalid_argument);
+  }
+}
+
+// Explicit foreign permissions cannot capture or replay Serializer's reserved model metadata vocabulary.
+TEST(xml_extension_slot, rejects_reserved_model_names_in_all_slot_policies) {
+  const auto scope = owner();
+  auto child = foreign_child();
+  child.qualified_name = {"future", std::string{xml::model_metadata_namespace}};
+  const xml::attribute attribute{{"future", std::string{xml::model_metadata_namespace}}, "1"};
+  const std::array children{xml::extension_item_view{nullptr, &child, 1U, 1U}};
+  const std::array attributes{xml::extension_item_view{&attribute, nullptr, 0U, 0U}};
+  for (const auto policy : {xml::unknown_policy::reject, xml::unknown_policy::skip, xml::unknown_policy::preserve}) {
+    auto contract = child_contract(policy);
+    contract.slots.front().namespaces = {std::string{xml::model_metadata_namespace}};
+    EXPECT_THROW((void)xml::collect_extension_slots(contract, scope, children), std::invalid_argument);
+    EXPECT_THROW(xml::validate_extension_slots(contract, scope, children), std::invalid_argument);
+    contract.slots.front().attribute = true;
+    EXPECT_THROW((void)xml::collect_extension_slots(contract, scope, attributes), std::invalid_argument);
+    EXPECT_THROW(xml::validate_extension_slots(contract, scope, attributes), std::invalid_argument);
   }
 }
 
@@ -170,6 +191,28 @@ TEST(xml_extension_slot, bounds_and_context_fail_transactionally) {
   xml::operation_context context{};
   context.is_cancelled = [] { return true; };
   EXPECT_THROW((void)xml::collect_extension_slots(contract, scope, items, {}, {}, {}, &context), std::runtime_error);
+}
+
+// Output validation borrows opaque payloads instead of allocating a second preserved subtree.
+TEST(xml_extension_slot, validates_owned_payloads_without_clone_allocation) {
+  const auto scope = owner();
+  const auto child = foreign_child();
+  const std::array items{xml::extension_item_view{nullptr, &child, 1U, 1U}};
+  const auto contract = child_contract(xml::unknown_policy::preserve);
+  std::size_t allocation_remaining = contract.slots.size() * sizeof(std::size_t);
+  xml::operation_context context{};
+  context.charge = [&](xml::operation_resource resource, std::size_t amount) {
+    if (resource == xml::operation_resource::allocation_bytes) {
+      if (amount > allocation_remaining) { throw std::length_error{"clone allocation is forbidden"}; }
+      allocation_remaining -= amount;
+    }
+  };
+  EXPECT_NO_THROW(xml::validate_extension_slots(contract, scope, items, {}, {}, &context));
+  EXPECT_EQ(child.text, "beforeafter");
+  allocation_remaining = contract.slots.size() * sizeof(std::size_t);
+  EXPECT_THROW((void)xml::collect_extension_slots(contract, scope, items, {}, {}, {}, &context), std::length_error);
+  xml::extension_limits bounds{}; bounds.max_preserved_bytes = 0U;
+  EXPECT_THROW(xml::validate_extension_slots(contract, scope, items, {}, bounds), std::length_error);
 }
 
 // Required-vocabulary comparisons consume the operation's CPU ledger before scanning further.

@@ -10,6 +10,10 @@
 #include "auto_size_writer.hpp"
 #include "generated_notices.hpp"
 #include "xml_schema.hpp"
+#include "xml_portable_writer.hpp"
+#include "xml_native_model_writer.hpp"
+#include "xml_portable_projection_writer.hpp"
+#include "xml_portable_extension_writer.hpp"
 #include <rohit/serializer_creator.hpp>
 
 #include <algorithm>
@@ -17,6 +21,7 @@
 #include <cctype>
 #include <charconv>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <map>
 #include <regex>
@@ -199,15 +204,26 @@ class emitter {
   std::map<const syntax_node*, std::string> names{};
   std::map<std::string, const syntax_node*> declarations{};
   xml_binding::schema xml_contract;
+  std::set<const class_node*> xml_mixed_storage_only{};
 
   // Select the scalar or record under one supported optional or repeated XML mapping.
   const rohit::serializer::type_name& xml_leaf(const member& value) const {
-    const auto& selected = value.type_name_list.front();
-    return selected.is_optional() || selected.is_sequence() ? selected.arguments.front() : selected;
+    const auto* selected = &value.type_name_list.front();
+    while (selected->is_optional() || selected->is_sequence()) { selected = &selected->arguments.front(); }
+    return *selected;
   }
   // Preserve unsigned Java model bits and strict XML/XSD scalar lexical values.
   std::string xml_scalar(const rohit::serializer::type_name& value,
                          const std::string& expression, bool encoding) const {
+    if (xml_portable::value_projection(value)) {
+      if (!encoding) { throw std::invalid_argument{"Readonly XML projection input requires the owning target"}; }
+      const auto& owner = static_cast<const class_node&>(*value.resolved_node);
+      return xml_scalar(owner.reference->value_type, expression + ".readValue()", true);
+    }
+    if (value.is_digest()) {
+      return std::string{encoding ? "srlXmlDigestText(" : "srlXmlDigestRead("} + expression + ',' +
+          std::to_string(value.digest_extent) + (encoding ? ",output.digestLimits)" : ",input.digestLimits)");
+    }
     if (value.type == object_type::enum_type) {
       if (encoding) { return expression + ".wireName"; }
       std::string result = "(switch (" + expression + ") { ";
@@ -216,7 +232,7 @@ class emitter {
       }
       return result + "default -> throw new IllegalArgumentException(\"Invalid XML enum\"); })";
     }
-    if (value.name == "string") { return expression; }
+    if (value.name == "string" || value.name.starts_with("version")) { return expression; }
     if (value.name == "bool") {
       return encoding ? "(" + expression + " ? \"true\" : \"false\")" : "srlXmlBoolean(" + expression + ")";
     }
@@ -237,15 +253,38 @@ class emitter {
     return "java.lang.String.valueOf(" + expression + ")";
   }
   // Add whole-object XML entry points and fixed direct field bindings to an owning class.
-  void xml_object(const class_node& value) {
-    if (!options.xml.enabled) { return; }
+  void xml_object(const class_node& value, bool readonly = false,
+      const xml_portable::field_name& projection = {}) {
+    if (!options.xml.enabled || xml_mixed_storage_only.contains(&value)) { return; }
+    if (value.reference && value.reference->value_projection) {
+      line(xml_portable::managed_reference_methods(value, type_name(value.name),
+          [&](const auto& item, const auto& expression, bool encoding) { return xml_scalar(item, expression, encoding); }, "java"));
+      return;
+    }
     const auto contract = xml_contract.bind(value);
+    const bool export_graph = readonly || xml_codegen::native_xml_export_graph(value);
+    const bool all = xml_portable::supports_all(contract);
+    if (!contract.all_groups.empty() && !all) {
+      throw std::invalid_argument{"Java XML all traversal requires one complete unwrapped singleton group"};
+    }
+    for (const auto& item : contract.fields) {
+      if ((item.presence.explicit_policy || xml_portable::needs_presence(item)) && !xml_portable::supports_presence(item)) {
+        throw std::invalid_argument{"Java XML presence requires ordinary scalar, record or wrapped sequence storage without lexical overlays"};
+      }
+      if (item.variant_binding && !xml_portable::supports_variant(item)) {
+        throw std::invalid_argument{"Java XML variants require one complete dedicated wrapper without scalar overlays"};
+      }
+      if (item.map_binding && !xml_portable::supports_map(item)) {
+        throw std::invalid_argument{"Java XML maps require one complete dedicated wrapper without scalar overlays"};
+      }
+    }
     // Authored callables share Java's member lookup with the generated codec and runtime calls.
     const auto reject_method = [&](const std::string& selected) {
       static const std::set<std::string> methods{
           "encodeXml", "decodeXml", "xmlNode", "xmlFromNode", "srlXmlName", "srlXmlTrim",
           "srlXmlParse", "srlXmlScalarText", "srlXmlInteger", "srlXmlBoolean", "srlXmlFloat",
-          "srlXmlFloatText", "srlXmlWrite", "srlXmlEscape"};
+          "srlXmlFloatText", "srlXmlWrite", "srlXmlEscape", "xmlWrite", "xmlRead", "srlXmlIdentityMetadata",
+          "srlXmlRevisionLexical", "srlXmlHexDigit", "srlXmlDigestRead", "srlXmlDigestText"};
       if (methods.contains(selected)) {
         throw std::invalid_argument{"Java XML method collides with declared behavior: " + selected};
       }
@@ -259,40 +298,210 @@ class emitter {
     const auto expanded = [](const xml::name& item) {
       return quote(item.namespace_uri.empty() ? item.local : "{" + item.namespace_uri + "}" + item.local);
     };
+    const auto map_comparator = [&](const rohit::serializer::type_name& key) {
+      if (key.name == "string") { return outer + "::compareText"; }
+      if (key.name == "uint64") { return std::string{"java.lang.Long::compareUnsigned"}; }
+      if (key.name == "uint32") { return std::string{"java.lang.Integer::compareUnsigned"}; }
+      if (key.name == "uint16" || key.name == "uint8") {
+        const auto wrapper = key.name == "uint16" ? "Short" : "Byte";
+        return "(a,b)->java.lang.Integer.compare(java.lang." + std::string{wrapper} +
+            ".toUnsignedInt(a),java.lang." + wrapper + ".toUnsignedInt(b))";
+      }
+      return std::string{"java.util.Comparator.naturalOrder()"};
+    };
+    const auto map_type = [&](const auto& selected) { return type(selected, true); };
+    const auto map_scalar = [&](const auto& selected, const std::string& expression, bool encoding) {
+      return xml_scalar(selected, expression, encoding);
+    };
+    std::map<const member*, std::string> member_paths{};
+    std::vector<std::string> base_paths{};
+    // Nested generated classes share Java's nest host; qualified paths preserve private base storage.
+    const auto collect_paths = [&](auto&& self, const class_node& owner, const std::string& prefix) -> void {
+      for (std::size_t index{}; index < owner.parents.size(); ++index) {
+        member base{}; base.name = "base" + std::to_string(index); base.access = access_type::public_access;
+        const auto path = prefix + (&owner == &value && projection ? projection(base) : base.name);
+        base_paths.push_back(path); self(self, *owner.parents[index].parent_class, path + '.');
+      }
+      for (const auto& item : owner.member_list) {
+        member_paths.emplace(&item, prefix + (&owner == &value && projection ? projection(item) : field(item.name)));
+      }
+    };
+    collect_paths(collect_paths, value, "");
+    // Reuse exact native revision predicates while closing scopes across specialized field emitters.
+    const auto revision_path = [&](const std::string& owner) {
+      return contract.model.revision ? owner + member_paths.at(contract.model.revision) : std::string{};
+    };
+    const auto active_scope = [&](const member& item, const std::string& owner) {
+      const auto condition = xml_codegen::native_xml_active(contract, item, version_language::java, revision_path(owner));
+      if (!condition.empty()) { line("if (" + condition + ") {"); ++level; }
+      return xml_codegen::model_emission_scope{condition.empty() ? std::function<void()>{} :
+          std::function<void()>{[&] { --level; line("}"); }}};
+    };
+    // Surround each known element field with its explicit foreign-root positions.
+    const auto extension_scope = [&](const xml_binding::field& item,const std::string& owner,bool encoding) {
+      if(!contract.extensions||item.attribute||item.text)return xml_codegen::model_emission_scope{{}};
+      const auto position=std::to_string(&item-contract.fields.data());
+      auto count=xml_codegen::portable_extension_field_count(item,owner+member_paths.at(item.source),"java");
+      const auto condition=xml_codegen::native_xml_active(contract,*item.source,version_language::java,revision_path(owner));
+      if(!condition.empty())count="("+condition+"?"+count+":0)";
+      line("{");++level;if(encoding&&item.repeated&&!item.wrapper)line("int srlExtensionItems=0;");
+      line("srlExtensions."+std::string{encoding?"emitAt(output,":"readAt(input,"}+position+",0);");
+      return xml_codegen::model_emission_scope{[&,position,count,encoding]{line("srlExtensions."+std::string{encoding?"emitAt(output,":"readAt(input,"}+position+','+count+");");if(encoding)line("srlExtensions.endPosition("+position+");");--level;line("}");}};
+    };
+    const auto alternative = [&](std::string_view alias) { return type_name(std::string{alias}); };
+    if (contract.identity) {
+      if (std::any_of(value.member_list.begin(), value.member_list.end(),
+          [&](const auto& item) { return field(item.name) == "srlXmlIdentityMetadata"; })) {
+        throw std::invalid_argument{"Java XML identity metadata collides with a native field"};
+      }
+      line("/** Immutable owner-local key/unique/keyref projections shared by both directions. */");
+      line("private static final SrlXmlIdentityScope srlXmlIdentityMetadata=" +
+          xml_portable::identity_metadata(*contract.identity, "java") + ';');
+    }
+    if(contract.extensions){
+      for(const auto& source_field:value.member_list)if(field(source_field.name)=="srlXmlPreserved"||field(source_field.name)=="srlXmlExtensionMetadata")throw std::invalid_argument{"Java XML extension state collides with a native field"};
+      line("/** Immutable foreign-only permissions and XML-only preservation state. */");
+      line("private static final SrlXmlExtensionContract srlXmlExtensionMetadata="+xml_codegen::portable_extension_metadata(*contract.extensions,quote,expanded,"java")+';');
+      if(!readonly)line("private SrlXmlPreserved srlXmlPreserved;");
+    }
+    std::map<const member*, std::size_t> rule_indices{};
+    for (std::size_t index{}; index < contract.fields.size(); ++index) {
+      const auto& item = contract.fields[index]; rule_indices.emplace(item.source, index);
+      if (!xml_portable::needs_scalar_rule(item)) { continue; }
+      const auto helper = xml_portable::scalar_rule_name(index, "java");
+      if (std::any_of(value.member_list.begin(), value.member_list.end(), [&](const auto& field_value) {
+            return field(field_value.name) == helper;
+          }) || std::any_of(value.functions.begin(), value.functions.end(), [&](const auto& method) {
+            return field(method.name) == helper;
+          })) {
+        throw std::invalid_argument{"Java XML scalar helper collides with a declared member: " + helper};
+      }
+      line("/** Prepare immutable facets and portable programs once for both XML directions. */");
+      line(xml_portable::scalar_rule(item, index, "java"));
+    }
     line("/** Encode one complete XML document using the fixed generated mapping. */");
     line("public byte[] encodeXml() { return encodeXml(Limits.defaults(), null); }");
     line("/** Bound XML output and optionally reuse an explicitly prepared runtime XSD. */");
     line("public byte[] encodeXml(Limits limits, XmlSchema schema) {"); ++level;
-    line("var budget = new SrlXmlBudget(limits);");
-    line("byte[] bytes = srlXmlWrite(xmlNode(" + expanded(contract.root) + ", budget, 1), limits);");
+    line("return encodeXml(limits, schema, new XmlMapLimits());"); --level; line("}");
+    line("/** Carry explicit per-wrapper map bounds through the complete output graph. */");
+    line("public byte[] encodeXml(Limits limits, XmlSchema schema, XmlMapLimits maps) {"); ++level;
+    line("return encodeXml(limits, schema, maps, new XmlMixedLimits());"); --level; line("}");
+    line("/** Carry explicit map and ordered mixed bounds through every descendant. */");
+    line("public byte[] encodeXml(Limits limits, XmlSchema schema, XmlMapLimits maps, XmlMixedLimits mixed) {"); ++level;
+    line("return encodeXml(limits,schema,maps,mixed,new XmlIdentityLimits());"); --level; line("}");
+    line("/** Apply explicit owner-local identity bounds without changing earlier overloads. */");
+    line("public byte[] encodeXml(Limits limits, XmlSchema schema, XmlMapLimits maps, XmlMixedLimits mixed, XmlIdentityLimits identity) {"); ++level;
+    line("return encodeXml(limits,schema,maps,mixed,identity,new XmlDigestLimits());"); --level; line("}");
+    line("/** Bound owning digest bytes through every descendant without changing earlier overloads. */");
+    line("public byte[] encodeXml(Limits limits, XmlSchema schema, XmlMapLimits maps, XmlMixedLimits mixed, XmlIdentityLimits identity, XmlDigestLimits digests) {"); ++level;
+    line("return encodeXml(limits,schema,maps,mixed,identity,digests,new XmlExtensionOptions());");--level;line("}");
+    line("/** Carry explicit foreign-vocabulary understanding and preservation bounds. */");
+    line("public byte[] encodeXml(Limits limits, XmlSchema schema, XmlMapLimits maps, XmlMixedLimits mixed, XmlIdentityLimits identity, XmlDigestLimits digests, XmlExtensionOptions extensions) {"); ++level;
+    line("var output = new SrlXmlOutput(limits, maps, mixed, identity, digests, extensions);");
+    line("xmlWrite(output, " + expanded(contract.root) + ");");
+    line("byte[] bytes = output.finish();");
     if (!options.xml.runtime_xsd) { line("if (schema != null) throw new IllegalArgumentException(\"Runtime XSD was not enabled during generation\");"); }
     else if (options.xml.validation_scope != "input") { line("if (schema != null) schema.validate(bytes, limits);"); }
     line("return bytes;"); --level; line("}");
+    if (!readonly) {
     line("/** Decode exactly one XML document into an unpublished fresh owning value. */");
     line("public static " + name + " decodeXml(byte[] bytes) { return decodeXml(bytes, Limits.defaults(), null); }");
     line("/** Enforce fixed mapping, complete resource bounds and selected runtime XSD checks. */");
     line("public static " + name + " decodeXml(byte[] bytes, Limits limits, XmlSchema schema) {"); ++level;
+    line("return decodeXml(bytes, limits, schema, new XmlMapLimits());"); --level; line("}");
+    line("/** Carry explicit per-wrapper map bounds through the complete input graph. */");
+    line("public static " + name + " decodeXml(byte[] bytes, Limits limits, XmlSchema schema, XmlMapLimits maps) {"); ++level;
+    line("return decodeXml(bytes, limits, schema, maps, new XmlMixedLimits());"); --level; line("}");
+    line("/** Validate complete input using explicit map and ordered mixed bounds. */");
+    line("public static " + name + " decodeXml(byte[] bytes, Limits limits, XmlSchema schema, XmlMapLimits maps, XmlMixedLimits mixed) {"); ++level;
+    line("return decodeXml(bytes,limits,schema,maps,mixed,new XmlIdentityLimits());"); --level; line("}");
+    line("/** Require complete identity scopes under explicit tuple and selector bounds. */");
+    line("public static " + name + " decodeXml(byte[] bytes, Limits limits, XmlSchema schema, XmlMapLimits maps, XmlMixedLimits mixed, XmlIdentityLimits identity) {"); ++level;
+    line("return decodeXml(bytes,limits,schema,maps,mixed,identity,new XmlDigestLimits());"); --level; line("}");
+    line("/** Admit every owning digest before retaining its fresh byte candidate. */");
+    line("public static " + name + " decodeXml(byte[] bytes, Limits limits, XmlSchema schema, XmlMapLimits maps, XmlMixedLimits mixed, XmlIdentityLimits identity, XmlDigestLimits digests) {"); ++level;
+    line("return decodeXml(bytes,limits,schema,maps,mixed,identity,digests,new XmlExtensionOptions());");--level;line("}");
+    line("/** Carry explicit foreign-vocabulary understanding and preservation bounds. */");
+    line("public static " + name + " decodeXml(byte[] bytes, Limits limits, XmlSchema schema, XmlMapLimits maps, XmlMixedLimits mixed, XmlIdentityLimits identity, XmlDigestLimits digests, XmlExtensionOptions extensions) {"); ++level;
+    if (export_graph) {
+      line("throw new IllegalArgumentException(\"Readonly XML projections are export-only; decode the owning target\");");
+    } else {
     if (!options.xml.runtime_xsd) { line("if (schema != null) throw new IllegalArgumentException(\"Runtime XSD was not enabled during generation\");"); }
     else if (options.xml.validation_scope != "output") { line("if (schema != null) schema.validate(bytes, limits);"); }
-    line("var node = srlXmlParse(bytes, limits);");
-    line("if (!node.name.equals(" + expanded(contract.root) + ")) throw new IllegalArgumentException(\"Unexpected XML root or namespace\");");
-    line("return xmlFromNode(node);"); --level; line("}");
-    line("/** Build fixed XML fields while sharing a complete-document allocation budget. */");
-    line("private SrlXmlNode xmlNode(String name, SrlXmlBudget budget, int depth) {"); ++level;
-    line("var node = budget.node(name, depth);");
+    line("try (var input = new SrlXmlInput(bytes, limits, maps, mixed, identity, digests, extensions)) {"); ++level;
+    line("var value = xmlRead(input, " + expanded(contract.root) + ");");
+    line("input.finish();"); line("return value;"); --level; line("}");
+    }
+    --level; line("}");
+    }
+    line("/** Emit statically bound tokens with only active ancestor state. */");
+    line("private void xmlWrite(SrlXmlOutput output, String name) {"); ++level;
+    line("xmlWrite(output, name, null);"); --level; line("}");
+    line("/** Add an explicit type before native attributes without changing ordinary callers. */");
+    line("private void xmlWrite(SrlXmlOutput output, String name, String typeIdentity) {"); ++level;
+    if(contract.extensions){
+      const auto state=readonly?"null":"srlXmlPreserved";
+      line(readonly?"var srlScope=java.util.Map.<String,String>of();":"var srlScope=srlXmlPreserved==null?java.util.Map.<String,String>of():srlXmlPreserved.scope;");
+      line("var srlExtensions=new SrlXmlExtensions(srlXmlExtensionMetadata,srlScope,output.extensionOptions,"+std::string{state}+");");
+      line("output.open(name,srlScope);");
+    }else line("output.open(name);");
+    if (contract.identity) { line("var srlIdentity=output.identityScope(srlXmlIdentityMetadata);"); }
+    line("if (typeIdentity != null) output.typeName(typeIdentity);");
+    for (const auto& path : base_paths) {
+      line("if (this." + path + " == null) throw new IllegalArgumentException(\"Null XML base record\");");
+    }
+    if (const auto* revision = contract.model.revision) {
+      const auto access = revision_path("this.");
+      line("if (" + xml_codegen::native_xml_revision_invalid(*revision, version_language::java, access) +
+          ") throw new IllegalArgumentException(\"Unsupported XML revision\");");
+      line("output.attribute(" + expanded({"revision", std::string{xml_binding::model_metadata_namespace}}) +
+          ",srlXmlRevisionLexical(" + xml_scalar(revision->type_name_list.front(), access, true) + ',' +
+          quote(revision->type_name_list.front().name) + "));");
+    }
+    if (contract.model.magic) {
+      line("output.attribute(" + expanded({"magic", std::string{xml_binding::model_metadata_namespace}}) + ',' + quote(*contract.model.magic) + ");");
+    }
+    line(xml_portable::choice_check(contract,
+        [&](const member& item) { return "this." + member_paths.at(&item); }, "java"));
+    for (const bool attributes : {true, false}) {
+    if(contract.extensions&&!attributes)line("srlExtensions.emitAttributes(output);");
     for (const auto& item : contract.fields) {
+      if (item.attribute != attributes) { continue; }
+      const auto extensions=extension_scope(item,"this.",true);
+      const auto active = active_scope(*item.source, "this.");
+      if (xml_portable::typed_list(item)) {
+        line(xml_portable::list_write(item, rule_indices.at(item.source),
+            "this." + member_paths.at(item.source), map_scalar, "java"));
+        continue;
+      }
+      if (xml_portable::needs_presence(item)) {
+        line(xml_portable::presence_write(item, rule_indices.at(item.source),
+            "this." + member_paths.at(item.source), map_scalar, "java"));
+        continue;
+      }
+      if (item.variant_binding) {
+        line(xml_portable::variant_write(*item.variant_binding, "this." + member_paths.at(item.source),
+            alternative, map_scalar, "java"));
+        continue;
+      }
+      if (item.map_binding) {
+        line(xml_portable::map_write(*item.map_binding, "this." + member_paths.at(item.source),
+            map_type, map_scalar, "java", map_comparator(item.map_binding->key_type)));
+        continue;
+      }
       const auto& source_field = *item.source;
       const auto& leaf = xml_leaf(source_field);
-      const auto access = "this." + field(source_field.name);
+      const auto checked = [&](const std::string& expression) {
+        return xml_portable::scalar_output(item, rule_indices.at(item.source), expression, "java");
+      };
+      const auto access = "this." + member_paths.at(&source_field);
       const bool optional = source_field.type_name_list.front().is_optional();
       std::string selected = access;
       line("{"); ++level;
       if (item.wrapper) {
-        line("var wrapper = budget.node(" + expanded(*item.wrapper) + ", depth + 1);");
-        line("node.children.add(wrapper);");
+        line("output.open(" + expanded(*item.wrapper) + ");");
       }
-      const auto parent = item.wrapper ? std::string{"wrapper"} : std::string{"node"};
-      const auto child_depth = item.wrapper ? "depth + 2" : "depth + 1";
       if (optional) { line("if (" + access + ".isPresent()) {"); ++level; selected += ".get()"; }
       if (item.repeated) {
         const auto count = access + (source_field.modifier == member::modifier_type::array ? ".length" : ".size()");
@@ -302,58 +511,196 @@ class emitter {
         if (source_field.fixed_extent) { line("if (" + count + " != " + std::to_string(source_field.fixed_extent) + ") throw new IllegalArgumentException(\"XML fixed extent mismatch\");"); }
         line("for (var item : " + access + ") {"); ++level; selected = "item";
       }
-      if (item.text) { line("node.text.append(budget.text(" + xml_scalar(leaf, selected, true) + "));"); }
-      else if (item.attribute) { line("budget.attribute(node, " + expanded(item.qualified_name) + ", " + xml_scalar(leaf, selected, true) + ");"); }
-      else if (leaf.type == object_type::class_type) { line(parent + ".children.add(" + selected + ".xmlNode(" + expanded(item.qualified_name) + ", budget, " + child_depth + "));"); }
-      else {
-        line("var child = budget.node(" + expanded(item.qualified_name) + ", " + child_depth + ");");
-        line("child.text.append(budget.text(" + xml_scalar(leaf, selected, true) + "));");
-        line(parent + ".children.add(child);");
+      if (item.text) { line("output.text(" + checked(xml_scalar(leaf, selected, true)) + ");"); }
+      else if (item.attribute) { line("output.attribute(" + expanded(item.qualified_name) + ", " + checked(xml_scalar(leaf, selected, true)) + ");"); }
+      else if (xml_portable::projection_payload(leaf).type == object_type::class_type) {
+        line("if(" + selected + "==null)throw new IllegalArgumentException(\"Null XML record\");");
+        line(selected + ".xmlWrite(output, " + expanded(item.qualified_name) + ");");
       }
+      else {
+        line("output.open(" + expanded(item.qualified_name) + ");");
+        line("output.text(" + checked(xml_scalar(leaf, selected, true)) + ");");
+        line("output.close();");
+      }
+      if(contract.extensions&&item.repeated&&!item.wrapper)line("srlExtensions.emitAt(output,"+std::to_string(&item-contract.fields.data())+",++srlExtensionItems);");
       if (item.repeated) { --level; line("}"); }
       if (optional) { --level; line("}"); }
+      if (item.wrapper) { line("output.close();"); }
       --level; line("}");
     }
-    line("return node;"); --level; line("}");
-    line("/** Decode exact generated fields without assigning a partially checked value. */");
-    line("private static " + name + " xmlFromNode(SrlXmlNode node) {"); ++level;
-    line("var fields = new SrlXmlFields(node, " + std::string{std::any_of(contract.fields.begin(), contract.fields.end(), [](const auto& item) { return item.text; }) ? "true" : "false"} + ");"); line("var result = new " + name + "();");
-    for (const auto& item : contract.fields) {
-      if (item.min_occurs > static_cast<std::size_t>(std::numeric_limits<int>::max()) ||
-          (item.max_occurs && *item.max_occurs > static_cast<std::size_t>(std::numeric_limits<int>::max()))) {
-        throw std::invalid_argument{"Java XML cardinality exceeds supported collection size"};
-      }
-      const auto& source_field = *item.source;
-      const auto& leaf = xml_leaf(source_field);
-      const bool optional = source_field.type_name_list.front().is_optional();
-      const auto access = "result." + field(source_field.name);
-      const auto read_value = [&](const std::string& expression) {
-        return leaf.type == object_type::class_type ? type(leaf) + ".xmlFromNode(" + expression + ")" :
-            xml_scalar(leaf, item.attribute || item.text ? expression : "srlXmlScalarText(" + expression + ")", false);
-      };
-      line("{"); ++level;
-      if (item.text) {
-        line(access + " = " + read_value("fields.text()") + ";");
-      } else if (item.attribute) {
-        line("var text = fields.attribute(" + expanded(item.qualified_name) + ", " + (optional ? "true" : "false") + ");");
-        line(access + " = " + (optional ? "text == null ? java.util.Optional.empty() : java.util.Optional.of(" + read_value("text") + ")" : read_value("text")) + ";");
-      } else {
-        line("var children = fields." + std::string{item.wrapper ? "wrapped(" + expanded(*item.wrapper) + ", " : "children("} + expanded(item.qualified_name) + ", " + std::to_string(item.min_occurs) + ", " +
-            (item.max_occurs ? std::to_string(*item.max_occurs) : "-1") + ");");
-        if (item.repeated) {
-          if (source_field.fixed_extent) { line("if (children.size() != " + std::to_string(source_field.fixed_extent) + ") throw new IllegalArgumentException(\"XML fixed extent mismatch\");"); }
-          if (source_field.modifier == member::modifier_type::array) {
-            line(access + " = " + array_initial(leaf, "children.size()") + ";");
-            line("for (int index = 0; index < children.size(); ++index) " + access + "[index] = " + read_value("children.get(index)") + ";");
-          } else {
-            line(access + " = new java.util.ArrayList<>();");
-            line("for (var child : children) " + access + ".add(" + read_value("child") + ");");
+    }
+    if (contract.mixed) {
+      line(xml_portable::mixed_write(*contract.mixed, "this." + member_paths.at(contract.mixed->source),
+          [&](const member& item) { return field(item.name); }, alternative, "java"));
+    }
+    if(contract.extensions){line("srlExtensions.emitAt(output,"+std::to_string(contract.fields.size())+",0);");line("srlExtensions.finishOutput();");}
+    line("output.close();");
+    if (contract.identity) { line("output.identityFinish(srlIdentity);"); }
+    --level; line("}");
+    if (readonly) { return; }
+    line("/** Decode typed tokens into a fresh candidate without retaining XML subtrees. */");
+    line("private static " + name + " xmlRead(SrlXmlInput input, String name) {"); ++level;
+    if (export_graph) {
+      line("throw new IllegalArgumentException(\"Readonly XML projections are export-only; decode the owning target\");");
+      --level; line("}"); return;
+    }
+    if (contract.identity) { line("var srlIdentity=input.identityScope(srlXmlIdentityMetadata);"); }
+    if(contract.extensions)line("var srlExtensions=new SrlXmlExtensions(srlXmlExtensionMetadata,input.namespaceScope(),input.extensionOptions,null);");
+    line("var fields = input.open(name);"); line("var result = new " + name + "();");
+    if (const auto* revision = contract.model.revision) {
+      const auto text = "srlXmlRevisionLexical(fields.attribute(" +
+          expanded({"revision", std::string{xml_binding::model_metadata_namespace}}) + ",false)," + quote(revision->type_name_list.front().name) + ')';
+      line(revision_path("result.") + '=' + xml_scalar(revision->type_name_list.front(), text, false) + ';');
+      line("if (" + xml_codegen::native_xml_revision_invalid(*revision, version_language::java, revision_path("result.")) +
+          ") throw new IllegalArgumentException(\"Unsupported XML revision\");");
+    }
+    if (contract.model.magic) {
+      line("if (!" + quote(*contract.model.magic) + ".equals(fields.attribute(" +
+          expanded({"magic", std::string{xml_binding::model_metadata_namespace}}) + ",false))) throw new IllegalArgumentException(\"XML magic mismatch\");");
+    }
+    for (const bool attributes : {true, false}) {
+      if (all && !attributes) { continue; }
+      if(contract.extensions&&!attributes)line("for(var entry:fields.attributes.entrySet())srlExtensions.attribute(entry.getKey(),entry.getValue());fields.attributes.clear();");
+      for (const auto& item : contract.fields) {
+        if (item.attribute != attributes) { continue; }
+        const auto extensions=extension_scope(item,"result.",false);
+        const auto active = active_scope(*item.source, "result.");
+        if (xml_portable::typed_list(item)) {
+          const auto access = "result." + member_paths.at(item.source);
+          const bool optional = item.source->type_name_list.front().is_optional();
+          const auto text = item.attribute ? "fields.attribute(" + expanded(item.qualified_name) + ',' +
+              (optional || item.default_value || item.fixed_value ? "true" : "false") + ')' :
+              item.text ? "fields.text()" : "input.scalar(" + expanded(item.qualified_name) + ')';
+          if (!item.attribute && !item.text && optional) { line("if(input.has(" + expanded(item.qualified_name) + ")) {"); ++level; }
+          line(xml_portable::list_read(item, rule_indices.at(item.source), access, text, map_type,
+              map_scalar, "java", array_initial(xml_leaf(*item.source), "srlValues.size()")));
+          if (!item.attribute && !item.text && optional) { --level; line("}else{" + access + "=java.util.Optional.empty();}"); }
+          continue;
+        }
+        if (xml_portable::needs_presence(item)) {
+          line(xml_portable::presence_read(item, rule_indices.at(item.source),
+              "result." + member_paths.at(item.source), map_type, map_scalar, "java",
+              array_initial(xml_leaf(*item.source), "srlItems.size()")));
+          continue;
+        }
+        if (item.variant_binding) {
+          line(xml_portable::variant_read(*item.variant_binding, "result." + member_paths.at(item.source),
+              alternative, map_type, map_scalar, "java"));
+          continue;
+        }
+        if (item.map_binding) {
+          member key{}; key.key = item.map_binding->key_type.name; key.key_node = item.map_binding->key_type.resolved_node;
+          line(xml_portable::map_read(*item.map_binding, "result." + member_paths.at(item.source),
+              map_type, map_scalar, "java", map_initializer(key)));
+          continue;
+        }
+        if (item.min_occurs > static_cast<std::size_t>(std::numeric_limits<int>::max()) ||
+            (item.max_occurs && *item.max_occurs > static_cast<std::size_t>(std::numeric_limits<int>::max()))) {
+          throw std::invalid_argument{"Java XML cardinality exceeds supported collection size"};
+        }
+        const auto& source_field = *item.source;
+        const auto& leaf = xml_leaf(source_field);
+        const bool optional = source_field.type_name_list.front().is_optional();
+        const auto access = "result." + member_paths.at(&source_field);
+        const auto read_value = [&](const std::string& text) {
+          return leaf.type == object_type::class_type ? type(leaf) + ".xmlRead(input, " + expanded(item.qualified_name) + ")" :
+              xml_scalar(leaf, xml_portable::scalar_input(item, rule_indices.at(item.source), text, "java"), false);
+        };
+        line("{"); ++level;
+        if (item.text) {
+          line(access + " = " + read_value("fields.text()") + ";");
+        } else if (item.attribute) {
+          line("var text = fields.attribute(" + expanded(item.qualified_name) + ", " + (optional || item.default_value || item.fixed_value ? "true" : "false") + ");");
+          line(access + " = " + (optional ? (item.default_value || item.fixed_value ? "java.util.Optional.of(" + read_value("text") + ")" : "text == null ? java.util.Optional.empty() : java.util.Optional.of(" + read_value("text") + ")") : read_value("text")) + ";");
+        } else {
+          if (item.wrapper) { line("var wrapper = input.open(" + expanded(*item.wrapper) + ");"); }
+          line("int count = 0;");
+          if (item.repeated) { line("var items = new java.util.ArrayList<" + type(leaf, true) + ">();"); }
+          if (optional) { line(access + " = java.util.Optional.empty();"); }
+          line("while (input.has(" + expanded(item.qualified_name) + ")) {"); ++level;
+          const auto maximum = source_field.fixed_extent ? std::optional<std::size_t>{static_cast<std::size_t>(source_field.fixed_extent)} : item.max_occurs;
+          if (maximum) { line("if (count >= " + std::to_string(*maximum) + ") throw new IllegalArgumentException(\"XML occurrence mismatch\");"); }
+          const auto decoded = read_value("input.scalar(" + expanded(item.qualified_name) + ")");
+          line(item.repeated ? "items.add(" + decoded + ");" : access + " = " + (optional ? "java.util.Optional.of(" + decoded + ")" : decoded) + ";");
+          line("++count;");
+          if(contract.extensions&&item.repeated&&!item.wrapper)line("srlExtensions.readAt(input,"+std::to_string(&item-contract.fields.data())+",count);");
+          --level; line("}");
+          const auto minimum = source_field.fixed_extent ? static_cast<std::size_t>(source_field.fixed_extent) : item.min_occurs;
+          line("if (count < " + std::to_string(minimum) + ") throw new IllegalArgumentException(\"XML occurrence mismatch\");");
+          if (item.repeated) {
+            if (source_field.modifier == member::modifier_type::array) {
+              line(access + " = " + array_initial(leaf, "items.size()") + ";");
+              line("for (int index = 0; index < items.size(); ++index) " + access + "[index] = items.get(index);");
+            } else { line(access + " = items;"); }
           }
-        } else { line(access + " = " + (optional ? "children.isEmpty() ? java.util.Optional.empty() : java.util.Optional.of(" + read_value("children.get(0)") + ")" : read_value("children.get(0)")) + ";"); }
+          if (item.wrapper) { line("wrapper.finish();"); }
+        }
+        --level; line("}");
       }
-      --level; line("}");
     }
-    line("fields.finish();"); line("return result;"); --level; line("}");
+    if (all) {
+      line("boolean[] seen = new boolean[" + std::to_string(contract.fields.size()) + "];");
+      line("int allCount = 0;");
+      for (const auto& item : contract.fields) {
+        if (!item.attribute && item.source->type_name_list.front().is_optional()) {
+          line("result." + member_paths.at(item.source) + " = java.util.Optional.empty();");
+        }
+      }
+      line("while (true) {"); ++level;
+      line("input.skipSpace();"); line("if (input.kind != 's') break;");
+      line("switch (input.name()) {"); ++level;
+      for (std::size_t index{}; index < contract.fields.size(); ++index) {
+        const auto& item = contract.fields[index];
+        if (item.attribute) { continue; }
+        const auto& leaf = xml_leaf(*item.source);
+        const auto seen = "seen[" + std::to_string(index) + "]";
+        line("case " + expanded(item.qualified_name) + ": {"); ++level;
+        line("if (" + seen + ") throw new IllegalArgumentException(\"Duplicate XML all child\");");
+        if (xml_portable::typed_list(item)) {
+          line(xml_portable::list_read(item, rule_indices.at(item.source), "result." + member_paths.at(item.source),
+              "input.scalar(" + expanded(item.qualified_name) + ')', map_type, map_scalar, "java",
+              array_initial(leaf, "srlValues.size()")));
+          line(seen + " = true;"); line("++allCount;"); line("break;"); --level; line("}"); continue;
+        }
+        if (xml_portable::needs_presence(item)) {
+          line(xml_portable::presence_read(item, rule_indices.at(item.source),
+              "result." + member_paths.at(item.source), map_type, map_scalar, "java"));
+          line(seen + " = true;"); line("++allCount;"); line("break;");
+          --level; line("}");
+          continue;
+        }
+        const auto decoded = leaf.type == object_type::class_type ?
+            type(leaf) + ".xmlRead(input, " + expanded(item.qualified_name) + ")" :
+            xml_scalar(leaf, xml_portable::scalar_input(item, rule_indices.at(item.source),
+                "input.scalar(" + expanded(item.qualified_name) + ")", "java"), false);
+        line("result." + member_paths.at(item.source) + " = " +
+            (item.source->type_name_list.front().is_optional() ? "java.util.Optional.of(" + decoded + ")" : decoded) + ";");
+        line(seen + " = true;"); line("++allCount;"); line("break;");
+        --level; line("}");
+      }
+      line("default: throw new IllegalArgumentException(\"Unexpected XML all child\");");
+      --level; line("}"); --level; line("}");
+      const bool optional_group = contract.all_groups.front().minimum == 0U;
+      if (optional_group) { line("if (allCount != 0) {"); ++level; }
+      for (std::size_t index{}; index < contract.fields.size(); ++index) {
+        const auto& item = contract.fields[index];
+        if (!item.attribute && item.min_occurs != 0U) {
+          line("if (!seen[" + std::to_string(index) + "]) throw new IllegalArgumentException(\"Required XML all child missing\");");
+        }
+      }
+      if (optional_group) { --level; line("}"); }
+    }
+    if (contract.mixed) {
+      line(xml_portable::mixed_read(*contract.mixed, "result." + member_paths.at(contract.mixed->source),
+          map_type, [&](const member& item) { return field(item.name); }, alternative, "java",
+          array_initial(xml_leaf(*contract.mixed->source), "srlMixedValues.size()")));
+    }
+    if(contract.extensions){line("srlExtensions.readAt(input,"+std::to_string(contract.fields.size())+",0);");line("srlExtensions.finish();");line("result.srlXmlPreserved=srlExtensions.state;");}
+    line("fields.finish();");
+    if (contract.identity) { line("input.identityFinish(srlIdentity);"); }
+    line(xml_portable::choice_check(contract,
+        [&](const member& item) { return "result." + member_paths.at(&item); }, "java"));
+    line("return result;"); --level; line("}");
   }
 
   // Append one line with the selected profile's indentation.
@@ -1326,6 +1673,9 @@ class emitter {
     write_output_body(target);
     projection_fields_.clear();
     --level; line("}");
+    if (options.xml.enabled) {
+      xml_object(target, true, [&](const member& item) { return field("get_" + item.name) + "()"; });
+    }
     auto result = std::move(source);
     source = std::move(saved_source);
     level = saved_level;
@@ -1956,7 +2306,7 @@ public:
     std::set<std::string> reserved{outer,    "ReadPolicy", "Protocol", "Limits",
                                          "Writer", "Reader",     "String"};
     if (options.xml.enabled) {
-      for (const auto* helper : {"XmlSchema", "SrlXmlNode", "SrlXmlBudget", "SrlXmlFields",
+      for (const auto* helper : {"XmlExtensionLimits", "XmlExtensionOptions", "SrlXmlExtensionSlot", "SrlXmlExtensionContract", "SrlXmlForeignNode", "SrlXmlForeignChild", "SrlXmlPreserved", "SrlXmlExtensions", "XmlSchema", "XmlMapLimits", "Html", "HtmlLimits", "HtmlEvent", "HtmlAttribute", "XmlMixedLimits", "XmlIdentityLimits", "XmlDigestLimits", "srlXmlDefaultDigestBytes", "srlXmlRevisionLexical", "srlXmlHexDigit", "srlXmlDigestRead", "srlXmlDigestText", "SrlXmlIdentity", "SrlXmlIdentityScope", "SrlXmlIdentityConstraint", "SrlXmlIdentityPath", "SrlXmlIdentityField", "SrlXmlMixedBudget", "SrlXmlNode", "SrlXmlBudget", "SrlXmlFields", "SrlXmlOutput", "SrlXmlInput", "SrlXmlInputFields", "SrlXmlRule",
                                 "srlXmlName", "srlXmlTrim", "srlXmlParse", "srlXmlScalarText",
                                 "srlXmlInteger", "srlXmlBoolean", "srlXmlFloat", "srlXmlFloatText",
                                 "srlXmlWrite", "srlXmlEscape"}) {
@@ -1968,11 +2318,25 @@ public:
       throw std::invalid_argument{"Java output filename conflicts with runtime type: " + outer};
     }
     if (options.xml.enabled && reserved.contains(outer) &&
-        (is_xml_package_name(outer) || outer == "XmlSchema" || outer == "SrlXmlNode" ||
-         outer == "SrlXmlBudget" || outer == "SrlXmlFields")) {
+        (is_xml_package_name(outer) || outer == "XmlExtensionLimits" || outer == "XmlExtensionOptions" || outer == "SrlXmlExtensionSlot" || outer == "SrlXmlExtensionContract" || outer == "SrlXmlForeignNode" || outer == "SrlXmlForeignChild" || outer == "SrlXmlPreserved" || outer == "SrlXmlExtensions" || outer == "XmlSchema" || outer == "XmlMapLimits" || outer == "Html" || outer == "HtmlLimits" || outer == "HtmlEvent" || outer == "HtmlAttribute" || outer == "XmlMixedLimits" || outer == "XmlIdentityLimits" || outer == "XmlDigestLimits" || outer == "SrlXmlIdentity" || outer == "SrlXmlIdentityScope" || outer == "SrlXmlIdentityConstraint" || outer == "SrlXmlIdentityPath" || outer == "SrlXmlIdentityField" || outer == "SrlXmlMixedBudget" || outer == "SrlXmlNode" ||
+         outer == "SrlXmlBudget" || outer == "SrlXmlFields" || outer == "SrlXmlOutput" || outer == "SrlXmlInput" || outer == "SrlXmlInputFields" || outer == "SrlXmlRule")) {
       throw std::invalid_argument{"Java XML output filename conflicts with a runtime helper"};
     }
     register_nodes(values, outer, reserved);
+    if (options.xml.enabled) {
+      // Implicit fragment classes are native storage for their configured mixed parent, not XML roots.
+      for (const auto& [node, identifier] : names) {
+        (void)identifier;
+        if (node->type != object_type::class_type) { continue; }
+        const auto& owner = static_cast<const class_node&>(*node);
+        const auto configured = options.xml.classes.find(owner.get_full_name());
+        if (configured == options.xml.classes.end() || !configured->second.contracts.contains("mixed")) { continue; }
+        const auto contract = xml_contract.bind(owner);
+        if (contract.mixed && !options.xml.classes.contains(contract.mixed->fragment->get_full_name())) {
+          xml_mixed_storage_only.insert(contract.mixed->fragment);
+        }
+      }
+    }
     std::vector<const syntax_node*> helper_nodes;
     for (const auto& [node, name] : names) { static_cast<void>(name); helper_nodes.push_back(node); }
     behavior::require_unique_free_names(helper_nodes, "java", [&](const auto& node) { return names.at(&node); },
@@ -2016,7 +2380,7 @@ public:
       start = end + 1;
     }
     level = 1;
-    if (options.xml.enabled) { source += xml_runtime_source; }
+    if (options.xml.enabled) { source += xml_runtime_source; source += xml_portable::scalar_runtime("java"); source += xml_portable::map_runtime("java"); source += xml_portable::mixed_runtime("java"); source += xml_portable::identity_runtime("java"); source += xml_portable::html_runtime("java"); source += xml_portable::model_runtime("java"); source += xml_portable::extension_runtime("java"); }
     std::vector<const syntax_node*> roots{};
     roots.reserve(values.size());
     for (const auto& value : values) {

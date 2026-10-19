@@ -25,6 +25,10 @@ C++ CMake build with an installed Serializer 2.5 package.
 
 ## XML and packages
 
+The [typed OPC catalog](opc/README.md) generates C++ and Python package facades
+from one schema, saves an XML catalog with a binary attachment, and checks all
+four producer-consumer pairs plus independent ZIP/XML readers.
+
 The [generated XML examples](xml/README.md) use one schema/fixture across all eleven
 outputs and exchange documents between producers and consumers. The
 [C++ package example](cpp/xml/README.md) also exercises whole-object compression

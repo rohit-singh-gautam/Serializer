@@ -1,0 +1,31 @@
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns:t="urn:serializer:identity-test"
+           targetNamespace="urn:serializer:identity-test" elementFormDefault="qualified">
+  <xs:complexType name="entry">
+    <xs:attribute name="id" type="xs:unsignedInt"/>
+    <xs:attribute name="label" type="xs:token"/>
+  </xs:complexType>
+  <xs:complexType name="request">
+    <xs:attribute name="id" type="xs:unsignedInt"/>
+  </xs:complexType>
+  <xs:element name="registry">
+    <xs:complexType>
+      <xs:sequence>
+        <xs:element name="ref" type="t:request" minOccurs="0" maxOccurs="unbounded"/>
+        <xs:element name="entry" type="t:entry" minOccurs="0" maxOccurs="unbounded"/>
+      </xs:sequence>
+    </xs:complexType>
+    <xs:keyref name="references" refer="t:ids">
+      <xs:selector xpath="t:ref"/>
+      <xs:field xpath="@id"/>
+    </xs:keyref>
+    <xs:key name="ids">
+      <xs:selector xpath="t:entry"/>
+      <xs:field xpath="@id"/>
+    </xs:key>
+    <xs:unique name="labels">
+      <xs:selector xpath="t:entry"/>
+      <xs:field xpath="@label"/>
+    </xs:unique>
+  </xs:element>
+</xs:schema>
